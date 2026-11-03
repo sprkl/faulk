@@ -39,17 +39,19 @@ use rtrb::{Consumer, Producer, PushError, RingBuffer};
 use crate::arrangement;
 use crate::automation::TrackLanes;
 use crate::clip_player::{ClipNotes, ClipPlayer};
-use crate::device::{Device, DeviceRole, DeviceSetup, EventBuffer, Factory};
-use crate::graph::{BlockClock, Graph, RETIRE_RING_CAPACITY, TRACK_INPUT_EVENTS, TrackGraph};
+use crate::device::{Device, DeviceDescriptor, DeviceRole, DeviceSetup, EventBuffer, Factory};
+use crate::graph::{
+    BlockClock, Graph, Outgoing, RETIRE_RING_CAPACITY, Retired, TRACK_INPUT_EVENTS, TrackGraph,
+};
 use crate::launcher;
 use crate::limiter::Limiter;
 use crate::metronome::{Clicker, MAX_COUNT_IN_BARS};
 use crate::msg::{
     ActiveClip, AutomationPoint, AutomationTarget, ClipSlot, ControlMsg, DeviceKind, DeviceSlot,
     Feedback, Garbage, HEADER_BYTES, Header, LaneSlot, LaunchMsg, LiveEvent, LiveOverflow,
-    MsgError, Note, PAGE_SLOTS, Page, PagedGrowth, PagedPut, PagedSpare, Placement, Put, RtMsg,
-    SceneSlot, Slots, SourceSlot, Spare, Table, TrackKind, TrackMeter, TrackSlot, TransportMsg,
-    TransportState, limits, state_pairs, try_box,
+    MsgError, Note, PAGE_SLOTS, Page, PagedGrowth, PagedPut, PagedSpare, ParamId, Placement, Put,
+    RtMsg, SceneSlot, Slots, SourceSlot, Spare, Table, TrackKind, TrackMeter, TrackSlot,
+    TransportMsg, TransportState, limits, state_pairs, try_box,
 };
 use crate::recorder::{RecordClock, Recorder};
 use crate::time::{Frame, LoopRegion, Quantize, SampleRate, Tempo, Tick, TimeSignature};
@@ -68,6 +70,9 @@ pub mod initial {
     pub const SCENES_PER_TRACK: usize = 8;
 }
 
+/// The lowest sample rate the devices build for (#236): below it they fall back to 48 kHz.
+pub const MIN_DEVICE_RATE: u32 = 8_000;
+
 /// Resolves a device kind to the factory that builds it (the registry the host gives).
 pub type Resolver = fn(DeviceKind) -> Option<Factory>;
 
@@ -85,6 +90,36 @@ pub struct DeviceEntry {
     /// A MIDI effect's output, sized by `prepare` from its declared bounds
     /// ([`crate::graph::TRACK_INPUT_EVENTS`]); `None` for the other roles.
     pub events_out: Option<EventBuffer>,
+    /// How much of the device's output the chain hears, in `[0, 1]`, moving toward 1 while
+    /// it is enabled and in its slot and toward 0 otherwise (#233, [`crate::graph`] >
+    /// Device fades). 1 as `prepare` builds it.
+    pub(crate) fade: f32,
+    /// The slot an outgoing device held: it fades out there.
+    pub(crate) slot: u16,
+}
+
+impl DeviceEntry {
+    /// A device as `prepare` builds it: enabled, fully heard.
+    pub fn new(device: Box<dyn Device>, events_out: Option<EventBuffer>) -> Self {
+        DeviceEntry {
+            device,
+            enabled: true,
+            events_out,
+            fade: 1.0,
+            slot: 0,
+        }
+    }
+
+    /// How much of the device's output the chain hears at the next frame (#233).
+    pub fn fade(&self) -> f32 {
+        self.fade
+    }
+
+    /// The level its fade moves toward: 1 while enabled, 0 otherwise (an outgoing device is
+    /// disabled).
+    pub(crate) fn target(&self) -> f32 {
+        if self.enabled { 1.0 } else { 0.0 }
+    }
 }
 
 impl core::fmt::Debug for DeviceEntry {
@@ -544,6 +579,7 @@ pub fn channel_with(
         overflow_seen: 0,
         live_block: Table::try_with_capacity(limits::LIVE_QUEUE_CAPACITY)?,
         release_live: false,
+        host_origin: 0,
         applied: 0,
         skipped: 0,
         leaked: 0,
@@ -562,8 +598,36 @@ struct TrackShadow {
     /// One entry per slot of the track's device table: `None` when empty, otherwise the
     /// capacity of the device's MIDI output (0 for a device that writes no notes), from
     /// which a MIDI effect inserted after it is sized.
-    devices: Vec<Option<usize>>,
+    devices: Vec<Option<DeviceShadow>>,
     scenes_capacity: usize,
+}
+
+/// What the prepare side keeps of a device to build it again at another sample rate (#236):
+/// its kind, the parameter values it was given (by its insert, then by `ParamSet`; only the
+/// ids its descriptor declares, each once, in the order first given), whether it is enabled,
+/// and the capacity of its MIDI output.
+#[derive(Clone, Debug)]
+struct DeviceShadow {
+    midi_out: usize,
+    kind: DeviceKind,
+    descriptor: &'static DeviceDescriptor,
+    params: Vec<(ParamId, f32)>,
+    enabled: bool,
+}
+
+impl DeviceShadow {
+    /// Sets a parameter's value: in place, or in the room the insert reserved for every
+    /// declared id (no allocation). An id the device does not declare changes nothing.
+    fn set(&mut self, id: ParamId, value: f32) {
+        let Some(value) = self.descriptor.param(id).and_then(|p| p.sanitize(value)) else {
+            return;
+        };
+        if let Some(entry) = self.params.iter_mut().find(|(i, _)| *i == id) {
+            entry.1 = value;
+        } else if self.params.len() < self.params.capacity() {
+            self.params.push((id, value));
+        }
+    }
 }
 
 impl TrackShadow {
@@ -711,7 +775,7 @@ pub struct Preparer {
     factories: Resolver,
     rt: Producer<RtMsg>,
     garbage: Consumer<Garbage>,
-    retired: Consumer<Box<Track>>,
+    retired: Consumer<Retired>,
     live: Producer<LiveEvent>,
     overflow: Arc<LiveOverflow>,
     pending: VecDeque<RtMsg>,
@@ -781,6 +845,18 @@ impl Preparer {
     /// devices, missing targets, bad chunks): `Feedback::rejected`.
     pub fn rejected(&self) -> u32 {
         self.rejected
+    }
+
+    /// The track slots this side has prepared (added and not removed since the last
+    /// `Reset`), lowest first: what a host that holds no project addresses to release every
+    /// note (the helper at the end of a page's session, BO-1).
+    pub fn track_slots(&self) -> impl Iterator<Item = TrackSlot> + '_ {
+        self.shadow
+            .tracks
+            .iter()
+            .enumerate()
+            .filter(|(_, track)| track.is_some())
+            .map(|(slot, _)| TrackSlot(slot as u32))
     }
 
     /// Rt messages parked because the ring was full.
@@ -884,16 +960,16 @@ impl Preparer {
         }
     }
 
-    /// Drops what the audio side sent back (the garbage, and the tracks that finished
-    /// fading out); returns how many items.
+    /// Drops what the audio side sent back (the garbage, and the tracks and devices that
+    /// finished fading out); returns how many items.
     pub fn collect(&mut self) -> usize {
         let mut n = 0;
         while let Ok(garbage) = self.garbage.pop() {
             drop(garbage);
             n += 1;
         }
-        while let Ok(track) = self.retired.pop() {
-            drop(track);
+        while let Ok(retired) = self.retired.pop() {
+            drop(retired);
             n += 1;
         }
         self.collected += n as u64;
@@ -1011,6 +1087,9 @@ impl Preparer {
                 enabled,
             } => {
                 self.existing_device(track, device)?;
+                if let Some(kept) = self.device_shadow(track, device) {
+                    kept.enabled = enabled;
+                }
                 RtMsg::DeviceSetEnabled {
                     track,
                     device,
@@ -1024,6 +1103,9 @@ impl Preparer {
                 value,
             } => {
                 self.existing_device(track, device)?;
+                if let Some(kept) = self.device_shadow(track, device) {
+                    kept.set(param, value);
+                }
                 RtMsg::ParamSet {
                     track,
                     device,
@@ -1284,6 +1366,15 @@ impl Preparer {
         }
     }
 
+    /// What the prepare side keeps of a device (#236).
+    fn device_shadow(&mut self, track: TrackSlot, device: DeviceSlot) -> Option<&mut DeviceShadow> {
+        self.shadow
+            .chain_mut(track)?
+            .devices
+            .get_mut(device.0 as usize)?
+            .as_mut()
+    }
+
     fn remove_device(&mut self, track: TrackSlot, device: DeviceSlot) {
         if let Some(t) = self.shadow.chain_mut(track)
             && let Some(flag) = t.devices.get_mut(device.0 as usize)
@@ -1348,11 +1439,69 @@ impl Preparer {
             .iter()
             .take(device.0 as usize)
             .flatten()
-            .copied()
+            .map(|d| d.midi_out)
             .fold(TRACK_INPUT_EVENTS, usize::max);
+        let (value, descriptor) =
+            self.build_device(&self.setup, track, kind, input_events, state_pairs(state))?;
+        let midi_out = value.events_out.as_ref().map_or(0, EventBuffer::capacity);
+        // What a rebuild needs (#236): every declared id has room, so a later `ParamSet`
+        // never allocates.
+        let mut params = Vec::new();
+        params
+            .try_reserve_exact(descriptor.params.len())
+            .map_err(|_| oom::<(ParamId, f32)>(descriptor.params.len()))?;
+        let mut kept = DeviceShadow {
+            midi_out,
+            kind,
+            descriptor,
+            params,
+            enabled: true,
+        };
+        for (id, v) in state_pairs(state) {
+            kept.set(id, v);
+        }
+        let slot = device.0 as usize;
+        let grown = grow_for(capacity, slot, limits::MAX_DEVICES_PER_TRACK)?;
+        let mut flags = None;
+        if let Some(g) = &grown {
+            flags = Some(try_vec(g.capacity(), None)?);
+        }
+        // Commit.
+        if let Some(t) = self.shadow.chain_mut(track) {
+            if let Some(mut flags) = flags {
+                for (to, from) in flags.iter_mut().zip(t.devices.iter_mut()) {
+                    *to = from.take();
+                }
+                t.devices = flags;
+            }
+            if let Some(flag) = t.devices.get_mut(slot) {
+                *flag = Some(kept);
+            }
+        }
+        Ok(RtMsg::DevicePut {
+            track,
+            put: Put {
+                slot: device.0.into(),
+                value,
+                grown,
+            },
+        })
+    }
+
+    /// Builds a device of `kind` for `setup` with `params`, reset, its MIDI output sized
+    /// from `input_events`, enabled: the device of a `DeviceInsert`, or one built again at a
+    /// new sample rate (#236). Allocates fallibly, changes nothing.
+    fn build_device(
+        &self,
+        setup: &DeviceSetup,
+        track: TrackSlot,
+        kind: DeviceKind,
+        input_events: usize,
+        params: impl Iterator<Item = (ParamId, f32)>,
+    ) -> Result<(Box<DeviceEntry>, &'static DeviceDescriptor), MsgError> {
         let factory = (self.factories)(kind).ok_or(MsgError::UnknownDevice(kind))?;
-        let mut built = factory(&self.setup)?;
-        for (id, value) in state_pairs(state) {
+        let mut built = factory(setup)?;
+        for (id, value) in params {
             built.set_param(id, value);
         }
         built.reset();
@@ -1368,36 +1517,116 @@ impl Preparer {
             )?),
             _ => None,
         };
-        let midi_out = events_out.as_ref().map_or(0, EventBuffer::capacity);
-        let value = try_box(DeviceEntry {
-            device: built,
-            enabled: true,
-            events_out,
-        })?;
-        let slot = device.0 as usize;
-        let grown = grow_for(capacity, slot, limits::MAX_DEVICES_PER_TRACK)?;
-        let mut flags = None;
-        if let Some(g) = &grown {
-            flags = Some(try_vec(g.capacity(), None)?);
+        let value = try_box(DeviceEntry::new(built, events_out))?;
+        Ok((value, descriptor))
+    }
+
+    /// The sample rate the devices are built for.
+    pub fn sample_rate(&self) -> f32 {
+        self.setup.sample_rate
+    }
+
+    /// Changes the sample rate (#236), off the audio thread, keeping the playhead: every
+    /// device of every track and of the master is built again for `rate` with the
+    /// parameters it was given and its enabled state, then the audio side receives the new
+    /// rate (`Engine::set_sample_rate`: clock, metronome, limiter, fades) followed by each
+    /// device on its own slot (a `DevicePut`, the path of an insert on an occupied slot:
+    /// on a heard chain the old device fades out as the new one fades in (#233), an
+    /// instrument's notes are released, and every device restarts
+    /// clean: effect tails, envelopes and filter states start again). The automation lanes
+    /// give a rebuilt device their values again (AM-2); a lane already removed does not,
+    /// so the device takes the value the project holds, as a resync gives. A call at the
+    /// current rate does nothing.
+    ///
+    /// Atomic: every device is built before anything changes, so an `OutOfMemory`, an
+    /// `EngineBusy` when the queue has no room for `1 +` the devices, or a `LimitExceeded`
+    /// for a rate outside 8 kHz to `MAX_SAMPLE_RATE`, leaves the prepare side as it was and
+    /// sends nothing: the engine keeps its old rate, and the host calls again (once the
+    /// engine drained, or the memory is back) until it goes through. A project with more
+    /// devices than the prepare side's queue holds (`PENDING_QUEUE_CAPACITY − 1`, 4 095)
+    /// cannot change rate this way. The
+    /// engine applies at most `MAX_APPLY_PER_BLOCK` messages a block: a device whose put
+    /// lands a few blocks later runs at its old rate until then.
+    pub fn set_sample_rate(&mut self, rate: SampleRate) -> Result<(), MsgError> {
+        // The devices build for 8 kHz to `MAX_SAMPLE_RATE` (below, they fall back to 48 kHz;
+        // above, their lines are capped): a rate outside would leave them out of tune.
+        let hz = rate.hz();
+        let max = crate::device::MAX_SAMPLE_RATE as u32;
+        if hz < MIN_DEVICE_RATE {
+            return Err(MsgError::LimitExceeded {
+                what: "sample rate below the lowest (8 000 Hz)",
+                limit: u64::from(MIN_DEVICE_RATE),
+                requested: u64::from(hz),
+            });
         }
-        // Commit.
-        if let Some(t) = self.shadow.chain_mut(track) {
-            if let Some(mut flags) = flags {
-                flags[..t.devices.len()].copy_from_slice(&t.devices);
-                t.devices = flags;
-            }
-            if let Some(flag) = t.devices.get_mut(slot) {
-                *flag = Some(midi_out);
+        if hz > max {
+            return Err(MsgError::LimitExceeded {
+                what: "sample rate above the highest (192 000 Hz)",
+                limit: u64::from(max),
+                requested: u64::from(hz),
+            });
+        }
+        // The same rate: nothing to build again (a rebuild would release notes and restart
+        // every effect for nothing).
+        if hz as f32 == self.setup.sample_rate {
+            return Ok(());
+        }
+        self.flush();
+        // Every chain, tracks in slot order then the master (no allocation: an infallible
+        // one here would abort on a refusal).
+        let tracks = self.shadow.tracks.len();
+        let chains = || {
+            (0..tracks)
+                .map(|i| TrackSlot(i as u32))
+                .chain(core::iter::once(TrackSlot::MASTER))
+        };
+        let count: usize = chains()
+            .filter_map(|t| self.shadow.chain(t))
+            .map(|t| t.devices.iter().flatten().count())
+            .sum();
+        if self.pending.len() + 1 + count > self.pending_capacity {
+            return Err(MsgError::EngineBusy);
+        }
+        let setup = DeviceSetup {
+            sample_rate: rate.hz() as f32,
+            ..self.setup
+        };
+        let mut msgs = Vec::new();
+        msgs.try_reserve_exact(1 + count)
+            .map_err(|_| oom::<RtMsg>(1 + count))?;
+        msgs.push(RtMsg::SetSampleRate(rate));
+        for track in chains() {
+            let Some(chain) = self.shadow.chain(track) else {
+                continue;
+            };
+            let mut input_events = TRACK_INPUT_EVENTS;
+            for (slot, kept) in chain.devices.iter().enumerate() {
+                let Some(kept) = kept else { continue };
+                let (mut value, _) = self.build_device(
+                    &setup,
+                    track,
+                    kept.kind,
+                    input_events,
+                    kept.params.iter().copied(),
+                )?;
+                value.enabled = kept.enabled;
+                input_events = input_events.max(kept.midi_out);
+                msgs.push(RtMsg::DevicePut {
+                    track,
+                    put: Put {
+                        slot: slot as u32,
+                        value,
+                        grown: None,
+                    },
+                });
             }
         }
-        Ok(RtMsg::DevicePut {
-            track,
-            put: Put {
-                slot: device.0.into(),
-                value,
-                grown,
-            },
-        })
+        // Commit: the room was checked, the queue was reserved at its capacity.
+        self.setup = setup;
+        for msg in msgs {
+            self.send(msg);
+        }
+        Ok(())
     }
 
     /// Allocates what a clip put needs (its box, the growth of the clip table, the room
@@ -1607,12 +1836,14 @@ fn live_event(msg: &ControlMsg) -> Option<LiveEvent> {
             track,
             pitch,
             velocity,
+            at,
         } => Some(LiveEvent::NoteOn {
             track,
             pitch,
             velocity,
+            at,
         }),
-        ControlMsg::NoteOff { track, pitch } => Some(LiveEvent::NoteOff { track, pitch }),
+        ControlMsg::NoteOff { track, pitch, at } => Some(LiveEvent::NoteOff { track, pitch, at }),
         ControlMsg::AllNotesOff { track } => Some(LiveEvent::AllNotesOff { track }),
         _ => None,
     }
@@ -1704,6 +1935,9 @@ pub struct Engine {
     overflow_seen: u32,
     live_block: Table<LiveEvent>,
     release_live: bool,
+    /// The host's frame minus the engine's sample, at the start of the next block (#499,
+    /// [`Engine::set_host_frame`]): 0 until a host gives its clock.
+    host_origin: i64,
     applied: u64,
     skipped: u32,
     leaked: u32,
@@ -1841,6 +2075,8 @@ impl Engine {
                     sample: self.transport.total_samples(),
                     samples_per_tick: self.transport.samples_per_tick(),
                     frames,
+                    anchors: self.transport.anchors(),
+                    rate: f64::from(self.transport.sample_rate().hz()),
                 },
                 live,
                 first && self.release_live,
@@ -1931,10 +2167,14 @@ impl Engine {
     fn reset_devices(&mut self) {
         // The silence a cut leaves does not carry the gain of the overs before it.
         self.limiter.reset();
+        // The output is already silent: every device fade ends where it goes (#233), and the
+        // outgoing devices leave at the next block.
         for track in self.state.tracks.as_mut_slice().iter_mut().flatten() {
             for entry in track.devices.as_mut_slice().iter_mut().flatten() {
                 entry.device.reset();
+                entry.fade = entry.target();
             }
+            track.graph.outgoing().end();
             track.graph.release_notes();
         }
         for entry in self
@@ -1945,7 +2185,9 @@ impl Engine {
             .flatten()
         {
             entry.device.reset();
+            entry.fade = entry.target();
         }
+        self.graph.master_outgoing().end();
     }
 
     /// The current gain of the output protection ([`crate::limiter`], #402): `1.0` at rest,
@@ -2014,11 +2256,11 @@ impl Engine {
         self.graph.take_meters(&mut self.state, frames, out)
     }
 
-    /// Changes the sample rate of the engine's own processing (clock, metronome, graph
-    /// fades) and keeps the playhead. The devices were built for the old rate by
-    /// `prepare` (and the preparer keeps its setup): a host that changes the device rate
-    /// builds a new channel; this keeps the clock, the metronome and the fades coherent
-    /// with a rate the host switched to while it keeps the same engine.
+    /// Changes the sample rate of the engine's own processing (clock, metronome, limiter,
+    /// graph fades) and keeps the playhead. No allocation. The devices are not touched: a
+    /// host changes the rate with `Preparer::set_sample_rate` (#236), which builds every
+    /// device again for the new rate off the audio thread and sends this change first
+    /// (`RtMsg::SetSampleRate`), then the devices.
     pub fn set_sample_rate(&mut self, rate: SampleRate) {
         self.transport.set_sample_rate(rate);
         self.clicker.set_sample_rate(rate);
@@ -2113,11 +2355,46 @@ impl Engine {
         while !self.live_block.is_full() {
             let Ok(event) = self.live.pop() else { break };
             // Room was checked just above: the push cannot fail.
-            let _ = self.live_block.push(event);
+            let _ = self.live_block.push(self.to_engine_time(event));
         }
         let total = self.overflow.total();
         self.release_live = total != self.overflow_seen;
         self.overflow_seen = total;
+    }
+
+    /// Tells the engine the host's frame of the first sample of the next block (#499): the
+    /// web worklet passes the audio context's `currentFrame` before each block. A live note's
+    /// stamp is a host frame; the engine turns it into its own sample counter with this. A
+    /// host that never calls it has the engine's sample counter as its clock.
+    pub fn set_host_frame(&mut self, frame: u64) {
+        let origin = i128::from(frame) - i128::from(self.transport.total_samples());
+        self.host_origin = origin.clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64;
+    }
+
+    /// A live event with its stamp turned from a host frame into an engine sample (`None`
+    /// when it falls before the engine's first sample).
+    fn to_engine_time(&self, event: LiveEvent) -> LiveEvent {
+        let origin = i128::from(self.host_origin);
+        let convert = |at: Option<u64>| at.and_then(|h| u64::try_from(i128::from(h) - origin).ok());
+        match event {
+            LiveEvent::NoteOn {
+                track,
+                pitch,
+                velocity,
+                at,
+            } => LiveEvent::NoteOn {
+                track,
+                pitch,
+                velocity,
+                at: convert(at),
+            },
+            LiveEvent::NoteOff { track, pitch, at } => LiveEvent::NoteOff {
+                track,
+                pitch,
+                at: convert(at),
+            },
+            other => other,
+        }
     }
 
     /// `Engine::apply` of the spec: applies one rt message on the audio path. No
@@ -2138,11 +2415,19 @@ impl Engine {
                 }
                 // The master's strip takes the new state's faders back.
                 self.graph.reset_master();
+                // The old master chain is swapped at once (its devices are in the garbage
+                // item): the devices that left it and still fade out go with it, rather than
+                // running inside the new project's chain (#233).
+                self.graph.master_outgoing().end();
                 // The limiter is not reset on a project swap: the retiring tracks keep
                 // fading through the same limiter, so a project opened while the previous
                 // one was hot does not produce a gain jump. The release (80 ms) decays the
                 // deficit naturally; the new project's overs are caught on the first sample.
                 Some(Garbage::State(old))
+            }
+            RtMsg::SetSampleRate(rate) => {
+                self.set_sample_rate(rate);
+                None
             }
             RtMsg::SetTransport {
                 tempo,
@@ -2300,29 +2585,49 @@ impl Engine {
                 state.selected = track;
                 None
             }
-            RtMsg::DevicePut { track, put } => match state.chain_mut(track) {
-                Some(chain) => {
-                    let device = DeviceSlot(put.slot as u16);
-                    let midi = takes_notes(&put.value);
-                    let (spare, out) = put_slot(chain, put);
-                    skipped = out;
-                    if (midi || spare.item.as_deref().is_some_and(takes_notes))
-                        && let Some(t) = state.track_mut(track)
-                    {
-                        t.graph.release_notes();
+            RtMsg::DevicePut { track, put } => {
+                let audible = chain_audible(state, &self.graph, track);
+                match state.chain_mut(track) {
+                    Some(chain) => {
+                        let device = DeviceSlot(put.slot as u16);
+                        let midi = takes_notes(&put.value);
+                        let slot = put.slot as usize;
+                        let (mut spare, out) = put_slot(chain, put);
+                        // Inside the table (grown by the put if need be) the device is in
+                        // its slot and the spare item is the one it replaced; beyond, the
+                        // spare item is the new device, never heard.
+                        let placed = slot < chain.capacity();
+                        skipped = out;
+                        if (midi || (placed && spare.item.as_deref().is_some_and(takes_notes)))
+                            && let Some(t) = state.track_mut(track)
+                        {
+                            t.graph.release_notes();
+                        }
+                        if placed {
+                            // The new device fades in on a heard chain; the one it replaces
+                            // fades out at its slot (#233).
+                            if let Some(entry) = device_mut(state, track, device) {
+                                entry.fade = if audible && fades(entry) { 0.0 } else { 1.0 };
+                            }
+                            if let Some(old) = spare.item.take() {
+                                spare.item =
+                                    send_off(state, &mut self.graph, track, device, old, audible);
+                            }
+                        }
+                        resend_lanes(state, &self.graph, track, device);
+                        Some(Garbage::Devices(spare))
                     }
-                    resend_lanes(state, &self.graph, track, device);
-                    Some(Garbage::Devices(spare))
+                    None => {
+                        skipped = true;
+                        Some(Garbage::Devices(Spare {
+                            table: put.grown,
+                            item: Some(put.value),
+                        }))
+                    }
                 }
-                None => {
-                    skipped = true;
-                    Some(Garbage::Devices(Spare {
-                        table: put.grown,
-                        item: Some(put.value),
-                    }))
-                }
-            },
+            }
             RtMsg::DeviceRemove { track, device } => {
+                let audible = chain_audible(state, &self.graph, track);
                 match state.chain_mut(track).map(|chain| {
                     let old = take_slot(chain, device.0.into());
                     let release = matches!(&old, Ok(Some(entry)) if takes_notes(entry));
@@ -2332,10 +2637,12 @@ impl Engine {
                         if release && let Some(t) = state.track_mut(track) {
                             t.graph.release_notes();
                         }
-                        Some(Garbage::Devices(Spare {
-                            table: None,
-                            item: old,
-                        }))
+                        // A heard device fades out at its slot (#233), then comes back
+                        // through the retire ring.
+                        let item = old.and_then(|old| {
+                            send_off(state, &mut self.graph, track, device, old, audible)
+                        });
+                        Some(Garbage::Devices(Spare { table: None, item }))
                     }
                     _ => {
                         skipped = true;
@@ -2349,16 +2656,14 @@ impl Engine {
                 enabled,
             } => {
                 let mut release = false;
+                let audible = chain_audible(state, &self.graph, track);
                 match device_mut(state, track, device) {
                     Some(entry) => {
                         let changed = entry.enabled != enabled;
                         release = changed && takes_notes(entry);
-                        if changed && !takes_notes(entry) {
-                            // An audio effect that is switched on or off starts clean: a
-                            // tail (an echo) never comes back from before the switch.
-                            entry.device.reset();
+                        if changed {
+                            switch(entry, enabled, audible);
                         }
-                        entry.enabled = enabled;
                     }
                     None => skipped = true,
                 }
@@ -2658,6 +2963,73 @@ fn forget_lane(state: &mut State, graph: &mut Graph, track: TrackSlot, target: A
 /// its next block (MO-3). An audio effect receives no notes: changing it releases nothing.
 fn takes_notes(entry: &DeviceEntry) -> bool {
     entry.device.descriptor().role != DeviceRole::Effect
+}
+
+/// Whether a change of the device fades (#233): an instrument's or an audio effect's does; a
+/// MIDI effect has no sound of its own (its change releases the instrument's notes).
+fn fades(entry: &DeviceEntry) -> bool {
+    entry.device.descriptor().role != DeviceRole::MidiEffect
+}
+
+/// Whether the chain of `track` (the master's for the master) is heard: its strip is not at
+/// silence. A change of a chain nobody hears (a track not yet faded in, a muted one) applies
+/// at once (#233).
+fn chain_audible(state: &State, graph: &Graph, track: TrackSlot) -> bool {
+    let (l, r) = if track.is_master() {
+        graph.master_levels()
+    } else {
+        match state.track(track) {
+            Some(t) => t.graph.levels(),
+            None => return false,
+        }
+    };
+    l != 0.0 || r != 0.0
+}
+
+/// Switches a device on or off (#233). On a heard chain an instrument or an audio effect
+/// fades toward its new state; otherwise it is there at once. An audio effect switched on
+/// starts clean, so a tail (an echo) never comes back from before the switch, unless it is
+/// still heard fading out (its tail goes on); one switched off is cleared once silent (at
+/// once, or by the graph at the end of its fade).
+fn switch(entry: &mut DeviceEntry, enabled: bool, audible: bool) {
+    let heard = entry.fade > 0.0;
+    entry.enabled = enabled;
+    let fading = audible && fades(entry);
+    if !fading {
+        entry.fade = entry.target();
+    }
+    let clear = if enabled { !(fading && heard) } else { !fading };
+    if clear && !takes_notes(entry) {
+        entry.device.reset();
+    }
+}
+
+/// Where a device that left slot `slot` goes (#233): on a heard chain, an instrument or an
+/// audio effect still heard joins the chain's outgoing list and fades out there (moving a
+/// `Box`: no allocation); otherwise, or when the list is full ([`crate::graph::OUTGOING_ROOM`]),
+/// it is returned for the garbage.
+fn send_off(
+    state: &mut State,
+    graph: &mut Graph,
+    track: TrackSlot,
+    slot: DeviceSlot,
+    mut old: Box<DeviceEntry>,
+    audible: bool,
+) -> Option<Box<DeviceEntry>> {
+    if !audible || !fades(&old) || old.fade <= 0.0 {
+        return Some(old);
+    }
+    let list: &mut Outgoing = if track.is_master() {
+        graph.master_outgoing()
+    } else {
+        match state.track_mut(track) {
+            Some(t) => t.graph.outgoing(),
+            None => return Some(old),
+        }
+    };
+    old.enabled = false;
+    old.slot = slot.0;
+    list.push(old).err()
 }
 
 fn device_mut(state: &mut State, track: TrackSlot, device: DeviceSlot) -> Option<&mut DeviceEntry> {

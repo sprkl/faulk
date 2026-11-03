@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #494: writing from the keyboard. The timeline and the piano roll each have a free cursor (the only tab stop of an empty
 // grid); Enter on it creates a clip of one bar or a note of the drawing length, Escape on an item frees it there, Page Up and
@@ -20,7 +20,7 @@ async function start(page: Page) {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
-  await expect(page.getByTestId('engine-mode')).toContainText('Web')
+  await engineUp(page, 'Web')
   await page.getByTestId('add-track').click()
   await page.getByTestId('add-track-menu').getByRole('menuitem', { name: 'Drums', exact: true }).click()
   await expect(page.getByTestId('track-header')).toHaveCount(2)
@@ -105,8 +105,8 @@ test('the piano roll: a note from the cursor of an empty clip, its velocity by P
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Enter')
   await expect(roll).toHaveAttribute('data-note-count', '2')
-  // The velocity of a new note is the last one set.
-  expect((await rollNotes(page)).map((n) => n.velocity)).toEqual([127, 127])
+  // The velocity of a new note is the draw velocity (#527), not the last one set on a note.
+  expect((await rollNotes(page)).map((n) => n.velocity)).toEqual([100, 127])
   // Delete the last notes from the keyboard: the focus falls back on the cursor, never on nothing.
   await page.keyboard.press('Delete')
   await page.getByTestId('roll-item').first().focus()
@@ -126,8 +126,8 @@ test('the timeline: a clip from the cursor, and Enter opens the piano roll on th
   const cursor = page.getByTestId('arr-cursor')
   await expect(cursor).toBeFocused()
   await expect(cursor).toHaveAccessibleName(/^Cursor, .+, bar 1$/)
-  // Up to the first track. With the snap on Auto (a 1/32 at the default zoom), Right still goes by a beat at least.
-  await page.keyboard.press('ArrowUp')
+  // Up to the first track (the cursor starts on the second one; one more Up would reach the ruler row, #554). With the snap on Auto
+  // (a 1/32 at the default zoom), Right still goes by a beat at least.
   await page.keyboard.press('ArrowUp')
   await expect(cursor).toHaveAttribute('data-row', '0')
   await page.keyboard.press('ArrowRight')

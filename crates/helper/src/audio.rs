@@ -1,24 +1,29 @@
 //! Real-time side of the helper: the audio callback and what feeds it (MO-2).
 //!
-//! The helper runs the same engine channel as the web build (`engine::host`): the commands
-//! it receives (from the page, from the MIDI input) are mapped by the command layer
-//! (`commands::engine_msgs`) and encoded into the same `ControlMsg` byte stream the page
-//! sends to its prepare Worker, then submitted to the prepare side ([`EventSender`], behind
-//! a mutex, non-real-time threads only); a control thread flushes it every few
-//! milliseconds ([`spawn_flusher`]). The rt messages and the live notes reach the audio
+//! The helper runs the same engine channel as the web build (`engine::host`) and holds no
+//! project (BO-1): the page owns it in both modes, runs every command in its project core and
+//! sends the helper the `ControlMsg` bytes it encoded, the same bytes its own engine takes.
+//! The helper submits each stream unchanged to the prepare side ([`EventSender`], behind a
+//! mutex, non-real-time threads only); a control thread flushes it every few milliseconds
+//! ([`spawn_flusher`]). A stream longer than the engine takes at once (a big project's
+//! snapshot) waits in the sender's queue and is sent in pieces as the engine consumes it
+//! (`engine::host::StreamQueue`, #245). The rt messages and the live notes reach the audio
 //! callback through the engine's lock-free rings.
+//!
+//! A stream the engine stops (corrupt, out of memory, past the waiting bound) is recorded as a
+//! [`Refusal`] and told to the page, which starts the engine over from a snapshot: the helper
+//! cannot, it has no project. The helper writes two streams of its own: when a page leaves or
+//! the helper quits, the transport stops and every track the engine holds releases its notes
+//! ([`EventSender::release_all`]); and the notes of its MIDI input, on the tracks the page's
+//! table names ([`EventSender::submit_live`], `crate::live`, #598).
 //!
 //! Everything in [`AudioCore::process`] runs on the audio thread: it never allocates,
 //! locks or blocks. A full live queue releases every note (the engine's live overflow), so
 //! a lost note-off can never leave a note hanging.
-//!
-//! The page still sends commands, not engine bytes, over the local WebSocket: moving the
-//! encoding to the page side of that link is BO-1's.
 
-use commands::Command;
-use commands::engine_msgs::Synced;
-use engine::host::{Host, Prepare};
-use engine::msg::MsgError;
+use engine::host::{Host, StreamQueue};
+use engine::msg::{ControlMsg, Header, MsgError, Tag};
+use engine::time::SampleRate;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
@@ -28,10 +33,6 @@ pub const CHUNK_FRAMES: usize = engine::msg::limits::MAX_BLOCK_FRAMES;
 
 /// How often the control thread pushes what waited and drops the garbage.
 pub const FLUSH_INTERVAL: Duration = Duration::from_millis(5);
-
-/// The epoch of the helper's engine: newer than a fresh channel's 0, so the setup's
-/// `Reset` is taken.
-const EPOCH: u16 = 1;
 
 /// Values the audio thread publishes for the UI.
 #[derive(Default)]
@@ -76,6 +77,24 @@ impl Meter {
         self.output_delay_us.store(us, Ordering::Relaxed);
     }
 
+    /// Forgets the output that went away: its report, its callback size and its delay, so that
+    /// no stale report or latency reaches a later session (#525).
+    pub fn reset(&self) {
+        if let Ok(mut report) = self.report.lock() {
+            *report = None;
+        }
+        self.forget_output();
+    }
+
+    /// Forgets the output that went away but keeps the engine's report region: the engine is
+    /// kept for the next output (#577), whose callback size and delay are not known yet.
+    pub fn forget_output(&self) {
+        self.peak_bits.store(0, Ordering::Relaxed);
+        self.voices.store(0, Ordering::Relaxed);
+        self.callback_frames.store(0, Ordering::Relaxed);
+        self.output_delay_us.store(0, Ordering::Relaxed);
+    }
+
     /// Estimated output latency in ms: one callback buffer (an event waits for the next
     /// callback) plus the driver's output delay. An estimate from what the driver
     /// reports, never a measurement. `None` before the first callback.
@@ -87,46 +106,286 @@ impl Meter {
     }
 }
 
-/// The prepare side of the helper's engine and its stream encoder. Owned behind a mutex by
-/// non-real-time threads only.
+/// A stream the engine stopped (anything but a busy engine, which only waits): the code of
+/// its error (`MsgError::code`) and the byte of the message that stopped it, in the piece the
+/// engine was given (a stream sent in pieces counts from the rest being retried; informative).
+/// The engine is behind the page's project until the page sends a snapshot. `epoch` is the engine's at that moment: the page's snapshot goes in a newer one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Refusal {
+    pub code: i32,
+    pub at: u32,
+    pub epoch: u16,
+}
+
+/// The prepare side of the helper's engine behind its queue of streams. Owned behind a mutex
+/// by non-real-time threads only.
 pub struct EventSender {
-    prepare: Prepare,
-    /// The one-synth project the commands run on, and the engine's stream (PR-3).
-    stream: Synced,
+    /// The prepare side behind its queue of streams (#245).
+    queue: StreamQueue,
+    /// The first refusal found at a flush and not yet told to the page (a later one says
+    /// nothing more: the page answers any with a snapshot). A refusal at a submit is returned
+    /// to the caller instead, which answers the page at once.
+    refused: Option<Refusal>,
+    /// Streams submitted so far (tests wait on it).
+    received: u64,
+    /// The epoch the engine is in once what waits is taken: the last `Reset` queued, or the
+    /// engine's own. A page stream must start in it (or, with a `Reset`, in a newer one).
+    epoch: u16,
 }
 
 impl EventSender {
-    /// Runs a command on the project and sends its engine messages, encoded by the
-    /// command layer, as bytes: the web engine's path. A command the project refuses,
-    /// or a stream the engine stops (out of memory, engine busy), is logged.
-    pub fn send(&mut self, command: &Command) {
-        let bytes = match self.stream.run(command) {
-            Ok((_, bytes)) => bytes,
-            Err(error) => {
-                crate::log!("the command was refused: {error:?}");
-                return;
-            }
-        };
-        if let Err(error) = self.submit(&bytes) {
-            crate::log!("the engine refused a command: {error:?}");
+    fn new(queue: StreamQueue) -> Self {
+        let epoch = queue.prepare().preparer().epoch();
+        EventSender {
+            queue,
+            refused: None,
+            received: 0,
+            epoch,
         }
     }
 
-    fn submit(&mut self, bytes: &[u8]) -> Result<(), MsgError> {
-        if bytes.is_empty() {
-            return Ok(());
+    /// Submits a stream of the page, unchanged. What the busy engine does not take yet waits
+    /// for the flushes. A stream it stops is refused: returned, for the caller to tell the page.
+    ///
+    /// A stream whose first message is not of the engine's epoch (a `Reset` that is not newer,
+    /// a page's change made for another engine) is refused whole as a stale epoch, before the
+    /// engine sees it: the engine would skip every message of it silently, and the page would
+    /// never learn that the helper plays something else (a snapshot overtaken by another
+    /// page's, say). The page answers with a snapshot newer than the refusal's epoch.
+    pub fn submit(&mut self, bytes: &[u8]) -> Result<(), Refusal> {
+        self.received += 1;
+        if let Err(error @ MsgError::StaleEpoch { .. }) = Header::decode(bytes, self.epoch) {
+            return Err(self.refuse_at(error, 0));
         }
-        self.prepare.submit(bytes)
+        let reset = Header::decode(bytes, self.epoch)
+            .ok()
+            .filter(|h| h.tag == Tag::Reset)
+            .map(|h| h.epoch);
+        let sent = self.queue.send(bytes);
+        if let Some(epoch) = reset
+            && sent.is_ok()
+        {
+            self.epoch = epoch;
+        }
+        sent.map_err(|error| self.refuse(error))
     }
 
-    /// Pushes what waited on the rt ring and drops the garbage.
+    /// Submits a stream the helper encoded for a note of its own MIDI input (#598,
+    /// `crate::live`): behind what waits, like a page's stream, but not counted as one. An
+    /// error is kept for the ticker to tell the page, like one found at a flush: it may be a
+    /// waiting page stream's, which this call drained.
+    pub fn submit_live(&mut self, bytes: &[u8]) {
+        if let Err(error) = self.queue.send(bytes) {
+            let refusal = self.refuse(error);
+            self.refused.get_or_insert(refusal);
+        }
+    }
+
+    /// Pushes what waited on the rt ring, then the streams that waited for the engine, and
+    /// drops the garbage. A waiting stream stopped for another reason than a busy engine is
+    /// recorded as a refusal.
     pub fn flush(&mut self) {
-        self.prepare.flush();
+        if let Err(error) = self.queue.flush() {
+            let refusal = self.refuse(error);
+            self.refused.get_or_insert(refusal);
+        }
+    }
+
+    fn refuse(&mut self, error: MsgError) -> Refusal {
+        let at = self.queue.prepare().preparer().stopped_at().unwrap_or(0);
+        // A `Reset` the engine took before the stream stopped moved it on: the newer of the
+        // two is the epoch the page's snapshot must pass.
+        let engine = self.queue.prepare().preparer().epoch();
+        if engine.wrapping_sub(self.epoch) as i16 > 0 {
+            self.epoch = engine;
+        }
+        self.refuse_at(error, at)
+    }
+
+    fn refuse_at(&self, error: MsgError, at: usize) -> Refusal {
+        crate::log!("the engine refused a stream: {error:?}");
+        Refusal {
+            code: error.code(),
+            at: u32::try_from(at).unwrap_or(u32::MAX),
+            epoch: self.epoch,
+        }
+    }
+
+    /// The refusal not yet told to the page, forgotten once taken.
+    pub fn take_refusal(&mut self) -> Option<Refusal> {
+        self.refused.take()
+    }
+
+    /// The page is gone (or the helper quits): what waits is dropped, then the transport
+    /// stops and every track the engine holds releases its notes, in the engine's current
+    /// epoch. The project stays loaded until the next page's snapshot replaces it. With the
+    /// notes of its MIDI input ([`EventSender::submit_live`]), the only stream the helper
+    /// writes itself.
+    pub fn release_all(&mut self) {
+        self.queue.clear();
+        self.refused = None;
+        let preparer = self.queue.prepare().preparer();
+        // What waited is gone, a `Reset` among it too: the engine's own epoch is the one.
+        let epoch = preparer.epoch();
+        self.epoch = epoch;
+        // The notes first: live events, they go straight to the live queue even when the
+        // engine is busy; the stop may wait for room behind what the engine still prepares.
+        let mut msgs: Vec<ControlMsg> = preparer
+            .track_slots()
+            .map(|track| ControlMsg::AllNotesOff { track })
+            .collect();
+        msgs.push(ControlMsg::Stop);
+        let sent = engine::msg::encode_stream(epoch, 0, &msgs).and_then(|b| self.queue.send(&b));
+        if let Err(error) = sent {
+            crate::log!("the notes could not be released: {error:?}");
+        }
+    }
+
+    /// The epoch of the engine once what waits is taken (its last `Reset`): a page's snapshot
+    /// must be newer.
+    pub fn epoch(&self) -> u16 {
+        self.epoch
     }
 
     /// Messages the engine rejected so far.
     pub fn rejected(&self) -> u32 {
-        self.prepare.preparer().rejected()
+        self.queue.prepare().preparer().rejected()
+    }
+
+    /// Changes the engine's sample rate to `hz`, keeping its playhead and its project (#577):
+    /// every device is built again for it off the audio thread
+    /// (`StreamQueue::set_sample_rate`). A call at the current rate does nothing; nothing
+    /// changes on an error.
+    pub fn set_sample_rate(&mut self, hz: f32) -> Result<(), MsgError> {
+        // A rate the driver gives is a whole number of hertz; 0 is refused here, any other
+        // rate below the devices' lowest by the prepare side.
+        let rate = SampleRate::new(hz as u32).ok_or(MsgError::LimitExceeded {
+            what: "sample rate of zero",
+            limit: 1,
+            requested: 0,
+        })?;
+        self.queue.set_sample_rate(rate)
+    }
+
+    /// Streams waiting for the engine to take them.
+    pub fn waiting(&self) -> usize {
+        self.queue.waiting()
+    }
+
+    /// Streams submitted so far.
+    pub fn received(&self) -> u64 {
+        self.received
+    }
+}
+
+/// The engine of the open audio output, if any (#525): the prepare side and the rate it runs
+/// at. The server, the control thread and Quit reach the engine through it; the output
+/// supervisor (`crate::output`) fills it when an output opens and empties it when the output
+/// goes away. While it is empty, streams go nowhere: nothing can sound. Each engine installed
+/// gets a new generation, so that a session opened on one never feeds the next (BO-1).
+/// Non-real-time threads only.
+#[derive(Default)]
+pub struct EngineSlot {
+    running: Mutex<Option<Running>>,
+}
+
+struct Running {
+    sender: EventSender,
+    sample_rate: f32,
+    generation: u64,
+}
+
+/// Generations of installed engines, across slots (0 is never one).
+static GENERATIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+impl EngineSlot {
+    /// Runs `f` on the sender of the open output; `None` when there is none. A lock poisoned
+    /// by a panic is taken anyway (a note off must never be skipped).
+    pub fn with<R>(&self, f: impl FnOnce(&mut EventSender) -> R) -> Option<R> {
+        let mut running = self.running.lock().unwrap_or_else(|p| p.into_inner());
+        running.as_mut().map(|r| f(&mut r.sender))
+    }
+
+    /// Runs `f` on the sender of the open output when its engine is of `generation`; `None`
+    /// otherwise.
+    pub fn with_generation<R>(
+        &self,
+        generation: u64,
+        f: impl FnOnce(&mut EventSender) -> R,
+    ) -> Option<R> {
+        let mut running = self.running.lock().unwrap_or_else(|p| p.into_inner());
+        running
+            .as_mut()
+            .filter(|r| r.generation == generation)
+            .map(|r| f(&mut r.sender))
+    }
+
+    /// The generation and the epoch of the open output's engine; `None` when there is none.
+    pub fn current(&self) -> Option<(u64, u16)> {
+        let running = self.running.lock().unwrap_or_else(|p| p.into_inner());
+        running.as_ref().map(|r| (r.generation, r.sender.epoch()))
+    }
+
+    /// Submits a page's stream to the engine of generation `generation`: `None` when that
+    /// engine is not the open one any more (dropped), else what the engine made of it.
+    pub fn submit(&self, generation: u64, bytes: &[u8]) -> Option<Result<(), Refusal>> {
+        let mut running = self.running.lock().unwrap_or_else(|p| p.into_inner());
+        running
+            .as_mut()
+            .filter(|r| r.generation == generation)
+            .map(|r| r.sender.submit(bytes))
+    }
+
+    /// Stops the transport and releases every note of the open output's engine
+    /// ([`EventSender::release_all`]).
+    pub fn release_all(&self) {
+        self.with(EventSender::release_all);
+    }
+
+    /// Pushes what waited on the rt ring and drops the garbage, when an output is open.
+    pub fn flush(&self) {
+        self.with(EventSender::flush);
+    }
+
+    /// The rate of the open output; `None` when there is none.
+    pub fn sample_rate(&self) -> Option<f32> {
+        let running = self.running.lock().unwrap_or_else(|p| p.into_inner());
+        running.as_ref().map(|r| r.sample_rate)
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.sample_rate().is_some()
+    }
+
+    /// Makes `sender` the engine of the output just opened at `sample_rate`.
+    pub fn install(&self, sender: EventSender, sample_rate: f32) {
+        let generation = GENERATIONS.fetch_add(1, Ordering::Relaxed);
+        *self.running.lock().unwrap_or_else(|p| p.into_inner()) = Some(Running {
+            sender,
+            sample_rate,
+            generation,
+        });
+    }
+
+    /// Changes the rate of the engine in the slot to `hz` ([`EventSender::set_sample_rate`],
+    /// #577), for the output it is about to play on. `NoSuchTarget` when the slot is empty;
+    /// nothing changes on an error.
+    pub fn set_sample_rate(&self, hz: f32) -> Result<(), MsgError> {
+        let mut running = self.running.lock().unwrap_or_else(|p| p.into_inner());
+        let running = running.as_mut().ok_or(MsgError::NoSuchTarget)?;
+        running.sender.set_sample_rate(hz)?;
+        running.sample_rate = hz;
+        Ok(())
+    }
+
+    /// The output went away: drops its engine's prepare side.
+    pub fn remove(&self) {
+        let old = self
+            .running
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take();
+        drop(old);
     }
 }
 
@@ -136,41 +395,40 @@ pub struct AudioCore {
     meter: Arc<Meter>,
 }
 
-/// Creates the audio core and the sender that feeds it, with the one-synth project set up
-/// (`commands::engine_msgs::Synced::setup`: a `Reset` and the project's snapshot).
+/// Creates the audio core and the sender that feeds it: an empty engine in epoch 0, silent
+/// until a page sends its snapshot (BO-1: the helper holds no project).
 pub fn audio_core(
     sample_rate: f32,
     meter: Arc<Meter>,
 ) -> Result<(AudioCore, EventSender), MsgError> {
     let (prepare, host) = engine::host::channel(sample_rate)?;
-    let mut stream = Synced::single_synth(EPOCH);
-    // The helper holds only the one synth's track until BO-1, so its live input (MIDI)
-    // has that track selected: the page's selection names tracks the helper does not have.
-    stream.state.session.selected_track = Some(commands::engine_msgs::single_synth::track());
-    let mut sender = EventSender { prepare, stream };
+    let sender = EventSender::new(StreamQueue::new(prepare));
     if let Ok(mut report) = meter.report.lock() {
         *report = Some(host.feedback_shared());
     }
-    let setup = sender.stream.setup()?;
-    sender.submit(&setup)?;
     Ok((AudioCore { host, meter }, sender))
 }
 
-/// The control thread: flushes the sender every [`FLUSH_INTERVAL`] until it is dropped.
-pub fn spawn_flusher(sender: &Arc<Mutex<EventSender>>) -> std::thread::JoinHandle<()> {
-    let sender: Weak<Mutex<EventSender>> = Arc::downgrade(sender);
+/// The control thread: flushes the engine of the open output every [`FLUSH_INTERVAL`] until
+/// the slot is dropped.
+pub fn spawn_flusher(slot: &Arc<EngineSlot>) -> std::thread::JoinHandle<()> {
+    let slot: Weak<EngineSlot> = Arc::downgrade(slot);
     std::thread::spawn(move || {
-        while let Some(sender) = sender.upgrade() {
-            if let Ok(mut sender) = sender.lock() {
-                sender.flush();
-            }
-            drop(sender);
+        while let Some(slot) = slot.upgrade() {
+            slot.flush();
+            drop(slot);
             std::thread::sleep(FLUSH_INTERVAL);
         }
     })
 }
 
 impl AudioCore {
+    /// The engine this core renders, for tests that read its clock.
+    #[cfg(test)]
+    pub(crate) fn engine(&self) -> &engine::engine::Engine {
+        self.host.engine()
+    }
+
     /// The values this core publishes for the UI.
     pub fn meter(&self) -> &Meter {
         &self.meter
@@ -216,197 +474,4 @@ impl AudioCore {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use assert_no_alloc::assert_no_alloc;
-    use commands::{device, history, live, midi};
-
-    fn track() -> project::TrackId {
-        project::TrackId::parse(protocol::single_synth::TRACK).unwrap()
-    }
-
-    fn note_on(note: u8, velocity: u8) -> Command {
-        Command::Live(live::Command::NoteOn {
-            track: track(),
-            note,
-            velocity,
-        })
-    }
-
-    fn core() -> (AudioCore, EventSender, Arc<Meter>) {
-        let meter = Arc::new(Meter::default());
-        let (core, sender) = audio_core(48_000.0, meter.clone()).unwrap();
-        (core, sender, meter)
-    }
-
-    #[test]
-    fn process_never_allocates_for_any_buffer_shape() {
-        let (mut core, mut sender, _) = core();
-        // Buffers allocated before the check; the check covers only `process`.
-        let mut buffers: Vec<(Vec<f32>, usize)> =
-            [(441, 2), (480, 2), (5_000, 2), (128, 1), (256, 6), (0, 2)]
-                .iter()
-                .map(|&(frames, ch)| (vec![0.0; frames * ch + 1], ch))
-                .collect();
-        sender.send(&note_on(60, 100));
-        assert_no_alloc(|| {
-            for _ in 0..20 {
-                for (buf, ch) in buffers.iter_mut() {
-                    core.process(buf, *ch);
-                }
-            }
-        });
-    }
-
-    #[test]
-    fn notes_reach_both_channels_and_extra_channels_stay_silent() {
-        let (mut core, mut sender, meter) = core();
-        sender.send(&note_on(69, 127));
-        let mut out = vec![0.0; 4_800 * 4];
-        core.process(&mut out, 4);
-        let frame = |i: usize| &out[i * 4..i * 4 + 4];
-        assert!(out.chunks(4).any(|f| f[0].abs() > 0.05));
-        for i in 0..4_800 {
-            assert_eq!(frame(i)[0], frame(i)[1]);
-            assert_eq!(frame(i)[2], 0.0);
-            assert_eq!(frame(i)[3], 0.0);
-        }
-        let (peak, voices) = meter.take();
-        assert!(peak > 0.05);
-        assert_eq!(voices, 1);
-        assert_eq!(meter.callback_frames(), Some(4_800));
-        assert_eq!(meter.take().0, 0.0, "the peak resets after a read");
-        assert_eq!(sender.rejected(), 0, "the setup and the note were taken");
-    }
-
-    #[test]
-    fn parameters_reach_the_synth() {
-        let (mut core, mut sender, meter) = core();
-        sender.send(&note_on(69, 127));
-        let mut out = vec![0.0; 9_600 * 2];
-        core.process(&mut out, 2);
-        let loud = meter.take().0;
-        sender.send(&Command::Device(device::Command::SetParam {
-            device: project::DeviceId::parse(protocol::single_synth::DEVICE).unwrap(),
-            param: "gain".into(),
-            value: 0.1,
-        }));
-        for _ in 0..4 {
-            core.process(&mut out, 2);
-        }
-        meter.take();
-        core.process(&mut out, 2);
-        let quiet = meter.take().0;
-        assert!(quiet < loud * 0.5, "gain 0.1: {quiet} against {loud}");
-    }
-
-    #[test]
-    fn latency_estimate_adds_the_driver_delay_to_one_buffer() {
-        let meter = Meter::default();
-        assert_eq!(
-            meter.estimated_latency_ms(48_000.0),
-            None,
-            "unknown before the first callback"
-        );
-        meter.callback_frames.store(480, Ordering::Relaxed);
-        assert_eq!(meter.estimated_latency_ms(48_000.0), Some(10.0));
-        meter.set_output_delay(Duration::from_micros(12_500));
-        assert_eq!(meter.estimated_latency_ms(48_000.0), Some(22.5));
-    }
-
-    #[test]
-    fn full_live_queue_releases_every_note() {
-        let (mut core, mut sender, _) = core();
-        sender.send(&note_on(60, 100));
-        let mut out = vec![0.0; 256];
-        core.process(&mut out, 2);
-        // Fill the live queue with note-ons: the note-off that follows is lost.
-        for _ in 0..engine::msg::limits::LIVE_QUEUE_CAPACITY {
-            sender.send(&note_on(72, 100));
-        }
-        sender.send(&Command::Live(live::Command::NoteOff {
-            track: track(),
-            note: 60,
-        }));
-        // The overflow releases everything, so after the release time all is silent.
-        for _ in 0..200 {
-            core.process(&mut out, 2);
-        }
-        assert!(out.iter().all(|s| *s == 0.0));
-    }
-
-    /// MIDI bytes as the helper's MIDI callback gets them, sent as it sends them.
-    fn midi(sender: &mut EventSender, bytes: &[u8]) {
-        sender.send(&crate::midi::decode(bytes).expect("a live command"));
-    }
-
-    #[test]
-    fn simulated_midi_plays_the_selected_track_and_a_held_note_survives_a_deselect() {
-        let (mut core, mut sender, meter) = core();
-        let mut out = vec![0.0; 4_800 * 2];
-        midi(&mut sender, &[0x90, 69, 100]);
-        core.process(&mut out, 2);
-        assert!(
-            out.iter().any(|s| s.abs() > 0.01),
-            "the selected track plays"
-        );
-        assert_eq!(meter.take().1, 1);
-        // The selection goes away while the key is held: the note off still ends the note.
-        sender.send(&Command::View(commands::view::Command::SelectTrack {
-            track: None,
-        }));
-        midi(&mut sender, &[0x80, 69, 0]);
-        for _ in 0..200 {
-            core.process(&mut out, 2);
-        }
-        assert!(out.iter().all(|s| *s == 0.0), "no note is stuck");
-        // With nothing selected nor armed, the input plays nowhere.
-        midi(&mut sender, &[0x90, 69, 100]);
-        core.process(&mut out, 2);
-        assert!(out.iter().all(|s| *s == 0.0));
-        assert_eq!(sender.rejected(), 0);
-    }
-
-    #[test]
-    fn an_armed_track_plays_without_being_selected() {
-        let (mut core, mut sender, _) = core();
-        sender.send(&Command::View(commands::view::Command::SelectTrack {
-            track: None,
-        }));
-        sender.send(&Command::Track(commands::track::Command::Arm {
-            track: track(),
-            armed: true,
-        }));
-        let mut out = vec![0.0; 4_800 * 2];
-        midi(&mut sender, &[0x90, 60, 100]);
-        core.process(&mut out, 2);
-        assert!(out.iter().any(|s| s.abs() > 0.01));
-        assert_eq!(sender.rejected(), 0);
-    }
-
-    #[test]
-    fn commands_the_engine_does_not_take_change_nothing() {
-        let (mut core, mut sender, meter) = core();
-        for command in [
-            Command::Midi(midi::Command::ListInputs {}),
-            Command::Midi(midi::Command::SelectInput { id: None }),
-            Command::History(history::Command::Undo {}),
-        ] {
-            sender.send(&command);
-        }
-        let mut out = vec![0.0; 960];
-        core.process(&mut out, 2);
-        assert_eq!(meter.take(), (0.0, 0));
-        assert_eq!(sender.rejected(), 0);
-    }
-
-    #[test]
-    fn the_control_thread_flushes_until_the_sender_is_dropped() {
-        let (_core, sender, _) = core();
-        let sender = Arc::new(Mutex::new(sender));
-        let flusher = spawn_flusher(&sender);
-        std::thread::sleep(FLUSH_INTERVAL * 3);
-        drop(sender);
-        flusher.join().unwrap();
-    }
-}
+mod tests;

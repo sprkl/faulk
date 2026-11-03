@@ -200,6 +200,7 @@ pub fn before(command: &Command, p: &Project) -> Option<Subject> {
         Command::Track(c) => match c {
             tr::Command::Delete { track: id }
             | tr::Command::SetColor { track: id, .. }
+            | tr::Command::SetHeight { track: id, .. }
             | tr::Command::Move { track: id, .. }
             | tr::Command::Duplicate { track: id, .. } => Some(Subject::one(track(p, id), None)),
             tr::Command::Rename { track: id, name } => {
@@ -304,7 +305,12 @@ pub fn before(command: &Command, p: &Project) -> Option<Subject> {
             | ar::Command::Duplicate {
                 placements: ids, ..
             } => placements(p, ids),
+            ar::Command::MoveToTrack { moves, .. } => {
+                let ids: Vec<_> = moves.iter().map(|m| m.placement.clone()).collect();
+                placements(p, &ids)
+            }
             ar::Command::Resize { placement: id, .. }
+            | ar::Command::Repeat { placement: id, .. }
             | ar::Command::Split { placement: id, .. } => placement(p, id)
                 .map(|(c, t)| Subject::one(Some(c).filter(|c| !c.is_empty()), Some(t))),
             ar::Command::PlaceScene { scene: id, .. } => Some(Subject::one(scene(p, id), None)),

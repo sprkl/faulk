@@ -11,20 +11,23 @@ pub const QUANTUM: u32 = 128;
 /// largest sample difference the two builds may show on the same scenario.
 pub const PARITY_TOLERANCE: f32 = 1e-5;
 
-/// Renders the scenario through `engine::host`, the native target, flushing the prepare
-/// side before each block as the real hosts do. Panics when the engine rejected or
-/// skipped a message, or when one is still pending at the end.
+/// Renders the scenario through `engine::host`, the native target, behind the helper's queue
+/// of streams (`StreamQueue`, #245: a stream longer than the engine takes at once waits and
+/// goes in as it consumes), flushing it before each block as the real hosts do. Panics when
+/// the engine rejected or skipped a message, or when one is still pending or waiting at the
+/// end.
 pub fn render_native(scenario: &Scenario) -> Render {
-    let (mut prepare, mut host) = engine::host::channel(SAMPLE_RATE).expect("the channel opens");
+    let (prepare, mut host) = engine::host::channel(SAMPLE_RATE).expect("the channel opens");
+    let mut queue = engine::host::StreamQueue::new(prepare);
     let mut left = Vec::new();
     let mut right = Vec::new();
     for step in &scenario.steps {
         match step {
-            Step::Push(bytes) => prepare.submit(bytes).expect("the stream is accepted"),
+            Step::Push(bytes) => queue.send(bytes).expect("the stream is accepted"),
             Step::Render(blocks) => {
                 for _ in 0..*blocks {
                     // The control thread's regular flush: what waited behind a full ring.
-                    prepare.flush();
+                    queue.flush().expect("the stream is accepted");
                     let n = host.render(QUANTUM as usize);
                     left.extend_from_slice(&host.left()[..n]);
                     right.extend_from_slice(&host.right()[..n]);
@@ -32,12 +35,18 @@ pub fn render_native(scenario: &Scenario) -> Render {
             }
         }
     }
-    prepare.flush();
-    assert_eq!(prepare.preparer().rejected(), 0, "messages were rejected");
+    queue.flush().expect("the stream is accepted");
+    let prepare = queue.prepare().preparer();
+    assert_eq!(prepare.rejected(), 0, "messages were rejected");
     assert_eq!(
-        prepare.preparer().pending(),
+        prepare.pending(),
         0,
         "messages are still pending after the last block"
+    );
+    assert_eq!(
+        queue.waiting(),
+        0,
+        "streams still wait for the engine after the last block"
     );
     assert_eq!(host.engine().skipped(), 0, "messages were skipped");
     // The output protection (#402) is the last stage, so `assert_finite`/`assert_clean` on the

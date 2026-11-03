@@ -1,4 +1,5 @@
 import { defineConfig } from '@playwright/test'
+import { e2eHelperPort } from './scripts/e2e-helper-port'
 
 /**
  * End-to-end tests in a real browser, against the dev server (`pnpm dev`) and the built site under
@@ -9,13 +10,15 @@ import { defineConfig } from '@playwright/test'
  * the same file could race.
  *
  * The browser is Playwright's Chromium; `FAULK_E2E_CHANNEL=chrome` or `msedge` runs the installed
- * Chrome or Edge instead. One worker: the helper test listens on the helper's fixed port. The
+ * Chrome or Edge instead. One worker: the helper test listens on the checkout's own helper port (#505). The
  * servers are always started here, never reused: a server already on those ports may come from
  * another checkout, and the run then fails on the busy port instead of testing other code.
  */
 const channel = process.env.FAULK_E2E_CHANNEL || undefined
-// The page and the stand-in helper of the helper test agree on this port (`tests/e2e/support.ts`).
-if (process.env.FAULK_E2E_HELPER_PORT) process.env.VITE_FAULK_HELPER_PORT = process.env.FAULK_E2E_HELPER_PORT
+// The page and the stand-in helper of the helper test agree on this port (`tests/e2e/support.ts`): `FAULK_E2E_HELPER_PORT`, else one
+// of this checkout's own (derived from its path, #505), so two checkouts running the suite never share it and the installed helper's
+// 47800 is never the stand-in's.
+process.env.VITE_FAULK_HELPER_PORT = String(e2eHelperPort())
 
 // `FAULK_E2E_DEV_PORT` and `FAULK_E2E_PREVIEW_PORT` move the two servers when another checkout holds 5180 or 4180.
 const devPort = Number(process.env.FAULK_E2E_DEV_PORT) || 5180
@@ -35,6 +38,9 @@ const onGrid = (origin: string) => ({ cookies: [], origins: [{ origin, localStor
 
 export default defineConfig({
   testDir: 'tests/e2e',
+  // Above the boot ceiling (`BOOT` in tests/e2e/support.ts, 30 s): a default test of 30 s would cut it short (#539).
+  // A test that waits for the engine twice or does more sets its own.
+  timeout: 90_000,
   workers: 1,
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test, type Page } from '@playwright/test'
-import { chooseMidiInput, fakeWebMidi, watch } from './support'
+import { chooseMidiInput, engineUp, fakeWebMidi, watch } from './support'
 
 // SV-4 (#94): a project folder opened into the real page. Real worklet, engine and project core:
 // the note held on the old project stops with it, the opened project's tracks and its session
@@ -40,7 +40,7 @@ test('opening a project folder stops the old project, shows the new one and its 
   await fakeWebMidi(page)
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
-  await expect(page.getByTestId('engine-mode')).toContainText('Web')
+  await engineUp(page, 'Web')
   const hook = await page.evaluate(() => typeof (window as unknown as { __faulkOpen?: unknown }).__faulkOpen)
   test.skip(hook !== 'function', 'the dispatcher hook exists in the dev server only')
   await chooseMidiInput(page, 'E2E Keys')
@@ -53,7 +53,7 @@ test('opening a project folder stops the old project, shows the new one and its 
   // A folder that is not a project: a notice, the old project and its note stay.
   const song = readFolder(SONG)
   const newer = song.map((f) =>
-    f.path === 'project.json' ? { path: f.path, bytes: text(Buffer.from(f.bytes).toString().replace('"format": 2', '"format": 99')) } : f,
+    f.path === 'project.json' ? { path: f.path, bytes: text(Buffer.from(f.bytes).toString().replace('"format": 3', '"format": 99')) } : f,
   )
   expect(await open(page, 'newer', newer)).toEqual({ status: 'refused', reason: 'newer_format' })
   await expect(page.getByRole('status').filter({ hasText: 'newer version' })).toBeVisible()

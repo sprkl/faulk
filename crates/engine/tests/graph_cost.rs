@@ -55,6 +55,7 @@ fn playing(slot: u32) -> Vec<M> {
             track: TrackSlot(slot),
             pitch: 69,
             velocity: 100,
+            at: None,
         },
     ]
 }
@@ -130,6 +131,70 @@ fn an_empty_track_costs_no_notable_computation() {
         assert!(
             share < 5.0,
             "{EMPTY} empty tracks take {share:.2} % of a block's budget"
+        );
+    }
+}
+
+/// The cost of the device fades (#233) in their worst case: a chain of `OUTGOING_ROOM`
+/// filters after the instrument, every one of them replaced at once (what a device inserted
+/// at the head of such a chain does through the commands), so that for one fade every slot
+/// runs its old device and its new one and blends them. Printed per block against the same
+/// chain settled; the fade lasts 240 frames, so the two blocks after the change are timed.
+#[test]
+fn a_whole_chain_rebuilt_at_once_costs_one_fade_of_double_work() {
+    use engine::devices::filter::DESCRIPTOR as FILTER;
+    use engine::graph::OUTGOING_ROOM;
+    let filter = |slot: usize| M::DeviceInsert {
+        track: TrackSlot(0),
+        device: DeviceSlot(slot as u16),
+        kind: FILTER.kind_id,
+        state: encode_state(&[]),
+    };
+    let (mut p, mut e) = rig();
+    let mut setup = playing(0);
+    setup.extend((1..=OUTGOING_ROOM).map(filter));
+    send(&mut p, &mut e, &setup);
+    let steady = time(&mut e, 300);
+    let (mut l, mut r) = (vec![0.0; BLOCK], vec![0.0; BLOCK]);
+    let rounds = 100;
+    let mut best = f64::MAX;
+    for _ in 0..3 {
+        let mut total = 0.0;
+        for _ in 0..rounds {
+            let rts: Vec<_> = (1..=OUTGOING_ROOM)
+                .map(|slot| p.prepare(filter(slot)).unwrap().unwrap())
+                .collect();
+            for rt in rts {
+                e.apply(rt);
+            }
+            assert_eq!(
+                e.state().track(TrackSlot(0)).unwrap().graph.outgoing_len(),
+                OUTGOING_ROOM
+            );
+            let start = Instant::now();
+            for _ in 0..2 {
+                e.render(&mut l, &mut r);
+            }
+            total += start.elapsed().as_secs_f64() * 1e6 / 2.0;
+            // The outgoing filters left at the end of the fade; drop them and the garbage.
+            assert_eq!(
+                e.state().track(TrackSlot(0)).unwrap().graph.outgoing_len(),
+                0
+            );
+            p.collect();
+        }
+        best = best.min(total / f64::from(rounds));
+    }
+    eprintln!(
+        "per block of {BLOCK} frames ({BUDGET_US:.0} µs budget), a tone and {OUTGOING_ROOM} \
+         filters: settled {steady:.2} µs; every filter replaced, the two blocks of the fade \
+         {best:.2} µs ({:.2}x)",
+        best / steady
+    );
+    if !cfg!(debug_assertions) {
+        assert!(
+            best < BUDGET_US / 2.0,
+            "the fade of a whole chain takes {best:.2} µs of a {BUDGET_US:.0} µs block"
         );
     }
 }

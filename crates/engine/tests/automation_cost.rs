@@ -6,7 +6,7 @@
 //! `cargo test -p engine --release --test automation_cost -- --nocapture`
 //!
 //! (no allocation detector here: its allocator does not build in release; the allocation
-//! test is `tests/automation.rs`).
+//! test is `tests/it/automation.rs`).
 
 use std::time::Instant;
 
@@ -79,6 +79,7 @@ fn rig(lanes: bool) -> (Preparer, Engine) {
                     track,
                     pitch: 60 + t as u8,
                     velocity: 100,
+                    at: None,
                 },
             ],
         );

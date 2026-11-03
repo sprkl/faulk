@@ -389,6 +389,14 @@ pub fn messages() -> Vec<Phase> {
             track: synth_track,
             pitch: 64,
             velocity: 90,
+            at: None,
+        },
+        // A stamped note (#499): the stamp's decoding and conversion.
+        M::NoteOn {
+            track: synth_track,
+            pitch: 67,
+            velocity: 90,
+            at: Some(0),
         },
     ];
     // A note on every instrument, at the first key it names (a drum kit) or middle C.
@@ -398,11 +406,28 @@ pub fn messages() -> Vec<Phase> {
                 track: *track,
                 pitch: desc.named_keys.first().map_or(60, |k| k.key),
                 velocity: 100,
+                at: None,
             });
         }
     }
-    // A recording from a stopped clock with the metronome on starts with a count-in bar.
+    // The device fades (#233): every device switched off while its chain is heard, rendered
+    // inside its fade (one block, shorter than the 5 ms fade at 48 kHz and above), then on
+    // again. The removals of phase 4 run the outgoing devices and their return.
+    let switch = |enabled| {
+        placed
+            .iter()
+            .chain(&master_placed)
+            .map(|(track, device, _)| M::DeviceSetEnabled {
+                track: *track,
+                device: *device,
+                enabled,
+            })
+            .collect::<Vec<_>>()
+    };
+    let fade_out = switch(false);
+    let fade_in = switch(true);
     let halt = vec![M::Stop];
+    // A recording from a stopped clock with the metronome on starts with a count-in bar.
     let record = vec![
         M::SetRecording { recording: true },
         M::Play { from: Tick(0) },
@@ -412,6 +437,12 @@ pub fn messages() -> Vec<Phase> {
         M::NoteOff {
             track: synth_track,
             pitch: 60,
+            at: None,
+        },
+        M::NoteOff {
+            track: synth_track,
+            pitch: 67,
+            at: Some(0),
         },
         M::AllNotesOff { track: synth_track },
         M::SetRecording { recording: false },
@@ -451,6 +482,8 @@ pub fn messages() -> Vec<Phase> {
         phase(structure, BLOCKS),
         phase(mix, BLOCKS),
         phase(play, PLAY_BLOCKS),
+        phase(fade_out, 1),
+        phase(fade_in, 1),
         phase(halt, BLOCKS),
         phase(record, BLOCKS),
         phase(seek, BLOCKS),

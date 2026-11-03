@@ -3,7 +3,7 @@
 
 use crate::server::HELPER_HEADER;
 use futures_util::StreamExt;
-use protocol::{HELPER_NAME, ServerMessage, paths};
+use protocol::{HELPER_NAME, paths};
 use std::time::{Duration, Instant};
 use tokio_tungstenite::tungstenite::Error;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -80,8 +80,42 @@ async fn probe(port: u16, origin: &str) -> Option<bool> {
         Err(_) => return None,
     };
     let text = ws.next().await?.ok()?.into_text().ok()?;
-    match serde_json::from_str::<ServerMessage>(&text).ok()? {
-        ServerMessage::Probe { helper, .. } => Some(helper == HELPER_NAME),
-        _ => Some(false),
+    Some(is_helper_probe(&text))
+}
+
+/// Whether a probe answer comes from a Faulk helper, of any protocol version: read loosely, so
+/// that a helper whose probe has other fields (#525 added `audio_output`) is still recognised.
+fn is_helper_probe(text: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
+        return false;
+    };
+    value.get("type").and_then(|t| t.as_str()) == Some("probe")
+        && value.get("helper").and_then(|h| h.as_str()) == Some(HELPER_NAME)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_probe_of_any_version_is_recognised() {
+        let current = serde_json::to_string(&protocol::ServerMessage::Probe {
+            helper: HELPER_NAME.into(),
+            protocol: protocol::PROTOCOL_VERSION,
+            audio_output: false,
+        })
+        .unwrap();
+        assert!(is_helper_probe(&current));
+        // Version 20, before `audio_output`.
+        assert!(is_helper_probe(
+            r#"{"type":"probe","helper":"faulk-helper","protocol":20}"#
+        ));
+        assert!(!is_helper_probe(
+            r#"{"type":"probe","helper":"another","protocol":21}"#
+        ));
+        assert!(!is_helper_probe(
+            r#"{"type":"hello","helper":"faulk-helper"}"#
+        ));
+        assert!(!is_helper_probe("not json"));
     }
 }

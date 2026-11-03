@@ -6,6 +6,13 @@ import type { Command, Tick } from './generated/protocol'
  * an agent calls (`crates/commands/src/arrangement.rs`).
  */
 
+/** Moves placements to other MIDI tracks, each to its own, and optionally in time too (`arrangement.move_to_track`, one history entry). */
+export const moveToTrack = (moves: { placement: string; track: string }[], by?: Tick): Command =>
+  by === undefined || by === 0 ? { type: 'arrangement.move_to_track', moves } : { type: 'arrangement.move_to_track', moves, by }
+
+/** Lays linked copies of a placement end to end up to the tick `until` (`arrangement.repeat`, one history entry). */
+export const repeatPlacement = (placement: string, until: Tick): Command => ({ type: 'arrangement.repeat', placement, until })
+
 /** Moves placements in time, all by the same number of ticks (negative is earlier). */
 export const movePlacements = (placements: string[], by: Tick): Command => ({ type: 'arrangement.move', placements, by })
 /** Moves one edge of a placement to a timeline tick. */

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { BOOT, watch } from './support'
+import { engineUp, watch } from './support'
 
 // #323: the page's storage actions are commands. Each one is sent through the dispatcher's one entry
 // point (`__faulkRun`, dev project only), which has no click behind it, like an agent; and the same
@@ -13,6 +13,7 @@ test.skip(({ browserName }) => Boolean(browserName) && test.info().project.name 
 
 type Faulk = {
   __faulkRun(command: object): void
+  __faulkNotice(): string | null
   __faulkStored(): Promise<{ recent: { id: string; name: string }[]; browser: { dir: string; name: string }[] }>
   __pick: string
   __perm: string
@@ -29,17 +30,23 @@ const run = (page: Page, command: object) => page.evaluate((c) => (window as unk
  * few seconds, and the checks click all the time, so the activation is switched off for this one command.
  */
 const runWithoutClick = async (page: Page, command: object) => {
-  // The command's outcome is a notice or a question. A previous one still on screen would end the wait at once.
+  // The command's outcome is a notice or a question. A previous one would end the wait at once.
   await expect(page.locator('[data-testid=storage-notice], [data-testid=confirm]')).toHaveCount(0)
+  await expect.poll(() => page.evaluate(() => (window as unknown as Faulk).__faulkNotice())).toBeNull()
   await page.evaluate(async (c) => {
     Object.defineProperty(navigator, 'userActivation', { value: { isActive: false }, configurable: true })
     try {
       ;(window as unknown as Faulk).__faulkRun(c)
       // The storage looks at the activation after some awaits, however long a loaded machine takes to get there: keep it
-      // off until the outcome is on screen (a clock would be a guess; with a click-free refusal the notice is that outcome).
+      // off until the outcome is there (a clock would be a guess; with a click-free refusal the notice is that outcome).
+      // The notice is read from the store, not from the screen: a banner above it (the permission's, #474) hides it, and a
+      // wait for its element then ran to the end of its 30 s (#541).
       const outcome = '[data-testid=storage-notice], [data-testid=confirm]'
+      const there = () => document.querySelector(outcome) || (window as unknown as Faulk).__faulkNotice()
       const end = performance.now() + 30_000
-      while (!document.querySelector(outcome) && performance.now() < end) await new Promise((resolve) => setTimeout(resolve, 20))
+      while (!there() && performance.now() < end) await new Promise((resolve) => setTimeout(resolve, 20))
+      // A wait that runs out is a failure to name, not a slow test (#541).
+      if (!there()) throw new Error('the command showed no notice and asked no question in 30 s')
     } finally {
       delete (navigator as unknown as Record<string, unknown>).userActivation
     }
@@ -54,7 +61,7 @@ async function addTrack(page: Page, item: string) {
 
 async function start(page: Page) {
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible(BOOT)
+  await engineUp(page)
 }
 
 /** The picker hands back the OPFS directory `window.__pick`; the permission is `window.__perm` (granted unless a test says otherwise). */

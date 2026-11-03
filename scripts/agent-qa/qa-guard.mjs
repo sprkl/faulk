@@ -26,16 +26,58 @@ import {
   hookRoots,
   isBranchName,
   mergedIntoDevelop,
+  prMergedOnGitHub,
   readRecord,
+  readRecords,
   refFingerprint,
   refTip,
   reviewPath,
+  reviewsPath,
   samePath,
+  squashedIntoDevelop,
   stashesSince,
   verificationPath,
+  verificationsPath,
 } from "./fingerprint.mjs";
 import { agentKey, ensureBaselines, sessionKey, sessionState, stateRoot } from "./session.mjs";
 import { blockReason, exemptAgentMarker, isAgentWorktreePath, stopDecision } from "./stop-core.mjs";
+
+/** The local checks failed: GitHub is asked at most once per stop, and once per marker every `GH_RECHECK_MS`. */
+const GH_RECHECK_MS = 10 * 60 * 1000;
+let ghCallsLeft = 1;
+
+/** Whether GitHub says the deleted branch of `marker` was merged (see `prMergedOnGitHub`), within the budget above. */
+function askedGitHub(root, session, marker) {
+  if (marker.ref === null || ghCallsLeft <= 0) {
+    return false;
+  }
+  const last = Date.parse(marker.prCheckedAt ?? "");
+  if (Number.isFinite(last) && Date.now() - last < GH_RECHECK_MS) {
+    return false;
+  }
+  ghCallsLeft -= 1;
+  session.noteCheck(root, marker.ref, marker.agent, { prCheckedAt: new Date().toISOString() });
+  return prMergedOnGitHub(root, marker.ref, marker.at, marker.tip);
+}
+
+/**
+ * `squashedIntoDevelop` for the marker's tip, skipped when it already failed for the same tip
+ * against the same `origin/develop` (the scan reads up to 300 patches: a branch deleted unmerged
+ * would pay it at every stop).
+ */
+function squashSettled(root, session, marker) {
+  const develop = refTip(root, "origin/develop");
+  if (develop !== undefined && marker.scannedDevelop === develop && marker.scannedTip === marker.tip) {
+    return false;
+  }
+  if (squashedIntoDevelop(root, marker.tip)) {
+    return true;
+  }
+  if (develop !== undefined && marker.ref !== null) {
+    session.noteCheck(root, marker.ref, marker.agent, { scannedDevelop: develop, scannedTip: marker.tip });
+  }
+  return false;
+}
 
 /**
  * Judges one branch (or commit) the session wrote on in a checkout: the
@@ -58,9 +100,11 @@ function judgeRef(root, session, marker, current, ctx) {
     fingerprint = refFingerprint(root, marker.ref);
     if (fingerprint === undefined) {
       // A branch deleted after its pull request was merged: its last known
-      // commit is in develop, nothing is left to check. Markers written
-      // without a commit, or whose commit is not in develop, still warn.
-      if (mergedIntoDevelop(root, marker.tip)) {
+      // commit is in develop (a merge), or squashed into it, or GitHub says
+      // its pull request was merged since the session wrote on it (#590);
+      // nothing is left to check. Markers written without a commit, or whose
+      // branch is not merged, still warn.
+      if (mergedIntoDevelop(root, marker.tip) || squashSettled(root, session, marker) || askedGitHub(root, session, marker)) {
         session.dropWriter(root, marker.ref, marker.agent);
         return {};
       }
@@ -74,15 +118,17 @@ function judgeRef(root, session, marker, current, ctx) {
     }
     files = [`the committed content of ${marker.ref}`];
   }
+  const branch = onIt ? (currentBranch(root) ?? undefined) : isBranchName(marker.ref) ? marker.ref : undefined;
   const decision = stopDecision({
     fingerprint,
     writer: true,
     // A subagent has no baseline: its events never write the session's, and one
     // taken by the lead's own stop would hold the agent's work as already there.
     baseline: onIt && !marker.agent ? session.baseline(root)?.fingerprint : undefined,
-    branch: onIt ? (currentBranch(root) ?? undefined) : isBranchName(marker.ref) ? marker.ref : undefined,
-    verification: readRecord(verificationPath(root)),
-    review: readRecord(reviewPath(root)),
+    branch,
+    // Every record of the checkout: each branch stacked in it is judged on its own (#492).
+    verifications: readRecords(verificationsPath(root), verificationPath(root)),
+    reviews: readRecords(reviewsPath(root), reviewPath(root)),
     deferral: readRecord(deferralPath(root)),
   });
   if (decision.consumeDeferral) {
@@ -107,7 +153,7 @@ function judgeRef(root, session, marker, current, ctx) {
       `A call of this session moved HEAD without authoring code ("${move.move}"); the baseline moved with it, so only the changes made by the session's own calls count.`,
     );
   }
-  return { reason: [blockReason({ root, fingerprint, files, missing: decision.missing }), ...notes].join(" ") };
+  return { reason: [blockReason({ root, fingerprint, files, missing: decision.missing, branch, reviewNotCarried: decision.reviewNotCarried }), ...notes].join(" ") };
 }
 
 /**

@@ -178,6 +178,17 @@ export function sessionState(state, key) {
         patchMarker(path, marker, { warned: true });
       }
     },
+    /**
+     * Remembers what qa-guard already checked for the deleted branch of this marker (#590):
+     * `prCheckedAt` (when GitHub was asked) or `scannedDevelop`/`scannedTip` (the squash scan).
+     */
+    noteCheck: (root, ref, agent, patch) => {
+      const path = writerPath(root, ref, agent);
+      const marker = read(path);
+      if (typeof marker?.root === "string") {
+        patchMarker(path, marker, patch);
+      }
+    },
     /** The session no longer needs this marker: its branch is settled. */
     dropWriter: (root, ref, agent) => rmSync(writerPath(root, ref, agent), { force: true }),
     /**

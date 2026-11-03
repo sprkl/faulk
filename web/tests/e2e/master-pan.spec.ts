@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { fakeWebMidi, watch } from './support'
+import { engineUp, fakeWebMidi, watch } from './support'
 
 // #412: the master's pan on its strip (typed, dragged, undone) and automated through the "Automate" button, which the
 // tracks' strips have too. A real browser with the real engine and project core.
@@ -28,7 +28,7 @@ test('master pan: set, dragged, undone, automated; the tracks have the same Auto
     .getByTestId('engine-state')
     .getByRole('button', { name: /Start audio|Démarrer/ })
     .click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   test.skip(
     (await page.evaluate(() => typeof (window as unknown as { __faulkView?: unknown }).__faulkView)) !== 'function',
     'the project view hook exists in the dev server only',

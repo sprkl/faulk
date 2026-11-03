@@ -51,6 +51,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       },
       { label: 'shortcut.panel', chords: [['Alt', 'M']] },
       { label: 'shortcut.help', chords: [['?']] },
+      { label: 'shortcut.goTo', chords: [['Mod', 'G']] },
       { label: 'shortcut.tab', chords: [['Tab'], ['Shift', 'Tab']], covers: ['Tab'] },
       { label: 'shortcut.cancel', chords: [['Esc']], covers: ['Escape'] },
     ],
@@ -93,9 +94,14 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         chords: [
           ['Alt', '←'],
           ['Alt', '→'],
+          ['Alt', '↑'],
+          ['Alt', '↓'],
         ],
       },
       { label: 'shortcut.clipOpen', chords: [['Enter']], covers: ['Enter'] },
+      { label: 'shortcut.clipDuplicate', chords: [['Mod', 'D']] },
+      { label: 'shortcut.clipDuplicateLinked', chords: [['Mod', 'Shift', 'D']] },
+      { label: 'shortcut.clipRepeat', chords: [['Mod', 'Shift', 'R']] },
       // The free cursor (#494): the timeline's and the piano roll's.
       { label: 'shortcut.cursorFree', chords: [['Esc']] },
       { label: 'shortcut.cursorMove', chords: [['←'], ['→'], ['↑'], ['↓']] },
@@ -107,6 +113,14 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         ],
       },
       { label: 'shortcut.clipCreate', chords: [['Enter']] },
+      { label: 'shortcut.playheadCursor', chords: [['Enter'], ['Shift', 'Enter']] },
+      {
+        label: 'shortcut.markerMove',
+        chords: [
+          ['Alt', '←'],
+          ['Alt', '→'],
+        ],
+      },
       { label: 'shortcut.remove', chords: [['Delete'], ['Backspace']], covers: ['Delete', 'Backspace'] },
       { label: 'shortcut.rename', chords: [['F2']], covers: ['F2'] },
       { label: 'shortcut.laneVolume', chords: [['Enter'], ['F2'], ['0-9']] },
@@ -128,7 +142,26 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       },
       { label: 'shortcut.noteDuplicate', chords: [['Mod', 'D']] },
       { label: 'shortcut.noteQuantize', chords: [['KeyQ']] },
-      { label: 'shortcut.noteTranspose', chords: [['↑'], ['↓'], ['Shift', '↑'], ['Shift', '↓']] },
+      {
+        label: 'shortcut.noteStep',
+        chords: [['←'], ['→'], ['↑'], ['↓'], ['Shift', '←'], ['Shift', '→'], ['Shift', '↑'], ['Shift', '↓']],
+      },
+      {
+        label: 'shortcut.noteShift',
+        chords: [
+          ['Alt', '←'],
+          ['Alt', '→'],
+        ],
+      },
+      {
+        label: 'shortcut.noteTranspose',
+        chords: [
+          ['Alt', '↑'],
+          ['Alt', '↓'],
+          ['Alt', 'Shift', '↑'],
+          ['Alt', 'Shift', '↓'],
+        ],
+      },
       { label: 'shortcut.noteCursor', chords: [['←'], ['→'], ['↑'], ['↓'], ['Shift', '↑'], ['Shift', '↓']] },
       { label: 'shortcut.noteCreate', chords: [['Enter']] },
       {

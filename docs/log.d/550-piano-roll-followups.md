@@ -1,0 +1,2 @@
+2026-11-03
+* **Fix** (#550): piano roll follow-ups of #527 and #529. Alt+Left and Alt+Right move the selected notes by the drawing step from the grid and the free cursor too (the shortcut list says so); the draw velocity is kept when the piano roll is closed and reopened; the window key handler no longer throws when the event target is not a node; a refused transposition at the keyboard edge is said and tested.

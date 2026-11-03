@@ -1,13 +1,13 @@
 //! One helper per port: what a starting helper decides when the port is free, held by a
 //! Faulk helper (ready, or still starting), or held by another program.
 
-use helper::audio::{Meter, audio_core};
+use helper::audio::{EngineSlot, Meter, audio_core};
 use helper::instance::{Startup, claim};
-use helper::midi::MidiManager;
+use helper::live::LiveInput;
+use helper::midi::{MidiManager, MidiSink};
 use helper::security::Policy;
 use helper::server::{Shared, serve};
-use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 const ORIGIN: &str = "http://localhost:5173";
@@ -29,21 +29,23 @@ fn faulk_helper(allowed: &str, delay: Duration) -> u16 {
             tokio::time::sleep(delay).await;
             let meter = Arc::new(Meter::default());
             let (_core, sender) = audio_core(48_000.0, meter.clone()).unwrap();
-            let sender = Arc::new(Mutex::new(sender));
-            let (activity_tx, activity_rx) = mpsc::channel();
-            let midi = MidiManager::new(sender.clone(), activity_tx);
+            let engine = Arc::new(EngineSlot::default());
+            engine.install(sender, 48_000.0);
+            let (midi_out, midi_in) = tokio::sync::mpsc::unbounded_channel();
+            let midi = MidiManager::new(MidiSink::new(
+                Arc::new(LiveInput::new(engine.clone())),
+                midi_out,
+            ));
             let shared = Arc::new(Shared::new(
                 Policy {
                     port,
                     allowed_origins: vec![allowed],
                     token: "0123456789abcdef0123456789abcdef".into(),
                 },
-                sender,
+                engine,
                 midi,
-                activity_rx,
+                midi_in,
                 meter,
-                48_000.0,
-                Arc::new(AtomicBool::new(false)),
                 Box::new(|_| {}),
             ));
             let listener = tokio::net::TcpListener::from_std(listener).unwrap();

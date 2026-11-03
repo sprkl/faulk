@@ -109,6 +109,8 @@ pub struct TrackSummary {
     pub name: String,
     /// `#rrggbb`, or `null` for the default colour.
     pub color: Option<Rgb>,
+    /// The height of the track's row in the arrangement, in pixels, or `null` for the default.
+    pub height: Option<u16>,
     /// `midi` (MIDI clips played by the instrument) or `audio`.
     pub kind: TrackKind,
     /// Gain in dB (`null` is silence), pan from -1 to 1 and mute.
@@ -377,6 +379,7 @@ fn track_summary(state: &State, id: &TrackId, track: &Track) -> TrackSummary {
         id: id.clone(),
         name: track.name.clone(),
         color: track.color,
+        height: track.height,
         kind: track.kind,
         mixer: track.mixer,
         solo: state.session.solo.contains(id),

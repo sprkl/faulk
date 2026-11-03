@@ -5,7 +5,7 @@
 //! real `.wasm` build run by an interpreter, in blocks of varied sizes, give the same signal.
 //!
 //! The graph hands live notes and parameter sets to the device at offset 0; the in-block
-//! offsets of the device are covered natively (`crates/engine/tests/osc_synth.rs`), and the
+//! offsets of the device are covered natively (`crates/engine/tests/it/osc_synth.rs`), and the
 //! code that splits a block at an event is the same in both builds.
 
 use engine::devices::drums;
@@ -65,6 +65,7 @@ fn scenario() -> Vec<Step> {
         track: t,
         pitch,
         velocity,
+        at: None,
     };
     const MIXED: &[usize] = &[128, 37, 2048, 1, 500];
 

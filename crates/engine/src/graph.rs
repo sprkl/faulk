@@ -69,6 +69,31 @@
 //! The retire ring is not the garbage ring: the garbage ring's bound (one item per rt
 //! message, CT-3) holds what `apply` returns, and a fade that ends in a render is not an rt
 //! message.
+//!
+//! # Device fades
+//!
+//! A device switched on or off, removed or replaced while its chain is heard fades over
+//! [`FADE_SECONDS`] too (#233), so that a chain never jumps. Each instrument and audio effect
+//! has a `fade` in `[0, 1]` ([`DeviceEntry::fade`]), moving linearly toward 1 while it is
+//! enabled and toward 0 otherwise. A slot where it moves runs as a blend of the signal
+//! entering the slot (`dry`) and the device's output: `dry + fade × (wet − dry)`. A settled
+//! device costs nothing more: at 1 it runs in place, at 0 it is skipped.
+//!
+//! - A device fading out (switched off) receives no event: an instrument's voices and an
+//!   effect's tail ring down under the fade; at 0 it is reset, so nothing of it comes back
+//!   when it is switched on again. Switched on again before 0, it fades back up from where it
+//!   is, tail included.
+//! - A device that leaves its slot (`DeviceRemove`, a `DevicePut` on an occupied slot) joins
+//!   the chain's **outgoing** list ([`Outgoing`], at most [`OUTGOING_ROOM`]) and
+//!   keeps running at that slot, with no event, over the same `dry` signal, its difference
+//!   added with its falling fade: a replacement is a crossfade. At 0 it goes to the retire
+//!   ring (a full ring keeps it, silent, for the next block), as a retiring track does.
+//! - A MIDI effect has no sound of its own and does not fade: its change releases the
+//!   instrument's notes, which the instruments end with their own release.
+//! - A change on a chain nobody hears (its strip's levels both at 0: a track not yet faded
+//!   in, a muted track) applies at once.
+//!
+//! Every device of a slot runs once per sub-block, on the same input.
 
 use rtrb::{Producer, PushError};
 
@@ -88,8 +113,128 @@ use crate::transport::Segment;
 /// Duration of a track's fade in or out, and of every change of a level, in seconds.
 pub const FADE_SECONDS: f64 = 0.005;
 
-/// Slots of the retire ring: retired tracks waiting for the prepare side.
+/// Slots of the retire ring: retired tracks and devices waiting for the prepare side.
 pub const RETIRE_RING_CAPACITY: usize = 4096;
+
+/// Outgoing devices one chain holds at most (#233): a device leaving a chain that already
+/// has this many fading out goes to the garbage at once (a hard cut, as before #233). One
+/// edit can rebuild a whole chain (a device inserted or moved near its head rebuilds every
+/// device after it, `commands::engine_msgs`), so the room covers a chain of 32 devices
+/// changed at once (beyond, the last ones cut). It bounds the extra device runs of a chain
+/// to 32 per block for one fade, and its cost in the worst case of the engine's tables
+/// (`tests/it/msg.rs`: 256 bytes a track, 2 MiB for 4 096 tracks counted twice) fits the budget.
+pub const OUTGOING_ROOM: usize = 32;
+
+/// What the audio side hands back through the retire ring once its fade is over: a track
+/// that left its slot, or a device that left its chain (#233).
+#[derive(Debug)]
+pub enum Retired {
+    Track(Box<Track>),
+    Device(Box<DeviceEntry>),
+}
+
+/// A chain's outgoing devices (#233, module doc > Device fades): removed or replaced while
+/// the chain was heard, each fading out at the slot it held. A fixed array of at most
+/// [`OUTGOING_ROOM`] boxes, packed at its start (moving a `Box`: no allocation). An array in
+/// the chain rather than a link in every [`DeviceEntry`]: the worst case of the engine's
+/// tables counts every device slot of every track (`tests/it/msg.rs`), where a link would cost
+/// more than the room does.
+#[derive(Debug)]
+pub struct Outgoing {
+    devices: [Option<Box<DeviceEntry>>; OUTGOING_ROOM],
+    len: usize,
+}
+
+impl Default for Outgoing {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Outgoing {
+    pub const fn new() -> Self {
+        Outgoing {
+            devices: [const { None }; OUTGOING_ROOM],
+            len: 0,
+        }
+    }
+
+    /// Devices fading out or waiting for room in the retire ring.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// The devices, packed.
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut DeviceEntry> {
+        self.devices[..self.len]
+            .iter_mut()
+            .flatten()
+            .map(|e| &mut **e)
+    }
+
+    /// Takes `entry` (disabled, its `slot` set); gives it back when the room is full.
+    pub(crate) fn push(&mut self, entry: Box<DeviceEntry>) -> Result<(), Box<DeviceEntry>> {
+        match self.devices.get_mut(self.len) {
+            Some(free) => {
+                *free = Some(entry);
+                self.len += 1;
+                Ok(())
+            }
+            None => Err(entry),
+        }
+    }
+
+    /// Whether a device still fading out sits at `slot`.
+    fn sounds_at(&self, slot: usize) -> bool {
+        self.devices[..self.len]
+            .iter()
+            .flatten()
+            .any(|e| usize::from(e.slot) == slot && e.fade > 0.0)
+    }
+
+    /// Ends every fade at once (the panic cut, once the output is silent): the devices
+    /// leave at the next sweep.
+    pub(crate) fn end(&mut self) {
+        for e in self.iter_mut() {
+            e.fade = 0.0;
+        }
+    }
+
+    /// Hands every device whose fade is over to the retire ring; one that finds the ring
+    /// full stays, silent, and is pushed again at the next sweep. A device whose slot is
+    /// beyond the chain's `slots` (a chain the list outlived) is never run again: its fade
+    /// ends here.
+    fn sweep(&mut self, retired: &mut Producer<Retired>, slots: usize) {
+        let mut kept = 0;
+        for i in 0..self.len {
+            let Some(mut entry) = self.devices[i].take() else {
+                continue;
+            };
+            if usize::from(entry.slot) >= slots {
+                entry.fade = 0.0;
+            }
+            if entry.fade <= 0.0 {
+                match retired.push(Retired::Device(entry)) {
+                    Ok(()) => continue,
+                    Err(PushError::Full(Retired::Device(back))) => entry = back,
+                    Err(PushError::Full(other)) => {
+                        // Unreachable: the ring gives back what it was given. Leaked rather
+                        // than freed on the audio thread.
+                        core::mem::forget(other);
+                        continue;
+                    }
+                }
+            }
+            self.devices[kept] = Some(entry);
+            kept += 1;
+        }
+        self.len = kept;
+    }
+}
 
 /// Most note events a track's chain receives in a sub-block ([`crate::events`]): the live
 /// block and its releases, the release of a jump, and the schedule's room. A MIDI effect's
@@ -207,6 +352,8 @@ pub struct TrackGraph {
     /// clock is stopped (`None` while it runs): a stop or a seek changes it and gives the
     /// parameters back to the lanes.
     stopped_at: Option<(u64, u64)>,
+    /// The devices that left the track's chain while it was heard, fading out (#233).
+    outgoing: Outgoing,
     next: Option<Box<Track>>,
 }
 
@@ -228,8 +375,19 @@ impl TrackGraph {
             lane_count: 0,
             lane_expect: None,
             stopped_at: None,
+            outgoing: Outgoing::new(),
             next: None,
         }
+    }
+
+    /// The devices that left the track's chain and still fade out (#233).
+    pub fn outgoing_len(&self) -> usize {
+        self.outgoing.len()
+    }
+
+    /// The track's outgoing list.
+    pub(crate) fn outgoing(&mut self) -> &mut Outgoing {
+        &mut self.outgoing
     }
 
     /// A gain lane is gone: the strip takes the fader's gain back.
@@ -327,6 +485,17 @@ struct Scratch {
     merged: EventBuffer,
     /// The `events_out` given to the devices that write no events.
     unused: EventBuffer,
+    /// The buffers of a device fade (#233).
+    blend: Blend,
+}
+
+/// The buffers a slot of a chain uses while one of its devices fades (#233, module doc >
+/// Device fades): the signal entering the slot, and an outgoing device's output.
+struct Blend {
+    dry_left: Box<[f32]>,
+    dry_right: Box<[f32]>,
+    old_left: Box<[f32]>,
+    old_right: Box<[f32]>,
 }
 
 /// The clock as the graph reads it for one block: the segments TR-1 cut it in (none when
@@ -363,7 +532,9 @@ pub struct Graph {
     voices: u32,
     retiring: Option<Box<Track>>,
     retiring_len: usize,
-    retired: Producer<Box<Track>>,
+    retired: Producer<Retired>,
+    /// The devices that left the master's chain while it was heard, fading out (#233).
+    master_outgoing: Outgoing,
 }
 
 impl core::fmt::Debug for Graph {
@@ -396,7 +567,7 @@ impl Graph {
     /// `retired` is the retire ring's producer.
     pub(crate) fn try_new(
         setup: &DeviceSetup,
-        retired: Producer<Box<Track>>,
+        retired: Producer<Retired>,
     ) -> Result<Self, MsgError> {
         let max_frames = setup.max_block_frames.max(1);
         let sample_rate = if setup.sample_rate.is_finite() && setup.sample_rate > 0.0 {
@@ -414,6 +585,12 @@ impl Graph {
                 sink: Sink::try_with_lane_room(NOTE_ROOM, PARAM_CHUNK, LANE_ROOM)?,
                 merged: EventBuffer::try_with_capacity(NOTE_ROOM + PARAM_CHUNK + 1)?,
                 unused: EventBuffer::try_with_capacity(1)?,
+                blend: Blend {
+                    dry_left: buffer(max_frames)?,
+                    dry_right: buffer(max_frames)?,
+                    old_left: buffer(max_frames)?,
+                    old_right: buffer(max_frames)?,
+                },
             },
             master: Mixer::unity(),
             master_gen: 0,
@@ -423,6 +600,7 @@ impl Graph {
             retiring: None,
             retiring_len: 0,
             retired,
+            master_outgoing: Outgoing::new(),
         })
     }
 
@@ -459,6 +637,16 @@ impl Graph {
     /// Tracks fading out or waiting for room in the retire ring.
     pub fn retiring(&self) -> usize {
         self.retiring_len
+    }
+
+    /// Devices that left the master's chain and still fade out (#233).
+    pub fn master_outgoing_len(&self) -> usize {
+        self.master_outgoing.len()
+    }
+
+    /// The master's outgoing list.
+    pub(crate) fn master_outgoing(&mut self) -> &mut Outgoing {
+        &mut self.master_outgoing
     }
 
     /// Changes the sample rate the fades and the devices' contexts use.
@@ -541,6 +729,9 @@ impl Graph {
                 left,
                 right,
             );
+            // The devices whose fade-out ended leave for the prepare side (#233).
+            let slots = track.devices.as_slice().len();
+            track.graph.outgoing.sweep(&mut self.retired, slots);
             voices = voices.saturating_add(track_voices(track));
             // After the whole block: the reduction the strip's compressors ended it with.
             track
@@ -569,12 +760,19 @@ impl Graph {
                 )
                 || track.graph.is_silent();
             if done {
-                match self.retired.push(track) {
+                match self.retired.push(Retired::Track(track)) {
                     Ok(()) => {
                         self.retiring_len -= 1;
                         continue;
                     }
-                    Err(PushError::Full(back)) => track = back,
+                    Err(PushError::Full(Retired::Track(back))) => track = back,
+                    Err(PushError::Full(other)) => {
+                        // Unreachable: the ring gives back what it was given. Leaked rather
+                        // than freed on the audio thread.
+                        core::mem::forget(other);
+                        self.retiring_len -= 1;
+                        continue;
+                    }
                 }
             }
             track.graph.next = kept;
@@ -583,6 +781,8 @@ impl Graph {
         self.retiring = kept;
 
         self.master_pass(state, clock, &ctx, left, right);
+        self.master_outgoing
+            .sweep(&mut self.retired, state.master_devices.as_slice().len());
         // The master pass has several paths (with or without lanes): the reduction is read once, after any of them.
         self.master_meter
             .note_reduction(chain_reduction(state.master_devices.as_slice()));
@@ -618,16 +818,22 @@ impl Graph {
             return;
         }
         let Graph {
-            master, scratch, ..
+            master,
+            scratch,
+            master_outgoing,
+            ..
         } = self;
         // The master's chain (#364) runs over the whole sum, before the fader: effects only,
         // no note, so the sink is empty. An empty or bypassed chain leaves the sum as it is.
         scratch.sink.clear();
         run_chain(
             state.master_devices.as_mut_slice(),
+            master_outgoing,
             &scratch.sink,
             &mut scratch.merged,
             &mut scratch.unused,
+            &mut scratch.blend,
+            fade,
             ctx,
             left,
             right,
@@ -695,6 +901,7 @@ impl Graph {
             master,
             scratch,
             master_lanes,
+            master_outgoing,
             ..
         } = self;
         let State {
@@ -707,6 +914,7 @@ impl Graph {
             sink,
             merged,
             unused,
+            blend,
             ..
         } = scratch;
         sink.clear();
@@ -728,9 +936,12 @@ impl Graph {
             };
             run_chain(
                 devices,
+                master_outgoing,
                 sink,
                 merged,
                 unused,
+                blend,
+                fade,
                 &sub,
                 &mut left[from..to],
                 &mut right[from..to],
@@ -934,9 +1145,16 @@ struct ClipsIn<'a> {
     signature: TimeSignature,
 }
 
-/// Whether the track has a device to render.
-fn has_enabled_device(track: &Track) -> bool {
-    track.devices.as_slice().iter().flatten().any(|d| d.enabled)
+/// Whether the track has a device to render: an enabled one, or one that still fades out
+/// (in its slot or outgoing, #233).
+fn chain_sounds(track: &Track) -> bool {
+    !track.graph.outgoing.is_empty()
+        || track
+            .devices
+            .as_slice()
+            .iter()
+            .flatten()
+            .any(|d| d.enabled || d.fade > 0.0)
 }
 
 /// Renders one track and sums it into `out_left` and `out_right` with its levels; `false`
@@ -958,7 +1176,7 @@ fn render_track(
     // plays or a launch waits (GR-1): the grid state must not wait for an instrument.
     let player_runs = input.as_ref().is_some_and(|i| i.clips.is_some())
         && (track.player.engaged() || track.launch.is_some() || track.back);
-    if !has_enabled_device(track) && !player_runs {
+    if !chain_sounds(track) && !player_runs {
         // Not rendered: the next stopped block it renders applies its lanes again.
         track.graph.stopped_at = None;
         return false;
@@ -970,6 +1188,7 @@ fn render_track(
         sink,
         merged,
         unused,
+        blend,
     } = scratch;
     let (left, right) = (&mut left[..frames], &mut right[..frames]);
     left.fill(0.0);
@@ -1020,6 +1239,7 @@ fn render_track(
         lanes: lane_head,
         lane_expect,
         stopped_at,
+        outgoing,
         ..
     } = graph;
     // The track's automation lanes (AM-2, [`crate::automation`]).
@@ -1072,9 +1292,12 @@ fn render_track(
         };
         run_chain(
             devices,
+            outgoing,
             sink,
             merged,
             unused,
+            blend,
+            fade,
             &sub,
             &mut left[from..to],
             &mut right[from..to],
@@ -1220,10 +1443,13 @@ fn launch_pending(env: &Option<Env<'_>>) -> bool {
 fn route_live(input: &Input<'_>, sink: &mut Sink) {
     for event in input.live {
         let event = match *event {
+            // A live note sounds at the start of the block that takes it, stamped or not
+            // (#499): by then its stamp is in the past.
             LiveEvent::NoteOn {
                 track,
                 pitch,
                 velocity,
+                ..
             } if track == input.slot => live_voice(pitch).map(|voice| Event::NoteOn {
                 offset: 0,
                 voice,
@@ -1231,13 +1457,12 @@ fn route_live(input: &Input<'_>, sink: &mut Sink) {
                 velocity: f32::from(velocity.min(127)) / 127.0,
                 tune_cents: 0.0,
             }),
-            LiveEvent::NoteOff { track, pitch } if track == input.slot => {
-                live_voice(pitch).map(|voice| Event::NoteOff {
+            LiveEvent::NoteOff { track, pitch, .. } if track == input.slot => live_voice(pitch)
+                .map(|voice| Event::NoteOff {
                     offset: 0,
                     voice,
                     key: pitch,
-                })
-            }
+                }),
             LiveEvent::AllNotesOff { track } if track == input.slot => {
                 Some(Event::AllNotesOff { offset: 0 })
             }
@@ -1263,99 +1488,208 @@ enum Stream {
 
 /// Runs a chain in slot order (module doc) over `left` and `right`, one sub-block: each
 /// device receives its own parameter values of `sink`, merged with the note stream when it
-/// takes notes ([`Sink::merge_for`]).
+/// takes notes ([`Sink::merge_for`]). A slot where a device fades, or where an outgoing
+/// device fades out, blends its devices' outputs with the signal entering it (module doc >
+/// Device fades), each device run once.
+#[allow(clippy::too_many_arguments)]
 fn run_chain(
     devices: &mut [Option<Box<DeviceEntry>>],
+    outgoing: &mut Outgoing,
     sink: &Sink,
     merged: &mut EventBuffer,
     unused: &mut EventBuffer,
+    blend: &mut Blend,
+    fade: u32,
     ctx: &BlockCtx,
     left: &mut [f32],
     right: &mut [f32],
 ) {
+    let frames = left.len().min(right.len());
+    let (left, right) = (&mut left[..frames], &mut right[..frames]);
+    let step = 1.0 / fade.max(1) as f32;
     let mut stream = Stream::Input;
     let mut instrument = false;
     for i in 0..devices.len() {
+        let leaving = !outgoing.is_empty() && outgoing.sounds_at(i);
         let (before, rest) = devices.split_at_mut(i);
-        let Some(Some(entry)) = rest.first_mut() else {
-            continue;
-        };
-        if !entry.enabled {
+        let entry = rest
+            .first_mut()
+            .and_then(|e| e.as_deref_mut())
+            .filter(|e| e.enabled || e.fade > 0.0);
+        if entry.is_none() && !leaving {
             continue;
         }
-        let role = entry.device.descriptor().role;
-        match role {
-            DeviceRole::MidiEffect if entry.events_out.is_none() => continue,
-            DeviceRole::Instrument if instrument => continue,
-            _ => {}
+        // Whether the device in the slot runs, and with which notes (`None`: no event, it
+        // fades out).
+        let mut run: Option<Option<Stream>> = None;
+        if let Some(entry) = entry.as_deref() {
+            let role = entry.device.descriptor().role;
+            run = match role {
+                DeviceRole::MidiEffect if entry.events_out.is_none() => None,
+                // A second instrument is ignored (the project allows one).
+                DeviceRole::Instrument if instrument => None,
+                _ if !entry.enabled => Some(None),
+                _ => Some(Some(stream)),
+            };
         }
-        let notes: &[Event] = match (role, stream) {
-            (DeviceRole::Effect, _) => &[],
-            (_, Stream::Input) => sink.notes(),
-            (_, Stream::Device(j)) => before
-                .get(j)
-                .and_then(|e| e.as_deref())
-                .and_then(|e| e.events_out.as_ref())
-                .map_or(&[], EventBuffer::events),
-        };
-        // Slots are below `MAX_DEVICES_PER_TRACK`: they fit in a `u16`.
-        let slot = DeviceSlot(i.min(usize::from(u16::MAX)) as u16);
-        let values = sink.params_for(slot);
-        let events: &[Event] = if values == 0 {
-            notes
-        } else if notes.len() + values < merged.capacity() {
-            sink.merge_for(slot, notes, merged);
-            merged.events()
-        } else {
-            // More than the merge holds (after a chained MIDI effect with a large output):
-            // the values apply at the sub-block's first frame, and no note is lost.
-            for (d, e) in sink.params() {
-                if *d == slot
-                    && let Event::ParamValue { id, value, .. } = *e
-                {
-                    entry.device.set_param(id, value);
+        let fading = entry
+            .as_deref()
+            .is_some_and(|e| run.is_some() && e.fade != e.target());
+        if fading || leaving {
+            blend.dry_left[..frames].copy_from_slice(left);
+            blend.dry_right[..frames].copy_from_slice(right);
+        }
+        if let Some(entry) = entry {
+            let Some(notes_from) = run else {
+                // Not run: its fade has nothing to fade.
+                entry.fade = entry.target();
+                if leaving {
+                    fade_out_at(outgoing, i, blend, unused, step, ctx, left, right);
+                }
+                continue;
+            };
+            let role = entry.device.descriptor().role;
+            // Slots are below `MAX_DEVICES_PER_TRACK`: they fit in a `u16`.
+            let slot = DeviceSlot(i.min(usize::from(u16::MAX)) as u16);
+            let events: &[Event] = match notes_from {
+                // Fading out: no event, its voices and tail ring down.
+                None => &[],
+                Some(from) => {
+                    if role == DeviceRole::Instrument {
+                        instrument = true;
+                    }
+                    let notes: &[Event] = match (role, from) {
+                        (DeviceRole::Effect, _) => &[],
+                        (_, Stream::Input) => sink.notes(),
+                        (_, Stream::Device(j)) => before
+                            .get(j)
+                            .and_then(|e| e.as_deref())
+                            .and_then(|e| e.events_out.as_ref())
+                            .map_or(&[], EventBuffer::events),
+                    };
+                    let values = sink.params_for(slot);
+                    if values == 0 {
+                        notes
+                    } else if notes.len() + values < merged.capacity() {
+                        sink.merge_for(slot, notes, merged);
+                        merged.events()
+                    } else {
+                        // More than the merge holds (after a chained MIDI effect with a large
+                        // output): the values apply at the sub-block's first frame, and no
+                        // note is lost.
+                        for (d, e) in sink.params() {
+                            if *d == slot
+                                && let Event::ParamValue { id, value, .. } = *e
+                            {
+                                entry.device.set_param(id, value);
+                            }
+                        }
+                        notes
+                    }
+                }
+            };
+            let DeviceEntry {
+                device, events_out, ..
+            } = &mut *entry;
+            match role {
+                DeviceRole::MidiEffect => {
+                    let Some(out) = events_out.as_mut() else {
+                        continue;
+                    };
+                    out.clear();
+                    let mut io = AudioIo {
+                        left,
+                        right,
+                        events_out: out,
+                    };
+                    device.process(ctx, events, &mut io);
+                    out.finish();
+                    out.retain_notes();
+                    stream = Stream::Device(i);
+                }
+                DeviceRole::Instrument | DeviceRole::Effect => {
+                    unused.clear();
+                    let mut io = AudioIo {
+                        left,
+                        right,
+                        events_out: unused,
+                    };
+                    device.process(ctx, events, &mut io);
                 }
             }
-            notes
-        };
-        let DeviceEntry {
-            device, events_out, ..
-        } = &mut **entry;
-        match role {
-            DeviceRole::MidiEffect => {
-                let Some(out) = events_out.as_mut() else {
-                    continue;
-                };
-                out.clear();
-                let mut io = AudioIo {
-                    left,
-                    right,
-                    events_out: out,
-                };
-                device.process(ctx, events, &mut io);
-                out.finish();
-                out.retain_notes();
-                stream = Stream::Device(i);
+            if fading {
+                let target = entry.target();
+                let mut g = entry.fade;
+                for (n, (l, r)) in left.iter_mut().zip(right.iter_mut()).enumerate() {
+                    g = approach(g, target, step);
+                    let (dl, dr) = (blend.dry_left[n], blend.dry_right[n]);
+                    *l = dl + g * (*l - dl);
+                    *r = dr + g * (*r - dr);
+                }
+                entry.fade = g;
+                if g <= 0.0 && !entry.enabled {
+                    // Silent now: nothing of it comes back when it is switched on again.
+                    entry.device.reset();
+                }
             }
-            DeviceRole::Instrument => {
-                instrument = true;
-                unused.clear();
-                let mut io = AudioIo {
-                    left,
-                    right,
-                    events_out: unused,
-                };
-                device.process(ctx, events, &mut io);
+        }
+        if leaving {
+            fade_out_at(outgoing, i, blend, unused, step, ctx, left, right);
+        }
+    }
+}
+
+/// One step of a linear fade from `g` toward `target`.
+#[inline]
+fn approach(g: f32, target: f32, step: f32) -> f32 {
+    if g < target {
+        (g + step).min(target)
+    } else {
+        (g - step).max(target)
+    }
+}
+
+/// Adds to `left` and `right` what the outgoing devices of slot `slot` still give (#233):
+/// each runs, with no event, over the signal entering the slot (`blend`'s dry buffers), and
+/// its difference from that signal is added with its falling fade.
+#[allow(clippy::too_many_arguments)]
+fn fade_out_at(
+    outgoing: &mut Outgoing,
+    slot: usize,
+    blend: &mut Blend,
+    unused: &mut EventBuffer,
+    step: f32,
+    ctx: &BlockCtx,
+    left: &mut [f32],
+    right: &mut [f32],
+) {
+    let frames = left.len().min(right.len());
+    let Blend {
+        dry_left,
+        dry_right,
+        old_left,
+        old_right,
+    } = blend;
+    let (dry_left, dry_right) = (&dry_left[..frames], &dry_right[..frames]);
+    let (old_left, old_right) = (&mut old_left[..frames], &mut old_right[..frames]);
+    for entry in outgoing.iter_mut() {
+        if usize::from(entry.slot) == slot && entry.fade > 0.0 {
+            old_left.copy_from_slice(dry_left);
+            old_right.copy_from_slice(dry_right);
+            unused.clear();
+            let mut io = AudioIo {
+                left: &mut *old_left,
+                right: &mut *old_right,
+                events_out: &mut *unused,
+            };
+            entry.device.process(ctx, &[], &mut io);
+            let mut g = entry.fade;
+            for n in 0..frames {
+                g = approach(g, 0.0, step);
+                left[n] += g * (old_left[n] - dry_left[n]);
+                right[n] += g * (old_right[n] - dry_right[n]);
             }
-            DeviceRole::Effect => {
-                unused.clear();
-                let mut io = AudioIo {
-                    left,
-                    right,
-                    events_out: unused,
-                };
-                device.process(ctx, events, &mut io);
-            }
+            entry.fade = g;
         }
     }
 }

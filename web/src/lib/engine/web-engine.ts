@@ -2,6 +2,7 @@ import type { Command } from '../generated/protocol'
 import type { Engine, EngineEvents, EngineStatus } from './engine'
 import { engineMemory } from './engine-abi'
 import { readFeedback } from './feedback'
+import { contextFrameAt } from './clock'
 import type { FromPrepare, ToPrepare } from './prepare-worker'
 import type { WorkletMessage } from './worklet'
 import workletUrl from './worklet.ts?worker&url'
@@ -22,6 +23,11 @@ const FEEDBACK_MS = 33
 export class WebEngine implements Engine {
   readonly kind = 'web' as const
   private readonly timer: ReturnType<typeof setInterval>
+  /**
+   * The output latency of the last `status()`, in seconds. Every status is what the page shows and what
+   * `record.start` takes as `latency_ms` (the dispatcher stores each one), so the stamps add the same estimate.
+   */
+  private reportedLatency = 0
 
   private constructor(
     private readonly context: AudioContext,
@@ -103,8 +109,19 @@ export class WebEngine implements Engine {
     return engine
   }
 
+  /**
+   * The audio context's frame at which a note was played at `timeStamp` (#499, `contextFrameAt`),
+   * with the latency of the last status, the one a take starts with.
+   */
+  frameAt(timeStamp: number | undefined): number | null {
+    if (this.context.state !== 'running' || typeof this.context.getOutputTimestamp !== 'function') return null
+    return contextFrameAt(this.context.getOutputTimestamp(), timeStamp, this.reportedLatency, this.context.sampleRate)
+  }
+
+  /** The status to show and to start a take with; `frameAt` keeps its latency (#499). */
   status(): EngineStatus {
     const seconds = this.context.baseLatency + (this.context.outputLatency || 0)
+    this.reportedLatency = seconds > 0 ? seconds : 0
     return {
       kind: this.kind,
       sampleRate: this.context.sampleRate,

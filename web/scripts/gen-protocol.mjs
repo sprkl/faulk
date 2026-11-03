@@ -6,6 +6,7 @@ import { writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { compile } from 'json-schema-to-typescript'
 import { mergeRoots } from './schema-merge.mjs'
+import { checkSchemaSize } from './schema-size.mjs'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 const out = fileURLToPath(new URL('../src/lib/generated/', import.meta.url))
@@ -14,12 +15,15 @@ const cargo = process.env.CARGO ?? 'cargo'
 const json = execFileSync(cargo, ['run', '-q', '-p', 'protocol', '--bin', 'export-schema'], {
   cwd: root,
   encoding: 'utf8',
-  // The bundle repeats the shared definitions in every tool of the catalog: it passed the
-  // 1 MB default of execFileSync with the clip commands.
+  // Above the 1 MB default of execFileSync since the clip commands; far above the cap of
+  // `schema-size.mjs`, so that an oversized bundle reaches the check and its message.
   maxBuffer: 256 * 1024 * 1024,
 })
 const bundle = JSON.parse(json)
-writeFileSync(out + 'schema.json', JSON.stringify(bundle, null, 2) + '\n')
+const schemaText = JSON.stringify(bundle, null, 2) + '\n'
+// Refused before writing: the file is committed, and GitHub refuses a file over 100 MB (#559).
+checkSchemaSize(schemaText, bundle)
+writeFileSync(out + 'schema.json', schemaText)
 
 // The four roots are compiled as one schema (see `schema-merge.mjs`).
 const roots = {
@@ -53,12 +57,16 @@ const parts = [
   '/* eslint-disable */',
   `export const PROTOCOL_VERSION = ${bundle.protocol_version} as const`,
   `export const PARAM_IDS = ${JSON.stringify(bundle.param_ids)} as const`,
+  '/** The stable `code`s of the `error` messages of the helper the page acts on (`protocol::errors`). */',
+  `export const ERROR_CODES = ${JSON.stringify(bundle.error_codes)} as const`,
+  '/** The longest engine stream the page sends the helper in one binary frame (`protocol::MAX_STREAM_BYTES`, BO-1). */',
+  `export const MAX_STREAM_BYTES = ${bundle.max_stream_bytes}`,
   `export const PARAM_DEFAULTS = ${JSON.stringify(bundle.param_defaults)} as const`,
   '/** The law of the fader (#389), `[position, dB]` points from the bottom (silence) to the top: defined in `engine::fader`. */',
   `export const FADER_TAPER = ${JSON.stringify(bundle.fader_taper)} as const`,
   '/** A parameter id of the built-in synth, as `device.set_param` takes it. */',
   'export type SynthParam = keyof typeof PARAM_IDS',
-  '/** The ids of the one synth until the project runs in the page (PR-4, PR-5), and its device kind. */',
+  "/** The ids of the default project's synth track and device (`commands::engine_msgs::single_synth`), and its device kind. */",
   `export const SINGLE_SYNTH = ${JSON.stringify(bundle.single_synth)} as const`,
   '/** The descriptor of every built-in device (CT-5, DV-1): the UI builds the device panels from them. */',
   `export const DEVICES = ${JSON.stringify(bundle.devices)} as const`,

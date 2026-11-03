@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { chooseMidiInput, fakeWebMidi, watch } from './support'
+import { chooseMidiInput, engineUp, fakeWebMidi, watch } from './support'
 
 // #300: the continuous controls in a real browser. One shared behaviour (`Slider`): the magnet on
 // the default value, the fine mode (Ctrl), the reset by double click, by the context menu and by
@@ -11,7 +11,7 @@ async function start(page: Page) {
   await fakeWebMidi(page)
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
-  await expect(page.getByTestId('engine-mode')).toContainText('Web')
+  await engineUp(page, 'Web')
   await chooseMidiInput(page, 'E2E Keys')
   await expect(page.getByTestId('track-list')).toHaveAttribute('data-track-count', '1')
 }
@@ -92,16 +92,16 @@ test('the mixer fader: the magnet holds 0 dB, Ctrl passes it, reset is one undo 
   await expect(item).toContainText('Default value')
   await expect(item).toContainText('0.0 dB')
   await item.click()
-  await expect(page.getByTestId('value-menu')).toHaveCount(0)
+  await expect(page.getByTestId('context-menu')).toHaveCount(0)
   await expect(fader).toHaveAttribute('aria-valuetext', '0.0 dB')
   await page.keyboard.press('Control+z')
   await expect(fader).toHaveAttribute('aria-valuetext', '−6.0 dB')
 
   // Escape closes the menu and changes nothing.
   await fader.click({ button: 'right' })
-  await expect(page.getByTestId('value-menu')).toBeVisible()
+  await expect(page.getByTestId('context-menu')).toBeVisible()
   await page.keyboard.press('Escape')
-  await expect(page.getByTestId('value-menu')).toHaveCount(0)
+  await expect(page.getByTestId('context-menu')).toHaveCount(0)
   await expect(fader).toHaveAttribute('aria-valuetext', '−6.0 dB')
 
   // Delete puts it back too.

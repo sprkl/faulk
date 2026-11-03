@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #471: one row per track in the arrangement (the `lane` token, a height per track), the inspector of the
 // selected track in the left column, the volume typed on the selected row, the zoom on Ctrl, and the skip link.
@@ -13,7 +13,7 @@ const SHOTS = '../.qa/design-review-2026-11-01/after-471'
 async function start(page: Page, tracks = 1) {
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
-  await expect(page.getByTestId('engine-mode')).toContainText('Web')
+  await engineUp(page, 'Web')
   await page.getByTestId('nav-arrangement').click()
   await expect(page.getByTestId('track-header')).toHaveCount(1)
   for (let i = 1; i < tracks; i++) {
@@ -99,16 +99,49 @@ test('a row is resized by its handle, from the pointer and the keyboard, and the
   await handle.dblclick()
   await expect(handle).toHaveAttribute('aria-valuenow', '44')
   // The compact density takes the lane-compact token, 28 px, for the rows without a height of their own.
-  await page.evaluate(() => document.documentElement.setAttribute('data-density', 'compact'))
+  // The setting is in the project menu (#490), kept in the browser.
+  await page.getByTestId('project-menu').click()
+  await page.getByTestId('menu-density-compact').click()
+  await expect(page.locator('html')).toHaveAttribute('data-density', 'compact')
   await expect(page.getByTestId('track-header').nth(1)).toHaveAttribute('data-height', '28')
-  await page.evaluate(() => document.documentElement.removeAttribute('data-density'))
+  expect(await page.evaluate(() => localStorage.getItem('faulk.density'))).toBe('compact')
+  await page.getByTestId('project-menu').click()
+  await page.getByTestId('menu-density-comfortable').click()
+  await expect(page.locator('html')).not.toHaveAttribute('data-density', /.*/)
   await expect(page.getByTestId('track-header').nth(1)).toHaveAttribute('data-height', '44')
-  // The height is the page's: it stays across a view switch.
+  // The height is the project's: it stays across a view switch.
   await handle.focus()
   await page.keyboard.press('Shift+ArrowDown')
   await page.getByTestId('nav-mixer').click()
   await page.getByTestId('nav-arrangement').click()
   await expect(page.getByTestId('track-header').first().getByTestId('lane-resize')).toHaveAttribute('aria-valuenow', '60')
+  expect(errors).toEqual([])
+})
+
+test('a row keeps its height with the project: one undoable step, and back after a reload (#490)', async ({ page }) => {
+  const { errors } = watch(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await start(page, 2)
+  const first = page.getByTestId('track-header').first()
+  const handle = first.getByTestId('lane-resize')
+  // A drag is one command, on release: one undo takes the whole drag back.
+  const box = (await handle.boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 + 40, { steps: 6 })
+  await expect(first).toHaveAttribute('data-height', '84')
+  await page.mouse.up()
+  await expect(first).toHaveAttribute('data-height', '84')
+  await page.keyboard.press('Control+z')
+  await expect(first).toHaveAttribute('data-height', '44')
+  await page.keyboard.press('Control+Shift+z')
+  await expect(first).toHaveAttribute('data-height', '84')
+  // Saved with the project (the draft), found again on reopening.
+  await expect(page.getByTestId('save-state')).toHaveText(/^Draft saved at/, { timeout: 20_000 })
+  await page.reload()
+  await expect(page.getByTestId('track-header')).toHaveCount(2)
+  await expect(page.getByTestId('track-header').first()).toHaveAttribute('data-height', '84')
+  await expect(page.getByTestId('track-header').nth(1)).toHaveAttribute('data-height', '44')
   expect(errors).toEqual([])
 })
 

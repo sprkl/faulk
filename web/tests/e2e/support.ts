@@ -1,9 +1,13 @@
 import { expect, type Page } from '@playwright/test'
+import { e2eHelperPort } from '../../scripts/e2e-helper-port'
 
 /** The helper's address (`src/lib/engine/helper-client.ts`). */
 export const HELPER_HOST = '127.0.0.1'
-/** `FAULK_E2E_HELPER_PORT` moves the stand-in helper (and the page's target, at build time) when 47800 is held by an installed helper. */
-export const HELPER_PORT = Number(process.env.FAULK_E2E_HELPER_PORT) || 47800
+/**
+ * The stand-in helper's port (and the page's target, built in by `playwright.config.ts`): `FAULK_E2E_HELPER_PORT`, else a port of this
+ * checkout's own, so that two checkouts running the suite at once, or an installed helper on 47800, never collide (#505).
+ */
+export const HELPER_PORT = e2eHelperPort()
 
 /**
  * The page probes the helper on load; with no helper listening, the browser logs the refused
@@ -20,6 +24,17 @@ const REFUSED_PROBE = new RegExp(String.raw`^WebSocket connection to 'ws://127\.
  * can use it twice), as `describe.configure({ timeout })` in `timegrid.spec.ts` and `storage-commands.spec.ts`.
  */
 export const BOOT = { timeout: 30_000 }
+
+/**
+ * Waits for the engine pill of the DAW: the page has started its engine, in any mode, or in `mode` ('Web', 'Boost') when
+ * given. Every spec that opens `/app` and waits for the engine goes through it, so none holds the default 5 s of
+ * `expect` on a boot (#539); see `BOOT`.
+ */
+export async function engineUp(page: Page, mode?: string) {
+  const pill = page.getByTestId('engine-mode')
+  if (mode === undefined) await expect(pill).toBeVisible(BOOT)
+  else await expect(pill).toContainText(mode, BOOT)
+}
 
 /** Collects console errors and uncaught exceptions, and every request the page makes. */
 export function watch(page: Page) {
@@ -39,20 +54,28 @@ export function foreignRequests(requests: string[], baseURL: string): string[] {
   return requests.filter((url) => !/^(data|blob):/.test(url) && new URL(url).origin !== origin)
 }
 
-/** A fake Web MIDI access with one input, `window.__fakeMidi.send(bytes)` plays through it. */
+/**
+ * A fake Web MIDI access with one input, `window.__fakeMidi.send(bytes, timeStamp?)` plays through it. Like a real
+ * `MIDIMessageEvent`, a message carries its time on the performance clock: `performance.now()` unless given, none for `null`.
+ */
 export async function fakeWebMidi(page: Page) {
   await page.addInitScript(() => {
     const input = {
       id: 'e2e-keys',
       name: 'E2E Keys',
       state: 'connected',
-      onmidimessage: null as ((event: { data: Uint8Array }) => void) | null,
+      onmidimessage: null as ((event: { data: Uint8Array; timeStamp?: number }) => void) | null,
       close: () => Promise.resolve(),
     }
     const inputs = new Map([[input.id, input]])
     const access = { inputs, outputs: new Map(), onstatechange: null }
     Object.defineProperty(navigator, 'requestMIDIAccess', { value: () => Promise.resolve(access) })
-    Object.assign(window, { __fakeMidi: { send: (bytes: number[]) => input.onmidimessage?.({ data: new Uint8Array(bytes) }) } })
+    Object.assign(window, {
+      __fakeMidi: {
+        send: (bytes: number[], timeStamp?: number | null) =>
+          input.onmidimessage?.({ data: new Uint8Array(bytes), timeStamp: timeStamp === null ? undefined : (timeStamp ?? performance.now()) }),
+      },
+    })
   })
 }
 

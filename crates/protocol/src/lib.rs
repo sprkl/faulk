@@ -3,13 +3,40 @@
 //! The page sends [`ClientMessage`]s and receives [`ServerMessage`]s, as JSON text
 //! frames over a local WebSocket. The probe and the session's first message carry
 //! [`PROTOCOL_VERSION`]; the page refuses a helper of another version at both points.
+//!
+//! Binary frames carry the engine (BO-1): from the page, each one is a `ControlMsg` byte
+//! stream the page's project core encoded (`engine::msg`), the same bytes the page's own
+//! engine takes, which the helper submits unchanged (at most [`MAX_STREAM_BYTES`]); from the
+//! helper, each one is a report (`engine::msg::Feedback`, version 3 of this protocol). The page
+//! owns the project in both modes: no command crosses the link.
 
-use commands::Command;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 16;
+pub const PROTOCOL_VERSION: u32 = 24;
+
+/// The largest engine stream the page sends in one binary frame, and the largest message the
+/// helper reads on a session: above every snapshot a project within the project's limits
+/// encodes (16 Mi notes at about 21 bytes each are 352 MB). The page never sends a longer
+/// one; the helper's other routes keep the WebSocket library's default limits.
+pub const MAX_STREAM_BYTES: usize = 1 << 30;
+
+// Version 24 (#598): the notes of the helper's MIDI input play on the helper's engine at once, without the page's main thread. The page sends `live.routing` (`epoch`, the slots of the tracks the live input reaches) after each snapshot and whenever it changes; the helper encodes each note on in that epoch for those tracks and each note off for the tracks its note went to, and ignores a table of another epoch than its engine's. `midi.message` still carries every message to the page and gains `played`: the page runs the message in its project and sends its engine bytes only when the helper did not play it (control changes, a note before any table). A page of version 23 would double the notes, and one of version 24 would leave them unplayed with a helper of version 23.
+
+// Version 23 (#102, BO-1): the helper holds no project. The page sends the engine's `ControlMsg` byte streams it encodes in binary frames (a snapshot newer than the epoch `hello` announces, then each change), the helper submits them unchanged and answers a stream its engine stops with `stream_refused` (code, offset, the engine's epoch), to which the page answers with a snapshot. `hello` gains `epoch` and `capabilities` (`midi`, `disk`). The `command` message is gone: the helper's own MIDI devices take `midi.list_inputs` and `midi.select_input`, and the selected input's messages go to the page as `midi.message` (raw bytes), which plays them through its project; `midi.activity` is gone.
+
+// Version 22 (#525): the helper starts without an audio output. The probe answers `audio_output` (an output is open now), and a session opened without an output gets `error` `audio.no_output` and is closed, without `hello`. A page of an earlier version would take that refusal for a revoked token, so the versions refuse each other.
+
+// Version 21 (#555): the new command `arrangement.repeat` (linked copies of a placement, end to end, up to a tick); a helper of version 20 would refuse it.
+
+// Version 20 (#490): a track keeps the height of its row in the arrangement. The commands gain `track.set_height`, the track summary and the project's tracks an optional `height` (not written when unset), the event `track_changed` a part `height`. The project file format is 3 (was 2): `track.json` gets an optional `height`; format 2 folders migrate by the number alone, and a build of format 2 reports a format 3 folder as made by a newer build.
+
+// Version 19 (#491): the new command `arrangement.move_to_track` (placements to other MIDI tracks); a helper of version 18 would refuse it.
+
+// Version 18 (#500): MIDI recording replace mode and quantization on input. `record.set_settings` takes optional `offset_ms`, `replace`, `quantize_on_input` and `quantize_strength` (it required `offset_ms`) and answers with the four previous values; `record.commit_take` takes optional `replace`, `quantize_on_input` and `quantize_strength` and answers with `replaced`; the event `record_settings_changed` carries the four settings; the session's `record` gains them. A helper of version 17 would refuse the new fields.
+
+// Version 17 (#499): `live.input_note_on` and `live.input_note_off` take an optional `frame`, the host frame the key was played at, so that a recording places the note where it was played; a helper of version 16 would refuse the field (commands refuse unknown fields).
 
 // Version 16 (#473, markers): the arrangement gains named section markers (`arrangement.marker.add`, `.rename`, `.move`, `.delete`, `.restore`), the project its `markers`, `arrangement.restore_time` an optional `markers`, the events `markers_changed`.
 
@@ -47,6 +74,16 @@ pub const PROTOCOL_VERSION: u32 = 16;
 // writes into its shared memory. Every other message is a JSON text frame. The JSON
 // `meter` message of version 2 is gone.
 
+/// Stable `code`s of [`ServerMessage::Error`] the page acts on.
+pub mod errors {
+    /// A session opened while the helper has no audio output (#525): sent instead of `hello`,
+    /// then the session is closed. The page keeps playing itself and its pairing.
+    pub const NO_OUTPUT: &str = "audio.no_output";
+    /// The audio output failed and its engine is gone: the page plays itself again. Before
+    /// `hello`, the page takes it as [`NO_OUTPUT`].
+    pub const AUDIO_STREAM: &str = "audio.stream";
+}
+
 /// Name the helper announces in its probe answer.
 pub const HELPER_NAME: &str = "faulk-helper";
 
@@ -56,31 +93,53 @@ pub mod paths {
     pub const PROBE: &str = "/probe";
     /// No token: accepts [`super::ClientMessage::Pair`] only.
     pub const PAIR: &str = "/pair";
-    /// Requires `?token=`: the session, which accepts [`super::ClientMessage::Command`].
+    /// Requires `?token=`: the session, which takes the page's engine streams (binary frames)
+    /// and the messages for the helper's MIDI inputs.
     pub const SESSION: &str = "/session";
 }
 
-/// The ids of the page's one-synth project, until the project runs in the page (PR-4,
-/// PR-5): `live.*` commands play `TRACK`, `device.set_param` sets `DEVICE`. The project
-/// itself is `commands::engine_msgs::single_synth`, which the page's module and the helper
-/// both run the commands on.
+/// The ids of the page's default project (`commands::engine_msgs::single_synth`, the project
+/// a new page starts with): `live.*` commands play `TRACK`, `device.set_param` sets `DEVICE`.
 pub mod single_synth {
     pub use commands::engine_msgs::single_synth::{DEVICE, TRACK};
 }
 
-/// A message from the page to the helper.
+/// A JSON message from the page to the helper (the engine streams are binary frames).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", deny_unknown_fields)]
-// A message is built, sent and dropped once per command, and its payload is the command itself: boxing it
-// would allocate on every message to save the room of the rare `pair`.
-#[allow(clippy::large_enum_variant)]
 pub enum ClientMessage {
     /// Pair with the helper using the one-time code it displays. Only on `/pair`.
     #[serde(rename = "pair")]
     Pair { code: String },
-    /// Run a command on the helper's engine. Only on an authenticated `/session`.
-    #[serde(rename = "command")]
-    Command { command: Command },
+    /// List the helper's MIDI inputs again: answered by `midi.inputs`. The page sends it
+    /// after its own `midi.list_inputs` command. Only on a session.
+    #[serde(rename = "midi.list_inputs")]
+    MidiListInputs,
+    /// Open the helper's MIDI input `id`, or close it (`None`): answered by `midi.inputs`, and
+    /// `error` `midi.connect` when it cannot open. The page sends it after its own
+    /// `midi.select_input` command. Only on a session.
+    #[serde(rename = "midi.select_input")]
+    MidiSelectInput { id: Option<String> },
+    /// Where the helper's MIDI input plays its notes (#598): the engine slots of the tracks
+    /// the live input reaches now (`commands::live::input_targets`: the selected track and the
+    /// armed MIDI tracks), in the engine `epoch` whose slots they are
+    /// (`commands::host::LiveRouting`). The page sends it after each snapshot it sends and
+    /// whenever the table changes. The helper plays each note of its input on these tracks at
+    /// once, in this epoch, and its note off on the tracks the note went to; a table of
+    /// another epoch than its engine's is ignored, and so is one longer than the engine's
+    /// track limit. Only on a session.
+    #[serde(rename = "live.routing")]
+    LiveRouting { epoch: u16, tracks: Vec<u32> },
+}
+
+/// What the helper can do, announced in `hello` (BO-1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Capabilities {
+    /// The helper can open MIDI inputs (its system has a MIDI backend).
+    pub midi: bool,
+    /// The helper reads and writes the project's folder for the page. Not yet: always `false`.
+    pub disk: bool,
 }
 
 /// A MIDI input as the helper sees it.
@@ -97,14 +156,22 @@ pub struct MidiInput {
 pub enum ServerMessage {
     /// Answer to a probe: a Faulk helper listens here.
     #[serde(rename = "probe")]
-    Probe { helper: String, protocol: u32 },
+    Probe {
+        helper: String,
+        protocol: u32,
+        /// Whether the helper has an audio output open now (#525). Without one it serves
+        /// anyway, and answers a session with `error` `audio.no_output` instead of `hello`.
+        audio_output: bool,
+    },
     /// Pairing accepted: keep this token and pass it as `?token=` to `/session`.
     #[serde(rename = "paired")]
     Paired { token: String },
     /// Pairing refused (wrong or expired code). At 0 attempts left the helper shows a new code.
     #[serde(rename = "pairing_refused")]
     PairingRefused { attempts_left: u32 },
-    /// First message of a session.
+    /// First message of a session; a helper without an audio output sends `error`
+    /// `audio.no_output` instead and closes the session. Sent again when the output was
+    /// replaced and the session plays on (#577): the new output's rate, buffer and latency.
     #[serde(rename = "hello")]
     Hello {
         protocol: u32,
@@ -114,6 +181,32 @@ pub enum ServerMessage {
         /// Output latency estimated from one callback buffer plus the driver's
         /// reported output delay; not measured.
         estimated_latency_ms: Option<f32>,
+        /// The epoch of the helper's engine (its last `Reset`): the page's first stream is a
+        /// `Reset` and a snapshot in a newer epoch (the engine outlives a page).
+        epoch: u16,
+        capabilities: Capabilities,
+    },
+    /// A stream of the page that the helper's engine stopped (corrupt, out of memory, past
+    /// the waiting bound) or refused whole (not of the engine's epoch): `code` is
+    /// `engine::msg::MsgError::code`, `at` the byte of the message that stopped it in the piece the engine was given (for a stream sent in pieces, from the start of the rest it was retrying; informative only), `epoch`
+    /// the engine's. The engine is behind the page's project: the page sends a snapshot in an
+    /// epoch newer than `epoch`.
+    #[serde(rename = "stream_refused")]
+    StreamRefused { code: i32, at: u32, epoch: u16 },
+    /// A message of the selected MIDI input, as received (a channel message: note, control
+    /// change...). The page runs it in its project as it runs a Web MIDI message (the keys
+    /// shown, a recording, its held notes), and sends the engine bytes it encodes unless
+    /// `played`.
+    #[serde(rename = "midi.message")]
+    MidiMessage {
+        data: Vec<u8>,
+        /// The helper already played this note on its engine, with the session's
+        /// `live.routing` (#598): a note on on the table's tracks, a note off on the tracks its
+        /// note went to. `false` for anything else: a control change (120 and 123 included,
+        /// which the page turns into `live.all_notes_off`), a note before any table or with a
+        /// table of another epoch than the engine's, a note off of a note the helper did not
+        /// play.
+        played: bool,
     },
     /// The MIDI inputs available, and the one selected.
     #[serde(rename = "midi.inputs")]
@@ -121,9 +214,6 @@ pub enum ServerMessage {
         inputs: Vec<MidiInput>,
         selected: Option<String>,
     },
-    /// A note received from the selected MIDI input (for the activity light).
-    #[serde(rename = "midi.activity")]
-    MidiActivity { note: u8, velocity: u8 },
     /// The helper's self-update: sent after `midi.inputs` at the start of a session, then on
     /// every change.
     #[serde(rename = "update.status")]
@@ -188,6 +278,8 @@ pub fn schema_bundle() -> serde_json::Value {
     serde_json::json!({
         "protocol_version": PROTOCOL_VERSION,
         "param_ids": param_ids,
+        "error_codes": { "no_output": errors::NO_OUTPUT, "audio_stream": errors::AUDIO_STREAM },
+        "max_stream_bytes": MAX_STREAM_BYTES,
         "param_defaults": param_defaults,
         // The fader's law (#389): `[position, dB]` points, from the bottom (silence) to the top.
         // The page's fader, the axis of a volume lane and the engine's reading of a lane all
@@ -214,6 +306,7 @@ pub fn schema_bundle() -> serde_json::Value {
             "project_view": schemars::schema_for!(commands::host::ProjectView),
             "export_report": schemars::schema_for!(commands::host::ExportReport),
             "history_view": schemars::schema_for!(commands::host::HistoryView),
+            "live_routing": schemars::schema_for!(commands::host::LiveRouting),
         },
         // The device contract (CT-5): the descriptor of every built-in device, from which
         // the UI generates the panels and agents learn the parameters, and its schema.

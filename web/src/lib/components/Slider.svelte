@@ -13,7 +13,6 @@
   import { createDrag, DRAG_SLOP_PX, fineKey, keyAction, type Drag } from '../continuous'
   import { useStores } from '../stores'
   import ValueField from './ValueField.svelte'
-  import ValueMenu from './ValueMenu.svelte'
 
   /** The thumb of a fader or a pan, in pixels: the travel is the control's length minus this. */
   const THUMB = 16
@@ -72,7 +71,6 @@
   const vertical = $derived(orientation === 'vertical')
 
   let root: HTMLDivElement | undefined = $state()
-  let menu = $state<{ x: number; y: number } | null>(null)
   // The text the value field opened with; null while it is closed.
   let typing = $state<string | null>(null)
   // What an entry that went past the range says once the field has closed (#410): where the field was, for about two seconds.
@@ -95,7 +93,7 @@
 
   /** Opens the field to type a value: Enter on the focused control, and the readouts next to it, call it. */
   export function edit() {
-    if (!entry || pointer || menu || typing !== null) return
+    if (!entry || pointer || typing !== null) return
     note = null
     typing = entry.text()
   }
@@ -118,7 +116,7 @@
   }
 
   function onPointerDown(event: PointerEvent) {
-    if (event.button !== 0 || menu) return
+    if (event.button !== 0) return
     root?.setPointerCapture?.(event.pointerId)
     pointer = { id: event.pointerId, x: event.clientX, y: event.clientY }
     started = false
@@ -188,17 +186,9 @@
     }
   }
 
+  /** The right click (or Shift+F10): the shared menu with the one entry that puts the default value back. The control answers for itself, so the card or the strip around it opens nothing more. */
   function onContextMenu(event: MouseEvent) {
-    event.preventDefault()
-    // The control answers for itself: the card or the strip around it opens nothing more.
-    event.stopPropagation()
-    // Keep the menu on screen.
-    menu = { x: Math.max(0, Math.min(event.clientX, window.innerWidth - 220)), y: Math.max(0, Math.min(event.clientY, window.innerHeight - 56)) }
-  }
-
-  function closeMenu(refocus = true) {
-    menu = null
-    if (refocus) root?.focus()
+    ui.openMenu(event, [{ id: 'default', label: ui.t('controls.default'), detail: defaultText, testid: 'value-menu-default', run: onreset }], label)
   }
 
   const along = (p: number) => `calc(${p} * (100% - ${THUMB}px))`
@@ -293,19 +283,6 @@
 
 {#if note}
   <p class="note" role="status" data-testid="value-note" style:left="{note.left}px" style:top="{note.top}px">{note.text}</p>
-{/if}
-
-{#if menu}
-  <ValueMenu
-    x={menu.x}
-    y={menu.y}
-    value={defaultText}
-    onreset={() => {
-      closeMenu()
-      onreset()
-    }}
-    onclose={() => closeMenu()}
-  />
 {/if}
 
 <style>

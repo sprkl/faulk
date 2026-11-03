@@ -3,7 +3,7 @@
 // both modes (spec § 2.1): every command runs here and comes back as a report (output,
 // events) with the engine bytes it produced; TypeScript never maps a command to the engine.
 // The report types are generated from the Rust schema (`pnpm gen:protocol`).
-import type { Command, ExportReport, HistoryView, ProjectEvent, ProjectView, RunReport, SnapshotReport } from '../generated/protocol'
+import type { Command, ExportReport, HistoryView, LiveRouting, ProjectEvent, ProjectView, RunReport, SnapshotReport } from '../generated/protocol'
 import projectUrl from './wasm/project.wasm?url'
 
 interface CoreExports {
@@ -17,8 +17,10 @@ interface CoreExports {
   pw_run(core: number, len: number): number
   pw_setup(core: number): number
   pw_snapshot(core: number): number
+  pw_snapshot_after(core: number, other: number): number
   pw_project(core: number): number
   pw_history(core: number): number
+  pw_live_routing(core: number): number
   pw_set_author(core: number, len: number): number
   pw_set_clock(core: number, nowMs: number): number
   pw_export_job(core: number, len: number): number
@@ -334,6 +336,24 @@ export class ProjectCore {
   snapshot(): WithEngine<SnapshotReport> {
     const report = this.output<SnapshotReport>('snapshot', this.exports.pw_snapshot(this.live()))
     return { report, engine: this.engine() }
+  }
+
+  /**
+   * The same for an engine the page did not start, whose epoch is `other` (the helper's, from its
+   * `hello`, BO-1): the `Reset` is in an epoch newer than both, so the helper's engine takes it.
+   */
+  snapshotAfter(other: number): WithEngine<SnapshotReport> {
+    const report = this.output<SnapshotReport>('snapshot', this.exports.pw_snapshot_after(this.live(), other & 0xffff))
+    return { report, engine: this.engine() }
+  }
+
+  /**
+   * Where the live input plays now (#598): the engine slots of the selected and armed MIDI tracks, in the
+   * epoch of the engine stream they belong to. In Boost the page sends it to the helper (`live.routing`),
+   * which plays the notes of its own MIDI input with it. Small: read after every command in Boost.
+   */
+  liveRouting(): LiveRouting {
+    return this.output<LiveRouting>('live_routing', this.exports.pw_live_routing(this.live()))
   }
 
   /** The project and the session as they are now. */

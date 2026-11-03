@@ -7,6 +7,9 @@
 //! - [`Prepare`], off the audio path (the helper's control thread, the web prepare Worker):
 //!   [`Prepare::submit`] takes a `ControlMsg` byte stream, [`Prepare::flush`] pushes what
 //!   waited and drops the garbage; both publish the counters the audio side reports.
+//!   [`StreamQueue`] puts it behind a queue of streams, so that a stream longer than the
+//!   engine takes at once (a big project's snapshot) is sent in pieces as the engine
+//!   consumes it (#245); the web prepare Worker does the same in `push-queue.ts`.
 //! - [`Host`], on the audio path: [`Host::pump`] applies what arrived
 //!   (`Engine::begin_block`), [`Host::render_block`] renders the track graph
 //!   (`Engine::render`, MO-3), and [`Host::render`] does both; about 30 times per second it
@@ -26,15 +29,18 @@
 //! [`Feedback`]: crate::msg::Feedback
 
 use core::sync::atomic::{AtomicU32, Ordering, fence};
+use std::collections::VecDeque;
 use std::sync::Arc;
 
 use crate::device::{DeviceSetup, Factory};
 use crate::engine::{Engine, Preparer, channel as engine_channel};
 use crate::msg::{
     ACTIVE_CLIP_BYTES, ActiveClip, ClipState, DeviceKind, FEEDBACK_HEADER_BYTES, FEEDBACK_VERSION,
-    Feedback, MAX_RECORDED_PER_REPORT, MsgError, Note, RECORDED_NOTE_WIRE_BYTES, RecordedNote,
-    TRACK_METER_BYTES, TrackMeter, TrackSlot, TransportState, limits,
+    Feedback, HEADER_BYTES, MAX_RECORDED_PER_REPORT, MSG_VERSION, MsgError, Note,
+    RECORDED_NOTE_WIRE_BYTES, RecordedNote, TRACK_METER_BYTES, Tag, TrackMeter, TrackSlot,
+    TransportState, limits,
 };
+use crate::time::SampleRate;
 
 /// The device kinds the shipping hosts build: the registry of the built-in devices
 /// ([`crate::devices`], DV-1).
@@ -76,6 +82,16 @@ impl Prepare {
         self.publish();
     }
 
+    /// Changes the sample rate, keeping the playhead: every device is built again for
+    /// `rate` here, off the audio thread ([`Preparer::set_sample_rate`], #236), then what
+    /// waited is pushed. Nothing changes on an error.
+    pub fn set_sample_rate(&mut self, rate: SampleRate) -> Result<(), MsgError> {
+        let result = self.preparer.set_sample_rate(rate);
+        self.preparer.flush();
+        self.publish();
+        result
+    }
+
     /// The prepare/apply cycle's prepare side.
     pub fn preparer(&self) -> &Preparer {
         &self.preparer
@@ -89,6 +105,186 @@ impl Prepare {
             .store(self.preparer.rejected(), Ordering::Relaxed);
         s.live_overflows
             .store(self.preparer.overflow().total(), Ordering::Relaxed);
+    }
+}
+
+// ---------------------------------------------------------------- paced streams
+
+/// The most bytes of streams a [`StreamQueue`] keeps waiting behind the one the engine is
+/// taking (#245): a stream that would go past it is refused, so that an engine that stopped
+/// consuming (a lost device) cannot make the queue grow without limit. The stream the engine
+/// is taking is never refused, whatever its size: a valid project's snapshot may be larger
+/// than this (21 bytes per note, up to `limits::MAX_NOTES` notes), and it is what a host
+/// sends to recover.
+pub const MAX_WAITING_BYTES: usize = 64 * 1024 * 1024;
+
+/// Whether a stream's first message is a `Reset` (the header's tag, `crate::msg`).
+fn starts_with_reset(stream: &[u8]) -> bool {
+    stream.len() >= HEADER_BYTES
+        && stream[0] == MSG_VERSION
+        && u16::from_le_bytes([stream[2], stream[3]]) == Tag::Reset as u16
+}
+
+/// The rest of a stream a busy engine stopped: the stream and the offset of the message to
+/// send next.
+#[derive(Debug)]
+struct Waiting {
+    bytes: Vec<u8>,
+    at: usize,
+}
+
+/// The prepare side behind a queue of streams (#245), off the audio path: the native twin of
+/// the web prepare Worker's `PushQueue` (`web/src/lib/engine/push-queue.ts`), with the same
+/// contract. A stream the engine stops because it is busy (`EngineBusy`: its ring and its own
+/// queue are full, as a big project's snapshot makes them) keeps its rest, from the message
+/// that stopped it ([`Preparer::stopped_at`]; the refused message left nothing behind), and
+/// is sent again at the next [`StreamQueue::flush`], before anything sent after it: nothing
+/// is lost nor reordered among the streams. (Once nothing waits here, the prepare side's own
+/// queue may still hold the tail of a stream, and a live note sent then goes straight to the
+/// live queue, ahead of that tail: `Preparer::handle`.) Any other stop drops that stream (the engine is then behind the
+/// project until a resync) and is returned.
+///
+/// [`Preparer::stopped_at`]: crate::engine::Preparer::stopped_at
+#[derive(Debug)]
+pub struct StreamQueue {
+    prepare: Prepare,
+    waiting: VecDeque<Waiting>,
+    /// Bytes of the waiting streams not sent yet.
+    waiting_bytes: usize,
+    /// The bound of the bytes waiting behind the front stream: [`MAX_WAITING_BYTES`] but
+    /// in tests.
+    max_waiting: usize,
+}
+
+impl StreamQueue {
+    pub fn new(prepare: Prepare) -> Self {
+        Self::with_max_waiting(prepare, MAX_WAITING_BYTES)
+    }
+
+    /// A queue that keeps at most `max_waiting` bytes waiting behind the front stream, for
+    /// tests of the bound.
+    pub fn with_max_waiting(prepare: Prepare, max_waiting: usize) -> Self {
+        StreamQueue {
+            prepare,
+            waiting: VecDeque::new(),
+            waiting_bytes: 0,
+            max_waiting,
+        }
+    }
+
+    /// The prepare side (its counters).
+    pub fn prepare(&self) -> &Prepare {
+        &self.prepare
+    }
+
+    /// Changes the sample rate ([`Prepare::set_sample_rate`], #236): the devices are built
+    /// again for `rate` and go in before the streams that wait here, which the prepare side
+    /// then builds at `rate` too. Nothing changes on an error.
+    pub fn set_sample_rate(&mut self, rate: SampleRate) -> Result<(), MsgError> {
+        self.prepare.set_sample_rate(rate)
+    }
+
+    /// Streams waiting for the engine.
+    pub fn waiting(&self) -> usize {
+        self.waiting.len()
+    }
+
+    /// Bytes of the waiting streams not sent yet.
+    pub fn waiting_bytes(&self) -> usize {
+        self.waiting_bytes
+    }
+
+    /// Sends a `ControlMsg` byte stream after the ones that wait: what a busy engine does
+    /// not take yet waits for [`StreamQueue::flush`]. The error is the first that stopped a
+    /// stream other than a busy engine (that stream is dropped, the others go on), or
+    /// `EngineBusy` for a stream refused because the streams waiting behind the front one
+    /// would go past the bound, [`MAX_WAITING_BYTES`] (nothing of it is handled nor
+    /// queued), or `OutOfMemory` when its rest could not be kept (its messages before the
+    /// one that stopped it stay handled). After any error the engine is behind the project:
+    /// the host resyncs it ([`StreamQueue::clear`], then a `Reset` and a snapshot).
+    pub fn send(&mut self, stream: &[u8]) -> Result<(), MsgError> {
+        if stream.is_empty() {
+            return Ok(());
+        }
+        // A stream that starts the engine over (a `Reset` and a snapshot: `project.open`, a
+        // resync) makes what waits pointless: the `Reset` would wipe it once applied.
+        if starts_with_reset(stream) {
+            self.clear();
+        }
+        if !self.waiting.is_empty() {
+            let front = self.waiting.front().map_or(0, |w| w.bytes.len() - w.at);
+            let behind = self.waiting_bytes - front;
+            if behind.saturating_add(stream.len()) > self.max_waiting {
+                return Err(MsgError::EngineBusy);
+            }
+            self.keep(stream)?;
+            return self.drain();
+        }
+        // Nothing waits: the stream goes straight in, and only its rest is copied.
+        match self.prepare.submit(stream) {
+            Err(MsgError::EngineBusy) => {
+                let at = self.prepare.preparer().stopped_at().unwrap_or(0);
+                self.keep(&stream[at.min(stream.len())..])
+            }
+            other => other,
+        }
+    }
+
+    /// The control thread's regular tick: the prepare side's flush ([`Prepare::flush`]),
+    /// then what waited here, in order. The error is as for [`StreamQueue::send`].
+    pub fn flush(&mut self) -> Result<(), MsgError> {
+        self.prepare.flush();
+        self.drain()
+    }
+
+    /// Drops the waiting streams: what a host does before it resyncs the engine (the
+    /// `Reset` of the snapshot would wipe what they bring), or when it quits.
+    pub fn clear(&mut self) {
+        self.waiting.clear();
+        self.waiting_bytes = 0;
+    }
+
+    /// Queues a copy of `bytes` behind the waiting streams.
+    fn keep(&mut self, bytes: &[u8]) -> Result<(), MsgError> {
+        if bytes.is_empty() {
+            return Ok(());
+        }
+        let mut copy = Vec::new();
+        copy.try_reserve_exact(bytes.len())
+            .map_err(|_| MsgError::OutOfMemory { bytes: bytes.len() })?;
+        copy.extend_from_slice(bytes);
+        self.waiting
+            .try_reserve(1)
+            .map_err(|_| MsgError::OutOfMemory {
+                bytes: size_of::<Waiting>(),
+            })?;
+        self.waiting.push_back(Waiting { bytes: copy, at: 0 });
+        self.waiting_bytes += bytes.len();
+        Ok(())
+    }
+
+    /// Sends the waiting streams in order until the engine is busy again.
+    fn drain(&mut self) -> Result<(), MsgError> {
+        let mut first = Ok(());
+        while let Some(front) = self.waiting.front_mut() {
+            let rest = front.bytes.len() - front.at;
+            match self.prepare.submit(&front.bytes[front.at..]) {
+                Err(MsgError::EngineBusy) => {
+                    let at = self.prepare.preparer().stopped_at().unwrap_or(0).min(rest);
+                    front.at += at;
+                    self.waiting_bytes -= at;
+                    break;
+                }
+                outcome => {
+                    self.waiting.pop_front();
+                    self.waiting_bytes -= rest;
+                    if let (Ok(()), Err(error)) = (&first, outcome) {
+                        first = Err(error);
+                    }
+                }
+            }
+        }
+        first
     }
 }
 
@@ -135,6 +331,9 @@ pub struct Host {
     report_frames: u32,
     feedback: Arc<[AtomicU32]>,
     feedback_seq: u32,
+    /// The clock's rate the host last saw (#236): a change makes the report period and the
+    /// load follow it.
+    clock_rate: u32,
 }
 
 impl core::fmt::Debug for Host {
@@ -156,7 +355,7 @@ fn try_slice<T: Clone>(n: usize, value: T) -> Result<Box<[T]>, MsgError> {
 }
 
 /// Builds the two sides for `sample_rate`, blocks up to [`limits::MAX_BLOCK_FRAMES`], the
-/// devices of [`factory`]. A new sample rate is a new channel (MO-1).
+/// devices of [`factory`]. A later rate change keeps the channel: [`Prepare::set_sample_rate`].
 pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
     let setup = DeviceSetup {
         sample_rate,
@@ -188,6 +387,7 @@ pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
         report_frames: report_frames(sample_rate),
         feedback: Arc::from(feedback.into_boxed_slice()),
         feedback_seq: 0,
+        clock_rate: 0,
     };
     let prepare = Prepare { preparer, status };
     prepare.publish();
@@ -229,6 +429,14 @@ impl Host {
         (self.engine.applied() - before) as u32
     }
 
+    /// The host's frame of the first sample of the next block (#499,
+    /// `Engine::set_host_frame`): live notes stamped in that clock are recorded where they
+    /// were played. Call it before [`Host::pump`]; a host that never does has the engine's
+    /// sample counter as its clock.
+    pub fn set_host_frame(&mut self, frame: u64) {
+        self.engine.set_host_frame(frame);
+    }
+
     /// One block: [`Host::pump`] then [`Host::render_block`]. Returns the frames rendered.
     pub fn render(&mut self, frames: usize) -> usize {
         self.pump();
@@ -240,6 +448,16 @@ impl Host {
     /// is due. Returns the frames rendered.
     pub fn render_block(&mut self, frames: usize) -> usize {
         let frames = frames.min(self.left.len());
+        // A new sample rate (#236, applied by the last pump): the report period and the
+        // load follow it. Only a change: the rate the host was built for stays as given.
+        let hz = self.engine.clock().sample_rate().hz();
+        if hz != self.clock_rate {
+            if self.clock_rate != 0 {
+                self.sample_rate = hz as f32;
+                self.report_frames = report_frames(self.sample_rate);
+            }
+            self.clock_rate = hz;
+        }
         let (left, right) = (&mut self.left[..frames], &mut self.right[..frames]);
         self.engine.render(left, right);
         self.voices = self.engine.voices();
@@ -276,6 +494,11 @@ impl Host {
     /// The right channel of the last block.
     pub fn right(&self) -> &[f32] {
         &self.right
+    }
+
+    /// Frames between two reports, at the current rate ([`REPORTS_PER_SECOND`]).
+    pub fn report_period(&self) -> u32 {
+        self.report_frames
     }
 
     /// The report region: [`Feedback::max_size_for`] the track limit, in 32-bit words that

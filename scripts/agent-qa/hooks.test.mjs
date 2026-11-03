@@ -12,8 +12,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { changeFingerprint, codeState } from "./fingerprint.mjs";
+import { changeFingerprint, codeState, squashedIntoDevelop } from "./fingerprint.mjs";
 import { sessionState } from "./session.mjs";
+import { RECORD_LIMIT } from "./stop-core.mjs";
 
 const SCRIPTS = dirname(dirname(fileURLToPath(import.meta.url)));
 const REPO = dirname(SCRIPTS);
@@ -62,10 +63,29 @@ const rootIdOf = (dir) => {
 const LIB = ["crates", "engine", "src", "lib.rs"];
 const writeCode = (root, content = "pub fn gain() -> f32 { 0.5 }\n") => writeFileSync(join(root, ...LIB), content);
 
+/**
+ * A stand-in for `gh` (FAULK_QA_GH, #590), so that no test asks GitHub: it logs its arguments to
+ * FAULK_QA_GH_LOG, fails with FAULK_QA_GH_FAIL, and prints FAULK_QA_GH_OUT (default: no merged PR).
+ * `ghEnv`: the settings of the test that runs, reset by it.
+ */
+const GH_STUB = join(mkdtempSync(join(tmpdir(), "faulk-gh-")), "gh.mjs");
+writeFileSync(
+  GH_STUB,
+  `import { appendFileSync } from "node:fs";
+if (process.env.FAULK_QA_GH_LOG) appendFileSync(process.env.FAULK_QA_GH_LOG, process.argv.slice(2).join(" ") + "\\n");
+if (process.env.FAULK_QA_GH_FAIL) process.exit(1);
+process.stdout.write(process.env.FAULK_QA_GH_OUT ?? "[]");
+`,
+);
+let ghEnv = {};
+
 const cleanEnv = () => {
   const env = { ...process.env, ...GIT_ENV };
   delete env.CLAUDE_PROJECT_DIR;
-  return env;
+  for (const key of Object.keys(env).filter((name) => name.startsWith("FAULK_QA_GH"))) {
+    delete env[key];
+  }
+  return { ...env, FAULK_QA_GH: GH_STUB, ...ghEnv };
 };
 
 /** Runs a hook as Claude Code does: JSON on stdin, project directory in the environment. */
@@ -260,9 +280,130 @@ describe("Stop hook: what blocks", () => {
       assert.equal(stop(root), null);
       toolCall(root, "s1", () => writeCode(root, "pub fn gain() -> f32 { 0.3 }\n"));
       assert.equal(script("agent-qa/record.mjs", root, "verified", ...RUST).status, 0);
-      assert.match(stop(root).reason, /no delivery review yet/);
+      // The earlier review exists: the message says why it does not count (#492).
+      const reason = stop(root).reason;
+      assert.match(reason, new RegExp(`review of an earlier state of ${branch} exists, but it is not carried over: ${branch} is not a task branch`));
+      assert.doesNotMatch(reason, /no delivery review yet/);
     });
   }
+
+  describe("two branches stacked in one checkout (#492)", () => {
+    /** feat/6-x, then feat/7-y on top of it, each written by the session, committed, verified and reviewed through record.mjs. */
+    function stacked() {
+      const root = makeRepo();
+      startSession(root);
+      toolCall(root, "s1", () => {
+        writeCode(root);
+        git(root, "commit", "-q", "-am", "six");
+      });
+      assert.equal(script("agent-qa/record.mjs", root, "verified", ...RUST).status, 0);
+      deliveryReview(root, { issue: 6 });
+      assert.equal(review(root, ".scratch/judge-dredd/6-delivery.md").status, 0);
+      toolCall(root, "s1", () => {
+        git(root, "switch", "-q", "-c", "feat/7-y");
+        writeFileSync(join(root, "crates", "engine", "src", "seven.rs"), "pub const SEVEN: u8 = 7;\n");
+        git(root, "add", "-A");
+        git(root, "commit", "-q", "-m", "seven");
+      });
+      assert.equal(script("agent-qa/record.mjs", root, "verified", ...RUST).status, 0);
+      deliveryReview(root, { issue: 7 });
+      const reviewed = review(root, ".scratch/judge-dredd/7-delivery.md");
+      assert.equal(reviewed.status, 0, reviewed.stderr);
+      return root;
+    }
+    const list = (root, name) => JSON.parse(readFileSync(qa(root, name), "utf8"));
+
+    it("each branch keeps its records, and the turn ends", () => {
+      const root = stacked();
+      assert.deepEqual(list(root, "verifications.json").map((r) => r.branch), ["feat/6-x", "feat/7-y"]);
+      assert.deepEqual(list(root, "reviews.json").map((r) => r.branch), ["feat/6-x", "feat/7-y"]);
+      // The last records alone are still written, for an older guard.
+      assert.equal(JSON.parse(readFileSync(qa(root, "review.json"), "utf8")).branch, "feat/7-y");
+      assert.equal(stop(root), null);
+      // Back on the first branch, the second one is judged on its committed content: both still pass.
+      toolCall(root, "s1", () => git(root, "switch", "-q", "feat/6-x"));
+      assert.equal(stop(root), null);
+      assert.equal(script("agent-qa/record.mjs", root, "verified", ...RUST).status, 0);
+      assert.equal(stop(root), null);
+      assert.deepEqual(list(root, "verifications.json").map((r) => r.branch), ["feat/7-y", "feat/6-x"]);
+    });
+
+    it("a later fix of the first branch needs its verification only, and the second still passes", () => {
+      const root = stacked();
+      toolCall(root, "s1", () => git(root, "switch", "-q", "feat/6-x"));
+      toolCall(root, "s1", () => writeCode(root, "pub fn gain() -> f32 { 0.45 }\n"));
+      const output = stop(root);
+      assert.equal(output.decision, "block");
+      assert.match(output.reason, /record\.mjs verified/);
+      assert.doesNotMatch(output.reason, /delivery review/);
+      assert.equal(script("agent-qa/record.mjs", root, "verified", ...RUST).status, 0);
+      assert.equal(stop(root), null);
+    });
+
+    it("an unreadable list counts as empty and blocks (the legacy record alone still counts)", () => {
+      const root = stacked();
+      writeFileSync(qa(root, "verifications.json"), "{ not json");
+      const output = stop(root);
+      assert.equal(output.decision, "block");
+      // last-run.json holds feat/7-y, the current branch: only feat/6-x lost its verification.
+      assert.match(output.reason, /committed content of feat\/6-x/);
+      assert.doesNotMatch(output.reason, /seven\.rs/);
+    });
+  });
+
+  it("records made before the lists (last-run.json and review.json alone) still count, and are kept in the lists", () => {
+    const root = makeRepo();
+    startSession(root);
+    toolCall(root, "s1", () => writeCode(root));
+    const fingerprint = changeFingerprint(root);
+    mkdirSync(qa(root), { recursive: true });
+    writeFileSync(qa(root, "last-run.json"), JSON.stringify({ status: "verified", fingerprint, branch: "feat/6-x", at: "2026-11-01T00:00:00Z" }));
+    writeFileSync(qa(root, "review.json"), JSON.stringify({ status: "reviewed", fingerprint: "0ld", branch: "feat/6-x", at: "2026-11-01T00:00:00Z" }));
+    assert.equal(stop(root), null);
+    toolCall(root, "s1", () => writeCode(root, "pub fn gain() -> f32 { 0.2 }\n"));
+    assert.equal(script("agent-qa/record.mjs", root, "verified", ...RUST).status, 0);
+    const verifications = JSON.parse(readFileSync(qa(root, "verifications.json"), "utf8"));
+    assert.deepEqual(verifications.map((r) => r.fingerprint), [fingerprint, changeFingerprint(root)]);
+    assert.equal(stop(root), null);
+  });
+
+  it("a list record.mjs cannot write records nothing and leaves no temporary file", () => {
+    const root = makeRepo();
+    startSession(root);
+    toolCall(root, "s1", () => writeCode(root));
+    mkdirSync(qa(root, "verifications.json", "blocker"), { recursive: true }); // a directory where the list goes
+    const result = script("agent-qa/record.mjs", root, "verified", ...RUST);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /\[agent-qa\] could not write .*verifications\.json .*nothing was recorded/);
+    assert.deepEqual(readdirSync(qa(root)).filter((name) => name.endsWith(".tmp")), []);
+    assert.equal(existsSync(qa(root, "last-run.json")), false);
+    assert.equal(existsSync(qa(root, "history.jsonl")), false);
+    assert.equal(stop(root).decision, "block");
+  });
+
+  it("record.mjs keeps at most RECORD_LIMIT entries; a state whose record went is asked for it again", () => {
+    const root = makeRepo();
+    startSession(root);
+    toolCall(root, "s1", () => writeCode(root));
+    assert.equal(script("agent-qa/record.mjs", root, "verified", ...RUST).status, 0);
+    deliveryReview(root);
+    assert.equal(review(root).status, 0);
+    assert.equal(stop(root), null);
+    const filler = Array.from({ length: RECORD_LIMIT }, (_, i) => ({ status: "verified", fingerprint: `other${i}`, branch: "feat/8-z", at: `t${i}` }));
+    const own = JSON.parse(readFileSync(qa(root, "verifications.json"), "utf8"));
+    writeFileSync(qa(root, "verifications.json"), JSON.stringify([...own, ...filler.slice(0, -1)]));
+    // Another branch records one more state: the oldest entry (this branch's) goes.
+    writeFileSync(qa(root, "last-run.json"), JSON.stringify(filler.at(-1)));
+    git(root, "switch", "-q", "-c", "feat/8-z");
+    writeFileSync(join(root, "crates", "engine", "src", "eight.rs"), "pub const EIGHT: u8 = 8;\n");
+    assert.equal(script("agent-qa/record.mjs", root, "verified", ...RUST).status, 0);
+    const kept = JSON.parse(readFileSync(qa(root, "verifications.json"), "utf8"));
+    assert.equal(kept.length, RECORD_LIMIT);
+    assert.equal(kept.some((r) => r.branch === "feat/6-x"), false);
+    rmSync(join(root, "crates", "engine", "src", "eight.rs"));
+    git(root, "switch", "-q", "feat/6-x");
+    assert.match(stop(root).reason, /record\.mjs verified/);
+  });
 
   it("a session that undoes its own change is let through", () => {
     const root = makeRepo();
@@ -420,6 +561,218 @@ describe("Stop hook: what blocks", () => {
       git(root, "branch", "-d", "feat/6-x");
       assert.match(stop(root).systemMessage, WARNING);
       assert.equal(markerFiles(root).length, 1);
+    });
+
+    describe("squash-merged into develop (#590)", () => {
+      /** Runs `fn` with the gh stub's settings, its call log at `log`. */
+      function withGh(settings, fn) {
+        const log = join(mkdtempSync(join(tmpdir(), "faulk-ghlog-")), "calls.txt");
+        writeFileSync(log, "");
+        ghEnv = { FAULK_QA_GH_LOG: log, ...settings };
+        try {
+          return fn(() => readFileSync(log, "utf8").split("\n").filter(Boolean));
+        } finally {
+          ghEnv = {};
+        }
+      }
+      /** Squash-merges feat/6-x into develop (on top of what develop holds), publishes it as origin/develop, deletes the branch. */
+      function squashAndDelete(root) {
+        git(root, "merge", "-q", "--squash", "feat/6-x");
+        git(root, "commit", "-q", "-m", "work (#7)");
+        git(root, "update-ref", "refs/remotes/origin/develop", "HEAD");
+        git(root, "branch", "-D", "feat/6-x");
+      }
+      const markerPath = (root) => qa(root, "sessions", "s1", markerFiles(root)[0]);
+
+      it("is settled silently when develop holds a commit with the branch's tree, without asking GitHub", () => {
+        const root = wroteAndLeft();
+        withGh({}, (calls) => {
+          squashAndDelete(root);
+          assert.equal(stop(root), null);
+          assert.equal(markerFiles(root).length, 0);
+          assert.deepEqual(calls(), []);
+        });
+      });
+
+      it("is settled silently when develop moved before the squash (same hunks, other tree)", () => {
+        const root = wroteAndLeft();
+        withGh({}, (calls) => {
+          writeFileSync(join(root, "README.md"), "# test\nmore\n");
+          git(root, "commit", "-q", "-am", "other work on develop");
+          squashAndDelete(root);
+          assert.equal(stop(root), null);
+          assert.equal(markerFiles(root).length, 0);
+          assert.deepEqual(calls(), []);
+        });
+      });
+
+      it("still warns when develop changed the same file differently", () => {
+        const root = wroteAndLeft();
+        withGh({}, () => {
+          writeCode(root, "pub fn gain() -> f32 { 0.25 }\n");
+          git(root, "commit", "-q", "-am", "other change");
+          git(root, "update-ref", "refs/remotes/origin/develop", "HEAD");
+          git(root, "branch", "-D", "feat/6-x");
+          assert.match(stop(root).systemMessage, WARNING);
+          assert.equal(markerFiles(root).length, 1);
+        });
+      });
+
+      const later = () => new Date(Date.now() + 60000).toISOString();
+      const tipOf = (root) => git(root, "rev-parse", "feat/6-x").trim();
+
+      it("is settled when GitHub reports its pull request merged after the session wrote on it, with its tip as head", () => {
+        const root = wroteAndLeft();
+        withGh({ FAULK_QA_GH_OUT: JSON.stringify([{ number: 7, mergedAt: later(), headRefOid: tipOf(root) }]) }, (calls) => {
+          git(root, "branch", "-D", "feat/6-x");
+          assert.equal(stop(root), null);
+          assert.equal(markerFiles(root).length, 0);
+          assert.deepEqual(calls(), ["pr list --head feat/6-x --base develop --state merged --json number,mergedAt,headRefOid --limit 20"]);
+        });
+      });
+
+      it("is settled when the merged pull request's head descends from its tip (updated on GitHub)", () => {
+        const root = wroteAndLeft();
+        const tip = tipOf(root);
+        git(root, "switch", "-q", "feat/6-x");
+        git(root, "commit", "-q", "--allow-empty", "-m", "update on GitHub");
+        const head = git(root, "rev-parse", "HEAD").trim();
+        git(root, "switch", "-q", "develop");
+        git(root, "branch", "-f", "feat/6-x", tip); // the session never saw the update
+        withGh({ FAULK_QA_GH_OUT: JSON.stringify([{ number: 7, mergedAt: later(), headRefOid: head }]) }, () => {
+          git(root, "branch", "-D", "feat/6-x");
+          assert.equal(stop(root), null);
+          assert.equal(markerFiles(root).length, 0);
+        });
+      });
+
+      it("still warns when the merged pull request does not hold its tip (commits made after the merge)", () => {
+        const root = wroteAndLeft();
+        const merged = tipOf(root);
+        toolCall(root, "s1", () => git(root, "switch", "-q", "feat/6-x"));
+        toolCall(root, "s1", () => {
+          writeCode(root, "pub fn gain() -> f32 { 0.7 }\n");
+          git(root, "commit", "-q", "-am", "after the merge");
+        });
+        toolCall(root, "s1", () => git(root, "switch", "-q", "develop"));
+        withGh({ FAULK_QA_GH_OUT: JSON.stringify([{ number: 7, mergedAt: later(), headRefOid: merged }]) }, () => {
+          git(root, "branch", "-D", "feat/6-x");
+          assert.match(stop(root).systemMessage, WARNING);
+          assert.equal(markerFiles(root).length, 1);
+        });
+      });
+
+      it("skips the squash scan while origin/develop and the tip have not moved since it failed", () => {
+        const root = wroteAndLeft();
+        git(root, "update-ref", "refs/remotes/origin/develop", "develop");
+        withGh({}, () => {
+          git(root, "branch", "-D", "feat/6-x");
+          assert.match(stop(root).systemMessage, WARNING);
+        });
+        const marker = JSON.parse(readFileSync(markerPath(root), "utf8"));
+        assert.equal(marker.scannedDevelop, git(root, "rev-parse", "develop").trim());
+        assert.equal(marker.scannedTip, marker.tip);
+        // develop now holds the squash, but the marker says the scan already failed against this develop: skipped.
+        git(root, "branch", "feat/6-x", marker.tip);
+        squashAndDelete(root);
+        writeFileSync(markerPath(root), JSON.stringify({ ...marker, scannedDevelop: git(root, "rev-parse", "origin/develop").trim() }));
+        withGh({}, () => {
+          assert.equal(stop(root), null); // warned already, not settled
+          assert.equal(markerFiles(root).length, 1);
+        });
+        // develop moves: scanned again, the squash is found.
+        writeFileSync(join(root, "README.md"), "# test\nlater\n");
+        git(root, "commit", "-q", "-am", "later");
+        git(root, "update-ref", "refs/remotes/origin/develop", "HEAD");
+        withGh({}, () => {
+          assert.equal(stop(root), null);
+          assert.equal(markerFiles(root).length, 0);
+        });
+      });
+
+      it("is settled when the branch merged develop before its squash", () => {
+        const root = wroteAndLeft();
+        writeFileSync(join(root, "README.md"), "# test\nmore\n");
+        git(root, "commit", "-q", "-am", "other work on develop");
+        toolCall(root, "s1", () => git(root, "switch", "-q", "feat/6-x"));
+        toolCall(root, "s1", () => git(root, "merge", "-q", "--no-ff", "--no-edit", "develop"));
+        toolCall(root, "s1", () => git(root, "switch", "-q", "develop"));
+        withGh({}, (calls) => {
+          squashAndDelete(root);
+          assert.equal(stop(root), null);
+          assert.equal(markerFiles(root).length, 0);
+          assert.deepEqual(calls(), []);
+        });
+      });
+
+      it("still warns when the only merged pull request of that name predates the session's work", () => {
+        const root = wroteAndLeft();
+        withGh({ FAULK_QA_GH_OUT: JSON.stringify([{ number: 3, mergedAt: "2000-01-01T00:00:00Z", headRefOid: tipOf(root) }]) }, () => {
+          git(root, "branch", "-D", "feat/6-x");
+          assert.match(stop(root).systemMessage, WARNING);
+          assert.equal(markerFiles(root).length, 1);
+        });
+      });
+
+      it("asks GitHub again for a marker only after ten minutes, and settles it then", () => {
+        const root = wroteAndLeft();
+        const tip = tipOf(root);
+        git(root, "branch", "-D", "feat/6-x");
+        withGh({}, (calls) => {
+          assert.match(stop(root).systemMessage, WARNING);
+          assert.equal(stop(root), null);
+          assert.equal(calls().length, 1, "not asked again within ten minutes");
+        });
+        const marker = JSON.parse(readFileSync(markerPath(root), "utf8"));
+        assert.match(marker.prCheckedAt, /^\d{4}-/);
+        writeFileSync(markerPath(root), JSON.stringify({ ...marker, prCheckedAt: new Date(Date.now() - 11 * 60000).toISOString() }));
+        withGh({ FAULK_QA_GH_OUT: JSON.stringify([{ number: 7, mergedAt: later(), headRefOid: tip }]) }, (calls) => {
+          assert.equal(stop(root), null);
+          assert.equal(calls().length, 1);
+          assert.equal(markerFiles(root).length, 0);
+        });
+      });
+
+      it("asks GitHub once per stop, whatever the number of markers", () => {
+        const root = wroteAndLeft();
+        sessionOf(root, "s1").markWriter(toplevel(root), "Edit", "feat/6-x", "a1");
+        sessionOf(root, "s1").noteTip(toplevel(root), "feat/6-x", "a1", git(root, "rev-parse", "feat/6-x").trim());
+        sessionOf(root, "s1").endAgent("a1");
+        git(root, "branch", "-D", "feat/6-x");
+        withGh({}, (calls) => {
+          assert.match(stop(root).systemMessage, WARNING);
+          assert.equal(calls().length, 1);
+          assert.equal(markerFiles(root).length, 2);
+        });
+      });
+
+      it("warns when gh fails, or when the known commit is missing from the repository", () => {
+        const root = wroteAndLeft();
+        git(root, "branch", "-D", "feat/6-x");
+        withGh({ FAULK_QA_GH_FAIL: "1" }, () => {
+          assert.match(stop(root).systemMessage, WARNING);
+        });
+        const other = wroteAndLeft();
+        const marker = JSON.parse(readFileSync(markerPath(other), "utf8"));
+        writeFileSync(markerPath(other), JSON.stringify({ ...marker, tip: "f".repeat(40) }));
+        git(other, "branch", "-D", "feat/6-x");
+        withGh({}, () => {
+          assert.match(stop(other).systemMessage, WARNING);
+          assert.equal(markerFiles(other).length, 1);
+        });
+      });
+
+      it("squashedIntoDevelop: a commit without a change of its own never matches", () => {
+        const root = makeRepo();
+        git(root, "commit", "-q", "--allow-empty", "-m", "nothing");
+        const tip = git(root, "rev-parse", "HEAD").trim();
+        git(root, "switch", "-q", "develop");
+        git(root, "commit", "-q", "--allow-empty", "-m", "nothing either");
+        git(root, "update-ref", "refs/remotes/origin/develop", "HEAD");
+        assert.equal(squashedIntoDevelop(root, tip), false);
+        assert.equal(squashedIntoDevelop(root, undefined), false);
+        assert.equal(squashedIntoDevelop(root, "e".repeat(40)), false);
+      });
     });
 
     it("follows the branch: a commit made after the last stop is the known tip", () => {
@@ -1110,6 +1463,34 @@ describe("brief.mjs and run.mjs", () => {
     assert.doesNotMatch(text, /# lock v2/);
   });
 
+  it("lists only the lockfiles in its note, and summarises heavy generated files instead of copying them (#566)", () => {
+    const root = makeRepo();
+    const gen = join(root, "web", "src", "lib", "generated");
+    mkdirSync(gen, { recursive: true });
+    const lines = (n, tag) => Array.from({ length: n }, (_, i) => `row ${i} ${tag}`).join("\n") + "\n";
+    writeFileSync(join(gen, "schema.json"), lines(40_000, "old"));
+    git(root, "add", "-A");
+    git(root, "commit", "-q", "-m", "generated");
+    writeFileSync(join(root, "Cargo.lock"), "# lock v2\n");
+    writeFileSync(join(gen, "schema.json"), lines(40_000, "new"));
+    writeFileSync(join(gen, "extra.json"), lines(40_000, "fresh"));
+    writeCode(root);
+    mkdirSync(join(root, ".scratch", "judge-dredd"), { recursive: true });
+    writeFileSync(join(root, ".scratch", "judge-dredd", "6-delivery.proposal.md"), "Claims.\n");
+    const issueFile = join(root, ".scratch", "issue.json");
+    writeFileSync(issueFile, JSON.stringify({ number: 6, title: "t", body: "b", comments: [] }));
+    git(root, "add", "Cargo.lock");
+    assert.equal(script("agent-review/brief.mjs", root, "6", "delivery", "--issue-file", issueFile).status, 0);
+    const text = readFileSync(join(root, BRIEF), "utf8");
+    assert.match(text, /content of these lockfiles is left out of the diff: Cargo\.lock\./);
+    assert.match(text, /web\/src\/lib\/generated\/schema\.json \(added\)/);
+    assert.match(text, /web\/src\/lib\/generated\/extra\.json \(added, untracked\)/);
+    assert.match(text, /\+pub fn gain\(\) -> f32 \{ 0\.5 \}/, "the ordinary diff is still copied");
+    assert.doesNotMatch(text, /row 5 new/);
+    assert.doesNotMatch(text, /row 5 fresh/);
+    assert.ok(text.length < 100_000, `the brief stays small (${text.length} bytes)`);
+  });
+
   it("does not follow an untracked symbolic link", (t) => {
     const root = makeRepo();
     const secret = join(mkdtempSync(join(tmpdir(), "faulk-secret-")), "secret.txt");
@@ -1206,8 +1587,10 @@ describe("settings.json", () => {
 
   it("runs every hook command through bash as Claude Code does, and each script exists", (t) => {
     const commands = Object.values(settings.hooks).flatMap((groups) => groups.flatMap((g) => g.hooks.map((h) => h.command)));
-    if (spawnSync("bash", ["-c", "true"]).error) {
-      t.skip("bash is not installed");
+    const probe = spawnSync("bash", ["-c", "true"]);
+    if (probe.error || probe.status !== 0) {
+      // On Windows `bash` can be WSL's launcher, which exits non-zero when no distribution is installed (#539).
+      t.skip("bash is not installed, or does not run (WSL without a distribution)");
       return;
     }
     // A copy of the scripts in a throwaway project, so the hooks write nothing in this checkout.

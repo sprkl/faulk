@@ -5,11 +5,11 @@
 import { fullDecision, select } from '../ci/select-core.mjs'
 
 /**
- * @param {{files: string[]|null, full?: boolean, packages: () => object[], specs: () => string[]}} input
- *   `files: null`: the base could not be read.
+ * @param {{files: string[]|null, full?: boolean, packages: () => object[], specs: () => string[], table?: () => {base: string, head: string}}} input
+ *   `files: null`: the base could not be read. `table`: the e2e table file at the base and now (select-core.mjs).
  * @returns {{mode: 'targeted'|'full', why: string, decision: ReturnType<typeof select>}}
  */
-export function planVerify({ files, full = false, packages, specs }) {
+export function planVerify({ files, full = false, packages, specs, table }) {
   const fullPlan = (why) => {
     let ws = []
     try {
@@ -17,12 +17,12 @@ export function planVerify({ files, full = false, packages, specs }) {
     } catch {
       /* the full decision needs no workspace */
     }
-    return { mode: 'full', why, decision: fullDecision(ws) }
+    return { mode: 'full', why, decision: fullDecision(ws, `verify.mjs full: ${why}`) }
   }
   if (full) return fullPlan('requested')
   if (!Array.isArray(files)) return fullPlan('changed files unknown')
   try {
-    const decision = select({ event: 'pull_request', base: 'develop', files, packages, specs })
+    const decision = select({ event: 'pull_request', base: 'develop', files, packages, specs, table })
     const isFull = decision.mode === 'full'
     return { mode: isFull ? 'full' : 'targeted', why: isFull ? 'a shared or unknown file changed' : 'changed files', decision }
   } catch (e) {

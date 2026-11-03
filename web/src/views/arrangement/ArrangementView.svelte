@@ -14,6 +14,8 @@
     duplicatePlacements,
     insertTime,
     movePlacements,
+    moveToTrack,
+    repeatPlacement,
     resizePlacement,
     splitPlacement,
   } from '../../lib/arrangement-commands'
@@ -41,7 +43,7 @@
     type View,
   } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
-  import { arrangementShortcut, isTextTarget } from '../../lib/keyboard'
+  import { arrangementShortcut, isTextTarget, repeatShortcut } from '../../lib/keyboard'
   import { MASTER_COLOR, isMidi, trackColor, trackLabel, type DragHooks } from '../../lib/project/tracks'
   import { offTimeline } from '../../lib/off-timeline'
   import { backTrackToArrangement } from '../../lib/scene-commands'
@@ -52,10 +54,10 @@
   import LevelMeter from '../../lib/components/LevelMeter.svelte'
   import { seek, setLoopRegion, toggleLoop } from '../../lib/transport-commands'
   import { liveTick, settle } from '../piano-roll/playhead'
-  import { PPQ, barTicks, beatTicks } from '../transport/time'
+  import { MAX_GOTO_BAR, PPQ, barTicks, beatTicks } from '../transport/time'
   import { itemAt, moveCursor, rovingKey, step as stepItem, timelineCursorStep, zoomKey, type Cursor, type Direction, type RovingKey } from '../../lib/roving'
   import { CLIP_DRAG_TYPE, clipTrackType, placeCommand, poolOf } from '../../lib/clip-pool'
-  import { addMarker, deleteMarker, renameMarker } from '../../lib/arrangement-commands'
+  import { addMarker, deleteMarker, moveMarker, renameMarker } from '../../lib/arrangement-commands'
   import {
     blocksOf,
     clampScrollY,
@@ -66,6 +68,8 @@
     lastEnd,
     moveDelta,
     moved,
+    clampRows,
+    trackTargets,
     passCount,
     markerJump,
     openingView,
@@ -97,6 +101,7 @@
   } from './automation/gestures'
   import { CLIP_ROW, CLIP_ROW_MIN, clampClipRow, layoutOf, rowsBetween, type Row } from './automation/layout'
   import LaneHeader from './LaneHeader.svelte'
+  import BarDialog from './BarDialog.svelte'
   import { lanesOf, optionsOf, pointAtTick, pointsOf, targetKey, valueAt, type LaneInfo, type LanePoint, type Labels } from './automation/model'
 
   const { project, engine, ui, dispatcher, meters } = useStores()
@@ -114,6 +119,8 @@
         snapshot: Block[]
         grabTick: number
         delta: number
+        /** Tracks down from the grabbed clip's own (negative is up): a move only, a copy stays on its track. */
+        rows: number
         moved: boolean
         linked: boolean
         startX: number
@@ -162,6 +169,8 @@
   })
   /** All entries for the layout: the real tracks, then the master row pinned at the bottom. */
   const allEntries = $derived([...entries, masterEntry])
+  const entryById = $derived(new Map(allEntries.map((e) => [e.id, e])))
+  const trackHeightOf = (id: string) => (entryById.get(id)?.track as { height?: number | null } | undefined)?.height
   // The tracks the launch grid holds: their timeline is silent until they are given back.
   const detached = $derived(engine.started ? offTimeline(engine.feedback, project.view?.slots) : new Set<string>())
   const blocks = $derived(blocksOf(entries))
@@ -224,17 +233,10 @@
   let open = $state.raw<ReadonlySet<string>>(
     new Set((Array.isArray(left?.open) ? left.open : []).filter((id) => typeof id === 'string' && untrack(() => allEntries.some((e) => e.id === id)))),
   )
-  // Lane heights of deleted tracks are forgotten.
-  $effect(() => {
-    const ids = new Set(entries.map((e) => e.id))
-    untrack(() => ui.forgetLaneHeights(ids))
-  })
   /** The selected points: one lane's, by tick (kept to the points the lane still has). */
   let autoPick = $state.raw<{ lane: string; ticks: ReadonlySet<number> } | null>(null)
   /** The point under the pointer, for its readout. */
   let hover = $state.raw<{ lane: string; tick: number } | null>(null)
-  /** The context menu on points, at a client position. */
-  let menu = $state.raw<{ x: number; y: number } | null>(null)
   /** The point whose value is being typed. */
   let editing = $state.raw<{ lane: string; tick: number; x: number; y: number } | null>(null)
   let editAnchor: HTMLDivElement | undefined = $state()
@@ -249,7 +251,7 @@
   const shownLanes = $derived(new Map(allEntries.map((e) => [e.id, open.has(e.id) ? lanesOf(e.track, labels) : ([] as LaneInfo[])])))
   /** The master row's height: the `row` token (28 px), the lowest a track's row goes. */
   const MASTER_ROW = CLIP_ROW_MIN
-  // The rows' height: the `lane` token of the stylesheet (44 px, 28 px in the compact density), else each track's own (#471).
+  // The rows' height: the `lane` token of the stylesheet (44 px, 28 px in the compact density), else each track's own, kept in the project (#471, #490).
   let laneBase = $state(CLIP_ROW)
   const layout = $derived(
     layoutOf(
@@ -257,7 +259,7 @@
       open,
       (id) => (shownLanes.get(id) ?? []).map((l) => l.id),
       // The master holds no clips: its row stays at the control line's height, so that 16 tracks and the master fit at 1080p.
-      (id) => (id === MASTER ? MASTER_ROW : ui.laneHeights[id]),
+      (id) => (id === MASTER ? MASTER_ROW : ui.laneHeightPreview?.track === id ? ui.laneHeightPreview.height : (trackHeightOf(id) ?? undefined)),
       laneBase,
     ),
   )
@@ -346,6 +348,7 @@
     return moved(
       blocks.filter((b) => g.ids.includes(b.id)),
       g.delta,
+      g.rows,
     )
   })
   const hidden = $derived.by<ReadonlySet<string>>(() => {
@@ -373,11 +376,23 @@
     if (g?.kind === 'ruler' && g.select && g.moved && g.from !== g.to) return { start: Math.min(g.from, g.to), end: Math.max(g.from, g.to) }
     return timeSel
   })
-  const barsToInsert = $derived(Math.max(1, Math.min(9999, Math.floor(Number(barCount)) || 1)))
-  function insertBars() {
+  /** What the bar says about the arrangement and the selection; also its tooltip, since the bar cuts it rather than wrap. */
+  const countText = $derived(
+    [
+      t('arrangement.count', { n: blocks.length }),
+      ...(selection.length > 0 ? [t('arrangement.selected', { n: selection.length })] : []),
+      ...(autoSel ? [t('automation.selectedPoints', { n: autoSel.points.length })] : []),
+    ].join(' · '),
+  )
+  const MAX_INSERT_BARS = 9999
+  /** The "Insert bars" field is open (#575): the count is asked there, since the toolbar no longer holds a number field. */
+  let inserting = $state(false)
+  function insertBarsFromDialog(count: number) {
+    inserting = false
+    barCount = count
     const at = timeSel ? timeSel.start : barStart(position ?? 0, bar)
     timeSel = null
-    run(insertTime(at, barsToInsert * bar))
+    run(insertTime(at, count * bar))
   }
   function deleteSelectedTime() {
     const sel = timeSel
@@ -481,9 +496,11 @@
   /** The marker jumped to last: two markers on one tick are reached one after the other. */
   let lastMarker: string | null = null
   let jumpTimer: ReturnType<typeof setTimeout> | undefined
+  /** Where the report stood when the last jump was made: a report that still says so is the old one, not the jump's. */
+  let jumpFrom: number | null = null
   $effect(() => {
     const tick = shownTick
-    if (tick !== null && jumpedTo !== null && Math.abs(tick - jumpedTo) < bar / 4) untrack(() => (jumpedTo = null))
+    if (tick !== null && jumpedTo !== null && tick !== jumpFrom && Math.abs(tick - jumpedTo) < bar / 4) untrack(() => (jumpedTo = null))
   })
   onDestroy(() => clearTimeout(jumpTimer))
   /** The tick the playhead stands on: a jump not reported yet, else the report's, else the start. */
@@ -491,16 +508,23 @@
   function addMarkerHere() {
     run(addMarker(Math.floor(headTick() / bar) * bar))
   }
+  /** Puts the playhead on a tick (`transport.seek`); the next marker jump starts from there even before the engine reports it. */
+  function placeHead(tick: number) {
+    run(seek(tick))
+    jumpFrom = shownTick
+    jumpedTo = tick
+    // A seek the engine does not report (stopped elsewhere, refused) must not hold the next jump for ever.
+    clearTimeout(jumpTimer)
+    jumpTimer = setTimeout(() => (jumpedTo = null), 1000)
+  }
+  /** Bar and beat (from 1) of a tick, for what the live region says. */
+  const barBeat = (tick: number) => ({ bar: Math.floor(tick / bar) + 1, beat: Number(((tick % bar) / beatTicks(signature) + 1).toFixed(2)) })
   function jumpMarker(direction: 1 | -1) {
     const from = headTick()
     const to = markerJump(markers, from, direction, lastMarker)
     if (!to) return
-    run(seek(to.tick))
+    placeHead(to.tick)
     lastMarker = to.id
-    jumpedTo = to.tick
-    // A seek the engine does not report (stopped elsewhere, refused) must not hold the next jump for ever.
-    clearTimeout(jumpTimer)
-    jumpTimer = setTimeout(() => (jumpedTo = null), 1000)
     if (stageW > 0) view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: to.tick - (stageW / shown.pxPerTick) * PAGE_LEAD }, stageW, totalTicks)
     announce(t('arrangement.markerSaid', { name: to.name, bar: Math.floor(to.tick / bar) + 1 }))
   }
@@ -513,7 +537,52 @@
     const marker = markers.find((m) => m.id === r.id)
     if (marker && r.text.trim() && r.text.trim() !== marker.name) run(renameMarker(r.id, r.text))
   }
+  /** Moves a marker by the snap step, earlier or later (Alt+Left and Alt+Right, #554, and the marker's menu), so a section can be placed without the mouse. */
+  function nudgeMarker(marker: MarkerView, direction: 1 | -1) {
+    const to = Math.max(0, marker.tick + direction * nudge)
+    if (to === marker.tick) return announce(t('arrangement.saidCannotMove'))
+    run(moveMarker(marker.id, to))
+    // Out of sight, the view follows it: the button would be removed with the focus on it.
+    const [from, end] = visibleRange(shown, stageW)
+    if (stageW > 0 && (to < from || to > end)) {
+      follow = false
+      view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: to - (stageW / shown.pxPerTick) * PAGE_LEAD }, stageW, totalTicks)
+    }
+    announce(t('arrangement.saidMarkerMoved', { name: marker.name, ...barBeat(to) }))
+  }
+  /** Puts the playhead on a marker, as a click on it does. */
+  function goToMarker(marker: MarkerView) {
+    lastMarker = marker.id
+    jumpedTo = null
+    run(seek(marker.tick))
+  }
+  /** The right click on a marker (#530): the same actions as its keys, each one a command. */
+  function onMarkerContext(event: MouseEvent, marker: MarkerView) {
+    ui.openMenu(
+      event,
+      [
+        { id: 'marker-jump', label: t('arrangement.markerJump'), run: () => goToMarker(marker) },
+        { id: 'marker-rename', label: t('arrangement.markerEdit'), shortcut: chordText(['F2']), run: () => (renaming = { id: marker.id, text: marker.name }) },
+        { id: 'marker-earlier', label: t('arrangement.markerEarlier'), shortcut: chordText(['Alt', '←']), separator: true, run: () => nudgeMarker(marker, -1) },
+        { id: 'marker-later', label: t('arrangement.markerLater'), shortcut: chordText(['Alt', '→']), run: () => nudgeMarker(marker, 1) },
+        {
+          id: 'marker-delete',
+          label: t('arrangement.markerRemove'),
+          shortcut: chordText(['Delete']),
+          separator: true,
+          run: () => run(deleteMarker(marker.id)),
+        },
+      ],
+      t('arrangement.markerMenu', { name: marker.name }),
+    )
+  }
   function onMarkerKey(event: KeyboardEvent, marker: MarkerView) {
+    if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+      event.preventDefault()
+      event.stopPropagation()
+      nudgeMarker(marker, event.key === 'ArrowLeft' ? -1 : 1)
+      return
+    }
     if (event.key === 'F2') {
       event.preventDefault()
       renaming = { id: marker.id, text: marker.name }
@@ -525,7 +594,15 @@
   // Alt+K, Alt+Page Up/Down and Alt+Z, wherever the focus is in the page (the arrangement is shown).
   onMount(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (document.querySelector('[aria-modal="true"]')) return
+      const modal = !!document.querySelector('[aria-modal="true"]')
+      // Ctrl+Shift+R (#555): cancelled wherever the focus is (a field and an open dialog included), or the browser would reload
+      // the page; it opens the field once per press, outside a text field and a dialog.
+      if (repeatShortcut(event)) {
+        event.preventDefault()
+        if (!modal && !event.repeat && !isTextTarget(event.target)) openRepeat()
+        return
+      }
+      if (modal) return
       const action = arrangementShortcut(event)
       if (!action) return
       event.preventDefault()
@@ -668,6 +745,9 @@
       gesture = { kind: 'ruler', from: tick, to: tick, moved: false, startX: x, select: event.shiftKey }
       return
     }
+    // A press on the clips or the lanes takes the keyboard focus off a clip cell (the ruler keeps it): the selection it makes
+    // is then what Ctrl+D copies (#528).
+    if ((document.activeElement as HTMLElement | null)?.dataset?.block !== undefined) focusGrid()
     const where = rowAt(layout, y, y0)
     if (where && where.kind === 'lane') return laneDown(event, where, x, y)
     if (where?.kind === 'add') {
@@ -701,6 +781,7 @@
         snapshot: blocks.filter((b) => picked.has(b.id)),
         grabTick: xToTick(x, shown),
         delta: 0,
+        rows: 0,
         moved: false,
         linked: copy && event.shiftKey,
         startX: x,
@@ -758,7 +839,10 @@
       gesture = { ...g, moved: true, to: resizeTo(g.grabbed, g.edge, xToTick(x, shown), stepOf(event)) }
     } else {
       const chosen = blocks.filter((b) => g.ids.includes(b.id))
-      gesture = { ...g, moved: true, delta: moveDelta(chosen, g.grabbed, xToTick(x, shown), g.grabTick, stepOf(event)) }
+      // A move follows the pointer from track to track (the master and the free ground below keep the last track).
+      const under = g.kind === 'move' ? rowAt(layout, y, y0) : null
+      const rows = g.kind === 'move' ? clampRows(chosen, under ? under.track - g.grabbed.row : g.rows, entries.length) : 0
+      gesture = { ...g, moved: true, rows, delta: moveDelta(chosen, g.grabbed, xToTick(x, shown), g.grabTick, stepOf(event)) }
     }
   }
 
@@ -793,21 +877,64 @@
       return
     }
     const ids = blocks.filter((b) => g.ids.includes(b.id)).map((b) => b.id)
-    if (ids.length !== g.ids.length || g.delta === 0) return
-    if (g.kind === 'move') {
+    if (ids.length !== g.ids.length || (g.delta === 0 && g.rows === 0)) return
+    if (g.kind === 'move' && g.rows !== 0) {
+      sendToTracks(
+        blocks.filter((b) => g.ids.includes(b.id)),
+        g.rows,
+        g.delta,
+        g.grabbed.id,
+      )
+    } else if (g.kind === 'move') {
       run(movePlacements(ids, g.delta))
       const moved = blocks.find((b) => b.id === g.grabbed.id)
       if (moved) announce(t('arrangement.saidMoved', { n: ids.length, bar: barsOf(moved).from }))
     } else copyAndSelect(ids, g.linked, g.delta)
   }
 
+  /** The tracks a clip may move to, in track order: a MIDI clip only goes to a MIDI track. */
+  const trackList = $derived(entries.map((e) => ({ id: e.id, midi: isMidi(e.track) })))
+
+  /**
+   * Moves clips `rows` tracks (negative is up) and `delta` ticks, in one `arrangement.move_to_track`; refused out loud at the first
+   * or last track and for a target that is not a MIDI track. The moved clips become the selection (they get new identifiers in
+   * their new track). Returns where each landed, by the identifier it had, or `null` when nothing moved.
+   */
+  function sendToTracks(chosen: readonly Block[], rows: number, delta: number, follow?: string): Record<string, Block> | null {
+    const targets = trackTargets(chosen, rows, trackList)
+    if ('refused' in targets) {
+      if (targets.refused === 'edge') announce(t('arrangement.saidNoTrack'))
+      else {
+        const entry = entries.find((e) => e.id === targets.track)
+        announce(t('arrangement.saidNotMidiTrack', { track: entry ? trackLabel(entry, t) : '' }))
+      }
+      return null
+    }
+    run(moveToTrack(targets.moves, delta))
+    const landed: Record<string, Block> = {}
+    for (const b of chosen) {
+      const now = blocks.find((n) => n.row === b.row + rows && n.start === b.start + delta && n.end === b.end + delta && n.offset === b.offset)
+      if (now) landed[b.id] = now
+    }
+    const all = Object.values(landed)
+    if (all.length === 0) return null
+    picked = new Set(all.map((b) => b.id))
+    const lead = (follow ? landed[follow] : undefined) ?? all[0]!
+    const entry = entries[lead.row]
+    select(lead.track)
+    ui.editClip(lead.clip, lead.id)
+    announce(t('arrangement.saidMovedTrack', { n: all.length, track: entry ? trackLabel(entry, t) : '', bar: barsOf(lead).from }))
+    return landed
+  }
+
   /** Copies, then selects the copies (the placements that were not there before). */
-  function copyAndSelect(ids: string[], linked: boolean, by?: number) {
+  function copyAndSelect(ids: string[], linked: boolean, by?: number): boolean {
     const before = new Set(blocks.map((b) => b.id))
     run(duplicatePlacements(ids, linked, by))
     const fresh = blocks.filter((b) => !before.has(b.id)).map((b) => b.id)
     if (fresh.length > 0) picked = new Set(fresh)
     if (fresh.length > 0) announce(t('arrangement.saidCopied', { n: fresh.length }))
+    return fresh.length > 0
   }
 
   // --- the lanes' gestures ---------------------------------------------------------------------------
@@ -930,12 +1057,20 @@
     if (!row || !ref || !row.lane) return
     event.preventDefault()
     const hit = hitPoint(pointsOf(ref.info.lane), ref.info.axis, x, y, shown, geoOf(row))
-    if (!hit) {
-      menu = null
-      return
-    }
+    // Off a point nothing opens (and the browser's menu stays shut).
+    if (!hit) return ui.openMenu(event, [])
     if (!(autoPick?.lane === row.lane && autoPick.ticks.has(hit.tick))) autoPick = { lane: row.lane, ticks: new Set([hit.tick]) }
-    menu = { x: event.clientX, y: event.clientY }
+    // The focus goes back to the grid when the menu closes, so that Delete and the shortcuts keep working.
+    focusGrid()
+    ui.openMenu(
+      event,
+      [
+        { id: 'point-linear', label: t('automation.menuLinear'), testid: 'point-menu-linear', run: () => setCurve('linear') },
+        { id: 'point-step', label: t('automation.menuStep'), testid: 'point-menu-step', run: () => setCurve('step') },
+        { id: 'point-delete', label: t('automation.menuDelete'), testid: 'point-menu-delete', separator: true, run: removePicked },
+      ],
+      t('automation.menu'),
+    )
   }
 
   /**
@@ -964,7 +1099,23 @@
         },
         { id: 'duplicate', label: t('arrangement.duplicate'), shortcut: mod(['D']), separator: true, run: () => duplicate(false) },
         { id: 'duplicate-linked', label: t('arrangement.duplicateLinked'), shortcut: mod(['Shift', 'D']), run: () => duplicate(true) },
+        { id: 'repeat', label: t('arrangement.repeatUntil'), shortcut: mod(['Shift', 'R']), disabled: picked.size !== 1, run: openRepeat },
         { id: 'split', label: t('arrangement.split'), shortcut: mod(['E']), disabled: cuts.length === 0, run: splitSelected },
+        {
+          id: 'move-up',
+          label: t('arrangement.moveUp'),
+          shortcut: chordText(['Alt', '↑']),
+          separator: true,
+          disabled: !('moves' in trackTargets(selection, -1, trackList)),
+          run: () => sendToTracks(selection, -1, 0, block.id),
+        },
+        {
+          id: 'move-down',
+          label: t('arrangement.moveDown'),
+          shortcut: chordText(['Alt', '↓']),
+          disabled: !('moves' in trackTargets(selection, 1, trackList)),
+          run: () => sendToTracks(selection, 1, 0, block.id),
+        },
         { id: 'delete', label: t('arrangement.delete'), shortcut: chordText(['Delete']), separator: true, run: removeSelected },
       )
     } else {
@@ -1022,14 +1173,97 @@
   }
   onDestroy(() => clearTimeout(limitTimer))
 
-  function duplicate(linked: boolean) {
-    const by = copyShift(selection)
-    if (by !== null)
-      copyAndSelect(
-        selection.map((b) => b.id),
-        linked,
-        by,
-      )
+  /** Copies the given clips (the selection by default), one bar group right after them. */
+  function duplicate(linked: boolean, from: readonly Block[] = selection) {
+    const by = copyShift(from)
+    if (by === null) return
+    const keyboard = (document.activeElement as HTMLElement | null)?.dataset?.block !== undefined
+    const copied = copyAndSelect(
+      from.map((b) => b.id),
+      linked,
+      by,
+    )
+    // From the keyboard the focus follows the copies, which are the selection: a repeated Ctrl+D copies them again and
+    // Shift+arrow starts from them, never from the original left behind (#528).
+    const first = [...picked]
+      .map((id) => blocks.find((b) => b.id === id))
+      .filter((b): b is Block => !!b)
+      .sort((x, y) => x.start - y.start)[0]
+    if (copied && keyboard && first) void focusItem(first.id)
+  }
+
+  // --- repeat until (#555) ------------------------------------------------------------------------------------------
+  /** The clip being repeated, and the first bar the field accepts (the one after the clip's end). */
+  let repeating = $state<{ id: string; min: number } | null>(null)
+  /** Opens the field for the one clip selected, or the one the keyboard focus is on when nothing is selected. */
+  function openRepeat() {
+    const focusedId = (document.activeElement as HTMLElement | null)?.dataset?.block
+    const block = selection.length === 1 ? selection[0] : selection.length === 0 && focusedId ? blocks.find((b) => b.id === focusedId) : undefined
+    if (!block) return announce(t('arrangement.saidRepeatOne'))
+    repeating = { id: block.id, min: Math.floor(block.end / bar) + 1 }
+  }
+  /**
+   * The "More" menu of the toolbar (#575): the actions that are not needed at every step of making a track, with their
+   * shortcuts. It opens under its button (also from the keyboard, where the click has no position) in the shared menu.
+   */
+  function openMore(event: MouseEvent) {
+    const button = event.currentTarget as HTMLElement
+    const box = button.getBoundingClientRect()
+    const mod = (key: string[]) => chordText(['Mod', ...key])
+    ui.openMenuAt(
+      box.left,
+      box.bottom + 2,
+      [
+        {
+          id: 'more-duplicate-linked',
+          label: t('arrangement.duplicateLinked'),
+          shortcut: mod(['Shift', 'D']),
+          disabled: selection.length === 0,
+          run: () => duplicate(true),
+        },
+        {
+          id: 'more-repeat',
+          label: t('arrangement.repeatUntil'),
+          shortcut: mod(['Shift', 'R']),
+          disabled: selection.length !== 1,
+          run: () => {
+            returnFocus = button
+            openRepeat()
+          },
+        },
+        {
+          id: 'more-insert-bars',
+          label: t('arrangement.insertBars'),
+          separator: true,
+          run: () => {
+            returnFocus = button
+            inserting = true
+          },
+        },
+        { id: 'more-delete-bars', label: t('arrangement.deleteBars'), disabled: !timeSel, run: deleteSelectedTime },
+        { id: 'more-marker', label: t('arrangement.addMarker'), shortcut: chordText(['Alt', 'K']), separator: true, run: addMarkerHere },
+        { id: 'more-curve-linear', label: t('automation.curveLinear'), disabled: !autoSel, separator: true, run: () => setCurve('linear') },
+        { id: 'more-curve-step', label: t('automation.curveStep'), disabled: !autoSel, run: () => setCurve('step') },
+      ],
+      t('arrangement.more'),
+    )
+  }
+  /**
+   * Where the focus goes when a field opened from the menu closes: the menu entry that had it is gone and the browser
+   * cannot give it back to an element that left the page, so the toolbar button that opened the menu takes it.
+   */
+  let returnFocus: HTMLElement | null = null
+  function giveFocusBack() {
+    const target = returnFocus
+    returnFocus = null
+    if (target) void tick().then(() => target.isConnected && target.focus())
+  }
+  function repeatUpTo(barNumber: number) {
+    const target = repeating
+    repeating = null
+    if (!target) return
+    // A refusal (an audio clip, the limit, no audio started) shows in the page's own banner; only a success is said here.
+    if (run(repeatPlacement(target.id, barNumber * bar))) announce(t('arrangement.saidRepeated', { bar: barNumber }))
   }
 
   function removeSelected() {
@@ -1129,8 +1363,7 @@
       if (autoSel) removePicked()
       else removeSelected()
     } else if (event.key === 'Escape') {
-      if (menu) menu = null
-      else if (gesture) cancel()
+      if (gesture) cancel()
       else {
         picked = new Set()
         autoPick = null
@@ -1141,8 +1374,14 @@
       const ref = lane ? laneRefs.get(lane) : undefined
       if (lane && ref) autoPick = { lane, ticks: new Set(pointsOf(ref.info.lane).map((p) => p.tick)) }
       else picked = new Set(blocks.map((b) => b.id))
-    } else if (mod && event.key.toLowerCase() === 'd') duplicate(event.shiftKey)
-    else if (mod && !event.shiftKey && event.key.toLowerCase() === 'e') splitSelected()
+    } else if (mod && event.key.toLowerCase() === 'd') {
+      // With nothing selected, Ctrl+D copies the clip the keyboard focus is on (a Tab, Escape). A selection is always copied whole,
+      // as the Duplicate button's count says (#528).
+      const id = (event.target as HTMLElement | null)?.dataset?.block
+      const focused = id && selection.length === 0 ? blocks.find((b) => b.id === id) : undefined
+      if (focused) picked = new Set([focused.id])
+      duplicate(event.shiftKey, focused ? [focused] : selection)
+    } else if (mod && !event.shiftKey && event.key.toLowerCase() === 'e') splitSelected()
     else return
     event.preventDefault()
   }
@@ -1268,6 +1507,19 @@
       else if ((event.target as HTMLElement).dataset.cursor !== undefined) void focusCursor()
       return
     }
+    // Shift+Enter on the free cursor puts the playhead there (#554); the roving keys have no Shift+Enter.
+    if (
+      event.key === 'Enter' &&
+      event.shiftKey &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      (event.target as HTMLElement).dataset.cursor !== undefined
+    ) {
+      event.preventDefault()
+      event.stopPropagation()
+      return putHeadAtCursor()
+    }
     const key = rovingKey(event)
     if (key && (event.target as HTMLElement).dataset.cursor !== undefined) return onCursorKey(event, key)
     // Page Up and Page Down mean a velocity: a clip has none.
@@ -1305,10 +1557,15 @@
       return
     }
     if (key.kind === 'move') {
-      // No command moves a clip to another track: say so rather than nothing.
-      if (key.direction === 'up' || key.direction === 'down') return announce(t('arrangement.saidSameTrack'))
       const chosen = selectedIds.has(current.id) ? selection : [current]
       if (!selectedIds.has(current.id)) picked = new Set([current.id])
+      // Up and Down move the clips to the track above or below (`arrangement.move_to_track`).
+      if (key.direction === 'up' || key.direction === 'down') {
+        const landed = sendToTracks(chosen, key.direction === 'up' ? -1 : 1, 0, current.id)
+        const now = landed?.[current.id]
+        if (now) void focusItem(now.id)
+        return
+      }
       const sign = key.direction === 'left' ? -1 : 1
       const delta = moveDelta(chosen, current, current.start + sign * nudge, current.start, null)
       if (delta === 0) return announce(t('arrangement.saidCannotMove'))
@@ -1330,9 +1587,20 @@
       return
     }
     const target = stepItem(items, current, key.direction as Direction)
-    if (!target) return
+    if (!target) {
+      // Shift+arrow with no neighbour that way still selects the focused clip, so a lone clip is reachable (#553).
+      if (key.kind === 'extend' && !selectedIds.has(current.id)) {
+        picked = new Set([current.id])
+        select(current.track)
+        ui.editClip(current.clip, current.id)
+        announce(t('arrangement.saidSelected', { name: current.name || t('arrangement.clipDefault') }))
+      }
+      return
+    }
     const block = blocks.find((b) => b.id === target.id)!
-    if (key.kind === 'extend') picked = new Set([...picked, current.id, target.id])
+    // Shift+arrow extends the selection the focused clip is in; from a clip outside it (after a copy, a click elsewhere) it
+    // starts a new one from that clip, so the old selection is never added to (#528).
+    if (key.kind === 'extend') picked = new Set(selectedIds.has(current.id) ? [...selectedIds, target.id] : [current.id, target.id])
     else picked = new Set([target.id])
     select(block.track)
     ui.editClip(block.clip, block.id)
@@ -1364,7 +1632,8 @@
   const cursorPos = $derived.by<Cursor | null>(() => {
     if (entries.length === 0) return null
     const last = Math.max(0, totalBars * bar - 1)
-    if (cursorAt) return { row: Math.min(cursorAt.row, entries.length - 1), tick: Math.min(cursorAt.tick, last) }
+    // Row -1 is the ruler (#554): where Enter puts the playhead.
+    if (cursorAt) return { row: Math.max(-1, Math.min(cursorAt.row, entries.length - 1)), tick: Math.min(cursorAt.tick, last) }
     const row = Math.max(
       0,
       entries.findIndex((e) => e.id === project.selected?.id),
@@ -1373,13 +1642,23 @@
   })
   /** The cursor's cell: one bar wide (the clip Enter would create), on its track's row. */
   const cursorCell = $derived.by(() => {
-    if (!cursorPos) return null
+    if (!cursorPos || cursorPos.row < 0) return null
     const top = laneTop(layout, cursorPos.row, y0) + BLOCK_INSET
     const height = Math.max(4, laneHeight(layout, cursorPos.row) - 2 * BLOCK_INSET)
     const left = tickToX(cursorPos.tick, shown)
     return { left, top, width: Math.max(4, tickToX(cursorPos.tick + bar, shown) - left), height }
   })
+  /** The ruler's cell (#554): the cursor's tick, over the ruler, one bar wide. */
+  const rulerCell = $derived.by(() => {
+    if (cursorPos?.row !== -1 || stageW === 0) return null
+    const left = tickToX(cursorPos.tick, shown)
+    return { left, width: Math.max(4, tickToX(cursorPos.tick + bar, shown) - left) }
+  })
   const cursorText = $derived.by(() => {
+    if (cursorPos?.row === -1) {
+      const { bar: at, beat } = barBeat(cursorPos.tick)
+      return cursorPos.tick % bar === 0 ? t('arrangement.rulerBar', { bar: at }) : t('arrangement.rulerBeat', { bar: at, beat })
+    }
     const entry = cursorPos ? entries[cursorPos.row] : undefined
     if (!cursorPos || !entry) return ''
     const into = cursorPos.tick % bar
@@ -1397,13 +1676,24 @@
       follow = false
       view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: at.tick - (stageW / shown.pxPerTick) * PAGE_LEAD }, stageW, totalTicks)
     }
-    const top = layout.trackTop[at.row] ?? 0
-    const height = laneHeight(layout, at.row)
-    const room = stageH - RULER_HEIGHT
-    if (top < y0) scrollY = clampScrollY(top, layout.total, stageH)
-    else if (top + height > y0 + room) scrollY = clampScrollY(top + height - room, layout.total, stageH)
+    // The ruler row does not scroll with the tracks.
+    if (at.row >= 0) {
+      const top = layout.trackTop[at.row] ?? 0
+      const height = laneHeight(layout, at.row)
+      const room = stageH - RULER_HEIGHT
+      if (top < y0) scrollY = clampScrollY(top, layout.total, stageH)
+      else if (top + height > y0 + room) scrollY = clampScrollY(top + height - room, layout.total, stageH)
+    }
     await tick()
-    itemsEl?.querySelector<HTMLElement>('[data-cursor]')?.focus()
+    stage?.querySelector<HTMLElement>('[data-testid="arr-cursor"]')?.focus()
+  }
+
+  /** The playhead goes to the free cursor's tick (`transport.seek`), and the live region says where. */
+  function putHeadAtCursor() {
+    const at = cursorPos
+    if (!at) return
+    placeHead(at.tick)
+    announce(t('arrangement.saidPlayhead', barBeat(at.tick)))
   }
 
   function onCursorKey(event: KeyboardEvent, key: NonNullable<RovingKey>) {
@@ -1413,6 +1703,18 @@
     event.preventDefault()
     event.stopPropagation()
     if (key.kind === 'focus' || key.kind === 'extend') {
+      // Up from the first track reaches the ruler row, Down from it comes back (#554).
+      if (key.direction === 'up' && at.row <= 0 && key.kind === 'focus') {
+        cursorAt = { row: -1, tick: at.tick }
+        void focusCursor()
+        return
+      }
+      if (key.direction === 'down' && at.row === -1) {
+        cursorAt = { row: 0, tick: at.tick }
+        void focusCursor()
+        return
+      }
+      if (at.row === -1 && (key.direction === 'up' || key.direction === 'down')) return
       cursorAt = moveCursor(
         at,
         key.direction,
@@ -1424,6 +1726,8 @@
       return
     }
     if (key.kind !== 'open') return
+    // Enter on the ruler row puts the playhead at the cursor's tick (#554); Shift+Enter does it on a track's row (`onItemKey`).
+    if (at.row === -1) return putHeadAtCursor()
     const under = itemAt(items, at)
     const entry = entries[at.row]
     if (under) {
@@ -1559,12 +1863,7 @@
   </button>
 {/snippet}
 
-<svelte:window
-  onblur={silence}
-  onpointerdown={(event) => {
-    if (menu && !(event.target as Element | null)?.closest?.('[data-point-menu]')) menu = null
-  }}
-/>
+<svelte:window onblur={silence} />
 <svelte:document onvisibilitychange={silence} />
 
 <div
@@ -1592,27 +1891,12 @@
     </label>
     <button title={t('arrangement.splitHint')} disabled={cuts.length === 0} data-testid="arr-split" onclick={splitSelected}>{t('arrangement.split')}</button>
     <button title={t('arrangement.duplicateHint')} disabled={selection.length === 0} data-testid="arr-duplicate" onclick={() => duplicate(false)}
-      >{t('arrangement.duplicate')}</button
-    >
-    <button title={t('arrangement.duplicateLinkedHint')} disabled={selection.length === 0} data-testid="arr-duplicate-linked" onclick={() => duplicate(true)}
-      >{t('arrangement.duplicateLinked')}</button
+      >{t('arrangement.duplicate')}{#if selection.length > 1}
+        ({selection.length}){/if}</button
     >
     <button disabled={selection.length === 0 && !autoSel} data-testid="arr-delete" onclick={() => (autoSel ? removePicked() : removeSelected())}
       >{t('arrangement.delete')}</button
     >
-    <span class="time" role="group" aria-label={t('arrangement.timeTools')}>
-      <input type="number" min="1" max="9999" aria-label={t('arrangement.bars')} data-testid="arr-bars" bind:value={barCount} />
-      <button title={t('arrangement.insertBarsHint')} data-testid="arr-insert-bars" onclick={insertBars}>{t('arrangement.insertBars')}</button>
-      <button title={t('arrangement.deleteBarsHint')} disabled={!timeSel} data-testid="arr-delete-bars" onclick={deleteSelectedTime}
-        >{t('arrangement.deleteBars')}</button
-      >
-    </span>
-    <span class="curves" role="group" aria-label={t('automation.curves')}>
-      <button title={t('automation.linearHint')} disabled={!autoSel} data-testid="arr-curve-linear" onclick={() => setCurve('linear')}
-        >{t('automation.linear')}</button
-      >
-      <button title={t('automation.stepHint')} disabled={!autoSel} data-testid="arr-curve-step" onclick={() => setCurve('step')}>{t('automation.step')}</button>
-    </span>
     <span class="zoom" role="group" aria-label={t('arrangement.zoom')}>
       <button
         title={t('arrangement.zoomOut')}
@@ -1632,17 +1916,19 @@
         >{t('arrangement.fitSongShort')}</button
       >
     </span>
-    <button title={t('arrangement.addMarkerHint')} aria-label={t('arrangement.addMarker')} data-testid="arr-add-marker" onclick={addMarkerHere}
-      >{t('arrangement.addMarkerShort')}</button
-    >
     <button class="follow" title={t('arrangement.followHint')} aria-pressed={follow} data-testid="arr-follow" onclick={followAgain}
       >{t('arrangement.follow')}</button
     >
-    <span class="count" data-testid="arr-count"
-      >{t('arrangement.count', { n: blocks.length })}{#if selection.length > 0}
-        · {t('arrangement.selected', { n: selection.length })}{/if}{#if autoSel}
-        · {t('automation.selectedPoints', { n: autoSel.points.length })}{/if}</span
+    <button
+      class="more"
+      title={t('arrangement.moreHint')}
+      aria-label={t('arrangement.more')}
+      aria-haspopup="menu"
+      aria-expanded={ui.contextMenu?.label === t('arrangement.more')}
+      data-testid="arr-more"
+      onclick={openMore}>⋯</button
     >
+    <span class="count" data-testid="arr-count" title={countText}>{countText}</span>
   </div>
 
   <div class="board" class:scrolls={overflowing} style:--head="276px" style:--ruler="{RULER_HEIGHT}px">
@@ -1696,7 +1982,6 @@
               <LaneHeader
                 entry={trackEntry}
                 height={row.height}
-                base={laneBase}
                 selected={project.selected?.id === trackEntry.id}
                 soloed={project.soloed.includes(trackEntry.id)}
                 armed={project.armed.includes(trackEntry.id)}
@@ -1838,11 +2123,8 @@
                 data-testid="arr-marker"
                 data-marker={marker.id}
                 onpointerdown={(e) => e.stopPropagation()}
-                onclick={() => {
-                  lastMarker = marker.id
-                  jumpedTo = null
-                  run(seek(marker.tick))
-                }}
+                onclick={() => goToMarker(marker)}
+                oncontextmenu={(e) => onMarkerContext(e, marker)}
                 ondblclick={(e) => {
                   e.stopPropagation()
                   renaming = { id: marker.id, text: marker.name }
@@ -1910,6 +2192,35 @@
           {/if}
         {/each}
       </div>
+      <!-- The ruler row of the keyboard cursor (#554): one cell, where Enter puts the playhead. -->
+      <!-- The group only relays the keys of its one focusable cell, as the clips' grid does. -->
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+      <div
+        class="ruler-items"
+        role="group"
+        aria-label={t('arrangement.rulerRow')}
+        style:height="{RULER_HEIGHT}px"
+        onkeydown={onItemKey}
+        onfocusin={onItemsFocus}
+        onfocusout={onItemsFocusOut}
+      >
+        {#if rulerCell}
+          <div
+            class="item cursor"
+            role="button"
+            tabindex={cursorTab ? 0 : -1}
+            aria-label={cursorText}
+            data-cursor=""
+            data-testid="arr-cursor"
+            data-row="-1"
+            data-tick={cursorPos?.tick}
+            style:left="{rulerCell.left}px"
+            style:top="0px"
+            style:width="{rulerCell.width}px"
+            style:height="{RULER_HEIGHT}px"
+          ></div>
+        {/if}
+      </div>
       <p class="sr-only" aria-live="polite" data-testid="arr-said" data-n={said.n}>{said.text}</p>
       {#if limitNote}
         <p class="limit-note" role="status" data-testid="value-note" style:left="{limitNote.x}px" style:top="{limitNote.y + 14}px">{limitNote.text}</p>
@@ -1971,38 +2282,42 @@
       <div style:width="{totalTicks * shown.pxPerTick}px" style:height="1px"></div>
     </div>
   </div>
-  {#if menu}
-    <div class="menu" role="menu" aria-label={t('automation.menu')} style:left="{menu.x}px" style:top="{menu.y}px" data-point-menu data-testid="point-menu">
-      <button
-        role="menuitem"
-        data-testid="point-menu-linear"
-        onclick={() => {
-          setCurve('linear')
-          menu = null
-          focusGrid()
-        }}>{t('automation.menuLinear')}</button
-      >
-      <button
-        role="menuitem"
-        data-testid="point-menu-step"
-        onclick={() => {
-          setCurve('step')
-          menu = null
-          focusGrid()
-        }}>{t('automation.menuStep')}</button
-      >
-      <button
-        role="menuitem"
-        data-testid="point-menu-delete"
-        onclick={() => {
-          removePicked()
-          menu = null
-          focusGrid()
-        }}>{t('automation.menuDelete')}</button
-      >
-    </div>
-  {/if}
 </div>
+
+<BarDialog
+  open={repeating !== null}
+  name="repeat"
+  title={t('arrangement.repeatTitle')}
+  label={t('arrangement.repeatLabel', { min: repeating?.min ?? 1 })}
+  invalid={t('arrangement.repeatInvalid', { min: repeating?.min ?? 1, max: MAX_GOTO_BAR })}
+  go={t('arrangement.repeatGo')}
+  cancel={t('arrangement.repeatCancel')}
+  initial={repeating?.min ?? 1}
+  min={repeating?.min ?? 1}
+  max={MAX_GOTO_BAR}
+  onsubmit={repeatUpTo}
+  onclose={() => {
+    repeating = null
+    giveFocusBack()
+  }}
+/>
+<BarDialog
+  open={inserting}
+  name="insert"
+  title={t('arrangement.insertTitle')}
+  label={t('arrangement.insertLabel')}
+  invalid={t('arrangement.insertInvalid', { max: MAX_INSERT_BARS })}
+  go={t('arrangement.insertGo')}
+  cancel={t('arrangement.repeatCancel')}
+  initial={barCount}
+  min={1}
+  max={MAX_INSERT_BARS}
+  onsubmit={insertBarsFromDialog}
+  onclose={() => {
+    inserting = false
+    giveFocusBack()
+  }}
+/>
 
 <style>
   .empty {
@@ -2041,7 +2356,7 @@
   }
   .toolbar {
     display: flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     align-items: center;
     gap: var(--fk-space-2) var(--fk-space-3);
     padding: var(--fk-space-1) var(--fk-space-3);
@@ -2072,6 +2387,10 @@
     cursor: default;
   }
   .count {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     margin-left: auto;
     color: var(--fk-text-muted);
     font-family: var(--fk-font-mono);
@@ -2284,6 +2603,14 @@
     overflow: hidden;
     pointer-events: none;
   }
+  .ruler-items {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
   .item {
     position: absolute;
     border-radius: var(--fk-radius-work);
@@ -2305,15 +2632,6 @@
   }
   .stage[data-cursor='add'] {
     cursor: crosshair;
-  }
-  .curves,
-  .time {
-    display: inline-flex;
-    gap: 2px;
-  }
-  .time input {
-    width: 4.5em;
-    font: inherit;
   }
   .limit-note {
     position: absolute;
@@ -2414,26 +2732,5 @@
     width: 100%;
     min-width: 0;
     font-size: 11px;
-  }
-  .menu {
-    position: fixed;
-    z-index: 20;
-    display: flex;
-    flex-direction: column;
-    min-width: 140px;
-    padding: var(--fk-space-1);
-    border: 1px solid var(--fk-line);
-    border-radius: var(--fk-radius-panel);
-    background: var(--fk-bg);
-    box-shadow: var(--fk-shadow-float);
-  }
-  .menu button {
-    height: 26px;
-    border-color: transparent;
-    background: transparent;
-    text-align: left;
-  }
-  .menu button:hover {
-    background: var(--fk-surface-2);
   }
 </style>

@@ -167,7 +167,7 @@ fn the_default_base_is_get_faulk_app() {
     let (config, warnings) = Config::from_values(None, None);
     assert_eq!(config.base_url, DEFAULT_BASE_URL);
     assert_eq!(config.channel, None);
-    assert_eq!(config.interval, Duration::from_secs(6 * 3600));
+    assert_eq!(config.interval, CHECK_INTERVAL);
     assert!(warnings.is_empty());
 }
 
@@ -1265,11 +1265,16 @@ fn redirect_by(url: &str, with_catch_all: bool) -> Option<String> {
     None
 }
 
+/// The public site: the one place a redirect may lead that is not the Blob store (#587).
+const SITE: &str = "https://www.faulk.app/";
+
 /// The Blob store get.faulk.app redirects to, read from `web/vercel.json` (the one place that
-/// names it), with the checks that it is one public Blob origin shared by every rule.
+/// names it), with the checks that it is one public Blob origin shared by every rule that leads
+/// to a store (the rules that send a visitor to the public site are set aside).
 fn blob() -> String {
     let origins: std::collections::BTreeSet<String> = rules()
         .iter()
+        .filter(|r| r.destination != SITE)
         .map(|r| {
             let url = url::Url::parse(&r.destination).unwrap();
             url.origin().ascii_serialization()
@@ -1330,15 +1335,27 @@ fn packages_go_to_the_packages_folder_in_the_store() {
 }
 
 #[test]
-fn the_download_link_and_everything_else_go_to_the_windows_installer() {
-    for other in [
+fn the_download_links_go_to_the_windows_installer() {
+    for link in [
         "https://get.faulk.app/helper/windows",
+        "https://get.faulk.app/helper/win/stable",
+    ] {
+        assert_eq!(redirect(link), installer(), "{link}");
+    }
+}
+
+/// The root and every other path lead to the public site: no installer is served by accident,
+/// and no macOS address works until a macOS build exists (#587).
+#[test]
+fn the_root_and_everything_else_go_to_the_public_site() {
+    for other in [
         "https://get.faulk.app/",
         "https://get.faulk.app/helper",
+        "https://get.faulk.app/helper/osx/stable",
         "https://get.faulk.app/helper/stable/RELEASES",
         "https://get.faulk.app/helper/packages/Other-1.0.0-full.nupkg",
     ] {
-        assert_eq!(redirect(other), installer(), "{other}");
+        assert_eq!(redirect(other), SITE, "{other}");
     }
 }
 
@@ -1370,9 +1387,9 @@ fn the_download_address_in_the_page_texts_is_a_real_route() {
             "{address} must have its own rule, not only the catch-all"
         );
     }
-    // The check has teeth: a mistyped address reaches the installer only through the catch-all.
+    // The check has teeth: a mistyped address reaches the site only through the catch-all.
     let typo = "https://get.faulk.app/helper/window";
-    assert_eq!(redirect(typo), installer());
+    assert_eq!(redirect(typo), SITE);
     assert_eq!(redirect_by(typo, false), None);
     assert!(
         rules().iter().any(|r| r.source_text == CATCH_ALL),
@@ -1775,4 +1792,134 @@ fn live_feed_update_downloads_into_a_copy_of_an_installation() {
             "{status:?}"
         ),
     }
+}
+
+// ---------------------------------------------------------------------------
+// Checking sooner (#526): jitter, page request, rate limit
+// ---------------------------------------------------------------------------
+
+fn wait_until(what: impl Fn() -> bool) {
+    let start = Instant::now();
+    while !what() {
+        assert!(start.elapsed() < Duration::from_secs(10), "condition stuck");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+#[test]
+fn the_automatic_interval_is_at_most_one_hour() {
+    assert!(CHECK_INTERVAL <= Duration::from_secs(3600));
+}
+
+#[test]
+fn jitter_stays_within_ten_percent_whatever_the_entropy() {
+    let interval = Duration::from_secs(3600);
+    let (low, high) = (Duration::from_secs(3240), Duration::from_secs(3960));
+    for e in [0, 1, 2, 12345, u64::MAX / 2, u64::MAX - 1, u64::MAX] {
+        let d = jittered(interval, e);
+        assert!(d >= low && d <= high, "{e}: {d:?}");
+    }
+    // Both ends are reachable and the spread is real.
+    assert_eq!(jittered(interval, 0), low);
+    assert_eq!(jittered(interval, 720_000), high);
+    assert_ne!(jittered(interval, 1000), jittered(interval, 2000));
+}
+
+#[test]
+fn jitter_survives_degenerate_intervals() {
+    assert_eq!(jittered(Duration::ZERO, 99), Duration::ZERO);
+    let _ = jittered(Duration::from_millis(1), u64::MAX);
+    let _ = jittered(Duration::MAX, u64::MAX);
+}
+
+#[test]
+fn the_automatic_check_repeats_on_a_short_interval() {
+    let backend = Arc::new(FakeBackend::default());
+    let updater = Updater::start_with(backend.clone(), Duration::from_millis(50));
+    wait_until(|| backend.checks.load(Ordering::SeqCst) >= 3);
+    updater.shutdown();
+}
+
+#[test]
+fn a_page_request_is_due_only_after_the_gap() {
+    let gap = Duration::from_secs(600);
+    // The first check has not ended: it is already looking.
+    assert!(!nudge_due(None, 10_000, gap));
+    assert!(!nudge_due(Some(10_000), 10_000, gap));
+    assert!(!nudge_due(Some(10_000), 10_599, gap));
+    assert!(nudge_due(Some(10_000), 10_600, gap));
+    assert!(nudge_due(Some(10_000), 50_000, gap));
+    // The clock went back: refused.
+    assert!(!nudge_due(Some(10_000), 5_000, gap));
+}
+
+#[test]
+fn a_page_request_after_the_gap_starts_a_check() {
+    let backend = Arc::new(FakeBackend::default());
+    let updater = Updater::start_with(backend.clone(), NEVER).with_page_gap(Duration::ZERO);
+    let watch = updater.watch();
+    wait_until(|| watch.checked_at().is_some());
+    assert_eq!(backend.checks.load(Ordering::SeqCst), 1);
+    // A release appears; the page connects.
+    *backend.available.lock().unwrap() = Some("0.2.0".into());
+    assert!(watch.request_check());
+    wait_for(&updater, |s| matches!(s, UpdateStatus::Ready { .. }));
+    assert_eq!(backend.checks.load(Ordering::SeqCst), 2);
+    updater.shutdown();
+}
+
+#[test]
+fn a_page_request_inside_the_gap_is_refused() {
+    let backend = Arc::new(FakeBackend::default());
+    let updater = Updater::start_with(backend.clone(), NEVER);
+    let watch = updater.watch();
+    wait_until(|| watch.checked_at().is_some());
+    for _ in 0..20 {
+        assert!(!watch.request_check());
+    }
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(backend.checks.load(Ordering::SeqCst), 1);
+    updater.shutdown();
+}
+
+#[test]
+fn page_requests_never_pile_up_checks() {
+    let backend = Arc::new(FakeBackend::default());
+    let updater = Updater::start_with(backend.clone(), NEVER).with_page_gap(Duration::ZERO);
+    let watch = updater.watch();
+    for _ in 0..50 {
+        watch.request_check();
+    }
+    wait_until(|| watch.checked_at().is_some());
+    std::thread::sleep(Duration::from_millis(100));
+    // The first check plus a queue of one: 50 requests never mean 50 checks.
+    assert!(backend.checks.load(Ordering::SeqCst) <= 3);
+    updater.shutdown();
+}
+
+#[test]
+fn a_page_request_on_a_disabled_updater_does_nothing() {
+    let disabled = Updater::disabled("test".into());
+    assert!(!disabled.watch().request_check());
+}
+
+#[test]
+fn a_page_request_during_a_check_or_download_is_refused() {
+    let backend = Arc::new(FakeBackend::default());
+    let updater = Updater::start_with(backend, NEVER).with_page_gap(Duration::ZERO);
+    let watch = updater.watch();
+    wait_until(|| watch.checked_at().is_some());
+    for busy in [
+        UpdateStatus::Checking,
+        UpdateStatus::Downloading {
+            version: "0.2.0".into(),
+            percent: 10,
+        },
+    ] {
+        set(&watch.status, busy);
+        assert!(!watch.request_check());
+    }
+    set(&watch.status, UpdateStatus::Idle);
+    assert!(watch.request_check());
+    updater.shutdown();
 }

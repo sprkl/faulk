@@ -25,6 +25,13 @@ export const engine = defineFeature(
     'engine.recordOffset': 'Recording offset',
     'engine.recordOffsetHint':
       'Moves recorded notes this many milliseconds earlier, on top of the latency above (-500 to 500). Set it when takes land late or early.',
+    'engine.recordReplace': 'Replace when recording',
+    'engine.recordReplaceHint':
+      'A take removes the notes the clip already has between its first and last note, instead of adding to them. One undo puts them back.',
+    'engine.recordQuantize': 'Quantize recording',
+    'engine.recordQuantizeNone': 'Off',
+    'engine.recordQuantizeHint': 'Moves the start of the notes of a take toward this grid when the take ends. The notes already in the clip stay as they are.',
+    'engine.recordQuantizeStrength': 'Recording quantize strength in percent',
     'engine.loadLabel': 'Load',
     'engine.loadShort': 'CPU {pct} %',
     'engine.loadNone': 'Not measured by this engine yet',
@@ -33,7 +40,8 @@ export const engine = defineFeature(
     'meter.clip': 'CLIP',
     'meter.reset': 'Reset the CLIP and the peak of {name}',
     'meter.master': 'Master level',
-    'audio.error': 'The helper’s audio output stopped: back to Web mode.',
+    'audio.error': 'The helper’s audio output stopped: Faulk plays in the browser until it comes back.',
+    'engine.boostWaiting': 'Boost waits for an audio output',
     'engine.streamError': 'The audio engine stopped taking changes. Click "Start audio" to continue.',
   },
   {
@@ -58,6 +66,14 @@ export const engine = defineFeature(
     'engine.recordOffset': 'Décalage d’enregistrement',
     'engine.recordOffsetHint':
       'Avance les notes enregistrées de ce nombre de millisecondes, en plus de la latence ci-dessus (-500 à 500). À régler quand les prises tombent en retard ou en avance.',
+    'engine.recordReplace': 'Remplacer à l’enregistrement',
+    'engine.recordReplaceHint':
+      'Une prise retire les notes que le clip a déjà entre sa première et sa dernière note, au lieu de s’y ajouter. Un seul annuler les remet.',
+    'engine.recordQuantize': 'Quantification à l’enregistrement',
+    'engine.recordQuantizeNone': 'Aucune',
+    'engine.recordQuantizeHint':
+      'Rapproche le début des notes d’une prise de cette grille quand la prise se termine. Les notes déjà dans le clip ne bougent pas.',
+    'engine.recordQuantizeStrength': 'Force de la quantification à l’enregistrement en pourcent',
     'engine.loadLabel': 'Charge',
     'engine.loadShort': 'CPU {pct} %',
     'engine.loadNone': 'Pas encore mesurée par ce moteur',
@@ -66,7 +82,8 @@ export const engine = defineFeature(
     'meter.clip': 'CLIP',
     'meter.reset': 'Remettre à zéro le CLIP et le pic de {name}',
     'meter.master': 'Niveau du master',
-    'audio.error': 'La sortie audio du helper s’est arrêtée : retour en mode Web.',
+    'audio.error': 'La sortie audio du helper s’est arrêtée : Faulk joue dans le navigateur jusqu’à son retour.',
+    'engine.boostWaiting': 'Boost attend une sortie audio',
     'engine.streamError': 'Le moteur audio n’accepte plus les changements. Clique sur « Démarrer l’audio » pour continuer.',
   },
 )

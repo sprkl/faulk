@@ -27,8 +27,8 @@ use crate::contract::{
 use crate::macros::domain;
 use project::limits::MAX_TICK;
 use project::{
-    Clip, ClipContent, ClipId, Note, PPQ, Placement, PlacementId, Project, SceneId, Span, Take,
-    Tick, TickLoop, TrackId, TrackKind,
+    Clip, ClipContent, ClipId, InputGrid, Note, PPQ, Placement, PlacementId, Project, SceneId,
+    Span, Take, Tick, TickLoop, TrackId, TrackKind,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -111,16 +111,38 @@ pub struct ClipRestore {
 domain! {
     domain = "record", schema = ("RecordCommand", "RecordOutput");
 
-    /// Set the manual latency offset of recording, in milliseconds, -500 to 500: every
-    /// recorded note is moved this much earlier, on top of the output latency the host
-    /// estimates (negative: later). It belongs to the machine, so it is session state:
-    /// saved with the session, never in the project, and not undoable.
+    /// Change the settings of recording; every field is optional and a field left out stays
+    /// as it is. `offset_ms` (-500 to 500): every recorded note is moved this much earlier,
+    /// on top of the output latency the host estimates (negative: later). `replace`: a take
+    /// removes, in the clip it writes into, the notes that start in the range it recorded
+    /// (from its first note to the end of its last), instead of adding to them (overdub,
+    /// the default). `quantize_on_input` (`none`, `quarter`, `eighth`, `sixteenth`,
+    /// `thirty-second`, `eighth-triplet`, `sixteenth-triplet`; default `none`) and
+    /// `quantize_strength` (0 to 100 percent, default 100): the starts of the take's own
+    /// notes are moved toward that grid of the clip when `record.commit_take` writes the
+    /// take, never the notes the clip already had, and never their lengths. They belong to
+    /// the machine, so they are session state: saved with the session, never in the
+    /// project, and not undoable. A take uses the settings at the moment it is written, unless `record.commit_take` is given its own.
     "record.set_settings" (kind = "live", undo = "none", destructive = false)
     SetSettings {
-        offset_ms: i32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        offset_ms: Option<i32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        replace: Option<bool>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        quantize_on_input: Option<InputGrid>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(range(min = 0, max = 100))]
+        quantize_strength: Option<u8>,
     } => {
         /// The offset before the command.
         previous_offset_ms: i32,
+        /// Replace mode before the command.
+        previous_replace: bool,
+        /// The input grid before the command.
+        previous_quantize_on_input: InputGrid,
+        /// The quantize strength before the command.
+        previous_quantize_strength: u8,
     };
 
     /// Start recording the armed MIDI tracks (`track.arm`); refused when none is armed or
@@ -172,7 +194,9 @@ domain! {
 
     /// Write a take into the project, every track at once, as **one** history entry. Per
     /// track, `notes` are the notes as played: `start` in transport ticks, `length` in
-    /// ticks. Every start is first moved `shift_ms` earlier at the project's tempo. With a
+    /// ticks. Every start is first moved `shift_ms` earlier at the project's tempo; when the
+    /// transport loops and the start is inside the loop, the move wraps round the loop (a note
+    /// that would go before the loop's start comes from its end). With a
     /// scene target, a cell that holds a clip takes the notes on top of its own (overdub):
     /// a note lands where the clip played at that moment, from `anchor` (the transport tick
     /// of the clip's position 0) or else from the bar of the first note, round its loop;
@@ -182,8 +206,15 @@ domain! {
     /// placement goes into its clip where the placement shows it; the other notes make one
     /// new clip per gap between placements, from the bar of its first note to the bar after
     /// its last, cut at the next placement. A note before tick 0 or before its clip is
-    /// dropped and counted; a note longer than its clip is cut at the clip's end. Undo:
-    /// `record.restore` puts the clips back as they were.
+    /// dropped and counted; a note longer than its clip is cut at the clip's end. With
+    /// `replace` on (`record.set_settings`), a clip that takes notes first loses the notes
+    /// that start in the range the track recorded (its first note to the end of its last),
+    /// counted in `replaced`. With `quantize_on_input` on, the starts of the take's notes
+    /// move toward the grid of their clip by `quantize_strength` (a note stays inside its
+    /// clip, lengths never change). Undo: `record.restore` puts the clips back as they
+    /// were, replaced notes included. `replace`, `quantize_on_input` and `quantize_strength`
+    /// override the session's settings (`record.set_settings`) for this write only; left out,
+    /// the session's apply.
     "record.commit_take" (kind = "edit", undo = "inverse", destructive = false)
     CommitTake {
         /// The take of `record.start` these notes are, when they are one: it is then
@@ -194,10 +225,22 @@ domain! {
         #[serde(default)]
         shift_ms: f64,
         tracks: Vec<TakeTrack>,
+        /// Replace mode for this take; leave it out for the session's setting.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        replace: Option<bool>,
+        /// The input grid for this take; leave it out for the session's setting.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        quantize_on_input: Option<InputGrid>,
+        /// The quantize strength (0 to 100) for this take; leave it out for the session's.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        #[schemars(range(min = 0, max = 100))]
+        quantize_strength: Option<u8>,
     } => {
         clips: Vec<TakeClip>,
         /// Notes left out: before tick 0, before their clip, or outside a clip without a loop.
         dropped: u32,
+        /// Notes of the clips removed by replace mode.
+        replaced: u32,
     };
 
     /// Put clips back exactly as given, with their identifiers: `state` is the clip's
@@ -225,25 +268,59 @@ fn live(output: Output, events: Vec<ProjectEvent>) -> Out {
 /// Applies a command of this domain.
 pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<Out, CommandError> {
     match command {
-        Command::SetSettings { offset_ms } => {
-            if !(-MAX_OFFSET_MS..=MAX_OFFSET_MS).contains(offset_ms) {
+        Command::SetSettings {
+            offset_ms,
+            replace,
+            quantize_on_input,
+            quantize_strength,
+        } => {
+            if let Some(offset_ms) = offset_ms
+                && !(-MAX_OFFSET_MS..=MAX_OFFSET_MS).contains(offset_ms)
+            {
                 return Err(invalid(
                     "offset_ms",
                     format!("an offset is -{MAX_OFFSET_MS} to {MAX_OFFSET_MS} ms, not {offset_ms}"),
                 ));
             }
-            let previous = state.session.record.offset_ms;
-            state.session.record.offset_ms = *offset_ms;
-            let events = if previous == *offset_ms {
+            if let Some(strength) = quantize_strength
+                && *strength > 100
+            {
+                return Err(invalid(
+                    "quantize_strength",
+                    format!("a strength is 0 to 100 percent, not {strength}"),
+                ));
+            }
+            let previous = state.session.record;
+            let mut next = previous;
+            if let Some(v) = offset_ms {
+                next.offset_ms = *v;
+            }
+            if let Some(v) = replace {
+                next.replace = *v;
+            }
+            if let Some(v) = quantize_on_input {
+                next.quantize_on_input = *v;
+            }
+            if let Some(v) = quantize_strength {
+                next.quantize_strength = *v;
+            }
+            state.session.record = next;
+            let events = if previous == next {
                 vec![]
             } else {
                 vec![ProjectEvent::RecordSettingsChanged {
-                    offset_ms: *offset_ms,
+                    offset_ms: next.offset_ms,
+                    replace: next.replace,
+                    quantize_on_input: next.quantize_on_input,
+                    quantize_strength: next.quantize_strength,
                 }]
             };
             Ok(live(
                 Output::SetSettings {
-                    previous_offset_ms: previous,
+                    previous_offset_ms: previous.offset_ms,
+                    previous_replace: previous.replace,
+                    previous_quantize_on_input: previous.quantize_on_input,
+                    previous_quantize_strength: previous.quantize_strength,
                 },
                 events,
             ))
@@ -276,8 +353,26 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             target,
             shift_ms,
             tracks,
+            replace,
+            quantize_on_input,
+            quantize_strength,
         } => {
-            let mut out = commit(state, ctx, target, *shift_ms, tracks)?;
+            let settings = state.session.record;
+            let strength = quantize_strength.unwrap_or(settings.quantize_strength);
+            if strength > 100 {
+                return Err(invalid(
+                    "quantize_strength",
+                    format!("a strength is 0 to 100 percent, not {strength}"),
+                ));
+            }
+            let opts = Opts {
+                replace: replace.unwrap_or(settings.replace),
+                grid: quantize_on_input
+                    .unwrap_or(settings.quantize_on_input)
+                    .ticks(),
+                strength,
+            };
+            let mut out = commit(state, ctx, target, *shift_ms, tracks, opts)?;
             // The take the engine captured is written: the next one may start.
             if let Some(t) = ctx.engine.take
                 && !t.recording
@@ -452,6 +547,8 @@ enum Write {
         clip: ClipId,
         notes: Vec<Note>,
         length: Option<i64>,
+        /// Replace mode: the clip positions `[from, to)` whose notes (by start) go.
+        erase: Vec<(i64, i64)>,
     },
     /// A new clip: in a slot of the grid, or placed in the arrangement.
     New {
@@ -480,13 +577,69 @@ fn early(e: i64) -> i64 {
     if (-EARLY..0).contains(&e) { 0 } else { e }
 }
 
-fn place(n: &TakeNote, pos: i64, length: i64) -> Option<Note> {
+/// How a take is written: replace mode and the quantization on input (`record.set_settings`).
+#[derive(Clone, Copy)]
+struct Opts {
+    replace: bool,
+    grid: Option<i64>,
+    strength: u8,
+}
+
+/// The clip positions `[from, to)` a stretch of `e0..e1` ticks from the clip's position 0
+/// plays, the way [`Geo::position`] reads one tick: a loop is walked lap by lap (it wraps into
+/// pieces), at most three pieces, after which a looping clip is covered whole.
+fn stretch(geo: Geo, e0: i64, e1: i64) -> Vec<(i64, i64)> {
+    if e1 <= e0 {
+        return vec![];
+    }
+    match geo.looping {
+        Some((ls, le)) if le > ls => {
+            let p = le - ls;
+            let mut out = Vec::new();
+            let mut cur = e0;
+            for round in 0..4 {
+                if cur >= e1 {
+                    break;
+                }
+                if round == 3 {
+                    out.push((ls, le));
+                    break;
+                }
+                let pos = if (0..le).contains(&cur) {
+                    cur
+                } else {
+                    ls + (cur - le).rem_euclid(p)
+                };
+                let mut run = le - pos;
+                if cur < 0 {
+                    run = run.min(-cur);
+                }
+                let run = run.min(e1 - cur).max(1);
+                out.push((pos, pos + run));
+                cur += run;
+            }
+            out
+        }
+        _ => {
+            let (a, b) = (e0.max(0), e1.min(geo.length));
+            if b > a { vec![(a, b)] } else { vec![] }
+        }
+    }
+}
+
+fn place(n: &TakeNote, pos: i64, length: i64, opts: Opts) -> Option<Note> {
     let pos = early(pos);
     if pos < 0 || pos >= length {
         return None;
     }
     let len = n.length.get().max(1).min(length - pos);
-    Some(Note::new(Tick(pos), n.pitch, Tick(len), n.velocity))
+    let start = match opts.grid {
+        Some(grid) => {
+            crate::clip::quantized_start(pos, grid, opts.strength).clamp(0, (length - len).max(0))
+        }
+        None => pos,
+    };
+    Some(Note::new(Tick(start), n.pitch, Tick(len), n.velocity))
 }
 
 fn check_take(tracks: &[TakeTrack], project: &Project) -> Result<(), CommandError> {
@@ -525,6 +678,7 @@ fn plan_track(
     track_id: &TrackId,
     notes: &[TakeNote],
     anchor: Option<Tick>,
+    opts: Opts,
 ) -> (Vec<Write>, u32) {
     let bar = project.time_signature().ticks_per_bar().get().max(1);
     let Some(track) = project.tracks.get(track_id) else {
@@ -567,16 +721,24 @@ fn plan_track(
                             } else {
                                 early(n.start.get() - origin)
                             })
-                            .and_then(|pos| place(n, pos, length))
+                            .and_then(|pos| place(n, pos, length, opts))
                         {
                             Some(note) => out.push(note),
                             None => dropped += 1,
                         }
                     }
+                    let erase = if opts.replace {
+                        let from = first - origin;
+                        let from = if anchor.is_some() { from } else { early(from) };
+                        stretch(geo, from, last_end - origin)
+                    } else {
+                        vec![]
+                    };
                     writes.push(Write::Into {
                         clip,
                         notes: out,
                         length: (length != original).then_some(length),
+                        erase,
                     });
                 }
                 None => {
@@ -584,7 +746,7 @@ fn plan_track(
                     let length = ceil_to(last_end - origin, bar).max(bar);
                     let out = notes
                         .iter()
-                        .filter_map(|n| place(n, n.start.get() - origin, length))
+                        .filter_map(|n| place(n, n.start.get() - origin, length, opts))
                         .collect();
                     writes.push(Write::New {
                         slot: Some(scene.clone()),
@@ -610,6 +772,7 @@ fn plan_track(
                 .collect();
             spans.sort_by_key(|s| s.0);
             let mut into: BTreeMap<ClipId, Vec<Note>> = BTreeMap::new();
+            let mut erase: BTreeMap<ClipId, Vec<(i64, i64)>> = BTreeMap::new();
             // Gap (its start and end, `None`: no placement after) → notes outside clips.
             let mut gaps: BTreeMap<(i64, Option<i64>), Vec<&TakeNote>> = BTreeMap::new();
             // A note that starts before tick 0 (played on the first downbeat, moved earlier by the
@@ -638,7 +801,7 @@ fn plan_track(
                     Some((start, _, offset, clip)) => {
                         let placed = track.clips.get(*clip).and_then(Geo::of).and_then(|geo| {
                             let pos = geo.position(offset + t - start)?;
-                            place(n, pos, geo.length)
+                            place(n, pos, geo.length, opts)
                         });
                         match placed {
                             Some(note) => into.entry((*clip).clone()).or_default().push(note),
@@ -661,11 +824,35 @@ fn plan_track(
                     }
                 }
             }
+            if opts.replace && !kept.is_empty() {
+                let a = kept.iter().map(|n| n.start.get()).min().unwrap_or(0);
+                let b = kept
+                    .iter()
+                    .map(|n| n.start.get().saturating_add(n.length.get()))
+                    .max()
+                    .unwrap_or(a);
+                for (start, len, offset, clip) in &spans {
+                    let (t0, t1) = (a.max(*start), b.min(start + len));
+                    let Some(geo) = track.clips.get(*clip).and_then(Geo::of) else {
+                        continue;
+                    };
+                    if t1 > t0 {
+                        erase.entry((*clip).clone()).or_default().extend(stretch(
+                            geo,
+                            offset + t0 - start,
+                            offset + t1 - start,
+                        ));
+                        into.entry((*clip).clone()).or_default();
+                    }
+                }
+            }
             for (clip, notes) in into {
+                let erase = erase.remove(&clip).unwrap_or_default();
                 writes.push(Write::Into {
                     clip,
                     notes,
                     length: None,
+                    erase,
                 });
             }
             for ((before, after), group) in gaps {
@@ -683,7 +870,7 @@ fn plan_track(
                 let length = end - start;
                 let out = group
                     .iter()
-                    .filter_map(|n| place(n, n.start.get() - start, length))
+                    .filter_map(|n| place(n, n.start.get() - start, length, opts))
                     .collect();
                 writes.push(Write::New {
                     slot: None,
@@ -725,12 +912,38 @@ fn restored(track: &project::Track, clip_id: &ClipId) -> Result<RestoredClip, Co
     })
 }
 
+/// A take's start tick moved `shift` ticks earlier. A note stamped inside the transport's loop
+/// is a position of the loop: the engine wrapped it when the stamp fell after the loop's end
+/// (the host stamps the frame heard plus the output latency, `shift` brings it back). The move
+/// is made on the loop, not on the line, so a note heard in the last milliseconds of the loop
+/// stays there instead of leaving before its start (#542). A stamp outside the loop, a move
+/// that is not backwards, a stamp exactly on the loop's start (a note pressed before the capture
+/// began is clamped to the take's first tick: it stays on the line, where the clip's early rule
+/// takes it to its first beat) and a transport that does not loop move on the line. Known limit:
+/// a command cannot tell a stamp the engine wrapped from a note anticipating the loop's start
+/// while the playhead enters the loop from before it (first pass only), which is folded too.
+fn shift_start(start: i64, shift: i64, looping: Option<project::LoopRegion>) -> i64 {
+    let line = start.saturating_sub(shift);
+    let Some(region) = looping else {
+        return line;
+    };
+    let (from, to) = (region.start().get(), region.end().get());
+    if shift <= 0 || start <= from || start >= to || (from..to).contains(&line) {
+        return line;
+    }
+    let len = i128::from(to) - i128::from(from);
+    let wrapped = i128::from(from)
+        + (i128::from(start) - i128::from(shift) - i128::from(from)).rem_euclid(len);
+    i64::try_from(wrapped).unwrap_or(line)
+}
+
 fn commit(
     state: &mut State,
     ctx: &mut Context,
     target: &RecordTarget,
     shift_ms: f64,
     tracks: &[TakeTrack],
+    opts: Opts,
 ) -> Result<Out, CommandError> {
     if !shift_ms.is_finite() || shift_ms.abs() > MAX_LATENCY_MS + f64::from(MAX_OFFSET_MS) {
         return Err(invalid(
@@ -749,21 +962,26 @@ fn commit(
     }
     check_take(tracks, project)?;
     let shift = (shift_ms * project.tempo().bpm() * PPQ as f64 / 60_000.0).round() as i64;
+    let looping = project
+        .transport
+        .loop_region
+        .filter(|_| project.transport.loop_enabled);
     let mut changes: Vec<ClipRestore> = Vec::new();
     let mut before: Vec<ClipRestore> = Vec::new();
     let mut clips = Vec::new();
     let mut dropped = 0u32;
+    let mut replaced = 0u32;
     let mut names: Vec<String> = Vec::new();
     for t in tracks {
         let shifted: Vec<TakeNote> = t
             .notes
             .iter()
             .map(|n| TakeNote {
-                start: Tick(n.start.get().saturating_sub(shift)),
+                start: Tick(shift_start(n.start.get(), shift, looping)),
                 ..*n
             })
             .collect();
-        let (writes, lost) = plan_track(project, target, &t.track, &shifted, t.anchor);
+        let (writes, lost) = plan_track(project, target, &t.track, &shifted, t.anchor, opts);
         dropped += lost;
         let track = midi_track(project, &t.track)?;
         for write in writes {
@@ -772,16 +990,28 @@ fn commit(
                     clip,
                     notes,
                     length,
+                    erase,
                 } => {
                     let old = restored(track, &clip)?;
                     let mut new = old.clone();
                     let had: BTreeSet<Note> = old.snapshot.notes.iter().copied().collect();
-                    let mut all = had.clone();
+                    let mut all: BTreeSet<Note> = had
+                        .iter()
+                        .copied()
+                        .filter(|n| {
+                            let s = n.start.get();
+                            !erase.iter().any(|(from, to)| (*from..*to).contains(&s))
+                        })
+                        .collect();
+                    let kept = all.len();
                     all.extend(notes.iter().copied());
-                    let added = all.len() - had.len();
-                    if added == 0 && length.is_none() {
+                    let added = all.len() - kept;
+                    if all == had && length.is_none() {
                         continue;
                     }
+                    // Notes the clip had and no longer has: one the take plays again is not replaced.
+                    let gone = had.difference(&all).count();
+                    replaced = replaced.saturating_add(crate::clip::count(gone));
                     new.snapshot.notes = all.into_iter().collect();
                     if let Some(length) = length {
                         new.snapshot.length = Tick(length);
@@ -866,7 +1096,11 @@ fn commit(
             }
         }
     }
-    let output = Output::CommitTake { clips, dropped };
+    let output = Output::CommitTake {
+        clips,
+        dropped,
+        replaced,
+    };
     if changes.is_empty() {
         return Ok(live(output, vec![]));
     }

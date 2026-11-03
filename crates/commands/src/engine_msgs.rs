@@ -73,6 +73,7 @@ pub fn compile(
                     track,
                     pitch: *note,
                     velocity: *velocity,
+                    at: None,
                 });
             }
         }
@@ -82,12 +83,17 @@ pub fn compile(
                 out.push(ControlMsg::NoteOff {
                     track,
                     pitch: *note,
+                    at: None,
                 });
             }
         }
-        Command::Live(live::Command::InputNoteOn { note, velocity }) => {
+        Command::Live(live::Command::InputNoteOn {
+            note,
+            velocity,
+            frame,
+        }) => {
             if *velocity == 0 {
-                release_input(sync, *note, &mut out);
+                release_input(sync, *note, *frame, &mut out);
             } else {
                 // Where the note goes is the session as it stands; where it is held is
                 // remembered, so its note off reaches the same tracks.
@@ -97,14 +103,15 @@ pub fn compile(
                             track: slot,
                             pitch: *note,
                             velocity: *velocity,
+                            at: *frame,
                         });
                         sync.held.insert((*note, track));
                     }
                 }
             }
         }
-        Command::Live(live::Command::InputNoteOff { note }) => {
-            release_input(sync, *note, &mut out);
+        Command::Live(live::Command::InputNoteOff { note, frame }) => {
+            release_input(sync, *note, *frame, &mut out);
         }
         Command::Launch(launch::Command::BackToArrangement {}) => {
             out.push(ControlMsg::BackToArrangement);
@@ -227,8 +234,9 @@ pub fn compile(
     out
 }
 
-/// Releases a live input note on the tracks that hold it.
-fn release_input(sync: &mut EngineSlots, note: u8, out: &mut Vec<ControlMsg>) {
+/// Releases a live input note on the tracks that hold it; `at` is when it was released (the
+/// command's `frame`).
+fn release_input(sync: &mut EngineSlots, note: u8, at: Option<u64>, out: &mut Vec<ControlMsg>) {
     let tracks: Vec<TrackId> = sync
         .held
         .iter()
@@ -241,6 +249,7 @@ fn release_input(sync: &mut EngineSlots, note: u8, out: &mut Vec<ControlMsg>) {
             out.push(ControlMsg::NoteOff {
                 track: slot,
                 pitch: note,
+                at,
             });
         }
     }
@@ -1442,6 +1451,18 @@ impl EngineStream {
         self.epoch
     }
 
+    /// Moves to the next epoch, and further when that one is not newer than `other` (the
+    /// epoch of an engine this stream did not start, BO-1: the helper's engine outlives a
+    /// page): the epoch then is `other + 1`, never 0. Newer is the engine's wrapping order
+    /// (`engine::msg::Header::decode`).
+    pub fn next_epoch_after(&mut self, other: u16) -> u16 {
+        let next = self.next_epoch();
+        if (next.wrapping_sub(other) as i16) <= 0 {
+            self.epoch = other.wrapping_add(1).max(1);
+        }
+        self.epoch
+    }
+
     /// The bytes of `msgs`, in this stream's epoch, numbered after the previous ones.
     pub fn encode(&mut self, msgs: &[ControlMsg]) -> Result<Vec<u8>, MsgError> {
         let bytes = engine::msg::encode_stream(self.epoch, self.seq, msgs)?;
@@ -1513,6 +1534,15 @@ impl Synced {
     /// (or was switched to) receives to catch up with the project.
     pub fn resync(&mut self) -> Result<Vec<u8>, MsgError> {
         self.stream.next_epoch();
+        self.setup()
+    }
+
+    /// [`Synced::resync`] for an engine this stream did not start, whose epoch is `other`
+    /// (the helper's, announced in its `hello`, BO-1): the `Reset` is in an epoch newer than
+    /// both this stream's and `other` ([`EngineStream::next_epoch_after`]), so either engine
+    /// takes it.
+    pub fn resync_after(&mut self, other: u16) -> Result<Vec<u8>, MsgError> {
+        self.stream.next_epoch_after(other);
         self.setup()
     }
 

@@ -156,6 +156,15 @@
 //! is applied before the release, never after it), so no note stays
 //! stuck even if nothing else is ever sent. The count is reported in [`Feedback`].
 //!
+//! **Stamps (#499).** A live note on or off may carry `at`, the frame of the host's audio
+//! clock at which it was played (web: the audio context's frame). The host tells the engine
+//! the host frame of each block (`Engine::set_host_frame`, the worklet's `currentFrame`
+//! through `fk_render_at`); `Engine::begin_block` turns the stamp into an engine sample, and
+//! the recorder places the note there ([`crate::recorder`]). A live note still sounds at the
+//! start of the block that takes it: by then its stamp is in the past, so the stamp adds no
+//! latency. In the binary format the stamp is a `u64` appended to the payload only when
+//! present: an unstamped note is the bytes it was before stamps existed.
+//!
 //! # Binary format of `ControlMsg`
 //!
 //! Little-endian everywhere, whatever the host. A message is a [`Header`] of
@@ -194,7 +203,7 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::engine::{Clip, DeviceEntry, Lane, Source, State, Track};
-use crate::time::{Frame, LoopRegion, Quantize, Tempo, Tick, TimeSignature};
+use crate::time::{Frame, LoopRegion, Quantize, SampleRate, Tempo, Tick, TimeSignature};
 
 pub mod codec;
 pub use codec::{
@@ -629,14 +638,20 @@ pub enum ControlMsg {
         recording: bool,
     },
     // live input (the only messages that go through the bounded live queue)
+    /// A note played live. `at` is the host frame at which it was played (#499; module doc,
+    /// live input), `None` when the host gives no time: it then counts from the start of the
+    /// block that takes it.
     NoteOn {
         track: TrackSlot,
         pitch: u8,
         velocity: u8,
+        at: Option<u64>,
     },
+    /// A live note released; `at` as for [`ControlMsg::NoteOn`].
     NoteOff {
         track: TrackSlot,
         pitch: u8,
+        at: Option<u64>,
     },
     AllNotesOff {
         track: TrackSlot,
@@ -1422,6 +1437,10 @@ pub enum LaunchMsg {
 pub enum RtMsg {
     /// A fresh engine state; the old one goes to [`Garbage::State`].
     Reset(Box<State>),
+    /// A new sample rate (#236, `Preparer::set_sample_rate`): the clock (its playhead kept),
+    /// the metronome, the limiter and the graph's fades follow it; the devices built for it
+    /// come after, one `DevicePut` each. Not a `ControlMsg`: the rate is the host's.
+    SetSampleRate(SampleRate),
     SetTransport {
         tempo: Tempo,
         signature: TimeSignature,
@@ -1517,14 +1536,18 @@ pub enum RtMsg {
 /// live queue, never `prepare` (module doc, live input).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LiveEvent {
+    /// `at`: the engine sample at which the note was played (the host frame of the message
+    /// converted by `Engine::begin_block`), `None` when unknown.
     NoteOn {
         track: TrackSlot,
         pitch: u8,
         velocity: u8,
+        at: Option<u64>,
     },
     NoteOff {
         track: TrackSlot,
         pitch: u8,
+        at: Option<u64>,
     },
     AllNotesOff {
         track: TrackSlot,

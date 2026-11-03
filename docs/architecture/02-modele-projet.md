@@ -173,7 +173,7 @@ Mon morceau/
 ├── project.json                      # format version, project id, name, tempo, time signature, transport settings, scenes, master mixer, master chain (effects only, when it has any)
 ├── tracks/
 │   └── <track>/                      # folder named by the track ULID, never by its name
-│       ├── track.json                # name, colour, mixer, routing, order key
+│       ├── track.json                # name, colour, row height (optional), mixer, routing, order key
 │       ├── devices/
 │       │   └── <device>.json         # one instrument or effect: type, parameters, order key in the chain
 │       ├── automation/
@@ -255,7 +255,7 @@ Le même projet produit toujours **exactement les mêmes octets**. Règles, tout
 
 ### 2.6 Versions du format et migrations
 
-`project.json` porte `"format": 2` (format 1 jusqu'à #473 ; la migration de 1 à 2 coupe à la fin du clip un placement plus long qu'un clip MIDI sans boucle, qui se taisait au-delà et se répète désormais, pour que les morceaux enregistrés avant sonnent pareil). Faulk lit toutes les versions passées et migre en mémoire ; il n'écrit que la version courante. Une migration s'enregistre comme une **version à part**, pour que son diff ne se mélange pas avec des changements musicaux. Les migrations sont des fonctions pures testées sur des projets de référence.
+`project.json` porte `"format": 3` (format 3 depuis #490 : une piste peut garder la hauteur de sa ligne, la migration de 2 à 3 ne change que le numéro, et un build de format 2 dit alors « fait par un build plus récent » au lieu de « corrompu » ; format 2 depuis #473, format 1 avant : la migration de 1 à 2 coupe à la fin du clip un placement plus long qu'un clip MIDI sans boucle, qui se taisait au-delà et se répète désormais, pour que les morceaux enregistrés avant sonnent pareil). Faulk lit toutes les versions passées et migre en mémoire ; il n'écrit que la version courante. Une migration s'enregistre comme une **version à part**, pour que son diff ne se mélange pas avec des changements musicaux. Les migrations sont des fonctions pures testées sur des projets de référence.
 
 ### 2.7 Lecture, écriture et limites (SV-1)
 

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { chooseMidiInput, fakeWebMidi, watch } from './support'
+import { chooseMidiInput, engineUp, fakeWebMidi, watch } from './support'
 
 // #470: MIDI recording. The armed tracks record what the computer keyboard or a MIDI input plays, the engine stamps the
 // notes, and the take becomes clips through one command, one history entry, which one undo removes. Real worklet,
@@ -38,7 +38,7 @@ async function start(page: Page, lang: 'en' | 'fr' = 'en') {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   test.skip((await hooks(page)) !== 'function', 'the project is read through the hooks of the dev server')
   // No count-in: the takes start at once (the count-in is the engine's, tested in crates/engine/tests/recorder.rs).
   await run(page, { type: 'transport.set_metronome', count_in_bars: 0 })
@@ -224,5 +224,176 @@ test('the default count-in of one bar is shown and its notes are heard, not reco
   const [, placement] = Object.entries(v1.project.tracks[track]!.placements).find(([id]) => !v0.project.tracks[track]!.placements[id])!
   expect(notesOf(v1, track, placement.clip).map((n) => n.pitch)).toEqual([64])
   await page.getByTestId('transport-stop').click()
+  expect(errors).toEqual([])
+})
+
+type Midi = { send(b: number[], t?: number | null): void }
+
+// #499: a MIDI note carries its time (`MIDIMessageEvent.timeStamp`); the page turns it into the audio context's frame
+// and the engine records the note there, not at the block that takes it. Method: notes whose times are exactly one
+// beat apart, sent in the same instant (so they reach the engine in one block), are recorded one beat apart within
+// ±1 ms; and a note stamped with the instant it is sent, sent together with an unstamped one, is placed apart from it
+// by the time the note took to reach the engine, less the error of the latency estimate (the stamp is the frame heard
+// plus the estimated output latency; measured 31 to 42 ms of real lead for 42 ms estimated in Chromium on Windows).
+// The gap is printed; a stamp off by the whole latency or more (a lost estimate, a sign error, a wrong origin) falls
+// outside -25 to 50 ms.
+test('places a MIDI note where its time says it was played', async ({ page }) => {
+  const { errors } = watch(page)
+  await fakeWebMidi(page)
+  await start(page)
+  await chooseMidiInput(page, 'E2E Keys')
+  await arm(page, /^Arm .+ to record$/)
+  const v0 = await view(page)
+  const track = synth(v0)
+  const placed = Object.keys(v0.project.tracks[track]!.placements).length
+  await record(page).click()
+  await expect(feedback(page)).toHaveAttribute('data-transport', 'recording')
+  await page.waitForTimeout(300)
+  // A beat at 120 BPM is 500 ms: 60 is played now, 64 one beat later; both are sent 600 ms after the first.
+  await page.evaluate(`(async () => {
+    const midi = window.__fakeMidi
+    const t0 = performance.now()
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    midi.send([0x90, 60, 100], t0)
+    midi.send([0x90, 64, 100], t0 + 500)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    midi.send([0x80, 60, 0], t0 + 600)
+    midi.send([0x80, 64, 0], t0 + 600)
+  })()`)
+  // Pairs sent in one instant: stamped with that instant (72 + i) and unstamped (48 + i).
+  const pairs = 6
+  for (let i = 0; i < pairs; i++) {
+    await page.evaluate((i) => {
+      const m = (window as unknown as { __fakeMidi: Midi }).__fakeMidi
+      m.send([0x90, 72 + i, 100], performance.now())
+      m.send([0x90, 48 + i, 100], null)
+    }, i)
+    await page.waitForTimeout(90)
+    await page.evaluate((i) => {
+      const m = (window as unknown as { __fakeMidi: Midi }).__fakeMidi
+      m.send([0x80, 72 + i, 0])
+      m.send([0x80, 48 + i, 0], null)
+    }, i)
+    await page.waitForTimeout(60)
+  }
+  await record(page).click()
+  await page.getByTestId('transport-stop').click()
+  await expect.poll(async () => Object.keys((await view(page)).project.tracks[track]!.placements).length).toBe(placed + 1)
+  const v1 = await view(page)
+  const [, placement] = Object.entries(v1.project.tracks[track]!.placements).find(([id]) => !v0.project.tracks[track]!.placements[id])!
+  const notes = notesOf(v1, track, placement.clip)
+  const startOf = (pitch: number) => notes.find((n) => n.pitch === pitch)!.start
+  // 120 BPM: 960 ticks a beat, a tick is 0.52 ms.
+  const msPerTick = 500 / 960
+  const beat = (startOf(64) - startOf(60)) * msPerTick
+  console.log(`one beat apart: ${beat.toFixed(2)} ms (500 expected)`)
+  expect(Math.abs(beat - 500)).toBeLessThanOrEqual(1)
+  const lateness = Array.from({ length: pairs }, (_, i) => (startOf(48 + i) - startOf(72 + i)) * msPerTick)
+  console.log(`unstamped minus stamped: ${lateness.map((ms) => ms.toFixed(1)).join(', ')} ms`)
+  for (const ms of lateness) {
+    expect(ms).toBeGreaterThanOrEqual(-25)
+    expect(ms).toBeLessThanOrEqual(50)
+  }
+  await run(page, { type: 'history.undo' })
+  expect(errors).toEqual([])
+})
+
+/** Opens the engine dialog, runs `change` on it, and closes it again. */
+async function inDialog(page: Page, change: () => Promise<void>) {
+  await page.getByTestId('engine-mode').click()
+  await expect(page.getByTestId('engine-dialog')).toBeVisible()
+  await change()
+  await page.getByTestId('engine-dialog-close').click()
+  await expect(page.getByTestId('engine-dialog')).toBeHidden()
+}
+
+// #500: replace mode, set from the recording settings; one undo gives the replaced notes back.
+test('replace mode removes the clip notes of the recorded range; one undo gives them back', async ({ page }) => {
+  const { errors } = watch(page)
+  await start(page)
+  await arm(page, /^Arm .+ to record$/)
+  await page.getByTestId('nav-grid').click()
+  const v0 = await view(page)
+  const track = synth(v0)
+  if (Object.keys(v0.project.scenes).length === 0) await run(page, { type: 'scene.create' })
+  await page.getByTestId('cell').and(page.locator('[data-si="0"][data-ti="0"]')).dblclick()
+  await expect.poll(async () => clips(await view(page), track).length).toBe(1)
+  const [clipId] = clips(await view(page), track)[0]!
+  // One note at the start of the clip, one a beat and a half into it (tick 1440 at 960 a beat).
+  await run(page, {
+    type: 'clip.notes.add',
+    clip: clipId,
+    notes: [
+      { start: 0, pitch: 48, length: 480, velocity: 100 },
+      { start: 1440, pitch: 50, length: 480, velocity: 100 },
+    ],
+  })
+  await inDialog(page, async () => {
+    await page.getByTestId('engine-record-replace').check()
+    await expect.poll(async () => (await view(page)).session).toMatchObject({ record: { replace: true } })
+  })
+  const cell = page.getByTestId('cell').and(page.locator('[data-si="0"][data-ti="0"]'))
+  await cell.focus()
+  const entries = await done(page)
+  await record(page).click()
+  await expect(cell).toHaveAttribute('data-state', 'playing')
+  await page.waitForTimeout(150)
+  // Held for 1.2 s (about 2300 ticks, less than the clip's bar): the range covers tick 1440 and not the clip's start.
+  await play(page, 'KeyH', 1200)
+  await record(page).click()
+  await expect.poll(async () => notesOf(await view(page), track, clipId).some((n) => n.pitch === 69)).toBe(true)
+  const notes = notesOf(await view(page), track, clipId)
+  expect(notes.map((n) => n.pitch).sort()).toEqual([48, 69])
+  expect(await done(page)).toBe(entries + 1)
+  await page.keyboard.press('Control+z')
+  await expect
+    .poll(async () =>
+      notesOf(await view(page), track, clipId)
+        .map((n) => n.pitch)
+        .sort(),
+    )
+    .toEqual([48, 50])
+  await page.getByTestId('transport-stop').click()
+  expect(errors).toEqual([])
+})
+
+// #500: quantization on input, in French, with a simulated Web MIDI keyboard whose events carry their time.
+test('quantize on input puts the notes of a take on the grid at the end of the take', async ({ page }) => {
+  const { errors } = watch(page)
+  await fakeWebMidi(page)
+  await start(page, 'fr')
+  await chooseMidiInput(page, 'E2E Keys')
+  await arm(page, /^Armer .+ pour l’enregistrer$/)
+  await inDialog(page, async () => {
+    await expect(page.getByTestId('engine-record-quantize')).toBeVisible()
+    await expect(page.getByText('Quantification à l’enregistrement', { exact: true })).toBeVisible()
+    await page.getByTestId('engine-record-quantize').selectOption('quarter')
+    await expect.poll(async () => (await view(page)).session).toMatchObject({ record: { quantize_on_input: 'quarter' } })
+  })
+  const v0 = await view(page)
+  const track = synth(v0)
+  const placed = Object.keys(v0.project.tracks[track]!.placements).length
+  await record(page).click()
+  await expect(feedback(page)).toHaveAttribute('data-transport', 'recording')
+  await page.waitForTimeout(300)
+  // Three notes 300 ms apart (a beat is 500 ms): none of them lands on a beat.
+  await page.evaluate(`(async () => {
+    const midi = window.__fakeMidi
+    const t0 = performance.now()
+    await new Promise((resolve) => setTimeout(resolve, 900))
+    for (const [i, pitch] of [60, 62, 64].entries()) {
+      midi.send([0x90, pitch, 100], t0 + i * 300)
+      midi.send([0x80, pitch, 0], t0 + i * 300 + 100)
+    }
+  })()`)
+  await record(page).click()
+  await page.getByTestId('transport-stop').click()
+  await expect.poll(async () => Object.keys((await view(page)).project.tracks[track]!.placements).length).toBe(placed + 1)
+  const v1 = await view(page)
+  const [, placement] = Object.entries(v1.project.tracks[track]!.placements).find(([id]) => !v0.project.tracks[track]!.placements[id])!
+  const notes = notesOf(v1, track, placement.clip)
+  expect(notes.length).toBeGreaterThanOrEqual(3)
+  for (const n of notes) expect(n.start % 960, `note ${n.pitch} at ${n.start}`).toBe(0)
+  await run(page, { type: 'history.undo' })
   expect(errors).toEqual([])
 })

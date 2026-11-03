@@ -23,6 +23,8 @@
   )
   // The engine's load, when the host measures it (neither the worklet nor the helper does yet: it stays hidden until it is).
   const load = $derived(engine.feedback?.cpuLoad != null ? t('engine.loadShort', { pct: Math.round(engine.feedback.cpuLoad * 100) }) : null)
+  // The helper runs without an audio output (#525): the page plays in Web mode until it has one.
+  const waiting = $derived(engine.mode === 'web' && engine.awaitingOutput ? t('engine.boostWaiting') : null)
 </script>
 
 <header class="top">
@@ -56,8 +58,8 @@
         class:boost={engine.mode === 'native'}
         type="button"
         aria-haspopup="dialog"
-        aria-label={`${engine.mode === 'native' ? t('engine.boost') : t('engine.web')}, ${latency}${load ? `, ${load}` : ''}. ${t('engine.settings')}`}
-        title={`${t('engine.settings')}: ${latency}`}
+        aria-label={`${engine.mode === 'native' ? t('engine.boost') : t('engine.web')}, ${latency}${load ? `, ${load}` : ''}${waiting ? `, ${waiting}` : ''}. ${t('engine.settings')}`}
+        title={`${t('engine.settings')}: ${latency}${waiting ? `. ${waiting}` : ''}`}
         data-testid="engine-mode"
         onclick={() => (ui.engineOpen = true)}
       >
@@ -72,6 +74,7 @@
         {/if}
         <span class="value" data-testid="latency">{latencyShort}</span>
         {#if load}<span class="value" data-testid="engine-load">{load}</span>{/if}
+        {#if waiting}<span class="waiting" aria-hidden="true" data-testid="engine-waiting"></span>{/if}
       </button>
       <!-- The master's level, in every view: the output is what the listener hears, whatever the view shows. -->
       <div class="master-meter">
@@ -208,6 +211,13 @@
   .mode.boost {
     background: var(--fk-accent);
     color: #fff;
+  }
+  /* Boost waits for the helper's audio output (#525). */
+  .waiting {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--fk-solo);
   }
   .help {
     flex: none;

@@ -20,6 +20,12 @@ jobs:
     runs-on: ubuntu-latest
     # Observed 49-61 min (full suite on a release pull request); a hung job must not run for the 6 h default.
     timeout-minutes: 90
+    env:
+      # No debug info in the dev and test profiles (#595, founder's decision): CI is not where we debug, a
+      # failing test is reproduced locally. The full `debuginfo=2` made `target/debug` outgrow the runner's
+      # disk (`No space left on device`, `ld ... Bus error`). Debug assertions and the allocation detector
+      # are separate settings and stay on. The test profile inherits dev, so one variable covers both.
+      CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,6 +44,15 @@ jobs:
         env:
           RUSTUP_TOOLCHAIN: stable
         run: node scripts/ci/select.mjs
+
+      # Free the preinstalled toolchains this job never uses, then print the space left
+      # (#595): the runner's free disk was not enough for the workspace's tests.
+      - name: Free disk space
+        if: steps.changes.outputs.rust == 'true'
+        run: |
+          { echo "### Disk before cleanup"; df -h / | sed 's/^/    /'; } | tee -a "$GITHUB_STEP_SUMMARY"
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          { echo "### Disk after cleanup"; df -h / | sed 's/^/    /'; } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Rust
         if: steps.changes.outputs.rust == 'true'
@@ -92,6 +107,22 @@ jobs:
         if: steps.changes.outputs.rust_wasm_project == 'true'
         run: cargo build -p project-wasm --target wasm32-unknown-unknown --release
 
+      # Measured even when a step failed: the free space at the end of the job and the size of target/.
+      - name: Disk report
+        if: always() && steps.changes.outputs.rust == 'true'
+        run: |
+          {
+            echo "### Disk at the end of the job"
+            df -h / | sed 's/^/    /'
+            echo "target/: $(du -sh target 2>/dev/null | cut -f1)"
+            bins=$(find target/debug/deps -maxdepth 1 -type f -executable ! -name '*.so' -size +1M -printf '%s %f\n' 2>/dev/null | sort -rn)
+            echo "executables above 1 MB in target/debug/deps: $(echo "$bins" | grep -c .), $(echo "$bins" | awk '{s+=$1} END {printf "%.0f MB", s/1048576}')"
+            echo "largest:"
+            echo "$bins" | head -15 | awk '{printf "    %.0f MB %s\n", $1/1048576, $2}'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          avail=$(df --output=avail -BG / | tail -1 | tr -dc 0-9)
+          if [ "$avail" -lt 5 ]; then echo "::warning::Only ${avail} GB free at the end of the job (margin wanted: 5 GB)"; fi
+
   # The helper's Windows-only code (tray, registry, resources) builds only on Windows.
   helper-windows:
     # Nothing runs on a push to develop or main: the code was tested in its pull request.
@@ -139,3 +170,15 @@ jobs:
       - name: Release defaults
         if: steps.changes.outputs.helper_windows == 'true'
         run: cargo test -p helper --release --bin faulk-helper
+
+      # Measured for #595 (the Linux job ran out of disk): free space on C: and size of target/.
+      - name: Disk report
+        if: always() && steps.changes.outputs.helper_windows == 'true'
+        shell: bash
+        run: |
+          {
+            echo "### Disk at the end of the job"
+            df -h /c | sed 's/^/    /'
+            echo "target/: $(du -sh target 2>/dev/null | cut -f1)"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+

@@ -17,8 +17,8 @@ export const inputNoteOff = (note: number): Command => ({ type: 'live.input_note
 export const controlChange = (controller: number, value: number): Command => ({ type: 'live.control_change', controller, value })
 
 /**
- * Sets a device parameter. Without a device it names the synth of `SINGLE_SYNTH`: only the helper's
- * one-track copy relies on that, until BO-1 (#102); the Instrument view names the selected track's device.
+ * Sets a device parameter. Without a device it names the synth of `SINGLE_SYNTH`, the default
+ * project's; the Instrument view names the selected track's device.
  */
 export const setParam = (param: SynthParam, value: number, device: string = SINGLE_SYNTH.device): Command => ({
   type: 'device.set_param',

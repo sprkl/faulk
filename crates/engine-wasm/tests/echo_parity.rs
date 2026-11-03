@@ -69,6 +69,7 @@ fn scenario() -> Vec<Step> {
         track: t,
         pitch,
         velocity,
+        at: None,
     };
     let enable = |enabled: bool| M::DeviceSetEnabled {
         track: t,

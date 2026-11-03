@@ -648,6 +648,26 @@
     run(deleteScene(id))
   }
 
+  /** The right click on a scene's header (#530): the actions of its `⋯` menu, plus the launch, in the shared menu. */
+  function onSceneContext(event: MouseEvent, id: string, index: number, name: string) {
+    if (renaming === id) return
+    closePopups(false)
+    const filled = sceneHasClip(id)
+    ui.openMenu(
+      event,
+      [
+        { id: 'scene-launch', label: t('grid.launchScene', { name }), run: () => run(launchScene(id)) },
+        { id: 'scene-rename', label: t('grid.rename'), shortcut: chordText(['F2']), separator: true, run: () => void startRename(id, index) },
+        { id: 'scene-up', label: t('grid.moveUp'), disabled: index === 0, run: () => move(id, index - 1) },
+        { id: 'scene-down', label: t('grid.moveDown'), disabled: index === scenes.length - 1, run: () => move(id, index + 1) },
+        { id: 'scene-send', label: t('grid.sendScene'), separator: true, disabled: !filled, run: () => sendSceneToArrangement(id, false) },
+        { id: 'scene-send-linked', label: t('grid.sendSceneLinked'), disabled: !filled, run: () => sendSceneToArrangement(id, true) },
+        { id: 'scene-delete', label: t('grid.delete'), separator: true, run: () => requestDelete(id) },
+      ],
+      t('grid.sceneMenu', { name }),
+    )
+  }
+
   function move(id: string, index: number) {
     menuFor = null
     run(moveScene(id, index))
@@ -746,6 +766,7 @@
             data-testid="scene-head"
             onkeydown={onHeadKey}
             onfocusout={onHeadFocusOut}
+            oncontextmenu={(event) => onSceneContext(event, sc.id, si, name)}
           >
             <button
               class="launch"

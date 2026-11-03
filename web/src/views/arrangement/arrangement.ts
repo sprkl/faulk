@@ -48,7 +48,6 @@ const ticksOf = (placement: Placement): { length: number; offset: number } | nul
 
 /** How many times each clip of a track is used: its placements, plus one for a launch-grid slot. */
 export function usesOf(entry: TrackEntry): Map<string, number> {
-  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- a plain lookup built per call
   const uses = new Map<string, number>()
   for (const placement of Object.values(entry.track.placements as Record<string, Placement | undefined>)) {
     if (placement) uses.set(placement.clip, (uses.get(placement.clip) ?? 0) + 1)
@@ -158,8 +157,36 @@ export function moveDelta(selection: readonly Block[], grabbed: Block, pointerTi
   return Math.round(Math.min(MAX_TICK - highest, Math.max(-lowest, wanted))) + 0
 }
 
-/** The selection as it would be after a move: same lanes, shifted. */
-export const moved = (selection: readonly Block[], delta: number): Block[] => selection.map((b) => ({ ...b, start: b.start + delta, end: b.end + delta }))
+/** The selection as it would be after a move: shifted in time and, with `rows`, that many tracks down (negative is up). */
+export const moved = (selection: readonly Block[], delta: number, rows = 0): Block[] =>
+  selection.map((b) => ({ ...b, start: b.start + delta, end: b.end + delta, row: b.row + rows }))
+
+/** `rows` brought back so that no block of the selection leaves the `count` tracks. */
+export function clampRows(selection: readonly Block[], rows: number, count: number): number {
+  if (selection.length === 0 || count <= 0) return 0
+  const top = selection.reduce((low, b) => Math.min(low, b.row), Infinity)
+  const bottom = selection.reduce((high, b) => Math.max(high, b.row), -Infinity)
+  // `+ 0` turns a -0 into 0.
+  return Math.min(count - 1 - bottom, Math.max(-top, Math.round(rows))) + 0
+}
+
+/** What a move of `rows` tracks asks of `arrangement.move_to_track`: the pairs, or why it cannot be asked. */
+export type TrackTargets = { moves: { placement: string; track: string }[] } | { refused: 'edge' } | { refused: 'incompatible'; track: string }
+
+/**
+ * Each selected block with the track `rows` tracks from its own, in track order (lanes and the master are not tracks). A target
+ * past the first or last track, or a track that is not a MIDI track, refuses the whole move: the command is all or none.
+ */
+export function trackTargets(selection: readonly Block[], rows: number, tracks: readonly { id: string; midi: boolean }[]): TrackTargets {
+  const moves: { placement: string; track: string }[] = []
+  for (const b of selection) {
+    const target = tracks[b.row + rows]
+    if (!target) return { refused: 'edge' }
+    if (!target.midi) return { refused: 'incompatible', track: target.id }
+    moves.push({ placement: b.id, track: target.id })
+  }
+  return { moves }
+}
 
 /**
  * Where an edge goes when the pointer is at `tick`, or `null` when that changes nothing. The end stays after the

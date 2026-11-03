@@ -4,7 +4,8 @@ import { allNotesOff } from '../synth-commands'
 
 export interface WebMidiEvents {
   onInputs(inputs: MidiInput[], selected: string | null): void
-  onCommand(command: Command): void
+  /** `timeStamp`: when the message arrived, on the page's performance clock (`MIDIMessageEvent.timeStamp`). */
+  onCommand(command: Command, timeStamp?: number): void
   onActivity(note: number, velocity: number): void
 }
 
@@ -18,7 +19,7 @@ export interface MidiInputLike {
   id: string
   name: string | null
   state: 'connected' | 'disconnected'
-  onmidimessage: ((event: { data: Uint8Array | null }) => void) | null
+  onmidimessage: ((event: { data: Uint8Array | null; timeStamp?: number }) => void) | null
   close(): Promise<unknown>
 }
 
@@ -70,7 +71,7 @@ export class WebMidiHost {
         if (!event.data) return
         const command = decodeMidi(event.data)
         if (!command) return
-        this.events.onCommand(command)
+        this.events.onCommand(command, event.timeStamp)
         if (command.type === 'live.input_note_on') this.events.onActivity(command.note, command.velocity)
         if (command.type === 'live.input_note_off') this.events.onActivity(command.note, 0)
       }

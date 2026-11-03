@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #369: the grid does not move when the first note appears (the toolbar keeps its height), and the
 // velocity lane picks the right note when two share a step: the selected one, else the highest.
@@ -24,7 +24,7 @@ async function open(page: Page, width = 1280) {
   await page.setViewportSize({ width, height: 900 })
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await page.getByTestId('panel-piano-roll').click()
   await page.getByTestId('roll-create-clip').click()
   await expect(roll(page)).toHaveAttribute('data-note-count', '0')

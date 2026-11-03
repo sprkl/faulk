@@ -275,6 +275,23 @@ export function saveShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'met
   return event.shiftKey ? 'save_as' : 'save'
 }
 
+/**
+ * "Go to" asked by the keyboard (#554): Ctrl or Cmd + G, in every view, not from a text field (so the open field's own
+ * Ctrl+G is left alone). It carries Ctrl or Cmd, so it never plays a note; the browser's find-next is taken.
+ */
+export function gotoShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'repeat' | 'target'>): boolean {
+  return (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && !event.repeat && event.key.toLowerCase() === 'g' && !isTextTarget(event.target)
+}
+
+/**
+ * The chord of "Repeat until" in the arrangement (#555): Ctrl or Cmd + Shift + R. The browser reloads the page on it, so the
+ * arrangement cancels it whenever it is shown, whatever has the focus (a text field and an open dialog included); it opens the
+ * field only outside a text field and a dialog.
+ */
+export function repeatShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>): boolean {
+  return (event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'r'
+}
+
 /** Undo or redo asked by the keyboard (Ctrl or Cmd + Z, Shift for redo, Ctrl + Y), or null; never inside a text field. */
 export function historyShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'target'>): 'undo' | 'redo' | null {
   if (!(event.ctrlKey || event.metaKey) || event.altKey || isTextTarget(event.target)) return null

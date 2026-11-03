@@ -33,6 +33,8 @@ log = "0.4.34"
 
 [dev-dependencies]
 regex = "1.13.1"
+# The big project of the paced-send tests (#245).
+test-support = { path = "../test-support" }
 
 [target."cfg(windows)".dependencies]
 tray-icon = { version = "0.26.1", default-features = false }

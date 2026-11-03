@@ -73,3 +73,19 @@ export function parseNumerator(text: string): number | null {
   const n = Number(clean)
   return n >= MIN_NUMERATOR && n <= MAX_NUMERATOR ? n : null
 }
+
+/** The latest bar "Go to" accepts (far inside the command's 2^40 ticks). */
+export const MAX_GOTO_BAR = 99_999
+
+/**
+ * The tick a "Go to" field's text means, or `null` when it is no position: a bar ("12") or a bar and a beat ("12.3", a dot,
+ * a comma or a colon between them), both counted from 1, the beat within the bar's beats. Bars past `MAX_GOTO_BAR` are refused.
+ */
+export function parseBarBeat(text: string, sig: Signature): number | null {
+  const found = /^(\d{1,6})(?:[.,:](\d{1,3}))?$/.exec(text.trim())
+  if (!found) return null
+  const bar = Number(found[1])
+  const beat = found[2] === undefined ? 1 : Number(found[2])
+  if (bar < 1 || bar > MAX_GOTO_BAR || beat < 1 || beat > sig.numerator) return null
+  return (bar - 1) * barTicks(sig) + (beat - 1) * beatTicks(sig)
+}
