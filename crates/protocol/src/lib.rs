@@ -18,13 +18,15 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 26;
+pub const PROTOCOL_VERSION: u32 = 28;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
 /// encodes (16 Mi notes at about 21 bytes each are 352 MB). The page never sends a longer
 /// one; the helper's other routes keep the WebSocket library's default limits.
 pub const MAX_STREAM_BYTES: usize = 1 << 30;
+
+// Version 28 (#191, 27 is #616's): device presets. The commands gain the `preset` domain (`preset.save`, `preset.load`, `preset.delete`, `preset.rename`, `preset.copy`, `preset.list`, `preset.restore`, `preset.restore_device`), the events `preset_changed` and `device_preset_changed`, a device an optional `preset`, the project its `presets` (folder format 4). The helper's MCP tools come from the command catalogue (AG-1), so a helper of version 27 would not offer them.
 
 // Version 26 (#97, AG-1; 25 is #594's): agents. The helper serves MCP (`/mcp` on the same port) and relays each tool call to the session as `agent.call` (`id`, the agent's name, the command as JSON); the page runs it through its dispatcher like a user's action (history author `agent:<name>`, undo, refusals) and answers `agent.result` with the same `id` and an `AgentResult`. A page and a helper of different versions refuse each other.
 
