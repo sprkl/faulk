@@ -38,6 +38,11 @@ export class EngineStore {
    * protocol, no `update.status`). Nothing shows it yet; read it from the devtools.
    */
   helperUpdate = $state<HelperUpdateState | null>(null)
+  /**
+   * The helper runs without an audio output (#525): the page plays itself and switches to Boost
+   * by itself once the helper has one. The dialog and the pill say so; "Stay in Web" ends it.
+   */
+  awaitingOutput = $state(false)
   /** The browser's local network permission, `null` where it does not exist or is unknown. */
   localAccess = $state<PermissionState | null>(null)
   paired = $state(Boolean(storage()?.getItem(TOKEN_KEY)))

@@ -2,10 +2,10 @@
 //! probe, pairing, session, session replacement and the release of notes on close.
 
 use futures_util::{SinkExt, StreamExt};
-use helper::audio::{AudioCore, Meter, audio_core};
+use helper::audio::{AudioCore, EngineSlot, Meter, audio_core};
 use helper::midi::MidiManager;
 use helper::security::Policy;
-use helper::server::{HelperEvent, Shared, serve};
+use helper::server::{HelperEvent, NO_OUTPUT, Shared, serve};
 use helper::updater::{Backend, UpdateStatus, UpdateWatch, Updater};
 use protocol::{ClientMessage, HelperUpdate, PROTOCOL_VERSION, ServerMessage};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,8 +25,10 @@ struct Harness {
     port: u16,
     code: Arc<Mutex<String>>,
     events: Arc<Mutex<Vec<HelperEvent>>>,
-    audio_error: Arc<AtomicBool>,
+    shared: Arc<Shared>,
     core: AudioCore,
+    /// The engine of the output; `remove` stands for an output that went away.
+    engine: Arc<EngineSlot>,
 }
 
 async fn start() -> Harness {
@@ -38,12 +40,12 @@ async fn start_with_updates(updates: Option<UpdateWatch>) -> Harness {
     let port = listener.local_addr().unwrap().port();
     let meter = Arc::new(Meter::default());
     let (core, sender) = audio_core(48_000.0, meter.clone()).unwrap();
-    let sender = Arc::new(Mutex::new(sender));
+    let engine = Arc::new(EngineSlot::default());
+    engine.install(sender, 48_000.0);
     let (activity_tx, activity_rx) = mpsc::channel();
-    let midi = MidiManager::new(sender.clone(), activity_tx);
+    let midi = MidiManager::new(engine.clone(), activity_tx);
     let code = Arc::new(Mutex::new(String::new()));
     let events = Arc::new(Mutex::new(Vec::new()));
-    let audio_error = Arc::new(AtomicBool::new(false));
     let (shown, seen) = (code.clone(), events.clone());
     let shared = Shared::new(
         Policy {
@@ -51,12 +53,10 @@ async fn start_with_updates(updates: Option<UpdateWatch>) -> Harness {
             allowed_origins: vec![ORIGIN.into()],
             token: TOKEN.into(),
         },
-        sender,
+        engine.clone(),
         midi,
         activity_rx,
         meter,
-        48_000.0,
-        audio_error.clone(),
         Box::new(move |event| {
             if let HelperEvent::Code(c) = &event {
                 *shown.lock().unwrap() = c.clone();
@@ -68,13 +68,14 @@ async fn start_with_updates(updates: Option<UpdateWatch>) -> Harness {
         Some(watch) => shared.with_updates(watch),
         None => shared,
     });
-    tokio::spawn(serve(listener, shared));
+    tokio::spawn(serve(listener, shared.clone()));
     Harness {
         port,
         code,
         events,
-        audio_error,
+        shared,
         core,
+        engine,
     }
 }
 
@@ -151,9 +152,69 @@ async fn probe_answers_with_the_protocol_version() {
         next(&mut ws).await,
         ServerMessage::Probe {
             helper: "faulk-helper".into(),
-            protocol: PROTOCOL_VERSION
+            protocol: PROTOCOL_VERSION,
+            audio_output: true,
         }
     );
+}
+
+/// #525: without an output the helper still serves. The probe says so, and a session is
+/// refused with `audio.no_output` (no hello, not counted as a page) until an output opens.
+#[tokio::test]
+async fn without_an_output_the_probe_says_so_and_a_session_is_refused() {
+    let h = start().await;
+    h.engine.remove();
+    let mut probe = connect(h.port, "/probe", Some(ORIGIN)).await.unwrap();
+    assert!(matches!(
+        next(&mut probe).await,
+        ServerMessage::Probe {
+            audio_output: false,
+            ..
+        }
+    ));
+
+    let mut ws = connect(h.port, &format!("/session?token={TOKEN}"), Some(ORIGIN))
+        .await
+        .unwrap();
+    match next(&mut ws).await {
+        ServerMessage::Error { code, .. } => assert_eq!(code, NO_OUTPUT),
+        other => panic!("expected the no-output refusal, got {other:?}"),
+    }
+    // Then the helper closes the session.
+    let end = tokio::time::timeout(Duration::from_secs(5), ws.next())
+        .await
+        .expect("the session is closed");
+    assert!(
+        matches!(end, None | Some(Ok(Message::Close(_))) | Some(Err(_))),
+        "{end:?}"
+    );
+    assert!(
+        !h.events
+            .lock()
+            .unwrap()
+            .contains(&HelperEvent::Session(true)),
+        "a refused page is not a session"
+    );
+
+    // An output opens: the next session gets its hello at that output's rate.
+    let meter = Arc::new(Meter::default());
+    let (_core, sender) = audio_core(44_100.0, meter).unwrap();
+    h.engine.install(sender, 44_100.0);
+    let mut probe = connect(h.port, "/probe", Some(ORIGIN)).await.unwrap();
+    assert!(matches!(
+        next(&mut probe).await,
+        ServerMessage::Probe {
+            audio_output: true,
+            ..
+        }
+    ));
+    let mut ws = connect(h.port, &format!("/session?token={TOKEN}"), Some(ORIGIN))
+        .await
+        .unwrap();
+    match next(&mut ws).await {
+        ServerMessage::Hello { sample_rate, .. } => assert_eq!(sample_rate, 44_100.0),
+        other => panic!("expected hello, got {other:?}"),
+    }
 }
 
 #[tokio::test]
@@ -336,9 +397,87 @@ async fn reports_sessions_and_ignores_the_end_of_a_replaced_one() {
 #[tokio::test]
 async fn reports_an_audio_error() {
     let h = start().await;
-    h.audio_error
-        .store(true, std::sync::atomic::Ordering::Relaxed);
+    h.shared.output_lost();
     wait_events(&h, &[HelperEvent::AudioError]).await;
+}
+
+/// A session opened on an output that has not called back yet waits for its first callback,
+/// so its hello carries the buffer size and the latency (#525).
+#[tokio::test]
+async fn the_hello_of_a_new_output_waits_for_its_first_callback() {
+    let mut h = start().await;
+    let path = format!("/session?token={TOKEN}");
+    let mut ws = connect(h.port, &path, Some(ORIGIN)).await.unwrap();
+    // The output calls back 50 ms after the page connected.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    play(&mut h.core, 10);
+    match next(&mut ws).await {
+        ServerMessage::Hello {
+            buffer_frames,
+            estimated_latency_ms,
+            ..
+        } => {
+            assert!(buffer_frames.is_some(), "the buffer size is known");
+            assert!(estimated_latency_ms.is_some(), "the latency is known");
+        }
+        other => panic!("expected hello, got {other:?}"),
+    }
+}
+
+/// An output that goes away while a session waits for its first callback: the page gets
+/// `audio.stream` instead of a hello, and takes it as no output (#525).
+#[tokio::test]
+async fn an_output_lost_before_the_hello_is_said_instead_of_it() {
+    let h = start().await;
+    let path = format!("/session?token={TOKEN}");
+    let mut ws = connect(h.port, &path, Some(ORIGIN)).await.unwrap();
+    // No callback yet: the session waits; the output goes away meanwhile (no `output_lost`,
+    // as if the supervisor had not told the server yet).
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    h.engine.remove();
+    match next(&mut ws).await {
+        ServerMessage::Error { code, .. } => assert_eq!(code, "audio.stream"),
+        other => panic!("expected audio.stream instead of hello, got {other:?}"),
+    }
+}
+
+/// The page in Boost hears of a lost output at once; a page that connects to the next output
+/// gets its hello and never the news of the old one (#525).
+#[tokio::test]
+async fn a_lost_output_is_told_to_its_session_only() {
+    let h = start().await;
+    let path = format!("/session?token={TOKEN}");
+    let mut ws = connect(h.port, &path, Some(ORIGIN)).await.unwrap();
+    assert!(matches!(next(&mut ws).await, ServerMessage::Hello { .. }));
+    // What the supervisor does when the stream fails: empty the slot, then tell the server.
+    h.engine.remove();
+    h.shared.output_lost();
+    loop {
+        match next(&mut ws).await {
+            ServerMessage::Error { code, .. } => {
+                assert_eq!(code, "audio.stream");
+                break;
+            }
+            ServerMessage::MidiInputs { .. } | ServerMessage::UpdateStatus { .. } => {}
+            other => panic!("expected audio.stream, got {other:?}"),
+        }
+    }
+    // The next output opens; the page that had Boost closes its session and comes back.
+    drop(ws);
+    let (_core, sender) = audio_core(48_000.0, Arc::new(Meter::default())).unwrap();
+    h.engine.install(sender, 48_000.0);
+    let mut ws = connect(h.port, &path, Some(ORIGIN)).await.unwrap();
+    assert!(matches!(next(&mut ws).await, ServerMessage::Hello { .. }));
+    // Nothing about the old output follows within a while (the ticker runs every 33 ms).
+    let quiet = tokio::time::timeout(Duration::from_millis(300), async {
+        loop {
+            if let ServerMessage::Error { code, .. } = next(&mut ws).await {
+                return code;
+            }
+        }
+    })
+    .await;
+    assert!(quiet.is_err(), "no stale error: {quiet:?}");
 }
 
 /// The next binary frame of the session within 5 s (text frames are skipped).

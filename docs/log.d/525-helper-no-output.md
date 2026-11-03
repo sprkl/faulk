@@ -1,0 +1,2 @@
+2026-11-03
+* **Update** (#525): `architecture/04-distribution-helper.md` gains "Sans sortie audio": the helper starts and serves without an audio output, opens the default output when one appears (device list polled every 2 s, retry every 30 s, reopen after a stream error), protocol 22 (`audio_output` in the probe, `audio.no_output` refusal of a session), the page's wait for the output and its back-off after flaps; the remaining fatal error box is shown on top.

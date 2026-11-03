@@ -27,6 +27,8 @@
   const loadPeak = $derived(
     engine.load ? t('engine.loadPeak', { pct: Math.round(engine.load.smoothed * 100), peak: Math.round(engine.load.peak * 100) }) : null,
   )
+  // The helper runs without an audio output (#525): the page plays in Web mode until it has one.
+  const waiting = $derived(engine.mode === 'web' && engine.awaitingOutput ? t('engine.boostWaiting') : null)
 </script>
 
 <header class="top">
@@ -60,8 +62,8 @@
         class:boost={engine.mode === 'native'}
         type="button"
         aria-haspopup="dialog"
-        aria-label={`${engine.mode === 'native' ? t('engine.boost') : t('engine.web')}, ${latency}${loadPeak ? `, ${loadPeak}` : ''}. ${t('engine.settings')}`}
-        title={`${t('engine.settings')}: ${latency}${loadPeak ? `, ${loadPeak}` : ''}`}
+        aria-label={`${engine.mode === 'native' ? t('engine.boost') : t('engine.web')}, ${latency}${loadPeak ? `, ${loadPeak}` : ''}${waiting ? `, ${waiting}` : ''}. ${t('engine.settings')}`}
+        title={`${t('engine.settings')}: ${latency}${loadPeak ? `, ${loadPeak}` : ''}${waiting ? `. ${waiting}` : ''}`}
         data-testid="engine-mode"
         onclick={() => (ui.engineOpen = true)}
       >
@@ -76,6 +78,7 @@
         {/if}
         <span class="value" data-testid="latency">{latencyShort}</span>
         {#if load}<span class="value load" data-testid="engine-load">{load}</span>{/if}
+        {#if waiting}<span class="waiting" aria-hidden="true" data-testid="engine-waiting"></span>{/if}
       </button>
       <!-- The master's level, in every view: the output is what the listener hears, whatever the view shows. -->
       <div class="master-meter">
@@ -216,6 +219,13 @@
   /* The load changes about 30 times a second: fixed-width digits keep the pill still while its digit count stays. */
   .mode .load {
     font-variant-numeric: tabular-nums;
+  }
+  /* Boost waits for the helper's audio output (#525). */
+  .waiting {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--fk-solo);
   }
   .help {
     flex: none;

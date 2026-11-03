@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PROTOCOL_VERSION } from '../generated/protocol'
 import type { EngineEvents } from './engine'
 import { FEEDBACK_HEADER_BYTES, FEEDBACK_VERSION, TRACK_METER_BYTES } from './feedback'
-import { NativeEngine } from './native-engine'
+import { NativeEngine, NoOutputError } from './native-engine'
 
 class FakeSocket {
   static last: FakeSocket
@@ -75,5 +75,35 @@ describe('the Boost engine reads the helper', () => {
     expect(events.onHelperUpdate).toHaveBeenCalledTimes(2)
     expect(events.onHelperUpdate.mock.calls[1][0]).toEqual(engine.update)
     expect(events.onError).not.toHaveBeenCalled()
+  })
+
+  it('rejects with NoOutputError when the helper has no audio output (#525)', async () => {
+    vi.stubGlobal('WebSocket', FakeSocket)
+    const events = { onStatus: vi.fn(), onFeedback: vi.fn(), onError: vi.fn(), onClosed: vi.fn() } satisfies EngineEvents
+    const connected = NativeEngine.connect('t', events)
+    const socket = FakeSocket.last
+    socket.onmessage!({ data: JSON.stringify({ type: 'error', code: 'audio.no_output', message: 'the helper has no audio output' }) })
+    socket.onclose!()
+    await expect(connected).rejects.toBeInstanceOf(NoOutputError)
+    expect(events.onError).not.toHaveBeenCalled()
+    expect(events.onClosed).not.toHaveBeenCalled()
+  })
+
+  it('takes an output lost before the hello for no output (#525)', async () => {
+    vi.stubGlobal('WebSocket', FakeSocket)
+    const events = { onStatus: vi.fn(), onFeedback: vi.fn(), onError: vi.fn(), onClosed: vi.fn() } satisfies EngineEvents
+    const connected = NativeEngine.connect('t', events)
+    FakeSocket.last.onmessage!({ data: JSON.stringify({ type: 'error', code: 'audio.stream', message: 'the audio output stream reported an error' }) })
+    await expect(connected).rejects.toBeInstanceOf(NoOutputError)
+  })
+
+  it('takes a session closed without a word for a refused one', async () => {
+    vi.stubGlobal('WebSocket', FakeSocket)
+    const events = { onStatus: vi.fn(), onFeedback: vi.fn(), onError: vi.fn(), onClosed: vi.fn() } satisfies EngineEvents
+    const connected = NativeEngine.connect('t', events)
+    FakeSocket.last.onclose!()
+    const error = await connected.catch((e: unknown) => e)
+    expect(error).toBeInstanceOf(Error)
+    expect(error).not.toBeInstanceOf(NoOutputError)
   })
 })

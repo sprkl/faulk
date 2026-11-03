@@ -57,6 +57,8 @@ const parts = [
   '/* eslint-disable */',
   `export const PROTOCOL_VERSION = ${bundle.protocol_version} as const`,
   `export const PARAM_IDS = ${JSON.stringify(bundle.param_ids)} as const`,
+  '/** The stable `code`s of the `error` messages of the helper the page acts on (`protocol::errors`). */',
+  `export const ERROR_CODES = ${JSON.stringify(bundle.error_codes)} as const`,
   `export const PARAM_DEFAULTS = ${JSON.stringify(bundle.param_defaults)} as const`,
   '/** The law of the fader (#389), `[position, dB]` points from the bottom (silence) to the top: defined in `engine::fader`. */',
   `export const FADER_TAPER = ${JSON.stringify(bundle.fader_taper)} as const`,

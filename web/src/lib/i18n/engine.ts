@@ -42,7 +42,8 @@ export const engine = defineFeature(
     'meter.clip': 'CLIP',
     'meter.reset': 'Reset the CLIP and the peak of {name}',
     'meter.master': 'Master level',
-    'audio.error': 'The helper’s audio output stopped: back to Web mode.',
+    'audio.error': 'The helper’s audio output stopped: Faulk plays in the browser until it comes back.',
+    'engine.boostWaiting': 'Boost waits for an audio output',
     'engine.streamError': 'The audio engine stopped taking changes. Click "Start audio" to continue.',
   },
   {
@@ -85,7 +86,8 @@ export const engine = defineFeature(
     'meter.clip': 'CLIP',
     'meter.reset': 'Remettre à zéro le CLIP et le pic de {name}',
     'meter.master': 'Niveau du master',
-    'audio.error': 'La sortie audio du helper s’est arrêtée : retour en mode Web.',
+    'audio.error': 'La sortie audio du helper s’est arrêtée : Faulk joue dans le navigateur jusqu’à son retour.',
+    'engine.boostWaiting': 'Boost attend une sortie audio',
     'engine.streamError': 'Le moteur audio n’accepte plus les changements. Clique sur « Démarrer l’audio » pour continuer.',
   },
 )

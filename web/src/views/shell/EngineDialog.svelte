@@ -198,6 +198,9 @@
         </p>
       {:else if engine.mode === 'native'}
         <button class="ghost" onclick={() => dispatcher.enterWeb()}>{t('helper.useWeb')}</button>
+      {:else if engine.awaitingOutput}
+        <p class="muted" role="status" data-testid="helper-no-output">{t('helper.noOutput')}</p>
+        <button class="ghost" onclick={() => dispatcher.stayInWeb()}>{t('helper.stayWeb')}</button>
       {:else if engine.paired}
         <button class="primary" disabled={engine.helper === 'connecting'} onclick={() => dispatcher.enterBoost()}>{t('helper.useBoost')}</button>
       {:else}
