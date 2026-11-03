@@ -18,7 +18,8 @@ pub const BLOCK_FRAMES: usize = 4096;
 
 /// What the pipeline reads: the file, by ranges, with its length known.
 pub trait Source: Read + Seek + Send + Sync {
-    fn len(&self) -> u64;
+    /// The length of the file in bytes.
+    fn byte_len(&self) -> u64;
 }
 
 struct Media(Box<dyn Source>);
@@ -40,7 +41,7 @@ impl MediaSource for Media {
         true
     }
     fn byte_len(&self) -> Option<u64> {
-        Some(self.0.len())
+        Some(self.0.byte_len())
     }
 }
 
@@ -106,7 +107,7 @@ impl Decoding {
     }
 
     fn open_inner(mut source: Box<dyn Source>, hint: Option<&str>) -> Result<Self, ImportError> {
-        let len = source.len();
+        let len = source.byte_len();
         if len == 0 {
             return Err(ImportError::Empty);
         }

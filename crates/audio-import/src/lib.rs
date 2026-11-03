@@ -116,7 +116,7 @@ impl<S: Seek> Seek for Plain<S> {
 }
 
 impl<S: Read + Seek + Send + Sync> Source for Plain<S> {
-    fn len(&self) -> u64 {
+    fn byte_len(&self) -> u64 {
         self.1
     }
 }

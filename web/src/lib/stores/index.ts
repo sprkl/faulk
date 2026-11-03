@@ -94,6 +94,8 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
       // What the last write of the project cost (`project-save.spec.ts`).
       __faulkWrite: () => storage.lastWrite,
       // The PCM caches the last opening made again (AU-1), once that background work is over (`audio-import.spec.ts`).
+      // Imports files into an audio track as the dialog would (AU-1): a check builds a file too big for the file chooser in the page.
+      __faulkImportAudio: (track: string, files: File[]) => audioImport.importFiles(track, files),
       __faulkAudioCache: async () => {
         await storage.audioCacheDone
         return storage.audioCache

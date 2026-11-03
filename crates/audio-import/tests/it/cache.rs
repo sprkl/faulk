@@ -30,8 +30,10 @@ fn a_whole_cache_of_the_media_is_valid_and_holds_the_decoded_samples() {
     ));
     // The samples come back as they were decoded.
     let back: Vec<f32> = file[cache::HEADER_BYTES..]
-        .chunks_exact(4)
-        .map(|b| f32::from_le_bytes(b.try_into().unwrap()))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| f32::from_le_bytes(*b))
         .collect();
     assert!(back == pcm);
     assert_eq!(

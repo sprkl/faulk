@@ -16,6 +16,8 @@ const WORKSPACE = [
   { name: 'project-wasm', dir: 'crates/project-wasm', deps: ['project', 'commands', 'engine'], devDeps: [] },
   { name: 'helper', dir: 'crates/helper', deps: ['engine', 'commands', 'protocol', 'project'], devDeps: [] },
   { name: 'test-support', dir: 'crates/test-support', deps: ['engine', 'commands', 'project'], devDeps: [] },
+  { name: 'audio-import', dir: 'crates/audio-import', deps: ['project'], devDeps: [] },
+  { name: 'audio-import-wasm', dir: 'crates/audio-import-wasm', deps: ['audio-import'], devDeps: [] },
 ]
 const ws = () => WORKSPACE
 const SPECS = specNames(readdirSync(fileURLToPath(new URL('../../web/tests/e2e/', import.meta.url))))
@@ -99,6 +101,18 @@ test('a leaf crate that the page embeds runs the web job but not helper', () => 
   assert.equal(r.rustWasmEngine, false)
   assert.equal(r.helperWindows, false)
   assert.equal(r.web, true)
+})
+
+test('the audio import pipeline (AU-1) reaches the page through its WebAssembly build: the web job and the audio specs, not helper', () => {
+  for (const file of ['crates/audio-import/src/decode.rs', 'crates/audio-import-wasm/src/lib.rs']) {
+    const r = pr([file])
+    assert.equal(r.web, true, file)
+    assert.equal(r.helperWindows, false, file)
+    assert.equal(r.rustWasmProject || r.rustWasmEngine, false, file)
+    assert.equal(r.e2eTier, 'area', file)
+    assert.ok(r.e2eSpecs.includes('audio-import'), file)
+  }
+  assert.equal(pr(['crates/audio-import/src/decode.rs']).rustTest, '-p audio-import -p audio-import-wasm')
 })
 
 test('protocol changes reach helper and the generated types of the page', () => {

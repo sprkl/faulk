@@ -62,7 +62,7 @@ struct State {
 }
 
 thread_local! {
-    static STATE: RefCell<State> = RefCell::new(State {
+    static STATE: RefCell<State> = const { RefCell::new(State {
         inbox: Vec::new(),
         hash: None,
         digest: [0; 32],
@@ -71,7 +71,7 @@ thread_local! {
         block: Vec::new(),
         error: String::new(),
         header: [0; cache::HEADER_BYTES],
-    });
+    }) };
     /// The furthest byte the decoder has read: the progress of a decode.
     static POSITION: RefCell<u64> = const { RefCell::new(0) };
 }
@@ -151,7 +151,7 @@ impl Seek for HostFile {
 }
 
 impl Source for HostFile {
-    fn len(&self) -> u64 {
+    fn byte_len(&self) -> u64 {
         self.len
     }
 }
