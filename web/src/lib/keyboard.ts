@@ -336,3 +336,17 @@ export function layoutShortcut(
   if (digit) return { view: Number(digit[1]) - 1 }
   return event.code === PANEL_CODE ? 'panel' : null
 }
+
+/**
+ * Tap tempo (#195): Alt+T, by position. Alt alone (never a bare letter: T plays a note), no repeat (a held key is one tap),
+ * nothing from a text field. Playing ignores every Alt event (`ignoreKeyEvent`), so it plays nothing.
+ */
+const TAP_CODE = 'KeyT'
+export function tapShortcut(event: Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'repeat' | 'target'>): boolean {
+  return isTapChord(event) && !event.repeat && !isTextTarget(event.target)
+}
+
+/** The tap chord itself, repeats and text fields included: what a series of taps must not mistake for another key. */
+export function isTapChord(event: Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>): boolean {
+  return event.code === TAP_CODE && event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey
+}

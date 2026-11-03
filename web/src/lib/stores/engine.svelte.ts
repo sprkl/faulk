@@ -1,5 +1,6 @@
 import type { EngineStatus, HelperUpdateState } from '../engine/engine'
 import type { FeedbackReport } from '../engine/feedback'
+import type { EngineLoad } from '../engine/load'
 import type { MidiInput } from '../generated/protocol'
 import type { MessageKey } from '../i18n/index'
 import type { Refusal } from './refusal'
@@ -22,6 +23,8 @@ export class EngineStore {
   voices = $state(0)
   /** The engine's last report (meters per track and master, transport, playhead, load, counters). */
   feedback = $state.raw<FeedbackReport | null>(null)
+  /** The engine's CPU load, smoothed, and its peak held (#486); `null` while the engine does not measure it. */
+  load = $state.raw<EngineLoad | null>(null)
   /** Notes sounding, for the piano strip and the MIDI activity light. */
   activeNotes = $state<number[]>([])
   inputs = $state<MidiInput[]>([])

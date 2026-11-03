@@ -21,8 +21,12 @@
   const latencyShort = $derived(
     engine.status?.estimatedLatencyMs != null ? t('engine.latencyShort', { ms: Math.round(engine.status.estimatedLatencyMs) }) : t('engine.latencyUnknown'),
   )
-  // The engine's load, when the host measures it (neither the worklet nor the helper does yet: it stays hidden until it is).
-  const load = $derived(engine.feedback?.cpuLoad != null ? t('engine.loadShort', { pct: Math.round(engine.feedback.cpuLoad * 100) }) : null)
+  // The engine's load (#486): the smoothed figure in the pill (the bar has no room for a second one at 1280 px), with its
+  // peak of the last seconds in the tooltip and the accessible name; hidden while the engine does not measure it.
+  const load = $derived(engine.load ? t('engine.loadShort', { pct: Math.round(engine.load.smoothed * 100) }) : null)
+  const loadPeak = $derived(
+    engine.load ? t('engine.loadPeak', { pct: Math.round(engine.load.smoothed * 100), peak: Math.round(engine.load.peak * 100) }) : null,
+  )
   // The helper runs without an audio output (#525): the page plays in Web mode until it has one.
   const waiting = $derived(engine.mode === 'web' && engine.awaitingOutput ? t('engine.boostWaiting') : null)
 </script>
@@ -58,22 +62,22 @@
         class:boost={engine.mode === 'native'}
         type="button"
         aria-haspopup="dialog"
-        aria-label={`${engine.mode === 'native' ? t('engine.boost') : t('engine.web')}, ${latency}${load ? `, ${load}` : ''}${waiting ? `, ${waiting}` : ''}. ${t('engine.settings')}`}
-        title={`${t('engine.settings')}: ${latency}${waiting ? `. ${waiting}` : ''}`}
+        aria-label={`${engine.mode === 'native' ? t('engine.boost') : t('engine.web')}, ${latency}${loadPeak ? `, ${loadPeak}` : ''}${waiting ? `, ${waiting}` : ''}. ${t('engine.settings')}`}
+        title={`${t('engine.settings')}: ${engine.mode === 'native' ? t('engine.boost') : t('engine.web')}, ${latency}${loadPeak ? `, ${loadPeak}` : ''}${waiting ? `. ${waiting}` : ''}`}
         data-testid="engine-mode"
         onclick={() => (ui.engineOpen = true)}
       >
         {#if engine.mode === 'native'}
           <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="M9 1 L3 9 H8 L7 15 L13 7 H8 Z" fill="currentColor" /></svg>
-          {t('engine.boost')}
+          <span class="mode-name">{t('engine.boost')}</span>
         {:else}
           <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"
             ><circle cx="8" cy="8" r="6.5" /><path d="M1.5 8 H14.5 M8 1.5 C 5 5, 5 11, 8 14.5 M8 1.5 C 11 5, 11 11, 8 14.5" /></svg
           >
-          {t('engine.web')}
+          <span class="mode-name">{t('engine.web')}</span>
         {/if}
         <span class="value" data-testid="latency">{latencyShort}</span>
-        {#if load}<span class="value" data-testid="engine-load">{load}</span>{/if}
+        {#if load}<span class="value load" data-testid="engine-load">{load}</span>{/if}
         {#if waiting}<span class="waiting" aria-hidden="true" data-testid="engine-waiting"></span>{/if}
       </button>
       <!-- The master's level, in every view: the output is what the listener hears, whatever the view shows. -->
@@ -188,6 +192,16 @@
     align-items: center;
     gap: var(--fk-space-2);
   }
+  /* Below 1440 px the bar is full (#486): the pill yields first, before the project name. The mode's word goes
+     (its icon stays, the word is in the tooltip and the accessible name) and the pill's gaps tighten. */
+  @media (max-width: 1439px) {
+    .mode-name {
+      display: none;
+    }
+    .top .mode {
+      gap: var(--fk-space-1);
+    }
+  }
   .mode {
     display: inline-flex;
     align-items: center;
@@ -211,6 +225,10 @@
   .mode.boost {
     background: var(--fk-accent);
     color: #fff;
+  }
+  /* The load changes about 30 times a second: fixed-width digits keep the pill still while its digit count stays. */
+  .mode .load {
+    font-variant-numeric: tabular-nums;
   }
   /* Boost waits for the helper's audio output (#525). */
   .waiting {

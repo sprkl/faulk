@@ -18,7 +18,28 @@ import {
   spaceTogglesTransport,
   trackFocusOrigin,
 } from './keyboard'
-import { arrangementShortcut, isPlainButton, layoutShortcut } from './keyboard'
+import { arrangementShortcut, isPlainButton, isTapChord, layoutShortcut, tapShortcut } from './keyboard'
+
+describe('the tap tempo key (#195)', () => {
+  const alt = { code: 'KeyT', altKey: true, ctrlKey: false, metaKey: false, shiftKey: false, repeat: false, target: null }
+  it('is Alt+T by position, alone, without repeat and outside text fields', () => {
+    expect(tapShortcut(alt)).toBe(true)
+    expect(tapShortcut({ ...alt, altKey: false })).toBe(false) // the bare T plays a note
+    for (const held of ['ctrlKey', 'metaKey', 'shiftKey', 'repeat'] as const) expect(tapShortcut({ ...alt, [held]: true }), held).toBe(false)
+    expect(tapShortcut({ ...alt, code: 'KeyY' })).toBe(false)
+    const input = document.createElement('input')
+    input.type = 'text'
+    expect(tapShortcut({ ...alt, target: input })).toBe(false)
+  })
+  it('the chord test of a series ignores repeat and target but keeps the modifiers', () => {
+    expect(isTapChord({ ...alt, repeat: true } as never)).toBe(true)
+    expect(isTapChord({ ...alt, shiftKey: true })).toBe(false)
+    expect(isTapChord({ ...alt, altKey: false })).toBe(false)
+  })
+  it('plays nothing: playing ignores every Alt event', () => {
+    expect(ignoreKeyEvent(alt as never)).toBe(true)
+  })
+})
 
 // Trackers started by a test are stopped even when it fails, so module state never leaks into the next one.
 const trackers: Array<() => void> = []
