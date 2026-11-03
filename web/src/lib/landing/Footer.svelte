@@ -51,6 +51,9 @@
     flex-wrap: wrap;
     gap: 16px;
     font-size: 14px;
+    /* Above the wordmark: its text box reaches up over the links (line-height under 1), and it paints later. */
+    position: relative;
+    z-index: 1;
   }
   nav {
     display: flex;
@@ -74,5 +77,8 @@
     font-size: clamp(48px, 21vw, 340px);
     line-height: 0.78;
     letter-spacing: -0.05em;
+    /* Decoration only: never catches a click meant for the links above it (#587). */
+    pointer-events: none;
+    user-select: none;
   }
 </style>

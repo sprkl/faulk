@@ -282,16 +282,20 @@ export async function previousFull({ store, os, below, log = () => {} }) {
   return { name: newest.FileName, bytes: pkg }
 }
 
+/** The public site: the one place a get.faulk.app redirect may lead that is not the Blob store (the root, #587). */
+export const SITE_ORIGIN = 'https://www.faulk.app'
+
 /**
  * The Blob origin of `web/vercel.json`: every get.faulk.app redirect must go to one https
- * origin of a public Blob store.
+ * origin of a public Blob store, except the ones that send a visitor to the public site.
  */
 export function blobOriginFromVercelJson(json) {
   const origins = new Set()
   for (const r of json.redirects ?? []) {
     const host = (r.has ?? []).find((h) => h.type === 'host')?.value
     if (host !== 'get.faulk.app') continue
-    origins.add(new URL(r.destination).origin)
+    const origin = new URL(r.destination).origin
+    if (origin !== SITE_ORIGIN) origins.add(origin)
   }
   if (origins.size !== 1) throw new Error(`get.faulk.app redirects to ${origins.size} origins, expected one`)
   const [origin] = origins

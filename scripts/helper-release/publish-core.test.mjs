@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import { describe, it } from 'node:test'
 import {
   blobOriginFromVercelJson,
+  SITE_ORIGIN,
   channelOf,
   channelPath,
   classify,
@@ -276,6 +277,13 @@ describe('web/vercel.json', () => {
     assert.match(blobOriginFromVercelJson(json), /^https:\/\/[a-z0-9]+\.public\.blob\.vercel-storage\.com$/)
   })
 
+  it('lets a redirect lead to the public site, and only to it', () => {
+    const rule = (destination) => ({ has: [{ type: 'host', value: 'get.faulk.app' }], destination })
+    assert.equal(blobOriginFromVercelJson({ redirects: [rule(`${ORIGIN}/a`), rule(`${SITE_ORIGIN}/`)] }), ORIGIN)
+    assert.throws(() => blobOriginFromVercelJson({ redirects: [rule(`${SITE_ORIGIN}/`)] }), /0 origins/)
+    assert.throws(() => blobOriginFromVercelJson({ redirects: [rule(`${ORIGIN}/a`), rule('https://www.faulk.app.evil.io/')] }), /2 origins/)
+  })
+
   it('refuses several origins, or one that is not a public Blob store', () => {
     const rule = (destination) => ({ has: [{ type: 'host', value: 'get.faulk.app' }], destination })
     assert.throws(
@@ -343,9 +351,15 @@ describe('the URLs the helper reads land where the script writes', () => {
     }
   })
 
-  it('the download link and the root: the stable Windows installer', () => {
-    for (const path of ['/helper/windows', '/', '/anything']) {
+  it('the download links: the stable Windows installer', () => {
+    for (const path of ['/helper/windows', '/helper/win/stable']) {
       assert.equal(redirect(json, path), `${origin}/${channelPath('win', 'stable', 'FaulkHelper-win-Setup.exe')}`)
+    }
+  })
+
+  it('the root and any other path: the public site, never an installer (no macOS build exists yet, #587)', () => {
+    for (const path of ['/', '/anything', '/helper/osx/stable', '/helper']) {
+      assert.equal(redirect(json, path), `${SITE_ORIGIN}/`)
     }
   })
 

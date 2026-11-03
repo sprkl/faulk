@@ -1,0 +1,2 @@
+2026-11-03
+* **Fix** (#587): the landing page's footer links click again (the wordmark's text box reached over them and caught the clicks: it now ignores the pointer and the link row sits above it); the Boost section offers the Windows installer as a real link with a "what next" line (macOS stays "coming soon"); `get.faulk.app` serves the installer only at `/helper/windows` and `/helper/win/stable`, and sends the root and every other path to the site (the macOS address that fell on the installer is gone).

@@ -48,7 +48,7 @@ export const AREA = {
   midi: ['keyboard', 'live-input', 'recording'],
   keyboardPlayer: ['all-sound-off', 'continuous', 'devices', 'keyboard', 'keyboard-all-views', 'mixer-sound', 'page-dispatcher', 'space-bar', 'tracks', 'typing-mode', 'discoverability'],
   // The landing page's bar and footer are the Journey page's too.
-  landing: ['navigation', 'isolation', 'journey'],
+  landing: ['navigation', 'isolation', 'journey', 'landing-links'],
   journey: ['journey'],
   // The shared time grid is drawn by the arrangement and the piano roll: both areas.
   timegrid: ['arrangement', 'arrangement-time', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'timegrid', 'lane-rows'],
