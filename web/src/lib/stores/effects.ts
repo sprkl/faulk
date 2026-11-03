@@ -45,6 +45,8 @@ export interface EffectPorts {
   allowAccess(): void
   /** `project.export_audio`: the page renders the song to a WAV file (the dialog opens with these settings). */
   exportAudio(request: ExportRequest): void
+  /** `clip.choose_audio`: the user picks audio files, and each is imported into the track (AU-1). */
+  chooseAudio(track: string): void
   /** `transport.stop`, `transport.seek`, `transport.pause`: the playhead is cued, even to where it already stands (the engine frees every held gesture of a lane, #394). */
   cued(): void
 }
@@ -114,6 +116,9 @@ export function applyEffects(command: Command, ports: EffectPorts) {
       return
     case 'project.allow_access':
       ports.allowAccess()
+      return
+    case 'clip.choose_audio':
+      ports.chooseAudio(command.track)
       return
     case 'project.export_audio':
       ports.exportAudio({

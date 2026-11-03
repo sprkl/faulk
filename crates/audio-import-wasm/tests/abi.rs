@@ -92,7 +92,7 @@ fn the_steps_give_the_hash_the_samples_and_the_metadata_of_the_library() {
         to_inbox(head);
         let len = bytes.len() as u64;
         assert_eq!(
-            ai_layout(head.len() as u32, len as u32, (len >> 32) as u32),
+            ai_layout(head.len() as u32, len as u32, (len >> 32) as u32, ai_rate(), ai_channels(), ai_frames()),
             i32::from(imported.layout.is_some()),
             "{name}"
         );
@@ -142,4 +142,5 @@ fn the_cache_header_and_its_check_are_the_librarys() {
     assert!(ai_cache_header(44_100, 70_000, 1.0).is_null());
     assert!(ai_cache_header(44_100, 2, 0.5).is_null());
     assert!(ai_cache_header(44_100, 2, -1.0).is_null());
+    assert_eq!(ai_layout(0, 0, 0, 44_100, 2, 0.5), ERR_BAD_INPUT);
 }

@@ -50,6 +50,13 @@ const LOSSLESS: &[&str] = &[
 /// delay and padding are cut (LAME tag, Ogg granule positions, the MP4 edit list).
 const LOSSY: &[(&str, f64)] = &[("sine.mp3", 22.0), ("sine.m4a", 21.0), ("sine.ogg", 36.0)];
 
+/// The lossy files whose native decode is kept whole beside them (`<name>.pcm`, little-endian
+/// `f32`): MP3 and AAC decode with transcendental functions (`powf`, `cos`) whose last bit
+/// differs between the native C library and WebAssembly's Rust one, so the page's decode of
+/// them is compared with these samples at a tolerance (`import.test.ts`: 1e-6, measured 3.3e-7
+/// at most, -130 dBFS), where every other fixture is compared bit for bit by its digest.
+const REFERENCE_PCM: &[&str] = &["sine.mp3", "sine.m4a"];
+
 fn record_path() -> std::path::PathBuf {
     fixture_dir().join("expected.json")
 }
@@ -83,7 +90,23 @@ fn each_fixture_imports_as_recorded() {
     if std::env::var("FAULK_BLESS").as_deref() == Ok("1") {
         let text = serde_json::to_string_pretty(&found).unwrap() + "\n";
         std::fs::write(record_path(), text).unwrap();
+        for name in REFERENCE_PCM {
+            let (_, pcm) = import(read(name), extension(name)).unwrap();
+            let mut bytes = Vec::new();
+            audio_import::cache::encode(&pcm, &mut bytes);
+            std::fs::write(fixture_dir().join(format!("{name}.pcm")), bytes).unwrap();
+        }
         return;
+    }
+    // The decodes kept whole are this build's.
+    for name in REFERENCE_PCM {
+        let (_, pcm) = import(read(name), extension(name)).unwrap();
+        let mut bytes = Vec::new();
+        audio_import::cache::encode(&pcm, &mut bytes);
+        assert!(
+            bytes == read(&format!("{name}.pcm")),
+            "{name}.pcm is not this build's decode"
+        );
     }
     let text =
         std::fs::read_to_string(record_path()).expect("expected.json (FAULK_BLESS=1 writes it)");

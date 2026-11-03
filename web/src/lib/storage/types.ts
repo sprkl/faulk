@@ -1,6 +1,7 @@
 // The browser's File System Access API, where `lib.dom` stops short, and what the project
 // store (SV-2) says about a folder. The store is the one place that touches a folder; the rest of
 // the page sees `ProjectStore` and `StoreError`.
+import type { CacheReport, ImportOutcome, MediaRef } from '../audio/import/pipeline'
 import type { FolderEntry, SaveEntry } from '../project/core'
 
 /** `FileSystemHandle.queryPermission` and `requestPermission` (Chromium; not in `lib.dom`). */
@@ -67,6 +68,15 @@ export interface ProjectStore {
   scan(): Promise<Signature>
   /** Copies the files of `blobs/` that this folder lacks from `source`'s (audio is not in a save). */
   copyBlobsFrom(source: ProjectStore): Promise<void>
+  /**
+   * Imports an audio file into the folder (AU-1, `lib/audio/import/pipeline.ts`): its bytes into
+   * `blobs/<sha256>` (once, however often it is imported), its decoded audio into the PCM cache
+   * when it is not read directly. Rejects with an `ImportError` (a file it cannot take, a cancel) or
+   * a `StoreError` (the folder refused a write).
+   */
+  importAudio(file: File, onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<ImportOutcome>
+  /** Makes again the PCM caches the folder lacks for these media (after opening a project). */
+  ensureAudioCache(media: MediaRef[]): Promise<CacheReport>
   /** Removes the swap files an interrupted write left (`*.crswap`). Best effort. */
   cleanUp(): Promise<void>
   /** Releases what the store holds (its Worker's side). */

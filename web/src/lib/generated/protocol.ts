@@ -445,6 +445,32 @@ snapshot: ClipSnapshot
 track: string
 type: "clip.restore"
 } | {
+media: Hash
+name?: (string | null)
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "clip.import_audio"
+} | {
+/**
+ * Identifier of a clip.
+ */
+clip: string
+placements: AudioPlacementSnapshot[]
+snapshot: AudioClipSnapshot
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "clip.restore_audio"
+} | {
+/**
+ * Identifier of a track.
+ */
+track: string
+type: "clip.choose_audio"
+} | {
 /**
  * Identifier of a clip.
  */
@@ -1497,6 +1523,16 @@ type: "clip.restore"
  * Identifier of a clip.
  */
 clip: string
+type: "clip.import_audio"
+} | {
+type: "clip.restore_audio"
+} | {
+type: "clip.choose_audio"
+} | {
+/**
+ * Identifier of a clip.
+ */
+clip: string
 type: "clip.duplicate"
 } | {
 /**
@@ -1606,7 +1642,7 @@ kind: "audio"
  * The loop `[start, end)` in frames of the file, if one is set.
  */
 looping?: (FrameLoop | null)
-media: AudioMedia1
+media: AudioMedia2
 /**
  * First frame of the file played.
  */
@@ -3004,6 +3040,81 @@ notes: Note[]
 slot?: (string | null)
 }
 /**
+ * A placement of an audio clip, with its identifier, as `clip.restore_audio` brings it
+ * back: it starts at a tick of the arrangement and plays `length` frames of the clip from
+ * `offset`.
+ */
+export interface AudioPlacementSnapshot {
+/**
+ * Identifier of a placement in a track's arrangement.
+ */
+id: string
+/**
+ * Length played, in frames of the file.
+ */
+length: number
+/**
+ * Where in the clip the placement starts, in frames.
+ */
+offset: number
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+start: number
+}
+/**
+ * An audio clip as `clip.restore_audio` brings it back (everything but its identifier).
+ */
+export interface AudioClipSnapshot {
+color?: (Rgb | null)
+/**
+ * How many frames it plays.
+ */
+frames: number
+/**
+ * Clip gain in dB; `null` for silence.
+ */
+gain_db?: (number | null)
+/**
+ * A per-clip launch quantization, when one was set (the MVP never sets one).
+ */
+launch_quantize?: (Quantize | null)
+/**
+ * Loop in frames, relative to `start`.
+ */
+looping?: (FrameLoop | null)
+media: AudioMedia1
+name: string
+/**
+ * The scene of its launch-grid slot, when it sits in one.
+ */
+slot?: (string | null)
+/**
+ * First frame of the file the clip plays.
+ */
+start: number
+}
+/**
+ * An audio file referenced by its blob, with its metadata in clear so the project reads,
+ * validates and merges without decoding the audio (§ 2.2).
+ */
+export interface AudioMedia1 {
+channels: number
+/**
+ * Length of the whole file in frames.
+ */
+frames: number
+hash: Hash
+/**
+ * The file's original name.
+ */
+name: string
+sample_rate: number
+}
+/**
  * A note to replace by another: `clip.notes.update` addresses a note by its whole value.
  */
 export interface NoteChange {
@@ -3693,7 +3804,7 @@ values: string[]
  * An audio file referenced by its blob, with its metadata in clear so the project reads,
  * validates and merges without decoding the audio (§ 2.2).
  */
-export interface AudioMedia1 {
+export interface AudioMedia2 {
 channels: number
 /**
  * Length of the whole file in frames.

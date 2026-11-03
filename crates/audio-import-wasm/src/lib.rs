@@ -33,8 +33,8 @@ pub const BLOCK: i32 = 1;
 pub const END: i32 = 0;
 /// No job: [`ai_next`] or [`ai_finish`] without [`ai_open`].
 pub const ERR_NO_JOB: i32 = -100;
-/// The inbox or the block could not grow.
-pub const ERR_MEMORY: i32 = -101;
+/// The input is not what the call takes (metadata that is no file's).
+pub const ERR_BAD_INPUT: i32 = -101;
 
 /// The negative code of an import error (its `code()` in this order).
 pub fn error_code(error: &ImportError) -> i32 {
@@ -331,18 +331,37 @@ pub extern "C" fn ai_frames() -> f64 {
     })
 }
 
-/// Whether the decoded file is read directly (1: no PCM cache) or not (0), from its first
-/// `head_len` bytes in the inbox and its length. Call after [`ai_finish`].
+/// Whether a file of this metadata (as decoding gave it) is read directly (1: no PCM cache)
+/// or not (0), from its first `head_len` bytes in the inbox and its length;
+/// [`ERR_BAD_INPUT`] for metadata that is no file's.
 #[unsafe(no_mangle)]
-pub extern "C" fn ai_layout(head_len: u32, len_lo: u32, len_hi: u32) -> i32 {
+pub extern "C" fn ai_layout(
+    head_len: u32,
+    len_lo: u32,
+    len_hi: u32,
+    rate: u32,
+    channels: u32,
+    frames: f64,
+) -> i32 {
     STATE.with_borrow(|s| {
-        let Some(info) = s.info else {
-            return ERR_NO_JOB;
+        let Some(info) = info_of(rate, channels, frames) else {
+            return ERR_BAD_INPUT;
         };
         let head = &s.inbox[..(head_len as usize).min(s.inbox.len())];
         i32::from(
             PcmLayout::parse(head, file_len(len_lo, len_hi)).is_some_and(|l| l.matches(&info)),
         )
+    })
+}
+
+/// Whether a file whose first `head_len` bytes are in the inbox, of this length, looks read
+/// directly (1) or not (0), before decoding: a WAV or AIFF of plain samples. The page then
+/// decodes it without writing a cache, and checks with [`ai_layout`] afterwards.
+#[unsafe(no_mangle)]
+pub extern "C" fn ai_layout_candidate(head_len: u32, len_lo: u32, len_hi: u32) -> i32 {
+    STATE.with_borrow(|s| {
+        let head = &s.inbox[..(head_len as usize).min(s.inbox.len())];
+        i32::from(PcmLayout::parse(head, file_len(len_lo, len_hi)).is_some())
     })
 }
 
