@@ -2010,6 +2010,8 @@ describe('the preset library and its reads (#191)', () => {
     fail = false
     session.dispatcher.retryPresets()
     await vi.waitFor(() => expect(session.engine.notice).toBeNull())
+  })
+})
 
 describe("an agent's calls in Boost (AG-1)", () => {
   beforeEach(() => {
