@@ -247,6 +247,90 @@ export function mergedIntoDevelop(cwd, tip) {
   });
 }
 
+/** How many first-parent commits of develop, after the branch's base, the squash check reads. */
+const SQUASH_SCAN = 300;
+
+/**
+ * Whether the commit `tip` was squash-merged into `origin/develop` (local refs, no fetch, #590): a
+ * first-parent commit of develop after the branch's base has the tip's tree (the queue merges an
+ * up-to-date branch), or the same patch-id as the branch's whole change (develop moved in between,
+ * or the branch was updated on GitHub after the tip: same hunks, other line numbers). A branch
+ * without a change, a missing commit or any git failure: not squashed.
+ */
+export function squashedIntoDevelop(cwd, tip) {
+  if (!/^[0-9a-f]{40}$/.test(String(tip))) {
+    return false;
+  }
+  try {
+    const base = git(cwd, "merge-base", tip, "origin/develop").trim();
+    const tree = git(cwd, "rev-parse", `${tip}^{tree}`).trim();
+    if (tree === git(cwd, "rev-parse", `${base}^{tree}`).trim()) {
+      return false; // no change of its own: nothing to recognize
+    }
+    const range = [`--max-count=${SQUASH_SCAN}`, "--first-parent", `${base}..origin/develop`];
+    const trees = git(cwd, "log", "--format=%T", ...range).split("\n");
+    if (trees.includes(tree)) {
+      return true;
+    }
+    const own = patchIds(cwd, git(cwd, "diff", "--no-color", "--no-ext-diff", base, tip));
+    if (own.length !== 1) {
+      return false;
+    }
+    const theirs = patchIds(cwd, git(cwd, "log", "-p", "--no-color", "--no-ext-diff", "--format=commit %H", ...range));
+    return theirs.includes(own[0]);
+  } catch {
+    return false;
+  }
+}
+
+/** The stable patch-ids of a patch text (one per commit, or one for a plain diff). */
+function patchIds(cwd, patch) {
+  if (patch.trim() === "") {
+    return [];
+  }
+  const text = execFileSync("git", ["patch-id", "--stable"], {
+    cwd,
+    input: patch.startsWith("commit ") ? patch : `commit ${"0".repeat(40)}\n${patch}`,
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "ignore"],
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  return text
+    .split("\n")
+    .map((line) => line.split(" ")[0])
+    .filter(Boolean);
+}
+
+/**
+ * Whether a pull request from the branch `ref` into develop was merged on GitHub after `since`
+ * (the marker's first write: an older pull request that reused the name does not count). One `gh`
+ * call, 15 s at most; any failure (gh absent, offline, unauthenticated, bad output): not merged.
+ * `FAULK_QA_GH`, a Node script run in place of `gh`, is for the tests only.
+ */
+export function prMergedOnGitHub(cwd, ref, since) {
+  if (typeof ref !== "string" || /^[0-9a-f]{40}$/.test(ref) || typeof since !== "string") {
+    return false;
+  }
+  const args = ["pr", "list", "--head", ref, "--base", "develop", "--state", "merged", "--json", "number,mergedAt", "--limit", "20"];
+  const stub = process.env.FAULK_QA_GH;
+  try {
+    const out = execFileSync(stub ? process.execPath : "gh", stub ? [stub, ...args] : args, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 15000,
+      windowsHide: true,
+    });
+    const after = Date.parse(since);
+    return (
+      Number.isFinite(after) &&
+      JSON.parse(out).some((pr) => typeof pr?.mergedAt === "string" && Date.parse(pr.mergedAt) > after)
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Fingerprint of the committed content of a branch (or commit) against its
  * merge base with `develop`, in the same form as `changeFingerprint` (so a

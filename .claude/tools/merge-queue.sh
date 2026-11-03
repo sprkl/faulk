@@ -1,12 +1,18 @@
 #!/usr/bin/env bash
 # Usage: bash .claude/tools/merge-queue.sh <pr> [<pr>...]   (lead only, gh + git, no build)
-# Merge PRs one at a time. A PR is merged only once its CI ran on the current develop:
+# Squash-merge PRs one at a time, one commit per task on develop (founder, 2026-11-03, #590). A PR is
+# merged only once its CI ran on the current develop:
 # if develop moved since, update the branch and wait for the PR's CI on the new head. No wait on
 # develop's CI after the merge (founder, 2026-10-24: no test rerun after a push). Stop on conflict,
 # on a failed check, and when no check is reported at all. When develop and the PR both changed the
 # generated files (web/src/lib/generated/), a branch update would leave them stale or in conflict
 # (#426): stop before updating, whatever the merge state, and name regen-generated.sh, the one tool
 # of this folder that builds. This script itself never builds.
+# The commit text is English (repo rule) while PR titles are French: the PR body carries a section
+# `## Commit message` with one fenced block, written by the agent that opened the PR (first line: the
+# subject, without the PR number; the rest: the body). The squash commit is that subject + " (#<pr>)",
+# then that body, a "Closes #<n>" line per issue the PR closes, and the Co-Authored-By and
+# Claude-Session trailers of the branch's commits. A PR without the section stops before anything moves.
 cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)" || exit 1
 gen=web/src/lib/generated
 for pr in "$@"; do
@@ -17,6 +23,20 @@ for pr in "$@"; do
   git fetch -q origin
   head=$(gh pr view "$pr" --json headRefName -q .headRefName)
   git rev-parse --verify -q "origin/$head" >/dev/null || { echo "STOP $pr: origin/$head not found (a fork branch?)"; exit 1; }
+  # The first `## Commit message` section, its first fenced block (CRLF tolerated).
+  msg=$(gh pr view "$pr" --json body -q .body | tr -d '\r' | awk '
+    !sec && /^##+[ \t]+Commit message[ \t]*$/ { sec = 1; next }
+    sec && !inb && /^```/ { inb = 1; next }
+    sec && !inb && /^#/ { exit }
+    inb && /^```/ { exit }
+    inb { print }')
+  subject=$(printf '%s\n' "$msg" | sed -n '1{s/^[[:space:]]*//;s/[[:space:]]*$//;p;}')
+  if [ -z "$subject" ]; then
+    echo "STOP $pr: no English commit message: add to the PR body a '## Commit message' section with one fenced block"
+    echo "(first line: the commit subject, without the PR number; then a blank line and the body), e.g. gh pr edit $pr --body-file <file>."
+    exit 1
+  fi
+  case "$subject" in *"(#$pr)") ;; *) subject="$subject (#$pr)" ;; esac
   if ! git merge-base --is-ancestor origin/develop "origin/$head"; then
     base=$(git merge-base origin/develop "origin/$head")
     if [ -n "$(git diff --name-only "$base" origin/develop -- "$gen")" ] && [ -n "$(git diff --name-only "$base" "origin/$head" -- "$gen")" ]; then
@@ -57,7 +77,17 @@ for pr in "$@"; do
   for req in rust web; do
     printf '%s\n' "$checks" | grep -qE "^$req	(pass|skipping)$" || { echo "STOP $pr: required check '$req' did not report (its workflow may not have started yet: run the queue again)"; exit 1; }
   done
-  gh pr merge "$pr" --merge >/dev/null 2>&1 || { echo "STOP $pr: merge failed"; exit 1; }
+  # The body: the section's body without trailer lines, the issues the PR closes, then every trailer
+  # once (the section's and the branch's commits'), last so that git reads them as trailers.
+  trailer='^(Co-Authored-By|Claude-Session):'
+  text=$(printf '%s\n' "$msg" | sed '1d' | grep -viE "$trailer" | sed '/./,$!d')
+  closes=$(gh pr view "$pr" --json closingIssuesReferences -q '.closingIssuesReferences[].number' | tr -d '\r' | while read -r n; do
+    if [ -n "$n" ] && ! printf '%s\n' "$text" | grep -qiE "^(close[sd]?|fix(e[sd])?|resolve[sd]?) #$n([^0-9]|$)"; then echo "Closes #$n"; fi
+  done)
+  trailers=$( { printf '%s\n' "$msg" | grep -iE "$trailer"; git log --format='%(trailers:key=Co-Authored-By,key=Claude-Session)' "origin/develop..origin/$head"; } | tr -d '\r' | grep -iE "$trailer" | awk '!seen[tolower($0)]++')
+  body=$(for part in "$text" "$closes" "$trailers"; do if [ -n "$part" ]; then printf '%s\n\n' "$part"; fi; done)
+  # --match-head-commit: the head whose checks were judged; a push since makes GitHub refuse the merge.
+  printf '%s\n' "$body" | gh pr merge "$pr" --squash --match-head-commit "$sha" --subject "$subject" --body-file - >/dev/null 2>&1 || { echo "STOP $pr: merge failed"; exit 1; }
   echo "$pr merged -> $(git ls-remote origin refs/heads/develop | cut -c1-7)"
 done
 echo "ALL DONE"

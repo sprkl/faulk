@@ -38,11 +38,17 @@ const test = (name, fn) => nodeTest(name, { skip: SKIP }, fn)
 const tools = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '.claude', 'tools')
 const GEN = 'web/src/lib/generated'
 
+/** A PR body as an agent writes it: French text, then the English commit message section. */
+const FENCE = '```'
+const SECTION = ['Pourquoi : un test.', '', '## Commit message', '', `${FENCE}text`, 'fix(tools): do the thing', '', 'Explain the change.', FENCE, '', 'Closes #42'].join('\n')
+
 const GH = `#!/usr/bin/env bash
 echo "gh $*" >> "$MQ_LOG"
 case "$*" in
   *"--json mergeable,mergeStateStatus"*) echo "$MQ_STATE" ;;
   *"--json headRefName"*) echo "$MQ_HEAD" ;;
+  *"--json body"*) printf '%s\\n' "$MQ_BODY" ;;
+  *"--json closingIssuesReferences"*) printf '%s\\n' "\${MQ_ISSUES-42}" ;;
   *"--json headRefOid"*)
     n=$(cat "$MQ_LOG.n" 2>/dev/null || echo 0); echo $((n + 1)) > "$MQ_LOG.n"
     [ "$n" = 0 ] && echo old || echo new ;;
@@ -53,7 +59,10 @@ case "$*" in
     if [ -n "$MQ_CHECKS" ]; then printf '%s\\n' "$MQ_CHECKS"
     else printf 'rust\\t%s\\nweb\\t%s\\n' "\${MQ_BUCKET:-pass}" "\${MQ_BUCKET:-pass}"; fi ;;
   "pr checks"*) ;;
-  "pr merge"*) [ -z "$MQ_MERGE_FAIL" ] ;;
+  "pr merge"*)
+    for a in "$@"; do echo "arg|$a" >> "$MQ_LOG"; done
+    { echo "BODY<<"; cat; echo ">>BODY"; } >> "$MQ_LOG"
+    [ -z "$MQ_MERGE_FAIL" ] ;;
   *) exit 99 ;;
 esac
 `
@@ -110,6 +119,7 @@ function world() {
     MQ_LOG: log,
     MQ_STATE: 'MERGEABLE BEHIND',
     MQ_HEAD: 'pr',
+    MQ_BODY: SECTION,
     CARGO_TARGET_DIR: join(dir, 'target'),
     GIT_CONFIG_COUNT: '1',
     GIT_CONFIG_KEY_0: 'commit.gpgsign',
@@ -131,6 +141,75 @@ function world() {
 }
 
 const schema = (...lines) => lines.join('\n') + '\n'
+
+/** The arguments of the stub's `pr merge` call and the body it read on stdin. */
+function mergeCall(log) {
+  const args = log.split('\n').filter((l) => l.startsWith('arg|')).map((l) => l.slice(4))
+  const body = /BODY<<\n([\s\S]*?)>>BODY/.exec(log)?.[1]
+  return { args, body, flag: (name) => args[args.indexOf(name) + 1] }
+}
+
+test('merge-queue squash-merges with the English subject + (#n), the body, Closes and the branch trailers, pinned to the judged head (#590)', () => {
+  const w = world()
+  try {
+    git(w.work, 'checkout', '-q', 'pr')
+    writeFileSync(join(w.work, 'web/src/other/x.txt'), 'changed\n')
+    git(w.work, 'add', '-A')
+    git(w.work, 'commit', '-q', '-m', 'work\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_1')
+    writeFileSync(join(w.work, 'web/src/other/x.txt'), 'changed again\n')
+    git(w.work, 'commit', '-q', '-am', 'more\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_1')
+    git(w.work, 'push', '-q', 'origin', 'pr')
+    w.env.MQ_STATE = 'MERGEABLE CLEAN'
+    const r = w.run('merge-queue.sh', '7')
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    const m = mergeCall(w.logText())
+    assert.ok(m.args.includes('--squash') && !m.args.includes('--merge'), m.args.join(' '))
+    assert.equal(m.flag('--subject'), 'fix(tools): do the thing (#7)')
+    assert.equal(m.flag('--match-head-commit'), 'old', 'the head whose checks were judged')
+    assert.equal(m.flag('--body-file'), '-')
+    assert.equal(
+      m.body,
+      'Explain the change.\n\nCloses #42\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_1\n',
+    )
+  } finally {
+    w.done()
+  }
+})
+
+test('merge-queue keeps a subject that already ends with (#n), and adds no Closes or trailer the section already has (#590)', () => {
+  const w = world()
+  try {
+    w.commit('pr', 'web/src/other/x.txt', 'changed\n')
+    w.env.MQ_STATE = 'MERGEABLE CLEAN'
+    w.env.MQ_ISSUES = '42\n43'
+    // CRLF line ends, a second section ignored, trailers inside the block moved last.
+    w.env.MQ_BODY = ['## Commit message', '', FENCE, 'feat: x (#7)', '', 'Body.', 'Fixes #42', 'Co-Authored-By: A <a@x>', FENCE, '', '## Commit message', FENCE, 'other', FENCE].join('\r\n')
+    const r = w.run('merge-queue.sh', '7')
+    assert.equal(r.status, 0, r.stdout + r.stderr)
+    const m = mergeCall(w.logText())
+    assert.equal(m.flag('--subject'), 'feat: x (#7)')
+    assert.equal(m.body, 'Body.\nFixes #42\n\nCloses #43\n\nCo-Authored-By: A <a@x>\n')
+  } finally {
+    w.done()
+  }
+})
+
+test('merge-queue stops before updating or merging a PR without an English commit message section (#590)', () => {
+  const w = world()
+  try {
+    w.commit('pr', 'web/src/other/x.txt', 'changed\n')
+    w.commit('develop', 'web/src/other/y.txt', 'dev\n')
+    for (const body of ['Pas de section.\n\nCloses #42', `## Commit message\n\n${FENCE}\n\n${FENCE}\n`, `## Commit message\n\nfix: not in a block\n\n## Next`]) {
+      w.env.MQ_BODY = body
+      const r = w.run('merge-queue.sh', '7')
+      assert.equal(r.status, 1, r.stdout + r.stderr)
+      assert.match(r.stdout, /STOP 7: no English commit message/)
+    }
+    assert.doesNotMatch(w.logText(), /update-branch|pr merge/)
+  } finally {
+    w.done()
+  }
+})
 
 test('merge-queue stops before update-branch when develop and the PR both changed the generated files', () => {
   const w = world()
@@ -189,7 +268,7 @@ test('merge-queue waits on a PR blocked by required checks and merges once they 
     const log = w.logText()
     const watch = log.indexOf('gh pr checks 7 --watch')
     const read = log.indexOf('gh pr checks 7 --json name,bucket')
-    const merge = log.indexOf('gh pr merge 7 --merge')
+    const merge = log.indexOf('gh pr merge 7 --squash')
     assert.ok(watch >= 0 && read > watch && merge > read, `watch, then read, then merge:\n${log}`)
   } finally {
     w.done()
