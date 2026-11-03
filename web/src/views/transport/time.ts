@@ -7,6 +7,9 @@ export const MAX_TEMPO = 999
 export const MIN_NUMERATOR = 1
 export const MAX_NUMERATOR = 32
 export const DENOMINATORS = [1, 2, 4, 8, 16, 32] as const
+/** The launch quantization's choices, in the order the transport lists them (the select and the top bar's overflow menu). */
+export const QUANTIZE_ORDER = ['none', 'sixteenth', 'beat', 'bar', 'bars_2', 'bars_4', 'bars_8'] as const
+
 /** The loop a first press of the loop button sets when the project has none, in bars. */
 export const DEFAULT_LOOP_BARS = 4
 
