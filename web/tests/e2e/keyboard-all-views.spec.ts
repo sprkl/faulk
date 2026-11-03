@@ -9,7 +9,21 @@ import { engineUp, watch } from './support'
 const trackPeak = async (page: Page) => Number(((await page.getByTestId('feedback').getAttribute('data-track-peaks')) ?? '').split(',')[0])
 const masterPeak = async (page: Page) => Number(await page.getByTestId('feedback').getAttribute('data-master-peak'))
 
+// #487: Svelte's dev build warns (`derived_inert`) when a `$derived` is read after its component is destroyed. The
+// warnings came in bursts during these tests (1256 once), so a test ends only if none came. Svelte's own text is
+// `[svelte] derived_inert ...` in a dev build and `https://svelte.dev/e/derived_inert` in a production one: both match.
+let inert: string[] = []
+test.afterEach(async ({ page }) => {
+  // A round trip to the page: the console events sent before it have reached this side when it returns.
+  await page.evaluate(() => 0)
+  expect(inert, 'Svelte derived_inert warnings').toEqual([])
+})
+
 async function start(page: Page) {
+  inert = []
+  page.on('console', (message) => {
+    if (/derived_inert/.test(message.text())) inert.push(message.text().slice(0, 200))
+  })
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
   await engineUp(page)
