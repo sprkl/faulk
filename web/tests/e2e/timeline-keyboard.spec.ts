@@ -248,25 +248,22 @@ test('after Ctrl+D the copies are the selection and the focus; Shift+arrow from 
   expect(await selection()).toEqual([a!.id, b!.id].sort())
   await expect(arr).toHaveAttribute('data-selected-count', '2')
 
-  // Ctrl+D acts on the focused clip when the selection does not hold it.
-  await cell(b!.id).focus()
-  await page.keyboard.press('ArrowRight')
-  const lone = await selection()
-  expect(lone).toHaveLength(1)
+  // With nothing selected (a click on an empty row clears it), Ctrl+D copies the keyboard-focused clip.
+  const stage = page.getByTestId('arr-stage')
+  const box = (await stage.boundingBox())!
+  const ppt = Number(await stage.getByTestId('timegrid').getAttribute('data-px-per-tick'))
+  await page.mouse.click(box.x + 100 * ppt, box.y + RULER + 2 * LANE + LANE / 2)
+  await expect(arr).toHaveAttribute('data-selected-count', '0')
   await cell(a!.id).focus()
   await page.keyboard.press('Control+d')
   const after = await selection()
   expect(after).toHaveLength(1)
-  expect(after).not.toContain(lone[0])
   expect(after).not.toContain(a!.id)
-  // The copy is of the focused clip: it sits one clip length after it (the clip is a bar long), not after the lone selection.
+  // The copy is of the focused clip: it sits one clip length after it (the clip is a bar long).
   const copy = (await blocks(page)).find((x) => x.id === after[0])
   expect(copy?.row).toBe(a!.row)
   expect(copy?.start).toBe(a!.start + 3840)
   // A pointer click on a clip moves the keyboard focus off the cell that held it: Ctrl+D then copies the clicked clip, not the cell.
-  const stage = page.getByTestId('arr-stage')
-  const box = (await stage.boundingBox())!
-  const ppt = Number(await stage.getByTestId('timegrid').getAttribute('data-px-per-tick'))
   await cell(a!.id).focus()
   await page.mouse.click(box.x + (b!.start + 1920) * ppt, box.y + RULER + LANE / 2)
   const clicked = await selection()

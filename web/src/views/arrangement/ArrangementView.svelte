@@ -1153,10 +1153,10 @@
       if (lane && ref) autoPick = { lane, ticks: new Set(pointsOf(ref.info.lane).map((p) => p.tick)) }
       else picked = new Set(blocks.map((b) => b.id))
     } else if (mod && event.key.toLowerCase() === 'd') {
-      // From a focused clip that is not part of a selection of at most one clip (a Tab, a click elsewhere), Ctrl+D copies that
-      // clip. A wider selection is copied whole, as the Duplicate button's count says (#528).
+      // With nothing selected, Ctrl+D copies the clip the keyboard focus is on (a Tab, Escape). A selection is always copied whole,
+      // as the Duplicate button's count says (#528).
       const id = (event.target as HTMLElement | null)?.dataset?.block
-      const focused = id && selection.length <= 1 && !selectedIds.has(id) ? blocks.find((b) => b.id === id) : undefined
+      const focused = id && selection.length === 0 ? blocks.find((b) => b.id === id) : undefined
       if (focused) picked = new Set([focused.id])
       duplicate(event.shiftKey, focused ? [focused] : selection)
     } else if (mod && !event.shiftKey && event.key.toLowerCase() === 'e') splitSelected()
