@@ -21,6 +21,13 @@ describe('journey entries', () => {
     expect(files.map((f) => f.replace(/\.ts$/, '')).sort()).toEqual(ENTRIES.map(folderOf).sort())
   })
 
+  it('takes the style profile as optional: absent, or a one-line name', () => {
+    expect(entryErrors({ ...base, style: undefined }, stem)).toEqual([])
+    for (const style of ['morzak', 'a', 'x'.repeat(40), 'two words']) expect(broken({ style }), style).toEqual([])
+    // The first profile is the founder's own, and the day it was applied says so.
+    expect(ENTRIES.find((e) => e.date === '2026-11-03')?.style).toBe('morzak')
+  })
+
   it('points at the journey repository through jsDelivr and GitHub', () => {
     const e = ENTRIES[0]
     expect(audioUrl(e)).toBe(`https://cdn.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/${folderOf(e)}/track.mp3`)
@@ -42,6 +49,17 @@ describe('journey entries', () => {
     expect(broken({ key: { tonic: 'A', mode: 'blues' as never } })[0]).toMatch(/^key.mode/)
     expect(broken({ duration: -1 })[0]).toMatch(/^duration/)
     expect(broken({ skills: [] })[0]).toMatch(/^skills/)
+    for (const style of [
+      '',
+      ' morzak',
+      'morzak ',
+      'two\nlines',
+      'two\rlines',
+      `two${String.fromCharCode(0x2028)}lines`,
+      `two${String.fromCharCode(0x2029)}lines`,
+      'x'.repeat(41),
+    ])
+      expect(broken({ style })[0], JSON.stringify(style)).toMatch(/^style/)
     expect(broken({ brief: { en: 'x', fr: '' } })).toEqual(['brief: missing fr text'])
     expect(broken({ gaps: [] })).toEqual(['gaps: empty'])
     expect(broken({ tested: [{ en: '', fr: 'x' }] })).toEqual(['tested[0]: missing en text'])

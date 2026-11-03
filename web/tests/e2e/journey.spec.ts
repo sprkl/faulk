@@ -71,6 +71,11 @@ for (const lang of ['en', 'fr'] as const) {
         /^https:\/\/cdn\.jsdelivr\.net\/gh\/sprkl\/faulk-journey@main\/tracks\/\d{4}-\d{2}-\d{2}-[a-z0-9-]+\/project\.faulkpack$/,
       )
       await expect(a.locator('h2, h3').first()).not.toBeEmpty()
+      // The style profile a run applied is said once, discreetly, by the entry that has one (#506).
+      const style = a.getByTestId('entry-style')
+      if ((await a.getAttribute('id')) === 'day-2026-11-03')
+        await expect(style).toHaveText(lang === 'en' ? 'Style profile: morzak' : 'Profil de style : morzak')
+      else if ((await a.getAttribute('id')) === 'day-2026-10-31') await expect(style).toHaveCount(0)
     }
     // The page's own controls replaced the native ones.
     await expect(page.locator('html')).toHaveAttribute('data-fk-players', String(count))
@@ -81,6 +86,18 @@ for (const lang of ['en', 'fr'] as const) {
     // The landing page's navigation leads here, and this page's language switch stays on it.
     await expect(page.locator('header nav a[aria-current=page]')).toHaveAttribute('href', new RegExp(`(^|/)${lang}/journey$`))
     await expect(page.locator('a[data-lang=fr]').first()).toHaveAttribute('href', new RegExp('(^|/)fr/journey$'))
+    expect(errors).toEqual([])
+  })
+}
+
+for (const lang of ['en', 'fr'] as const) {
+  test(`journey, ${lang}: the day's own page says the style profile too (#506)`, async ({ page }) => {
+    const { errors } = watch(page)
+    await fakeCdn(page)
+    await page.goto(`/${lang}/journey/2026-11-03-brume-sur-le-canal`)
+    await expect(page.getByTestId('entry-style')).toHaveText(lang === 'en' ? 'Style profile: morzak' : 'Profil de style : morzak')
+    await page.goto(`/${lang}/journey/2026-10-31-ligne-haute`)
+    await expect(page.getByTestId('entry-style')).toHaveCount(0)
     expect(errors).toEqual([])
   })
 }
