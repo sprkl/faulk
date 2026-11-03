@@ -35,7 +35,7 @@ use helper::security::{Policy, load_or_create_token};
 use helper::server::{HelperEvent, Shared, serve};
 use helper::tray_text::{self, Lang};
 use helper::updater::{self, Config, UpdateStatus, UpdateWatch, Updater};
-use std::sync::{Arc, Mutex, OnceLock, mpsc};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 #[cfg(debug_assertions)]
@@ -360,7 +360,7 @@ fn main() {
     };
     #[cfg(windows)]
     let (tray_events, notify): (_, Arc<dyn Fn(HelperEvent) + Send + Sync>) = {
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = std::sync::mpsc::channel();
         let waker = helper::tray::Waker::for_current_thread();
         (
             rx,
