@@ -285,6 +285,11 @@ test('merge-queue updates a blocked PR that is behind develop before waiting (#4
     assert.equal(r.status, 0, r.stdout + r.stderr)
     const log = w.logText()
     assert.ok(log.indexOf('gh pr update-branch 7') >= 0 && log.indexOf('gh pr update-branch 7') < log.indexOf('gh pr checks 7 --watch'), log)
+    // The pin is the head after the update, the one whose checks were watched (#590).
+    assert.equal(mergeCall(log).flag('--match-head-commit'), 'new')
+    // The message and the closed issues are read once, before any update or wait (#590).
+    assert.ok(log.indexOf('--json body') < log.indexOf('gh pr update-branch 7'), log)
+    assert.ok(log.indexOf('--json closingIssuesReferences') < log.indexOf('gh pr update-branch 7'), log)
   } finally {
     w.done()
   }

@@ -56,8 +56,27 @@ function askedGitHub(root, session, marker) {
     return false;
   }
   ghCallsLeft -= 1;
-  session.notePrCheck(root, marker.ref, marker.agent, new Date().toISOString());
-  return prMergedOnGitHub(root, marker.ref, marker.at);
+  session.noteCheck(root, marker.ref, marker.agent, { prCheckedAt: new Date().toISOString() });
+  return prMergedOnGitHub(root, marker.ref, marker.at, marker.tip);
+}
+
+/**
+ * `squashedIntoDevelop` for the marker's tip, skipped when it already failed for the same tip
+ * against the same `origin/develop` (the scan reads up to 300 patches: a branch deleted unmerged
+ * would pay it at every stop).
+ */
+function squashSettled(root, session, marker) {
+  const develop = refTip(root, "origin/develop");
+  if (develop !== undefined && marker.scannedDevelop === develop && marker.scannedTip === marker.tip) {
+    return false;
+  }
+  if (squashedIntoDevelop(root, marker.tip)) {
+    return true;
+  }
+  if (develop !== undefined && marker.ref !== null) {
+    session.noteCheck(root, marker.ref, marker.agent, { scannedDevelop: develop, scannedTip: marker.tip });
+  }
+  return false;
 }
 
 /**
@@ -85,7 +104,7 @@ function judgeRef(root, session, marker, current, ctx) {
       // its pull request was merged since the session wrote on it (#590);
       // nothing is left to check. Markers written without a commit, or whose
       // branch is not merged, still warn.
-      if (mergedIntoDevelop(root, marker.tip) || squashedIntoDevelop(root, marker.tip) || askedGitHub(root, session, marker)) {
+      if (mergedIntoDevelop(root, marker.tip) || squashSettled(root, session, marker) || askedGitHub(root, session, marker)) {
         session.dropWriter(root, marker.ref, marker.agent);
         return {};
       }

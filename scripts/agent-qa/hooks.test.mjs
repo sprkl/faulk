@@ -618,20 +618,96 @@ describe("Stop hook: what blocks", () => {
         });
       });
 
-      it("is settled when GitHub reports its pull request merged after the session wrote on it", () => {
+      const later = () => new Date(Date.now() + 60000).toISOString();
+      const tipOf = (root) => git(root, "rev-parse", "feat/6-x").trim();
+
+      it("is settled when GitHub reports its pull request merged after the session wrote on it, with its tip as head", () => {
         const root = wroteAndLeft();
-        const later = new Date(Date.now() + 60000).toISOString();
-        withGh({ FAULK_QA_GH_OUT: JSON.stringify([{ number: 7, mergedAt: later }]) }, (calls) => {
+        withGh({ FAULK_QA_GH_OUT: JSON.stringify([{ number: 7, mergedAt: later(), headRefOid: tipOf(root) }]) }, (calls) => {
           git(root, "branch", "-D", "feat/6-x");
           assert.equal(stop(root), null);
           assert.equal(markerFiles(root).length, 0);
-          assert.deepEqual(calls(), ["pr list --head feat/6-x --base develop --state merged --json number,mergedAt --limit 20"]);
+          assert.deepEqual(calls(), ["pr list --head feat/6-x --base develop --state merged --json number,mergedAt,headRefOid --limit 20"]);
+        });
+      });
+
+      it("is settled when the merged pull request's head descends from its tip (updated on GitHub)", () => {
+        const root = wroteAndLeft();
+        const tip = tipOf(root);
+        git(root, "switch", "-q", "feat/6-x");
+        git(root, "commit", "-q", "--allow-empty", "-m", "update on GitHub");
+        const head = git(root, "rev-parse", "HEAD").trim();
+        git(root, "switch", "-q", "develop");
+        git(root, "branch", "-f", "feat/6-x", tip); // the session never saw the update
+        withGh({ FAULK_QA_GH_OUT: JSON.stringify([{ number: 7, mergedAt: later(), headRefOid: head }]) }, () => {
+          git(root, "branch", "-D", "feat/6-x");
+          assert.equal(stop(root), null);
+          assert.equal(markerFiles(root).length, 0);
+        });
+      });
+
+      it("still warns when the merged pull request does not hold its tip (commits made after the merge)", () => {
+        const root = wroteAndLeft();
+        const merged = tipOf(root);
+        toolCall(root, "s1", () => git(root, "switch", "-q", "feat/6-x"));
+        toolCall(root, "s1", () => {
+          writeCode(root, "pub fn gain() -> f32 { 0.7 }\n");
+          git(root, "commit", "-q", "-am", "after the merge");
+        });
+        toolCall(root, "s1", () => git(root, "switch", "-q", "develop"));
+        withGh({ FAULK_QA_GH_OUT: JSON.stringify([{ number: 7, mergedAt: later(), headRefOid: merged }]) }, () => {
+          git(root, "branch", "-D", "feat/6-x");
+          assert.match(stop(root).systemMessage, WARNING);
+          assert.equal(markerFiles(root).length, 1);
+        });
+      });
+
+      it("skips the squash scan while origin/develop and the tip have not moved since it failed", () => {
+        const root = wroteAndLeft();
+        git(root, "update-ref", "refs/remotes/origin/develop", "develop");
+        withGh({}, () => {
+          git(root, "branch", "-D", "feat/6-x");
+          assert.match(stop(root).systemMessage, WARNING);
+        });
+        const marker = JSON.parse(readFileSync(markerPath(root), "utf8"));
+        assert.equal(marker.scannedDevelop, git(root, "rev-parse", "develop").trim());
+        assert.equal(marker.scannedTip, marker.tip);
+        // develop now holds the squash, but the marker says the scan already failed against this develop: skipped.
+        git(root, "branch", "feat/6-x", marker.tip);
+        squashAndDelete(root);
+        writeFileSync(markerPath(root), JSON.stringify({ ...marker, scannedDevelop: git(root, "rev-parse", "origin/develop").trim() }));
+        withGh({}, () => {
+          assert.equal(stop(root), null); // warned already, not settled
+          assert.equal(markerFiles(root).length, 1);
+        });
+        // develop moves: scanned again, the squash is found.
+        writeFileSync(join(root, "README.md"), "# test\nlater\n");
+        git(root, "commit", "-q", "-am", "later");
+        git(root, "update-ref", "refs/remotes/origin/develop", "HEAD");
+        withGh({}, () => {
+          assert.equal(stop(root), null);
+          assert.equal(markerFiles(root).length, 0);
+        });
+      });
+
+      it("is settled when the branch merged develop before its squash", () => {
+        const root = wroteAndLeft();
+        writeFileSync(join(root, "README.md"), "# test\nmore\n");
+        git(root, "commit", "-q", "-am", "other work on develop");
+        toolCall(root, "s1", () => git(root, "switch", "-q", "feat/6-x"));
+        toolCall(root, "s1", () => git(root, "merge", "-q", "--no-ff", "--no-edit", "develop"));
+        toolCall(root, "s1", () => git(root, "switch", "-q", "develop"));
+        withGh({}, (calls) => {
+          squashAndDelete(root);
+          assert.equal(stop(root), null);
+          assert.equal(markerFiles(root).length, 0);
+          assert.deepEqual(calls(), []);
         });
       });
 
       it("still warns when the only merged pull request of that name predates the session's work", () => {
         const root = wroteAndLeft();
-        withGh({ FAULK_QA_GH_OUT: JSON.stringify([{ number: 3, mergedAt: "2000-01-01T00:00:00Z" }]) }, () => {
+        withGh({ FAULK_QA_GH_OUT: JSON.stringify([{ number: 3, mergedAt: "2000-01-01T00:00:00Z", headRefOid: tipOf(root) }]) }, () => {
           git(root, "branch", "-D", "feat/6-x");
           assert.match(stop(root).systemMessage, WARNING);
           assert.equal(markerFiles(root).length, 1);
@@ -640,6 +716,7 @@ describe("Stop hook: what blocks", () => {
 
       it("asks GitHub again for a marker only after ten minutes, and settles it then", () => {
         const root = wroteAndLeft();
+        const tip = tipOf(root);
         git(root, "branch", "-D", "feat/6-x");
         withGh({}, (calls) => {
           assert.match(stop(root).systemMessage, WARNING);
@@ -649,8 +726,7 @@ describe("Stop hook: what blocks", () => {
         const marker = JSON.parse(readFileSync(markerPath(root), "utf8"));
         assert.match(marker.prCheckedAt, /^\d{4}-/);
         writeFileSync(markerPath(root), JSON.stringify({ ...marker, prCheckedAt: new Date(Date.now() - 11 * 60000).toISOString() }));
-        const later = new Date(Date.now() + 60000).toISOString();
-        withGh({ FAULK_QA_GH_OUT: JSON.stringify([{ number: 7, mergedAt: later }]) }, (calls) => {
+        withGh({ FAULK_QA_GH_OUT: JSON.stringify([{ number: 7, mergedAt: later(), headRefOid: tip }]) }, (calls) => {
           assert.equal(stop(root), null);
           assert.equal(calls().length, 1);
           assert.equal(markerFiles(root).length, 0);

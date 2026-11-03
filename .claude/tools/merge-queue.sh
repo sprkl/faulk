@@ -37,6 +37,16 @@ for pr in "$@"; do
     exit 1
   fi
   case "$subject" in *"(#$pr)") ;; *) subject="$subject (#$pr)" ;; esac
+  # The body, built now from what was read once (an edit of the PR during the CI wait is not taken):
+  # the section's body without trailer lines, the issues the PR closes, then every trailer once
+  # (the section's and the branch's commits'), last so that git reads them as trailers.
+  trailer='^(Co-Authored-By|Claude-Session):'
+  text=$(printf '%s\n' "$msg" | sed '1d' | grep -viE "$trailer" | sed '/./,$!d')
+  closes=$(gh pr view "$pr" --json closingIssuesReferences -q '.closingIssuesReferences[].number' | tr -d '\r' | while read -r n; do
+    if [ -n "$n" ] && ! printf '%s\n' "$text" | grep -qiE "^(close[sd]?|fix(e[sd])?|resolve[sd]?) #$n([^0-9]|$)"; then echo "Closes #$n"; fi
+  done)
+  trailers=$( { printf '%s\n' "$msg" | grep -iE "$trailer"; git log --format='%(trailers:key=Co-Authored-By,key=Claude-Session)' "origin/develop..origin/$head"; } | tr -d '\r' | grep -iE "$trailer" | awk '!seen[tolower($0)]++')
+  body=$(for part in "$text" "$closes" "$trailers"; do if [ -n "$part" ]; then printf '%s\n\n' "$part"; fi; done)
   if ! git merge-base --is-ancestor origin/develop "origin/$head"; then
     base=$(git merge-base origin/develop "origin/$head")
     if [ -n "$(git diff --name-only "$base" origin/develop -- "$gen")" ] && [ -n "$(git diff --name-only "$base" "origin/$head" -- "$gen")" ]; then
@@ -77,17 +87,8 @@ for pr in "$@"; do
   for req in rust web; do
     printf '%s\n' "$checks" | grep -qE "^$req	(pass|skipping)$" || { echo "STOP $pr: required check '$req' did not report (its workflow may not have started yet: run the queue again)"; exit 1; }
   done
-  # The body: the section's body without trailer lines, the issues the PR closes, then every trailer
-  # once (the section's and the branch's commits'), last so that git reads them as trailers.
-  trailer='^(Co-Authored-By|Claude-Session):'
-  text=$(printf '%s\n' "$msg" | sed '1d' | grep -viE "$trailer" | sed '/./,$!d')
-  closes=$(gh pr view "$pr" --json closingIssuesReferences -q '.closingIssuesReferences[].number' | tr -d '\r' | while read -r n; do
-    if [ -n "$n" ] && ! printf '%s\n' "$text" | grep -qiE "^(close[sd]?|fix(e[sd])?|resolve[sd]?) #$n([^0-9]|$)"; then echo "Closes #$n"; fi
-  done)
-  trailers=$( { printf '%s\n' "$msg" | grep -iE "$trailer"; git log --format='%(trailers:key=Co-Authored-By,key=Claude-Session)' "origin/develop..origin/$head"; } | tr -d '\r' | grep -iE "$trailer" | awk '!seen[tolower($0)]++')
-  body=$(for part in "$text" "$closes" "$trailers"; do if [ -n "$part" ]; then printf '%s\n\n' "$part"; fi; done)
   # --match-head-commit: the head whose checks were judged; a push since makes GitHub refuse the merge.
-  printf '%s\n' "$body" | gh pr merge "$pr" --squash --match-head-commit "$sha" --subject "$subject" --body-file - >/dev/null 2>&1 || { echo "STOP $pr: merge failed"; exit 1; }
+  printf '%s\n' "$body" | gh pr merge "$pr" --squash --match-head-commit "$sha" --subject "$subject" --body-file - >/dev/null 2>&1 || { echo "STOP $pr: merge failed (the head moved since its checks, or protection still blocks)"; exit 1; }
   echo "$pr merged -> $(git ls-remote origin refs/heads/develop | cut -c1-7)"
 done
 echo "ALL DONE"

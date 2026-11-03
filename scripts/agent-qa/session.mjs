@@ -178,12 +178,15 @@ export function sessionState(state, key) {
         patchMarker(path, marker, { warned: true });
       }
     },
-    /** GitHub was asked at `at` whether the deleted branch of this marker was merged (qa-guard's throttle, #590). */
-    notePrCheck: (root, ref, agent, at) => {
+    /**
+     * Remembers what qa-guard already checked for the deleted branch of this marker (#590):
+     * `prCheckedAt` (when GitHub was asked) or `scannedDevelop`/`scannedTip` (the squash scan).
+     */
+    noteCheck: (root, ref, agent, patch) => {
       const path = writerPath(root, ref, agent);
       const marker = read(path);
       if (typeof marker?.root === "string") {
-        patchMarker(path, marker, { prCheckedAt: at });
+        patchMarker(path, marker, patch);
       }
     },
     /** The session no longer needs this marker: its branch is settled. */
