@@ -109,6 +109,9 @@ export const project = defineFeature(
     'openUrl.downloading': 'Downloading the project from {host}…',
     'openUrl.failed': 'Couldn’t download this project from {host}.',
     'openUrl.importFile': 'Import a file…',
+    // The project of last time that would not open (#504).
+    'save.banner.reopenRetry': 'Retry',
+    'save.banner.openOther': 'Open another project…',
     'openUrl.refused': 'Faulk opens projects from https links only. This link was not opened.',
     'openUrl.alreadyOpen': 'This project is already open.',
     'openUrl.keptCopy': 'This project was already in this browser: Faulk opened the copy kept here.',
@@ -220,6 +223,8 @@ export const project = defineFeature(
     'openUrl.downloading': 'Téléchargement du projet depuis {host}…',
     'openUrl.failed': 'Impossible de télécharger ce projet depuis {host}.',
     'openUrl.importFile': 'Importer un fichier…',
+    'save.banner.reopenRetry': 'Réessayer',
+    'save.banner.openOther': 'Ouvrir un autre projet…',
     'openUrl.refused': 'Faulk n’ouvre que des projets en lien https. Ce lien n’a pas été ouvert.',
     'openUrl.alreadyOpen': 'Ce projet est déjà ouvert.',
     'openUrl.keptCopy': 'Ce projet était déjà dans ce navigateur : Faulk a ouvert la copie gardée ici.',
