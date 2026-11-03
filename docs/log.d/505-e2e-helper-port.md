@@ -1,0 +1,2 @@
+2026-11-03
+* **Update** (#505): the end-to-end suite's stand-in helper takes a default port of its own per checkout (47810 to 47999, derived from the path of `web/`), shared by `playwright.config.ts` and the specs, so two checkouts running `pnpm test:e2e` at once and an installed helper on 47800 no longer collide; `FAULK_E2E_HELPER_PORT` still wins and a value that is no port is refused (`docs/agents/verification.md`).

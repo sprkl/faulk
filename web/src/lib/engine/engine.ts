@@ -26,16 +26,23 @@ export interface EngineEvents {
   onFeedback(report: FeedbackReport): void
   /** Native engine only: its MIDI inputs (the page owns MIDI in Web mode). */
   onMidiInputs?(inputs: MidiInput[], selected: string | null): void
-  onMidiActivity?(note: number, velocity: number): void
+  /**
+   * Native engine only: a message of the helper's selected MIDI input, as received (BO-1). The page
+   * runs it as a Web MIDI message; `played` says the helper already played that note on its engine
+   * with the page's `live.routing` (#598), so the page sends no engine bytes for it.
+   */
+  onMidiMessage?(data: number[], played: boolean): void
   /** Native engine only: the helper's self-update (`update.status`), at session start and on change. */
   onHelperUpdate?(update: HelperUpdateState): void
   onError(code: string): void
   /**
    * The engine stopped taking the message stream (`MsgError::code`: out of memory, engine busy,
-   * corrupt stream) at byte `at` of a push: it is behind the project until it is replaced by a new
-   * engine that starts from a snapshot (the dispatcher's restart).
+   * corrupt stream; for the helper also a stream not of its engine's epoch) at byte `at` of a
+   * push: it is behind the project. The Web engine is replaced by a new one that starts from a
+   * snapshot (the dispatcher's restart); the helper's gets a snapshot in an epoch newer than
+   * `epoch`, the one it reported (BO-1).
    */
-  onStreamRefused?(code: number, at: number): void
+  onStreamRefused?(code: number, at: number, epoch?: number): void
   /** The engine stopped on its own (helper gone, session replaced). */
   onClosed(): void
 }
@@ -43,9 +50,10 @@ export interface EngineEvents {
 export interface Engine {
   readonly kind: EngineKind
   /**
-   * Hands the engine what a command the project applied means for it: the Web engine takes the
-   * engine bytes the page's project core encoded (it ignores the command), the helper's engine
-   * takes the command (its temporary copy of the project, until BO-1, ignores the bytes).
+   * Hands the engine what a command the project applied means for it: both engines take the engine
+   * bytes the page's project core encoded (the page owns the project in both modes); the helper
+   * also takes the commands for its own MIDI inputs (`midi.list_inputs`, `midi.select_input`), as
+   * messages for its devices, not as commands.
    */
   send(command: Command, bytes: Uint8Array): void
   /**

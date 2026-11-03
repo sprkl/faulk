@@ -609,6 +609,9 @@ mod tests {
         lost_after: Arc<Mutex<Vec<u32>>>,
         reopened: Arc<AtomicU32>,
         supervisor: Supervisor,
+        /// The page feeding the engine (BO-1): its project core, and the engine generation it
+        /// sent its snapshot to.
+        page: Mutex<(commands::engine_msgs::Synced, Option<u64>)>,
     }
 
     /// #525's timing: no grace, a failed output's engine is dropped at once.
@@ -672,18 +675,28 @@ mod tests {
             lost_after,
             reopened,
             supervisor,
+            page: Mutex::new((commands::engine_msgs::Synced::single_synth(1), None)),
         }
     }
 
-    /// Plays a note through the slot, as a page or a MIDI key would, renders 100 ms with the
+    /// Plays a note through the slot as a page does (its project's snapshot in a newer epoch
+    /// than the engine's, then the note, as its core encodes them), renders 100 ms with the
     /// last core opened (the stream's callback) and returns the peak.
     fn play_through_the_slot(r: &Rig) -> f32 {
-        r.engine
-            .send(&commands::Command::Live(commands::live::Command::NoteOn {
+        let (generation, epoch) = r.engine.current().expect("an engine");
+        let mut page = commands::engine_msgs::Synced::single_synth(1);
+        let setup = page.resync_after(epoch).unwrap();
+        let note = page
+            .run(&commands::Command::Live(commands::live::Command::NoteOn {
                 track: project::TrackId::parse(protocol::single_synth::TRACK).unwrap(),
                 note: 69,
                 velocity: 127,
-            }));
+            }))
+            .unwrap()
+            .1;
+        for bytes in [setup, note] {
+            r.engine.submit(generation, &bytes).unwrap().unwrap();
+        }
         r.engine.flush();
         let mut held = r.world.lock().unwrap().core.take().expect("a core");
         let mut out = vec![0.0; 4_410 * 2];
@@ -691,6 +704,21 @@ mod tests {
         held.core().unwrap().process(&mut out, 2);
         r.world.lock().unwrap().core = Some(held);
         r.meter.take().0
+    }
+
+    /// Runs `command` on the rig's page and submits its engine bytes, as a page in Boost does
+    /// (BO-1); an engine the page has not started yet (a new output's) first gets its snapshot.
+    /// What the engine refuses is left to the test (a flooded engine refuses).
+    fn page_run(r: &Rig, command: &commands::Command) {
+        let (generation, epoch) = r.engine.current().expect("an engine");
+        let mut page = r.page.lock().unwrap();
+        if page.1 != Some(generation) {
+            let setup = page.0.resync_after(epoch).unwrap();
+            let _ = r.engine.submit(generation, &setup);
+            page.1 = Some(generation);
+        }
+        let bytes = page.0.run(command).unwrap().1;
+        let _ = r.engine.submit(generation, &bytes);
     }
 
     /// Waits up to 10 s for `condition`.
@@ -899,13 +927,14 @@ mod tests {
                 note: 69,
             }
         };
-        r.engine.send(&commands::Command::Live(command));
+        page_run(r, &commands::Command::Live(command));
     }
 
     fn play(r: &Rig) {
-        r.engine.send(&commands::Command::Transport(
-            commands::transport::Command::Play {},
-        ));
+        page_run(
+            r,
+            &commands::Command::Transport(commands::transport::Command::Play {}),
+        );
     }
 
     /// Renders `secs` with the core of the open output, as its callback would, in callbacks
@@ -1186,13 +1215,14 @@ mod tests {
         // its queues, and the rate change finds no room (`EngineBusy`).
         let device = project::DeviceId::parse(protocol::single_synth::DEVICE).unwrap();
         for i in 0..10_000 {
-            r.engine.send(&commands::Command::Device(
-                commands::device::Command::SetParam {
+            page_run(
+                &r,
+                &commands::Command::Device(commands::device::Command::SetParam {
                     device: device.clone(),
                     param: "gain".into(),
                     value: if i % 2 == 0 { 0.5 } else { 0.6 },
-                },
-            ));
+                }),
+            );
         }
         {
             let mut world = r.world.lock().unwrap();

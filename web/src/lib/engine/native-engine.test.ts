@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { PROTOCOL_VERSION } from '../generated/protocol'
+import { MAX_STREAM_BYTES, PROTOCOL_VERSION } from '../generated/protocol'
 import type { EngineEvents } from './engine'
 import { FEEDBACK_HEADER_BYTES, FEEDBACK_VERSION, TRACK_METER_BYTES } from './feedback'
-import { NativeEngine, NoOutputError } from './native-engine'
+import { helperDeviceMessage, NativeEngine, NoOutputError, STREAM_TOO_LARGE } from './native-engine'
 
 class FakeSocket {
   static last: FakeSocket
@@ -11,11 +11,11 @@ class FakeSocket {
   binaryType: BinaryType = 'blob'
   onmessage: ((event: { data: unknown }) => void) | null = null
   onclose: (() => void) | null = null
-  sent: string[] = []
+  sent: (string | Uint8Array)[] = []
   constructor(readonly url: string) {
     FakeSocket.last = this
   }
-  send(data: string) {
+  send(data: string | Uint8Array) {
     this.sent.push(data)
   }
   close() {}
@@ -111,6 +111,89 @@ describe('the Boost engine reads the helper', () => {
     const connected = NativeEngine.connect('t', events)
     FakeSocket.last.onmessage!({ data: JSON.stringify({ type: 'error', code: 'audio.stream', message: 'the audio output stream reported an error' }) })
     await expect(connected).rejects.toBeInstanceOf(NoOutputError)
+  })
+
+  /** A session whose hello announced `epoch`, and its events. */
+  async function session(epoch = 0) {
+    vi.stubGlobal('WebSocket', FakeSocket)
+    const events = {
+      onStatus: vi.fn(),
+      onFeedback: vi.fn(),
+      onError: vi.fn(),
+      onClosed: vi.fn(),
+      onStreamRefused: vi.fn(),
+      onMidiMessage: vi.fn(),
+    } satisfies EngineEvents
+    const connected = NativeEngine.connect('t', events)
+    const socket = FakeSocket.last
+    socket.onmessage!({
+      data: JSON.stringify({ type: 'hello', protocol: PROTOCOL_VERSION, sample_rate: 48000, epoch, capabilities: { midi: true, disk: false } }),
+    })
+    return { engine: await connected, socket, events }
+  }
+
+  it('keeps the epoch and the capabilities of the hello (BO-1)', async () => {
+    const { engine } = await session(41)
+    expect(engine.epoch).toBe(41)
+    expect(engine.capabilities).toEqual({ midi: true, disk: false })
+  })
+
+  it('sends the engine bytes of a command in a binary frame, and only the MIDI input commands as messages (BO-1)', async () => {
+    const { engine, socket } = await session()
+    const bytes = new Uint8Array([1, 0, 90, 0])
+    engine.send({ type: 'live.note_on', track: 't', note: 60, velocity: 100 }, bytes)
+    expect(socket.sent).toEqual([bytes])
+    // A command with no engine bytes sends nothing.
+    engine.send({ type: 'project.save' }, new Uint8Array())
+    expect(socket.sent).toHaveLength(1)
+    // The helper's MIDI inputs: their message, beside the bytes (none here).
+    engine.send({ type: 'midi.select_input', id: 'a' }, new Uint8Array())
+    engine.send({ type: 'midi.list_inputs' }, new Uint8Array())
+    expect(socket.sent.slice(1)).toEqual([JSON.stringify({ type: 'midi.select_input', id: 'a' }), JSON.stringify({ type: 'midi.list_inputs' })])
+    expect(helperDeviceMessage({ type: 'midi.select_input' })).toEqual({ type: 'midi.select_input', id: null })
+    expect(helperDeviceMessage({ type: 'live.all_notes_off' })).toBeNull()
+    // Closing frees the MIDI input and sends no command.
+    await engine.close()
+    expect(socket.sent.at(-1)).toBe(JSON.stringify({ type: 'midi.select_input', id: null }))
+  })
+
+  it('never sends a stream longer than the helper reads: it is reported refused', async () => {
+    const { engine, socket, events } = await session(7)
+    const huge = { length: MAX_STREAM_BYTES + 1 } as Uint8Array
+    engine.push(huge)
+    expect(socket.sent).toEqual([])
+    expect(events.onStreamRefused).toHaveBeenCalledWith(STREAM_TOO_LARGE, 0, 7)
+  })
+
+  it('hands a refused stream and a MIDI message of the helper to the page', async () => {
+    const { socket, events } = await session()
+    socket.onmessage!({ data: JSON.stringify({ type: 'stream_refused', code: -6, at: 0, epoch: 12 }) })
+    expect(events.onStreamRefused).toHaveBeenCalledWith(-6, 0, 12)
+    socket.onmessage!({ data: JSON.stringify({ type: 'midi.message', data: [0x90, 60, 100], played: true }) })
+    expect(events.onMidiMessage).toHaveBeenCalledWith([0x90, 60, 100], true)
+    socket.onmessage!({ data: JSON.stringify({ type: 'midi.message', data: [0xb0, 1, 64], played: false }) })
+    expect(events.onMidiMessage).toHaveBeenLastCalledWith([0xb0, 1, 64], false)
+    expect(events.onError).not.toHaveBeenCalled()
+  })
+
+  it('sends the table of the helper MIDI input only when it changed (#598)', async () => {
+    const { engine, socket } = await session(3)
+    engine.route({ epoch: 4, tracks: [0, 2] })
+    expect(socket.sent).toEqual([JSON.stringify({ type: 'live.routing', epoch: 4, tracks: [0, 2] })])
+    engine.route({ epoch: 4, tracks: [0, 2] })
+    expect(socket.sent).toHaveLength(1)
+    engine.route({ epoch: 4, tracks: [0] })
+    engine.route({ epoch: 5, tracks: [0] })
+    engine.route({ epoch: 5, tracks: [] })
+    expect(socket.sent.slice(1)).toEqual([
+      JSON.stringify({ type: 'live.routing', epoch: 4, tracks: [0] }),
+      JSON.stringify({ type: 'live.routing', epoch: 5, tracks: [0] }),
+      JSON.stringify({ type: 'live.routing', epoch: 5, tracks: [] }),
+    ])
+    // A new session sends its first table even when it is the same.
+    const next = await session(3)
+    next.engine.route({ epoch: 5, tracks: [] })
+    expect(next.socket.sent).toHaveLength(1)
   })
 
   it('takes a session closed without a word for a refused one', async () => {

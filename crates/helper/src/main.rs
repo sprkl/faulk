@@ -28,15 +28,15 @@
 
 use helper::audio::{EngineSlot, Meter, spawn_flusher};
 use helper::instance::{self, Startup};
+use helper::live::LiveInput;
 use helper::log;
-use helper::midi::MidiManager;
-use helper::midi::all_notes_off;
+use helper::midi::{MidiManager, MidiSink};
 use helper::output::{self, Supervisor};
 use helper::security::{Policy, load_or_create_token};
 use helper::server::{HelperEvent, Shared, serve};
 use helper::tray_text::{self, Lang};
 use helper::updater::{self, Config, UpdateStatus, UpdateWatch, Updater};
-use std::sync::{Arc, Mutex, OnceLock, mpsc};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 #[cfg(debug_assertions)]
@@ -223,15 +223,12 @@ fn open_in_browser(url: &str) {
     }
 }
 
-/// Ends every note, then waits up to `limit` for the voices to finish their release.
-/// Returns whether they did: at once without an output (nothing sounds). A lock poisoned by a
-/// panic does not skip the note off. What waits for the engine is dropped first, so that the
-/// note off is not queued behind it.
+/// Stops the transport and ends every note, then waits up to `limit` for the voices to finish
+/// their release. Returns whether they did: at once without an output (nothing sounds). A
+/// lock poisoned by a panic does not skip the note off. What waits for the engine is dropped
+/// first, so that the note off is not queued behind it (`EventSender::release_all`).
 fn release_all_voices(engine: &EngineSlot, meter: &Meter, limit: Duration) -> bool {
-    let sent = engine.with(|sender| {
-        sender.drop_waiting();
-        sender.send(&all_notes_off());
-    });
+    let sent = engine.with(|sender| sender.release_all());
     if sent.is_none() {
         return true;
     }
@@ -347,8 +344,10 @@ fn main() {
     let meter = Arc::new(Meter::default());
     // The control thread: pushes what waited on the engine's ring and drops its garbage.
     let _flusher = spawn_flusher(&engine);
-    let (activity_tx, activity_rx) = mpsc::channel();
-    let mut midi = MidiManager::new(engine.clone(), activity_tx);
+    let (midi_out, midi_in) = tokio::sync::mpsc::unbounded_channel();
+    // The input's notes play on the engine at once, with the page's table (#598).
+    let live = Arc::new(LiveInput::new(engine.clone()));
+    let mut midi = MidiManager::new(MidiSink::new(live, midi_out));
     midi.refresh();
 
     log!("Faulk helper on 127.0.0.1:{}", args.port);
@@ -364,7 +363,7 @@ fn main() {
     };
     #[cfg(windows)]
     let (tray_events, notify): (_, Arc<dyn Fn(HelperEvent) + Send + Sync>) = {
-        let (tx, rx) = mpsc::channel();
+        let (tx, rx) = std::sync::mpsc::channel();
         let waker = helper::tray::Waker::for_current_thread();
         (
             rx,
@@ -387,7 +386,7 @@ fn main() {
             },
             engine.clone(),
             midi,
-            activity_rx,
+            midi_in,
             meter.clone(),
             {
                 let notify = notify.clone();
@@ -518,11 +517,18 @@ mod tests {
     fn sounding_core() -> (helper::audio::AudioCore, Arc<EngineSlot>, Arc<Meter>) {
         let meter = Arc::new(Meter::default());
         let (mut core, mut sender) = helper::audio::audio_core(48_000.0, meter.clone()).unwrap();
-        sender.send(&commands::Command::Live(commands::live::Command::NoteOn {
-            track: project::TrackId::parse(protocol::single_synth::TRACK).unwrap(),
-            note: 60,
-            velocity: 100,
-        }));
+        // The page's project and a note it plays, as the page's core encodes them.
+        let mut page = commands::engine_msgs::Synced::single_synth(1);
+        sender.submit(&page.setup().unwrap()).unwrap();
+        let note = page
+            .run(&commands::Command::Live(commands::live::Command::NoteOn {
+                track: project::TrackId::parse(protocol::single_synth::TRACK).unwrap(),
+                note: 60,
+                velocity: 100,
+            }))
+            .unwrap()
+            .1;
+        sender.submit(&note).unwrap();
         let mut block = vec![0.0; 480 * 2];
         core.process(&mut block, 2);
         assert_eq!(meter.take().1, 1);

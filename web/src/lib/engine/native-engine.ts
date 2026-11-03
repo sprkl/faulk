@@ -1,8 +1,7 @@
-import { ERROR_CODES, PROTOCOL_VERSION, type ClientMessage, type Command } from '../generated/protocol'
+import { ERROR_CODES, MAX_STREAM_BYTES, PROTOCOL_VERSION, type Capabilities, type ClientMessage, type Command, type LiveRouting } from '../generated/protocol'
 import type { Engine, EngineEvents, EngineStatus, HelperUpdateState } from './engine'
 import { decodeFeedback } from './feedback'
 import { HELPER_URL, parseServerMessage } from './helper-client'
-import { allNotesOff } from '../synth-commands'
 
 /** The helper answered the session with `audio.no_output`: it runs and the token is good, but it has no audio output to play on yet. */
 export class NoOutputError extends Error {
@@ -12,7 +11,25 @@ export class NoOutputError extends Error {
   }
 }
 
-/** The engine running natively in the helper, driven over the local WebSocket. */
+/** `MsgError::TooLarge`: a stream longer than the helper reads in one frame (`MAX_STREAM_BYTES`), never sent. */
+export const STREAM_TOO_LARGE = -5
+
+/**
+ * The message for the helper's own MIDI inputs that a command the page ran stands for: the page runs
+ * `midi.list_inputs` and `midi.select_input` in its project core like any command and, in Boost, tells
+ * the helper, whose devices they are (BO-1). `null` for every other command.
+ */
+export function helperDeviceMessage(command: Command): ClientMessage | null {
+  if (command.type === 'midi.list_inputs') return { type: 'midi.list_inputs' }
+  if (command.type === 'midi.select_input') return { type: 'midi.select_input', id: command.id ?? null }
+  return null
+}
+
+/**
+ * The engine running natively in the helper, driven over the local WebSocket. The helper holds no
+ * project (BO-1): it takes the engine bytes the page's project core encodes, one binary frame per
+ * stream, the same bytes the Web engine takes, and sends back the same reports.
+ */
 export class NativeEngine implements Engine {
   readonly kind = 'native' as const
   private closing = false
@@ -21,8 +38,15 @@ export class NativeEngine implements Engine {
   status: EngineStatus | null = null
   /** Last update state the helper announced (#515); like `status`, the first one arrives before the engine is current. */
   update: HelperUpdateState | null = null
+  /** The epoch of the helper's engine, from its hello: the page's first stream is a snapshot in a newer one. */
+  epoch = 0
+  /** What the helper said it can do in its hello (MIDI inputs, the project's folder). */
+  capabilities: Capabilities | null = null
 
-  private constructor(private readonly ws: WebSocket) {}
+  private constructor(
+    private readonly ws: WebSocket,
+    private readonly events: EngineEvents,
+  ) {}
 
   /** Opens a session with the pairing token. Resolves once the helper said hello; rejects with `NoOutputError` when it has no audio output. */
   static connect(token: string, events: EngineEvents, timeoutMs = 3000): Promise<NativeEngine> {
@@ -30,7 +54,7 @@ export class NativeEngine implements Engine {
       const ws = new WebSocket(`${HELPER_URL}/session?token=${encodeURIComponent(token)}`)
       // Reports are binary frames: delivered as ArrayBuffer, not Blob (decoded synchronously).
       ws.binaryType = 'arraybuffer'
-      const engine = new NativeEngine(ws)
+      const engine = new NativeEngine(ws, events)
       let opened = false
       const timer = setTimeout(() => {
         if (!opened) {
@@ -58,6 +82,8 @@ export class NativeEngine implements Engine {
               sampleRate: message.sample_rate,
               estimatedLatencyMs: message.estimated_latency_ms ?? null,
             }
+            engine.epoch = message.epoch ?? 0
+            engine.capabilities = message.capabilities ?? null
             if (!opened) {
               opened = true
               clearTimeout(timer)
@@ -68,8 +94,11 @@ export class NativeEngine implements Engine {
           case 'midi.inputs':
             events.onMidiInputs?.(message.inputs, message.selected ?? null)
             break
-          case 'midi.activity':
-            events.onMidiActivity?.(message.note, message.velocity)
+          case 'midi.message':
+            events.onMidiMessage?.(message.data, message.played)
+            break
+          case 'stream_refused':
+            events.onStreamRefused?.(message.code, message.at, message.epoch)
             break
           case 'update.status':
             engine.update = { current: message.current ?? null, checkedAt: message.checked_at ?? null, status: message.status }
@@ -96,18 +125,52 @@ export class NativeEngine implements Engine {
     })
   }
 
-  /** The helper holds its own copy of the project until BO-1: it takes commands, not bytes. */
-  send(command: Command) {
-    if (this.ws.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: 'command', command } satisfies ClientMessage))
-    }
+  /** The engine bytes of a command; for a command about the helper's MIDI inputs, also the message for its devices. */
+  send(command: Command, bytes: Uint8Array) {
+    this.push(bytes)
+    const device = helperDeviceMessage(command)
+    if (device) this.message(device)
   }
 
+  /**
+   * Sends a stream of the page's project core in one binary frame: a command's, or a snapshot. A
+   * stream longer than the helper reads is not sent and is reported refused (`STREAM_TOO_LARGE`), as
+   * the helper reports a stream its engine refuses.
+   */
+  push(bytes: Uint8Array) {
+    if (bytes.length === 0 || this.ws.readyState !== WebSocket.OPEN) return
+    if (bytes.length > MAX_STREAM_BYTES) {
+      this.events.onStreamRefused?.(STREAM_TOO_LARGE, 0, this.epoch)
+      return
+    }
+    // The core's bytes are a copy out of its own (unshared) memory (`ProjectCore.engine`).
+    this.ws.send(bytes as Uint8Array<ArrayBuffer>)
+  }
+
+  /** The last table sent on this session, to send only a changed one. */
+  private routed: string | null = null
+
+  /**
+   * Tells the helper where its MIDI input plays (#598, `live.routing`): the slots of the tracks the live
+   * input reaches, in the epoch they belong to. Sent only when it differs from the last one sent on this
+   * session; the helper then plays the input's notes itself, without waiting for the page.
+   */
+  route(routing: LiveRouting) {
+    const key = `${routing.epoch}:${routing.tracks.join(',')}`
+    if (key === this.routed || this.ws.readyState !== WebSocket.OPEN) return
+    this.routed = key
+    this.message({ type: 'live.routing', epoch: routing.epoch, tracks: routing.tracks })
+  }
+
+  private message(message: ClientMessage) {
+    if (this.ws.readyState === WebSocket.OPEN) this.ws.send(JSON.stringify(message))
+  }
+
+  /** Closes the session; the helper stops the transport and releases every note when a session ends. */
   async close() {
     this.closing = true
-    this.send(allNotesOff())
     // Free the MIDI input so Web mode can open it (the helper also does it on close).
-    this.send({ type: 'midi.select_input', id: null })
+    this.message({ type: 'midi.select_input', id: null })
     this.ws.close()
   }
 }

@@ -14,6 +14,3 @@ export function refusalNotice(reason: OpenRefusal): MessageKey {
   if (reason === 'io' || reason === 'too_large') return 'project.open.unreadable'
   return 'project.open.invalid'
 }
-
-/** The notice for a project opened in Boost: the page plays it, in Web mode. */
-export const WEB_ONLY_NOTICE: MessageKey = 'project.open.webOnly'

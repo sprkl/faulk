@@ -3,7 +3,8 @@
 
 use futures_util::{SinkExt, StreamExt};
 use helper::audio::{AudioCore, EngineSlot, Meter, audio_core};
-use helper::midi::MidiManager;
+use helper::live::LiveInput;
+use helper::midi::{MidiManager, MidiSink};
 use helper::security::Policy;
 use helper::server::{HelperEvent, NO_OUTPUT, Shared, serve};
 use helper::updater::{Backend, UpdateStatus, UpdateWatch, Updater};
@@ -29,6 +30,8 @@ struct Harness {
     core: AudioCore,
     /// The engine of the output; `remove` stands for an output that went away.
     engine: Arc<EngineSlot>,
+    /// The selected MIDI input: `receive` stands for a key played on it.
+    midi: MidiSink,
 }
 
 async fn start() -> Harness {
@@ -42,8 +45,9 @@ async fn start_with_updates(updates: Option<UpdateWatch>) -> Harness {
     let (core, sender) = audio_core(48_000.0, meter.clone()).unwrap();
     let engine = Arc::new(EngineSlot::default());
     engine.install(sender, 48_000.0);
-    let (activity_tx, activity_rx) = mpsc::channel();
-    let midi = MidiManager::new(engine.clone(), activity_tx);
+    let (midi_out, midi_in) = tokio::sync::mpsc::unbounded_channel();
+    let sink = MidiSink::new(Arc::new(LiveInput::new(engine.clone())), midi_out);
+    let midi = MidiManager::new(sink.clone());
     let code = Arc::new(Mutex::new(String::new()));
     let events = Arc::new(Mutex::new(Vec::new()));
     let (shown, seen) = (code.clone(), events.clone());
@@ -55,7 +59,7 @@ async fn start_with_updates(updates: Option<UpdateWatch>) -> Harness {
         },
         engine.clone(),
         midi,
-        activity_rx,
+        midi_in,
         meter,
         Box::new(move |event| {
             if let HelperEvent::Code(c) = &event {
@@ -76,7 +80,78 @@ async fn start_with_updates(updates: Option<UpdateWatch>) -> Harness {
         shared,
         core,
         engine,
+        midi: sink,
     }
+}
+
+/// The page's side of a session: its project core, which encodes the engine streams.
+struct Page(commands::engine_msgs::Synced);
+
+impl Page {
+    fn new() -> Page {
+        Page(commands::engine_msgs::Synced::single_synth(1))
+    }
+
+    /// A page whose one synth is selected: the live input plays it.
+    fn selected() -> Page {
+        let mut page = Page::new();
+        let command = serde_json::json!({
+            "type": "view.select_track",
+            "track": protocol::single_synth::TRACK,
+        });
+        page.run(serde_json::from_value(command).unwrap());
+        page
+    }
+
+    /// The snapshot that starts the helper's engine over, newer than the epoch of its hello.
+    fn snapshot_after(&mut self, epoch: u16) -> Vec<u8> {
+        self.0.resync_after(epoch).unwrap()
+    }
+
+    fn run(&mut self, command: commands::Command) -> Vec<u8> {
+        self.0.run(&command).unwrap().1
+    }
+
+    fn note_on(&mut self, note: u8) -> Vec<u8> {
+        self.run(commands::Command::Live(commands::live::Command::NoteOn {
+            track: project::TrackId::parse(protocol::single_synth::TRACK).unwrap(),
+            note,
+            velocity: 127,
+        }))
+    }
+}
+
+/// Opens a session; returns it with the epoch its hello announced (the messages up to
+/// `midi.inputs` are read).
+async fn open_session(h: &Harness) -> (Ws, u16) {
+    let mut ws = connect(h.port, &format!("/session?token={TOKEN}"), Some(ORIGIN))
+        .await
+        .unwrap();
+    let epoch = match next(&mut ws).await {
+        ServerMessage::Hello { epoch, .. } => epoch,
+        other => panic!("expected hello, got {other:?}"),
+    };
+    assert!(matches!(
+        next(&mut ws).await,
+        ServerMessage::MidiInputs { .. }
+    ));
+    (ws, epoch)
+}
+
+async fn send_bytes(ws: &mut Ws, bytes: Vec<u8>) {
+    ws.send(Message::binary(bytes)).await.unwrap();
+}
+
+/// Waits until the engine has received `n` streams in all (the session's reader submitted
+/// them), or fails after 5 s.
+async fn received(h: &Harness, n: u64) {
+    for _ in 0..500 {
+        if h.engine.with(|s| s.received()) >= Some(n) {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("{n} streams were not received");
 }
 
 async fn connect(port: u16, path: &str, origin: Option<&str>) -> Result<Ws, Error> {
@@ -243,47 +318,48 @@ async fn pairing_refuses_a_wrong_code_then_gives_the_token() {
 }
 
 #[tokio::test]
-async fn pairing_route_accepts_no_command() {
+async fn pairing_route_accepts_nothing_but_a_pairing() {
     let h = start().await;
     let mut ws = connect(h.port, "/pair", Some(ORIGIN)).await.unwrap();
-    send(
-        &mut ws,
-        &ClientMessage::Command {
-            command: commands::Command::Live(commands::live::Command::AllNotesOff {}),
-        },
-    )
-    .await;
+    send(&mut ws, &ClientMessage::MidiListInputs).await;
     assert!(
         matches!(next(&mut ws).await, ServerMessage::Error { code, .. } if code == "protocol.invalid")
     );
 }
 
 #[tokio::test]
-async fn session_plays_commands_and_releases_notes_when_the_page_goes_away() {
-    let mut h = start().await;
-    let path = format!("/session?token={TOKEN}");
-    let mut ws = connect(h.port, &path, Some(ORIGIN)).await.unwrap();
-    assert!(
-        matches!(next(&mut ws).await, ServerMessage::Hello { protocol, .. } if protocol == PROTOCOL_VERSION)
-    );
-    assert!(matches!(
-        next(&mut ws).await,
-        ServerMessage::MidiInputs { .. }
-    ));
+async fn the_hello_announces_the_engines_epoch_and_what_the_helper_can_do() {
+    let h = start().await;
+    let mut ws = connect(h.port, &format!("/session?token={TOKEN}"), Some(ORIGIN))
+        .await
+        .unwrap();
+    match next(&mut ws).await {
+        ServerMessage::Hello {
+            protocol,
+            epoch,
+            capabilities,
+            ..
+        } => {
+            assert_eq!(protocol, PROTOCOL_VERSION);
+            assert_eq!(epoch, 0, "a fresh engine");
+            assert!(!capabilities.disk, "the helper writes no project file yet");
+            assert_eq!(capabilities.midi, helper::midi::available());
+        }
+        other => panic!("expected hello, got {other:?}"),
+    }
+}
 
-    send(
-        &mut ws,
-        &ClientMessage::Command {
-            command: commands::Command::Live(commands::live::Command::NoteOn {
-                track: project::TrackId::parse(protocol::single_synth::TRACK).unwrap(),
-                note: 60,
-                velocity: 100,
-            }),
-        },
-    )
-    .await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
+#[tokio::test]
+async fn session_plays_the_pages_streams_and_releases_notes_when_the_page_goes_away() {
+    let mut h = start().await;
+    let (mut ws, epoch) = open_session(&h).await;
+    let mut page = Page::new();
+    send_bytes(&mut ws, page.snapshot_after(epoch)).await;
+    send_bytes(&mut ws, page.note_on(60)).await;
+    received(&h, 2).await;
     assert_eq!(play(&mut h.core, 50), 1, "the note plays");
+    // A second page connecting later gets the epoch the first one left.
+    assert_eq!(h.engine.current().unwrap().1, page.0.epoch());
 
     ws.close(None).await.unwrap();
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -537,32 +613,41 @@ async fn next_report(ws: &mut Ws) -> Vec<u8> {
 #[tokio::test]
 async fn the_session_receives_the_engine_report_as_binary_frames() {
     let mut h = start().await;
-    let path = format!("/session?token={TOKEN}");
-    let mut ws = connect(h.port, &path, Some(ORIGIN)).await.unwrap();
-    assert!(matches!(next(&mut ws).await, ServerMessage::Hello { .. }));
-    send(
-        &mut ws,
-        &ClientMessage::Command {
-            command: commands::Command::Live(commands::live::Command::NoteOn {
-                track: project::TrackId::parse(protocol::single_synth::TRACK).unwrap(),
-                note: 69,
-                velocity: 127,
-            }),
-        },
-    )
-    .await;
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    let (mut ws, epoch) = open_session(&h).await;
+    // The page's project has three tracks; the last one plays a note.
+    let mut page = Page::new();
+    for _ in 0..2 {
+        page.run(commands::Command::Track(commands::track::Command::Create {
+            kind: project::TrackKind::Midi,
+            instrument: None,
+            name: None,
+            color: None,
+        }));
+    }
+    let last = page.0.state.project.tracks.keys().last().unwrap().clone();
+    send_bytes(&mut ws, page.snapshot_after(epoch)).await;
+    let note = page.run(commands::Command::Live(commands::live::Command::NoteOn {
+        track: last.clone(),
+        note: 69,
+        velocity: 127,
+    }));
+    send_bytes(&mut ws, note).await;
+    received(&h, 2).await;
     // A second of audio writes a report every 1/30 s.
     play(&mut h.core, 1_000);
     let bytes = next_report(&mut ws).await;
     let report = engine::host::decode_feedback(&bytes).expect("a report of this version");
-    assert_eq!(report.meters.len(), 1, "the helper's one track");
+    assert_eq!(report.meters.len(), 3, "the page's three tracks");
     assert!(
         report.master.peak_l > 0.05,
         "the note is on the master meter"
     );
-    assert!(report.meters[0].peak_l > 0.05);
+    let slot = page.0.ctx.engine.tracks.get(&last).unwrap() as usize;
+    for (i, meter) in report.meters.iter().enumerate() {
+        assert_eq!(meter.peak_l > 0.05, i == slot, "track slot {i}: {meter:?}");
+    }
     assert_eq!(report.voices, 1);
+    assert_eq!(report.epoch, page.0.epoch(), "the page's epoch");
     // The helper times its render (#486): a load in 0..1, its peak at least as high.
     assert!(
         (0.0..=1.0).contains(&report.cpu_load),
@@ -604,6 +689,408 @@ async fn an_unchanged_report_is_not_sent_again() {
         }
     }
     assert_eq!(frames, 0, "the same report was sent again");
+}
+
+/// The next `stream_refused` of the session, skipping the other messages and the reports.
+async fn next_refusal(ws: &mut Ws) -> (i32, u32, u16) {
+    loop {
+        if let ServerMessage::StreamRefused { code, at, epoch } = next(ws).await {
+            return (code, at, epoch);
+        }
+    }
+}
+
+/// The next `error` code of the session, skipping the other messages and the reports.
+async fn next_error(ws: &mut Ws) -> String {
+    loop {
+        if let ServerMessage::Error { code, .. } = next(ws).await {
+            return code;
+        }
+    }
+}
+
+#[tokio::test]
+async fn an_invalid_message_never_ends_the_session() {
+    let mut h = start().await;
+    let (mut ws, epoch) = open_session(&h).await;
+    let mut page = Page::new();
+    send_bytes(&mut ws, page.snapshot_after(epoch)).await;
+    // Bytes that are no stream: refused, with the engine's epoch.
+    send_bytes(&mut ws, vec![1, 2, 3]).await;
+    let truncated = engine::msg::MsgError::Truncated {
+        needed: 0,
+        available: 0,
+    }
+    .code();
+    assert_eq!(next_refusal(&mut ws).await, (truncated, 0, page.0.epoch()));
+    // A corrupt header (reserved bits set) in a change.
+    let mut corrupt = page.note_on(60);
+    corrupt[1] = 0xFF;
+    send_bytes(&mut ws, corrupt).await;
+    let corrupt_code = engine::msg::MsgError::Corrupt.code();
+    assert_eq!(next_refusal(&mut ws).await.0, corrupt_code);
+    // Text that is no message, a message for another route, a message of an older protocol.
+    for text in [
+        "not json",
+        r#"{"type":"pair","code":"12345678"}"#,
+        r#"{"type":"command","command":{"type":"live.all_notes_off"}}"#,
+    ] {
+        ws.send(Message::text(text)).await.unwrap();
+        assert_eq!(next_error(&mut ws).await, "protocol.invalid", "{text}");
+    }
+    // An empty frame, a ping: nothing.
+    send_bytes(&mut ws, Vec::new()).await;
+    ws.send(Message::Ping(vec![1].into())).await.unwrap();
+    // A frame longer than the WebSocket library's default limit (16 MiB) is read whole, and
+    // refused by the engine (a version this build does not read), not by the connection.
+    send_bytes(&mut ws, vec![0; 17 << 20]).await;
+    let version = engine::msg::MsgError::UnsupportedVersion(0).code();
+    assert_eq!(next_refusal(&mut ws).await.0, version);
+    // The session still plays the page's next change.
+    send_bytes(&mut ws, page.note_on(69)).await;
+    received(&h, 6).await;
+    assert_eq!(play(&mut h.core, 50), 1, "the session goes on");
+}
+
+#[tokio::test]
+async fn the_token_free_routes_keep_the_default_message_limit() {
+    let h = start().await;
+    let mut ws = connect(h.port, "/pair", Some(ORIGIN)).await.unwrap();
+    // Over the default 16 MiB: the pairing route does not read it, the connection ends.
+    let _ = ws.send(Message::binary(vec![0; 17 << 20])).await;
+    let end = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match ws.next().await {
+                None | Some(Err(_)) | Some(Ok(Message::Close(_))) => return,
+                Some(Ok(_)) => {}
+            }
+        }
+    })
+    .await;
+    assert!(end.is_ok(), "the pairing route closed the connection");
+}
+
+#[tokio::test]
+async fn a_snapshot_that_is_not_newer_than_the_engine_is_refused_and_the_next_one_taken() {
+    let mut h = start().await;
+    let (mut ws, epoch) = open_session(&h).await;
+    let mut page = Page::new();
+    send_bytes(&mut ws, page.snapshot_after(epoch)).await;
+    received(&h, 1).await;
+    // Another page's core started at the same epoch: its snapshot is not newer.
+    let mut other = Page::new();
+    send_bytes(&mut ws, other.0.setup().unwrap()).await;
+    let stale = engine::msg::MsgError::StaleEpoch {
+        message: 0,
+        current: 0,
+    }
+    .code();
+    let (code, at, refused_epoch) = next_refusal(&mut ws).await;
+    assert_eq!((code, at, refused_epoch), (stale, 0, page.0.epoch()));
+    // The answer: a snapshot newer than the refusal's epoch, then the page plays.
+    send_bytes(&mut ws, other.snapshot_after(refused_epoch)).await;
+    send_bytes(&mut ws, other.note_on(69)).await;
+    received(&h, 4).await;
+    assert_eq!(play(&mut h.core, 50), 1);
+    assert_eq!(h.engine.current().unwrap().1, refused_epoch + 1);
+}
+
+#[tokio::test]
+async fn a_replaced_sessions_streams_never_reach_the_engine() {
+    let h = start().await;
+    let (mut first, epoch) = open_session(&h).await;
+    let mut a = Page::new();
+    send_bytes(&mut first, a.snapshot_after(epoch)).await;
+    received(&h, 1).await;
+    // A second page opens a session: its hello has the engine's epoch.
+    let (mut second, epoch) = open_session(&h).await;
+    assert_eq!(epoch, 2);
+    // The first page, not told yet, resyncs: its snapshot is dropped, not submitted.
+    let _ = first.send(Message::binary(a.snapshot_after(epoch))).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(h.engine.with(|s| s.received()), Some(1));
+    // The second page's snapshot, made for the epoch of its hello, is taken.
+    let mut b = Page::new();
+    send_bytes(&mut second, b.snapshot_after(epoch)).await;
+    received(&h, 2).await;
+    assert_eq!(h.engine.current().unwrap().1, epoch + 1);
+    assert_eq!(h.engine.with(|s| s.rejected()), Some(0));
+}
+
+#[tokio::test]
+async fn a_replaced_pages_project_stops_and_its_notes_end_when_the_next_page_connects() {
+    let mut h = start().await;
+    let (mut first, epoch) = open_session(&h).await;
+    let mut a = Page::new();
+    send_bytes(&mut first, a.snapshot_after(epoch)).await;
+    send_bytes(&mut first, a.note_on(60)).await;
+    send_bytes(
+        &mut first,
+        a.run(commands::Command::Transport(
+            commands::transport::Command::Play {},
+        )),
+    )
+    .await;
+    received(&h, 3).await;
+    assert_eq!(play(&mut h.core, 50), 1, "the first page plays");
+    // A second page connects and has not sent its snapshot yet.
+    let (_second, _) = open_session(&h).await;
+    // The default release is 0.3 s: after 1 s the first page's note has ended.
+    assert_eq!(
+        play(&mut h.core, 1_000),
+        0,
+        "replacing the page released its notes"
+    );
+    let mut bytes = Vec::new();
+    assert!(h.core.meter().copy_report(&mut bytes));
+    let report = engine::host::decode_feedback(&bytes).unwrap();
+    assert_eq!(report.transport, engine::msg::TransportState::Stopped);
+}
+
+#[tokio::test]
+async fn a_session_whose_engine_was_replaced_is_told_its_output_is_gone() {
+    let h = start().await;
+    let (mut ws, epoch) = open_session(&h).await;
+    let mut page = Page::new();
+    // A new output opened meanwhile (the old one failed): a new engine, in epoch 0.
+    let (_core, sender) = audio_core(48_000.0, Arc::new(Meter::default())).unwrap();
+    h.engine.install(sender, 48_000.0);
+    send_bytes(&mut ws, page.snapshot_after(epoch)).await;
+    assert_eq!(next_error(&mut ws).await, "audio.stream");
+    assert_eq!(h.engine.with(|s| s.received()), Some(0), "not submitted");
+}
+
+#[tokio::test]
+async fn a_refusal_found_at_a_flush_is_told_by_the_ticker() {
+    let mut h = start().await;
+    let (mut ws, epoch) = open_session(&h).await;
+    // A big project's snapshot waits for the engine; a change cut short waits behind it.
+    let big = test_support::big::big_project(48, 64, 64);
+    let mut page = Page(commands::engine_msgs::Synced::new(big.state, big.ctx, 1));
+    send_bytes(&mut ws, page.snapshot_after(epoch)).await;
+    let last = page.0.state.project.tracks.keys().last().unwrap().clone();
+    let mut cut = page.run(commands::Command::Live(commands::live::Command::NoteOn {
+        track: last,
+        note: 60,
+        velocity: 100,
+    }));
+    cut.truncate(cut.len() - 4);
+    send_bytes(&mut ws, cut).await;
+    received(&h, 2).await;
+    // The control thread's flushes drain them: the second is refused at a flush.
+    for _ in 0..10_000 {
+        play(&mut h.core, 10);
+        h.engine.flush();
+        if h.engine.with(|s| s.waiting()) == Some(0) {
+            break;
+        }
+    }
+    let truncated = engine::msg::MsgError::Truncated {
+        needed: 0,
+        available: 0,
+    }
+    .code();
+    assert_eq!(next_refusal(&mut ws).await, (truncated, 0, page.0.epoch()));
+}
+
+/// The next `midi.message`, skipping the others.
+async fn next_midi(ws: &mut Ws) -> (Vec<u8>, bool) {
+    loop {
+        if let ServerMessage::MidiMessage { data, played } = next(ws).await {
+            return (data, played);
+        }
+    }
+}
+
+/// Sends the page's table and waits until the session's reader took it (the reader answers
+/// the messages of a session in order).
+async fn route(ws: &mut Ws, epoch: u16, tracks: Vec<u32>) {
+    send(ws, &ClientMessage::LiveRouting { epoch, tracks }).await;
+    send(ws, &ClientMessage::MidiListInputs).await;
+    loop {
+        if let ServerMessage::MidiInputs { .. } = next(ws).await {
+            return;
+        }
+    }
+}
+
+/// The page's table now.
+fn routing(page: &Page) -> commands::host::LiveRouting {
+    commands::host::LiveRouting::of(&page.0.state, &page.0.ctx.engine, page.0.epoch())
+}
+
+#[tokio::test]
+async fn the_selected_inputs_messages_reach_the_session_as_they_come() {
+    let h = start().await;
+    let (mut ws, _) = open_session(&h).await;
+    h.midi.receive(&[0x90, 60, 100]);
+    assert_eq!(next_midi(&mut ws).await, (vec![0x90, 60, 100], false));
+    // System messages are not forwarded; the next channel message is.
+    h.midi.receive(&[0xF8]);
+    h.midi.receive(&[0xB0, 1, 64]);
+    assert_eq!(next_midi(&mut ws).await, (vec![0xB0, 1, 64], false));
+    // The helper's inputs are listed and selected by messages for its devices.
+    send(&mut ws, &ClientMessage::MidiListInputs).await;
+    assert!(matches!(
+        next(&mut ws).await,
+        ServerMessage::MidiInputs { .. }
+    ));
+    send(&mut ws, &ClientMessage::MidiSelectInput { id: None }).await;
+    assert!(matches!(
+        next(&mut ws).await,
+        ServerMessage::MidiInputs { selected: None, .. }
+    ));
+}
+
+#[tokio::test]
+async fn the_inputs_notes_play_on_the_engine_with_the_pages_table_and_still_reach_the_page() {
+    let mut h = start().await;
+    let (mut ws, epoch) = open_session(&h).await;
+    let mut page = Page::selected();
+    send_bytes(&mut ws, page.snapshot_after(epoch)).await;
+    received(&h, 1).await;
+
+    // Before any table the helper plays nothing: the page plays the key (its bytes).
+    h.midi.receive(&[0x90, 60, 100]);
+    assert_eq!(next_midi(&mut ws).await, (vec![0x90, 60, 100], false));
+    assert_eq!(play(&mut h.core, 50), 0);
+    h.midi.receive(&[0x80, 60, 0]);
+    assert!(!next_midi(&mut ws).await.1);
+
+    // With the page's table, a key sounds at once, without a stream of the page.
+    let table = routing(&page);
+    assert_eq!(table.epoch, page.0.epoch());
+    assert_eq!(table.tracks.len(), 1);
+    route(&mut ws, table.epoch, table.tracks).await;
+    // The page reads nothing meanwhile (a long task): the note sounds all the same.
+    h.midi.receive(&[0x90, 60, 100]);
+    assert_eq!(
+        play(&mut h.core, 50),
+        1,
+        "the note plays before the page read anything"
+    );
+    assert_eq!(next_midi(&mut ws).await, (vec![0x90, 60, 100], true));
+    assert_eq!(h.engine.with(|s| s.received()), Some(1), "no page stream");
+
+    // The page's table changes while the key is held (nothing selected): the release still
+    // reaches the track the note went to.
+    route(&mut ws, page.0.epoch(), vec![]).await;
+    h.midi.receive(&[0x80, 60, 0]);
+    assert_eq!(next_midi(&mut ws).await, (vec![0x80, 60, 0], true));
+    assert_eq!(play(&mut h.core, 1_000), 0, "released, nothing stuck");
+
+    // A table of another epoch is ignored: the previous one (no track) stays.
+    route(&mut ws, page.0.epoch().wrapping_add(1), vec![0]).await;
+    h.midi.receive(&[0x90, 62, 100]);
+    assert!(next_midi(&mut ws).await.1);
+    assert_eq!(play(&mut h.core, 50), 0, "the ignored table played nothing");
+    h.midi.receive(&[0x80, 62, 0]);
+    // A control change is the page's.
+    h.midi.receive(&[0xB0, 7, 100]);
+    assert_eq!(next_midi(&mut ws).await, (vec![0x80, 62, 0], true));
+    assert_eq!(next_midi(&mut ws).await, (vec![0xB0, 7, 100], false));
+}
+
+#[tokio::test]
+async fn a_snapshot_into_a_newer_epoch_ends_the_table_until_the_pages_next_one() {
+    let mut h = start().await;
+    let (mut ws, epoch) = open_session(&h).await;
+    let mut page = Page::selected();
+    send_bytes(&mut ws, page.snapshot_after(epoch)).await;
+    received(&h, 1).await;
+    let table = routing(&page);
+    route(&mut ws, table.epoch, table.tracks).await;
+    h.midi.receive(&[0x90, 60, 100]);
+    assert_eq!(play(&mut h.core, 50), 1);
+    assert!(next_midi(&mut ws).await.1);
+
+    // The page resyncs (a refused stream, a project opened): the `Reset` ends the held note.
+    send_bytes(&mut ws, page.snapshot_after(page.0.epoch())).await;
+    received(&h, 2).await;
+    h.midi.receive(&[0x80, 60, 0]);
+    assert!(
+        !next_midi(&mut ws).await.1,
+        "its note went with the old epoch"
+    );
+    h.midi.receive(&[0x90, 60, 100]);
+    assert!(!next_midi(&mut ws).await.1, "the old table plays nothing");
+    h.midi.receive(&[0x80, 60, 0]);
+    assert!(!next_midi(&mut ws).await.1);
+    assert_eq!(play(&mut h.core, 1_000), 0);
+    assert_eq!(
+        h.engine.with(|s| s.rejected()),
+        Some(0),
+        "nothing sent in the old epoch"
+    );
+
+    let table = routing(&page);
+    route(&mut ws, table.epoch, table.tracks).await;
+    h.midi.receive(&[0x90, 60, 100]);
+    assert!(next_midi(&mut ws).await.1);
+    assert_eq!(play(&mut h.core, 50), 1);
+}
+
+#[tokio::test]
+async fn a_replaced_or_ended_sessions_table_goes_with_it() {
+    let mut h = start().await;
+    let (mut first, epoch) = open_session(&h).await;
+    let mut page = Page::selected();
+    send_bytes(&mut first, page.snapshot_after(epoch)).await;
+    received(&h, 1).await;
+    let table = routing(&page);
+    route(&mut first, table.epoch, table.tracks.clone()).await;
+    h.midi.receive(&[0x90, 60, 100]);
+    assert!(next_midi(&mut first).await.1);
+    assert_eq!(play(&mut h.core, 50), 1);
+
+    // Another page opens a session: the first page's notes end and its table goes.
+    let (mut second, _) = open_session(&h).await;
+    assert_eq!(play(&mut h.core, 1_000), 0);
+    h.midi.receive(&[0x90, 60, 100]);
+    assert_eq!(next_midi(&mut second).await, (vec![0x90, 60, 100], false));
+    assert_eq!(
+        play(&mut h.core, 50),
+        0,
+        "the first page's table plays nothing"
+    );
+    // The first page's late table is not taken either (its socket may be closed by now).
+    let late = ClientMessage::LiveRouting {
+        epoch: table.epoch,
+        tracks: table.tracks,
+    };
+    let _ = first
+        .send(Message::text(serde_json::to_string(&late).unwrap()))
+        .await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    h.midi.receive(&[0x80, 60, 0]);
+    assert!(!next_midi(&mut second).await.1);
+    h.midi.receive(&[0x90, 60, 100]);
+    assert!(!next_midi(&mut second).await.1);
+    assert_eq!(play(&mut h.core, 50), 0);
+
+    // The second page's own table, then it goes away: its table goes with it.
+    let mut page = Page::selected();
+    let epoch = h.engine.current().unwrap().1;
+    send_bytes(&mut second, page.snapshot_after(epoch)).await;
+    received(&h, 2).await;
+    let table = routing(&page);
+    route(&mut second, table.epoch, table.tracks).await;
+    h.midi.receive(&[0x80, 60, 0]);
+    h.midi.receive(&[0x90, 64, 100]);
+    assert!(!next_midi(&mut second).await.1);
+    assert!(next_midi(&mut second).await.1);
+    assert_eq!(play(&mut h.core, 50), 1);
+    second.close(None).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(
+        play(&mut h.core, 1_000),
+        0,
+        "the page left: its notes ended"
+    );
+    assert!(
+        !h.midi.live().receive(&[0x90, 64, 100]),
+        "and its table went"
+    );
 }
 
 /// An update found at start whose download waits for the test.

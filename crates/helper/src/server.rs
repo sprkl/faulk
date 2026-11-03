@@ -1,28 +1,37 @@
 //! WebSocket server of the local bridge: probe, pairing and the session.
 //!
 //! One session at a time: a new session replaces the previous one (its page is told).
-//! When a session ends, every note is released so nothing keeps sounding.
+//! When a session ends, the transport stops and every note is released so nothing keeps
+//! sounding.
+//!
+//! The session relays the page's engine (BO-1): each binary frame is a stream of the page's
+//! project core, submitted unchanged to the engine the session's `hello` described, and only
+//! while the session is the current one (the check and the submit hold the session lock, so
+//! a replaced page's stream never lands after the next page's `hello`). A stream the engine
+//! stops is answered `stream_refused`; the session goes on whatever a page sends.
 //!
 //! Without an audio output (#525) the helper still serves: the probe says so
 //! (`audio_output: false`) and a session is answered `error audio.no_output` and closed, so the
 //! page keeps playing itself until an output opens.
 
-use crate::audio::{EngineSlot, Meter};
-use crate::midi::MidiManager;
-use crate::midi::all_notes_off;
+use crate::audio::{EngineSlot, Meter, Refusal};
+use crate::live::LiveInput;
+use crate::midi::{MidiManager, Received};
 use crate::security::{Handshake, PairResult, Pairing, Policy, Route};
 use crate::updater::UpdateWatch;
-use commands::Command;
 use futures_util::{SinkExt, StreamExt};
-use protocol::{ClientMessage, HELPER_NAME, PROTOCOL_VERSION, ServerMessage};
+use protocol::{
+    Capabilities, ClientMessage, HELPER_NAME, MAX_STREAM_BYTES, PROTOCOL_VERSION, ServerMessage,
+};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, mpsc as std_mpsc};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tokio_tungstenite::tungstenite::http::StatusCode;
+use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
 
 /// What the helper reports to its host (the tray, or the console).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -53,6 +62,8 @@ struct Session {
     /// A report frame waits in the queue: the next one is not sent until the writer took it
     /// (a stalled page never makes the queue grow by 30 reports per second).
     report_pending: Arc<ReportGate>,
+    /// The generation of the engine this session's `hello` described; `None` before it.
+    engine: Option<u64>,
 }
 
 pub struct Shared {
@@ -61,7 +72,12 @@ pub struct Shared {
     /// The engine of the open audio output; empty while there is none.
     pub engine: Arc<EngineSlot>,
     pub midi: Mutex<MidiManager>,
-    pub activity: Mutex<std_mpsc::Receiver<(u8, u8)>>,
+    /// The notes of the MIDI input, played on the engine with the session's table (#598).
+    live: Arc<LiveInput>,
+    /// The selected MIDI input's messages, forwarded to the session as they come (`serve`).
+    midi_in: Mutex<Option<mpsc::UnboundedReceiver<Received>>>,
+    /// Whether this system has a MIDI backend (`hello`'s capabilities).
+    midi_available: bool,
     pub meter: Arc<Meter>,
     /// Told about new pairing codes, sessions and audio errors.
     pub notify: Box<dyn Fn(HelperEvent) + Send + Sync>,
@@ -72,12 +88,13 @@ pub struct Shared {
 }
 
 impl Shared {
-    #[allow(clippy::too_many_arguments)]
+    /// `midi_in` receives what `midi` forwards (the `MidiSink` it was made with, whose live
+    /// input plays on `engine`).
     pub fn new(
         policy: Policy,
         engine: Arc<EngineSlot>,
         midi: MidiManager,
-        activity: std_mpsc::Receiver<(u8, u8)>,
+        midi_in: mpsc::UnboundedReceiver<Received>,
         meter: Arc<Meter>,
         notify: Box<dyn Fn(HelperEvent) + Send + Sync>,
     ) -> Self {
@@ -87,8 +104,10 @@ impl Shared {
             policy,
             pairing: Mutex::new(pairing),
             engine,
+            live: midi.live(),
             midi: Mutex::new(midi),
-            activity: Mutex::new(activity),
+            midi_in: Mutex::new(Some(midi_in)),
+            midi_available: crate::midi::available(),
             meter,
             notify,
             updates: None,
@@ -108,7 +127,8 @@ impl Shared {
     /// An output opened with the engine of the one that failed (#577): the session plays on, and
     /// a new `hello` tells the page the output's rate, buffer and latency.
     pub fn output_reopened(&self) {
-        if let Some(hello) = self.hello() {
+        // The same engine (same generation, same epoch): the session's streams go on to it.
+        if let Some((hello, _)) = self.hello() {
             self.to_session(hello);
         }
     }
@@ -126,10 +146,6 @@ impl Shared {
     fn notify_code(&self) {
         let code = self.pairing.lock().expect("pairing lock").code().to_owned();
         (self.notify)(HelperEvent::Code(code));
-    }
-
-    fn send_command(&self, command: &commands::Command) {
-        self.engine.send(command);
     }
 
     fn to_session(&self, message: ServerMessage) {
@@ -158,25 +174,87 @@ impl Shared {
         }
     }
 
-    /// The session's first message, at the rate of the open output; `None` without one.
-    fn hello(&self) -> Option<ServerMessage> {
+    /// The session's first message, at the rate of the open output and in its engine's
+    /// epoch, and the generation of that engine; `None` without an output.
+    fn hello(&self) -> Option<(ServerMessage, u64)> {
         let sample_rate = self.engine.sample_rate()?;
-        Some(ServerMessage::Hello {
+        let (generation, epoch) = self.engine.current()?;
+        let hello = ServerMessage::Hello {
             protocol: PROTOCOL_VERSION,
             sample_rate,
             buffer_frames: self.meter.callback_frames(),
             estimated_latency_ms: self.meter.estimated_latency_ms(sample_rate),
-        })
+            epoch,
+            capabilities: Capabilities {
+                midi: self.midi_available,
+                disk: false,
+            },
+        };
+        Some((hello, generation))
     }
 
-    /// Runs a command from the session. Returns the messages to send back.
-    fn run(&self, command: &Command) -> Vec<ServerMessage> {
-        match command {
-            Command::Midi(commands::midi::Command::ListInputs {}) => {
+    /// Opens session `id` with its hello, under the session lock: no stream of a replaced
+    /// session can be submitted between the epoch read here and this page's first stream.
+    /// `false` when the session was replaced meanwhile (nothing sent).
+    fn greet(&self, id: u64) -> bool {
+        let mut current = self.session.lock().expect("session lock");
+        let Some(session) = current.as_mut().filter(|s| s.id == id) else {
+            return false;
+        };
+        // An output lost since the session began was told already (`output_lost`): the page
+        // takes it as no output. One lost and not replaced is said again here.
+        match self.hello() {
+            Some((hello, generation)) => {
+                session.engine = Some(generation);
+                let _ = session.tx.send(Out::Msg(hello));
+            }
+            None => {
+                let _ = session.tx.send(Out::Msg(audio_stream_error()));
+            }
+        }
+        true
+    }
+
+    /// Submits a stream of session `id` to the engine its hello described. Nothing happens
+    /// for a session that is not the current one (replaced: its page is told) or before its
+    /// hello. The reply: `stream_refused` for a stream the engine stopped, `audio.stream` when
+    /// the session's engine is gone (a new output opened since: the page plays itself again).
+    fn submit(&self, id: u64, bytes: &[u8]) -> Option<ServerMessage> {
+        let current = self.session.lock().expect("session lock");
+        let generation = current.as_ref().filter(|s| s.id == id)?.engine?;
+        match self.engine.submit(generation, bytes) {
+            None => Some(audio_stream_error()),
+            Some(Ok(())) => None,
+            Some(Err(refusal)) => Some(refused(refusal)),
+        }
+    }
+
+    /// Answers a JSON message of session `id`: the helper's MIDI inputs, and the table its
+    /// notes play with.
+    fn answer(
+        &self,
+        id: u64,
+        message: Result<ClientMessage, serde_json::Error>,
+    ) -> Vec<ServerMessage> {
+        match message {
+            Ok(ClientMessage::LiveRouting { epoch, tracks }) => {
+                // Only the current session's, for the engine its hello described: under the
+                // session lock, so a replaced page's table never follows the next page's.
+                let current = self.session.lock().expect("session lock");
+                if let Some(generation) = current
+                    .as_ref()
+                    .filter(|s| s.id == id)
+                    .and_then(|s| s.engine)
+                {
+                    self.live.set_routing(generation, epoch, tracks);
+                }
+                Vec::new()
+            }
+            Ok(ClientMessage::MidiListInputs) => {
                 self.midi.lock().expect("MIDI lock poisoned").refresh();
                 vec![self.midi_inputs()]
             }
-            Command::Midi(commands::midi::Command::SelectInput { id }) => {
+            Ok(ClientMessage::MidiSelectInput { id }) => {
                 let result = self
                     .midi
                     .lock()
@@ -191,24 +269,42 @@ impl Shared {
                 }
                 out
             }
-            other => {
-                // The engine takes what the command layer maps (live notes, parameters).
-                self.send_command(other);
-                Vec::new()
-            }
+            Ok(ClientMessage::Pair { .. }) | Err(_) => vec![ServerMessage::Error {
+                code: "protocol.invalid".into(),
+                message: "expected a MIDI input message (the engine's streams are binary)".into(),
+            }],
         }
+    }
+}
+
+/// The page's answer to a refused stream is a snapshot newer than the refusal's epoch.
+fn refused(refusal: Refusal) -> ServerMessage {
+    ServerMessage::StreamRefused {
+        code: refusal.code,
+        at: refusal.at,
+        epoch: refusal.epoch,
     }
 }
 
 /// Accepts connections until the listener fails.
 pub async fn serve(listener: TcpListener, shared: Arc<Shared>) {
     tokio::spawn(ticker(shared.clone()));
+    let midi_in = shared.midi_in.lock().expect("MIDI lock").take();
+    if let Some(mut midi_in) = midi_in {
+        let forward = shared.clone();
+        // Each message goes to the session as it comes, not at the ticker's pace.
+        tokio::spawn(async move {
+            while let Some(Received { data, played }) = midi_in.recv().await {
+                forward.to_session(ServerMessage::MidiMessage { data, played });
+            }
+        });
+    }
     while let Ok((stream, _)) = listener.accept().await {
         tokio::spawn(connection(stream, shared.clone()));
     }
 }
 
-/// Periodic work: meter, MIDI activity, hot-plug polling, update status.
+/// Periodic work: meter, refusals found at a flush, hot-plug polling, update status.
 async fn ticker(shared: Arc<Shared>) {
     let mut interval = tokio::time::interval(Duration::from_millis(33));
     let mut ticks: u64 = 0;
@@ -227,13 +323,9 @@ async fn ticker(shared: Arc<Shared>) {
                 shared.report_to_session(core::mem::take(&mut report));
             }
         }
-        let lights: Vec<_> = shared
-            .activity
-            .lock()
-            .map(|rx| rx.try_iter().collect())
-            .unwrap_or_default();
-        for (note, velocity) in lights {
-            shared.to_session(ServerMessage::MidiActivity { note, velocity });
+        // A stream that waited and that the engine stopped at a flush (control thread).
+        if let Some(refusal) = shared.engine.with(|s| s.take_refusal()).flatten() {
+            shared.to_session(refused(refusal));
         }
         if ticks.is_multiple_of(30) {
             let renewed = shared
@@ -265,6 +357,51 @@ fn audio_stream_error() -> ServerMessage {
         code: protocol::errors::AUDIO_STREAM.into(),
         message: "the audio output stream reported an error".into(),
     }
+}
+
+/// The WebSocket limits of a session: one message, or one frame, of a whole engine stream.
+fn session_config() -> WebSocketConfig {
+    WebSocketConfig::default()
+        .max_message_size(Some(MAX_STREAM_BYTES))
+        .max_frame_size(Some(MAX_STREAM_BYTES))
+}
+
+/// How long the request line of a connection may take to arrive before its route is guessed.
+const REQUEST_LINE_WAIT: Duration = Duration::from_secs(2);
+
+/// Whether the request a connection starts with asks for the session's path, read without
+/// consuming it (the handshake reads it again and checks it): the session's limits are chosen
+/// before the handshake, where the route is only known after. `false` when the request line
+/// does not arrive in time or names another path: the handshake then decides as usual.
+async fn is_session(stream: &TcpStream) -> bool {
+    let mut buf = [0u8; 64];
+    let read = tokio::time::timeout(REQUEST_LINE_WAIT, async {
+        loop {
+            let n = stream.peek(&mut buf).await.unwrap_or(0);
+            // Enough to tell (`GET `, the path and the byte after it), or the peer is done.
+            if n == 0 || n > 4 + SESSION_PATH_LEN {
+                return n;
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .unwrap_or(0);
+    requests_session(&buf[..read])
+}
+
+const SESSION_PATH_LEN: usize = protocol::paths::SESSION.len();
+
+/// Whether the start of an HTTP request asks for the session's path (`GET /session?...` or
+/// `GET /session `).
+fn requests_session(start: &[u8]) -> bool {
+    let Some(rest) = start.strip_prefix(b"GET ") else {
+        return false;
+    };
+    let Some(after) = rest.strip_prefix(protocol::paths::SESSION.as_bytes()) else {
+        return false;
+    };
+    matches!(after.first(), Some(b'?' | b' '))
 }
 
 /// Header of every refused handshake, valued [`HELPER_NAME`].
@@ -301,7 +438,11 @@ async fn connection(stream: TcpStream, shared: Arc<Shared>) {
             }
         }
     };
-    let Ok(ws) = tokio_tungstenite::accept_hdr_async(stream, callback).await else {
+    // A session carries the page's engine streams, a big project's snapshot among them: only
+    // it reads messages up to `MAX_STREAM_BYTES`; the token-free routes keep the defaults.
+    let config = is_session(&stream).await.then(session_config);
+    let Ok(ws) = tokio_tungstenite::accept_hdr_async_with_config(stream, callback, config).await
+    else {
         return;
     };
     let route = route.lock().expect("route lock").take();
@@ -402,11 +543,18 @@ async fn session(mut ws: Ws, shared: &Arc<Shared>) {
                 code: "session.replaced".into(),
                 message: "another page opened a session".into(),
             }));
+            // The replaced page's project stops and its notes end now, not only once the new
+            // page's snapshot arrives (its streams are dropped from here on). Its table goes
+            // too, first: a key struck meanwhile is either played before the release, which
+            // ends it, or not played by the helper at all (#598).
+            shared.live.clear();
+            shared.engine.release_all();
         }
         *current = Some(Session {
             id,
             tx: tx.clone(),
             report_pending: pending.clone(),
+            engine: None,
         });
         // Under the lock, so it can never be overtaken by an older session's end.
         (shared.notify)(HelperEvent::Session(true));
@@ -419,18 +567,11 @@ async fn session(mut ws: Ws, shared: &Arc<Shared>) {
         }
         tokio::time::sleep(FIRST_CALLBACK_STEP).await;
     }
-    // A new session starts from silence.
-    shared.send_command(&all_notes_off());
-    // Read now, at the rate of the output open now. An output lost since the check above was
-    // told to this session already (`output_lost`, before the hello): the page takes it as no
-    // output. One lost and not replaced is said again here.
-    match shared.hello() {
-        Some(hello) => {
-            let _ = tx.send(Out::Msg(hello));
-        }
-        None => {
-            let _ = tx.send(Out::Msg(audio_stream_error()));
-        }
+    // Read now, at the rate of the output open now and in its engine's epoch: the page starts
+    // the engine over from its snapshot, in a newer epoch (what sounded fades out with the
+    // `Reset`). A session replaced meanwhile says nothing more.
+    if !shared.greet(id) {
+        return;
     }
     shared.midi.lock().expect("MIDI lock poisoned").refresh();
     let _ = tx.send(Out::Msg(shared.midi_inputs()));
@@ -469,15 +610,11 @@ async fn session(mut ws: Ws, shared: &Arc<Shared>) {
         if writer.is_finished() {
             break;
         }
-        let Message::Text(body) = message else {
-            continue;
-        };
-        let replies = match serde_json::from_str::<ClientMessage>(&body) {
-            Ok(ClientMessage::Command { command }) => shared.run(&command),
-            Ok(ClientMessage::Pair { .. }) | Err(_) => vec![ServerMessage::Error {
-                code: "protocol.invalid".into(),
-                message: "expected a command message".into(),
-            }],
+        let replies = match message {
+            // The page's engine stream; whatever it holds, the session goes on.
+            Message::Binary(bytes) => shared.submit(id, &bytes).into_iter().collect(),
+            Message::Text(body) => shared.answer(id, serde_json::from_str::<ClientMessage>(&body)),
+            _ => Vec::new(),
         };
         for reply in replies {
             let _ = tx.send(Out::Msg(reply));
@@ -487,10 +624,13 @@ async fn session(mut ws: Ws, shared: &Arc<Shared>) {
     let mut current = shared.session.lock().expect("session lock");
     if current.as_ref().is_some_and(|s| s.id == id) {
         *current = None;
-        // The page is gone: release every note so nothing hangs, and let go of the MIDI
-        // input so the page (Web mode) can open it again: on Windows an input can be
-        // open in one application only.
-        shared.send_command(&all_notes_off());
+        // The page is gone: stop its project and release every note so nothing hangs, and
+        // let go of the MIDI input so the page (Web mode) can open it again: on Windows an
+        // input can be open in one application only. Its table goes with it, and the notes
+        // the helper played are among those released: the table goes first, so that no key
+        // struck meanwhile is played after the release (#598).
+        shared.live.clear();
+        shared.engine.release_all();
         if let Ok(mut midi) = shared.midi.lock() {
             midi.disconnect();
         }
@@ -522,6 +662,22 @@ impl ReportGate {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_sessions_request_gets_the_sessions_limits() {
+        assert!(requests_session(b"GET /session?token=abc HTTP/1.1\r\n"));
+        assert!(requests_session(b"GET /session HTTP/1.1\r\n"));
+        for start in [
+            &b"GET /pair HTTP/1.1\r\n"[..],
+            b"GET /probe HTTP/1.1\r\n",
+            b"GET /sessions HTTP/1.1\r\n",
+            b"GET /session",
+            b"POST /session?token=a HTTP/1.1\r\n",
+            b"",
+        ] {
+            assert!(!requests_session(start), "{start:?}");
+        }
+    }
 
     #[test]
     fn the_gate_lets_one_report_wait_until_it_is_released() {

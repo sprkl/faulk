@@ -6,6 +6,12 @@ import { engineUp, HELPER_HOST, HELPER_PORT, watch } from './support'
 // The page reaches the helper by WebSocket only. COEP does not govern WebSockets; this checks that
 // probe, pairing and the session still work from the isolated page, against a stand-in helper that
 // speaks the protocol on the helper's real address. The real helper is checked by hand (see the PR).
+//
+// Since BO-1 the page sends the helper its engine streams in binary frames (a snapshot newer than the
+// epoch of the hello, then each change; the table of the helper's MIDI input as a message, #598), and runs
+// the messages of the helper's MIDI input in its project, sending bytes only for those the helper did not
+// play. The stand-in reads the message headers of each stream (`engine::msg`: tag at byte 2, epoch at
+// byte 4, payload length at byte 8, each frame padded to 8 bytes).
 
 const CODE = '12345678'
 const TOKEN = 'e2e-token'
@@ -20,7 +26,47 @@ const text = (data: RawData) => (Array.isArray(data) ? Buffer.concat(data) : dat
 
 let server: WebSocketServer
 const connections: Connection[] = []
-const commands: unknown[] = []
+/** The JSON messages and the engine streams the page sent on its sessions. */
+const messages: unknown[] = []
+const streams: Buffer[] = []
+/** The open session of the stand-in, to send it `midi.message`s. */
+let sessionSocket: WebSocket | null = null
+/** The epoch the stand-in's hello announces: its engine outlives pages, it is ahead of the page's core. */
+const HELLO_EPOCH = 40
+
+/** `ControlMsg` tags (`engine::msg::Tag`). */
+const RESET = 0
+const NOTE_ON = 90
+const NOTE_OFF = 91
+
+/** The (tag, epoch) of each message of an engine stream. */
+function headers(stream: Buffer): { tag: number; epoch: number }[] {
+  const out: { tag: number; epoch: number }[] = []
+  for (let at = 0; at + 16 <= stream.length;) {
+    out.push({ tag: stream.readUInt16LE(at + 2), epoch: stream.readUInt16LE(at + 4) })
+    at += 16 + Math.ceil(stream.readUInt32LE(at + 8) / 8) * 8
+  }
+  return out
+}
+
+/** Told each stream as it arrives (the measure of the MIDI round trip). */
+let onStream: ((stream: Buffer) => void) | null = null
+
+/** The time (`performance.now()`) the next stream holding a message of `tag` arrives; rejects after 5 s. */
+function nextStreamWith(tag: number): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`no stream with tag ${tag}`)), 5000)
+    onStream = (stream) => {
+      if (!headers(stream).some((h) => h.tag === tag)) return
+      clearTimeout(timer)
+      onStream = null
+      resolve(performance.now())
+    }
+  })
+}
+
+/** Whether a stream since `from` holds a message of `tag`. */
+const sent = (tag: number, from = 0) => streams.slice(from).some((stream) => headers(stream).some((h) => h.tag === tag))
 /** Whether the stand-in has an audio output (#525): without one its probe says so and it refuses sessions with `audio.no_output`. */
 let hasOutput = true
 
@@ -45,9 +91,23 @@ test.beforeAll(async () => {
       send({ type: 'error', code: 'audio.no_output', message: 'the helper has no audio output' })
       ws.close()
     } else if (url.pathname === '/session' && url.searchParams.get('token') === TOKEN) {
-      send({ type: 'hello', protocol: PROTOCOL_VERSION, sample_rate: 48000, estimated_latency_ms: 5 })
+      send({
+        type: 'hello',
+        protocol: PROTOCOL_VERSION,
+        sample_rate: 48000,
+        estimated_latency_ms: 5,
+        epoch: HELLO_EPOCH,
+        capabilities: { midi: true, disk: false },
+      })
       send({ type: 'midi.inputs', inputs: [], selected: null })
-      ws.on('message', (data) => commands.push(JSON.parse(text(data))))
+      sessionSocket = ws
+      ws.on('message', (data, isBinary) => {
+        if (isBinary) {
+          const stream = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as Buffer)
+          streams.push(stream)
+          onStream?.(stream)
+        } else messages.push(JSON.parse(text(data)))
+      })
     } else ws.close()
   })
 })
@@ -59,7 +119,10 @@ test.afterAll(async () => {
 
 test.beforeEach(() => {
   connections.length = 0
-  commands.length = 0
+  messages.length = 0
+  streams.length = 0
+  sessionSocket = null
+  onStream = null
   hasOutput = true
 })
 
@@ -86,11 +149,62 @@ test('probes, pairs and plays through the helper from the isolated page', async 
   await expect(page.getByTestId('engine-dialog')).toBeHidden()
   await expect(page.locator('[aria-modal="true"]')).toHaveCount(0)
 
-  // Commands reach the helper over the session. The dialog gave the focus back to the pill: the letters still play (a push button keeps Space and Enter only).
+  // The helper's engine starts from the page's project: its first stream is a Reset newer than the hello's epoch (BO-1).
+  await expect.poll(() => streams.length).toBeGreaterThan(0)
+  const snapshot = headers(streams[0])
+  expect(snapshot[0]).toEqual({ tag: RESET, epoch: HELLO_EPOCH + 1 })
+  expect(snapshot.length).toBeGreaterThan(1)
+  // No command crosses the link: the page asks the helper's MIDI inputs with a message for its devices.
+  expect(messages.some((m) => (m as { type?: string }).type === 'command')).toBe(false)
+  expect(messages).toContainEqual({ type: 'midi.list_inputs' })
+
+  // A played key reaches the helper as engine bytes, in the snapshot's epoch. The dialog gave the focus back to the pill: the letters still play (a push button keeps Space and Enter only).
   await expect(page.getByTestId('engine-mode')).toBeFocused()
+  const before = streams.length
   await page.keyboard.down('KeyA')
   await page.keyboard.up('KeyA')
-  await expect.poll(() => commands.some((c) => (c as { command?: { type?: string } }).command?.type === 'live.input_note_on')).toBe(true)
+  await expect.poll(() => sent(NOTE_ON, before)).toBe(true)
+  expect(
+    streams
+      .slice(before)
+      .flatMap(headers)
+      .every((h) => h.epoch === HELLO_EPOCH + 1),
+  ).toBe(true)
+
+  // The table of the helper's MIDI input (#598): sent right behind the snapshot, in its epoch.
+  type Routing = { type: 'live.routing'; epoch: number; tracks: number[] }
+  const routings = () => messages.filter((m): m is Routing => (m as { type?: string }).type === 'live.routing')
+  await expect.poll(() => routings().length).toBeGreaterThan(0)
+  expect(routings().every((r) => r.epoch === HELLO_EPOCH + 1 && Array.isArray(r.tracks))).toBe(true)
+
+  // A key the helper played with that table runs in the page's project (the key shown) and sends no engine bytes.
+  const quiet = streams.length
+  sessionSocket!.send(JSON.stringify({ type: 'midi.message', data: [0x90, 67, 100], played: true }))
+  sessionSocket!.send(JSON.stringify({ type: 'midi.message', data: [0x80, 67, 0], played: true }))
+  // A control change after them is the page's: its bytes are the first stream since, so the notes sent none.
+  sessionSocket!.send(JSON.stringify({ type: 'midi.message', data: [0xb0, 123, 0], played: false }))
+  await expect.poll(() => streams.length).toBeGreaterThan(quiet)
+  expect(sent(NOTE_ON, quiet) || sent(NOTE_OFF, quiet)).toBe(false)
+
+  // A key the helper did not play (no table yet, another epoch) plays through the page's project and comes
+  // back as engine bytes. That fallback's page leg, measured: `midi.message` out to the engine stream back.
+  const legs: number[] = []
+  for (let i = 0; i < 40; i++) {
+    for (const [status, tag] of [
+      [0x90, NOTE_ON],
+      [0x80, NOTE_OFF],
+    ]) {
+      const back = nextStreamWith(tag)
+      const start = performance.now()
+      sessionSocket!.send(JSON.stringify({ type: 'midi.message', data: [status, 64, 100], played: false }))
+      legs.push((await back) - start)
+    }
+  }
+  legs.sort((a, b) => a - b)
+  const at = (q: number) => legs[Math.min(legs.length - 1, Math.floor(q * legs.length))].toFixed(1)
+  console.log(
+    `helper MIDI through the page: ${legs.length} messages, median ${at(0.5)} ms, p95 ${at(0.95)} ms, max ${at(1)} ms (stand-in helper, Node timestamps on its socket)`,
+  )
 
   // Back to Web, the page's own engine plays again.
   await page.getByTestId('engine-mode').click()
@@ -144,7 +258,7 @@ test('without an audio output the helper keeps the page in Web mode, says so, an
   await expect(page.getByTestId('engine-waiting')).toHaveCount(0)
   await page.keyboard.down('KeyA')
   await page.keyboard.up('KeyA')
-  await expect.poll(() => commands.some((c) => (c as { command?: { type?: string } }).command?.type === 'live.input_note_on')).toBe(true)
+  await expect.poll(() => sent(NOTE_ON)).toBe(true)
   expect(errors).toEqual([])
 })
 

@@ -18,7 +18,7 @@ use std::cell::RefCell;
 
 use commands::contract::Folder;
 use commands::engine_msgs::Synced;
-use commands::host::{ExportReport, ProjectView, RunReport, SnapshotReport};
+use commands::host::{ExportReport, LiveRouting, ProjectView, RunReport, SnapshotReport};
 use commands::{Author, Context, State};
 use project::file::{DirEntry, FileSystem, FsError, MemFs};
 
@@ -159,6 +159,14 @@ impl Core {
         self.snapshot_report(result)
     }
 
+    /// [`Core::snapshot`] for an engine the page did not start, in epoch `other` (the
+    /// helper's, from its `hello`, BO-1): the `Reset` is newer than both
+    /// (`Synced::resync_after`).
+    pub fn snapshot_after(&mut self, other: u16) -> (SnapshotReport, Vec<u8>) {
+        let result = self.synced.resync_after(other);
+        self.snapshot_report(result)
+    }
+
     fn snapshot_report(
         &self,
         result: Result<Vec<u8>, engine::msg::MsgError>,
@@ -250,6 +258,16 @@ impl Core {
             session: self.synced.state.session.clone(),
             slots: commands::host::ViewSlots::of(&self.synced.ctx.engine, self.synced.epoch()),
         }
+    }
+
+    /// Where the live input plays now, by engine slot, in the stream's epoch: what the page
+    /// tells the helper in Boost (`live.routing`, #598).
+    pub fn live_routing(&self) -> LiveRouting {
+        LiveRouting::of(
+            &self.synced.state,
+            &self.synced.ctx.engine,
+            self.synced.epoch(),
+        )
     }
 
     /// The undo history as the history panel shows it.
@@ -647,6 +665,22 @@ pub unsafe extern "C" fn pw_snapshot(core: *mut Core) -> i32 {
     }
 }
 
+/// [`Core::snapshot_after`] the engine epoch `other` (its low 16 bits): a
+/// [`SnapshotReport`] and the engine bytes.
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_snapshot_after(core: *mut Core, other: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe {
+        with_core(core, |core| {
+            let (report, bytes) = core.snapshot_after(other as u16);
+            publish(&report, bytes)
+        })
+    }
+}
+
 /// [`Core::export_job`] for the JSON in the first `len` bytes of the inbox: an
 /// [`ExportReport`] at [`pw_out`], the engine bytes at [`pw_engine`].
 ///
@@ -671,6 +705,16 @@ pub unsafe extern "C" fn pw_export_job(core: *mut Core, len: u32) -> i32 {
 pub unsafe extern "C" fn pw_project(core: *mut Core) -> i32 {
     // SAFETY: forwarded from this function's contract.
     unsafe { with_core(core, |core| publish(&core.view(), Vec::new())) }
+}
+
+/// [`Core::live_routing`]: a `LiveRouting`.
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_live_routing(core: *mut Core) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { with_core(core, |core| publish(&core.live_routing(), Vec::new())) }
 }
 
 /// [`Core::history`]: a `HistoryView`.

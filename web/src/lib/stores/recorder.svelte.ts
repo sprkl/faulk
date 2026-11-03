@@ -141,7 +141,8 @@ export class Recorder {
 
   /**
    * The engine that captures the take is about to be left (a switch to Boost): the take is dropped, in the project too
-   * (`record.discard_take`), and said, so that the next take can start on the new engine.
+   * (`record.discard_take`), and said, so that the next take can start on the new engine. Also a take that waited
+   * `GIVE_UP_MS` to be written while the engine reports another slot table than the project's.
    */
   abandon() {
     if (!this.take) return
@@ -157,7 +158,13 @@ export class Recorder {
     const take = this.take
     if (!take) return
     const slots = this.ports.slots()
-    if (slots && report.epoch !== slots.epoch) return
+    if (slots && report.epoch !== slots.epoch) {
+      // The engine reports another slot table than the project's: its notes cannot be named, and the give-up below
+      // would never be reached. A take left waiting this long is dropped, in the project too, rather than held for ever (#513).
+      // Written, it would be wrong: the notes gathered are named by the engine's slots, and the project's slots are no longer those.
+      if (this.phase === 'closing' && this.ports.now() - this.endedAt >= GIVE_UP_MS) this.abandon()
+      return
+    }
     // This take is the first engine take after the baseline; without a baseline (no report read since the engine was
     // replaced), the first one seen capturing.
     if (this.engineTake === null && (this.baseline === null ? report.recordCapturing : report.recordTake > this.baseline)) this.engineTake = report.recordTake

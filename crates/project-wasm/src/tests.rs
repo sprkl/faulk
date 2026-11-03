@@ -257,6 +257,26 @@ fn a_snapshot_moves_to_the_next_epoch() {
 }
 
 #[test]
+fn a_snapshot_after_another_engine_starts_newer_than_its_epoch() {
+    let h = Handle::new(KIND_SINGLE_SYNTH);
+    let (_, setup) = h.call0(pw_setup);
+    // The helper's engine is ahead (BO-1: it outlives the page): the Reset jumps past it.
+    // SAFETY: a live core.
+    let len = unsafe { pw_snapshot_after(h.0, 40) };
+    let (report, bytes) = (out_json(len), engine_bytes());
+    assert_eq!(report, json!({"status": "encoded", "epoch": 41}));
+    assert_eq!(u16::from_le_bytes([bytes[4], bytes[5]]), 41);
+    assert_eq!(bytes.len(), setup.len(), "the same project");
+    assert_eq!(h.view()["slots"]["epoch"], 41);
+    // Behind the page's: the next epoch, as a plain snapshot. Only the low 16 bits count.
+    // SAFETY: a live core.
+    let len = unsafe { pw_snapshot_after(h.0, 3 | 0x1_0000) };
+    assert_eq!(out_json(len), json!({"status": "encoded", "epoch": 42}));
+    let (report, _) = h.call0(pw_snapshot);
+    assert_eq!(report["epoch"], 43);
+}
+
+#[test]
 fn ids_come_from_the_seed() {
     let a = Handle::new(KIND_EMPTY);
     let b = Handle::new(KIND_EMPTY);
@@ -627,6 +647,7 @@ fn a_null_core_is_an_error_and_clears_the_engine_bytes() {
     unsafe {
         assert_eq!(pw_setup(core::ptr::null_mut()), ERR_NO_CORE);
         assert_eq!(pw_snapshot(core::ptr::null_mut()), ERR_NO_CORE);
+        assert_eq!(pw_snapshot_after(core::ptr::null_mut(), 0), ERR_NO_CORE);
         assert_eq!(pw_project(core::ptr::null_mut()), ERR_NO_CORE);
         assert_eq!(pw_history(core::ptr::null_mut()), ERR_NO_CORE);
         assert_eq!(pw_set_author(core::ptr::null_mut(), 0), ERR_NO_CORE);
@@ -778,6 +799,36 @@ fn the_view_gives_the_engine_slots_of_tracks_and_scenes() {
     h.call0(pw_snapshot);
     assert_eq!(h.view()["slots"]["epoch"], 2);
     assert_eq!(h.view()["slots"]["tracks"].as_object().unwrap().len(), 2);
+}
+
+#[test]
+fn the_live_routing_names_the_slots_of_the_selected_and_armed_tracks_in_the_epoch() {
+    let h = Handle::new(KIND_EMPTY);
+    h.call0(pw_setup);
+    let routing = || {
+        let (json, bytes) = h.call0(pw_live_routing);
+        assert!(bytes.is_empty(), "no engine bytes");
+        json
+    };
+    assert_eq!(routing(), json!({"epoch": 1, "tracks": []}));
+    let first = h.apply(json!({"type": "track.create", "kind": "midi"}))["track"].clone();
+    let second = h.apply(json!({"type": "track.create", "kind": "midi"}))["track"].clone();
+    h.apply(json!({"type": "view.select_track", "track": second}));
+    assert_eq!(routing(), json!({"epoch": 1, "tracks": [1]}));
+    h.apply(json!({"type": "track.arm", "track": first, "armed": true}));
+    assert_eq!(routing(), json!({"epoch": 1, "tracks": [0, 1]}));
+    h.call0(pw_snapshot);
+    assert_eq!(routing()["epoch"], 2);
+    assert_eq!(
+        pw_live_routing_null(),
+        ERR_NO_CORE,
+        "a null core is refused"
+    );
+}
+
+fn pw_live_routing_null() -> i32 {
+    // SAFETY: null is allowed.
+    unsafe { pw_live_routing(core::ptr::null_mut()) }
 }
 
 /// A project with one lane dense enough to be a blob in the folder.

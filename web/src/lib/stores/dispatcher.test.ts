@@ -55,12 +55,25 @@ vi.mock('../project/core', async (original) => ({
   coreModule: () => import('node:fs').then((fs) => WebAssembly.compile(fs.readFileSync(`${process.cwd()}/src/lib/project/wasm/project.wasm`))),
 }))
 let nativeEvents: EngineEvents | null = null
-let nativeEngine: { kind: 'native'; status: object; update?: object | null; send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> } | null = null
+let nativeEngine: {
+  kind: 'native'
+  status: object
+  update?: object | null
+  epoch: number
+  send: ReturnType<typeof vi.fn>
+  push: ReturnType<typeof vi.fn>
+  /** `live.routing` (#598); a test that leaves it out gets a stub. */
+  route?: ReturnType<typeof vi.fn>
+  close: ReturnType<typeof vi.fn>
+} | null = null
+/** The engine bytes the helper was sent since its `from`th send (BO-1: what a command means for its engine). */
+const helperBytesSince = (from: number) => nativeEngine!.send.mock.calls.slice(from).reduce((n, call) => n + (call[1] as Uint8Array).length, 0)
 vi.mock('../engine/native-engine', () => ({
   NoOutputError: class NoOutputError extends Error {},
   NativeEngine: {
     connect: (_token: string, events: EngineEvents) => {
       nativeEvents = events
+      if (nativeEngine) nativeEngine.route ??= vi.fn()
       return nativeEngine ? Promise.resolve(nativeEngine) : Promise.reject(new Error('no helper in tests'))
     },
   },
@@ -447,21 +460,33 @@ describe('running commands through the project core', () => {
       kind: 'native',
       status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
       send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
       close: vi.fn(() => Promise.resolve()),
     }
+    // The helper's engine outlives pages: it is ahead of this page's core.
+    nativeEngine.epoch = 40
     localStorage.setItem(TOKEN_KEY, 'x')
     const session = newSession()
     await session.dispatcher.start()
     session.dispatcher.run(setParamCommand(firstParam, 0.4))
     await session.dispatcher.enterBoost()
     expect(session.engine.mode).toBe('native')
-    // The helper's copy is brought to the page's settings, by commands.
-    expect(nativeEngine.send.mock.calls.some(([c]) => c.type === 'device.set_param' && c.value === 0.4)).toBe(true)
+    // The helper's engine starts from the page's project: one snapshot, a Reset newer than its epoch (BO-1).
+    expect(nativeEngine.push).toHaveBeenCalledTimes(1)
+    const snapshot = nativeEngine.push.mock.calls[0][0] as Uint8Array
+    expect(snapshot[2] | (snapshot[3] << 8)).toBe(0) // the tag of `Reset`
+    expect(snapshot[4] | (snapshot[5] << 8)).toBe(41)
+    expect(session.project.view?.slots.epoch).toBe(41)
     // Held notes are released on the Web side before it is suspended.
     expect(webs[0].send.mock.calls.at(-1)![0].type).toBe('live.all_notes_off')
     const pushes = webs[0].push.mock.calls.length
     session.dispatcher.run(setParamCommand(firstParam, 0.5))
-    expect(nativeEngine.send.mock.calls.at(-1)![0]).toMatchObject({ type: 'device.set_param', value: 0.5 })
+    // The helper gets the command's engine bytes, in the snapshot's epoch.
+    const [command, bytes] = nativeEngine.send.mock.calls.at(-1)! as [Command, Uint8Array]
+    expect(command).toMatchObject({ type: 'device.set_param', value: 0.5 })
+    expect(bytes.length).toBeGreaterThan(0)
+    expect(bytes[4] | (bytes[5] << 8)).toBe(41)
     expect(webs[0].push.mock.calls.length).toBe(pushes)
     expect(webs[0].send.mock.calls.at(-1)![0].type).not.toBe('device.set_param')
 
@@ -478,6 +503,8 @@ describe('running commands through the project core', () => {
       status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
       update: first,
       send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
       close: vi.fn(() => Promise.resolve()),
     }
     localStorage.setItem(TOKEN_KEY, 'x')
@@ -509,6 +536,8 @@ describe('running commands through the project core', () => {
         kind: 'native',
         status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
         send: vi.fn(),
+        push: vi.fn(),
+        epoch: 0,
         close: vi.fn(() => new Promise<void>((resolve) => (finishClose = resolve))),
       }
       localStorage.setItem(TOKEN_KEY, 'x')
@@ -543,6 +572,8 @@ describe('running commands through the project core', () => {
       kind: 'native',
       status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
       send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
       close: vi.fn(() => Promise.resolve()),
     }
     localStorage.setItem(TOKEN_KEY, 'x')
@@ -566,6 +597,8 @@ describe('running commands through the project core', () => {
       kind: 'native',
       status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
       send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
       close: vi.fn(() => Promise.resolve()),
     }
     localStorage.setItem(TOKEN_KEY, 'x')
@@ -583,6 +616,8 @@ describe('running commands through the project core', () => {
         kind: 'native',
         status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
         send: vi.fn(),
+        push: vi.fn(),
+        epoch: 0,
         close: vi.fn(() => Promise.resolve()),
       })
 
@@ -684,7 +719,7 @@ describe('running commands through the project core', () => {
       expect(webs[0].suspend).not.toHaveBeenCalled()
     })
 
-    it('ignores the MIDI activity of a helper session that is already closed', async () => {
+    it('ignores the MIDI messages of a helper session that is already closed', async () => {
       boostEngine()
       localStorage.setItem(TOKEN_KEY, 'x')
       const session = newSession()
@@ -692,7 +727,7 @@ describe('running commands through the project core', () => {
       await session.dispatcher.enterBoost()
       const closed = nativeEvents!
       await session.dispatcher.enterWeb()
-      closed.onMidiActivity?.(60, 100)
+      closed.onMidiMessage?.([0x90, 60, 100], false)
       expect(session.engine.activeNotes).toEqual([])
     })
 
@@ -794,6 +829,8 @@ describe('running commands through the project core', () => {
         kind: 'native',
         status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
         send: vi.fn(),
+        push: vi.fn(),
+        epoch: 0,
         close: vi.fn(() => Promise.resolve()),
       })
 
@@ -988,11 +1025,13 @@ describe('running commands through the project core', () => {
     expect(webs[0].close).toHaveBeenCalledTimes(1)
   })
 
-  it('still sends the helper the command the core could not encode, in Boost mode', async () => {
+  it('resyncs the helper by snapshot when the core could not encode a command, in Boost mode', async () => {
     nativeEngine = {
       kind: 'native',
       status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
       send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
       close: vi.fn(() => Promise.resolve()),
     }
     localStorage.setItem(TOKEN_KEY, 'x')
@@ -1003,12 +1042,143 @@ describe('running commands through the project core', () => {
       report: { status: 'applied', output: { type: 'live.note_on' }, events: [], stream_error: -4 } as never,
       engine: new Uint8Array(),
     }))
-    const command = noteOn(61)
-    session.dispatcher.run(command)
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const sent = nativeEngine.send.mock.calls.length
+    session.dispatcher.run(noteOn(61))
     run.mockRestore()
-    expect(nativeEngine.send).toHaveBeenLastCalledWith(command)
+    // The helper is behind the project: it starts over from a snapshot, the command itself is not sent.
+    expect(nativeEngine.send.mock.calls.length).toBe(sent)
+    expect(nativeEngine.push).toHaveBeenCalledTimes(2)
+    expect(session.engine.mode).toBe('native')
     expect(session.engine.streamError).toBeNull()
     expect(webs[0].close).not.toHaveBeenCalled()
+  })
+
+  it('answers a stream the helper refused with a snapshot newer than its epoch, and plays in the page when it keeps refusing', async () => {
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
+      close: vi.fn(() => Promise.resolve()),
+    }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    await session.dispatcher.enterBoost()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const events = nativeEvents!
+    // A snapshot of another page overtook this one's (the stale epoch, -6, with the helper's epoch).
+    events.onStreamRefused?.(-6, 0, 70)
+    expect(nativeEngine.push).toHaveBeenCalledTimes(2)
+    const snapshot = nativeEngine.push.mock.calls[1][0] as Uint8Array
+    expect(snapshot[4] | (snapshot[5] << 8)).toBe(71)
+    events.onStreamRefused?.(-8, 16, 71)
+    events.onStreamRefused?.(-8, 16, 72)
+    expect(nativeEngine.push).toHaveBeenCalledTimes(4)
+    expect(session.engine.mode).toBe('native')
+    // A fourth within the window: the helper keeps refusing, the page plays the project itself.
+    events.onStreamRefused?.(-8, 16, 73)
+    expect(nativeEngine.push).toHaveBeenCalledTimes(4)
+    await vi.waitFor(() => expect(session.engine.mode).toBe('web'))
+    expect(session.engine.notice).toBe('audio.error')
+    // A refusal of a session that is no longer current changes nothing.
+    events.onStreamRefused?.(-8, 0, 74)
+    expect(nativeEngine.push).toHaveBeenCalledTimes(4)
+  })
+
+  it('plays the messages of the helper MIDI input through the project, as Web MIDI messages', async () => {
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
+      close: vi.fn(() => Promise.resolve()),
+    }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    await session.dispatcher.enterBoost()
+    // The live input plays the selected track: the page routes it.
+    session.dispatcher.run({ type: 'view.select_track', track: SINGLE_SYNTH.track })
+    const events = nativeEvents!
+    // A note the helper did not play (no table yet): the page sends its bytes.
+    events.onMidiMessage?.([0x90, 60, 100], false)
+    const [command, bytes] = nativeEngine.send.mock.calls.at(-1)! as [Command, Uint8Array]
+    expect(command).toEqual({ type: 'live.input_note_on', note: 60, velocity: 100 })
+    expect(bytes.length).toBeGreaterThan(0)
+    expect(session.engine.activeNotes).toEqual([60])
+    events.onMidiMessage?.([0x80, 60, 0], false)
+    expect(nativeEngine.send.mock.calls.at(-1)![0]).toEqual({ type: 'live.input_note_off', note: 60 })
+    expect(session.engine.activeNotes).toEqual([])
+    // A note the helper played (#598): it runs in the project (the key shown) but no bytes leave.
+    const before = nativeEngine.send.mock.calls.length
+    const ran = vi.spyOn(session.dispatcher.recorder!, 'ran')
+    events.onMidiMessage?.([0x90, 64, 100], true)
+    expect(session.engine.activeNotes).toEqual([64])
+    // The recorder is told of it, as of any note played (#501 records them in Boost).
+    expect(ran.mock.lastCall?.[0]).toEqual({ type: 'live.input_note_on', note: 64, velocity: 100 })
+    events.onMidiMessage?.([0x80, 64, 0], true)
+    expect(session.engine.activeNotes).toEqual([])
+    expect(nativeEngine.send.mock.calls.length).toBe(before)
+    expect(nativeEngine.push).toHaveBeenCalledTimes(1)
+    // A control change is the page's: its bytes go (all notes off releases every track).
+    events.onMidiMessage?.([0xb0, 123, 0], false)
+    expect(nativeEngine.send.mock.calls.at(-1)![0]).toEqual({ type: 'live.all_notes_off' })
+    // A system message, nothing to play.
+    const sent = nativeEngine.send.mock.calls.length
+    events.onMidiMessage?.([0xf8], false)
+    expect(nativeEngine.send.mock.calls.length).toBe(sent)
+    // Once the page is back in Web, a late message of the closed session plays nothing.
+    await session.dispatcher.enterWeb()
+    events.onMidiMessage?.([0x90, 62, 100], false)
+    expect(nativeEngine.send.mock.calls.length).toBe(sent)
+    expect(session.engine.activeNotes).toEqual([])
+  })
+
+  it('tells the helper where its MIDI input plays, after each snapshot and whenever the table changes (#598)', async () => {
+    const route = vi.fn()
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      push: vi.fn(),
+      route,
+      epoch: 40,
+      close: vi.fn(() => Promise.resolve()),
+    }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    // In Web nothing is routed to a helper.
+    session.dispatcher.run({ type: 'view.select_track', track: SINGLE_SYNTH.track })
+    await session.dispatcher.enterBoost()
+    // Right behind the snapshot, in its epoch (newer than the helper's 40), with the synth's slot.
+    const snapshot = nativeEngine.push.mock.calls[0][0] as Uint8Array
+    const epoch = snapshot[4] | (snapshot[5] << 8)
+    expect(epoch).toBe(41)
+    const slot = session.project.view!.slots.tracks[SINGLE_SYNTH.track]
+    expect(route).toHaveBeenLastCalledWith({ epoch, tracks: [slot] })
+    expect(route.mock.invocationCallOrder[0]).toBeGreaterThan(nativeEngine.push.mock.invocationCallOrder[0])
+    // After every command, the table as it stands (the engine dedupes): nothing selected, then a new
+    // track armed.
+    session.dispatcher.run({ type: 'view.select_track', track: null })
+    expect(route).toHaveBeenLastCalledWith({ epoch, tracks: [] })
+    session.dispatcher.run({ type: 'track.create', kind: 'midi' })
+    const created = Object.keys(session.project.view!.project.tracks).find((id) => id !== SINGLE_SYNTH.track)!
+    session.dispatcher.run({ type: 'track.arm', track: created, armed: true })
+    expect(route).toHaveBeenLastCalledWith({ epoch, tracks: [session.project.view!.slots.tracks[created]] })
+    // A refused stream: the new snapshot's epoch, the table again.
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    nativeEvents!.onStreamRefused?.(-8, 0, epoch)
+    expect(route.mock.lastCall![0].epoch).toBe(epoch + 1)
+    // A note the helper played reaches the table step too, unchanged.
+    const calls = route.mock.calls.length
+    nativeEvents!.onMidiMessage?.([0x90, 60, 100], true)
+    expect(route.mock.calls.length).toBe(calls + 1)
+    expect(route.mock.lastCall![0]).toEqual(route.mock.calls[calls - 1][0])
   })
 
   it('reads the project again when the report of an applied command was lost', async () => {
@@ -1061,6 +1231,8 @@ describe('opening a project folder (SV-4)', () => {
       kind: 'native',
       status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
       send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
       close: vi.fn(() => Promise.resolve()),
     })
 
@@ -1180,26 +1352,32 @@ describe('opening a project folder (SV-4)', () => {
     expect(refusalNotice('corrupt')).toBe('project.open.invalid')
   })
 
-  it('plays an opened project in the page when Boost is on, since the helper cannot hold a project yet', async () => {
+  it('plays an opened project in the helper when Boost is on (BO-1)', async () => {
     const native = boostEngine()
     localStorage.setItem(TOKEN_KEY, 'x')
     const session = newSession()
     await session.dispatcher.start()
     await session.dispatcher.enterBoost()
     expect(session.engine.mode).toBe('native')
-    const sent = native.send.mock.calls.length
     const pushes = webs[0].push.mock.calls.length
+    const helperPushes = native.push.mock.calls.length
+    const epoch = session.project.view!.slots.epoch
 
     expect(await session.dispatcher.openProject('song', song())).toEqual({ status: 'opened', name: 'Song "one"' })
-    // The helper was never told: it would have refused the command.
-    expect(native.send.mock.calls.slice(sent).some(([c]) => c.type === 'project.open')).toBe(false)
-    expect(native.close).toHaveBeenCalled()
-    expect(session.engine.mode).toBe('web')
-    expect(session.engine.notice).toBe('project.open.webOnly')
-    // The Web engine got the snapshot of the opened project.
-    expect(webs[0].push.mock.calls.length).toBe(pushes + 1)
+    // The helper got the opened project's snapshot, in the core's next epoch; Boost goes on.
+    expect(native.push.mock.calls.length).toBe(helperPushes + 1)
+    const snapshot = native.push.mock.calls.at(-1)![0] as Uint8Array
+    expect(snapshot[2] | (snapshot[3] << 8)).toBe(0) // `Reset`
+    expect(snapshot[4] | (snapshot[5] << 8)).toBe(epoch + 1)
+    expect(native.close).not.toHaveBeenCalled()
+    expect(session.engine.mode).toBe('native')
+    expect(session.engine.notice).toBeNull()
+    // The suspended Web engine is not fed: it catches up when it plays again.
+    expect(webs[0].push.mock.calls.length).toBe(pushes)
     expect(session.project.view?.project.name).toBe('Song "one"')
     expect(Object.keys(session.project.view!.slots.tracks)).toHaveLength(2)
+    await session.dispatcher.enterWeb()
+    expect(webs[0].push.mock.calls.length).toBe(pushes + 1)
   })
 
   it('stops the Web engine when the snapshot of the opened project does not encode', async () => {
@@ -1244,11 +1422,13 @@ describe('the project in a folder (SV-2)', () => {
     expect(session.dispatcher.host.projectId()).toBe(session.project.view!.project.id)
   })
 
-  it('in Boost the storage commands stay in the page: the helper is never sent a command it does not know', async () => {
+  it('in Boost the storage commands stay in the page: the helper gets no engine bytes for them', async () => {
     nativeEngine = {
       kind: 'native',
       status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
       send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
       close: vi.fn(() => Promise.resolve()),
     }
     localStorage.setItem(TOKEN_KEY, 'x')
@@ -1268,7 +1448,7 @@ describe('the project in a folder (SV-2)', () => {
     session.dispatcher.run({ type: 'project.import_pack' })
     session.dispatcher.run({ type: 'project.open_url', url: 'https://example.org/a.faulkpack' })
     session.dispatcher.run({ type: 'project.new' })
-    expect(nativeEngine.send.mock.calls.length).toBe(sent)
+    expect(helperBytesSince(sent)).toBe(0)
     expect(openUrl).toHaveBeenCalledTimes(1)
     expect(session.storage.save).toHaveBeenCalledTimes(1)
     expect(session.storage.exportPack).toHaveBeenCalledTimes(1)
@@ -1342,6 +1522,8 @@ describe('the project in a folder (SV-2)', () => {
       kind: 'native',
       status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
       send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
       close: vi.fn(() => Promise.resolve()),
     }
     localStorage.setItem(TOKEN_KEY, 'x')
@@ -1352,12 +1534,12 @@ describe('the project in a folder (SV-2)', () => {
     expect(session.audioExport.open).toBe(true)
     expect(session.audioExport.choices).toMatchObject({ bitDepth: 'pcm16', sampleRate: 44_100, region: 'song' })
     session.audioExport.close()
-    // In Boost the helper is not sent it.
+    // In Boost the helper gets no engine bytes for it.
     await session.dispatcher.start()
     await session.dispatcher.enterBoost()
     const sent = nativeEngine.send.mock.calls.length
     session.dispatcher.run({ type: 'project.export_audio' })
-    expect(nativeEngine.send.mock.calls.length).toBe(sent)
+    expect(helperBytesSince(sent)).toBe(0)
     expect(session.audioExport.open).toBe(true)
   })
 
@@ -1560,6 +1742,8 @@ describe('the commands for the projects the page keeps (#323)', () => {
       kind: 'native',
       status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
       send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
       close: vi.fn(() => Promise.resolve()),
     }
     localStorage.setItem(TOKEN_KEY, 'x')
@@ -1573,7 +1757,7 @@ describe('the commands for the projects the page keeps (#323)', () => {
     session.dispatcher.run({ type: 'project.reopen_last' })
     session.dispatcher.run({ type: 'project.keep_mine' })
     session.dispatcher.run({ type: 'project.allow_access' })
-    expect(nativeEngine.send.mock.calls.length).toBe(sent)
+    expect(helperBytesSince(sent)).toBe(0)
     expect(session.storage.reopenLast).toHaveBeenCalledTimes(1)
   })
 
@@ -1597,5 +1781,131 @@ describe('the commands for the projects the page keeps (#323)', () => {
     const run = vi.spyOn(session.storage, 'refreshStored')
     session.dispatcher.run({ type: 'project.list_stored' })
     await vi.waitFor(() => expect(run).toHaveBeenCalled())
+  })
+})
+
+describe('the recorder in the dispatcher (#513)', () => {
+  const boostEngine = () =>
+    (nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
+      close: vi.fn(() => Promise.resolve()),
+    })
+  const startTake = { type: 'record.start', target: { at: 'arrangement' } } as Command
+  /** A started session with the synth track armed and a take running. */
+  async function recording() {
+    const session = newSession()
+    await session.dispatcher.start()
+    expect(session.dispatcher.run({ type: 'track.arm', track: SYNTH_TRACK, armed: true } as Command)).toBe(true)
+    expect(session.dispatcher.run(startTake)).toBe(true)
+    expect(session.recorder.phase).toBe('recording')
+    return session
+  }
+  const sentTypes = (mock: { mock: { calls: unknown[][] } }) => mock.mock.calls.map(([c]) => (c as Command).type)
+
+  beforeEach(() => {
+    webs = []
+    nativeEngine = null
+    midiOn = false
+    midiReleaseAll = () => Promise.resolve()
+    localStorage.clear()
+  })
+
+  it('follows a take in the core: one take at a time, until it is dropped', async () => {
+    const session = await recording()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(session.recorder.take?.take).toBe(1)
+    // The core refuses a second take: the recorder keeps the first.
+    expect(session.dispatcher.run(startTake)).toBe(false)
+    expect(session.recorder.take?.take).toBe(1)
+    session.dispatcher.run({ type: 'record.discard_take' })
+    expect(session.recorder.phase).toBe('idle')
+    expect(session.dispatcher.run(startTake)).toBe(true)
+    expect(session.recorder.take?.take).toBe(2)
+  })
+
+  it('drops the take, in the project too, when Boost takes over, and says so', async () => {
+    const native = boostEngine()
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = await recording()
+    await session.dispatcher.enterBoost()
+    expect(session.engine.mode).toBe('native')
+    expect(session.recorder.phase).toBe('idle')
+    expect(session.recorder.take).toBeNull()
+    expect(session.recorder.dropped).toBe('engine')
+    // The discard went to the Web engine that captured the take, before the helper became current: the helper never saw it.
+    expect(sentTypes(webs[0].send)).toContain('record.discard_take')
+    expect(sentTypes(native.send)).not.toContain('record.discard_take')
+    // Back in the page a new take starts (a snapshot gives the core a fresh engine context too: the `send` assertion above is the proof of the discard).
+    await session.dispatcher.enterWeb()
+    expect(session.dispatcher.run(startTake)).toBe(true)
+    expect(session.recorder.phase).toBe('recording')
+  })
+
+  it('refuses record.start in Boost, whoever asks, with the reason, and sends nothing to the helper', async () => {
+    const native = boostEngine()
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    session.dispatcher.run({ type: 'track.arm', track: SYNTH_TRACK, armed: true } as Command)
+    await session.dispatcher.enterBoost()
+    expect(session.engine.mode).toBe('native')
+    const sent = native.send.mock.calls.length
+    // A click, an agent's tool call and a quiet run all reach the same entry point.
+    for (const run of [
+      () => session.dispatcher.run(startTake),
+      () => session.dispatcher.run(startTake, { author: 'agent:test' }),
+      () => session.dispatcher.run(startTake, { quiet: true }),
+    ]) {
+      session.engine.notice = null
+      expect(run()).toBe(false)
+      expect(session.engine.notice).toBe('transport.recordBoost')
+      expect(session.recorder.phase).toBe('idle')
+    }
+    expect(native.send.mock.calls.length).toBe(sent)
+    expect(sentTypes(native.send).filter((type) => type.startsWith('record.'))).toEqual([])
+    // Only the start is refused: another command still reaches the helper.
+    session.dispatcher.run(setParamCommand(firstParam, 0.2))
+    expect(native.send.mock.calls.at(-1)![0]).toMatchObject({ type: 'device.set_param' })
+  })
+
+  it('drops the take when another project replaces the project (an opened folder, a new project), and says so', async () => {
+    const opened = await recording()
+    expect(await opened.dispatcher.openProject('song', readFolder(SONG_FOLDER))).toEqual({ status: 'opened', name: 'Song "one"' })
+    expect(opened.recorder.phase).toBe('idle')
+    expect(opened.recorder.take).toBeNull()
+    expect(opened.recorder.dropped).toBe('engine')
+
+    const fresh = await recording()
+    expect(await fresh.dispatcher.newProject()).toBe(true)
+    expect(fresh.recorder.phase).toBe('idle')
+    expect(fresh.recorder.take).toBeNull()
+    expect(fresh.recorder.dropped).toBe('engine')
+    // The new project holds no take: arm a track of it and record.
+    const tracks = fresh.project.view!.project.tracks
+    const track = Object.keys(tracks).find((id) => tracks[id]?.kind === 'midi')!
+    fresh.dispatcher.run({ type: 'track.arm', track, armed: true } as Command)
+    expect(fresh.dispatcher.run(startTake)).toBe(true)
+    expect(fresh.recorder.phase).toBe('recording')
+  })
+
+  it('drops the take when the engine stops on a refused stream, also one waiting to be written, and when it starts over from a snapshot', async () => {
+    const waiting = await recording()
+    waiting.dispatcher.run({ type: 'record.stop' })
+    expect(waiting.recorder.phase).toBe('closing')
+    webEvents?.onStreamRefused?.(-3, 128)
+    // No report will ever settle it: it does not wait for audio to start again.
+    expect(waiting.recorder.phase).toBe('idle')
+    expect(waiting.recorder.dropped).toBe('engine')
+
+    const session = await recording()
+    webEvents?.onStreamRefused?.(-3, 128)
+    expect(session.recorder.phase).toBe('idle')
+    await session.dispatcher.start()
+    expect(session.recorder.phase).toBe('idle')
+    expect(session.recorder.dropped).toBe('engine')
   })
 })

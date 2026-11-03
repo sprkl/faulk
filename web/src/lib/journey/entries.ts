@@ -37,6 +37,8 @@ const DATE = /^(\d{4})-(\d{2})-(\d{2})$/
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 const COMMIT = /^[0-9a-f]{7,40}$/
 const COLOR = /^#[0-9a-f]{6}$/i
+/** A style profile's name: one line, 1 to 40 characters, no space around it. */
+const STYLE = /^\S(?:[^\r\n\p{Zl}\p{Zp}]{0,38}\S)?$/u
 const JOURNAL = /^https:\/\/github\.com\/sprkl\/faulk\/issues\/362#issuecomment-\d+$/
 
 /** A real calendar day (`2026-02-30` is not). */
@@ -72,6 +74,8 @@ export function entryErrors(entry: JourneyEntry, stem: string): string[] {
   if (!(Number.isInteger(entry.bars) && entry.bars > 0)) e.push(`bars: ${entry.bars} is not a positive whole number`)
   if (!(Number.isFinite(entry.duration) && entry.duration > 0 && entry.duration < 3600)) e.push(`duration: ${entry.duration} s out of range`)
   if (!entry.model?.trim()) e.push('model: empty')
+  if (entry.style !== undefined && !STYLE.test(entry.style))
+    e.push(`style: "${entry.style}" must be one line (no line break) of 1 to 40 characters, with no space around it`)
   if (!entry.skills?.length || entry.skills.some((s) => !s.trim())) e.push('skills: none, or an empty name')
   e.push(...localizedErrors(entry.brief, 'brief'), ...localizedErrors(entry.built, 'built'))
   if (!entry.tested?.length) e.push('tested: empty')

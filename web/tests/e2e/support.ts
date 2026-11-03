@@ -1,9 +1,13 @@
 import { expect, type Page } from '@playwright/test'
+import { e2eHelperPort } from '../../scripts/e2e-helper-port'
 
 /** The helper's address (`src/lib/engine/helper-client.ts`). */
 export const HELPER_HOST = '127.0.0.1'
-/** `FAULK_E2E_HELPER_PORT` moves the stand-in helper (and the page's target, at build time) when 47800 is held by an installed helper. */
-export const HELPER_PORT = Number(process.env.FAULK_E2E_HELPER_PORT) || 47800
+/**
+ * The stand-in helper's port (and the page's target, built in by `playwright.config.ts`): `FAULK_E2E_HELPER_PORT`, else a port of this
+ * checkout's own, so that two checkouts running the suite at once, or an installed helper on 47800, never collide (#505).
+ */
+export const HELPER_PORT = e2eHelperPort()
 
 /**
  * The page probes the helper on load; with no helper listening, the browser logs the refused
