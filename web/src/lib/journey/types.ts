@@ -51,6 +51,11 @@ export interface JourneyEntry {
   duration: number
   /** The model the agent ran on. */
   model: string
+  /**
+   * The style profile the run applied, when its brief asked for one (`references/styles/` of the music-producer skill):
+   * the profile's name, one line, the same in every language like a title. Absent when the run applied none.
+   */
+  style?: string
   /** The skills the agent followed. */
   skills: string[]
   /** The brief in one or two sentences. */
