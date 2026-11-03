@@ -33,6 +33,13 @@ const pointsOf = (lane: Lane) =>
   Object.entries(lane.points)
     .map(([tick, p]) => ({ tick: Number(tick), value: p.value, shape: p.shape }))
     .sort((a, b) => a.tick - b.tick)
+/** Sets the curve of the selected points through the toolbar's "More" menu (#575). */
+async function setCurve(page: Page, shape: 'linear' | 'step') {
+  await page.getByTestId('arr-more').click()
+  const entry = page.getByTestId(`ctx-more-curve-${shape}`)
+  await expect(entry).toBeEnabled()
+  await entry.click()
+}
 const master = async (page: Page) => Number(await page.getByTestId('feedback').getAttribute('data-master-peak'))
 
 /** Where a tick and a value of a lane are on the page. */
@@ -162,10 +169,9 @@ test('automation: three points drawn by clicks, played into the device panel, ed
   await page.mouse.up()
   expect(pointsOf((await lanes(page))[0]![1])[2]).toMatchObject({ tick: BAR, shape: 'linear' })
   expect(pointsOf((await lanes(page))[0]![1])[2]!.value).toBeCloseTo(0.4, 1)
-  await expect(page.getByTestId('arr-curve-step')).toBeEnabled()
-  await page.getByTestId('arr-curve-step').click()
+  await setCurve(page, 'step')
   expect(pointsOf((await lanes(page))[0]![1])[2]!.shape).toBe('step')
-  await page.getByTestId('arr-curve-linear').click()
+  await setCurve(page, 'linear')
   expect(pointsOf((await lanes(page))[0]![1])[2]!.shape).toBe('linear')
 
   // A box selects several points; the context menu sets their curve and deletes them; Delete deletes too.
@@ -633,8 +639,7 @@ test('automation: master row in the timeline, a fade drawn, level confirmed', as
 
   // A step curve set from the toolbar makes the drop sharp at BAR: select all points, then click the step button.
   await page.keyboard.press('Control+a')
-  await expect(page.getByTestId('arr-curve-step')).toBeEnabled()
-  await page.getByTestId('arr-curve-step').click()
+  await setCurve(page, 'step')
   await expect.poll(async () => Object.values((await masterLaneData())[0]?.points ?? {}).every((p) => p.shape === 'step')).toBe(true)
   await expect(page.getByTestId('arr-lane').last()).toHaveAttribute('data-points', '2')
 

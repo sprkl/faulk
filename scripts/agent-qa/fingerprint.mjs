@@ -247,6 +247,118 @@ export function mergedIntoDevelop(cwd, tip) {
   });
 }
 
+/** How many first-parent commits of develop, after the branch's base, the squash check reads. */
+const SQUASH_SCAN = 100;
+/** Beyond this many changed paths, the patch-id check is skipped (command line length): GitHub settles it. */
+const SQUASH_PATHS = 200;
+
+/**
+ * Whether the commit `tip` was squash-merged into `origin/develop` (local refs, no fetch, #590): a
+ * first-parent commit of develop after the branch's base has the tip's tree (the queue merges an
+ * up-to-date branch), or the same patch-id as the branch's whole change (develop moved in between,
+ * or the branch was updated on GitHub after the tip: same hunks, other line numbers). A branch
+ * without a change, a missing commit or any git failure: not squashed.
+ */
+export function squashedIntoDevelop(cwd, tip) {
+  if (!/^[0-9a-f]{40}$/.test(String(tip))) {
+    return false;
+  }
+  try {
+    const base = git(cwd, "merge-base", tip, "origin/develop").trim();
+    const tree = git(cwd, "rev-parse", `${tip}^{tree}`).trim();
+    if (tree === git(cwd, "rev-parse", `${base}^{tree}`).trim()) {
+      return false; // no change of its own: nothing to recognize
+    }
+    const range = [`--max-count=${SQUASH_SCAN}`, "--first-parent", `${base}..origin/develop`];
+    const trees = git(cwd, "log", "--format=%T", ...range).split("\n");
+    if (trees.includes(tree)) {
+      return true;
+    }
+    // Only the paths the branch changed: develop's whole patches run to 100 MB over 100 commits
+    // (generated files), and a squash restricted to those paths is the branch's change.
+    const paths = git(cwd, "diff", "--name-only", "--no-renames", base, tip).split("\n").filter(Boolean);
+    if (paths.length === 0 || paths.length > SQUASH_PATHS) {
+      return false;
+    }
+    const spec = ["--", ...paths.map((path) => `:(literal)${path}`)];
+    const own = patchIds(cwd, git(cwd, "diff", "--no-color", "--no-ext-diff", "--no-renames", base, tip, ...spec));
+    if (own.length !== 1) {
+      return false;
+    }
+    const theirs = patchIds(cwd, git(cwd, "log", "-p", "--no-color", "--no-ext-diff", "--no-renames", "--format=commit %H", ...range, ...spec));
+    return theirs.includes(own[0]);
+  } catch {
+    return false;
+  }
+}
+
+/** The stable patch-ids of a patch text (one per commit, or one for a plain diff). */
+function patchIds(cwd, patch) {
+  if (patch.trim() === "") {
+    return [];
+  }
+  const text = execFileSync("git", ["patch-id", "--stable"], {
+    cwd,
+    input: patch.startsWith("commit ") ? patch : `commit ${"0".repeat(40)}\n${patch}`,
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "ignore"],
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  return text
+    .split("\n")
+    .map((line) => line.split(" ")[0])
+    .filter(Boolean);
+}
+
+/**
+ * Whether a pull request from the branch `ref` into develop was merged on GitHub after `since`
+ * (the marker's first write: an older pull request that reused the name does not count) with the
+ * commit `tip` in it: its head is `tip`, or `tip` is a local ancestor of its head (the branch was
+ * updated on GitHub). Commits made after that merge are not in it: not merged. One `gh` call, 15 s
+ * at most; any failure (gh absent, offline, unauthenticated, bad output, head not fetched): not
+ * merged. `FAULK_QA_GH`, a Node script run in place of `gh`, is for the tests only.
+ */
+export function prMergedOnGitHub(cwd, ref, since, tip) {
+  if (typeof ref !== "string" || /^[0-9a-f]{40}$/.test(ref) || typeof since !== "string" || !/^[0-9a-f]{40}$/.test(String(tip))) {
+    return false;
+  }
+  const args = ["pr", "list", "--head", ref, "--base", "develop", "--state", "merged", "--json", "number,mergedAt,headRefOid", "--limit", "20"];
+  const stub = process.env.FAULK_QA_GH;
+  try {
+    const out = execFileSync(stub ? process.execPath : "gh", stub ? [stub, ...args] : args, {
+      cwd,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 15000,
+      windowsHide: true,
+    });
+    const after = Date.parse(since);
+    const holdsTip = (head) => {
+      if (head === tip) {
+        return true;
+      }
+      try {
+        git(cwd, "merge-base", "--is-ancestor", tip, head);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    return (
+      Number.isFinite(after) &&
+      JSON.parse(out).some(
+        (pr) =>
+          typeof pr?.mergedAt === "string" &&
+          Date.parse(pr.mergedAt) > after &&
+          /^[0-9a-f]{40}$/.test(String(pr.headRefOid)) &&
+          holdsTip(pr.headRefOid),
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Fingerprint of the committed content of a branch (or commit) against its
  * merge base with `develop`, in the same form as `changeFingerprint` (so a
