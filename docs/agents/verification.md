@@ -281,3 +281,5 @@ The guardrails exist to stop an honest agent that skips or forgets a step: endin
 - Changing the guard is trusted only after a human reviews the pull request: the agent that edits `record.mjs` or a hook can also run the edited version. The Stop hook warns the user when the guard differs from `develop`; it cannot do more.
 - The hooks run through Git Bash on Windows (`node "$CLAUDE_PROJECT_DIR/..."`). Without Git Bash, Claude Code runs hooks in PowerShell, where `$CLAUDE_PROJECT_DIR` is not expanded: the hooks then fail without blocking anything.
 
+
+**Disk of the `rust` job (#595).** The Linux runner has about 14 GB free; the workspace's tests built with full debug info (`debuginfo=2`) filled it (`No space left on device`, `ld` killed by a bus error). The job sets `CARGO_PROFILE_DEV_DEBUG=line-tables-only` (dev and test profiles; debug assertions and the allocation detector are unchanged, backtraces keep file and line), deletes the preinstalled .NET, Android, Haskell, CodeQL and Boost folders before building, and ends with a `Disk report` step (`df -h`, `du -sh target`, in the run summary; a warning under 5 GB free). `helper-windows` prints the same report.
