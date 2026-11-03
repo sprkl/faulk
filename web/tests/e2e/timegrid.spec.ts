@@ -57,6 +57,9 @@ const pixel = (page: Page, x: number, y: number, selector = 'canvas:not(.overlay
     [x, y, selector] as const,
   )
 
+// Above the default of 30 s: `open()` can use the boot ceiling twice (the grid, then its first frame).
+test.describe.configure({ timeout: 90_000 })
+
 test.describe('time grid', () => {
   test('draws the ruler and the bar lines on its canvas', async ({ page }) => {
     const seen = await open(page)

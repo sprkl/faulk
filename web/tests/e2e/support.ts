@@ -15,8 +15,9 @@ const REFUSED_PROBE = new RegExp(String.raw`^WebSocket connection to 'ws://127\.
  * The ceiling for something the page does once, on its way up: the module graph of the dev server loading, the engine
  * starting (the wasm module compiled and instantiated in a Worker and in the audio worklet). Playwright's default of
  * 5 s is meant for a reaction of the page to an action; a boot is paced by the machine, and on a loaded one it takes
- * several times its idle time (#424: past 5 s with 16 browsers and 160 busy threads on 24). It is a ceiling, not a delay: the wait ends the moment the thing is there, and only a page that never comes up
- * reaches it.
+ * several times its idle time (#424). It is a ceiling, not a delay: the wait ends the moment the thing is there, and
+ * only a page that never comes up reaches it. A spec that uses it needs a test timeout above it (two boot waits in a row
+ * can use it twice), as `describe.configure({ timeout })` in `timegrid.spec.ts` and `storage-commands.spec.ts`.
  */
 export const BOOT = { timeout: 30_000 }
 
