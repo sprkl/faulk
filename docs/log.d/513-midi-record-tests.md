@@ -1,0 +1,2 @@
+2026-11-03
+* **Update** (#513): tests for the MIDI recording wiring (the recorder in the dispatcher: Boost taking over, `record.start` refused in Boost, a project replaced during a take; the transport bar's alert for lost notes and dropped takes, in English and French), a take waiting for a report of the right epoch is dropped after `GIVE_UP_MS` instead of held, and a note held across a tempo or sample rate change keeps the ticks it ran (`docs/specs/03-enregistrement-midi.md`).

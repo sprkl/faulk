@@ -11,6 +11,7 @@ export default {
   bars: 64,
   duration: 184.44,
   model: 'Claude Fable',
+  style: 'morzak',
   skills: ['music-producer'],
   brief: {
     en: 'Style profile “morzak”: slow half-time at 84 bpm in D minor, a four-chord cycle of one bar each, a single B section on B♭, and only the hi-hat swung. The lead has four pitches and never plays on beat 1.',

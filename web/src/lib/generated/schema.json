@@ -38244,7 +38244,7 @@
       },
       {
         "additionalProperties": false,
-        "description": "First message of a session; a helper without an audio output sends `error`\n`audio.no_output` instead and closes the session.",
+        "description": "First message of a session; a helper without an audio output sends `error`\n`audio.no_output` instead and closes the session. Sent again when the output was\nreplaced and the session plays on (#577): the new output's rate, buffer and latency.",
         "properties": {
           "buffer_frames": {
             "description": "Frames per audio callback, once the device reported it.",

@@ -26,7 +26,7 @@ Copy the latest file of `web/src/lib/journey/entries/` to `<date>-<slug>.ts` (th
 
 - `date`, `slug`, `title` (as the agent named it, never translated), `commit` (the `develop` hash the run built);
 - `genre`, `bpm`, `key` (`tonic`, `mode`), `bars`, `duration` (the MP3's length in seconds);
-- `model` and `skills`;
+- `model` and `skills`, and `style` (optional): the name of the style profile the run applied when its brief asked for one (`.claude/skills/music-producer/references/styles/`), written as the profile is named (`morzak`), one line of at most 40 characters, the same in both languages; leave it out when the run applied none. The entry shows it discreetly in its last line, next to the model and the commit ("Style profile: morzak", "Profil de style : morzak");
 - `brief`, `built` (how far it got in Faulk), `tested` (the day's new features the track put to the test), `gaps` (most painful first), each in English and French;
 - `journal`: the URL of the run's comment in #362;
 - `tracks`: names and colours from the saved project (`track.json` of each track);
