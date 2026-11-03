@@ -159,6 +159,14 @@ impl Core {
         self.snapshot_report(result)
     }
 
+    /// [`Core::snapshot`] for an engine the page did not start, in epoch `other` (the
+    /// helper's, from its `hello`, BO-1): the `Reset` is newer than both
+    /// (`Synced::resync_after`).
+    pub fn snapshot_after(&mut self, other: u16) -> (SnapshotReport, Vec<u8>) {
+        let result = self.synced.resync_after(other);
+        self.snapshot_report(result)
+    }
+
     fn snapshot_report(
         &self,
         result: Result<Vec<u8>, engine::msg::MsgError>,
@@ -642,6 +650,22 @@ pub unsafe extern "C" fn pw_snapshot(core: *mut Core) -> i32 {
     unsafe {
         with_core(core, |core| {
             let (report, bytes) = core.snapshot();
+            publish(&report, bytes)
+        })
+    }
+}
+
+/// [`Core::snapshot_after`] the engine epoch `other` (its low 16 bits): a
+/// [`SnapshotReport`] and the engine bytes.
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_snapshot_after(core: *mut Core, other: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe {
+        with_core(core, |core| {
+            let (report, bytes) = core.snapshot_after(other as u16);
             publish(&report, bytes)
         })
     }

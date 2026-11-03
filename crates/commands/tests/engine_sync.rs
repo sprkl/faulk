@@ -1166,3 +1166,51 @@ fn insert_time_sends_the_track_table_the_master_lane_and_the_loop_once_and_so_do
     let (_, msgs) = run(&mut s, json!({"type": "history.undo"}));
     assert_eq!(counts(&msgs), (1, 1, 1), "{msgs:?}");
 }
+
+/// The epoch of the first message of a stream (header bytes 4..6).
+fn epoch_of(bytes: &[u8]) -> u16 {
+    u16::from_le_bytes([bytes[4], bytes[5]])
+}
+
+/// The tag of the first message of a stream (header bytes 2..4): `Reset` is 0.
+fn tag_of(bytes: &[u8]) -> u16 {
+    u16::from_le_bytes([bytes[2], bytes[3]])
+}
+
+#[test]
+fn a_resync_after_another_engine_starts_newer_than_both() {
+    use commands::engine_msgs::EngineStream;
+    // The next epoch when it is newer than the other engine's.
+    let mut stream = EngineStream::new(5);
+    assert_eq!(stream.next_epoch_after(2), 6);
+    assert_eq!(stream.next_epoch_after(7), 8, "equal is not newer");
+    // Past the other engine's otherwise.
+    assert_eq!(stream.next_epoch_after(40), 41);
+    assert_eq!(stream.next_epoch_after(41), 42);
+    // Wrapping, in the engine's order, and never 0.
+    let mut stream = EngineStream::new(3);
+    assert_eq!(
+        stream.next_epoch_after(u16::MAX),
+        4,
+        "4 is newer than 65 535"
+    );
+    let mut stream = EngineStream::new(u16::MAX - 1);
+    assert_eq!(stream.next_epoch_after(u16::MAX), 1, "0 is skipped");
+    let mut stream = EngineStream::new(u16::MAX - 2);
+    assert_eq!(
+        stream.next_epoch_after(2),
+        3,
+        "2 is newer than 65 534 (wrapping): 3 is newer than both"
+    );
+
+    // `Synced::resync_after`: a Reset in that epoch, then the snapshot.
+    let (mut s, _, _) = synced();
+    let bytes = s.resync_after(9).unwrap();
+    assert_eq!(s.epoch(), 10);
+    assert_eq!(tag_of(&bytes), 0, "the stream starts with a Reset");
+    assert_eq!(epoch_of(&bytes), 10);
+    // The stream's own next snapshot stays newer than the one it just sent.
+    assert_eq!(epoch_of(&s.resync().unwrap()), 11);
+    // An older other engine changes nothing but the step.
+    assert_eq!(epoch_of(&s.resync_after(3).unwrap()), 12);
+}
