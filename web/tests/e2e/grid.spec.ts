@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { best, mainThreadMeter, watch } from './support'
+import { best, engineUp, mainThreadMeter, watch } from './support'
 
 const STRICT = process.env.FAULK_E2E_STRICT_TIMING === '1'
 /** Measured windows per performance check; the best one counts, because noise only adds time. */
@@ -71,7 +71,7 @@ test('launch grid: scenes and clips by gestures, launch is heard, states follow 
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/app')
   await startAudio(page)
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await page.getByTestId('nav-grid').click()
   await expect(page.getByTestId('grid')).toBeVisible()
   await expect(page.getByTestId('grid-no-scenes')).toBeVisible()
@@ -182,7 +182,7 @@ test('launch grid: stays fluid with 32 tracks and 64 scenes @full', async ({ pag
   await page.setViewportSize({ width: 1280, height: 800 })
   await page.goto('/app')
   await startAudio(page)
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   const hook = await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)
   test.skip(hook !== 'function', 'the dispatcher hook exists in the dev server only')
 

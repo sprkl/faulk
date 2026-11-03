@@ -8,6 +8,7 @@ import { CoreError, ProjectCore, type FolderEntry } from '../project/core'
 import { readFolder, SONG_FOLDER } from '../project/reference-folder'
 import { REFUSAL_TOAST_MS } from './dispatcher'
 import { TOKEN_KEY } from './storage'
+import { inputNoteOff, inputNoteOn } from '../synth-commands'
 
 const pairHelper = vi.fn()
 type Probe = { status: 'absent' } | { status: 'available' }
@@ -21,6 +22,7 @@ interface FakeWeb {
   send: ReturnType<typeof vi.fn>
   push: ReturnType<typeof vi.fn>
   status: () => object
+  frameAt: Mock<(timeStamp?: number) => number | null>
   suspend: Mock<() => Promise<void>>
   resume: Mock<() => Promise<void>>
   close: ReturnType<typeof vi.fn>
@@ -36,6 +38,8 @@ vi.mock('../engine/web-engine', () => ({
         send: vi.fn(),
         push: vi.fn(),
         status: () => ({ sampleRate: 48000, bufferFrames: 128, estimatedLatencyMs: null }),
+        // 48 frames per millisecond of the performance clock, from 0.
+        frameAt: vi.fn((timeStamp?: number) => (timeStamp === undefined ? null : Math.round(timeStamp * 48))),
         suspend: vi.fn(() => Promise.resolve()),
         resume: vi.fn(() => Promise.resolve()),
         close: vi.fn(() => Promise.resolve()),
@@ -594,6 +598,28 @@ describe('running commands through the project core', () => {
       expect(webs[0].suspend).not.toHaveBeenCalled()
       expect(session.engine.mode).toBe('web')
       expect(session.engine.activeNotes).toEqual([60])
+    })
+
+    it('stamps a played note with the Web engine frame of its time, and not in Boost (#499)', async () => {
+      const native = boostEngine()
+      localStorage.setItem(TOKEN_KEY, 'x')
+      const session = newSession()
+      await session.dispatcher.start()
+      session.dispatcher.runPlayed(inputNoteOn(60, 100), 1000)
+      expect(webs[0].frameAt).toHaveBeenCalledWith(1000)
+      expect(webs[0].send.mock.calls.at(-1)![0]).toEqual({ type: 'live.input_note_on', note: 60, velocity: 100, frame: 48_000 })
+      session.dispatcher.runPlayed(inputNoteOff(60), 1500)
+      expect(webs[0].send.mock.calls.at(-1)![0]).toEqual({ type: 'live.input_note_off', note: 60, frame: 72_000 })
+      // No time (an event without one): no stamp.
+      session.dispatcher.runPlayed(inputNoteOn(62, 100))
+      expect(webs[0].send.mock.calls.at(-1)![0]).toEqual(inputNoteOn(62, 100))
+      session.dispatcher.runPlayed(inputNoteOff(62))
+      await session.dispatcher.enterBoost()
+      expect(session.engine.mode).toBe('native')
+      const asked = webs[0].frameAt.mock.calls.length
+      session.dispatcher.runPlayed(inputNoteOn(64, 100), 2000)
+      expect(native.send.mock.calls.at(-1)![0]).toEqual(inputNoteOn(64, 100))
+      expect(webs[0].frameAt.mock.calls.length).toBe(asked)
     })
 
     it('opens one helper session when Boost is asked twice while connecting', async () => {

@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { expect, test, type CDPSession, type Page } from '@playwright/test'
-import { best, chooseMidiInput, fakeWebMidi, mainThreadMeter, watch } from './support'
+import { best, chooseMidiInput, engineUp, fakeWebMidi, mainThreadMeter, watch } from './support'
 
 // MX-3 (#92): the mixer view in a real browser. Real worklet, engine and project core: every
 // control goes through the dispatcher as a command, and the meters are the engine's own report.
@@ -17,7 +17,7 @@ async function start(page: Page) {
   await fakeWebMidi(page)
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
-  await expect(page.getByTestId('engine-mode')).toContainText('Web')
+  await engineUp(page, 'Web')
   await chooseMidiInput(page, 'E2E Keys')
   await expect(page.getByTestId('track-list')).toHaveAttribute('data-track-count', '1')
   await page.getByTestId('nav-mixer').click()

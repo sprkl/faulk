@@ -25,6 +25,7 @@ pub mod device;
 pub mod history;
 pub mod launch;
 pub mod live;
+pub mod marker;
 pub mod midi;
 pub mod mixer;
 pub mod note;

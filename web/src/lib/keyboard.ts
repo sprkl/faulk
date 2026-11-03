@@ -58,7 +58,7 @@ export const TYPING_TOGGLE_CODE = 'Backquote'
  * tempo, the arrows step the tempo field, Space plays and stops the transport. With the time grid
  * focused, Left and Right scroll, Home goes to the start, plus and minus (and the keys that share
  * them) zoom, bare or with Ctrl or Cmd (#471: Ctrl keeps the browser's page zoom off while the grid has the focus). On the selected track's row of the arrangement (#471), Enter or F2 open the field that types its volume, and a digit, a sign or a decimal point opens it with that key typed (`views/arrangement/lane-keys.ts`); the row's height handle moves with Up and Down (Shift for a big step), Home and End, and Enter gives back the default height. Digits play nothing. With a clip of the timeline or a note of the piano roll focused (their named cells, #471, `roving.ts`), the arrows move between them, Shift+arrows extend the selection, Alt+arrows move the selection (Alt+Up and Down transpose notes), Enter opens a clip in the piano roll (on that placement: its origin, play position and entry in the clip list, #494) or sounds a note, and Delete or Backspace removes the selection. Free cursor (#494): the timeline and the piano roll each have a cursor cell (a track and a tick; a pitch and a tick), the only cell in the tab order when they hold no clip or note; Escape on a clip or a note frees the cursor there (Escape again clears the selection); the arrows move it by the snap step, never finer than a beat, in the timeline (the drawing step in the roll) and by a track or a semitone, Shift+Left and Right by a bar (Shift+Up and Down by an octave in the roll); Enter on it creates a clip of one bar on a MIDI track (`clip.create`) or a note of the drawing length (`clip.notes.add`), then focuses it, or focuses the clip or note already under it. Velocity (#494): in the piano roll, Page Up and Page Down raise and lower the velocity of the selection (or of the focused note) by 10, by 1 with Shift, kept in 1–127, as one `clip.notes.update`; the new value is said. Undo and redo (Ctrl or Cmd + Z, Shift or Y) are said in the live regions of the timeline and the piano roll ("Undone: Add notes"). With the launch grid focused, the arrows move between cells, and a scene's name is renamed with F2 (Enter confirms, Escape cancels, as for a track); on a clip, F2 renames it, Delete and Backspace remove it, and Ctrl or Cmd + C then + V copies it into an empty cell. With the piano roll focused, Delete and Backspace remove the selected notes, Escape clears the
- * selection, Ctrl or Cmd + A selects all, Ctrl or Cmd + C, X and V copy, cut and paste notes (pasted at the play position of the clip), Ctrl or Cmd + D duplicates the selection right after itself, and Up and Down transpose it by a semitone (an octave with Shift). Quantizing has no key: a bare letter plays a note and Ctrl + Q belongs to the browser. With a continuous control (`Slider`) focused, the arrows (with Ctrl, Cmd on macOS, for a fine step), Page Up, Page Down, Home and End move it and Delete and Backspace put its default value back (`continuous.ts`), Enter opens a field to type its value (Enter applies, Escape cancels; the field takes every key without Ctrl or Cmd); Tab closes its menu. With the bottom panel's handle focused (a separator), Up and Down resize the panel (Shift for a big step), Home and End go to its smallest and largest size, and Enter folds or unfolds it. The key left of 1 (Backquote, `TYPING_TOGGLE_CODE`) toggles musical typing (#470): with it off, the playing keys play nothing; it is not listed here, because it must not make a mouse-focused slider keyboard-focused. None of them plays a note: the playing keys are letters and Semicolon.
+ * selection, Ctrl or Cmd + A selects all, Ctrl or Cmd + C, X and V copy, cut and paste notes (pasted at the play position of the clip), Ctrl or Cmd + D duplicates the selection right after itself, and Up and Down transpose it by a semitone (an octave with Shift). Q quantizes the selection (or the whole clip), by position (`isQuantizeKey`): it is the one bare letter that is a shortcut, because it plays nothing and Ctrl + Q belongs to the browser. With a continuous control (`Slider`) focused, the arrows (with Ctrl, Cmd on macOS, for a fine step), Page Up, Page Down, Home and End move it and Delete and Backspace put its default value back (`continuous.ts`), Enter opens a field to type its value (Enter applies, Escape cancels; the field takes every key without Ctrl or Cmd); Tab closes its menu. With the bottom panel's handle focused (a separator), Up and Down resize the panel (Shift for a big step), Home and End go to its smallest and largest size, and Enter folds or unfolds it. The key left of 1 (Backquote, `TYPING_TOGGLE_CODE`) toggles musical typing (#470): with it off, the playing keys play nothing; it is not listed here, because it must not make a mouse-focused slider keyboard-focused. None of them plays a note: the playing keys are letters and Semicolon.
  */
 export const BARE_SHORTCUT_CODES: readonly string[] = [
   'F2',
@@ -81,6 +81,12 @@ export const BARE_SHORTCUT_CODES: readonly string[] = [
   'End',
   'Tab',
 ]
+
+/** The key that quantizes in the piano roll (#523): Q by position (`KeyQ`); no modifier, no repeat. It plays nothing (`KEY_OFFSETS` has no Q). */
+export const QUANTIZE_CODE = 'KeyQ'
+export function isQuantizeKey(event: Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'repeat'>): boolean {
+  return event.code === QUANTIZE_CODE && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && !event.repeat
+}
 
 /** Every physical key that plays a note, for the rule above. */
 export const PLAYING_KEYS: readonly string[] = Object.keys(KEY_OFFSETS)
@@ -285,6 +291,26 @@ export function historyShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | '
  * text field. Playing ignores any Alt event (`ignoreKeyEvent`), so none of these plays a note.
  */
 const PANEL_CODE = 'KeyM'
+/**
+ * The arrangement's keys for its sections and its zoom (#473): Alt+K adds a section marker at the playhead's bar,
+ * Alt+Page Up and Alt+Page Down jump to the previous and the next marker, Alt+Z shows the whole song. Never bare
+ * letters (they play notes in musical typing); nothing from a text field.
+ */
+export function arrangementShortcut(
+  event: Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'target'>,
+): 'addMarker' | 'prevMarker' | 'nextMarker' | 'fitSong' | null {
+  if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || isTextTarget(event.target)) return null
+  return ARRANGEMENT_CODES[event.code] ?? null
+}
+
+/** The codes of `arrangementShortcut`, always with Alt (so not bare shortcuts). */
+const ARRANGEMENT_CODES: Readonly<Record<string, 'addMarker' | 'prevMarker' | 'nextMarker' | 'fitSong'>> = {
+  KeyK: 'addMarker',
+  PageUp: 'prevMarker',
+  PageDown: 'nextMarker',
+  KeyZ: 'fitSong',
+}
+
 export function layoutShortcut(
   event: Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'repeat' | 'target'>,
 ): { view: number } | 'panel' | null {

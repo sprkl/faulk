@@ -33,6 +33,7 @@ import {
   type Layout,
   quantizedStart,
   quantizeChanges,
+  quantizeSaid,
   transposeChanges,
   toBoard,
   fromBoard,
@@ -461,5 +462,13 @@ describe('velocity lane', () => {
     // A selected note on another step does not matter.
     expect(velocityTarget(notes, 97, view, new Set([noteKey(notes[2]!)]))).toBe(1)
     expect(velocityTarget(notes, 50, view, new Set())).toBeNull()
+  })
+})
+
+describe('what the quantize says (#523)', () => {
+  it('counts the notes that moved, says when they were all on the grid, and when there is nothing to quantize', () => {
+    expect(quantizeSaid(3, 5)).toEqual({ key: 'pianoRoll.quantizeMoved', n: 3 })
+    expect(quantizeSaid(0, 5)).toEqual({ key: 'pianoRoll.quantizeOnGrid', n: 0 })
+    expect(quantizeSaid(0, 0)).toEqual({ key: 'pianoRoll.quantizeNone', n: 0 })
   })
 })

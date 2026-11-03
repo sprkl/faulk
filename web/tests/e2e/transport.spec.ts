@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // TR-4 (#62): the transport bar in a real browser. Real worklet, engine and project core: every
 // control dispatches a command, the bar shows what the project and the engine report back.
@@ -106,7 +106,7 @@ for (const lang of ['en', 'fr'] as const) {
       await expect(control(page, x.play)).toBeDisabled()
       await expect(tempo).toBeDisabled()
       await page.getByTestId('engine-state').getByRole('button').click()
-      await expect(page.getByTestId('engine-mode')).toBeVisible()
+      await engineUp(page)
       await expect(control(page, x.play)).toBeEnabled()
       await expect(control(page, x.record)).toBeDisabled()
       await expect(page.getByTestId('transport-quantize')).toBeEnabled()
@@ -295,7 +295,7 @@ test('the space bar presses a focused control and never toggles the transport be
   const { errors } = watch(page)
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   // Space on a focused button presses that button, it does not also toggle the transport.
   // A Tab press first: the last input was the mouse, and a focus that follows a mouse press is the mouse's (#332).
   await page.keyboard.press('Tab')
@@ -315,7 +315,7 @@ test('double clicks and a reload during playback leave the bar consistent', asyn
   const { errors } = watch(page)
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   // A double click on Play plays once; one on Stop and on the loop button end in a consistent state.
   await control(page, 'Play').dblclick()
   await expect(feedback(page)).toHaveAttribute('data-transport', 'playing')
@@ -339,7 +339,7 @@ test('leaving the tempo field untouched does not round a tempo with more decimal
   const { errors } = watch(page)
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   const tempo = page.getByTestId('transport-tempo')
   await page.evaluate(() => (window as unknown as { __faulkRun(c: object): void }).__faulkRun({ type: 'transport.set_tempo', bpm: 120.456 }))
   await expect(tempo).toHaveValue('120.46')

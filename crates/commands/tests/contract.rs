@@ -17,6 +17,7 @@ mod automation_examples;
 mod clip_examples;
 mod device_examples;
 mod grid_examples;
+mod marker_examples;
 mod query_examples;
 mod record_examples;
 mod track_examples;
@@ -138,8 +139,12 @@ fn examples() -> Vec<(Command, State)> {
         on(Command::Live(live::Command::InputNoteOn {
             note: 60,
             velocity: 100,
+            frame: None,
         })),
-        on(Command::Live(live::Command::InputNoteOff { note: 60 })),
+        on(Command::Live(live::Command::InputNoteOff {
+            note: 60,
+            frame: Some(48_000),
+        })),
         on(Command::Live(live::Command::ControlChange {
             controller: 1,
             value: 64,
@@ -188,6 +193,7 @@ fn examples() -> Vec<(Command, State)> {
     .chain(automation_examples::examples())
     .chain(query_examples::examples())
     .chain(record_examples::examples())
+    .chain(marker_examples::examples())
     .collect()
 }
 

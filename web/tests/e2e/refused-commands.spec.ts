@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #309: a command the core refuses is shown to the user, in the language of the interface, as a
 // temporary toast; repeated refusals share the one toast. The refusal is made through the dev
@@ -23,7 +23,7 @@ for (const [locale, text] of [
     const seen = watch(page)
     await page.goto('/app')
     await startAudio(page)
-    await expect(page.getByTestId('engine-mode')).toBeVisible()
+    await engineUp(page)
     test.skip(
       (await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function',
       'the dispatcher hook exists in the dev server only',

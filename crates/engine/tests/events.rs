@@ -806,6 +806,7 @@ fn a_jump_releases_scheduled_notes_only() {
         track: TRACK,
         pitch: 40,
         velocity: 100,
+        at: None,
     }]);
     rig.run(size, size);
     let seek_at = rig.frames;
@@ -815,6 +816,7 @@ fn a_jump_releases_scheduled_notes_only() {
             track: TRACK,
             pitch: 41,
             velocity: 100,
+            at: None,
         },
     ]);
     rig.run(size * 30, size);

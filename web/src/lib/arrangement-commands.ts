@@ -24,6 +24,12 @@ export const placeScene = (scene: string, start: Tick, linked: boolean): Command
 export const insertTime = (at: Tick, length: Tick): Command => ({ type: 'arrangement.insert_time', at, length })
 /** Deletes the time `[from, to)` from every track and the master and closes the gap (#396). */
 export const deleteTime = (from: Tick, to: Tick): Command => ({ type: 'arrangement.delete_time', from, to })
+/** Section markers (#473): add one (a name, or the next "Section n"), rename, move, delete. */
+export const addMarker = (tick: Tick, name?: string): Command =>
+  name === undefined ? { type: 'arrangement.marker.add', tick } : { type: 'arrangement.marker.add', tick, name }
+export const renameMarker = (marker: string, name: string): Command => ({ type: 'arrangement.marker.rename', marker, name })
+export const moveMarker = (marker: string, tick: Tick): Command => ({ type: 'arrangement.marker.move', marker, tick })
+export const deleteMarker = (marker: string): Command => ({ type: 'arrangement.marker.delete', marker })
 /** The start of the bar a tick lies in: where a clip sent from the grid is put. */
 export const barStart = (tick: number, bar: number): number => (bar > 0 ? Math.floor(Math.max(0, tick) / bar) * bar : 0)
 /** A one-bar clip put in the arrangement of a track, from a tick. */

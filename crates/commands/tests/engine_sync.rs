@@ -471,7 +471,8 @@ fn play_starts_at_the_cue_once_and_seek_moves_the_cue() {
         [ControlMsg::NoteOn {
             track: TrackSlot(0),
             pitch: 60,
-            velocity: 90
+            velocity: 90,
+            at: None,
         }]
     );
     run(&mut s, json!({"type": "track.create", "kind": "midi"}));

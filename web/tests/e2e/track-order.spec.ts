@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #298: reorder and duplicate a track from the track list (since #471: the arrangement's rows and the inspector), in a real browser. Real worklet, engine and
 // project core: the `⋯` menu and the drag of the grip each send one command (`track.move`,
@@ -64,7 +64,7 @@ test('a track moves and duplicates from the track list, one history entry each, 
   await page.addInitScript(() => localStorage.setItem('faulk.lang', 'en'))
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await expect(headers(page)).toHaveCount(1)
 
   for (const instrument of ['Drums', 'Oscillator']) {

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { chooseMidiInput, fakeWebMidi, watch } from './support'
+import { chooseMidiInput, engineUp, fakeWebMidi, watch } from './support'
 
 // RE-1 (#85): the live MIDI input goes to the selected track and to the armed ones, and a note held
 // while the selection or the arming changes still ends. Real worklet, engine and project core; the
@@ -26,7 +26,7 @@ for (const lang of ['en', 'fr'] as const) {
     await page.addInitScript((l) => localStorage.setItem('faulk.lang', l), lang)
     await page.goto('/app')
     await page.getByTestId('engine-state').getByRole('button').click()
-    await expect(page.getByTestId('engine-mode')).toBeVisible()
+    await engineUp(page)
     await chooseMidiInput(page, 'E2E Keys')
     // The tracks are selected and armed on their rows in the arrangement (#471).
     await page.getByTestId('nav-arrangement').click()

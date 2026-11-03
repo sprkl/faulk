@@ -79,6 +79,7 @@ fn rig(lanes: bool) -> (Preparer, Engine) {
                     track,
                     pitch: 60 + t as u8,
                     velocity: 100,
+                    at: None,
                 },
             ],
         );

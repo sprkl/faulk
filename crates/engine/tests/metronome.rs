@@ -349,6 +349,7 @@ fn the_metronome_is_after_the_master_and_beside_the_tracks() {
                 track: TrackSlot(0),
                 pitch: 57,
                 velocity: 100,
+                at: None,
             },
             M::Play { from: Tick(0) },
         ]);

@@ -229,6 +229,14 @@ impl Host {
         (self.engine.applied() - before) as u32
     }
 
+    /// The host's frame of the first sample of the next block (#499,
+    /// `Engine::set_host_frame`): live notes stamped in that clock are recorded where they
+    /// were played. Call it before [`Host::pump`]; a host that never does has the engine's
+    /// sample counter as its clock.
+    pub fn set_host_frame(&mut self, frame: u64) {
+        self.engine.set_host_frame(frame);
+    }
+
     /// One block: [`Host::pump`] then [`Host::render_block`]. Returns the frames rendered.
     pub fn render(&mut self, frames: usize) -> usize {
         self.pump();
