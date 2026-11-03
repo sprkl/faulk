@@ -2,16 +2,16 @@
 //!
 //! midir has no hot-plug event, so the host polls [`MidiManager::refresh`]. The MIDI
 //! callback runs on midir's thread (not the audio thread): it turns each message into a
-//! live command and sends it through the shared [`EventSender`] (the engine's prepare
-//! side), which lives outside the connection so that closing or failing a connection never
-//! loses it.
+//! live command and sends it through the shared [`EngineSlot`] (the prepare side of the open
+//! output's engine), which lives outside the connection so that closing or failing a
+//! connection never loses it; without an output the notes go nowhere.
 
-use crate::audio::EventSender;
+use crate::audio::EngineSlot;
 use commands::{Command, live};
 use midir::{MidiInput, MidiInputConnection};
 use protocol::MidiInput as InputInfo;
+use std::sync::Arc;
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex};
 
 /// The command that releases every note.
 pub fn all_notes_off() -> Command {
@@ -86,7 +86,7 @@ pub fn still_selected(selected: Option<&str>, current: &[InputInfo]) -> Option<S
 }
 
 pub struct MidiManager {
-    sender: Arc<Mutex<EventSender>>,
+    sender: Arc<EngineSlot>,
     activity: mpsc::Sender<(u8, u8)>,
     connection: Option<MidiInputConnection<()>>,
     selected: Option<String>,
@@ -94,7 +94,7 @@ pub struct MidiManager {
 }
 
 impl MidiManager {
-    pub fn new(sender: Arc<Mutex<EventSender>>, activity: mpsc::Sender<(u8, u8)>) -> Self {
+    pub fn new(sender: Arc<EngineSlot>, activity: mpsc::Sender<(u8, u8)>) -> Self {
         Self {
             sender,
             activity,
@@ -142,9 +142,7 @@ impl MidiManager {
                 "faulk-helper-in",
                 move |_timestamp, message, _| {
                     if let Some(command) = decode(message) {
-                        if let Ok(mut sender) = sender.lock() {
-                            sender.send(&command);
-                        }
+                        sender.send(&command);
                         if let Some(light) = light(&command) {
                             let _ = activity.send(light);
                         }
@@ -162,9 +160,7 @@ impl MidiManager {
     pub fn disconnect(&mut self) {
         if let Some(connection) = self.connection.take() {
             connection.close();
-            if let Ok(mut sender) = self.sender.lock() {
-                sender.send(&all_notes_off());
-            }
+            self.sender.send(&all_notes_off());
         }
         self.selected = None;
     }

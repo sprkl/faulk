@@ -4,6 +4,7 @@ pub mod audio;
 pub mod instance;
 pub mod log;
 pub mod midi;
+pub mod output;
 pub mod security;
 pub mod server;
 #[cfg(windows)]

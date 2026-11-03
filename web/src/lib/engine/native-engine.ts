@@ -1,8 +1,16 @@
-import { PROTOCOL_VERSION, type ClientMessage, type Command } from '../generated/protocol'
+import { ERROR_CODES, PROTOCOL_VERSION, type ClientMessage, type Command } from '../generated/protocol'
 import type { Engine, EngineEvents, EngineStatus, HelperUpdateState } from './engine'
 import { decodeFeedback } from './feedback'
 import { HELPER_URL, parseServerMessage } from './helper-client'
 import { allNotesOff } from '../synth-commands'
+
+/** The helper answered the session with `audio.no_output`: it runs and the token is good, but it has no audio output to play on yet. */
+export class NoOutputError extends Error {
+  constructor() {
+    super('the helper has no audio output')
+    this.name = 'NoOutputError'
+  }
+}
 
 /** The engine running natively in the helper, driven over the local WebSocket. */
 export class NativeEngine implements Engine {
@@ -16,7 +24,7 @@ export class NativeEngine implements Engine {
 
   private constructor(private readonly ws: WebSocket) {}
 
-  /** Opens a session with the pairing token. Resolves once the helper said hello. */
+  /** Opens a session with the pairing token. Resolves once the helper said hello; rejects with `NoOutputError` when it has no audio output. */
   static connect(token: string, events: EngineEvents, timeoutMs = 3000): Promise<NativeEngine> {
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(`${HELPER_URL}/session?token=${encodeURIComponent(token)}`)
@@ -68,6 +76,14 @@ export class NativeEngine implements Engine {
             events.onHelperUpdate?.(engine.update)
             break
           case 'error':
+            // Before the hello, a refusal for want of an output, or an output lost while the session opened: no
+            // engine to play on. Told apart from a refused token (#525).
+            if (!opened && (message.code === ERROR_CODES.no_output || message.code === ERROR_CODES.audio_stream)) {
+              clearTimeout(timer)
+              ws.close()
+              reject(new NoOutputError())
+              return
+            }
             events.onError(message.code)
             break
         }

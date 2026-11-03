@@ -31,6 +31,7 @@ fn messages_round_trip_through_json() {
         ServerMessage::Probe {
             helper: "faulk-helper".into(),
             protocol: PROTOCOL_VERSION,
+            audio_output: false,
         },
         ServerMessage::Paired { token: "t".into() },
         ServerMessage::PairingRefused { attempts_left: 2 },

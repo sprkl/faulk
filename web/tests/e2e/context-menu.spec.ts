@@ -141,6 +141,30 @@ test('piano roll: the right click on a note opens its actions, the keyboard reac
   expect(seen.errors).toEqual([])
 })
 
+// #583: the global `.label` class (uppercase, 11 px) must not leak into the entries of the shared menu.
+test('the entries of the menu keep the case and the size of the body text', async ({ page }) => {
+  const seen = await openRoll(page)
+  await page.getByTestId('roll-snap').selectOption('off')
+  const g = await spot(page)
+  await page.mouse.click(g.x(130), g.y(60))
+  await page.mouse.click(g.x(130 + 20), g.y(60), { button: 'right' })
+  await expect(page.getByTestId('ctx-quantize')).toBeVisible()
+  const looks = await menu(page).evaluate((root) =>
+    [...root.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((button) => {
+      const span = button.querySelector<HTMLElement>('span')!
+      const style = getComputedStyle(span)
+      return { transform: style.textTransform, size: style.fontSize, buttonSize: getComputedStyle(button).fontSize, spacing: style.letterSpacing }
+    }),
+  )
+  expect(looks.length).toBeGreaterThan(0)
+  for (const look of looks) {
+    expect(look.transform).not.toBe('uppercase')
+    expect(look.size).toBe(look.buttonSize)
+    expect(look.spacing).toBe('normal')
+  }
+  expect(seen.errors).toEqual([])
+})
+
 test('the menu is in French when the page is', async ({ page }) => {
   const seen = await openRoll(page, 'fr')
   await page.getByTestId('roll-snap').selectOption('off')
@@ -221,5 +245,71 @@ test('devices: the card of a device has its actions', async ({ page }) => {
   await expect(page.getByTestId('ctx-bypass')).toBeVisible()
   await page.getByTestId('ctx-bypass').click()
   await expect(card).toHaveAttribute('data-bypassed', 'true')
+  expect(seen.errors).toEqual([])
+})
+
+test('mixer: a strip has its toggles, devices and automation; the master has no mute', async ({ page }) => {
+  const seen = await openRoll(page)
+  await page.getByTestId('nav-mixer').click()
+  const strip = page.getByTestId('mixer-strip').first()
+  await expect(strip).toBeVisible()
+
+  // The name of the strip, not a control: the toggles, the devices and the automation of the volume and the pan.
+  await strip.getByTestId('mixer-name').click({ button: 'right' })
+  await expect(menu(page)).toBeVisible()
+  for (const id of ['mute', 'solo', 'arm', 'devices', 'automate-volume', 'automate-pan']) await expect(page.getByTestId(`ctx-${id}`)).toBeVisible()
+  await expect(page.getByTestId('ctx-mute')).toBeFocused()
+  await page.getByTestId('ctx-mute').click()
+  await expect(menu(page)).toHaveCount(0)
+  await expect(strip.getByTestId('mixer-mute')).toHaveAttribute('aria-pressed', 'true')
+  // The entry now shows the state, and picks it back.
+  await strip.getByTestId('mixer-name').click({ button: 'right' })
+  await expect(page.getByTestId('ctx-mute')).toContainText('✓')
+  await page.getByTestId('ctx-mute').click()
+  await expect(strip.getByTestId('mixer-mute')).toHaveAttribute('aria-pressed', 'false')
+
+  // The master: devices and automation, no mute.
+  await page.getByTestId('mixer-master').getByTestId('mixer-chain').click({ button: 'right' })
+  await expect(page.getByTestId('ctx-devices')).toBeVisible()
+  await expect(page.getByTestId('ctx-automate-volume')).toBeVisible()
+  await expect(page.getByTestId('ctx-mute')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  expect(seen.errors).toEqual([])
+})
+
+test('grid: a scene header has the actions of its menu, and moving a scene is one command', async ({ page }) => {
+  const seen = await openRoll(page)
+  await page.getByTestId('nav-grid').click()
+  await page.getByTestId('add-scene').click()
+  await page.getByTestId('add-scene').click()
+  const order = () => page.getByTestId('scene-row').evaluateAll((rows) => rows.map((row) => row.getAttribute('data-scene')))
+  await expect.poll(async () => (await order()).length).toBeGreaterThanOrEqual(2)
+  const before = await order()
+
+  await page
+    .getByTestId('scene-head')
+    .first()
+    .click({ button: 'right', position: { x: 60, y: 6 } })
+  await expect(menu(page)).toBeVisible()
+  for (const id of ['scene-launch', 'scene-rename', 'scene-up', 'scene-down', 'scene-send', 'scene-send-linked', 'scene-delete']) {
+    await expect(page.getByTestId(`ctx-${id}`)).toBeVisible()
+  }
+  // The first scene cannot go up.
+  await expect(page.getByTestId('ctx-scene-up')).toBeDisabled()
+  await page.getByTestId('ctx-scene-down').click()
+  await expect.poll(order).toEqual([before[1], before[0], ...before.slice(2)])
+  await page.keyboard.press('Control+z')
+  await expect.poll(order).toEqual(before)
+
+  // Rename from the menu opens the field, which keeps the browser's menu.
+  await page
+    .getByTestId('scene-head')
+    .first()
+    .click({ button: 'right', position: { x: 60, y: 6 } })
+  await page.getByTestId('ctx-scene-rename').click()
+  const field = page.getByTestId('scene-head').first().locator('input.rename')
+  await expect(field).toBeFocused()
+  expect(await sendContextMenu(page, '[data-testid="scene-head"] input.rename')).toBe(false)
+  await page.keyboard.press('Escape')
   expect(seen.errors).toEqual([])
 })

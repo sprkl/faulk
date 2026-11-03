@@ -19,10 +19,12 @@ const LENGTH = 168
 let host: HTMLDivElement
 let sent: Command[]
 let app: ReturnType<typeof mount> | null
+let ui: UiStore
 
 function setup(component: Component<never>, props: Record<string, unknown>) {
   // Only the user interface store and the dispatcher's `run` are read by these controls.
-  const stores = { ui: new UiStore('arrangement', 'devices'), dispatcher: { run: (command: Command) => void sent.push(command) } } as unknown as Stores
+  ui = new UiStore('arrangement', 'devices')
+  const stores = { ui, dispatcher: { run: (command: Command) => void sent.push(command) } } as unknown as Stores
   app = mount(component as never, { target: host, props, context: storesContext(stores) })
   flushSync()
   const slider = host.querySelector('[role="slider"]') as HTMLElement
@@ -119,23 +121,26 @@ describe('a volume control', () => {
     const slider = setup(GainControl, gain(-6))
     slider.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }))
     flushSync()
-    const item = document.querySelector('[data-testid="value-menu-default"]') as HTMLButtonElement
-    expect(item).not.toBeNull()
-    expect(item.textContent).toContain('Default value')
-    expect(item.textContent).toContain('0.0 dB')
-    item.click()
-    flushSync()
+    // The shared menu (#524) holds the one entry; the shell draws it.
+    const item = ui.contextMenu!.items[0]!
+    expect(ui.contextMenu!.items).toHaveLength(1)
+    expect(item.label).toBe('Default value')
+    expect(item.detail).toBe('0.0 dB')
+    expect(sent).toEqual([])
+    item.run()
     expect(sent).toEqual([setVolume('t1', 0)])
-    expect(document.querySelector('[data-testid="value-menu"]')).toBeNull()
   })
 
-  it('closes the menu with Escape without sending anything', () => {
+  it('takes the right click for itself: the browser menu and the strip around it see nothing', () => {
     const slider = setup(GainControl, gain(-6))
-    slider.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }))
-    flushSync()
-    document.querySelector('[data-testid="value-menu"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-    flushSync()
-    expect(document.querySelector('[data-testid="value-menu"]')).toBeNull()
+    const around = vi.fn()
+    document.body.addEventListener('contextmenu', around)
+    const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })
+    slider.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(true)
+    document.body.removeEventListener('contextmenu', around)
+    expect(around).not.toHaveBeenCalled()
+    expect(ui.contextMenu).not.toBeNull()
     expect(sent).toEqual([])
   })
 
@@ -216,9 +221,9 @@ describe('a pan control', () => {
     const slider = setup(PanControl, pan(-0.5))
     slider.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }))
     flushSync()
-    const item = document.querySelector('[data-testid="value-menu-default"]') as HTMLButtonElement
-    expect(item.textContent).toContain('C')
-    item.click()
+    const item = ui.contextMenu!.items[0]!
+    expect(item.detail).toContain('C')
+    item.run()
     expect(sent).toEqual([setPan('t1', 0)])
   })
 })

@@ -24,7 +24,6 @@
   } from '../../lib/clip-commands'
   import { createDrag, DRAG_SLOP_PX, fineKey, type Drag } from '../../lib/continuous'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
-  import ValueMenu from '../../lib/components/ValueMenu.svelte'
   import type { MenuItem } from '../../lib/context-menu'
   import { chordText, positionKey, withShortcut } from '../../lib/shortcuts'
   import {
@@ -985,12 +984,14 @@
     ui.openMenu(event, items, t('pianoRoll.menu'))
   }
 
-  let laneMenu = $state<{ x: number; y: number } | null>(null)
-
+  /** The right click on the velocity lane: the bar under it joins the selection, and the shared menu offers the default velocity. */
   function laneContext(event: MouseEvent) {
-    event.preventDefault()
-    if (!chooseBar(event)) return
-    laneMenu = { x: Math.max(0, Math.min(event.clientX, window.innerWidth - 220)), y: Math.max(0, Math.min(event.clientY, window.innerHeight - 56)) }
+    if (!chooseBar(event)) return ui.openMenu(event, [])
+    ui.openMenu(
+      event,
+      [{ id: 'default', label: t('controls.default'), detail: String(DEFAULT_VELOCITY), testid: 'value-menu-default', run: resetVelocity }],
+      t('pianoRoll.velocity'),
+    )
   }
 
   // --- the keyboard column ----------------------------------------------------------------------
@@ -1474,19 +1475,6 @@
       </div>
     </div>
   </div>
-{/if}
-
-{#if laneMenu}
-  <ValueMenu
-    x={laneMenu.x}
-    y={laneMenu.y}
-    value={String(DEFAULT_VELOCITY)}
-    onreset={() => {
-      laneMenu = null
-      resetVelocity()
-    }}
-    onclose={() => (laneMenu = null)}
-  />
 {/if}
 
 <style>
