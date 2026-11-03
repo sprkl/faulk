@@ -6,6 +6,7 @@ import { writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { compile } from 'json-schema-to-typescript'
 import { mergeRoots } from './schema-merge.mjs'
+import { checkSchemaSize } from './schema-size.mjs'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 const out = fileURLToPath(new URL('../src/lib/generated/', import.meta.url))
@@ -14,12 +15,15 @@ const cargo = process.env.CARGO ?? 'cargo'
 const json = execFileSync(cargo, ['run', '-q', '-p', 'protocol', '--bin', 'export-schema'], {
   cwd: root,
   encoding: 'utf8',
-  // The bundle repeats the shared definitions in every tool of the catalog: it passed the
-  // 1 MB default of execFileSync with the clip commands.
+  // Above the 1 MB default of execFileSync since the clip commands; far above the cap of
+  // `schema-size.mjs`, so that an oversized bundle reaches the check and its message.
   maxBuffer: 256 * 1024 * 1024,
 })
 const bundle = JSON.parse(json)
-writeFileSync(out + 'schema.json', JSON.stringify(bundle, null, 2) + '\n')
+const schemaText = JSON.stringify(bundle, null, 2) + '\n'
+// Refused before writing: the file is committed, and GitHub refuses a file over 100 MB (#559).
+checkSchemaSize(schemaText, bundle)
+writeFileSync(out + 'schema.json', schemaText)
 
 // The four roots are compiled as one schema (see `schema-merge.mjs`).
 const roots = {

@@ -9,7 +9,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 18;
+pub const PROTOCOL_VERSION: u32 = 19;
+
+// Version 19 (#491): the new command `arrangement.move_to_track` (placements to other MIDI tracks); a helper of version 18 would refuse it.
 
 // Version 18 (#500): MIDI recording replace mode and quantization on input. `record.set_settings` takes optional `offset_ms`, `replace`, `quantize_on_input` and `quantize_strength` (it required `offset_ms`) and answers with the four previous values; `record.commit_take` takes optional `replace`, `quantize_on_input` and `quantize_strength` and answers with `replaced`; the event `record_settings_changed` carries the four settings; the session's `record` gains them. A helper of version 17 would refuse the new fields.
 
