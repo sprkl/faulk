@@ -8,7 +8,7 @@
   import { onMount } from 'svelte'
   import { watchLocalAccess } from '../../lib/engine/local-access'
   import { isMenuKey, menuPointOf, unhandledContextMenu } from '../../lib/context-menu'
-  import { historyShortcut, isTextTarget, layoutShortcut, saveShortcut } from '../../lib/keyboard'
+  import { gotoShortcut, historyShortcut, isTextTarget, layoutShortcut, saveShortcut } from '../../lib/keyboard'
   import { takeOpenLink } from '../../lib/open-link'
   import { isPairHash } from '../../lib/pair-link'
   import { helpShortcut, readKeyLayout } from '../../lib/shortcuts'
@@ -21,6 +21,7 @@
   import { clampHeight, panelMax } from './panel-size'
   import EngineDialog from './EngineDialog.svelte'
   import ExportDialog from './ExportDialog.svelte'
+  import GoToDialog from './GoToDialog.svelte'
   import ShortcutsDialog from './ShortcutsDialog.svelte'
   import StorageBanners from './StorageBanners.svelte'
   import TopBar from './TopBar.svelte'
@@ -166,6 +167,17 @@
         return
       }
     }
+    // Ctrl+G opens the "Go to" field in every view (#554), unless another dialog or a menu has the keyboard.
+    if (
+      gotoShortcut(event) &&
+      !ui.helpOpen &&
+      !document.querySelector('[aria-modal="true"]') &&
+      !(event.target as Element | null)?.closest?.('[role="menu"]')
+    ) {
+      event.preventDefault()
+      ui.gotoOpen = true
+      return
+    }
     // The open list holds the keyboard: no undo, redo or note behind it (the dialog keeps Escape and Tab itself).
     if (ui.helpOpen) return
     const action = historyShortcut(event)
@@ -239,6 +251,7 @@
   <ExportDialog />
   <EngineDialog />
   <ShortcutsDialog />
+  <GoToDialog />
   {#if engine.notice}
     <p class="notice" role="status">{ui.t(engine.notice)}</p>
   {/if}

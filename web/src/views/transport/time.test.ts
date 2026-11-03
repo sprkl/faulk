@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { barTicks, beatTicks, formatPosition, formatTempo, formatTime, parseNumerator, parseTempo, secondsOf, stepTempo } from './time'
+import { barTicks, beatTicks, formatPosition, formatTempo, formatTime, parseBarBeat, parseNumerator, parseTempo, secondsOf, stepTempo } from './time'
 
 const common = { numerator: 4, denominator: 4 }
 
@@ -79,5 +79,19 @@ describe('parseNumerator', () => {
     expect(parseNumerator('7')).toBe(7)
     expect(parseNumerator('32')).toBe(32)
     for (const text of ['0', '33', '', '1.5', '-1', 'a']) expect(parseNumerator(text), text).toBeNull()
+  })
+})
+
+describe('parseBarBeat', () => {
+  const four = { numerator: 4, denominator: 4 }
+  it('reads a bar, or a bar and a beat, from 1', () => {
+    expect(parseBarBeat('1', four)).toBe(0)
+    expect(parseBarBeat(' 3 ', four)).toBe(2 * 3840)
+    expect(parseBarBeat('3.2', four)).toBe(2 * 3840 + 960)
+    expect(parseBarBeat('3,4', four)).toBe(2 * 3840 + 3 * 960)
+    expect(parseBarBeat('2.1', { numerator: 3, denominator: 8 })).toBe(3 * 480)
+  })
+  it('refuses what is no position', () => {
+    for (const text of ['', 'a', '0', '1.0', '1.5', '2.', '.5', '-1', '1.2.3', '100000', '1e3']) expect(parseBarBeat(text, four), text).toBeNull()
   })
 })

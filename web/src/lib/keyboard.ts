@@ -275,6 +275,14 @@ export function saveShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'met
   return event.shiftKey ? 'save_as' : 'save'
 }
 
+/**
+ * "Go to" asked by the keyboard (#554): Ctrl or Cmd + G, in every view, not from a text field (so the open field's own
+ * Ctrl+G is left alone). It carries Ctrl or Cmd, so it never plays a note; the browser's find-next is taken.
+ */
+export function gotoShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'repeat' | 'target'>): boolean {
+  return (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && !event.repeat && event.key.toLowerCase() === 'g' && !isTextTarget(event.target)
+}
+
 /** Undo or redo asked by the keyboard (Ctrl or Cmd + Z, Shift for redo, Ctrl + Y), or null; never inside a text field. */
 export function historyShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'target'>): 'undo' | 'redo' | null {
   if (!(event.ctrlKey || event.metaKey) || event.altKey || isTextTarget(event.target)) return null

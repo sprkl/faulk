@@ -12,6 +12,7 @@ import {
   octaveStep,
   PLAYING_KEYS,
   playsNote,
+  gotoShortcut,
   saveShortcut,
   spaceTogglesTransport,
   trackFocusOrigin,
@@ -625,5 +626,17 @@ describe('arrangementShortcut (#473)', () => {
     expect(arrangementShortcut(key('KeyZ', { ctrlKey: true }))).toBeNull()
     expect(arrangementShortcut(key('KeyZ', { shiftKey: true }))).toBeNull()
     expect(arrangementShortcut(key('KeyK', { target: { closest: () => ({}) } }))).toBeNull()
+  })
+})
+
+describe('gotoShortcut (#554)', () => {
+  const press = (over: object = {}) => ({ key: 'g', ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, repeat: false, target: null, ...over })
+  it('is Ctrl or Cmd + G, nothing else', () => {
+    expect(gotoShortcut(press())).toBe(true)
+    expect(gotoShortcut(press({ ctrlKey: false, metaKey: true, key: 'G' }))).toBe(true)
+    for (const over of [{ ctrlKey: false }, { altKey: true }, { shiftKey: true }, { repeat: true }, { key: 'h' }]) expect(gotoShortcut(press(over))).toBe(false)
+  })
+  it('leaves a text field its own Ctrl+G', () => {
+    expect(gotoShortcut(press({ target: { closest: () => ({}) } }))).toBe(false)
   })
 })
