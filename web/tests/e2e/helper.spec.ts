@@ -128,6 +128,11 @@ test('without an audio output the helper keeps the page in Web mode, says so, an
   await expect(page.getByTestId('engine-waiting')).toBeVisible()
   await expect(page.getByTestId('engine-mode')).toHaveAttribute('aria-label', /Boost waits for an audio output/)
   await page.keyboard.press('Escape')
+  // The dialog is gone and the pill has the focus back before a key is played: a key pressed
+  // while the dialog still closes is the dialog's, and a held key is not pressed again.
+  await expect(page.getByTestId('engine-dialog')).toBeHidden()
+  await expect(page.locator('[aria-modal="true"]')).toHaveCount(0)
+  await expect(page.getByTestId('engine-mode')).toBeFocused()
   // The Web engine plays meanwhile.
   await page.keyboard.down('KeyA')
   await expect.poll(async () => Number(await page.getByTestId('top-meter').getAttribute('aria-valuenow')), { timeout: 10_000 }).toBeGreaterThan(-60)
