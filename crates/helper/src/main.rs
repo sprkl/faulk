@@ -17,7 +17,7 @@
 //! Once installed, the helper updates itself (`helper::updater`): Velopack's startup hook
 //! runs first, applies an update downloaded by a previous run when no other helper is
 //! running, and answers the installer's `--veloapp-*` arguments; an update thread then
-//! checks the feed at start and every six hours and downloads in the background.
+//! checks the feed at start, about every hour and when a page connects, and downloads in the background.
 
 // Release builds on Windows start without a console window.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]

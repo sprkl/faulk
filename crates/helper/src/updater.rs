@@ -12,8 +12,9 @@
 //! A helper on the stable channel reads the stable feed only, and drops every pre-release it may
 //! contain. A helper on the beta channel reads both feeds and takes the newest version.
 //!
-//! The updater runs on its own thread (`faulk-updater`): one check at start, then one every six
-//! hours or when [`Updater::check_now`] is called. An update found is downloaded in the
+//! The updater runs on its own thread (`faulk-updater`): one check at start, then one about every
+//! hour (with jitter), when a page opens a session (rate-limited, [`UpdateWatch::request_check`])
+//! or when [`Updater::check_now`] is called. An update found is downloaded in the
 //! background, then applied either at the next start ([`startup`], Velopack's default) or on
 //! request ([`Updater::apply_and_restart`]). Nothing here runs on, waits for or shares state with
 //! the audio thread.
@@ -42,8 +43,15 @@ pub const BASE_URL_ENV: &str = "FAULK_UPDATE_URL";
 pub const CHANNEL_ENV: &str = "FAULK_UPDATE_CHANNEL";
 /// Velopack package id, as given to `vpk pack --packId`.
 pub const PACKAGE_ID: &str = "FaulkHelper";
-/// Time between two automatic checks.
-pub const CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
+/// Time between two automatic checks, before the jitter ([`jittered`]). The feed is one small
+/// file, so an hourly check costs next to nothing and a release is seen within the hour.
+pub const CHECK_INTERVAL: Duration = Duration::from_secs(60 * 60);
+/// Each wait before an automatic check varies by up to this share either way, so that helpers
+/// started together do not all ask the feed at the same second.
+pub const JITTER_PERCENT: u64 = 10;
+/// A page opening a session asks for a check ([`UpdateWatch::request_check`]) only when the last
+/// one ended at least this long ago, so reloading the page cannot hammer the feed.
+pub const PAGE_CHECK_GAP: Duration = Duration::from_secs(10 * 60);
 
 const FEED_TIMEOUT_MS: u64 = 30_000;
 const PACKAGE_TIMEOUT_MS: u64 = 10 * 60_000;
@@ -753,6 +761,8 @@ pub struct Updater {
     stopping: Arc<AtomicBool>,
     /// Held by the update thread during a check or a download, and by an apply.
     busy: Arc<Mutex<()>>,
+    /// Minimum time since the last check for a page's request to start another.
+    page_gap: Duration,
 }
 
 /// How [`Updater::apply_and_restart`] makes sure no other helper is running.
@@ -822,6 +832,7 @@ impl Updater {
             instance: InstanceCheck::None,
             stopping: Arc::new(AtomicBool::new(true)),
             busy: Arc::new(Mutex::new(())),
+            page_gap: PAGE_CHECK_GAP,
         }
     }
 
@@ -867,6 +878,7 @@ impl Updater {
                 instance: InstanceCheck::None,
                 stopping,
                 busy,
+                page_gap: PAGE_CHECK_GAP,
             },
             Err(e) => Updater::disabled(format!("cannot start the update thread: {e}")),
         }
@@ -883,7 +895,15 @@ impl Updater {
             status: self.status.clone(),
             checked_at: self.checked_at.clone(),
             current: self.current.clone(),
+            commands: self.commands.clone(),
+            page_gap: self.page_gap,
         }
+    }
+
+    /// Replaces [`PAGE_CHECK_GAP`], for tests.
+    pub fn with_page_gap(mut self, gap: Duration) -> Updater {
+        self.page_gap = gap;
+        self
     }
 
     /// Asks for a check now, without waiting for it. Returns `false` when updates are disabled.
@@ -990,6 +1010,38 @@ fn set(status: &Mutex<UpdateStatus>, next: UpdateStatus) {
     *lock(status) = next;
 }
 
+/// Whether a page's request starts a check: the last check ended (`None`: the first one has not
+/// ended yet, and it is already looking) at least `gap` ago. A clock that went back counts as
+/// "just ended", so the request is refused, never granted.
+pub fn nudge_due(checked_at: Option<u64>, now: u64, gap: Duration) -> bool {
+    match checked_at {
+        None => false,
+        Some(end) => now.saturating_sub(end) >= gap.as_secs(),
+    }
+}
+
+/// `interval` moved by up to [`JITTER_PERCENT`] either way, picked by `entropy`.
+pub fn jittered(interval: Duration, entropy: u64) -> Duration {
+    let ms = interval.as_millis();
+    let span = ms * u128::from(JITTER_PERCENT) / 100;
+    let offset = u128::from(entropy) % (2 * span + 1);
+    let total = ms - span + offset;
+    Duration::from_millis(u64::try_from(total).unwrap_or(u64::MAX))
+}
+
+/// A cheap, non-cryptographic number that differs between helpers and between calls.
+fn entropy() -> u64 {
+    use std::hash::{BuildHasher, Hasher};
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    h.write_u128(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0),
+    );
+    h.finish()
+}
+
 fn unix_now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -1005,9 +1057,29 @@ pub struct UpdateWatch {
     status: Arc<Mutex<UpdateStatus>>,
     checked_at: Arc<AtomicU64>,
     current: Option<String>,
+    commands: Option<SyncSender<Command>>,
+    page_gap: Duration,
 }
 
 impl UpdateWatch {
+    /// Asks for a check because a page just connected, so that a release published since the
+    /// last automatic check is seen now and not at the next one. Rate-limited: nothing happens
+    /// while the first check has not ended, or when the last one ended less than the page gap
+    /// ago ([`nudge_due`]). Returns whether a check was requested; a check already queued or
+    /// running absorbs the request.
+    pub fn request_check(&self) -> bool {
+        let Some(tx) = &self.commands else {
+            return false;
+        };
+        if !nudge_due(self.checked_at(), unix_now(), self.page_gap) {
+            return false;
+        }
+        matches!(
+            tx.try_send(Command::CheckNow),
+            Ok(()) | Err(TrySendError::Full(_))
+        )
+    }
+
     pub fn status(&self) -> UpdateStatus {
         lock(&self.status).clone()
     }
@@ -1093,7 +1165,7 @@ fn run_loop(
             run_check(backend, status);
             checked_at.store(unix_now().max(1), Ordering::Release);
         }
-        match commands.recv_timeout(interval) {
+        match commands.recv_timeout(jittered(interval, entropy())) {
             Ok(Command::CheckNow) | Err(RecvTimeoutError::Timeout) => continue,
             Ok(Command::Shutdown) | Err(RecvTimeoutError::Disconnected) => return,
         }

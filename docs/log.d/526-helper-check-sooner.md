@@ -1,0 +1,2 @@
+2026-11-03
+* **Fix** (#526): the helper sees a new release sooner: automatic check every hour with 10 % jitter (was six hours), and a check when a page opens a session, at most once per 10 minutes (`UpdateWatch::request_check`); the page needs no new message, so `PROTOCOL_VERSION` is unchanged, and a protocol mismatch is seen on that same connection. `docs/architecture/04-distribution-helper.md` follows.
