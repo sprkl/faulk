@@ -69,6 +69,11 @@ export const arrangement = defineFeature(
     'arrangement.fitSongHint': 'Shows the whole song (Alt+Z)',
     'arrangement.clipPasses': 'plays its content {n} times',
     'arrangement.clipSelected': 'selected',
+    'arrangement.drawHint':
+      'Drag on an empty MIDI track to draw a clip of that length, to the right or to the left. Drag a clip to move it, its edges to resize it. Double-click creates a clip of one bar.',
+    'arrangement.selectHint':
+      'Drag on an empty part to select the clips in a rectangle. Drag a clip to move it, its edges to resize it. Double-click creates a clip of one bar.',
+    'arrangement.saidDrawn': 'Clip drawn at bar {bar}',
     'arrangement.saidMoved': 'Moved to bar {bar}',
     'arrangement.saidCannotMove': 'Cannot move further',
     'arrangement.saidMovedTrack': 'Moved to {track}, bar {bar}',
@@ -161,6 +166,11 @@ export const arrangement = defineFeature(
     'arrangement.fitSongHint': 'Montre tout le morceau (Alt+Z)',
     'arrangement.clipPasses': 'joue son contenu {n} fois',
     'arrangement.clipSelected': 'sélectionné',
+    'arrangement.drawHint':
+      'Glisse sur une piste MIDI vide pour dessiner un clip de cette longueur, vers la droite ou vers la gauche. Glisse un clip pour le déplacer, ses bords pour le redimensionner. Un double-clic crée un clip d’une mesure.',
+    'arrangement.selectHint':
+      'Glisse sur une zone vide pour sélectionner les clips d’un rectangle. Glisse un clip pour le déplacer, ses bords pour le redimensionner. Un double-clic crée un clip d’une mesure.',
+    'arrangement.saidDrawn': 'Clip dessiné à la mesure {bar}',
     'arrangement.saidMoved': 'Déplacé à la mesure {bar}',
     'arrangement.saidCannotMove': 'Impossible d’aller plus loin',
     'arrangement.saidMovedTrack': 'Déplacé sur {track}, mesure {bar}',
