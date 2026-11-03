@@ -212,7 +212,7 @@
   /** The length of the last note drawn or resized; null follows the snap step (reset by a change of the snap and by a new clip). */
   let lastLength = $state<number | null>(null)
   /** The velocity of a note drawn (#527): its own setting in the toolbar, never what a touched note had. */
-  let drawVelocity = $state(DEFAULT_VELOCITY)
+  let drawVelocity = $state(untrack(() => parseDrawVelocity(String(ui.recall<number>('piano-roll-draw-velocity') ?? DEFAULT_VELOCITY), DEFAULT_VELOCITY)))
   let rollEl = $state<HTMLElement>()
   let picked = $state.raw<ReadonlySet<string>>(new Set())
   let gesture = $state.raw<Gesture | null>(null)
@@ -563,8 +563,8 @@
    */
   function onWindowKeyDown(event: KeyboardEvent) {
     if (event.defaultPrevented || !edited || isTextTarget(event.target)) return
-    const target = event.target as Node | null
-    if (target !== document.body && !(target && rollEl?.contains(target))) return
+    const target = event.target
+    if (target !== document.body && !(target instanceof Node && rollEl?.contains(target))) return
     if (editShortcut(event)) event.preventDefault()
   }
 
@@ -580,6 +580,9 @@
     } else if (!event.ctrlKey && !event.metaKey && event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
       // Alt+Up and Alt+Down (#529): the selection by a semitone, Alt+Shift by an octave; as from a note's cell or the free cursor.
       transposeChosen((event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 12 : 1))
+    } else if (!event.ctrlKey && !event.metaKey && event.altKey && !event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+      // Alt+Left and Alt+Right (#550): the selection by the drawing step, from the grid as from a note's cell.
+      nudgeChosen(event.key === 'ArrowLeft' ? -1 : 1)
     } else if (!event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'PageUp' || event.key === 'PageDown') && chosenNotes.length > 0) {
       // The selection's velocity (#494), as on a note's cell.
       const key = rovingKey(event)
@@ -749,11 +752,11 @@
     const at = cursorPos
     if (action.kind === 'velocity') return changeVelocity(chosenNotes, action.delta, null)
     if (action.kind === 'move') {
-      // Alt+Up and Alt+Down transpose the selection from the free cursor too (#529); Alt+Left and Alt+Right need a note.
+      // Alt+Up and Alt+Down transpose the selection from the free cursor too (#529); Alt+Left and Alt+Right move it by the drawing step (#550).
       if (action.direction === 'up' || action.direction === 'down') {
         if (chosenNotes.length === 0) return announce(t('pianoRoll.saidNoSelection'))
         transposeChosen((action.direction === 'up' ? 1 : -1) * (event.shiftKey ? 12 : 1))
-      }
+      } else if (!event.shiftKey) nudgeChosen(action.direction === 'left' ? -1 : 1)
       return
     }
     if (action.kind === 'focus' || action.kind === 'extend') {
@@ -1088,6 +1091,7 @@
   function onDrawVelocityChange(event: Event & { currentTarget: HTMLInputElement }) {
     const input = event.currentTarget
     drawVelocity = parseDrawVelocity(input.value, drawVelocity)
+    ui.remember('piano-roll-draw-velocity', drawVelocity)
     input.value = String(drawVelocity)
   }
   function onStrengthChange(event: Event & { currentTarget: HTMLInputElement }) {
@@ -1095,6 +1099,20 @@
     const value = input.value.trim() === '' ? Number.NaN : Number(input.value)
     if (Number.isFinite(value)) quantizeStrength = Math.min(100, Math.max(0, Math.round(value)))
     input.value = String(quantizeStrength)
+  }
+
+  /** Moves the chosen notes by the drawing step (`direction` -1 or 1), heard once; said when nothing can move. */
+  function nudgeChosen(direction: -1 | 1) {
+    if (!edited) return
+    if (chosenNotes.length === 0) return announce(t('pianoRoll.saidNoSelection'))
+    const changes = moveNotes(chosenNotes, direction * (drawing ?? SIXTEENTH), 0, clipLength)
+    const ok = changes ? acceptable(notes, changes) : null
+    if (!ok || ok.length === 0 || ok.every((c) => noteKey(c.from) === noteKey(c.to))) return announce(t('pianoRoll.saidCannotMove'))
+    const chosen = chosenNotes
+    run(updateNotes(edited.id, ok))
+    picked = afterChanges(new Set(chosen.map(noteKey)), ok)
+    sound(ok[0]!.to.pitch, ok[0]!.to.velocity)
+    release()
   }
 
   /** Moves the chosen notes by semitones, heard once; nothing when one would leave the keyboard. */
