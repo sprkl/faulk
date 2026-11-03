@@ -424,6 +424,24 @@ fn only_the_first_helper_is_alone() {
 }
 
 #[test]
+fn a_released_helper_no_longer_keeps_the_next_one_from_being_alone() {
+    let path = lock_path("released");
+    // A failed start: still alive (its error on screen), its lock let go (#515).
+    let failed = started(&path);
+    assert!(!InstanceLock::take(&path, QUICK).unwrap().alone());
+    failed.release();
+    let next = InstanceLock::take(&path, QUICK).unwrap();
+    assert!(next.alone(), "the next start may apply an update");
+    // Releasing twice, or a lock that holds nothing, does nothing.
+    failed.release();
+    next.share();
+    let other = started(&path);
+    assert!(!next.claim_alone().unwrap(), "others are still seen");
+    drop((failed, next, other));
+    let _ = std::fs::remove_dir_all(path.parent().unwrap());
+}
+
+#[test]
 fn two_helpers_starting_together_are_never_both_alone() {
     let path = lock_path("together");
     for _ in 0..20 {
@@ -512,14 +530,20 @@ fn claiming_keeps_others_out_until_shared_again() {
 }
 
 #[test]
-fn the_logger_keeps_velopack_warnings_only() {
+fn the_logger_keeps_velopack_warnings_errors_and_update_manager_information_only() {
     let meta =
         |target: &'static str, level| log::Metadata::builder().target(target).level(level).build();
     let logger = JournalLog;
     use log::Log;
     assert!(logger.enabled(&meta("velopack::manager", log::Level::Warn)));
     assert!(logger.enabled(&meta("velopack", log::Level::Error)));
-    assert!(!logger.enabled(&meta("velopack::manager", log::Level::Info)));
+    // Which package (delta or full) and why a delta fell back (#515).
+    assert!(logger.enabled(&meta("velopack::manager", log::Level::Info)));
+    assert!(!logger.enabled(&meta("velopack::manager", log::Level::Debug)));
+    // The locator and the startup hook speak at every start: warnings only.
+    assert!(!logger.enabled(&meta("velopack::locator", log::Level::Info)));
+    assert!(!logger.enabled(&meta("velopack::app", log::Level::Info)));
+    assert!(logger.enabled(&meta("velopack::locator", log::Level::Warn)));
     assert!(!logger.enabled(&meta("tungstenite::protocol", log::Level::Warn)));
     assert!(!logger.enabled(&meta("midir", log::Level::Error)));
 }
@@ -1354,4 +1378,401 @@ fn the_download_address_in_the_page_texts_is_a_real_route() {
         rules().iter().any(|r| r.source_text == CATCH_ALL),
         "the catch-all is the rule this test sets aside"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Every check says how it ended (#515)
+// ---------------------------------------------------------------------------
+
+fn check_once(backend: &Arc<FakeBackend>, before: UpdateStatus) -> (Outcome, UpdateStatus) {
+    let status = Mutex::new(before);
+    let outcome = run_check(backend, &status);
+    (outcome, status.into_inner().unwrap())
+}
+
+fn v(s: &str) -> String {
+    s.into()
+}
+
+#[test]
+fn each_branch_of_a_check_ends_in_its_outcome() {
+    // Up to date.
+    let backend = Arc::new(FakeBackend::default());
+    assert_eq!(
+        check_once(&backend, UpdateStatus::Idle),
+        (
+            Outcome::UpToDate {
+                version: v("0.1.0")
+            },
+            UpdateStatus::UpToDate {
+                version: v("0.1.0")
+            }
+        )
+    );
+    // Nothing newer on the feed, a package downloaded earlier waits.
+    *backend.pending.lock().unwrap() = Some(v("0.2.0"));
+    assert_eq!(
+        check_once(&backend, UpdateStatus::Idle),
+        (
+            Outcome::Waiting {
+                version: v("0.2.0")
+            },
+            UpdateStatus::Ready {
+                version: v("0.2.0")
+            }
+        )
+    );
+    // Found and downloaded.
+    let backend = Arc::new(FakeBackend::default());
+    *backend.available.lock().unwrap() = Some(v("0.2.0"));
+    assert_eq!(
+        check_once(&backend, UpdateStatus::Idle),
+        (
+            Outcome::Downloaded {
+                version: v("0.2.0")
+            },
+            UpdateStatus::Ready {
+                version: v("0.2.0")
+            }
+        )
+    );
+    // Found again, still on disk: not downloaded twice.
+    *backend.download_fails.lock().unwrap() = true;
+    assert_eq!(
+        check_once(
+            &backend,
+            UpdateStatus::Ready {
+                version: v("0.2.0")
+            }
+        ),
+        (
+            Outcome::AlreadyDownloaded {
+                version: v("0.2.0")
+            },
+            UpdateStatus::Ready {
+                version: v("0.2.0")
+            }
+        )
+    );
+    // The feed cannot be read, with and without a package waiting.
+    *backend.check_fails.lock().unwrap() = true;
+    let (outcome, status) = check_once(&backend, UpdateStatus::Idle);
+    assert!(
+        matches!(&outcome, Outcome::CheckFailed { error: UpdateError::Network(_), pending: Some(p) } if p == "0.2.0"),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        status,
+        UpdateStatus::Ready {
+            version: v("0.2.0")
+        }
+    );
+    let fresh = Arc::new(FakeBackend::default());
+    *fresh.check_fails.lock().unwrap() = true;
+    let (outcome, status) = check_once(&fresh, UpdateStatus::Idle);
+    assert!(
+        matches!(
+            &outcome,
+            Outcome::CheckFailed {
+                error: UpdateError::Network(_),
+                pending: None
+            }
+        ),
+        "{outcome:?}"
+    );
+    assert!(matches!(status, UpdateStatus::Failed { .. }));
+    // The download fails.
+    let backend = Arc::new(FakeBackend::default());
+    *backend.available.lock().unwrap() = Some(v("0.3.0"));
+    *backend.download_fails.lock().unwrap() = true;
+    let (outcome, status) = check_once(&backend, UpdateStatus::Idle);
+    assert!(
+        matches!(&outcome, Outcome::DownloadFailed { version, pending: None, .. } if version == "0.3.0"),
+        "{outcome:?}"
+    );
+    assert!(matches!(status, UpdateStatus::Failed { .. }));
+}
+
+#[test]
+fn each_outcome_has_its_journal_line() {
+    let offline = UpdateError::Network(v("refused"));
+    let cases = [
+        (
+            Outcome::UpToDate {
+                version: v("0.1.11"),
+            },
+            "up to date (0.1.11)",
+        ),
+        (
+            Outcome::Waiting {
+                version: v("0.1.12"),
+            },
+            "no newer version; 0.1.12, downloaded earlier, is applied at the next start",
+        ),
+        (
+            Outcome::Downloaded {
+                version: v("0.1.12"),
+            },
+            "0.1.12 downloaded, applied at the next start",
+        ),
+        (
+            Outcome::AlreadyDownloaded {
+                version: v("0.1.12"),
+            },
+            "0.1.12 already downloaded, applied at the next start",
+        ),
+        (
+            Outcome::CheckFailed {
+                error: offline.clone(),
+                pending: None,
+            },
+            "check failed: network error: refused",
+        ),
+        (
+            Outcome::CheckFailed {
+                error: offline.clone(),
+                pending: Some(v("0.1.12")),
+            },
+            "check failed: network error: refused; 0.1.12, downloaded earlier, is applied at the next start",
+        ),
+        (
+            Outcome::DownloadFailed {
+                version: v("0.1.13"),
+                error: UpdateError::PackageNotFound(v("FaulkHelper-0.1.13-full.nupkg")),
+                pending: None,
+            },
+            "download of 0.1.13 failed: update package FaulkHelper-0.1.13-full.nupkg not found \
+             (incomplete release or broken redirect)",
+        ),
+    ];
+    for (outcome, line) in cases {
+        assert_eq!(outcome.line(), line);
+    }
+}
+
+#[test]
+fn the_watch_reports_the_installed_version_the_status_and_the_last_check() {
+    let backend = Arc::new(FakeBackend::default());
+    let (open, gate) = mpsc::channel();
+    *backend.gate.lock().unwrap() = Some(gate);
+    *backend.available.lock().unwrap() = Some(v("0.2.0"));
+    let updater = Updater::start_with(backend, NEVER);
+    let watch = updater.watch();
+    wait_for(&updater, |s| {
+        matches!(s, UpdateStatus::Downloading { percent: 40, .. })
+    });
+    // No check has ended yet.
+    assert_eq!(watch.checked_at(), None);
+    assert_eq!(
+        watch.message(),
+        protocol::ServerMessage::UpdateStatus {
+            current: Some(v("0.1.0")),
+            checked_at: None,
+            status: protocol::HelperUpdate::Downloading {
+                version: v("0.2.0"),
+                percent: 40
+            },
+        }
+    );
+    let before = unix_now();
+    open.send(()).unwrap();
+    wait_for(&updater, |s| matches!(s, UpdateStatus::Ready { .. }));
+    let start = Instant::now();
+    while watch.checked_at().is_none() {
+        assert!(start.elapsed() < Duration::from_secs(10));
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(watch.checked_at().unwrap() >= before);
+    updater.shutdown();
+    // A disabled updater says so, without a version.
+    let off = Updater::disabled(v("not installed"));
+    assert_eq!(
+        off.watch().message(),
+        protocol::ServerMessage::UpdateStatus {
+            current: None,
+            checked_at: None,
+            status: protocol::HelperUpdate::Disabled {
+                reason: v("not installed")
+            },
+        }
+    );
+}
+
+#[test]
+fn every_status_maps_to_the_protocol() {
+    use protocol::HelperUpdate as P;
+    let cases = [
+        (
+            UpdateStatus::Disabled { reason: v("r") },
+            P::Disabled { reason: v("r") },
+        ),
+        (UpdateStatus::Idle, P::Idle),
+        (UpdateStatus::Checking, P::Checking),
+        (
+            UpdateStatus::UpToDate { version: v("1") },
+            P::UpToDate { version: v("1") },
+        ),
+        (
+            UpdateStatus::Downloading {
+                version: v("2"),
+                percent: 7,
+            },
+            P::Downloading {
+                version: v("2"),
+                percent: 7,
+            },
+        ),
+        (
+            UpdateStatus::Ready { version: v("2") },
+            P::Ready { version: v("2") },
+        ),
+        (
+            UpdateStatus::Failed {
+                error: UpdateError::FeedNotFound,
+            },
+            P::Failed {
+                error: v("no update feed published yet"),
+            },
+        ),
+    ];
+    for (status, expected) in cases {
+        assert_eq!(to_protocol(&status), expected);
+    }
+    // The wire form the page reads.
+    let json = serde_json::to_value(protocol::ServerMessage::UpdateStatus {
+        current: Some(v("0.1.11")),
+        checked_at: Some(1_793_665_000),
+        status: P::Downloading {
+            version: v("0.1.12"),
+            percent: 40,
+        },
+    })
+    .unwrap();
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "type": "update.status",
+            "current": "0.1.11",
+            "checked_at": 1_793_665_000u64,
+            "status": { "state": "downloading", "version": "0.1.12", "percent": 40 }
+        })
+    );
+}
+
+#[test]
+fn settle_waits_for_a_check_and_its_download_within_the_limit() {
+    // Final statuses return at once.
+    for status in [
+        UpdateStatus::UpToDate { version: v("1") },
+        UpdateStatus::Ready { version: v("1") },
+        UpdateStatus::Failed {
+            error: UpdateError::FeedNotFound,
+        },
+    ] {
+        let backend = Arc::new(FakeBackend::default());
+        let updater = Updater::start_with(backend, NEVER);
+        wait_for(&updater, |s| matches!(s, UpdateStatus::UpToDate { .. }));
+        *updater.status.lock().unwrap() = status;
+        assert!(updater.watch().settle(Duration::ZERO));
+        updater.shutdown();
+    }
+    let off = Updater::disabled(v("off"));
+    assert!(off.watch().settle(Duration::ZERO));
+    // A download in progress: not settled at the limit, settled once it ends.
+    let backend = Arc::new(FakeBackend::default());
+    let (open, gate) = mpsc::channel();
+    *backend.gate.lock().unwrap() = Some(gate);
+    *backend.available.lock().unwrap() = Some(v("0.2.0"));
+    let updater = Updater::start_with(backend, NEVER);
+    let watch = updater.watch();
+    wait_for(&updater, |s| matches!(s, UpdateStatus::Downloading { .. }));
+    let start = Instant::now();
+    assert!(!watch.settle(Duration::from_millis(100)));
+    assert!(start.elapsed() >= Duration::from_millis(100));
+    let waiter = std::thread::spawn(move || watch.settle(Duration::from_secs(10)));
+    std::thread::sleep(Duration::from_millis(50));
+    open.send(()).unwrap();
+    assert!(waiter.join().unwrap(), "settled once the download ended");
+    assert!(matches!(updater.status(), UpdateStatus::Ready { .. }));
+    updater.shutdown();
+}
+
+// ---------------------------------------------------------------------------
+// Manual release check, against the live feed (#515)
+// ---------------------------------------------------------------------------
+
+/// Checks the live feed from a copy of a real installation and downloads the newest release
+/// into that copy, through the same source, Velopack calls and update step as the helper,
+/// without touching the installation itself (a delta is patched by the copy's `Update.exe`).
+/// The manual check after each release (`docs/architecture/04-distribution-helper.md`):
+///
+/// ```text
+/// FAULK_UPDATE_COPY=<copy of %LOCALAPPDATA%\FaulkHelper> FAULK_UPDATE_EXPECT=<new version> \
+///   cargo test -p helper live_feed -- --ignored --nocapture
+/// ```
+///
+/// `FAULK_UPDATE_URL` points it at another feed, as for the helper.
+#[test]
+#[ignore = "reads the live feed and needs a copy of an installation (FAULK_UPDATE_COPY)"]
+fn live_feed_update_downloads_into_a_copy_of_an_installation() {
+    // Velopack's own lines too (delta or full package), as in the helper's journal.
+    install_logger();
+    let root = PathBuf::from(
+        std::env::var("FAULK_UPDATE_COPY").expect("FAULK_UPDATE_COPY: a copy of an installation"),
+    );
+    let locator = velopack::locator::VelopackLocatorConfig {
+        RootAppDir: root.clone(),
+        UpdateExePath: root.join(if cfg!(windows) {
+            "Update.exe"
+        } else {
+            "UpdateNix"
+        }),
+        PackagesDir: root.join("packages"),
+        ManifestPath: root.join("current").join("sq.version"),
+        CurrentBinaryDir: root.join("current"),
+        IsPortable: false,
+    };
+    let config = Config::from_env();
+    let probe = UpdateManager::new(
+        velopack::sources::NoneSource {},
+        None,
+        Some(locator.clone()),
+    )
+    .expect("the copy is an installation");
+    let channel = config
+        .channel
+        .unwrap_or_else(|| Channel::for_version(&probe.get_current_version()));
+    let source = ChannelSource::http(channel, &FeedUrls::new(&config.base_url));
+    let manager = UpdateManager::new(source, None, Some(locator)).unwrap();
+    let installed = manager.get_current_version_as_string();
+    println!(
+        "installed {installed}, {} channel, feed {}",
+        channel.dir(),
+        config.base_url
+    );
+    let status = Mutex::new(UpdateStatus::Idle);
+    run_check(&manager, &status);
+    let status = status.into_inner().unwrap();
+    println!("status after the check: {status:?}");
+    match std::env::var("FAULK_UPDATE_EXPECT") {
+        Ok(expected) => {
+            assert_eq!(
+                status,
+                UpdateStatus::Ready {
+                    version: expected.clone()
+                }
+            );
+            let package = root
+                .join("packages")
+                .join(format!("{PACKAGE_ID}-{expected}-full.nupkg"));
+            assert!(package.is_file(), "{} downloaded", package.display());
+        }
+        Err(_) => assert!(
+            matches!(
+                status,
+                UpdateStatus::Ready { .. } | UpdateStatus::UpToDate { .. }
+            ),
+            "{status:?}"
+        ),
+    }
 }

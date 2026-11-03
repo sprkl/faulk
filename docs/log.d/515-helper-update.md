@@ -1,0 +1,2 @@
+2026-11-03
+* **Update** (#515): `architecture/04-distribution-helper.md` says the helper starts its updater before the audio output (a helper without an output device never checked, which is why 0.1.11 never downloaded 0.1.12), that a failed start frees its port and lets the check end, the journal line every check now writes, the `update.status` message (protocol still 15: additive) kept in `EngineStore.helperUpdate`, and adds "Vérifier chaque release", the manual check after each helper release.

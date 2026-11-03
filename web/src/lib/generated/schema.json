@@ -1223713,6 +1223713,134 @@
   "protocol_version": 15,
   "server_message": {
     "$defs": {
+      "HelperUpdate": {
+        "description": "What the helper's updater is doing.",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "Updates are off (not installed, or no feed); `reason` is for developers.",
+            "properties": {
+              "reason": {
+                "type": "string"
+              },
+              "state": {
+                "const": "disabled",
+                "type": "string"
+              }
+            },
+            "required": [
+              "state",
+              "reason"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Started, first check not done yet.",
+            "properties": {
+              "state": {
+                "const": "idle",
+                "type": "string"
+              }
+            },
+            "required": [
+              "state"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "state": {
+                "const": "checking",
+                "type": "string"
+              }
+            },
+            "required": [
+              "state"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The installed version is the newest of its channel.",
+            "properties": {
+              "state": {
+                "const": "up_to_date",
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "state",
+              "version"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "percent": {
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "state": {
+                "const": "downloading",
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "state",
+              "version",
+              "percent"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Downloaded; applied at the helper's next start or by \"Restart to update\".",
+            "properties": {
+              "state": {
+                "const": "ready",
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "state",
+              "version"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The last check or download failed; the next check retries. `error` is for developers.",
+            "properties": {
+              "error": {
+                "type": "string"
+              },
+              "state": {
+                "const": "failed",
+                "type": "string"
+              }
+            },
+            "required": [
+              "state",
+              "error"
+            ],
+            "type": "object"
+          }
+        ]
+      },
       "MidiInput": {
         "description": "A MIDI input as the helper sees it.",
         "properties": {
@@ -1223890,6 +1224018,40 @@
           "type",
           "note",
           "velocity"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The helper's self-update: sent after `midi.inputs` at the start of a session, then on\nevery change.",
+        "properties": {
+          "checked_at": {
+            "description": "End of the last check, in seconds since the Unix epoch; `None` before the first.",
+            "format": "uint64",
+            "minimum": 0,
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "current": {
+            "description": "The installed version; `None` when the helper is not installed (run from `cargo`).",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/$defs/HelperUpdate"
+          },
+          "type": {
+            "const": "update.status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "status"
         ],
         "type": "object"
       },
