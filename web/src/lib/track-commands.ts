@@ -16,6 +16,8 @@ export const moveTrack = (track: string, index: number): Command => ({ type: 'tr
 export const duplicateTrack = (track: string, name: string): Command => ({ type: 'track.duplicate', track, name })
 export const renameTrack = (track: string, name: string): Command => ({ type: 'track.rename', track, name })
 export const setTrackColor = (track: string, color: string): Command => ({ type: 'track.set_color', track, color })
+/** The height of a track's row in the arrangement, in px (28 to 176); `null` is the default of the density. Kept with the project. */
+export const setTrackHeight = (track: string, height: number | null): Command => ({ type: 'track.set_height', track, height })
 export const selectTrack = (track: string): Command => ({ type: 'view.select_track', track })
 export const setVolume = (track: string, gainDb: number | null): Command => ({ type: 'mixer.set_volume', track, gain_db: gainDb })
 export const setPan = (track: string, pan: number): Command => ({ type: 'mixer.set_pan', track, pan })
