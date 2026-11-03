@@ -11,9 +11,10 @@
   import GainControl from '../../lib/components/GainControl.svelte'
   import PanControl from '../../lib/components/PanControl.svelte'
   import { chainOf } from '../../lib/project/chain'
-  import { copyName, formatGain, formatPan, instrumentName, trackColor, trackLabel, type TrackEntry } from '../../lib/project/tracks'
+  import { formatGain, formatPan, instrumentName, trackColor, trackLabel, type TrackEntry } from '../../lib/project/tracks'
+  import { duplicateAndSelect, trackMenuItems } from '../../lib/track-menu'
   import { useStores } from '../../lib/stores'
-  import { deleteTrack, duplicateTrack, moveTrack, renameTrack, selectTrack, setTrackColor, setVolume } from '../../lib/track-commands'
+  import { deleteTrack, moveTrack, renameTrack, setTrackColor, setVolume } from '../../lib/track-commands'
 
   let {
     entry,
@@ -123,13 +124,17 @@
   /** The copy sits right below the source under a free name, and is selected so the keyboard plays it. */
   function duplicate() {
     closeMenu(false)
-    const before = new Set(project.tracks.map((e) => e.id))
-    // The names on screen once the copy is in: an unnamed track shows its position, which the copy shifts.
-    const after = project.tracks.map((e) => trackLabel({ track: e.track, index: e.index > entry.index ? e.index + 1 : e.index }, t))
-    const name = copyName(label, after)
-    dispatcher.run(duplicateTrack(entry.id, name))
-    const made = project.tracks.find((e) => !before.has(e.id))
-    if (made) dispatcher.run(selectTrack(made.id))
+    duplicateAndSelect({ project, ui, dispatcher }, entry)
+  }
+
+  /** The right click on the inspector (#524): the same actions as the header of the track's row. */
+  function onContextMenu(event: MouseEvent) {
+    if (renaming || event.defaultPrevented) return
+    ui.openMenu(
+      event,
+      trackMenuItems({ project, ui, dispatcher }, entry, { x: event.clientX, y: event.clientY }, () => void startRename()),
+      t('tracks.actions', { name: label }),
+    )
   }
 
   function remove() {
@@ -156,6 +161,7 @@
   class:muted={mixer.mute}
   bind:this={root}
   onkeydown={onRootKey}
+  oncontextmenu={onContextMenu}
   onfocusout={onRootFocusOut}
   style:--track-color={color}
   aria-label={t('tracks.inspector', { name: label })}

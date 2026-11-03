@@ -19,7 +19,9 @@
   } from '../../lib/arrangement-commands'
   import { addPoints, createLane, createMasterLane, deleteLane, removePoints, updatePoints } from '../../lib/automation-commands'
   import type { Command, Shape } from '../../lib/generated/protocol'
+  import { keepsBrowserMenu, type MenuItem } from '../../lib/context-menu'
   import { DRAG_SLOP_PX, fineKey } from '../../lib/continuous'
+  import { chordText } from '../../lib/shortcuts'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
   import ValueField from '../../lib/components/ValueField.svelte'
   import { deviceText, labelKey } from '../../lib/devices'
@@ -818,9 +820,12 @@
   }
 
   function onContextMenu(event: MouseEvent) {
+    // The field that types a point's value keeps the browser's menu.
+    if (keepsBrowserMenu(event.target) || event.defaultPrevented) return
     const { x, y } = local(event)
     const row = y >= RULER_HEIGHT ? rowAt(layout, y, y0) : null
     const ref = row?.kind === 'lane' && row.lane ? laneRefs.get(row.lane) : undefined
+    if (row && !(ref && row.lane)) return clipContext(event, row, x, y)
     if (!row || !ref || !row.lane) return
     event.preventDefault()
     const hit = hitPoint(pointsOf(ref.info.lane), ref.info.axis, x, y, shown, geoOf(row))
@@ -830,6 +835,52 @@
     }
     if (!(autoPick?.lane === row.lane && autoPick.ticks.has(hit.tick))) autoPick = { lane: row.lane, ticks: new Set([hit.tick]) }
     menu = { x: event.clientX, y: event.clientY }
+  }
+
+  /**
+   * The right click on a clip (#524): the clip joins the selection when it is not part of it, and its actions open. On the
+   * free part of a MIDI track's row: creating a clip there. Anywhere else (ruler, master, audio track) nothing opens.
+   */
+  function clipContext(event: MouseEvent, where: Row, x: number, y: number) {
+    autoPick = null
+    const cell = (event.target as Element | null)?.closest?.<HTMLElement>('[data-block]')
+    const block = cell?.dataset.block ? current(cell.dataset.block) : hitBlock(blocks, layout, x, y, shown, y0)?.block
+    const items: MenuItem[] = []
+    if (block) {
+      if (!picked.has(block.id)) picked = new Set([block.id])
+      select(block.track)
+      ui.editClip(block.clip, block.id)
+      const mod = (key: string[]) => chordText(['Mod', ...key])
+      items.push(
+        {
+          id: 'open',
+          label: t('arrangement.openInRoll'),
+          shortcut: chordText(['Enter']),
+          run: () => {
+            ui.editClip(block.clip, block.id)
+            ui.showPanel('piano-roll')
+          },
+        },
+        { id: 'duplicate', label: t('arrangement.duplicate'), shortcut: mod(['D']), separator: true, run: () => duplicate(false) },
+        { id: 'duplicate-linked', label: t('arrangement.duplicateLinked'), shortcut: mod(['Shift', 'D']), run: () => duplicate(true) },
+        { id: 'split', label: t('arrangement.split'), shortcut: mod(['E']), disabled: cuts.length === 0, run: splitSelected },
+        { id: 'delete', label: t('arrangement.delete'), shortcut: chordText(['Delete']), separator: true, run: removeSelected },
+      )
+    } else {
+      const entry = where.kind === 'track' ? entries[where.track] : undefined
+      const start = Math.floor(snapTick(xToTick(x, shown), stepOf(event)) / bar) * bar
+      if (entry && isMidi(entry.track) && isFree(blocks, where.track, start, start + bar)) {
+        items.push({
+          id: 'create',
+          label: t('pianoRoll.createClip'),
+          run: () => {
+            select(entry.id)
+            run(createClipAt(entry.id, start, bar))
+          },
+        })
+      }
+    }
+    ui.openMenu(event, items, t('arrangement.menu'))
   }
 
   /** Opens the field to type the value of the point under a double click. */

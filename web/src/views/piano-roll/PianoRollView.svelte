@@ -25,6 +25,8 @@
   import { createDrag, DRAG_SLOP_PX, fineKey, type Drag } from '../../lib/continuous'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
   import ValueMenu from '../../lib/components/ValueMenu.svelte'
+  import type { MenuItem } from '../../lib/context-menu'
+  import { chordText } from '../../lib/shortcuts'
   import {
     DEFAULT_PX_PER_TICK,
     SNAP_SETTINGS,
@@ -924,6 +926,48 @@
     return true
   }
 
+  /**
+   * The right click on the stage (#524): on a note, the actions of the selection (the note becomes the selection when it
+   * is not part of it); on the empty grid, those that do not need a selection. Nothing on the ruler and when there is
+   * nothing to do. The notes' cells answer the Menu key and Shift+F10 the same way.
+   */
+  function stageContext(event: MouseEvent) {
+    if (event.defaultPrevented) return
+    if (!edited || !track || gesture) return
+    const { x, y } = local(event, stage)
+    const cell = (event.target as Element | null)?.closest?.<HTMLElement>('[data-note]')
+    const onRuler = !cell && y < RULER_HEIGHT
+    if (onRuler) return
+    const key =
+      cell?.dataset.note ??
+      (() => {
+        const hit = hitNote(notes, x, y, shown, layout)
+        return hit ? noteKey(notes[hit.index]!) : null
+      })()
+    if (key !== null && !picked.has(key)) picked = new Set([key])
+    const items: MenuItem[] = []
+    const some = key !== null || chosenNotes.length > 0
+    const mod = (letter: string) => chordText(['Mod', letter])
+    if (notes.length > 0) items.push({ id: 'quantize', label: t('pianoRoll.quantize'), run: quantizeNow })
+    if (some) {
+      items.push(
+        { id: 'duplicate', label: t('pianoRoll.duplicate'), shortcut: mod('D'), run: duplicateChosen },
+        { id: 'copy', label: t('pianoRoll.copy'), shortcut: mod('C'), separator: true, run: copyChosen },
+        {
+          id: 'cut',
+          label: t('pianoRoll.cut'),
+          shortcut: mod('X'),
+          run: () => {
+            if (copyChosen()) removeSelected()
+          },
+        },
+      )
+    }
+    if (boardNotes().length > 0) items.push({ id: 'paste', label: t('pianoRoll.paste'), shortcut: mod('V'), run: pasteBoard })
+    if (some) items.push({ id: 'delete', label: t('pianoRoll.delete'), shortcut: chordText(['Delete']), separator: true, run: removeSelected })
+    ui.openMenu(event, items, t('pianoRoll.menu'))
+  }
+
   let laneMenu = $state<{ x: number; y: number } | null>(null)
 
   function laneContext(event: MouseEvent) {
@@ -1261,6 +1305,7 @@
         onpointerup={onPointerUp}
         onpointercancel={() => finish(false)}
         onlostpointercapture={() => gesture && finish(false)}
+        oncontextmenu={stageContext}
         onkeydown={onKeyDown}
       >
         <TimeGrid bind:this={grid} {signature} {totalBars} bind:view {snap} {playhead} drawBody={body} label={t('pianoRoll.grid', { name: clipName })} />

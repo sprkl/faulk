@@ -11,6 +11,7 @@
   import ValueField from '../../lib/components/ValueField.svelte'
   import { formatGain, instrumentName, MAX_GAIN_DB, trackColor, trackLabel, type DragHooks, type TrackEntry } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
+  import { trackMenuItems } from '../../lib/track-menu'
   import { armTrack, renameTrack, selectTrack, setMute, setSolo, setVolume } from '../../lib/track-commands'
   import { parseGainEntry } from '../../lib/value-entry'
   import { CLIP_ROW, CLIP_ROW_MAX, CLIP_ROW_MIN, clampClipRow } from './automation/layout'
@@ -49,7 +50,8 @@
     children?: Snippet
   } = $props()
 
-  const { ui, dispatcher, meters, automated } = useStores()
+  const stores = useStores()
+  const { ui, dispatcher, meters, automated } = stores
   const t = ui.t
 
   const track = $derived(entry.track)
@@ -148,6 +150,16 @@
     if (!selected) dispatcher.run(selectTrack(entry.id))
   }
 
+  /** The right click on the row (#524): the track's actions. The rename field keeps the browser's menu. */
+  function onContextMenu(event: MouseEvent) {
+    if (renaming || event.defaultPrevented) return
+    ui.openMenu(
+      event,
+      trackMenuItems(stores, entry, { x: event.clientX, y: event.clientY }, () => void startRename()),
+      t('tracks.actions', { name }),
+    )
+  }
+
   // --- the height handle: a drag, the arrows, or a double click for the default -----------------------------------
   let resize: { id: number; y: number; from: number } | null = null
 
@@ -209,6 +221,7 @@
   data-height={height}
   ondragover={onDragOver}
   ondrop={onDrop}
+  oncontextmenu={onContextMenu}
 >
   <span
     class="grip"
