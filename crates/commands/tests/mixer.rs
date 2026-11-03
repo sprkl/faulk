@@ -315,9 +315,8 @@ fn a_missing_nullable_gain_is_refused_at_parsing() {
 fn the_schema_states_the_ranges_and_the_kinds() {
     let tools = commands::catalog();
     let tool = |n: &str| tools.iter().find(|t| t.name == n).unwrap();
-    assert_eq!(tool("mixer.set_solo").kind, commands::Kind::Live);
-    assert_eq!(tool("mixer.set_solo").undo, commands::UndoKind::None);
     for n in [
+        "mixer.set_solo",
         "mixer.set_volume",
         "mixer.set_pan",
         "mixer.set_master_pan",
@@ -358,12 +357,13 @@ fn the_schema_states_the_ranges_and_the_kinds() {
 }
 
 #[test]
-fn solo_is_session_state_never_in_the_history_nor_the_project() {
+fn solo_is_session_state_never_in_the_project_but_undoable() {
     let f = fixture();
     let mut s = f.state.clone();
     let project_json = serde_json::to_string(&s.project).unwrap();
-    let history_before = s.history.clone();
-    let outcome = run(&solo(&f.track, true), &mut s, &mut context()).unwrap();
+    let entries = s.history.undo.len();
+    let mut ctx = context();
+    let outcome = run(&solo(&f.track, true), &mut s, &mut ctx).unwrap();
     assert_eq!(
         outcome.events[..1],
         [ProjectEvent::SoloChanged {
@@ -372,22 +372,35 @@ fn solo_is_session_state_never_in_the_history_nor_the_project() {
         }]
     );
     assert!(s.session.solo.contains(&f.track));
-    assert_eq!(s.history, history_before, "solo never enters the history");
+    assert_eq!(s.history.undo.len(), entries + 1, "solo is undoable (#473)");
+    assert_eq!(s.history.undo.last().unwrap().name, "mixer.set_solo");
     assert_eq!(s.project, f.state.project);
     let after = serde_json::to_string(&s.project).unwrap();
     assert_eq!(after, project_json, "the project text does not change");
     assert!(!after.contains("solo"));
-    // Undo goes to the edit before the solo and leaves the solo alone.
-    run(&undo(), &mut s, &mut context()).unwrap();
+    // No event of a solo or of its undo changes the project: the host saves the session only.
+    assert!(outcome.events.iter().all(|e| !e.changes_project()));
+    // Undo takes the solo back, redo gives it again.
+    let undone = run(&undo(), &mut s, &mut ctx).unwrap();
+    assert!(s.session.solo.is_empty());
+    assert!(undone.events.iter().all(|e| !e.changes_project()));
+    run(
+        &Command::History(commands::history::Command::Redo {}),
+        &mut s,
+        &mut ctx,
+    )
+    .unwrap();
     assert!(s.session.solo.contains(&f.track));
-    // Setting it twice is silent; clearing it is an event.
-    let again = run(&solo(&f.track, true), &mut s, &mut context()).unwrap();
+    // Setting it twice is silent and records nothing; clearing it is an event.
+    let entries = s.history.undo.len();
+    let again = run(&solo(&f.track, true), &mut s, &mut ctx).unwrap();
     assert!(again.events.is_empty());
+    assert_eq!(s.history.undo.len(), entries);
     assert_eq!(
         again.output,
         Output::Mixer(mixer::Output::SetSolo { previous: true })
     );
-    let cleared = run(&solo(&f.track, false), &mut s, &mut context()).unwrap();
+    let cleared = run(&solo(&f.track, false), &mut s, &mut ctx).unwrap();
     assert!(!cleared.events.is_empty());
     assert!(s.session.solo.is_empty());
 }

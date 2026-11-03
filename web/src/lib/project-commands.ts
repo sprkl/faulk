@@ -1,7 +1,7 @@
 import type { Command } from './generated/protocol'
 
 /** The commands of the project menu (SV-2, SV-3): the page's storage runs them (`lib/storage`); the export (#297) renders in the page. */
-export const newProject = (): Command => ({ type: 'project.new' })
+export const newProject = (name?: string): Command => (name === undefined ? { type: 'project.new' } : { type: 'project.new', name })
 export const save = (): Command => ({ type: 'project.save' })
 export const saveAs = (): Command => ({ type: 'project.save_as' })
 export const exportPack = (): Command => ({ type: 'project.export_pack' })
@@ -18,6 +18,8 @@ export const listStored = (): Command => ({ type: 'project.list_stored' })
 export const isListStored = (command: Command): boolean => command.type === 'project.list_stored'
 /** Whether a command starts a new project: the storage asks first when changes would be lost, then runs it in the core. */
 export const isNewProject = (command: Command): boolean => command.type === 'project.new'
+/** The name a `project.new` gives the new project (an agent's), `undefined` when the page is to name it (#473). */
+export const newProjectName = (command: Command): string | undefined => (command.type === 'project.new' ? (command.name ?? undefined) : undefined)
 export const reopenLast = (): Command => ({ type: 'project.reopen_last' })
 export const openFolder = (): Command => ({ type: 'project.open_folder' })
 export const openRecent = (id: string): Command => ({ type: 'project.open_recent', id })

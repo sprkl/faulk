@@ -17,6 +17,12 @@ import {
   resizeTo,
   resized,
   rowAt,
+  passesOf,
+  passCount,
+  markerJump,
+  openingView,
+  wholeSongView,
+  clipPosition,
   splittable,
   type Block,
 } from './arrangement'
@@ -194,10 +200,12 @@ describe('resize', () => {
   it('keeps the start edge inside the clip and the timeline', () => {
     // A placement of the 1920-long clip b, which has a loop: no upper bound but the end.
     expect(resizeTo(p3, 'start', 8900, null)).toBe(8900)
-    // The start cannot go before tick 0 nor, without a loop, show past the last tick of the clip (3840).
+    // The start cannot go before the clip's first tick nor tick 0; a clip without a loop repeats (#473), so the start
+    // may go past its last tick, up to the end.
     const far: Block = { ...get('p1'), start: 3000, end: 9000, length: 6000, offset: 1000 }
     expect(resizeTo(far, 'start', 0, null)).toBe(2000)
-    expect(resizeTo(far, 'start', 8000, null)).toBe(3000 + 3840 - 1000 - 1)
+    expect(resizeTo(far, 'start', 8000, null)).toBe(8000)
+    expect(resized(far, 'start', 8000)).toMatchObject({ start: 8000, offset: (1000 + 5000) % 3840 })
     const deep: Block = { ...far, start: 500, offset: 2000 }
     expect(resizeTo(deep, 'start', 0, null)).toBe(0)
   })
@@ -221,16 +229,40 @@ describe('split', () => {
     expect(splittable([p1, get('q1')], 2000).map((b) => b.id)).toEqual(['p1', 'q1'])
   })
 
-  it('refuses where a clip without a loop has ended, and not where its loop goes on', () => {
+  it('cuts anywhere inside a block: a clip repeats, its loop or the whole clip (#473)', () => {
     expect(playsAt(short, 3839)).toBe(true)
-    expect(playsAt(short, 3840)).toBe(false)
-    expect(splittable([short], 5000)).toEqual([])
+    expect(playsAt(short, 3840)).toBe(true)
+    expect(splittable([short], 5000).map((b) => b.id)).toEqual(['s'])
     expect(splittable([looped], 5000).map((b) => b.id)).toEqual(['l'])
+    expect(playsAt({ ...p1, offset: 3000 }, 1000)).toBe(true)
   })
 
-  it('counts the offset', () => {
-    expect(playsAt({ ...p1, offset: 3000 }, 1000)).toBe(false)
-    expect(playsAt({ ...p1, offset: 3000 }, 500)).toBe(true)
+  it('counts the passes and draws a boundary at each repeat', () => {
+    // The whole clip (3840) twice in 7680.
+    expect(passesOf(short)).toEqual([
+      { at: 0, from: 0 },
+      { at: 3840, from: 0 },
+    ])
+    // From an offset: the first pass is shorter.
+    expect(passesOf({ ...short, offset: 1000 }).map((p) => p.at)).toEqual([0, 2840, 6680])
+    // A loop [480, 1920): the first pass to 1920, then every 1440.
+    expect(passesOf(looped).map((p) => p.at)).toEqual([0, 1920, 3360, 4800, 6240])
+    expect(passesOf({ ...p1, end: p1.start + 100, length: 100 })).toHaveLength(1)
+    // Counted without a walk, and listed from a tick in the middle.
+    expect(passCount(short)).toBe(2)
+    expect(passCount(looped)).toBe(5)
+    expect(passCount({ ...short, end: 3840 * 400, length: 3840 * 400 })).toBe(400)
+    expect(passesOf(looped, 256, 5000).map((p) => p.at)).toEqual([4800, 6240])
+    // An offset past the loop's end plays from its place in the loop.
+    const late = { ...looped, offset: 2400, end: 2880, length: 2880 }
+    expect(passesOf(late)[0]).toEqual({ at: 0, from: 480 + ((2400 - 1920) % 1440) })
+    expect(passCount(late)).toBe(3)
+  })
+
+  it('finds the clip position round the clip or its loop', () => {
+    expect(clipPosition(short, 5000)).toBe(5000 - 3840)
+    expect(clipPosition(looped, 1920)).toBe(480)
+    expect(clipPosition(looped, 3400)).toBe(480 + ((3400 - 1920) % 1440))
   })
 })
 
@@ -260,5 +292,46 @@ describe('copy shift', () => {
   it('is none for nothing, or when the copy would leave the timeline', () => {
     expect(copyShift([])).toBeNull()
     expect(copyShift([{ ...get('p1'), start: MAX_TICK - 10, end: MAX_TICK }])).toBeNull()
+  })
+})
+
+describe('sections and zoom (#473)', () => {
+  const marks = [
+    { id: 'a', tick: 0, name: 'Intro' },
+    { id: 'b', tick: 3840 * 8, name: 'Verse' },
+    { id: 'c', tick: 3840 * 8, name: 'Fill' },
+    { id: 'd', tick: 3840 * 16, name: 'Chorus' },
+  ]
+
+  it('jumps to the next marker after the playhead and the previous one before it', () => {
+    expect(markerJump(marks, 0, 1)?.id).toBe('b')
+    expect(markerJump(marks, 3840 * 8, 1)?.id).toBe('d')
+    expect(markerJump(marks, 3840 * 16, 1)).toBeNull()
+    expect(markerJump(marks, 3840 * 16, -1)?.id).toBe('c')
+    expect(markerJump(marks, 0, -1)).toBeNull()
+    expect(markerJump([], 100, 1)).toBeNull()
+    // From the first of two markers on one tick, the next is the second, then the one after.
+    expect(markerJump(marks, 3840 * 8, 1, 'b')?.id).toBe('c')
+    expect(markerJump(marks, 3840 * 8, 1, 'c')?.id).toBe('d')
+    expect(markerJump(marks, 3840 * 8, -1, 'c')?.id).toBe('b')
+  })
+
+  it('opens on 16 to 32 bars from bar 1', () => {
+    const bar = 3840
+    const bars = (v: { pxPerTick: number } | null) => (v ? Math.round(1000 / (v.pxPerTick * bar)) : null)
+    expect(bars(openingView(0, bar, 1000))).toBe(16)
+    expect(bars(openingView(bar * 20, bar, 1000))).toBe(20)
+    expect(bars(openingView(bar * 200, bar, 1000))).toBe(32)
+    expect(openingView(bar * 20, bar, 1000)?.scrollTick).toBe(0)
+    // No width yet: no view (it waits).
+    expect(openingView(bar * 20, bar, 0)).toBeNull()
+  })
+
+  it('shows the whole song and a bar more', () => {
+    const bar = 3840
+    const bars = (v: { pxPerTick: number } | null) => (v ? Math.round(1000 / (v.pxPerTick * bar)) : null)
+    expect(bars(wholeSongView(bar * 40, bar, 1000))).toBe(41)
+    expect(bars(wholeSongView(bar * 3, bar, 1000))).toBe(17)
+    expect(wholeSongView(bar * 40, bar, Number.NaN)).toBeNull()
   })
 })

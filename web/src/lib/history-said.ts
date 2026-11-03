@@ -8,6 +8,7 @@ import { messages } from './i18n/app'
 import { COMMAND_LABEL_PREFIX } from './i18n/history'
 import type { MessageKey } from './i18n'
 import { redo, undo } from './track-commands'
+import { label } from './history-label'
 
 /** The label of a history entry: its first command's, translated; a command without one shows its name in words. */
 export function commandLabel(t: (key: MessageKey) => string, name: string): string {
@@ -40,6 +41,7 @@ export function runHistory(host: HistoryHost, ui: Announcer, action: 'undo' | 'r
   const after = host.history()
   const moved = (action === 'undo' ? after.redo : after.undo).at(-1)
   if (moved?.id !== entry.id) return
-  const what = commandLabel(ui.t, entry.name)
+  // The entry's own words: the objects it named (#473), else its command's label.
+  const what = label(entry, ui.t)
   ui.announceHistory(ui.t(action === 'undo' ? 'history.saidUndone' : 'history.saidRedone', { what }))
 }

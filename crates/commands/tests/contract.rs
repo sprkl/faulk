@@ -17,6 +17,7 @@ mod automation_examples;
 mod clip_examples;
 mod device_examples;
 mod grid_examples;
+mod marker_examples;
 mod query_examples;
 mod record_examples;
 mod track_examples;
@@ -52,7 +53,7 @@ fn examples() -> Vec<(Command, State)> {
         on(Command::Project(project::Command::Open {
             folder: commands::testing::OPENED_FOLDER.into(),
         })),
-        on(Command::Project(project::Command::New {})),
+        on(Command::Project(project::Command::New { name: None })),
         on(Command::Project(project::Command::Save {})),
         on(Command::Project(project::Command::SaveAs {})),
         on(Command::Project(project::Command::ExportPack {})),
@@ -188,6 +189,7 @@ fn examples() -> Vec<(Command, State)> {
     .chain(automation_examples::examples())
     .chain(query_examples::examples())
     .chain(record_examples::examples())
+    .chain(marker_examples::examples())
     .collect()
 }
 

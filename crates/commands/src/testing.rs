@@ -42,7 +42,8 @@ impl Checked for crate::Command {
 /// - its metadata are consistent ([`Meta::check`]);
 /// - it applies, and its output answers to its name;
 /// - `live` leaves the project as it was; `query` leaves everything as it was;
-///   `edit` changes the state and reports at least one event;
+///   `edit` changes the state and reports at least one event; `setting` changes the
+///   project, reports at least one event and leaves the history alone;
 /// - `undo: inverse`: the inverse is an `edit`, applying it restores the state
 ///   exactly and reports events, and the inverse's own inverse (redo) brings the
 ///   edited state back and reports events;
@@ -73,6 +74,15 @@ pub fn check<C: Checked>(command: &C, state: &State, ctx: &Context) -> Result<()
         }
         Kind::Edit if state == before => {
             return Err(format!("{name}: an edit changed nothing"));
+        }
+        Kind::Setting if outcome.events.is_empty() => {
+            return Err(format!("{name}: a setting reports at least one event"));
+        }
+        Kind::Setting if state.project == before.project => {
+            return Err(format!("{name}: a setting changed no project setting"));
+        }
+        Kind::Setting if state.history != before.history => {
+            return Err(format!("{name}: a setting changed the history"));
         }
         _ => {}
     }

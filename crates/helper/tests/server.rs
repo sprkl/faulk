@@ -6,8 +6,9 @@ use helper::audio::{AudioCore, Meter, audio_core};
 use helper::midi::MidiManager;
 use helper::security::Policy;
 use helper::server::{HelperEvent, Shared, serve};
-use protocol::{ClientMessage, PROTOCOL_VERSION, ServerMessage};
-use std::sync::atomic::AtomicBool;
+use helper::updater::{Backend, UpdateStatus, UpdateWatch, Updater};
+use protocol::{ClientMessage, HelperUpdate, PROTOCOL_VERSION, ServerMessage};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
 use tokio::net::TcpStream;
@@ -29,6 +30,10 @@ struct Harness {
 }
 
 async fn start() -> Harness {
+    start_with_updates(None).await
+}
+
+async fn start_with_updates(updates: Option<UpdateWatch>) -> Harness {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let meter = Arc::new(Meter::default());
@@ -40,7 +45,7 @@ async fn start() -> Harness {
     let events = Arc::new(Mutex::new(Vec::new()));
     let audio_error = Arc::new(AtomicBool::new(false));
     let (shown, seen) = (code.clone(), events.clone());
-    let shared = Arc::new(Shared::new(
+    let shared = Shared::new(
         Policy {
             port,
             allowed_origins: vec![ORIGIN.into()],
@@ -58,7 +63,11 @@ async fn start() -> Harness {
             }
             seen.lock().unwrap().push(event);
         }),
-    ));
+    );
+    let shared = Arc::new(match updates {
+        Some(watch) => shared.with_updates(watch),
+        None => shared,
+    });
     tokio::spawn(serve(listener, shared));
     Harness {
         port,
@@ -410,4 +419,130 @@ async fn an_unchanged_report_is_not_sent_again() {
         }
     }
     assert_eq!(frames, 0, "the same report was sent again");
+}
+
+/// An update found at start whose download waits for the test.
+struct GatedUpdate {
+    gate: Mutex<Option<mpsc::Receiver<()>>>,
+    downloaded: AtomicBool,
+}
+
+impl Backend for GatedUpdate {
+    fn current_version(&self) -> String {
+        "0.1.11".into()
+    }
+
+    fn check(&self) -> Result<Option<velopack::UpdateInfo>, velopack::Error> {
+        if self.downloaded.load(Ordering::SeqCst) {
+            return Ok(None);
+        }
+        Ok(Some(velopack::UpdateInfo {
+            TargetFullRelease: velopack::VelopackAsset {
+                Version: "0.1.12".into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        }))
+    }
+
+    fn download(
+        &self,
+        _update: &velopack::UpdateInfo,
+        progress: mpsc::Sender<i16>,
+    ) -> Result<(), velopack::Error> {
+        let _ = progress.send(40);
+        if let Some(gate) = self.gate.lock().unwrap().take() {
+            let _ = gate.recv();
+        }
+        self.downloaded.store(true, Ordering::SeqCst);
+        Ok(())
+    }
+
+    fn pending(&self) -> Option<velopack::VelopackAsset> {
+        self.downloaded
+            .load(Ordering::SeqCst)
+            .then(|| velopack::VelopackAsset {
+                Version: "0.1.12".into(),
+                ..Default::default()
+            })
+    }
+
+    fn apply_and_restart(
+        &self,
+        _asset: &velopack::VelopackAsset,
+        _args: &[String],
+    ) -> Result<(), velopack::Error> {
+        Ok(())
+    }
+}
+
+/// Next `update.status` message, skipping the others.
+async fn next_update(ws: &mut Ws) -> (Option<String>, Option<u64>, HelperUpdate) {
+    loop {
+        if let ServerMessage::UpdateStatus {
+            current,
+            checked_at,
+            status,
+        } = next(ws).await
+        {
+            return (current, checked_at, status);
+        }
+    }
+}
+
+#[tokio::test]
+async fn the_session_is_told_the_update_status_at_start_and_on_change() {
+    let (open, gate) = mpsc::channel();
+    let backend = GatedUpdate {
+        gate: Mutex::new(Some(gate)),
+        downloaded: AtomicBool::new(false),
+    };
+    let updater = Updater::start_with(backend, Duration::from_secs(3600));
+    // The download has started (and waits) before the page connects.
+    for _ in 0..500 {
+        if matches!(
+            updater.status(),
+            UpdateStatus::Downloading { percent: 40, .. }
+        ) {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let h = start_with_updates(Some(updater.watch())).await;
+    let mut ws = connect(h.port, &format!("/session?token={TOKEN}"), Some(ORIGIN))
+        .await
+        .unwrap();
+    assert!(matches!(next(&mut ws).await, ServerMessage::Hello { .. }));
+    assert!(matches!(
+        next(&mut ws).await,
+        ServerMessage::MidiInputs { .. }
+    ));
+    // Third message of the session: the update in progress.
+    assert_eq!(
+        next(&mut ws).await,
+        ServerMessage::UpdateStatus {
+            current: Some("0.1.11".into()),
+            checked_at: None,
+            status: HelperUpdate::Downloading {
+                version: "0.1.12".into(),
+                percent: 40
+            },
+        }
+    );
+    // The download ends: the change reaches the page within the ticker's second.
+    open.send(()).unwrap();
+    let (current, mut checked_at, status) = next_update(&mut ws).await;
+    assert_eq!(current.as_deref(), Some("0.1.11"));
+    assert_eq!(
+        status,
+        HelperUpdate::Ready {
+            version: "0.1.12".into()
+        }
+    );
+    // The end of the check may come with the same message or the next one.
+    if checked_at.is_none() {
+        checked_at = next_update(&mut ws).await.1;
+    }
+    assert!(checked_at.is_some());
+    updater.shutdown();
 }

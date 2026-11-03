@@ -186,9 +186,10 @@ fn an_insertion_inside_a_placement_splits_it_and_resumes_the_clip_through_its_lo
 }
 
 #[test]
-fn a_clip_without_a_loop_that_ended_leaves_no_right_part() {
+fn a_clip_without_a_loop_resumes_round_the_whole_clip() {
     let f = base();
-    // C: offset 480, the clip is 3840 long: its content ends 3360 ticks in.
+    // C: offset 480, the clip is 3840 long without a loop: it repeats (#473), so the right
+    // part resumes where the left one stops, round the clip.
     let mut s = f.state.clone();
     ok(&mut s, &insert(11000, 100));
     assert_eq!(
@@ -197,7 +198,10 @@ fn a_clip_without_a_loop_that_ended_leaves_no_right_part() {
     );
     let mut s = f.state.clone();
     ok(&mut s, &insert(11500, 100));
-    assert_eq!(spans(&s, &f.track)[2..], [(7680, 3820, 480)]);
+    assert_eq!(
+        spans(&s, &f.track)[2..],
+        [(7680, 3820, 480), (11600, 20, 460)]
+    );
 }
 
 #[test]
@@ -227,7 +231,6 @@ fn a_deletion_cuts_both_edges_removes_the_inside_and_closes_the_gap() {
             points_removed: 0,
             points_shifted: 0,
             loop_changed: false,
-            clips_removed: 0
         }
     );
     assert_eq!(
@@ -264,7 +267,6 @@ fn a_deletion_cuts_both_edges_removes_the_inside_and_closes_the_gap() {
             removed: 1,
             cut: 0,
             shifted: 1,
-            clips_removed: 0,
             ..
         }
     ));
@@ -272,20 +274,22 @@ fn a_deletion_cuts_both_edges_removes_the_inside_and_closes_the_gap() {
 }
 
 #[test]
-fn a_deletion_that_removes_the_last_placement_of_a_clip_removes_the_clip_and_the_undo_returns_it() {
+fn a_deletion_that_removes_the_last_placement_of_a_clip_keeps_the_clip_in_the_pool() {
     let f = base();
     let mut state = f.state.clone();
     let mut ctx = context();
     let outcome = run(&delete(7000, 5000), &mut state, &mut ctx).unwrap();
-    let Output::Arrangement(arrangement::Output::DeleteTime { clips_removed, .. }) = outcome.output
-    else {
-        panic!()
-    };
-    assert_eq!(clips_removed, 1);
+    // #473: the clip stays in its track, with no placement and no slot.
     assert!(
-        !state.project.tracks[&f.track]
+        state.project.tracks[&f.track]
             .clips
             .contains_key(&f.straight)
+    );
+    assert!(
+        !state.project.tracks[&f.track]
+            .placements
+            .values()
+            .any(|p| p.clip == f.straight)
     );
     let Undo::Inverse(inverse) = outcome.undo else {
         panic!()
@@ -507,6 +511,7 @@ fn restore_time_refuses_what_is_not_a_valid_restoration() {
             edits: vec![],
             lanes: l,
             transport: None,
+            markers: vec![],
         })
     };
     let named = |points: Vec<commands::automation::Point>| LanePoints {
@@ -532,6 +537,7 @@ fn restore_time_refuses_what_is_not_a_valid_restoration() {
                 loop_region: None,
                 loop_enabled: true,
             }),
+            markers: vec![],
         }),
         a(arrangement::Command::RestoreTime {
             edits: vec![],
@@ -543,6 +549,7 @@ fn restore_time_refuses_what_is_not_a_valid_restoration() {
                 }),
                 loop_enabled: false,
             }),
+            markers: vec![],
         }),
     ] {
         let error = check_refusal(&command, &s, &context()).unwrap();

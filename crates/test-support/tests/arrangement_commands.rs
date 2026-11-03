@@ -270,3 +270,24 @@ fn a_trimmed_placement_plays_the_clip_from_the_offset_the_command_computed() {
     r.assert_silent(0.05..0.9);
     r.assert_audible(1.05..1.2, 0.05);
 }
+
+#[test]
+fn a_stretched_clip_without_a_loop_repeats_its_content_in_both_builds() {
+    // #473: the one-bar clip (a note at its start, 2 s a bar at 120 BPM) stretched to two
+    // bars plays its note again at 2 s; the grid's rule (once) is not the arrangement's.
+    let mut song = start();
+    let s = &mut song.session;
+    s.run(arr(arrangement::Command::Resize {
+        placement: song.first.clone(),
+        edge: arrangement::Edge::End,
+        to: Tick(7680),
+    }));
+    assert_in_sync(s, "stretch");
+    s.run(Command::Transport(commands::transport::Command::Play {}));
+    s.render_secs(2.6);
+    let r = parity(s.scenario());
+    r.assert_clean();
+    r.assert_audible(0.05..0.2, 0.05);
+    r.assert_silent(0.9..1.9);
+    r.assert_audible(2.05..2.2, 0.05);
+}

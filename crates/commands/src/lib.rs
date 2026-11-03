@@ -11,6 +11,7 @@
 //! derives names, metadata, schema and the MCP tool [`catalog`] from the domains.
 
 pub mod contract;
+pub mod describe;
 pub mod engine_msgs;
 pub mod export;
 pub mod host;
@@ -24,6 +25,7 @@ pub mod device;
 pub mod history;
 pub mod launch;
 pub mod live;
+pub mod marker;
 pub mod midi;
 pub mod mixer;
 pub mod note;

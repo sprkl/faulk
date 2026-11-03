@@ -170,13 +170,20 @@ fn an_irreversible_edit_empties_both_stacks() {
         undo: UndoKind::None,
         destructive: true,
     };
-    assert!(hist.record(destructive, &Undo::None, &Author::User, None, 0));
+    assert!(hist.record(destructive, &Undo::None, &Author::User, None, 0, None));
     assert!(!hist.can_undo() && !hist.can_redo());
     // Nothing left to empty: the history does not change.
-    assert!(!hist.record(destructive, &Undo::None, &Author::User, None, 0));
+    assert!(!hist.record(destructive, &Undo::None, &Author::User, None, 0, None));
     // An edit without inverse that is not destructive (a no-op) records nothing.
     let mut kept = f.state.history.clone();
-    assert!(!kept.record(rename("x").meta(), &Undo::None, &Author::User, None, 0));
+    assert!(!kept.record(
+        rename("x").meta(),
+        &Undo::None,
+        &Author::User,
+        None,
+        0,
+        None
+    ));
     assert_eq!(kept, f.state.history);
 }
 
@@ -313,6 +320,8 @@ fn an_entry_that_fails_halfway_leaves_the_state_and_history_untouched() {
         id: 0,
         at: 0,
         name: "device.set_param",
+        subject: None,
+        others: 0,
         author: Author::User,
         group: Some(GroupId(99)),
         commands: vec![set(&missing, "attack", 0.1), rename("Half")],
@@ -419,6 +428,8 @@ fn a_redo_that_fails_halfway_leaves_the_entry_on_the_redo_stack() {
         id: 0,
         at: 0,
         name: "device.set_param",
+        subject: None,
+        others: 0,
         author: Author::User,
         group: Some(GroupId(99)),
         commands: vec![set(&missing, "attack", 0.1), rename("Half")],

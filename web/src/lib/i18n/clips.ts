@@ -1,0 +1,48 @@
+/** The Clips panel (`src/views/clips/`, #473): the pool of the selected track's clips, wherever they are used or not. */
+
+import { defineFeature } from './feature'
+
+export const clips = defineFeature(
+  {
+    'views.clips': 'Clips',
+    'clips.label': 'Clips of {track}',
+    'clips.noTrack': 'Select a track to see its clips.',
+    'clips.empty': '{track} has no clip yet.',
+    'clips.unused': 'Not placed',
+    'clips.grid': 'Grid · {scene}',
+    'clips.placements': '{n} in the arrangement',
+    'clips.linked': 'Linked',
+    'clips.linkedHint': 'Used in more than one place: editing it changes every use.',
+    'clips.place': 'Place at the playhead',
+    'clips.placeHint': 'A copy when the clip is used already; hold Alt to place the clip itself (linked).',
+    'clips.toGrid': 'Put in the grid',
+    'clips.toGridHint': 'In the first free slot of the track: a copy when the clip is used already; hold Alt to put the clip itself (linked).',
+    'clips.noFreeSlot': 'No free slot in this track: add a scene.',
+    'clips.delete': 'Delete',
+    'clips.deleteHint': 'Deletes the clip and its placements (undoable).',
+    'clips.dragHint': 'Drag it onto a lane of the arrangement or a cell of the grid.',
+    'clips.row': '{name}, {where}',
+    'clips.audio': 'Audio clip',
+  },
+  {
+    'views.clips': 'Clips',
+    'clips.label': 'Clips de {track}',
+    'clips.noTrack': 'Sélectionnez une piste pour voir ses clips.',
+    'clips.empty': "{track} n'a pas encore de clip.",
+    'clips.unused': 'Non placé',
+    'clips.grid': 'Grille · {scene}',
+    'clips.placements': "{n} dans l'arrangement",
+    'clips.linked': 'Lié',
+    'clips.linkedHint': 'Utilisé à plusieurs endroits : le modifier change chaque utilisation.',
+    'clips.place': 'Placer à la tête de lecture',
+    'clips.placeHint': 'Une copie si le clip est déjà utilisé ; maintenez Alt pour placer le clip lui-même (lié).',
+    'clips.toGrid': 'Mettre dans la grille',
+    'clips.toGridHint': 'Dans la première case libre de la piste : une copie si le clip est déjà utilisé ; maintenez Alt pour y mettre le clip lui-même (lié).',
+    'clips.noFreeSlot': 'Aucune case libre dans cette piste : ajoutez une scène.',
+    'clips.delete': 'Supprimer',
+    'clips.deleteHint': 'Supprime le clip et ses placements (annulable).',
+    'clips.dragHint': "Glissez-le sur un couloir de l'arrangement ou une case de la grille.",
+    'clips.row': '{name}, {where}',
+    'clips.audio': 'Clip audio',
+  },
+)

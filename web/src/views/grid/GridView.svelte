@@ -15,12 +15,16 @@
   import { barStart, placeFromSlot, placeScene } from '../../lib/arrangement-commands'
   import { barTicks } from '../transport/time'
   import { deleteClip, duplicateClip, moveClip, renameClip, setClipLoop } from '../../lib/clip-commands'
+  import type { MenuItem } from '../../lib/context-menu'
   import { trackColor, trackLabel } from '../../lib/project/tracks'
+  import { chordText } from '../../lib/shortcuts'
   import { createClipInCell, createScene, deleteScene, launchClip, launchScene, moveScene, renameScene, stopAll, stopTrack } from '../../lib/scene-commands'
   import { useStores } from '../../lib/stores'
   import { beginGroup, endGroup, selectTrack } from '../../lib/track-commands'
   import { activeCells, activeSignature, cellClips, cellKey, clipCounts, clipHomes, sortedScenes, visibleRange } from './cells'
   import Glyph from './Glyph.svelte'
+  import LinkMark from '../../lib/components/LinkMark.svelte'
+  import { CLIP_DRAG_TYPE, clipTrackType, gridCommand, poolOf } from '../../lib/clip-pool'
 
   type CellClipState = 'idle' | 'restarting' | ClipState
 
@@ -64,7 +68,9 @@
       scroller.scrollLeft = left.left
     }
   })
-  onDestroy(() => ui.remember('grid', { top: scrollTop, left: scrollLeft }))
+  const layoutRev = ui.layoutRev
+  onDestroy(() => ui.remember('grid', { top: scrollTop, left: scrollLeft }, layoutRev))
+  $effect(() => ui.remember('grid', { top: scrollTop, left: scrollLeft }, layoutRev))
   const onScroll = () => {
     scrollTop = scroller!.scrollTop
     scrollLeft = scroller!.scrollLeft
@@ -73,6 +79,15 @@
   const counts = $derived(clipCounts(clips))
   /** Where each clip of the grid sits, by clip. */
   const homes = $derived(clipHomes(clips))
+  /** The grid clips that the arrangement plays too: linked clips (#473), marked in their cell. */
+  const linked = $derived.by(() => {
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- rebuilt whole on each change of the project
+    const out = new Set<string>()
+    for (const track of Object.values(project.view?.project.tracks ?? {})) {
+      for (const placement of Object.values(track?.placements ?? {})) if (placement && homes.has(placement.clip)) out.add(placement.clip)
+    }
+    return out
+  })
   /** The scenes that hold a MIDI clip: only those can be sent to the arrangement. */
   const scenesWithClips = $derived(new Set([...homes.values()].filter((home) => home.cell.launchable).map((home) => home.scene)))
   const sceneHasClip = (scene: string) => scenesWithClips.has(scene)
@@ -325,6 +340,73 @@
     void tick().then(() => board?.querySelector<HTMLElement>(`[data-cell][data-clip="${id}"]`)?.focus())
   }
 
+  /**
+   * The right click on a cell (#524): a clip's actions, or on an empty cell of a MIDI track creating a clip there (and
+   * pasting the copied one). An empty cell of an audio track has none, and opens nothing.
+   */
+  function onBoardContext(event: MouseEvent) {
+    if (event.defaultPrevented) return
+    const cell = (event.target as Element | null)?.closest?.<HTMLElement>('[data-cell]')
+    if (!cell) return
+    const { track, scene, clip, launchable } = cell.dataset
+    const ti = Number(cell.dataset.ti)
+    const si = Number(cell.dataset.si)
+    const items: MenuItem[] = []
+    if (clip) {
+      if (launchable === 'true') {
+        items.push(
+          { id: 'open', label: t('grid.editClip', { clip: nameOf(homes.get(clip)?.cell.clip ?? { name: '' }) }), run: () => open(track!, clip, true) },
+          { id: 'rename', label: t('grid.rename'), shortcut: chordText(['F2']), run: () => void startClipRename(clip) },
+          { id: 'copy', label: t('grid.copy'), shortcut: chordText(['Mod', 'C']), run: () => (copied = clip) },
+          { id: 'duplicate', label: t('grid.duplicate'), disabled: freeBelow(track!, si) === null, run: () => duplicateFromMenu(clip) },
+        )
+      }
+      items.push(
+        { id: 'send', label: t('grid.send'), separator: true, run: () => sendToArrangement(clip, false) },
+        { id: 'send-linked', label: t('grid.sendLinked'), run: () => sendToArrangement(clip, true) },
+        {
+          id: 'delete',
+          label: t('grid.delete'),
+          shortcut: launchable === 'true' ? chordText(['Delete']) : undefined,
+          separator: true,
+          run: () => removeClip(clip, ti, si),
+        },
+      )
+    } else if (cell.dataset.midi === 'true') {
+      items.push({ id: 'create', label: t('pianoRoll.createClip'), run: () => create(track!, scene!) })
+      if (copied && homes.has(copied)) items.push({ id: 'paste', label: t('grid.paste'), shortcut: chordText(['Mod', 'V']), run: () => paste(cell) })
+    }
+    ui.openMenu(event, items, t('grid.menu'))
+  }
+
+  // --- a clip dropped from the Clips panel (#473) ----------------------------------------------------------------
+  /** The empty cell a clip of the pool is dragged over. */
+  let poolOver = $state<string | null>(null)
+  function onPoolDragOver(event: DragEvent, key: string, midi: boolean, track: string) {
+    // The data is hidden until the drop, its types are not: only a cell of the clip's own track takes it.
+    if (!midi || !event.dataTransfer?.types.includes(clipTrackType(track))) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = event.altKey ? 'link' : 'copy'
+    poolOver = key
+  }
+  function onPoolDrop(event: DragEvent, track: string, scene: string) {
+    poolOver = null
+    const raw = event.dataTransfer?.getData(CLIP_DRAG_TYPE)
+    if (!raw || !project.view) return
+    let dragged: { clip?: unknown; track?: unknown }
+    try {
+      dragged = JSON.parse(raw) as { clip?: unknown; track?: unknown }
+    } catch {
+      return
+    }
+    // Only a cell of the clip's own track takes it (a clip changes track with clip.move, from the grid).
+    if (dragged.track !== track || typeof dragged.clip !== 'string') return
+    event.preventDefault()
+    const entry = poolOf(project.view.project, track).find((c) => c.id === dragged.clip)
+    const command = entry && gridCommand(entry, scene, event.altKey)
+    if (command) run(command)
+  }
+
   /** The bar the play position is in: where a clip or a scene sent to the arrangement is put. */
   function sendTick(): number {
     const signature = project.view?.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 }
@@ -361,7 +443,7 @@
     if (!home) return
     const name = clipDraft.trim()
     const stored = home.cell.clip.name.trim()
-    // An empty name asks for the default one: the command gives a MIDI clip the next "Clip n".
+    // An empty name asks for the default one: the command gives a MIDI clip its track's next default name ("Bass 3").
     if (commit && name !== stored) run(renameClip(id, name))
   }
 
@@ -613,6 +695,7 @@
       ondblclick={onBoardDoubleClick}
       onpointerdown={onBoardPointerDown}
       onkeydown={onBoardKey}
+      oncontextmenu={onBoardContext}
       onfocusin={onFocusIn}
     >
       <div class="row" role="row">
@@ -776,13 +859,15 @@
                   data-ti={entry.index}
                   data-si={si}
                   disabled={!cell.launchable}
-                  aria-label={cell.launchable
+                  aria-label={(cell.launchable
                     ? t('grid.cell', { track: label, scene: name, clip: clipName, state: stateText(state) })
-                    : t('grid.cellAudio', { track: label, scene: name, clip: clipName })}
+                    : t('grid.cellAudio', { track: label, scene: name, clip: clipName })) + (linked.has(cell.id) ? `, ${t('arrangement.clipLinked')}` : '')}
+                  data-linked={linked.has(cell.id) ? 'true' : undefined}
                   title={cell.launchable ? `${stateText(state)}. ${t('grid.clipHint')}` : undefined}
                 >
                   <Glyph kind={state} />
                   <span class="cname">{clipName}</span>
+                  {#if linked.has(cell.id)}<LinkMark />{/if}
                 </button>
                 {#if renamingClip === cell.id}
                   <input
@@ -858,7 +943,11 @@
                   data-midi={midi}
                   data-ti={entry.index}
                   data-si={si}
+                  data-pool-drop={poolOver === key ? 'true' : undefined}
                   aria-label={midi ? t('grid.cellEmptyCreate', { track: label, scene: name }) : t('grid.cellEmpty', { track: label, scene: name })}
+                  ondragover={(event) => onPoolDragOver(event, key, midi, entry.id)}
+                  ondragleave={() => poolOver === key && (poolOver = null)}
+                  ondrop={(event) => onPoolDrop(event, entry.id, sc.id)}
                 ></button>
               </div>
             {/if}
@@ -1071,6 +1160,10 @@
     background: none;
     color: var(--track-color, var(--fk-text-muted));
     text-align: left;
+  }
+  .cell[data-pool-drop='true'] {
+    outline: 2px dashed var(--fk-accent);
+    outline-offset: -3px;
   }
   .cname {
     min-width: 0;

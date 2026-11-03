@@ -458,7 +458,8 @@ fn a_placement_longer_than_a_looped_clip_repeats_the_loop() {
 }
 
 #[test]
-fn a_clip_without_loop_is_silent_after_its_end_inside_a_longer_placement() {
+fn a_clip_without_loop_repeats_whole_inside_a_longer_placement() {
+    // #473: a stretched clip repeats its content in the arrangement.
     let mut r = Rig::new(48_000, 1, Quantize::Bar);
     r.send(&[
         upload(0, 960, None, vec![note(0, 100, 60)]),
@@ -466,12 +467,13 @@ fn a_clip_without_loop_is_silent_after_its_end_inside_a_longer_placement() {
         play(0),
     ]);
     r.run_to(r.at(5000), 128);
-    assert_eq!(ons(0), vec![(r.at(0), 60)]);
+    let expected: Vec<(u64, u8)> = (0..4).map(|i| (r.at(i * 960), 60)).collect();
+    assert_eq!(ons(0), expected);
     assert_nothing_held(0);
 }
 
 #[test]
-fn a_note_that_runs_past_the_end_of_a_clip_without_loop_ends_with_the_clip() {
+fn a_note_that_runs_past_the_end_of_a_clip_without_loop_ends_with_each_pass() {
     for size in [1, 128, 2048] {
         let mut r = Rig::new(48_000, 1, Quantize::Bar);
         // Raw messages: a project keeps its notes inside the clip.
@@ -481,9 +483,15 @@ fn a_note_that_runs_past_the_end_of_a_clip_without_loop_ends_with_the_clip() {
             play(0),
         ]);
         r.run_to(r.at(5000), size);
-        assert_eq!(ons(0), vec![(r.at(0), 61), (r.at(500), 60)], "{size}");
-        // 61 ends on its tick; 60 ends with the clip, not with the placement.
-        assert_eq!(offs(0), vec![(r.at(100), 61), (r.at(960), 60)], "{size}");
+        let ons_expected: Vec<(u64, u8)> = (0..4)
+            .flat_map(|i| [(r.at(i * 960), 61), (r.at(i * 960 + 500), 60)])
+            .collect();
+        assert_eq!(ons(0), ons_expected, "{size}");
+        // 61 ends on its tick; 60 ends with each pass of the clip, not with the placement.
+        let offs_expected: Vec<(u64, u8)> = (0..4)
+            .flat_map(|i| [(r.at(i * 960 + 100), 61), (r.at(i * 960 + 960), 60)])
+            .collect();
+        assert_eq!(offs(0), offs_expected, "{size}");
         assert_nothing_held(0);
     }
 }

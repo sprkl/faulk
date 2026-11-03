@@ -11,6 +11,7 @@ use commands::{
 mod automation_examples;
 mod clip_examples;
 mod device_examples;
+mod marker_examples;
 mod query_examples;
 mod transport_examples;
 
@@ -103,6 +104,7 @@ fn every_query_command_is_covered_by_an_example() {
     assert_eq!(
         new,
         [
+            "arrangement.marker.list",
             "automation.lane.list",
             "automation.lane.points",
             "clip.get",
@@ -477,7 +479,7 @@ fn every_field_of_every_query_answer_is_documented() {
                 && !["midi.list_inputs", "project.list_stored"].contains(&t.name.as_str())
         })
         .collect();
-    assert_eq!(tools.len(), 10);
+    assert_eq!(tools.len(), 11);
     for tool in tools {
         assert!(!tool.description.is_empty(), "{}", tool.name);
         assert!(

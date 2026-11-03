@@ -8,9 +8,9 @@
 //! - A placement plays a MIDI clip of its track from the clip's tick `offset`, for
 //!   `length` ticks, from the timeline tick `start` (all in ticks, 960 per quarter note,
 //!   inside `[0, 2^40]`). Two placements of the same clip are linked: editing the clip
-//!   changes both. A placement has no loop of its own: when it is longer than a clip that
-//!   has a loop, the clip's loop repeats inside it; a clip without a loop is silent after
-//!   its end. Audio placements come with the audio import (AU) and are refused here.
+//!   changes both. A placement has no loop of its own: when it is longer than its clip, the
+//!   clip repeats inside it, through the clip's loop when it has one, the whole clip when
+//!   it has none (#473). Audio placements come with the audio import (AU) and are refused here.
 //! - **The overlap rule: the last one put down wins.** The placement a command places,
 //!   moves, resizes or copies keeps its span; the other placements of the track that it
 //!   covers are carved, so a track never holds two placements at the same tick after one
@@ -19,8 +19,7 @@
 //!   - one that starts before it is shortened to end where it starts;
 //!   - one that starts under it and ends after it is trimmed at the front: it starts
 //!     where the winner ends, and its offset moves on by what was cut, followed through
-//!     the clip's own loop (nothing is left of a clip without a loop that ended in the
-//!     cut part: the placement is then removed);
+//!     the clip's own loop, or round the whole clip when it has none;
 //!   - one that contains it is split in two: the left part keeps the identifier, the
 //!     right part is a new placement.
 //!
@@ -31,11 +30,12 @@
 //! - Moving, deleting and copying take a list, so a selection is one command, one
 //!   history entry, one undo. A group is lifted first and put down in the order of its
 //!   list: a placement may move onto the old place of another one of the group.
-//! - A clip that lives in the arrangement only (no launch-grid slot) goes with its last
-//!   placement, in the same command: nothing in the interface would reach it, and it would
-//!   weigh on the limits and the engine. The undo brings it back with its notes. A clip of
-//!   the launch grid stays. `arrangement.place` refuses a clip of the grid: copying or
-//!   linking it is `arrangement.place_from_slot` (AR-5, founder's decision 11).
+//! - **One pool of clips per track (#473).** A clip stays in its track when it loses its
+//!   last placement, even with no launch-grid slot: the interface lists it (the Clips
+//!   panel), places it again or deletes it (`clip.delete`). `arrangement.place` places a
+//!   clip of the arrangement or of the pool as a linked placement of that clip; it refuses
+//!   a clip of the grid: copying or linking it is `arrangement.place_from_slot` (AR-5,
+//!   founder's decision 11).
 //! - **Inserting and deleting time (#396).** `arrangement.insert_time` and
 //!   `arrangement.delete_time` shift the whole timeline of the project, every track and the
 //!   master together, in one history entry:
@@ -78,8 +78,8 @@ use project::limits::{
     MAX_CLIPS_PER_TRACK, MAX_PLACEMENTS, MAX_PLACEMENTS_PER_TRACK, MAX_POINTS, MAX_TICK,
 };
 use project::{
-    AutomationPoint, Clip, ClipContent, ClipId, IdGenerator, LaneId, LoopRegion, Note, Placement,
-    PlacementId, Project, SceneId, Span, Tick, TickLoop, Track, TrackId,
+    AutomationPoint, Clip, ClipContent, ClipId, IdGenerator, LaneId, LoopRegion, MarkerId, Note,
+    Placement, PlacementId, Project, SceneId, Span, Tick, TickLoop, Track, TrackId,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -158,14 +158,15 @@ pub struct LoopState {
 domain! {
     domain = "arrangement", schema = ("ArrangementCommand", "ArrangementOutput");
 
-    /// Put a MIDI clip of the arrangement again in the arrangement, as a new placement of
-    /// the same clip (a linked clip: editing the clip changes every placement of it). A
-    /// clip that sits in the launch grid is refused: copying or linking it is
-    /// `arrangement.place_from_slot`. `start` is in
+    /// Put a MIDI clip of the track in the arrangement, as a new placement of the same clip
+    /// (a linked clip: editing the clip changes every placement of it); a clip of the
+    /// track's pool, with no placement and no slot, comes back this way (#473). A clip that
+    /// sits in the launch grid is refused: copying or linking it is
+    /// `arrangement.place_from_slot` (founder's decision 11). `start` is in
     /// ticks; `offset` (default 0, before the clip's length) is where in the clip the
     /// placement starts; `length` (default: what is left of the clip after `offset`) is
-    /// its length on the timeline, which may exceed the clip (a clip with a loop repeats
-    /// it, one without is silent after its end). The new placement wins on overlap: the
+    /// its length on the timeline, which may exceed the clip (the clip repeats: its loop
+    /// when it has one, the whole clip when it has none). The new placement wins on overlap: the
     /// other placements of the track that it covers are removed, shortened, trimmed at
     /// the front or split (`overwritten` counts them). Undo: `arrangement.restore`.
     "arrangement.place" (kind = "edit", undo = "inverse", destructive = false)
@@ -179,8 +180,6 @@ domain! {
         placement: PlacementId,
         /// How many other placements were carved.
         overwritten: u32,
-        /// How many clips of the arrangement lost their last placement and were deleted.
-        clips_removed: u32,
     };
 
     /// Move placements in time, all by the same number of ticks (`by`, negative moves
@@ -198,8 +197,6 @@ domain! {
     } => {
         /// How many other placements were carved.
         overwritten: u32,
-        /// How many clips of the arrangement lost their last placement and were deleted.
-        clips_removed: u32,
     };
 
     /// Move one edge of a placement to the timeline tick `to`. `edge: "end"` changes the
@@ -218,14 +215,12 @@ domain! {
     } => {
         /// How many other placements were carved.
         overwritten: u32,
-        /// How many clips of the arrangement lost their last placement and were deleted.
-        clips_removed: u32,
     };
 
     /// Split a placement in two at the timeline tick `at`, strictly inside it: the left
     /// part keeps the identifier, the right part is a new placement (the same clip, so
-    /// linked) that plays on from where the left one stops. Refused when the clip has
-    /// nothing left to play at `at` (a clip without a loop that ended before). Undo:
+    /// linked) that plays on from where the left one stops (round the clip's loop, or round
+    /// the whole clip when it has none). Undo:
     /// `arrangement.restore`.
     "arrangement.split" (kind = "edit", undo = "inverse", destructive = false)
     Split { placement: PlacementId, at: Tick } => {
@@ -233,23 +228,21 @@ domain! {
         placement: PlacementId,
     };
 
-    /// Delete placements, in one command. A clip that sits in the launch grid or has
-    /// other placements stays; a clip of the arrangement only that loses its last
-    /// placement is deleted with it (the undo brings it back with its notes). Refused when the
+    /// Delete placements, in one command. Their clips stay in their tracks, even one that
+    /// loses its last placement and sits in no grid slot: it stays in the track's pool,
+    /// where `arrangement.place` puts it back and `clip.delete` deletes it. Refused when the
     /// list is empty, names a placement twice or an unknown one. Undo:
     /// `arrangement.restore`.
     "arrangement.delete" (kind = "edit", undo = "inverse", destructive = false)
     Delete { placements: Vec<PlacementId> } => {
         /// How many placements were deleted.
         deleted: u32,
-        /// How many clips of the arrangement lost their last placement and were deleted.
-        clips_removed: u32,
     };
 
     /// Copy placements, in one command. The copies start `by` ticks after the originals
     /// (default: right after the selection, one selection length later; negative copies
     /// earlier). By default each copy is independent: a new clip, a copy of the source
-    /// (the next name, "Clip 2" gives "Clip 3"; same colour, length, loop and notes; not
+    /// (same name, colour, length, loop and notes; not
     /// in the launch grid), one per
     /// distinct source clip, so placements that were linked stay linked among the copies
     /// and editing a copy never changes the original (founder's decision 11). With
@@ -272,14 +265,12 @@ domain! {
         clips: Vec<ClipId>,
         /// How many other placements were carved.
         overwritten: u32,
-        /// How many clips of the arrangement lost their last placement and were deleted.
-        clips_removed: u32,
     };
 
     /// Put a MIDI clip of the launch grid in the arrangement, on its own track, as a
     /// placement at the timeline tick `start` that plays the whole clip once (offset 0,
     /// the clip's length). By default the placement plays an independent copy: a new
-    /// clip, a copy of the grid clip (the next name like `clip.duplicate`, "Clip 2" gives "Clip 3"; same colour, length, loop and notes, not in
+    /// clip, a copy of the grid clip (same name, colour, length, loop and notes, not in
     /// the launch grid), so editing one never changes the other (founder's decision 11).
     /// With `linked: true` the placement references the grid clip itself: editing the
     /// clip in the grid changes what the arrangement plays. The placement wins on overlap
@@ -300,8 +291,6 @@ domain! {
         clip: Option<ClipId>,
         /// How many other placements were carved.
         overwritten: u32,
-        /// How many clips of the arrangement lost their last placement and were deleted.
-        clips_removed: u32,
     };
 
     /// `arrangement.place_from_slot` for a whole scene of the launch grid, in one command
@@ -322,17 +311,15 @@ domain! {
         clips: Vec<ClipId>,
         /// How many other placements were carved.
         overwritten: u32,
-        /// How many clips of the arrangement lost their last placement and were deleted.
-        clips_removed: u32,
     };
 
     /// Insert `length` ticks of empty time at the timeline tick `at`, in every track and in
     /// the master, in one history entry (bar-level editing: a bar is 3840 ticks in 4/4).
     /// A placement that starts at or after `at` moves `length` ticks later; one that
     /// straddles `at` is split there, the right part (a new placement of the same clip, so
-    /// linked) moving later and resuming the clip where the left part stops (a clip without
-    /// a loop that ended before `at` leaves no right part). The points of every automation
-    /// lane at or after `at` move too (a ramp that straddles `at` stretches), and so do the
+    /// linked) moving later and resuming the clip where the left part stops, round the clip.
+    /// The points of every automation lane at or after `at` move too (a ramp that straddles
+    /// `at` stretches), so do the section markers at or after `at` (#473), and so do the
     /// loop region's boundaries after `at` (a loop that contains `at` grows). Tempo and time
     /// signature hold one point at tick 0 and do not move; the playhead and the launch grid
     /// do not move. Refused with `invalid` when `at` is not in [0, 2^40], `length` is less
@@ -355,12 +342,12 @@ domain! {
     /// and close the gap, in one history entry. Placements are cut at both edges: what lies
     /// inside is removed (a placement that straddles the whole range is split in two, the
     /// right part a new placement resuming the clip where the range ends), what starts at or
-    /// after `to` moves `to - from` ticks earlier; a clip of the arrangement only
-    /// that loses its last placement is deleted with it (the undo brings it back with its
-    /// notes). The points of every automation lane inside the range are removed and the
+    /// after `to` moves `to - from` ticks earlier; a clip that loses its last placement stays
+    /// in its track's pool. The points of every automation lane inside the range are removed and the
     /// later ones move back, so the last point before the cut links straight to the first
     /// one after it (a `step` point keeps holding its value up to the cut, then the next
-    /// value applies: the lane is not smoothed). The loop region follows (a boundary inside
+    /// value applies: the lane is not smoothed). The section markers after the range move
+    /// back, one inside it goes to `from` (#473). The loop region follows (a boundary inside
     /// the range falls to `from`;
     /// a loop left empty is cleared and switched off). Tempo and time signature hold one
     /// point at tick 0 and do not move; the playhead and the launch grid do not move.
@@ -382,17 +369,16 @@ domain! {
         points_shifted: u32,
         /// Whether the loop region changed.
         loop_changed: bool,
-        /// How many clips of the arrangement lost their last placement and were deleted.
-        clips_removed: u32,
     };
 
     /// The inverse of `arrangement.insert_time` and `arrangement.delete_time`: write the
     /// placements as `arrangement.restore` does (`edits`, may be empty here), replace the
     /// points of the named automation lanes by exactly those given (`lanes`, a value kept as
-    /// it is, within the parameter's range) and put the loop settings back (`transport`,
-    /// absent: untouched), in one history entry and all or nothing. Refused when nothing is
-    /// given, when a lane is unknown or listed twice, when a point is out of range, when the
-    /// loop is on without a region, or for any reason `arrangement.restore` refuses.
+    /// it is, within the parameter's range), put the loop settings back (`transport`,
+    /// absent: untouched) and the section markers at their ticks (`markers`), in one history
+    /// entry and all or nothing. Refused when nothing is given, when a lane or a marker is
+    /// unknown or listed twice, when a point or a marker is out of range, when the loop is
+    /// on without a region, or for any reason `arrangement.restore` refuses.
     /// Undo: the restore of what it changed.
     "arrangement.restore_time" (kind = "edit", undo = "inverse", destructive = false)
     RestoreTime {
@@ -401,6 +387,9 @@ domain! {
         lanes: Vec<LanePoints>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         transport: Option<LoopState>,
+        /// The section markers to put back at their ticks (#473).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        markers: Vec<MarkerTick>,
     } => {};
 
     /// Write the placements of one or more tracks exactly as given, without the overlap
@@ -414,6 +403,61 @@ domain! {
     /// note outside the length, a limit). Undo: the restore of what it changed.
     "arrangement.restore" (kind = "edit", undo = "inverse", destructive = false)
     Restore { edits: Vec<TrackEdit> } => {};
+
+    /// Add a named section marker (a named point of the arrangement, not the transport's
+    /// cue) at the timeline tick `tick` (960 per quarter note, 0 to
+    /// 2^40). `name` is optional (trimmed, at most 200 characters): without one the marker
+    /// is called "Section n", n the first number no marker has. Refused with `limit` past
+    /// 1 024 markers. Undo: `arrangement.marker.delete`.
+    "arrangement.marker.add" (kind = "edit", undo = "inverse", destructive = false)
+    AddMarker {
+        tick: Tick,
+        #[serde(default)]
+        name: Option<String>,
+    } => {
+        /// The marker added.
+        marker: MarkerId,
+    };
+
+    /// Rename a marker. The name is trimmed, not empty, at most 200 characters. Undo:
+    /// rename it back.
+    "arrangement.marker.rename" (kind = "edit", undo = "inverse", destructive = false)
+    RenameMarker { marker: MarkerId, name: String } => {
+        /// The name before the command.
+        previous: String,
+    };
+
+    /// Move a marker to the timeline tick `tick` (0 to 2^40). Undo: move it back.
+    "arrangement.marker.move" (kind = "edit", undo = "inverse", destructive = false)
+    MoveMarker { marker: MarkerId, tick: Tick } => {
+        /// The tick before the command.
+        previous: Tick,
+    };
+
+    /// Delete a marker. Not destructive: undo (`arrangement.marker.restore`) brings it back with its
+    /// identifier.
+    "arrangement.marker.delete" (kind = "edit", undo = "inverse", destructive = false)
+    DeleteMarker { marker: MarkerId } => {
+        /// Where it stood.
+        tick: Tick,
+        /// Its name.
+        name: String,
+    };
+
+    /// Bring back a deleted marker with its identifier: the inverse of `arrangement.marker.delete`.
+    /// Refused when the identifier is already in use in the project, or for a tick or a name
+    /// `arrangement.marker.add` would refuse. Undo: `arrangement.marker.delete`.
+    "arrangement.marker.restore" (kind = "edit", undo = "inverse", destructive = false)
+    RestoreMarker { marker: MarkerId, tick: Tick, name: String } => {};
+
+    /// List the section markers of the arrangement in timeline order (tick, then
+    /// identifier): each with its identifier, its tick (960 per quarter note) and its name.
+    /// A query: changes nothing and never enters the history.
+    "arrangement.marker.list" (kind = "query", undo = "none", destructive = false)
+    ListMarkers {} => {
+        /// The markers, in timeline order.
+        markers: Vec<crate::marker::MarkerInfo>,
+    };
 }
 
 type Out = Outcome<Command, Output>;
@@ -429,10 +473,11 @@ struct Geo {
 impl Geo {
     /// The clip position reached after `e` ticks of playing from its position 0, the way
     /// the engine reads it (`engine::clip_player`): straight up to the loop's end, then
-    /// round the loop. `None` when a clip without a loop has ended.
+    /// round the loop; a clip without a loop goes round the whole clip (#473). `None` only
+    /// for a clip of no length.
     fn position(self, e: i64) -> Option<i64> {
         match self.looping {
-            None => (e < self.length).then_some(e),
+            None => (self.length > 0).then(|| e.rem_euclid(self.length)),
             Some((ls, le)) if e >= le => Some(ls + (e - le).rem_euclid(le - ls)),
             Some(_) => Some(e),
         }
@@ -517,25 +562,9 @@ impl TrackWork {
         Ok(count(hit.len()))
     }
 
-    /// A clip that sat in the arrangement only (no launch-grid slot) and has lost its last
-    /// placement is nowhere any more: no screen reaches it, yet it would weigh on the
-    /// limits, the engine and the file. It goes with the placement; the restore brings it
-    /// back with its notes.
-    fn drop_unused(&mut self, track: &Track) {
-        let now: HashSet<&ClipId> = self.placements.values().map(|p| &p.clip).collect();
-        let before: HashSet<&ClipId> = track.placements.values().map(|p| &p.clip).collect();
-        for id in before {
-            let slotless = track.clips.get(id).is_some_and(|c| c.slot.is_none());
-            if slotless && !now.contains(id) && !self.gone_clips.contains(id) {
-                self.gone_clips.push(id.clone());
-                self.geo.remove(id);
-            }
-        }
-    }
-
     /// Opens `length` ticks at `at`: a placement that straddles `at` is split there (the
-    /// right part is new and resumes the clip where the left part stops; nothing is left
-    /// of a clip without a loop that had ended), the ones from `at` on move later.
+    /// right part is new and resumes the clip where the left part stops, round the clip),
+    /// the ones from `at` on move later.
     /// Returns `(split, shifted)`.
     fn open_gap(
         &mut self,
@@ -697,20 +726,9 @@ fn placement_of<'a>(track: &'a Track, id: &PlacementId) -> Result<&'a Placement,
 fn commit(
     state: &mut State,
     works: Works,
-    output: impl FnOnce(u32) -> Output,
+    output: impl FnOnce() -> Output,
 ) -> Result<Out, CommandError> {
-    commit_with(state, works, output, true)
-}
-
-/// [`commit`], with or without the removal of the clips a command leaves unused (the
-/// restore gives back exactly what it is told).
-fn commit_with(
-    state: &mut State,
-    works: Works,
-    output: impl FnOnce(u32) -> Output,
-    drop_unused: bool,
-) -> Result<Out, CommandError> {
-    commit_time(state, works, Extra::default(), output, drop_unused)
+    commit_time(state, works, Extra::default(), output)
 }
 
 /// What a time edit (`arrangement.insert_time`, `delete_time`, `restore_time`) changes
@@ -720,30 +738,29 @@ struct Extra {
     lanes: BTreeMap<LaneId, BTreeMap<Tick, AutomationPoint>>,
     /// The loop region and whether the loop is on, when they change.
     transport: Option<(Option<LoopRegion>, bool)>,
+    /// The section markers' new ticks (#473), for those a time edit moves.
+    markers: BTreeMap<MarkerId, Tick>,
 }
 
-/// [`commit_with`] for an edit that also changes automation lanes and the loop: all of it
+/// A section marker at a tick: what `arrangement.restore_time` puts back.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MarkerTick {
+    pub marker: MarkerId,
+    pub tick: Tick,
+}
+
+/// [`commit`] for an edit that also changes automation lanes and the loop: all of it
 /// is checked before anything is written, and the inverse is one `arrangement.restore_time`
 /// (a plain `arrangement.restore` when only placements changed).
 fn commit_time(
     state: &mut State,
-    mut works: Works,
+    works: Works,
     extra: Extra,
-    output: impl FnOnce(u32) -> Output,
-    drop_unused: bool,
+    output: impl FnOnce() -> Output,
 ) -> Result<Out, CommandError> {
     let project = &state.project;
-    if drop_unused {
-        for work in works.values_mut() {
-            let track = project
-                .tracks
-                .get(&work.track)
-                .ok_or_else(|| not_found("track", &work.track))?;
-            work.drop_unused(track);
-        }
-    }
-    let clips_removed = count(works.values().map(|w| w.gone_clips.len()).sum());
-    let output = output(clips_removed);
+    let output = output();
     // Limits first, so a refusal leaves nothing changed.
     let mut total = project.counts().placements;
     for work in works.values() {
@@ -866,6 +883,25 @@ fn commit_time(
         lane_writes.push((owner, id.clone(), table.clone()));
     }
     check_total("automation points", points, 0, MAX_POINTS)?;
+    let mut marker_inverse = Vec::new();
+    for (id, tick) in &extra.markers {
+        let marker = project
+            .markers
+            .get(id)
+            .ok_or_else(|| not_found("marker", id))?;
+        if !(0..=MAX_TICK).contains(&tick.get()) {
+            return Err(invalid(
+                "markers",
+                format!("a marker is within 0 to {MAX_TICK} ticks"),
+            ));
+        }
+        if marker.tick != *tick {
+            marker_inverse.push(MarkerTick {
+                marker: id.clone(),
+                tick: marker.tick,
+            });
+        }
+    }
     let current = &project.transport;
     let loop_inverse = extra
         .transport
@@ -874,7 +910,11 @@ fn commit_time(
             loop_region: as_tick_loop(current.loop_region),
             loop_enabled: current.loop_enabled,
         });
-    if inverse.is_empty() && lane_inverse.is_empty() && loop_inverse.is_none() {
+    if inverse.is_empty()
+        && lane_inverse.is_empty()
+        && loop_inverse.is_none()
+        && marker_inverse.is_empty()
+    {
         return Ok(Outcome {
             output,
             undo: Undo::None,
@@ -925,13 +965,22 @@ fn commit_time(
             enabled,
         });
     }
-    let undo = if lane_inverse.is_empty() && loop_inverse.is_none() {
+    if !marker_inverse.is_empty() {
+        for (id, tick) in extra.markers {
+            if let Some(marker) = state.project.markers.get_mut(&id) {
+                marker.tick = tick;
+            }
+        }
+        events.push(ProjectEvent::MarkersChanged {});
+    }
+    let undo = if lane_inverse.is_empty() && loop_inverse.is_none() && marker_inverse.is_empty() {
         Command::Restore { edits: inverse }
     } else {
         Command::RestoreTime {
             edits: inverse,
             lanes: lane_inverse,
             transport: loop_inverse,
+            markers: marker_inverse,
         }
     };
     Ok(Outcome {
@@ -981,11 +1030,10 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
                 .next()
                 .ok_or_else(|| invalid("clip", "nothing to place"))?;
             let overwritten = sent.overwritten;
-            commit(state, sent.works, |clips_removed| Output::PlaceFromSlot {
+            commit(state, sent.works, || Output::PlaceFromSlot {
                 placement,
                 clip: copy,
                 overwritten,
-                clips_removed,
             })
         }
         Command::PlaceScene {
@@ -997,11 +1045,10 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             let sent = send_from_grid(state, ctx, &clips, *start, *linked)?;
             let overwritten = sent.overwritten;
             let (placements, copies): (Vec<_>, Vec<_>) = sent.placed.into_iter().unzip();
-            commit(state, sent.works, |clips_removed| Output::PlaceScene {
+            commit(state, sent.works, || Output::PlaceScene {
                 placements,
                 clips: copies.into_iter().flatten().collect(),
                 overwritten,
-                clips_removed,
             })
         }
         Command::Move { placements, by } => move_placements(state, ctx, placements, *by),
@@ -1024,7 +1071,14 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             edits,
             lanes,
             transport,
-        } => restore_time(state, edits, lanes, *transport),
+            markers,
+        } => restore_time(state, edits, lanes, *transport, markers),
+        // The section markers (#473): their own module.
+        _ => crate::marker::apply(command, state, ctx).unwrap_or_else(|| {
+            Err(CommandError::Unsupported {
+                command: command.name().into(),
+            })
+        }),
     }
 }
 
@@ -1060,11 +1114,10 @@ fn place(
     let overwritten = work.carve(&mut ctx.ids, start.get(), start.get() + length)?;
     let id = PlacementId::generate(&mut ctx.ids);
     work.put(id.clone(), clip, start.get(), length, offset);
-    commit(state, BTreeMap::from([(track_id, work)]), |clips_removed| {
+    commit(state, BTreeMap::from([(track_id, work)]), || {
         Output::Place {
             placement: id,
             overwritten,
-            clips_removed,
         }
     })
 }
@@ -1119,7 +1172,6 @@ fn send_from_grid(
     let mut seen = HashSet::new();
     let mut new_clips = 0usize;
     // The names of the copies made so far: the project does not hold them yet.
-    let mut new_names: Vec<String> = Vec::new();
     let mut notes_added = 0usize;
     let notes_in_project = project_notes(project);
     for id in ids {
@@ -1165,8 +1217,6 @@ fn send_from_grid(
             new_clips += 1;
             let copy_id = ClipId::generate(&mut ctx.ids);
             let mut copied = clip.clone();
-            copied.name = project.copy_clip_name(&clip.name, &new_names);
-            new_names.push(copied.name.clone());
             copied.slot = None;
             work.new_clips.insert(copy_id.clone(), copied);
             if let Some(geo) = work.geo.get(id).copied() {
@@ -1214,10 +1264,7 @@ fn move_placements(
         }
         works.insert(track_id, work);
     }
-    commit(state, works, |clips_removed| Output::Move {
-        overwritten,
-        clips_removed,
-    })
+    commit(state, works, || Output::Move { overwritten })
 }
 
 fn resize(
@@ -1275,11 +1322,8 @@ fn resize(
     check_extent(new_start, new_length, "to")?;
     let overwritten = work.carve(&mut ctx.ids, new_start, new_start + new_length)?;
     work.put(id.clone(), &p.clip, new_start, new_length, new_offset);
-    commit(state, BTreeMap::from([(track_id, work)]), |clips_removed| {
-        Output::Resize {
-            overwritten,
-            clips_removed,
-        }
+    commit(state, BTreeMap::from([(track_id, work)]), || {
+        Output::Resize { overwritten }
     })
 }
 
@@ -1322,7 +1366,7 @@ fn split(
         start + length - at,
         right_offset,
     );
-    commit(state, BTreeMap::from([(track_id, work)]), |_| {
+    commit(state, BTreeMap::from([(track_id, work)]), || {
         Output::Split { placement: right }
     })
 }
@@ -1338,9 +1382,8 @@ fn delete(state: &mut State, ids: &[PlacementId]) -> Result<Out, CommandError> {
         }
         works.insert(track_id, work);
     }
-    commit(state, works, |clips_removed| Output::Delete {
+    commit(state, works, || Output::Delete {
         deleted: count(ids.len()),
-        clips_removed,
     })
 }
 
@@ -1369,7 +1412,6 @@ fn duplicate(
     let mut new_placements: BTreeMap<PlacementId, PlacementId> = BTreeMap::new();
     let mut new_clip_ids = Vec::new();
     // The names of the copies made so far: the project does not hold them yet.
-    let mut new_names: Vec<String> = Vec::new();
     let mut notes_added = 0usize;
     let notes_in_project = project_notes(project);
     for (track_id, list) in groups {
@@ -1404,8 +1446,6 @@ fn duplicate(
                 check_note_limits(notes.len(), notes_in_project.saturating_add(notes_added))?;
                 let copy_id = ClipId::generate(&mut ctx.ids);
                 let mut copy = clip.clone();
-                copy.name = project.copy_clip_name(&clip.name, &new_names);
-                new_names.push(copy.name.clone());
                 copy.slot = None;
                 work.new_clips.insert(copy_id.clone(), copy);
                 if let Some(geo) = work.geo.get(source).copied() {
@@ -1430,8 +1470,7 @@ fn duplicate(
         }
         works.insert(track_id, work);
     }
-    commit(state, works, |clips_removed| Output::Duplicate {
-        clips_removed,
+    commit(state, works, || Output::Duplicate {
         // In the order of the list.
         placements: ids
             .iter()
@@ -1447,7 +1486,7 @@ fn restore(state: &mut State, edits: &[TrackEdit]) -> Result<Out, CommandError> 
         return Err(invalid("edits", "name at least one track"));
     }
     let works = restore_works(&state.project, edits)?;
-    commit_with(state, works, |_| Output::Restore {}, false)
+    commit(state, works, || Output::Restore {})
 }
 
 /// The tracks of a restore as they will be, checked entirely.
@@ -1721,17 +1760,37 @@ fn insert_time(
         }
     };
     let loop_changed = transport.is_some_and(|t| t.0 != project.transport.loop_region);
+    // The section markers from the point on move with the time (#473).
+    let mut markers = BTreeMap::new();
+    for (id, marker) in &project.markers {
+        let t = marker.tick.get();
+        if t >= at {
+            let to = t
+                .checked_add(length)
+                .filter(|n| *n <= MAX_TICK)
+                .ok_or_else(|| {
+                    invalid(
+                        "length",
+                        format!("a section marker would pass {MAX_TICK} ticks"),
+                    )
+                })?;
+            markers.insert(id.clone(), Tick(to));
+        }
+    }
     commit_time(
         state,
         works,
-        Extra { lanes, transport },
-        |_| Output::InsertTime {
+        Extra {
+            lanes,
+            transport,
+            markers,
+        },
+        || Output::InsertTime {
             split,
             shifted,
             points_shifted,
             loop_changed,
         },
-        true,
     )
 }
 
@@ -1795,20 +1854,32 @@ fn delete_time(
     let loop_changed = transport.is_some_and(|t| {
         t.0 != project.transport.loop_region || t.1 != project.transport.loop_enabled
     });
+    // The section markers after the cut move back; one inside it goes to its start (#473).
+    let markers = project
+        .markers
+        .iter()
+        .filter(|(_, m)| m.tick.get() > start)
+        .map(|(id, m)| {
+            let t = m.tick.get();
+            (id.clone(), Tick(if t >= end { t - length } else { start }))
+        })
+        .collect();
     commit_time(
         state,
         works,
-        Extra { lanes, transport },
-        |clips_removed| Output::DeleteTime {
+        Extra {
+            lanes,
+            transport,
+            markers,
+        },
+        || Output::DeleteTime {
             removed,
             cut,
             shifted,
             points_removed,
             points_shifted,
             loop_changed,
-            clips_removed,
         },
-        true,
     )
 }
 
@@ -1817,11 +1888,12 @@ fn restore_time(
     edits: &[TrackEdit],
     lanes: &[LanePoints],
     transport: Option<LoopState>,
+    markers: &[MarkerTick],
 ) -> Result<Out, CommandError> {
-    if edits.is_empty() && lanes.is_empty() && transport.is_none() {
+    if edits.is_empty() && lanes.is_empty() && transport.is_none() && markers.is_empty() {
         return Err(invalid(
             "edits",
-            "give placements, lanes or the loop to restore",
+            "give placements, lanes, the loop or markers to restore",
         ));
     }
     let works = if edits.is_empty() {
@@ -1866,14 +1938,23 @@ fn restore_time(
             Some((region, loop_enabled))
         }
     };
+    let mut moves = BTreeMap::new();
+    for m in markers {
+        if moves.insert(m.marker.clone(), m.tick).is_some() {
+            return Err(invalid(
+                "markers",
+                format!("marker {} is listed twice", m.marker),
+            ));
+        }
+    }
     commit_time(
         state,
         works,
         Extra {
             lanes: tables,
             transport,
+            markers: moves,
         },
-        |_| Output::RestoreTime {},
-        false,
+        || Output::RestoreTime {},
     )
 }

@@ -15,7 +15,7 @@ const en = {
   'hero.metaRight': 'Made by an agent, in Faulk’s development build',
   'hero.title': 'A TRACK A DAY, MADE BY AN AGENT.',
   'hero.lead':
-    'Every day, Faulk’s product-owner agent takes the latest development build, writes a production sheet and builds the track in Faulk, through the interface and through commands. Each day below says how far it got and what Faulk was still missing.',
+    'Every day, Faulk’s product-owner agent takes the latest development build, writes a production sheet and builds the track in Faulk through its interface only, as a person would (the tracks before 3 November 2026 were built through commands). Each day below says how far it got and what Faulk was still missing.',
   'hero.note': 'The audio is Faulk’s own export, encoded to MP3, with no mastering after it.',
   'index.label': 'Latest days',
   'index.count': '{count} days',
@@ -78,7 +78,7 @@ const fr: Record<JourneyKey, string> = {
   'hero.metaRight': 'Fait par un agent, dans la version de développement de Faulk',
   'hero.title': 'UN MORCEAU PAR JOUR, FAIT PAR UN AGENT.',
   'hero.lead':
-    'Chaque jour, l’agent product owner de Faulk prend la dernière version de développement, écrit une fiche de production et construit le morceau dans Faulk, par l’interface et par les commandes. Chaque jour ci-dessous dit jusqu’où il est allé et ce qui manquait encore à Faulk.',
+    'Chaque jour, l’agent product owner de Faulk prend la dernière version de développement, écrit une fiche de production et construit le morceau dans Faulk uniquement par l’interface, comme le ferait une personne (les morceaux d’avant le 3 novembre 2026 ont été construits par les commandes). Chaque jour ci-dessous dit jusqu’où il est allé et ce qui manquait encore à Faulk.',
   'hero.note': 'L’audio est l’export de Faulk lui-même, encodé en MP3, sans mastering après.',
   'index.label': 'Derniers jours',
   'index.count': '{count} jours',

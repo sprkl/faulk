@@ -51,7 +51,7 @@ vi.mock('../project/core', async (original) => ({
   coreModule: () => import('node:fs').then((fs) => WebAssembly.compile(fs.readFileSync(`${process.cwd()}/src/lib/project/wasm/project.wasm`))),
 }))
 let nativeEvents: EngineEvents | null = null
-let nativeEngine: { kind: 'native'; status: object; send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> } | null = null
+let nativeEngine: { kind: 'native'; status: object; update?: object | null; send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> } | null = null
 vi.mock('../engine/native-engine', () => ({
   NativeEngine: {
     connect: (_token: string, events: EngineEvents) => {
@@ -464,6 +464,33 @@ describe('running commands through the project core', () => {
     expect(webs[0].push.mock.calls.length).toBe(pushes + 1)
     expect(session.engine.mode).toBe('web')
     expect(session.project.params[firstParam]).toBe(0.5)
+  })
+
+  it("keeps the helper's update state while its session is current, and forgets it in Web mode (#515)", async () => {
+    const first = { current: '0.1.11', checkedAt: null, status: { state: 'checking' as const } }
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      update: first,
+      send: vi.fn(),
+      close: vi.fn(() => Promise.resolve()),
+    }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    expect(session.engine.helperUpdate).toBeNull()
+    await session.dispatcher.enterBoost()
+    // The state the helper sent before its session became current.
+    expect(session.engine.helperUpdate).toEqual(first)
+    const events = nativeEvents!
+    const ready = { current: '0.1.11', checkedAt: 1793665000, status: { state: 'ready' as const, version: '0.1.12' } }
+    events.onHelperUpdate!(ready)
+    expect(session.engine.helperUpdate).toEqual(ready)
+    await session.dispatcher.enterWeb()
+    expect(session.engine.helperUpdate).toBeNull()
+    // A late message of the closed session changes nothing.
+    events.onHelperUpdate!(first)
+    expect(session.engine.helperUpdate).toBeNull()
   })
 
   describe.each([
@@ -893,7 +920,7 @@ describe('opening a project folder (SV-4)', () => {
     const newer = withFile(
       song(),
       'project.json',
-      new TextDecoder().decode((song().find((e) => e.path === 'project.json') as { bytes: Uint8Array }).bytes).replace('"format": 1', '"format": 99'),
+      new TextDecoder().decode((song().find((e) => e.path === 'project.json') as { bytes: Uint8Array }).bytes).replace('"format": 2', '"format": 99'),
     )
     const cases: [string, FolderEntry[], string, string][] = [
       ['a newer format', newer, 'newer_format', 'project.open.newer'],
@@ -1165,7 +1192,8 @@ describe('the project in a folder (SV-2)', () => {
   it('starts a new project before audio starts, and the first engine then plays it', async () => {
     const session = newSession()
     expect(await session.dispatcher.newProject()).toBe(true)
-    expect(session.project.view?.project.name).toBe('Untitled')
+    // Named after the moment it started (#473), never "Untitled".
+    expect(session.project.view?.project.name).toMatch(/^Sketch /)
     await session.dispatcher.start()
     expect(webs[0].push).toHaveBeenCalledTimes(1)
   })
@@ -1197,10 +1225,16 @@ describe('the project in a folder (SV-2)', () => {
     expect(session.storage.confirm).toBeNull()
   })
 
+  it('a project.new takes the name an agent gives it', async () => {
+    const session = newSession()
+    session.dispatcher.run({ type: 'project.new', name: 'Night drive' })
+    await vi.waitFor(() => expect(session.project.view?.project.name).toBe('Night drive'))
+  })
+
   it('a project.new on a project with nothing to lose asks nothing, and works before audio starts', async () => {
     const session = newSession()
     session.dispatcher.run({ type: 'project.new' })
-    await vi.waitFor(() => expect(session.project.view?.project.name).toBe('Untitled'))
+    await vi.waitFor(() => expect(session.project.view?.project.name).toMatch(/^Sketch /))
     expect(session.storage.confirm).toBeNull()
   })
 

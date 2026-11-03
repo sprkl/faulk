@@ -17,6 +17,10 @@ use std::collections::BTreeSet;
 /// Longest project name accepted, in characters: the project's own limit.
 pub use ::project::limits::MAX_NAME_CHARS;
 
+/// The name of a new project when no name is given: the page gives its drafts a name of
+/// their own (the time they were started), an agent may give one to `project.new`.
+pub const DEFAULT_NAME: &str = "Sketch";
+
 domain! {
     domain = "project", schema = ("ProjectCommand", "ProjectOutput");
 
@@ -54,9 +58,14 @@ domain! {
     /// the page first keeps the current project's changes where it can (written into its folder,
     /// or kept as a draft in the browser's storage, which stays listed). Only when they cannot
     /// be kept anywhere does it ask the user, whoever sends the command, and nothing changes if
-    /// the user cancels. The question is a dialog of the page, so it needs no click.
+    /// the user cancels. The question is a dialog of the page, so it needs no click. `name`
+    /// is optional (trimmed, at most 200 characters): without one the project is called
+    /// "Sketch" (the page names its drafts by the time they were started, #473).
     "project.new" (kind = "edit", undo = "none", destructive = true)
-    New {} => {
+    New {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+    } => {
         /// The name of the new project.
         name: String,
     };
@@ -130,9 +139,13 @@ domain! {
 
     /// Bring back the project that was open last time, the one the page offers after a reload
     /// (a folder, which asks the browser for its permission again and so needs a click by the
-    /// user, or a draft kept in the browser). Nothing happens, with a notice, when the page
-    /// offers nothing. The current project is replaced; the page asks first when it has
-    /// changes that are kept nowhere. Not undoable: it replaces the history.
+    /// user, or a draft kept in the browser), or the one that the page tried to reopen by itself
+    /// and could not (locked by another tab, unreadable): the notice then offers this command
+    /// as its retry. A folder still needs the user's click when the browser withdrew its
+    /// permission: an agent that is not driven by one gets a notice in the page. Nothing
+    /// happens, with a notice, when the page offers nothing. The current project is replaced;
+    /// the page asks first when it has changes that are kept nowhere. Not undoable: it replaces
+    /// the history.
     "project.reopen_last" (kind = "live", undo = "none", destructive = false)
     ReopenLast {} => {};
 
@@ -323,7 +336,10 @@ pub fn apply(
             }))
         }
         Command::Open { folder } => open_folder(folder, state, ctx),
-        Command::New {} => Ok(new_project(state, ctx)),
+        Command::New { name } => {
+            let name = name.as_deref().map(check_project_name).transpose()?;
+            Ok(new_project(state, ctx, name))
+        }
         // The write belongs to the host (the page's storage; a folder picker needs a click):
         // the command only says it is wanted. Nothing in the project changes.
         Command::Save {} => Ok(nothing(Output::Save {})),
@@ -384,19 +400,7 @@ pub fn apply(
             }))
         }
         Command::Rename { name } => {
-            let name = name.trim();
-            if name.is_empty() {
-                return Err(CommandError::Invalid {
-                    field: "name".into(),
-                    message: "a project name is not empty".into(),
-                });
-            }
-            if name.chars().count() > MAX_NAME_CHARS {
-                return Err(CommandError::Invalid {
-                    field: "name".into(),
-                    message: format!("a project name has at most {MAX_NAME_CHARS} characters"),
-                });
-            }
+            let name = check_project_name(name)?;
             if state.project.name == name {
                 // Nothing changed: nothing to undo, nothing to tell the interface.
                 return Ok(Outcome {
@@ -531,11 +535,36 @@ fn nothing(output: Output) -> Outcome<Command, Output> {
     }
 }
 
+/// A project name as the commands take it: trimmed, not empty, at most [`MAX_NAME_CHARS`].
+pub fn check_project_name(name: &str) -> Result<&str, CommandError> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(CommandError::Invalid {
+            field: "name".into(),
+            message: "a project name is not empty".into(),
+        });
+    }
+    if name.chars().count() > MAX_NAME_CHARS {
+        return Err(CommandError::Invalid {
+            field: "name".into(),
+            message: format!("a project name has at most {MAX_NAME_CHARS} characters"),
+        });
+    }
+    Ok(name)
+}
+
 /// Replaces the state with a new project: the default one-synth project under a fresh
 /// identity, an empty history and session, and no folder.
-fn new_project(state: &mut State, ctx: &mut Context) -> Outcome<Command, Output> {
+fn new_project(
+    state: &mut State,
+    ctx: &mut Context,
+    name: Option<&str>,
+) -> Outcome<Command, Output> {
     let mut next = crate::engine_msgs::single_synth::state();
     next.project.id = ProjectId::generate(&mut ctx.ids);
+    if let Some(name) = name {
+        name.clone_into(&mut next.project.name);
+    }
     // The MIDI input is the player's device, not the song's: it stays chosen.
     next.session.midi_input = state.session.midi_input.take();
     let name = next.project.name.clone();

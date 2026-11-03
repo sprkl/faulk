@@ -11,6 +11,16 @@ export const HELPER_PORT = Number(process.env.FAULK_E2E_HELPER_PORT) || 47800
  */
 const REFUSED_PROBE = new RegExp(String.raw`^WebSocket connection to 'ws://127\.0\.0\.1:${HELPER_PORT}/probe' failed`)
 
+/**
+ * The ceiling for something the page does once, on its way up: the module graph of the dev server loading, the engine
+ * starting (the wasm module compiled and instantiated in a Worker and in the audio worklet). Playwright's default of
+ * 5 s is meant for a reaction of the page to an action; a boot is paced by the machine, and on a loaded one it takes
+ * several times its idle time (#424). It is a ceiling, not a delay: the wait ends the moment the thing is there, and
+ * only a page that never comes up reaches it. A spec that uses it needs a test timeout above it (two boot waits in a row
+ * can use it twice), as `describe.configure({ timeout })` in `timegrid.spec.ts` and `storage-commands.spec.ts`.
+ */
+export const BOOT = { timeout: 30_000 }
+
 /** Collects console errors and uncaught exceptions, and every request the page makes. */
 export function watch(page: Page) {
   const errors: string[] = []

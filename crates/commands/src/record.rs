@@ -814,7 +814,7 @@ fn commit(
                         continue;
                     }
                     let id = ClipId::generate(&mut ctx.ids);
-                    let name = project.next_clip_name_beside(&names);
+                    let name = project.next_clip_name_beside(&t.track, &names);
                     check_name(&name, "name")?;
                     names.push(name.clone());
                     let notes: Vec<Note> = notes

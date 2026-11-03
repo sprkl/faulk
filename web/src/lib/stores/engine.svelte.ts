@@ -1,4 +1,4 @@
-import type { EngineStatus } from '../engine/engine'
+import type { EngineStatus, HelperUpdateState } from '../engine/engine'
 import type { FeedbackReport } from '../engine/feedback'
 import type { MidiInput } from '../generated/protocol'
 import type { MessageKey } from '../i18n/index'
@@ -29,6 +29,12 @@ export class EngineStore {
   midiState = $state<'unknown' | 'ok' | 'unsupported' | 'denied'>('unknown')
   helper = $state<HelperState>('checking')
   helperProtocol = $state<number | null>(null)
+  /**
+   * The connected helper's self-update (#515): installed version, last check, state. `null`
+   * while no helper session is open, and with a helper too old to send it (before #515: same
+   * protocol, no `update.status`). Nothing shows it yet; read it from the devtools.
+   */
+  helperUpdate = $state<HelperUpdateState | null>(null)
   /** The browser's local network permission, `null` where it does not exist or is unknown. */
   localAccess = $state<PermissionState | null>(null)
   paired = $state(Boolean(storage()?.getItem(TOKEN_KEY)))

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { BOOT, watch } from './support'
 
 // #323: the page's storage actions are commands. Each one is sent through the dispatcher's one entry
 // point (`__faulkRun`, dev project only), which has no click behind it, like an agent; and the same
@@ -54,7 +54,7 @@ async function addTrack(page: Page, item: string) {
 
 async function start(page: Page) {
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await expect(page.getByTestId('engine-mode')).toBeVisible(BOOT)
 }
 
 /** The picker hands back the OPFS directory `window.__pick`; the permission is `window.__perm` (granted unless a test says otherwise). */
@@ -203,7 +203,8 @@ test.describe('the projects the page keeps, by command', () => {
     await expect(state(page)).toHaveText(/^Saved at/)
     await page.getByTestId('project-menu').click()
     await page.getByTestId('menu-new').click()
-    await expect(name()).toHaveText('Untitled')
+    // A new project is named after the moment it started (#473).
+    await expect(name()).toHaveText(/^Sketch /)
     await run(page, { type: 'project.rename', name: 'Beta' })
     await set('__pick', 'cmd-b')
     await saveAs(page)

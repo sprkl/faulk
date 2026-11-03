@@ -2,6 +2,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   BARE_SHORTCUT_CODES,
+  QUANTIZE_CODE,
+  isQuantizeKey,
   clampOctave,
   defaultOctave,
   historyShortcut,
@@ -14,7 +16,7 @@ import {
   spaceTogglesTransport,
   trackFocusOrigin,
 } from './keyboard'
-import { isPlainButton, layoutShortcut } from './keyboard'
+import { arrangementShortcut, isPlainButton, layoutShortcut } from './keyboard'
 
 // Trackers started by a test are stopped even when it fails, so module state never leaks into the next one.
 const trackers: Array<() => void> = []
@@ -29,6 +31,7 @@ describe('computer keyboard', () => {
     expect(noteForKey('KeyK', 4)).toBe(72)
     expect(noteForKey('KeyA', 0)).toBe(12)
     expect(noteForKey('KeyQ', 4)).toBeNull()
+    expect(PLAYING_KEYS).not.toContain(QUANTIZE_CODE)
     expect(noteForKey('Semicolon', 9)).toBeNull() // above 127
   })
 
@@ -410,11 +413,12 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'lib/components/Slider.svelte': ['Enter'], // opens the value field (#365)
       'lib/journey/live/index.ts': [], // the Journey page's seek slider (not the DAW): arrows, Page keys, Home and End through seekByKey (live/time.ts), no letter
       'lib/components/ValueField.svelte': ['Enter', 'Escape'],
-      'lib/components/ValueMenu.svelte': ['Escape', 'Tab'],
+      'lib/components/ContextMenu.svelte': ['ArrowDown', 'ArrowUp', 'End', 'Escape', 'Home', 'Tab'], // the shared menu (#524): arrows, Home, End, Escape and Tab; no letter
       'lib/continuous.ts': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Backspace', 'Delete', 'End', 'Home', 'PageDown', 'PageUp'],
       'lib/components/timegrid/TimeGrid.svelte': ['+', '-', '=', 'ArrowLeft', 'ArrowRight', 'Home', '_'],
-      'views/arrangement/ArrangementView.svelte': ['Backspace', 'Delete', 'Escape'],
+      'views/arrangement/ArrangementView.svelte': ['Backspace', 'Backspace', 'Delete', 'Delete', 'Enter', 'Escape', 'Escape', 'F2'], // a section marker: F2 renames, Delete removes, the name field takes Enter and Escape (#473)
       'views/arrangement/LaneHeader.svelte': ['Enter', 'Enter', 'Escape'], // the rename field; the row's own keys are in lane-keys.ts (digits, signs, Enter, F2, the height handle's arrows): no letter
+      'views/clips/ClipsView.svelte': ['Backspace', 'Delete', 'Enter'], // the pool row's handle: places (Enter) or deletes the clip; no letter
       'views/grid/GridView.svelte': [
         'ArrowDown',
         'ArrowLeft',
@@ -581,5 +585,45 @@ describe('layout shortcuts (#472)', () => {
     for (const code of ['Digit1', 'Digit2', 'Digit3', 'KeyM']) {
       expect(ignoreKeyEvent({ ...alt, code } as never), code).toBe(true)
     }
+  })
+})
+
+describe('the quantize key (#523)', () => {
+  const key = (init: Partial<Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'repeat'>>) => ({
+    code: 'KeyQ',
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    shiftKey: false,
+    repeat: false,
+    ...init,
+  })
+  it('is Q by position, with no modifier and no repeat', () => {
+    expect(isQuantizeKey(key({}))).toBe(true)
+    expect(isQuantizeKey(key({ ctrlKey: true }))).toBe(false)
+    expect(isQuantizeKey(key({ metaKey: true }))).toBe(false)
+    expect(isQuantizeKey(key({ altKey: true }))).toBe(false)
+    expect(isQuantizeKey(key({ shiftKey: true }))).toBe(false)
+    expect(isQuantizeKey(key({ repeat: true }))).toBe(false)
+    expect(isQuantizeKey(key({ code: 'KeyA' }))).toBe(false)
+  })
+  it('plays nothing', () => {
+    expect(PLAYING_KEYS).not.toContain(QUANTIZE_CODE)
+    expect(noteForKey(QUANTIZE_CODE, 4)).toBeNull()
+  })
+})
+
+describe('arrangementShortcut (#473)', () => {
+  const key = (code: string, mods: Record<string, unknown> = {}) =>
+    ({ code, altKey: true, ctrlKey: false, metaKey: false, shiftKey: false, target: null, ...mods }) as unknown as KeyboardEvent
+  it('reads Alt+K, Alt+Page Up/Down and Alt+Z, never a bare key nor a text field', () => {
+    expect(arrangementShortcut(key('KeyK'))).toBe('addMarker')
+    expect(arrangementShortcut(key('PageUp'))).toBe('prevMarker')
+    expect(arrangementShortcut(key('PageDown'))).toBe('nextMarker')
+    expect(arrangementShortcut(key('KeyZ'))).toBe('fitSong')
+    expect(arrangementShortcut(key('KeyZ', { altKey: false }))).toBeNull()
+    expect(arrangementShortcut(key('KeyZ', { ctrlKey: true }))).toBeNull()
+    expect(arrangementShortcut(key('KeyZ', { shiftKey: true }))).toBeNull()
+    expect(arrangementShortcut(key('KeyK', { target: { closest: () => ({}) } }))).toBeNull()
   })
 })

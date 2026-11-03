@@ -3,7 +3,7 @@ import type { HistoryEntryView } from './generated/protocol'
 import { translate, type MessageKey } from './i18n'
 import { commandLabel, runHistory } from './history-said'
 
-const entry = (id: number, name: string): HistoryEntryView => ({ id, name, at: 0, author: 'user' })
+const entry = (id: number, name: string): HistoryEntryView => ({ id, name, at: 0, author: 'user', others: 0 })
 
 /** A history of two stacks; `applies` says whether the next undo or redo does something (a group still open: it does not). */
 function host(undo: HistoryEntryView[], redo: HistoryEntryView[], applies = true) {

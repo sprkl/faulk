@@ -37,12 +37,31 @@ export interface Block {
   clipLength: number
   looping: TickLoop | null
   notes: readonly Note[]
+  /**
+   * Where the clip is used: its placements plus its launch-grid slot (#473). More than one is a linked clip: editing
+   * it changes every use, and the block is marked so. A copy is another clip and counts on its own.
+   */
+  uses: number
 }
 
 const ticksOf = (placement: Placement): { length: number; offset: number } | null => ('ticks' in placement.span ? placement.span.ticks : null)
 
+/** How many times each clip of a track is used: its placements, plus one for a launch-grid slot. */
+export function usesOf(entry: TrackEntry): Map<string, number> {
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- a plain lookup built per call
+  const uses = new Map<string, number>()
+  for (const placement of Object.values(entry.track.placements as Record<string, Placement | undefined>)) {
+    if (placement) uses.set(placement.clip, (uses.get(placement.clip) ?? 0) + 1)
+  }
+  for (const [id, clip] of Object.entries(entry.track.clips)) {
+    if (clip?.slot) uses.set(id, (uses.get(id) ?? 0) + 1)
+  }
+  return uses
+}
+
 function blocksOfTrack(entry: TrackEntry): Block[] {
   const blocks: Block[] = []
+  const uses = usesOf(entry)
   for (const [id, placement] of Object.entries(entry.track.placements as Record<string, Placement | undefined>)) {
     const span = placement && ticksOf(placement)
     const clip = placement && entry.track.clips[placement.clip]
@@ -63,6 +82,7 @@ function blocksOfTrack(entry: TrackEntry): Block[] {
       clipLength: length,
       looping: looping ?? null,
       notes,
+      uses: uses.get(placement.clip) ?? 1,
     })
   }
   return blocks
@@ -151,8 +171,8 @@ export function resizeTo(block: Block, edge: 'start' | 'end', tick: number, step
   let to: number
   if (edge === 'end') to = Math.min(MAX_TICK, Math.max(block.start + 1, snapped))
   else {
-    // The content must not slide: not before the clip's first tick, nor (without a loop) past its last.
-    const high = Math.min(block.end - 1, block.looping ? Infinity : block.start + block.clipLength - block.offset - 1)
+    // The content must not slide: not before the clip's first tick (it repeats past its last, #473).
+    const high = block.end - 1
     const low = Math.max(0, block.start - block.offset)
     if (high < low) return null
     to = Math.min(high, Math.max(low, snapped))
@@ -164,19 +184,116 @@ export function resizeTo(block: Block, edge: 'start' | 'end', tick: number, step
 /** The block as it would be after the resize. */
 export function resized(block: Block, edge: 'start' | 'end', to: number): Block {
   if (edge === 'end') return { ...block, end: to, length: to - block.start }
-  return { ...block, start: to, length: block.end - to, offset: block.offset - (block.start - to) }
+  const offset = to < block.start ? block.offset - (block.start - to) : clipPosition(block, block.offset + (to - block.start))
+  return { ...block, start: to, length: block.end - to, offset }
 }
 
 /**
- * Whether the clip still plays at `at` in `block`: the rule of the engine and of `arrangement.split`. A clip
- * without a loop is silent after its end; a loop repeats for ever.
+ * The part of the clip a block repeats (#473), the engine's rule: the clip's loop when it has one, else the whole
+ * clip. A placement longer than what it plays goes round it.
+ */
+export const cycleOf = (block: Pick<Block, 'looping' | 'clipLength'>): TickLoop => block.looping ?? { start: 0, end: block.clipLength }
+
+/** The clip position reached after `e` ticks played from its position 0: straight to the cycle's end, then round it. */
+export function clipPosition(block: Pick<Block, 'looping' | 'clipLength'>, e: number): number {
+  const { start, end } = cycleOf(block)
+  if (end <= start || e < end) return e
+  return start + ((e - end) % (end - start))
+}
+
+/**
+ * The passes of a block: where each starts on the timeline and the clip tick it starts from. The first starts at the
+ * block's start from its offset; each later one at a repeat boundary, from the cycle's start. At most `max`.
+ */
+export function passesOf(block: Block, max = 256, after = block.start): { at: number; from: number }[] {
+  const { start, end } = cycleOf(block)
+  const out: { at: number; from: number }[] = []
+  let at = block.start
+  // An offset at or past the loop's end plays from its place round the loop (the engine's rule).
+  let from = clipPosition(block, block.offset)
+  // Jump straight to the pass that holds `after` (a long block in view from its middle): no walk from the start.
+  const first = end - from
+  const span = end - start
+  if (span > 0 && first > 0 && after >= block.start + first) {
+    const k = Math.floor((after - block.start - first) / span)
+    at = block.start + first + k * span
+    from = start
+  }
+  while (at < block.end && out.length < max) {
+    out.push({ at, from })
+    if (end <= from) break
+    at += end - from
+    from = start
+  }
+  return out
+}
+
+/** How many passes a block plays (the first one counted even when partial), without walking them. */
+export function passCount(block: Block): number {
+  const { start, end } = cycleOf(block)
+  const first = end - clipPosition(block, block.offset)
+  const span = end - start
+  if (span <= 0 || first <= 0 || block.length <= first) return 1
+  return 1 + Math.ceil((block.length - first) / span)
+}
+
+/**
+ * Whether the clip plays at `at` in `block`: the rule of the engine and of `arrangement.split`. A clip repeats
+ * (its loop, or the whole clip, #473), so it plays all along the block.
  */
 export function playsAt(block: Block, at: number): boolean {
-  return block.looping !== null || block.offset + (at - block.start) < block.clipLength
+  return block.clipLength > 0 && at >= block.start && at < block.end
 }
 
 /** The blocks a split at `at` cuts: those it falls strictly inside, and where the clip still plays. */
 export const splittable = (selection: readonly Block[], at: number): Block[] => selection.filter((b) => at > b.start && at < b.end && playsAt(b, at))
+
+// --- sections and zoom (#473) -------------------------------------------------------------------------
+
+/** A section marker as the view shows it, in timeline order. */
+export interface MarkerView {
+  id: string
+  tick: number
+  name: string
+}
+
+/**
+ * The marker a jump goes to from the tick `from`: the first after it, or the last before it (one at `from` itself is
+ * not a jump target, so a second press goes on to the next). `null` when there is none that way.
+ */
+export function markerJump(markers: readonly MarkerView[], from: number, direction: 1 | -1, current: string | null = null): MarkerView | null {
+  // From the marker jumped to last (when the playhead is still on it): its neighbour in (tick, id) order, so two
+  // markers on one tick are both reached.
+  const at = current === null ? -1 : markers.findIndex((m) => m.id === current && m.tick === from)
+  if (at >= 0) return markers[at + direction] ?? null
+  if (direction > 0) return markers.find((m) => m.tick > from) ?? null
+  return markers.findLast((m) => m.tick < from) ?? null
+}
+
+/** The bars the arrangement opens on: the whole song when it is 16 to 32 bars long, else 16 or 32 (#473). */
+export const OPEN_MIN_BARS = 16
+export const OPEN_MAX_BARS = 32
+
+/** The zoom (pixels per tick) that shows `bars` bars of `bar` ticks across `width` pixels; `null` without a width. */
+export function zoomForBars(bars: number, bar: number, width: number): number | null {
+  if (!(width > 0) || !(bar > 0) || !(bars > 0)) return null
+  return width / (bars * bar)
+}
+
+/** The opening view of a song that ends at `end` ticks: from bar 1, 16 to 32 bars across the window. */
+export function openingView(end: number, bar: number, width: number): { pxPerTick: number; scrollTick: number } | null {
+  const songBars = bar > 0 ? Math.ceil(Math.max(0, end) / bar) : 0
+  const bars = Math.min(OPEN_MAX_BARS, Math.max(OPEN_MIN_BARS, songBars))
+  const pxPerTick = zoomForBars(bars, bar, width)
+  return pxPerTick === null ? null : { pxPerTick, scrollTick: 0 }
+}
+
+/** The whole-song view: from bar 1 to the song's end (at least 16 bars) and one bar more. */
+export function wholeSongView(end: number, bar: number, width: number): { pxPerTick: number; scrollTick: number } | null {
+  const songBars = bar > 0 ? Math.ceil(Math.max(0, end) / bar) : 0
+  const pxPerTick = zoomForBars(Math.max(OPEN_MIN_BARS, songBars) + 1, bar, width)
+  return pxPerTick === null ? null : { pxPerTick, scrollTick: 0 }
+}
 
 /** Whether `[start, end)` is free on a lane (`clip.create` into the arrangement refuses an overlap). */
 export const isFree = (blocks: readonly Block[], row: number, start: number, end: number): boolean =>

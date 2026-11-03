@@ -291,11 +291,11 @@ fn the_last_one_put_down_wins_case_by_case() {
 }
 
 #[test]
-fn a_front_trim_with_nothing_left_of_a_clip_without_a_loop_drops_the_placement() {
+fn a_front_trim_of_a_clip_without_a_loop_resumes_round_the_clip() {
     let f = fx();
     let mut s = f.state.clone();
-    // `straight` is 3840 ticks without a loop: a placement of 8000 ticks plays it once and
-    // is silent after. Trimming its first 4000 ticks leaves nothing to play.
+    // `straight` is 3840 ticks without a loop: a placement of 8000 ticks repeats it (#473).
+    // Trimming its first 4000 ticks leaves a placement that resumes at 4000 round 3840: 160.
     let (out, _) = ok(
         &mut s,
         arrangement::Command::Place {
@@ -309,11 +309,14 @@ fn a_front_trim_with_nothing_left_of_a_clip_without_a_loop_drops_the_placement()
         panic!()
     };
     ok(&mut s, place(&f, &f.looped, 20_000, 4000));
-    assert!(
-        !s.project.tracks[&f.track]
-            .placements
-            .contains_key(&placement),
-        "nothing of the clip is left past tick 24000"
+    let trimmed = &s.project.tracks[&f.track].placements[&placement];
+    assert_eq!(trimmed.start, Tick(24_000));
+    assert_eq!(
+        trimmed.span,
+        ::project::Span::Ticks {
+            length: Tick(4000),
+            offset: Tick(160)
+        }
     );
     s.project.validate().unwrap();
 }
@@ -330,13 +333,7 @@ fn moving_a_group_lifts_it_first_and_may_land_on_its_own_old_place() {
             by: Tick(3840),
         },
     );
-    assert_eq!(
-        out,
-        arrangement::Output::Move {
-            overwritten: 1,
-            clips_removed: 0
-        }
-    );
+    assert_eq!(out, arrangement::Output::Move { overwritten: 1 });
     assert_eq!(
         spans(&s, &f.track),
         [
@@ -555,7 +552,6 @@ fn an_independent_copy_is_a_new_clip_and_a_linked_copy_is_a_new_placement() {
         placements,
         clips: created,
         overwritten,
-        clips_removed,
     } = out
     else {
         panic!()
@@ -563,19 +559,15 @@ fn an_independent_copy_is_a_new_clip_and_a_linked_copy_is_a_new_placement() {
     // A and B share a clip: one copy of it, shared by both copies. The group spans
     // [0, 5760): the copies start at 5760 and 9600; the first carves C at the front, the
     // second covers what is left of it.
-    assert_eq!(
-        (placements.len(), created.len(), overwritten, clips_removed),
-        (2, 1, 2, 1),
-        "the report says the covered clip went"
-    );
-    // The copy joined the clips; C, covered whole, took its clip with it (no grid slot).
-    assert_eq!(s.project.tracks[&f.track].clips.len(), clips);
-    assert!(!s.project.tracks[&f.track].clips.contains_key(&f.straight));
+    assert_eq!((placements.len(), created.len(), overwritten), (2, 1, 2),);
+    // The copy joined the clips; C, covered whole, stays in the track's pool (#473).
+    assert_eq!(s.project.tracks[&f.track].clips.len(), clips + 1);
+    assert!(s.project.tracks[&f.track].clips.contains_key(&f.straight));
     let track = &s.project.tracks[&f.track];
     let copy = &track.clips[&created[0]];
     assert_eq!(copy.slot, None, "a copy is not in the launch grid");
     let source = &track.clips[&track.placements[&f.a].clip].name;
-    assert_ne!(&copy.name, source, "a copy has a name of its own");
+    assert_eq!(&copy.name, source, "a copy keeps its source's name (#473)");
     assert_eq!(track.placements[&placements[0]].clip, created[0]);
     assert_eq!(track.placements[&placements[1]].clip, created[0]);
     assert_eq!(
@@ -605,10 +597,9 @@ fn an_independent_copy_is_a_new_clip_and_a_linked_copy_is_a_new_placement() {
         };
     assert_eq!(notes(&state, &created[0]), notes(&s, &f.looped) + 1);
     assert_eq!(notes(&state, &f.looped), notes(&s, &f.looped));
-    // The events: the clip removed, the clip created, then the track.
-    assert!(matches!(events[0], ProjectEvent::ClipDeleted { .. }));
-    assert!(matches!(events[1], ProjectEvent::ClipCreated { .. }));
-    assert!(matches!(events[2], ProjectEvent::ArrangementChanged { .. }));
+    // The events: the clip created, then the track (the covered clip stays, #473).
+    assert!(matches!(events[0], ProjectEvent::ClipCreated { .. }));
+    assert!(matches!(events[1], ProjectEvent::ArrangementChanged { .. }));
 
     // Linked: no clip, the same clip twice.
     let mut l = f.state.clone();
@@ -635,7 +626,7 @@ fn an_independent_copy_is_a_new_clip_and_a_linked_copy_is_a_new_placement() {
 }
 
 #[test]
-fn a_clip_left_without_placement_goes_with_it_unless_it_sits_in_the_grid() {
+fn a_clip_left_without_placement_stays_in_the_track_pool() {
     let f = fx();
     let scene = f.state.project.scenes.keys().next().unwrap().clone();
     // A clip in the launch grid keeps living without a placement.
@@ -655,8 +646,8 @@ fn a_clip_left_without_placement_goes_with_it_unless_it_sits_in_the_grid() {
         },
     );
     assert!(s.project.tracks[&f.track].clips.contains_key(&f.straight));
-    // A clip of the arrangement only goes with its last placement, and the undo brings it
-    // back with its notes and its identifier.
+    // A clip of the arrangement only stays too (#473: the track's pool), and the undo puts
+    // its placement back.
     let mut g = f.state.clone();
     let mut ctx = context();
     let outcome = run(
@@ -667,11 +658,14 @@ fn a_clip_left_without_placement_goes_with_it_unless_it_sits_in_the_grid() {
         &mut ctx,
     )
     .unwrap();
-    assert!(!g.project.tracks[&f.track].clips.contains_key(&f.straight));
-    assert!(matches!(
-        outcome.events[0],
-        ProjectEvent::ClipDeleted { .. }
-    ));
+    assert!(g.project.tracks[&f.track].clips.contains_key(&f.straight));
+    assert!(
+        !outcome
+            .events
+            .iter()
+            .any(|e| matches!(e, ProjectEvent::ClipDeleted { .. }))
+    );
+    g.project.validate().unwrap();
     let Undo::Inverse(inverse) = outcome.undo else {
         panic!()
     };
@@ -692,7 +686,23 @@ fn a_clip_left_without_placement_goes_with_it_unless_it_sits_in_the_grid() {
             placements: vec![f.b.clone()],
         },
     );
-    assert!(!h.project.tracks[&f.track].clips.contains_key(&f.looped));
+    assert!(h.project.tracks[&f.track].clips.contains_key(&f.looped));
+    // A pool clip is placed again by arrangement.place, or deleted by clip.delete.
+    ok(
+        &mut h,
+        arrangement::Command::Place {
+            clip: f.looped.clone(),
+            start: Tick(40_000),
+            length: None,
+            offset: None,
+        },
+    );
+    assert!(
+        h.project.tracks[&f.track]
+            .placements
+            .values()
+            .any(|p| p.clip == f.looped)
+    );
 }
 
 #[test]
@@ -871,23 +881,15 @@ fn audio_is_refused_and_so_is_everything_that_leaves_the_timeline() {
         edge: Edge::Start,
         to: Tick(3840 - 961),
     });
-    // C's clip has no loop: its start cannot go past the clip's end (480 + 3360 = 3840).
-    invalid(C::Resize {
-        placement: f.c.clone(),
-        edge: Edge::Start,
-        to: Tick(7680 + 3360),
-    });
-    // Split: on the edges, outside, and past the end of a clip without a loop.
+    // C's clip has no loop: it repeats (#473), so its start may go past the clip's end and a
+    // split there resumes round the clip (both accepted, see the carve tests).
+    // Split: on the edges and outside.
     for at in [0, 3840, 5000, -1] {
         invalid(C::Split {
             placement: f.a.clone(),
             at: Tick(at),
         });
     }
-    invalid(C::Split {
-        placement: f.c.clone(),
-        at: Tick(7680 + 3360),
-    });
     // Restore: an unknown clip, an offset outside the clip, a removed clip still placed,
     // an identifier in use, two edits of a track.
     let record =

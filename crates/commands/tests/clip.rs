@@ -1367,6 +1367,12 @@ fn move_changes_the_slot_or_the_track_keeping_the_clip_and_is_refused_where_it_c
     assert!(matches!(out.undo, Undo::None));
     assert!(out.events.is_empty());
     assert_eq!(state, two);
+    // Out of the grid with no placement: the clip stays in its track's pool (#473).
+    let mut pooled = two.clone();
+    run(&mv(&f.clip, None, None), &mut pooled, &mut context()).unwrap();
+    let clip = &pooled.project.tracks[&f.track].clips[&f.clip];
+    assert_eq!(clip.slot, None);
+    pooled.project.validate().unwrap();
     // Refusals, each leaving the state intact.
     let refuse = |command: Command, code: &str| {
         let err = check_refusal(&command, &two, &context()).unwrap();
@@ -1374,7 +1380,6 @@ fn move_changes_the_slot_or_the_track_keeping_the_clip_and_is_refused_where_it_c
     };
     refuse(mv(&f.clip, None, Some(&f.scene_b)), "invalid"); // slot taken
     refuse(mv(&f.clip, None, Some(&ghost_scene)), "not_found"); // no such scene
-    refuse(mv(&f.clip, None, None), "invalid"); // out of the grid with no placement
     refuse(mv(&f.placed, Some(&other), Some(&f.scene_free)), "invalid"); // placed clips stay
     refuse(
         mv(&f.clip, Some(&f.audio_track), Some(&f.scene_free)),
@@ -1483,8 +1488,9 @@ fn create_unnamed(
     clip
 }
 
-/// The default name is stored at creation, the first free number of the project, and
-/// stays when other clips are deleted, copied or moved (#316).
+/// The default name is stored at creation, the track's name and the first free number
+/// among the track's clips (#473), and stays when other clips are deleted, copied or moved
+/// (#316).
 #[test]
 fn a_new_clip_gets_the_first_free_clip_number_and_keeps_it() {
     let f = fx();
@@ -1495,7 +1501,7 @@ fn a_new_clip_gets_the_first_free_clip_number_and_keeps_it() {
     let three = create_unnamed(&mut state, &mut ctx, &f, 28_000);
     assert_eq!(
         [&one, &two, &three].map(|id| clip_name(&state, id)),
-        ["Clip 1", "Clip 2", "Clip 3"]
+        ["Synth 1", "Synth 2", "Synth 3"]
     );
     // Deleting the first leaves the others as they are, and its number is free again.
     run(
@@ -1504,10 +1510,10 @@ fn a_new_clip_gets_the_first_free_clip_number_and_keeps_it() {
         &mut ctx,
     )
     .unwrap();
-    assert_eq!(clip_name(&state, &two), "Clip 2");
-    assert_eq!(clip_name(&state, &three), "Clip 3");
+    assert_eq!(clip_name(&state, &two), "Synth 2");
+    assert_eq!(clip_name(&state, &three), "Synth 3");
     let again = create_unnamed(&mut state, &mut ctx, &f, 32_000);
-    assert_eq!(clip_name(&state, &again), "Clip 1");
+    assert_eq!(clip_name(&state, &again), "Synth 1");
     // A name the user gave, however it looks, wins; a spelling that is not the default
     // one does not take a number.
     let out = run(
@@ -1517,7 +1523,7 @@ fn a_new_clip_gets_the_first_free_clip_number_and_keeps_it() {
                 start: Tick(36_000),
             },
             length: None,
-            name: Some("Clip 04".into()),
+            name: Some("Synth 04".into()),
         }),
         &mut state,
         &mut ctx,
@@ -1526,15 +1532,28 @@ fn a_new_clip_gets_the_first_free_clip_number_and_keeps_it() {
     let Output::Clip(clip::Output::Create { clip: named, .. }) = out.output else {
         panic!()
     };
-    assert_eq!(clip_name(&state, &named), "Clip 04");
+    assert_eq!(clip_name(&state, &named), "Synth 04");
     let next = create_unnamed(&mut state, &mut ctx, &f, 40_000);
-    assert_eq!(clip_name(&state, &next), "Clip 4");
+    assert_eq!(clip_name(&state, &next), "Synth 4");
+    // A renamed track names its next clips after its new name; the old ones keep theirs.
+    run(
+        &Command::Track(commands::track::Command::Rename {
+            track: f.track.clone(),
+            name: "Bass".into(),
+        }),
+        &mut state,
+        &mut ctx,
+    )
+    .unwrap();
+    let bass = create_unnamed(&mut state, &mut ctx, &f, 44_000);
+    assert_eq!(clip_name(&state, &bass), "Bass 1");
+    assert_eq!(clip_name(&state, &two), "Synth 2");
     state.project.validate().unwrap();
 }
 
-/// Numbers are counted over the whole project, not per track.
+/// Numbers are counted per track (#473): another track's "Synth 1" does not take it.
 #[test]
-fn the_clip_number_is_free_in_the_whole_project() {
+fn the_clip_number_is_counted_in_the_track() {
     let f = fx();
     let mut ctx = context();
     let mut state = f.state.clone();
@@ -1546,14 +1565,14 @@ fn the_clip_number_is_free_in_the_whole_project() {
         .clips
         .get_mut(&f.audio_clip)
         .unwrap()
-        .name = "Clip 1".into();
+        .name = "Synth 1".into();
     let made = create_unnamed(&mut state, &mut ctx, &f, 20_000);
-    assert_eq!(clip_name(&state, &made), "Clip 2");
+    assert_eq!(clip_name(&state, &made), "Synth 1");
 }
 
-/// A copy takes the next name by the rule of the track copies.
+/// A copy keeps its source's name (#473): it plays the same part.
 #[test]
-fn a_copy_takes_the_next_name() {
+fn a_copy_keeps_its_source_name() {
     let f = fx();
     let mut ctx = context();
     let mut state = f.state.clone();
@@ -1596,26 +1615,24 @@ fn a_copy_takes_the_next_name() {
         };
         clip
     };
-    // "Riff" has no number: the copy is "Riff 2", the next one "Riff 3".
     let first = duplicate(&mut state, &mut ctx, &f.clip, Some(f.scene_free.clone()));
-    assert_eq!(clip_name(&state, &first), "Riff 2");
-    let second = duplicate(&mut state, &mut ctx, &f.clip, None);
-    assert_eq!(clip_name(&state, &second), "Riff 3");
-    // "Clip 2" gives "Clip 3", and skips a number that is taken.
+    assert_eq!(clip_name(&state, &first), "Riff");
+    // A copy of a copy too.
+    let second = duplicate(&mut state, &mut ctx, &first, None);
+    assert_eq!(clip_name(&state, &second), "Riff");
+    // A copy of a default name keeps it, and the next new clip takes the next number.
     let made = create_unnamed(&mut state, &mut ctx, &f, 20_000);
-    let two = create_unnamed(&mut state, &mut ctx, &f, 24_000);
-    assert_eq!(clip_name(&state, &made), "Clip 1");
-    assert_eq!(clip_name(&state, &two), "Clip 2");
-    let copy = duplicate(&mut state, &mut ctx, &two, None);
-    assert_eq!(clip_name(&state, &copy), "Clip 3");
-    let copy = duplicate(&mut state, &mut ctx, &two, None);
-    assert_eq!(clip_name(&state, &copy), "Clip 4");
+    assert_eq!(clip_name(&state, &made), "Synth 1");
+    let copy = duplicate(&mut state, &mut ctx, &made, None);
+    assert_eq!(clip_name(&state, &copy), "Synth 1");
+    let next = create_unnamed(&mut state, &mut ctx, &f, 24_000);
+    assert_eq!(clip_name(&state, &next), "Synth 2");
     state.project.validate().unwrap();
 }
 
-/// A duplicated track brings clips with names of their own, none shared with the source.
+/// A duplicated track brings its clips with their names (#473).
 #[test]
-fn a_duplicated_track_renames_its_copied_clips() {
+fn a_duplicated_track_keeps_its_clip_names() {
     let f = fx();
     let mut ctx = context();
     let mut state = f.state.clone();
@@ -1641,9 +1658,9 @@ fn a_duplicated_track_renames_its_copied_clips() {
     let (source, copy) = (names(&f.track), names(&track));
     assert_eq!(
         copy,
-        BTreeSet::from(["Riff 2".to_string(), "Placed 2".to_string()])
+        BTreeSet::from(["Riff".to_string(), "Placed".to_string()])
     );
-    assert!(source.is_disjoint(&copy));
+    assert_eq!(source, copy);
 }
 
 /// An empty name asks for the default one on a MIDI clip; an audio clip keeps being
@@ -1665,7 +1682,7 @@ fn renaming_to_nothing_gives_a_midi_clip_the_default_name() {
         .unwrap()
     };
     let out = rename(&mut state, &mut ctx, &f.clip, "");
-    assert_eq!(clip_name(&state, &f.clip), "Clip 1");
+    assert_eq!(clip_name(&state, &f.clip), "Synth 1");
     // Undo brings the old name back.
     let Undo::Inverse(inverse) = out.undo else {
         panic!("a rename has an inverse")
@@ -1674,10 +1691,10 @@ fn renaming_to_nothing_gives_a_midi_clip_the_default_name() {
     assert_eq!(clip_name(&state, &f.clip), "Riff");
     // Clearing the name of a clip that has a default one changes nothing.
     rename(&mut state, &mut ctx, &f.clip, "");
-    assert_eq!(clip_name(&state, &f.clip), "Clip 1");
+    assert_eq!(clip_name(&state, &f.clip), "Synth 1");
     let again = rename(&mut state, &mut ctx, &f.clip, "");
     assert_eq!(again.undo, Undo::None);
-    assert_eq!(clip_name(&state, &f.clip), "Clip 1");
+    assert_eq!(clip_name(&state, &f.clip), "Synth 1");
     rename(&mut state, &mut ctx, &f.audio_clip, "");
     assert_eq!(clip_name(&state, &f.audio_clip), "");
 }

@@ -19,7 +19,7 @@ export const project = defineFeature(
     'project.menu.noRecent': 'No recent project yet.',
     'project.menu.unsupported':
       'This browser cannot save to a folder. Your project stays in this tab, and Faulk warns you before you leave it. To keep it on your computer, use Chrome or Edge.',
-    'project.untitled': 'Untitled',
+    'project.untitled': 'New project',
 
     'save.unsaved': 'Not saved',
     'save.pending': 'Unsaved changes',
@@ -109,6 +109,9 @@ export const project = defineFeature(
     'openUrl.downloading': 'Downloading the project from {host}…',
     'openUrl.failed': 'Couldn’t download this project from {host}.',
     'openUrl.importFile': 'Import a file…',
+    // The project of last time that would not open (#504).
+    'save.banner.reopenRetry': 'Retry',
+    'save.banner.openOther': 'Open another project…',
     'openUrl.refused': 'Faulk opens projects from https links only. This link was not opened.',
     'openUrl.alreadyOpen': 'This project is already open.',
     'openUrl.keptCopy': 'This project was already in this browser: Faulk opened the copy kept here.',
@@ -129,7 +132,7 @@ export const project = defineFeature(
     'project.menu.noRecent': 'Aucun projet récent pour l’instant.',
     'project.menu.unsupported':
       'Ce navigateur ne peut pas enregistrer dans un dossier. Ton projet reste dans cet onglet, et Faulk te prévient avant que tu le quittes. Pour le garder sur ton ordinateur, utilise Chrome ou Edge.',
-    'project.untitled': 'Sans titre',
+    'project.untitled': 'Nouveau projet',
 
     'save.unsaved': 'Non enregistré',
     'save.pending': 'Modifications non enregistrées',
@@ -220,6 +223,8 @@ export const project = defineFeature(
     'openUrl.downloading': 'Téléchargement du projet depuis {host}…',
     'openUrl.failed': 'Impossible de télécharger ce projet depuis {host}.',
     'openUrl.importFile': 'Importer un fichier…',
+    'save.banner.reopenRetry': 'Réessayer',
+    'save.banner.openOther': 'Ouvrir un autre projet…',
     'openUrl.refused': 'Faulk n’ouvre que des projets en lien https. Ce lien n’a pas été ouvert.',
     'openUrl.alreadyOpen': 'Ce projet est déjà ouvert.',
     'openUrl.keptCopy': 'Ce projet était déjà dans ce navigateur : Faulk a ouvert la copie gardée ici.',
