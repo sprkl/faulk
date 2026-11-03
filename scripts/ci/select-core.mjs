@@ -35,7 +35,7 @@ const NONE = Object.freeze({
 })
 
 // The crates whose code ends up in the web page (WASM builds) or in its generated types.
-export const WEB_CRATES = ['engine-wasm', 'project-wasm', 'protocol']
+export const WEB_CRATES = ['engine-wasm', 'project-wasm', 'protocol', 'audio-import-wasm']
 const HELPER = 'helper'
 // The prototype crate (web/src/lib/engine/proto/crate) depends on these by path but is not a workspace member.
 const PROTO_DEPS = ['engine']

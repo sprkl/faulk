@@ -184,6 +184,7 @@ fn examples() -> Vec<(Command, State)> {
     ]
     .into_iter()
     .chain(clip_examples::examples())
+    .chain(clip_examples::live_examples())
     .chain(arrangement_examples::examples())
     .chain(grid_examples::examples())
     .chain(transport_examples::examples())

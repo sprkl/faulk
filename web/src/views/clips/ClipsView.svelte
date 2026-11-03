@@ -9,13 +9,31 @@
   import LinkMark from '../../lib/components/LinkMark.svelte'
   import { barStart } from '../../lib/arrangement-commands'
   import { CLIP_DRAG_TYPE, clipTrackType, freeScene, gridCommand, placeCommand, poolOf, type PoolClip } from '../../lib/clip-pool'
-  import { deleteClip } from '../../lib/clip-commands'
+  import { cancelAudioImport, chooseAudio, deleteClip } from '../../lib/clip-commands'
+  import type { ImportFailure } from '../../lib/audio/import/audio-import.svelte'
+  import type { MessageKey } from '../../lib/i18n'
   import { useStores } from '../../lib/stores'
   import { barTicks } from '../transport/time'
   import { trackColor } from '../../lib/project/tracks'
 
-  const { project, dispatcher, ui, engine } = useStores()
+  const { project, dispatcher, ui, engine, audioImport } = useStores()
   const t = ui.t
+
+  /** What a failed import says: by why the file was refused, or that the folder refused it. */
+  function failureText(failure: ImportFailure): string {
+    const known: Record<string, MessageKey> = {
+      unsupported_format: 'clips.importFailed.unsupportedFormat',
+      unsupported_codec: 'clips.importFailed.unsupportedCodec',
+      corrupt: 'clips.importFailed.corrupt',
+      empty: 'clips.importFailed.empty',
+      bad_sample_rate: 'clips.importFailed.badSampleRate',
+      bad_channels: 'clips.importFailed.badChannels',
+      too_long: 'clips.importFailed.tooLong',
+      unavailable: 'clips.importFailed.unavailable',
+      io: 'clips.importFailed.unreadable',
+    }
+    return t(known[failure.code] ?? 'clips.importFailed.store', { name: failure.name })
+  }
 
   const trackId = $derived(project.view?.session.selected_track ?? null)
   const track = $derived(trackId ? (project.view?.project.tracks[trackId] ?? null) : null)
@@ -23,6 +41,9 @@
   const color = $derived(project.selected ? trackColor(project.selected.track.color, project.selected.index) : 'currentColor')
   const pool = $derived(project.view && trackId ? poolOf(project.view.project, trackId) : [])
   const free = $derived(project.view && trackId ? freeScene(project.view.project, trackId) : null)
+  /** The import under way into this track, and the last failure of one (AU-1). */
+  const importing = $derived(audioImport.running && audioImport.running.track === trackId ? audioImport.running : null)
+  const failed = $derived(audioImport.failure && audioImport.failure.track === trackId ? audioImport.failure : null)
 
   function where(entry: PoolClip): string {
     const parts: string[] = []
@@ -70,6 +91,34 @@
 </script>
 
 <div class="clips" data-testid="clips-panel">
+  {#if track && trackId && track.kind === 'audio'}
+    <div class="import" data-testid="audio-import">
+      <button
+        class="ghost"
+        type="button"
+        title={t('clips.importAudioHint')}
+        data-testid="audio-import-button"
+        onclick={() => dispatcher.run(chooseAudio(trackId))}>{t('clips.importAudio')}</button
+      >
+      {#if importing}
+        <span class="progress" role="status" data-testid="audio-import-progress" data-fraction={importing.fraction}>
+          <span class="bar" aria-hidden="true"><span style:width="{Math.round(importing.fraction * 100)}%"></span></span>
+          {importing.count > 1
+            ? t('clips.importingMany', { name: importing.name, index: importing.index, count: importing.count, percent: Math.round(importing.fraction * 100) })
+            : t('clips.importing', { name: importing.name, percent: Math.round(importing.fraction * 100) })}
+        </span>
+        <button class="ghost" type="button" data-testid="audio-import-cancel" onclick={() => dispatcher.run(cancelAudioImport())}
+          >{t('clips.importCancel')}</button
+        >
+      {:else if failed}
+        <span class="failure" role="alert" data-testid="audio-import-failure" data-code={failed.code}>{failureText(failed)}</span>
+        <button class="ghost" type="button" onclick={() => audioImport.dismiss()}>{t('clips.dismiss')}</button>
+      {:else if audioImport.needsClick}
+        <span class="failure" role="status" data-testid="audio-import-needs-click">{t('clips.importNeedsClick')}</span>
+        <button class="ghost" type="button" onclick={() => audioImport.dismiss()}>{t('clips.dismiss')}</button>
+      {/if}
+    </div>
+  {/if}
   {#if !track}
     <p class="empty">{t('clips.noTrack')}</p>
   {:else if pool.length === 0}
@@ -192,5 +241,39 @@
     margin: 0;
     padding: var(--fk-space-4);
     color: var(--fk-text-muted);
+  }
+  .import {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--fk-space-2);
+    padding: var(--fk-space-1) var(--fk-space-3);
+    border-bottom: 1px solid var(--fk-line);
+  }
+  .progress {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--fk-space-2);
+    min-width: 0;
+    color: var(--fk-text-muted);
+    font-size: 0.85em;
+    font-variant-numeric: tabular-nums;
+  }
+  .bar {
+    flex: none;
+    width: 96px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--fk-line);
+    overflow: hidden;
+  }
+  .bar > span {
+    display: block;
+    height: 100%;
+    background: var(--fk-accent);
+  }
+  .failure {
+    min-width: 0;
+    font-size: 0.85em;
   }
 </style>

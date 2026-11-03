@@ -1,6 +1,17 @@
 // The project folder over the File System Access API (SV-2): what the Worker runs, and what the
 // tests run against a stand-in directory. Plain functions on a `FileSystemDirectoryHandle`; no
 // state beyond the handle, so a call that fails leaves nothing to repair.
+import { workerDeps } from '../audio/import/deps'
+import {
+  ensureAudioCache,
+  importAudio,
+  importLock,
+  IMPORT_TMP_PREFIX,
+  type CacheReport,
+  type ImportOutcome,
+  type MediaRef,
+  type PipelineDeps,
+} from '../audio/import/pipeline'
 import { needsBytes, type FolderEntry, type SaveEntry } from '../project/core'
 import { IGNORED_FILES, SKIPPED_DIRS, StoreError, SWAP_SUFFIX, type ProjectStore, type Signature, type StoreErrorCode } from './types'
 
@@ -66,8 +77,28 @@ async function each<T>(items: T[], task: (item: T) => Promise<void>) {
   await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, worker))
 }
 
+/** The Web Locks held now (the imports that run hold one each); none where Web Locks do not exist. */
+async function runningImports(): Promise<Set<string>> {
+  const locks = (globalThis.navigator as Navigator | undefined)?.locks
+  if (!locks?.query) return new Set()
+  const { held = [] } = await locks.query()
+  return new Set(held.map((lock) => lock.name ?? ''))
+}
+
 export class FolderBackend implements ProjectStore {
-  constructor(readonly root: FileSystemDirectoryHandle) {}
+  /** `deps`: what the import pipeline runs with (the Worker's by default; a stand-in in tests). */
+  constructor(
+    readonly root: FileSystemDirectoryHandle,
+    private readonly deps: (onProgress?: (fraction: number) => void, signal?: AbortSignal) => PipelineDeps = workerDeps,
+  ) {}
+
+  importAudio(file: File, onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<ImportOutcome> {
+    return importAudio(this.root, file, this.deps(onProgress, signal))
+  }
+
+  ensureAudioCache(media: MediaRef[], onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<CacheReport> {
+    return ensureAudioCache(this.root, media, this.deps(onProgress, signal))
+  }
 
   get name() {
     return this.root.name
@@ -338,11 +369,18 @@ export class FolderBackend implements ProjectStore {
     }
     try {
       await sweep(this.root, 0)
-      // What an interrupted creation left in `.faulk/tmp/`.
+      // What an interrupted creation or import left in `.faulk/tmp/`; the files of an import that runs
+      // (in this tab or another, its lock held) are left to it.
       const tmp = await directory(this.root, ['.faulk', 'tmp'], false)
       const left: string[] = []
       for await (const entry of children(tmp)) left.push(entry.name)
-      for (const name of left) await tmp.removeEntry(name).catch(() => undefined)
+      // Asked after the listing: an import takes its lock before it makes its first file, so every
+      // file listed of an import that runs now is covered by a lock this query sees.
+      const running = await runningImports()
+      for (const name of left) {
+        if (name.startsWith(IMPORT_TMP_PREFIX) && running.has(importLock(name.slice(IMPORT_TMP_PREFIX.length).replace(/\.pcm$/, '')))) continue
+        await tmp.removeEntry(name).catch(() => undefined)
+      }
     } catch {
       // Best effort: a swap file left behind is harmless.
     }

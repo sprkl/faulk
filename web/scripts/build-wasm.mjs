@@ -1,7 +1,8 @@
-// Builds the two WebAssembly modules of the DAW and copies them next to their loaders:
+// Builds the three WebAssembly modules of the DAW and copies them next to their loaders:
 // the engine (crates/engine-wasm, for wasm32-wasip1-threads: one module, two instances on a
-// shared memory, link arguments in .cargo/config.toml) and the page's project and commands
-// (crates/project-wasm, for wasm32-unknown-unknown).
+// shared memory, link arguments in .cargo/config.toml), the page's project and commands
+// (crates/project-wasm, for wasm32-unknown-unknown) and the audio import pipeline
+// (crates/audio-import-wasm, for wasm32-unknown-unknown, run in the project store's Worker).
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -29,6 +30,8 @@ const targetDir = targetDirectory()
 const builds = [
   { crate: 'engine-wasm', target: 'wasm32-wasip1-threads', file: 'engine_wasm.wasm', out: 'engine/wasm/engine.wasm' },
   { crate: 'project-wasm', target: 'wasm32-unknown-unknown', file: 'project_wasm.wasm', out: 'project/wasm/project.wasm' },
+  // The audio import pipeline (AU-1), loaded by the project store's Worker on the first import.
+  { crate: 'audio-import-wasm', target: 'wasm32-unknown-unknown', file: 'audio_import_wasm.wasm', out: 'audio/import/wasm/import.wasm' },
 ]
 
 for (const { crate, target, file, out } of builds) {
