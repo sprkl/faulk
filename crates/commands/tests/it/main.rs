@@ -1,0 +1,39 @@
+//! One integration-test binary for the crate (#599): every former `tests/<name>.rs` is the module `<name>`.
+
+mod arrangement_examples;
+mod automation_examples;
+mod clip_examples;
+mod device_examples;
+mod grid_examples;
+mod marker_examples;
+mod query_examples;
+mod record_examples;
+mod track_examples;
+mod transport_examples;
+
+mod arrangement;
+mod arrangement_grid;
+mod arrangement_time;
+mod arrangement_tracks;
+mod automation;
+mod clip;
+mod clip_edit;
+mod clip_length;
+mod contract;
+mod describe;
+mod device;
+mod engine_sync;
+mod gesture;
+mod history;
+mod live_input;
+mod marker;
+mod mixer;
+mod project_open;
+mod project_store;
+mod query;
+mod record;
+mod record_loop;
+mod record_replace;
+mod scene;
+mod track;
+mod transport;
