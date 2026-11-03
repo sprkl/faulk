@@ -417,7 +417,20 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'lib/components/ContextMenu.svelte': ['ArrowDown', 'ArrowUp', 'End', 'Escape', 'Home', 'Tab'], // the shared menu (#524): arrows, Home, End, Escape and Tab; no letter
       'lib/continuous.ts': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Backspace', 'Delete', 'End', 'Home', 'PageDown', 'PageUp'],
       'lib/components/timegrid/TimeGrid.svelte': ['+', '-', '=', 'ArrowLeft', 'ArrowRight', 'Home', '_'],
-      'views/arrangement/ArrangementView.svelte': ['Backspace', 'Backspace', 'Delete', 'Delete', 'Enter', 'Escape', 'Escape', 'F2'], // a section marker: F2 renames, Delete removes, the name field takes Enter and Escape (#473)
+      'views/arrangement/ArrangementView.svelte': [
+        'ArrowLeft',
+        'ArrowLeft',
+        'ArrowRight',
+        'Backspace',
+        'Backspace',
+        'Delete',
+        'Delete',
+        'Enter',
+        'Enter',
+        'Escape',
+        'Escape',
+        'F2',
+      ], // a section marker: F2 renames, Delete removes, Alt+arrows move it (#554), the name field takes Enter and Escape (#473); Shift+Enter on the free cursor puts the playhead there (#554)
       'views/arrangement/LaneHeader.svelte': ['Enter', 'Enter', 'Escape'], // the rename field; the row's own keys are in lane-keys.ts (digits, signs, Enter, F2, the height handle's arrows): no letter
       'views/clips/ClipsView.svelte': ['Backspace', 'Delete', 'Enter'], // the pool row's handle: places (Enter) or deletes the clip; no letter
       'views/grid/GridView.svelte': [
