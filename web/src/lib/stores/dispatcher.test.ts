@@ -1729,6 +1729,8 @@ describe('the recorder in the dispatcher (#513)', () => {
       kind: 'native',
       status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
       send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
       close: vi.fn(() => Promise.resolve()),
     })
   const startTake = { type: 'record.start', target: { at: 'arrangement' } } as Command
