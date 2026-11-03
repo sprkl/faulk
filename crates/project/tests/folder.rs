@@ -1045,14 +1045,14 @@ fn names_the_unnamed_clips() {
             notes: Default::default(),
         },
     };
-    // Placed late, placed early, unplaced, and one the user named "Clip 1" himself.
+    // Placed late, placed early, unplaced, and one the user named "T 1" himself (the default names take the track's name, #473).
     let (late, early, loose, kept) = (
         ClipId::generate(&mut ids),
         ClipId::generate(&mut ids),
         ClipId::generate(&mut ids),
         ClipId::generate(&mut ids),
     );
-    for (id, name) in [(&late, ""), (&early, ""), (&loose, ""), (&kept, "Clip 1")] {
+    for (id, name) in [(&late, ""), (&early, ""), (&loose, ""), (&kept, "T 1")] {
         track.clips.insert(id.clone(), clip(name));
     }
     for (id, start) in [(&late, 3840), (&early, 0)] {
@@ -1079,7 +1079,7 @@ fn names_the_unnamed_clips() {
     let name = |id: &ClipId| track.clips[id].name.as_str();
     assert_eq!(
         [name(&early), name(&late), name(&loose), name(&kept)],
-        ["Clip 2", "Clip 3", "Clip 4", "Clip 1"],
+        ["T 2", "T 3", "T 4", "T 1"],
         "placed clips first by start, then the unplaced; the user's own name is kept"
     );
 

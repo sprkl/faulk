@@ -203,7 +203,8 @@ test.describe('the projects the page keeps, by command', () => {
     await expect(state(page)).toHaveText(/^Saved at/)
     await page.getByTestId('project-menu').click()
     await page.getByTestId('menu-new').click()
-    await expect(name()).toHaveText('Untitled')
+    // A new project is named after the moment it started (#473).
+    await expect(name()).toHaveText(/^Sketch /)
     await run(page, { type: 'project.rename', name: 'Beta' })
     await set('__pick', 'cmd-b')
     await saveAs(page)

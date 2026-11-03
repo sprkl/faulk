@@ -222,7 +222,11 @@ pub enum Kind {
     /// already in place) returns no inverse and no event, and the history records
     /// nothing.
     Edit,
-    /// Ephemeral, like a played note, playback, solo or the selection: changes the
+    /// A setting saved with the project that is not part of the work being undone, like
+    /// the loop switch or the metronome: changes the project but never enters the undo
+    /// history; the history's activity log lists it. Never undoable nor destructive.
+    Setting,
+    /// Ephemeral, like a played note, playback, arming or the selection: changes the
     /// session or the engine, never the project, and never enters the history.
     Live,
     /// Read-only: changes nothing.
@@ -252,10 +256,17 @@ pub struct Meta {
 
 impl Meta {
     /// The consistency rules between the three metadata, checked on every command by
-    /// the test rule: `live` and `query` are never undoable nor destructive; an `edit`
-    /// carries an inverse, or is irreversible and then declared destructive.
+    /// the test rule: `setting`, `live` and `query` are never undoable nor destructive;
+    /// an `edit` carries an inverse, or is irreversible and then declared destructive.
     pub fn check(&self) -> Result<(), String> {
         match (self.kind, self.undo, self.destructive) {
+            (Kind::Setting, UndoKind::Inverse, _) => Err(format!(
+                "{}: a setting never enters the undo history, so it cannot carry an inverse",
+                self.name
+            )),
+            (Kind::Setting, UndoKind::None, true) => {
+                Err(format!("{}: only an edit can be destructive", self.name))
+            }
             (Kind::Live | Kind::Query, UndoKind::Inverse, _) => Err(format!(
                 "{}: a {:?} command never enters the history, so it cannot carry an inverse",
                 self.name, self.kind
@@ -451,11 +462,20 @@ impl ProjectEvent {
     /// it as it was ([`ProjectEvent::GestureUnchanged`]): the hosts mark the project as
     /// edited (unsaved, autosave) for the first only.
     pub fn changes_project(&self) -> bool {
+        // The history and the session are not the project's files: a solo, or an undo
+        // that only moves the history, leaves the project as it was (#473).
         !matches!(
             self,
             ProjectEvent::GestureUnchanged { .. }
                 | ProjectEvent::RecordingChanged { .. }
                 | ProjectEvent::RecordSettingsChanged { .. }
+                | ProjectEvent::HistoryChanged { .. }
+                | ProjectEvent::SoloChanged { .. }
+                | ProjectEvent::ArmChanged { .. }
+                | ProjectEvent::MonitorChanged { .. }
+                | ProjectEvent::TrackSelected { .. }
+                | ProjectEvent::MidiInputSelected { .. }
+                | ProjectEvent::ControlChange { .. }
         )
     }
 }

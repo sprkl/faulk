@@ -13,6 +13,7 @@ import { browserDeps } from '../storage/browser'
 import { ProjectStorage, type StorageDeps } from '../storage/storage.svelte'
 import { AutomatedValues } from './automated.svelte'
 import { Dispatcher } from './dispatcher'
+import { draftName } from '../project/draft-name'
 import { EngineStore } from './engine.svelte'
 import { KeyboardPlayer } from './keyboard-player.svelte'
 import { MeterStore } from './meters.svelte'
@@ -88,6 +89,9 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
     })
   }
   const ui = new UiStore(view, panel)
+  // A new project is named in the page's language, when it starts (#473).
+  dispatcher.nameNew = () => draftName(ui.lang, new Date())
+  dispatcher.onIdentityCopied = (id) => ui.carryLayout(id)
   return {
     project,
     engine,

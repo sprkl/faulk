@@ -1410,7 +1410,9 @@ pub fn db_to_gain(db: f64) -> f32 {
 pub fn replaces_project(command: &Command) -> bool {
     matches!(
         command,
-        Command::Project(crate::project::Command::Open { .. } | crate::project::Command::New {})
+        Command::Project(
+            crate::project::Command::Open { .. } | crate::project::Command::New { .. }
+        )
     )
 }
 
@@ -1571,7 +1573,7 @@ pub mod single_synth {
     pub fn state() -> State {
         let mut project = Project::new(
             ProjectId::parse(PROJECT).expect("a valid project id"),
-            "Untitled",
+            crate::project::DEFAULT_NAME,
         );
         let mut track = Track::new(project::TrackKind::Midi, "Synth", OrderKey::first());
         track.color = Some(project::colors::palette_hue(0));

@@ -175,11 +175,20 @@
 
   // View state.
   let snap = $state<SnapSetting>('auto')
-  // Zoom and scroll come back as the view was left (it is torn down when another view is shown).
-  const left = ui.recall<{ view: View; scrollY: number }>('arrangement')
-  let view = $state<View>(left?.view ?? { pxPerTick: DEFAULT_PX_PER_TICK, scrollTick: 0 })
-  let scrollY = $state(left?.scrollY ?? 0)
-  onDestroy(() => ui.remember('arrangement', { view, scrollY }))
+  // Zoom, scroll and the open lanes come back as the view was left (it is torn down when another view is shown),
+  // and with the project's layout when it is opened again (#473).
+  const layoutRev = ui.layoutRev
+  const left = ui.recall<{ view?: View; scrollY?: number; open?: string[] }>('arrangement')
+  let view = $state<View>(validView(left?.view) ?? { pxPerTick: DEFAULT_PX_PER_TICK, scrollTick: 0 })
+  let scrollY = $state(typeof left?.scrollY === 'number' && Number.isFinite(left.scrollY) ? left.scrollY : 0)
+  const keep = () => ui.remember('arrangement', { view, scrollY, open: [...open] }, layoutRev)
+  onDestroy(keep)
+  $effect(keep)
+
+  /** A remembered view that still reads as one (it may come from an older layout). */
+  function validView(v: View | undefined): View | null {
+    return v && Number.isFinite(v.pxPerTick) && v.pxPerTick > 0 && Number.isFinite(v.scrollTick) ? v : null
+  }
   let stageW = $state(0)
   let stageH = $state(0)
   let picked = $state.raw<ReadonlySet<string>>(new Set())
@@ -192,7 +201,15 @@
   const step = $derived(snapStep(snap, signature, shown.pxPerTick))
   // --- the automation lanes (AM-4) -----------------------------------------------------------------
   // Which tracks show their lanes is the page's view state; the lanes themselves are in the project.
-  let open = $state.raw<ReadonlySet<string>>(new Set())
+  // The open lanes of the project's layout, kept to the tracks it still has (and the master).
+  let open = $state.raw<ReadonlySet<string>>(
+    new Set((Array.isArray(left?.open) ? left.open : []).filter((id) => typeof id === 'string' && untrack(() => allEntries.some((e) => e.id === id)))),
+  )
+  // Lane heights of deleted tracks are forgotten.
+  $effect(() => {
+    const ids = new Set(entries.map((e) => e.id))
+    untrack(() => ui.forgetLaneHeights(ids))
+  })
   /** The selected points: one lane's, by tick (kept to the points the lane still has). */
   let autoPick = $state.raw<{ lane: string; ticks: ReadonlySet<number> } | null>(null)
   /** The point under the pointer, for its readout. */

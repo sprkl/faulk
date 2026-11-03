@@ -1,31 +1,32 @@
-//! Default names: the stable "Clip n" a clip gets when it is created, the rule a copy's
-//! name follows, and the load-time pass that names the clips of a project saved before
-//! clips were named.
+//! Default names: the name a clip gets when it is created ("Bass 3": its track's name and
+//! a number), the rule a copied track's name follows, and the load-time pass that names the
+//! clips of a project saved before clips were named.
 //!
-//! The rule of a copy is shared by every entity that is copied; the web app has the same
-//! rule for tracks (`copyName` in `web/src/lib/project/tracks.ts`), kept in step by hand.
+//! A copied clip keeps its source's name (#473): the copy plays the same part, and its name
+//! says so. A copied track takes the next name ([`copy_name`]); the web app has the same rule
+//! for tracks (`copyName` in `web/src/lib/project/tracks.ts`), kept in step by hand.
 
+use crate::ids::{ClipId, TrackId};
 use crate::limits::MAX_NAME_CHARS;
 use crate::model::{Project, Track};
 use std::collections::BTreeSet;
 
-/// The prefix of a clip's default name.
+/// The base of a default clip name when the track has no usable name.
 pub const CLIP_PREFIX: &str = "Clip";
 
-/// The number of a default clip name ("Clip 3" is 3), `None` for any other name. Only the
-/// canonical spelling counts: "Clip 03" and "clip 3" are the user's own names.
-fn clip_number(name: &str) -> Option<u32> {
-    let n: u32 = name
-        .strip_prefix(CLIP_PREFIX)?
-        .strip_prefix(' ')?
-        .parse()
-        .ok()?;
-    (n > 0 && format!("{CLIP_PREFIX} {n}") == name).then_some(n)
+/// The base of the default names of a track's clips: the track's name, trimmed and
+/// shortened so that the base, a space and a number of ten digits fit [`MAX_NAME_CHARS`].
+fn clip_base(track: &Track) -> String {
+    let name = track.name.trim();
+    let base = if name.is_empty() { CLIP_PREFIX } else { name };
+    base.chars().take(MAX_NAME_CHARS - 11).collect()
 }
 
-/// Whether `name` is a default clip name ("Clip 3"): one the project hands out itself.
-pub fn is_default_clip_name(name: &str) -> bool {
-    clip_number(name).is_some()
+/// The number of a default clip name of `base` ("Bass 3" is 3 for "Bass"), `None` for any
+/// other name. Only the canonical spelling counts: "Bass 03" is the user's own name.
+fn clip_number(base: &str, name: &str) -> Option<u32> {
+    let n: u32 = name.strip_prefix(base)?.strip_prefix(' ')?.parse().ok()?;
+    (n > 0 && format!("{base} {n}") == name).then_some(n)
 }
 
 /// The name of the copy of something called `label`: its trailing number plus one ("Clip 2"
@@ -65,49 +66,45 @@ fn split_number(label: &str) -> (&str, u32) {
 }
 
 impl Project {
-    /// The name of the next new clip: "Clip n", n the first number no clip of the project
-    /// has (a gap left by a deleted clip is filled).
-    pub fn next_clip_name(&self) -> String {
-        self.next_clip_name_beside(&[])
+    /// The name of the next new clip of `track`: the track's name and the first number no
+    /// clip of the track has with it ("Bass 1", "Bass 2"; a gap left by a deleted clip is
+    /// filled). "Clip n" when the track does not exist.
+    pub fn next_clip_name(&self, track: &TrackId) -> String {
+        self.next_clip_name_beside(track, &[])
     }
 
-    /// [`Project::next_clip_name`] when `also` are the names of clips a command is adding
-    /// and the project does not hold yet.
-    pub fn next_clip_name_beside(&self, also: &[String]) -> String {
-        let used: BTreeSet<u32> = self
-            .clip_names()
+    /// [`Project::next_clip_name`] when `also` are the names of clips a command is adding to
+    /// the track and the project does not hold yet.
+    pub fn next_clip_name_beside(&self, track: &TrackId, also: &[String]) -> String {
+        let Some(t) = self.tracks.get(track) else {
+            return format!("{CLIP_PREFIX} 1");
+        };
+        let base = clip_base(t);
+        let used: BTreeSet<u32> = t
+            .clips
+            .values()
+            .map(|c| c.name.as_str())
             .chain(also.iter().map(String::as_str))
-            .filter_map(clip_number)
+            .filter_map(|name| clip_number(&base, name))
             .collect();
         let n = (1u32..).find(|n| !used.contains(n)).unwrap_or(u32::MAX);
-        format!("{CLIP_PREFIX} {n}")
+        format!("{base} {n}")
     }
 
-    /// The name of the copy of a clip called `label`: [`copy_name`] against every clip name
-    /// of the project and `also`. A clip with no name gets the next default name.
-    pub fn copy_clip_name(&self, label: &str, also: &[String]) -> String {
-        if label.trim().is_empty() {
-            return self.next_clip_name_beside(also);
-        }
-        copy_name(
-            label,
-            self.clip_names().chain(also.iter().map(String::as_str)),
-        )
-    }
-
-    fn clip_names(&self) -> impl Iterator<Item = &str> {
+    /// Whether `name` is a default name of a clip of `track` ("Bass 3" in the track "Bass").
+    pub fn is_default_clip_name(&self, track: &TrackId, name: &str) -> bool {
         self.tracks
-            .values()
-            .flat_map(|t| t.clips.values())
-            .map(|c| c.name.as_str())
+            .get(track)
+            .is_some_and(|t| clip_number(&clip_base(t), name).is_some())
     }
 
     /// Names the MIDI clips that have no name, in the order a musician meets them: tracks
     /// in display order, then each track's clips by first placement (the unplaced last),
-    /// then identifier. Returns how many it named. A project saved before clips were named
-    /// takes this on opening: a normalisation of what is read, not an edit (no history).
+    /// then identifier; each takes its track's next default name. Returns how many it named.
+    /// A project saved before clips were named takes this on opening: a normalisation of
+    /// what is read, not an edit (no history).
     pub fn name_unnamed_clips(&mut self) -> usize {
-        let mut todo: Vec<(crate::ids::TrackId, crate::ids::ClipId)> = Vec::new();
+        let mut todo: Vec<(TrackId, ClipId)> = Vec::new();
         for (tid, track) in self.tracks_in_order() {
             let mut unnamed: Vec<_> = track
                 .clips
@@ -119,15 +116,8 @@ impl Project {
             todo.extend(unnamed.into_iter().map(|(_, id)| (tid.clone(), id)));
         }
         let named = todo.len();
-        // One pass: the numbers taken are collected once, and the counter only moves up.
-        let mut used: BTreeSet<u32> = self.clip_names().filter_map(clip_number).collect();
-        let mut next = 1u32;
         for (tid, cid) in todo {
-            while used.contains(&next) && next < u32::MAX {
-                next += 1;
-            }
-            used.insert(next);
-            let name = format!("{CLIP_PREFIX} {next}");
+            let name = self.next_clip_name(&tid);
             if let Some(clip) = self
                 .tracks
                 .get_mut(&tid)
@@ -141,7 +131,7 @@ impl Project {
 }
 
 /// The earliest start among a clip's placements, `None` (sorted last) when it has none.
-fn first_start(track: &Track, clip: &crate::ids::ClipId) -> (bool, i64) {
+fn first_start(track: &Track, clip: &ClipId) -> (bool, i64) {
     track
         .placements
         .values()
@@ -175,17 +165,17 @@ mod tests {
 
     #[test]
     fn only_the_canonical_spelling_is_a_default_name() {
-        assert_eq!(clip_number("Clip 3"), Some(3));
+        assert_eq!(clip_number("Bass", "Bass 3"), Some(3));
         for other in [
-            "Clip 03",
-            "clip 3",
-            "Clip 0",
-            "Clip",
-            "Clip 3 ",
-            "Clip 3b",
-            "My Clip 3",
+            "Bass 03",
+            "bass 3",
+            "Bass 0",
+            "Bass",
+            "Bass 3 ",
+            "Bass 3b",
+            "My Bass 3",
         ] {
-            assert_eq!(clip_number(other), None, "{other}");
+            assert_eq!(clip_number("Bass", other), None, "{other}");
         }
     }
 }

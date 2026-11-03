@@ -10,16 +10,17 @@
 //!   (nothing while already playing), `stop` stops and puts the playhead on the marker
 //!   (#360); a `stop` with the playhead already on the marker goes on to position 0 and
 //!   moves the marker there, so the position shown is always where `play` restarts.
-//! - **Tempo, time signature, loop and metronome are `edit`s** in the project: undoable
-//!   and saved. A tempo outside [`Tempo::MIN`], [`Tempo::MAX`] BPM is refused, never
+//! - **Tempo, time signature and the loop region are `edit`s** in the project: undoable
+//!   and saved. **The loop switch and the metronome are `setting`s** (#473): saved, listed
+//!   in the history's activity log, never undone. A tempo outside [`Tempo::MIN`], [`Tempo::MAX`] BPM is refused, never
 //!   clamped. One tempo and one time signature per project in the MVP: the commands set
 //!   the first point of the maps.
 //! - The launch quantization is one value for the whole project (`none`, `sixteenth`, `beat`,
 //!   `bar`, `bars_2`, `bars_4`, `bars_8`; one bar by default): `transport.set_launch_quantize`
 //!   sets it, a value outside the list is refused by the schema.
 //! - The loop region needs `0 <= start < end <= MAX_TICK`. The loop cannot be enabled
-//!   without a region, and the region cannot be cleared while the loop is enabled
-//!   (the project would be invalid): turn the loop off first.
+//!   without a region; clearing the region turns the loop off (the project would be
+//!   invalid otherwise), and the inverse of that clear turns it back on.
 //! - A command that changes nothing returns no inverse and no event.
 
 use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, Undo};
@@ -102,20 +103,25 @@ domain! {
     };
 
     /// Set the loop region `{"start": <tick>, "end": <tick>}` with `0 <= start < end <=
-    /// 2^40`, or `null` for none; a region cannot be cleared while the loop is on. This
-    /// does not turn the loop on: see `transport.toggle_loop`. Undo: set the previous
-    /// region back.
+    /// 2^40`, or `null` for none. This does not turn the loop on (see
+    /// `transport.toggle_loop`), unless `enabled` says so; clearing the region while the
+    /// loop is on turns the loop off too. `enabled` (optional) turns the loop on or off
+    /// with the region: on without a region is refused. Undo: set the previous region
+    /// back, and the loop switch when the command changed it.
     "transport.set_loop" (kind = "edit", undo = "inverse", destructive = false)
     SetLoop {
         loop_region: Option<TickLoop>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        enabled: Option<bool>,
     } => {
         /// The region before the command.
         previous: Option<TickLoop>,
     };
 
     /// Turn the loop over the loop region on or off. Turning it on without a region is
-    /// refused. Undo: toggle again.
-    "transport.toggle_loop" (kind = "edit", undo = "inverse", destructive = false)
+    /// refused. A setting of the project: saved with it, listed in the history's activity
+    /// log, but not undoable (undo and redo leave the switch as it is).
+    "transport.toggle_loop" (kind = "setting", undo = "none", destructive = false)
     ToggleLoop {} => {
         /// Whether the loop is on after the command.
         enabled: bool,
@@ -124,9 +130,9 @@ domain! {
     /// Change the metronome: `enabled` (click on or off), `gain_db` (level, -96 to +6,
     /// `null` for silence) and `count_in_bars` (bars counted in before recording, 0 to 16). Every field is
     /// optional and a missing one is left as it is; at least one is required. A value
-    /// outside its range is refused. Undo: set the previous values of the changed fields
-    /// back.
-    "transport.set_metronome" (kind = "edit", undo = "inverse", destructive = false)
+    /// outside its range is refused. A setting of the project: saved with it, listed in
+    /// the history's activity log, but not undoable.
+    "transport.set_metronome" (kind = "setting", undo = "none", destructive = false)
     SetMetronome {
         #[serde(default)]
         enabled: Option<bool>,
@@ -207,6 +213,17 @@ fn edited(output: Output, inverse: Command, event: ProjectEvent) -> Out {
     }
 }
 
+/// The outcome of a setting that changed: its event, no inverse (it never enters the
+/// undo history).
+fn set(output: Output, event: ProjectEvent) -> Out {
+    Outcome {
+        output,
+        undo: Undo::None,
+        events: vec![event],
+        control: vec![],
+    }
+}
+
 /// Applies a command of this domain.
 pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<Out, CommandError> {
     // A stop or a pause ends the capture of a recording take (`record.*`).
@@ -256,7 +273,10 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             denominator,
         } => set_time_signature(state, *numerator, *denominator),
         Command::SetLaunchQuantize { quantize } => set_launch_quantize(state, *quantize),
-        Command::SetLoop { loop_region } => set_loop(state, *loop_region),
+        Command::SetLoop {
+            loop_region,
+            enabled,
+        } => set_loop(state, *loop_region, *enabled),
         Command::ToggleLoop {} => toggle_loop(state),
         Command::SetMetronome {
             enabled,
@@ -365,7 +385,11 @@ fn loop_changed(state: &State) -> ProjectEvent {
     }
 }
 
-fn set_loop(state: &mut State, new: Option<TickLoop>) -> Result<Out, CommandError> {
+fn set_loop(
+    state: &mut State,
+    new: Option<TickLoop>,
+    enabled: Option<bool>,
+) -> Result<Out, CommandError> {
     let region = match new {
         None => None,
         Some(l) => {
@@ -391,23 +415,35 @@ fn set_loop(state: &mut State, new: Option<TickLoop>) -> Result<Out, CommandErro
             })?)
         }
     };
+    if region.is_none() && enabled == Some(true) {
+        return Err(invalid(
+            "enabled",
+            "the loop cannot be on without a region".into(),
+        ));
+    }
     let t = &mut state.project.transport;
     let previous = as_tick_loop(t.loop_region);
     let output = Output::SetLoop { previous };
-    if t.loop_region == region {
+    // Clearing the region turns the loop off: a loop on without a region is invalid.
+    let switch = if region.is_none() {
+        Some(false)
+    } else {
+        enabled
+    };
+    let switched = switch.is_some_and(|on| on != t.loop_enabled);
+    if t.loop_region == region && !switched {
         return Ok(unchanged(output));
     }
-    if region.is_none() && t.loop_enabled {
-        return Err(invalid(
-            "loop_region",
-            "the loop is on: turn it off (transport.toggle_loop) before clearing its region".into(),
-        ));
-    }
+    let was_enabled = t.loop_enabled;
     t.loop_region = region;
+    if let Some(on) = switch {
+        t.loop_enabled = on;
+    }
     Ok(edited(
         output,
         Command::SetLoop {
             loop_region: previous,
+            enabled: switched.then_some(was_enabled),
         },
         loop_changed(state),
     ))
@@ -423,11 +459,7 @@ fn toggle_loop(state: &mut State) -> Result<Out, CommandError> {
     }
     t.loop_enabled = !t.loop_enabled;
     let enabled = t.loop_enabled;
-    Ok(edited(
-        Output::ToggleLoop { enabled },
-        Command::ToggleLoop {},
-        loop_changed(state),
-    ))
+    Ok(set(Output::ToggleLoop { enabled }, loop_changed(state)))
 }
 
 fn db_in_range(db: f64) -> bool {
@@ -491,27 +523,26 @@ fn set_metronome(
         previous_gain_db: from_db(m.gain_db),
         previous_count_in_bars: m.count_in_bars,
     };
-    // Only what changes goes into the inverse.
-    let (mut inv_enabled, mut inv_gain, mut inv_count) = (None, None, None);
+    let mut changed = false;
     if let Some(e) = enabled
         && e != m.enabled
     {
-        inv_enabled = Some(m.enabled);
         m.enabled = e;
+        changed = true;
     }
     if let Some(g) = gain_db
         && g != m.gain_db
     {
-        inv_gain = Some(from_db(m.gain_db));
         m.gain_db = g;
+        changed = true;
     }
     if let Some(n) = count_in_bars
         && n != m.count_in_bars
     {
-        inv_count = Some(m.count_in_bars);
         m.count_in_bars = n;
+        changed = true;
     }
-    if inv_enabled.is_none() && inv_gain.is_none() && inv_count.is_none() {
+    if !changed {
         return Ok(unchanged(output));
     }
     let event = ProjectEvent::MetronomeChanged {
@@ -519,15 +550,7 @@ fn set_metronome(
         gain_db: from_db(m.gain_db),
         count_in_bars: m.count_in_bars,
     };
-    Ok(edited(
-        output,
-        Command::SetMetronome {
-            enabled: inv_enabled,
-            gain_db: inv_gain,
-            count_in_bars: inv_count,
-        },
-        event,
-    ))
+    Ok(set(output, event))
 }
 
 /// Distinguishes a missing field (`None`: leave as it is) from an explicit `null`

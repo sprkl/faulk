@@ -66,7 +66,10 @@ impl Core {
     pub fn new(kind: u32, epoch: u16, time_ms: u64, random: u128) -> Option<Core> {
         let mut ids = IdGenerator::new(time_ms, random);
         let state = match kind {
-            KIND_EMPTY => State::new(Project::new(ProjectId::generate(&mut ids), "Untitled")),
+            KIND_EMPTY => State::new(Project::new(
+                ProjectId::generate(&mut ids),
+                commands::project::DEFAULT_NAME,
+            )),
             KIND_SINGLE_SYNTH => {
                 // The ids of the one synth are the interface's; the project is its own.
                 let mut state = commands::engine_msgs::single_synth::state();
@@ -81,6 +84,19 @@ impl Core {
         })
     }
 
+    /// Names the project of a new core before any command ran: the page names its new draft
+    /// (#473) as it creates it, so the name is no edit to undo. A name that is not valid
+    /// (empty once trimmed, too long) leaves the default one. Returns whether it was taken.
+    pub fn name_new(&mut self, name: &str) -> bool {
+        match commands::project::check_project_name(name) {
+            Ok(name) => {
+                name.clone_into(&mut self.synced.state.project.name);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
     /// Runs a command's JSON through `commands::run` (history included): its report, and
     /// its engine bytes (empty when none).
     pub fn run(&mut self, json: &[u8]) -> (RunReport, Vec<u8>) {
@@ -93,9 +109,10 @@ impl Core {
         };
         let synced = &mut self.synced;
         let kind = command.meta().kind;
-        // A live command changes no project, but the selection, solo, arming and MIDI input
-        // are saved with it (`.faulk/session.json`): a change of them is a change to save.
-        let session = (kind == commands::Kind::Live).then(|| synced.state.session.clone());
+        // The selection, solo, arming and MIDI input are saved with the project
+        // (`.faulk/session.json`): a change of them is a change to save. Live commands change
+        // them, and so do a solo (an undoable edit since #473) and its undo or redo.
+        let session = (kind != commands::Kind::Query).then(|| synced.state.session.clone());
         let outcome = match commands::run(&command, &mut synced.state, &mut synced.ctx) {
             Ok(outcome) => outcome,
             Err(error) => return (RunReport::Refused { error }, Vec::new()),
@@ -109,7 +126,7 @@ impl Core {
             // The folder of the previous project means nothing to this one: `project.open`
             // brings what its own folder holds, `project.new` has none.
             self.saver = Saver::opened(synced.ctx.opened.take());
-        } else if kind == commands::Kind::Edit
+        } else if matches!(kind, commands::Kind::Edit | commands::Kind::Setting)
             && outcome
                 .events
                 .iter()
@@ -510,6 +527,8 @@ pub extern "C" fn pw_engine_len() -> u32 {
 
 /// A new core ([`Core::new`]): `kind` is [`KIND_EMPTY`] or [`KIND_SINGLE_SYNTH`], the
 /// random seed is `r0 | r1 << 32 | r2 << 64` (80 bits kept). Null for an unknown kind.
+/// `name_len` (#473): when not 0, the first `name_len` bytes of the inbox name the project
+/// ([`Core::name_new`]); 0, or a name that is not valid, leaves the default name.
 /// The pointer is the page's handle for the other `pw_*` calls; [`pw_free`] frees it once.
 #[unsafe(no_mangle)]
 pub extern "C" fn pw_new(
@@ -519,12 +538,22 @@ pub extern "C" fn pw_new(
     r0: u32,
     r1: u32,
     r2: u32,
+    name_len: u32,
 ) -> *mut Core {
     // A clock before 1970 becomes 0 and NaN gives 0 (`as` saturates).
     let time_ms = time_ms as u64;
     let random = u128::from(r0) | (u128::from(r1) << 32) | (u128::from(r2) << 64);
     match Core::new(kind, epoch as u16, time_ms, random) {
-        Some(core) => Box::into_raw(Box::new(core)),
+        Some(mut made) => {
+            if name_len > 0 {
+                with_inbox(name_len, |bytes| {
+                    if let Ok(name) = core::str::from_utf8(bytes) {
+                        made.name_new(name);
+                    }
+                });
+            }
+            Box::into_raw(Box::new(made))
+        }
         None => core::ptr::null_mut(),
     }
 }

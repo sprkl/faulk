@@ -240,19 +240,58 @@ fn loop_region_is_validated_and_never_clears_under_an_active_loop() {
         let e = refused(
             &tr(T::SetLoop {
                 loop_region: Some(region(start, end)),
+                enabled: None,
             }),
             &f.state,
         );
         assert_eq!(invalid_field(e), "loop_region", "{start}..{end}");
     }
-    // Clearing the region while the loop is on would break the project: refused.
-    let e = refused(&tr(T::SetLoop { loop_region: None }), &looping());
-    assert_eq!(invalid_field(e), "loop_region");
+    // The loop cannot be turned on without a region.
+    let e = refused(
+        &tr(T::SetLoop {
+            loop_region: None,
+            enabled: Some(true),
+        }),
+        &f.state,
+    );
+    assert_eq!(invalid_field(e), "enabled");
+    // Clearing the region while the loop is on turns the loop off (#473), and undo turns
+    // it back on with the region; redo clears both again.
+    let mut s = looping();
+    let before = s.project.transport;
+    let mut ctx = context();
+    run(
+        &tr(T::SetLoop {
+            loop_region: None,
+            enabled: None,
+        }),
+        &mut s,
+        &mut ctx,
+    )
+    .unwrap();
+    assert_eq!(s.project.transport.loop_region, None);
+    assert!(!s.project.transport.loop_enabled);
+    let cleared = s.project.transport;
+    run(
+        &Command::History(history::Command::Undo {}),
+        &mut s,
+        &mut ctx,
+    )
+    .unwrap();
+    assert_eq!(s.project.transport, before);
+    run(
+        &Command::History(history::Command::Redo {}),
+        &mut s,
+        &mut ctx,
+    )
+    .unwrap();
+    assert_eq!(s.project.transport, cleared);
     // A region replaced while the loop is on is fine.
     let mut s = looping();
     run(
         &tr(T::SetLoop {
             loop_region: Some(region(960, 1920)),
+            enabled: None,
         }),
         &mut s,
         &mut context(),
@@ -316,7 +355,7 @@ fn metronome_validates_every_field_and_needs_one() {
 }
 
 #[test]
-fn metronome_changes_only_what_is_given_and_undoes_only_what_changed() {
+fn metronome_changes_only_what_is_given_and_is_a_setting() {
     let f = fixture();
     let mut s = f.state.clone();
     let before = s.project.transport.metronome;
@@ -327,13 +366,9 @@ fn metronome_changes_only_what_is_given_and_undoes_only_what_changed() {
     assert!(m.enabled);
     assert_eq!(m.count_in_bars, 4);
     assert_eq!(m.gain_db, before.gain_db);
-    let Undo::Inverse(inv) = out.undo else {
-        panic!("an inverse")
-    };
-    assert_eq!(
-        *inv,
-        metronome(Some(false), None, Some(before.count_in_bars))
-    );
+    // A setting (#473): no inverse, the activity log lists it instead.
+    assert_eq!(out.undo, Undo::None);
+    assert!(!out.events.is_empty());
     // Nothing changes: nothing recorded.
     let same = metronome(Some(true), Some(Some(m.gain_db)), Some(4))
         .apply(&mut s, &mut context())
@@ -353,7 +388,7 @@ fn metronome_gain_outside_the_range_in_the_document_is_not_edited_by_command() {
 }
 
 #[test]
-fn metronome_silence_is_a_value_and_is_restored_by_undo() {
+fn metronome_silence_is_a_value_and_undo_leaves_it() {
     let f = fixture();
     // null silences the click; a missing field leaves the level alone.
     let silence: Command =
@@ -366,8 +401,8 @@ fn metronome_silence_is_a_value_and_is_restored_by_undo() {
     run(&silence, &mut s, &mut context()).unwrap();
     assert_eq!(s.project.transport.metronome.gain_db, f64::NEG_INFINITY);
     s.project.validate().unwrap();
-    // From silence, a level can be set again, and undo returns to silence.
-    let after_silence = s.clone();
+    // From silence, a level can be set again; the metronome is a setting (#473): undo
+    // leaves it, and both changes are in the activity log.
     run(
         &metronome(None, Some(Some(-12.0)), None),
         &mut s,
@@ -375,10 +410,15 @@ fn metronome_silence_is_a_value_and_is_restored_by_undo() {
     )
     .unwrap();
     assert_eq!(s.project.transport.metronome.gain_db, -12.0);
+    let undo_entries = s.history.undo.len();
     run(&undo(), &mut s, &mut context()).unwrap();
-    assert_eq!(s.project, after_silence.project);
-    run(&undo(), &mut s, &mut context()).unwrap();
-    assert_eq!(s.project, f.state.project);
+    assert_eq!(s.project.transport.metronome.gain_db, -12.0);
+    assert_eq!(s.history.undo.len(), undo_entries.saturating_sub(1));
+    let logged: Vec<_> = s.history.activity.iter().map(|a| a.name).collect();
+    assert_eq!(
+        logged,
+        ["transport.set_metronome", "transport.set_metronome"]
+    );
 }
 
 #[test]
@@ -392,6 +432,7 @@ fn a_time_signature_or_loop_already_in_place_records_nothing() {
         }),
         tr(T::SetLoop {
             loop_region: Some(region(0, 3840)),
+            enabled: None,
         }),
     ] {
         let out = c.apply(&mut s, &mut context()).unwrap();
@@ -399,9 +440,12 @@ fn a_time_signature_or_loop_already_in_place_records_nothing() {
         assert!(out.events.is_empty(), "{c:?}");
     }
     let mut none = fixture().state;
-    let out = tr(T::SetLoop { loop_region: None })
-        .apply(&mut none, &mut context())
-        .unwrap();
+    let out = tr(T::SetLoop {
+        loop_region: None,
+        enabled: None,
+    })
+    .apply(&mut none, &mut context())
+    .unwrap();
     assert_eq!(out.undo, Undo::None);
     assert!(out.events.is_empty());
 }
@@ -416,11 +460,10 @@ fn edits_are_recorded_and_one_undo_restores_each() {
             numerator: 5,
             denominator: 4,
         }),
-        tr(T::ToggleLoop {}),
         tr(T::SetLoop {
             loop_region: Some(region(960, 4800)),
+            enabled: None,
         }),
-        metronome(Some(true), Some(Some(-3.0)), Some(3)),
     ];
     for c in &edits {
         let before = s.clone();
@@ -434,4 +477,97 @@ fn edits_are_recorded_and_one_undo_restores_each() {
         run(&undo(), &mut s, &mut context()).unwrap();
     }
     assert_eq!(s.project, start.project);
+}
+
+/// The loop switch and the metronome are settings (#473): saved, listed in the activity log
+/// with their author, never on the undo stack; undo and redo leave them as they are.
+#[test]
+fn transport_toggles_are_settings_in_the_activity_log() {
+    let mut s = with_region();
+    let mut ctx = context();
+    run(&tr(T::SetTempo { bpm: 90.0 }), &mut s, &mut ctx).unwrap();
+    let undo_entries = s.history.undo.len();
+    for c in [tr(T::ToggleLoop {}), metronome(Some(true), None, None)] {
+        let out = run(&c, &mut s, &mut ctx).unwrap();
+        assert_eq!(out.undo, Undo::None, "{c:?}");
+        assert!(
+            out.events
+                .iter()
+                .any(|e| matches!(e, ProjectEvent::HistoryChanged { .. })),
+            "the panel reads the log again: {c:?}"
+        );
+    }
+    assert_eq!(s.history.undo.len(), undo_entries);
+    let rows: Vec<_> = s
+        .history
+        .activity
+        .iter()
+        .map(|a| (a.name, a.subject.as_ref().and_then(|s| s.on)))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("transport.toggle_loop", Some(true)),
+            ("transport.set_metronome", Some(true)),
+        ]
+    );
+    // Ids come after the tempo's entry, from the same counter.
+    assert!(s.history.activity[0].id > s.history.undo.last().unwrap().id);
+    // Undo takes the tempo back, not the switches.
+    run(&undo(), &mut s, &mut ctx).unwrap();
+    assert!(s.project.transport.loop_enabled);
+    assert!(s.project.transport.metronome.enabled);
+    // A switch that changes nothing logs nothing.
+    run(&metronome(Some(true), None, None), &mut s, &mut ctx).unwrap();
+    assert_eq!(s.history.activity.len(), 2);
+    // The log keeps the latest rows only.
+    for _ in 0..commands::history::MAX_ACTIVITY {
+        run(&tr(T::ToggleLoop {}), &mut s, &mut ctx).unwrap();
+    }
+    assert_eq!(s.history.activity.len(), commands::history::MAX_ACTIVITY);
+    assert_eq!(s.history.activity[0].name, "transport.toggle_loop");
+}
+
+/// Drawing a loop on the ruler sets the region and turns the loop on in one group (#473):
+/// only the region is undone, and undoing it turns the loop off with it (a loop without a
+/// region is invalid); redo brings both back.
+#[test]
+fn undoing_a_loop_drawn_from_nothing_turns_it_off_and_redo_on() {
+    let mut s = fixture().state;
+    let mut ctx = context();
+    run(
+        &Command::History(history::Command::BeginGroup {}),
+        &mut s,
+        &mut ctx,
+    )
+    .unwrap();
+    run(
+        &tr(T::SetLoop {
+            loop_region: Some(region(0, 3840)),
+            enabled: None,
+        }),
+        &mut s,
+        &mut ctx,
+    )
+    .unwrap();
+    run(&tr(T::ToggleLoop {}), &mut s, &mut ctx).unwrap();
+    run(
+        &Command::History(history::Command::EndGroup {}),
+        &mut s,
+        &mut ctx,
+    )
+    .unwrap();
+    let drawn = s.project.transport;
+    assert!(drawn.loop_enabled);
+    run(&undo(), &mut s, &mut ctx).unwrap();
+    assert_eq!(s.project.transport.loop_region, None);
+    assert!(!s.project.transport.loop_enabled);
+    s.project.validate().unwrap();
+    run(
+        &Command::History(history::Command::Redo {}),
+        &mut s,
+        &mut ctx,
+    )
+    .unwrap();
+    assert_eq!(s.project.transport, drawn);
 }

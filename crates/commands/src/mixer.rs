@@ -95,8 +95,9 @@ domain! {
 
     /// Solo or unsolo a track. The soloed tracks are those in the session's solo set;
     /// the audio engine applies it from MX-1 on (cumulative: several tracks can be soloed).
-    /// Session state: not undoable, not in the history, not saved with the project.
-    "mixer.set_solo" (kind = "live", undo = "none", destructive = false)
+    /// Session state: saved with the session, never in the project's files; undoable like
+    /// a mute (#473). Undo: set the previous state back.
+    "mixer.set_solo" (kind = "edit", undo = "inverse", destructive = false)
     SetSolo {
         track: TrackId,
         solo: bool,
@@ -234,7 +235,14 @@ pub fn apply(
             };
             Ok(Outcome {
                 output: Output::SetSolo { previous },
-                undo: Undo::None,
+                undo: if changed {
+                    Undo::Inverse(Box::new(Command::SetSolo {
+                        track: track.clone(),
+                        solo: previous,
+                    }))
+                } else {
+                    Undo::None
+                },
                 events: if changed {
                     vec![ProjectEvent::SoloChanged {
                         track: track.clone(),

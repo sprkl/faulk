@@ -16,7 +16,7 @@ impl Drop for Handle {
 
 impl Handle {
     fn new(kind: u32) -> Handle {
-        let core = pw_new(kind, 1, 1_760_000_000_000.0, 7, 8, 9);
+        let core = pw_new(kind, 1, 1_760_000_000_000.0, 7, 8, 9, 0);
         assert!(!core.is_null());
         Handle(core)
     }
@@ -265,12 +265,12 @@ fn ids_come_from_the_seed() {
         b.view()["project"]["id"],
         "same seed, same ids"
     );
-    let other = Handle(pw_new(KIND_EMPTY, 1, 1_760_000_000_000.0, 7, 8, 10));
+    let other = Handle(pw_new(KIND_EMPTY, 1, 1_760_000_000_000.0, 7, 8, 10, 0));
     assert_ne!(a.view()["project"]["id"], other.view()["project"]["id"]);
-    assert!(pw_new(2, 1, 0.0, 0, 0, 0).is_null(), "unknown kind");
+    assert!(pw_new(2, 1, 0.0, 0, 0, 0, 0).is_null(), "unknown kind");
     // A clock that is not finite or before 1970 still gives a core.
-    let _ = Handle(pw_new(KIND_EMPTY, 1, f64::NAN, 0, 0, 0));
-    let _ = Handle(pw_new(KIND_EMPTY, 1, -5.0, 0, 0, 0));
+    let _ = Handle(pw_new(KIND_EMPTY, 1, f64::NAN, 0, 0, 0, 0));
+    let _ = Handle(pw_new(KIND_EMPTY, 1, -5.0, 0, 0, 0, 0));
 }
 
 #[test]
@@ -465,6 +465,7 @@ fn open_replaces_the_project_or_changes_nothing() {
         70,
         80,
         90,
+        0,
     ));
     h.call0(pw_setup);
     h.apply(json!({"type": "project.rename", "name": "Before"}));
@@ -506,7 +507,7 @@ fn open_replaces_the_project_or_changes_nothing() {
     let (report, bytes) = h.open("song");
     assert_eq!(report["status"], "applied", "{report}");
     assert_eq!(report["stream_error"], Value::Null);
-    assert_eq!(report["output"]["name"], "Untitled");
+    assert_eq!(report["output"]["name"], "Sketch");
     assert!(!bytes.is_empty(), "the engine starts over from the project");
     assert_eq!(h.view()["project"], source.view()["project"]);
     assert_eq!(h.view()["session"], source.view()["session"]);
@@ -560,6 +561,7 @@ fn opening_a_folder_with_unnamed_clips_names_them_without_an_edit() {
         71,
         72,
         73,
+        0,
     ));
     h.call0(pw_setup);
     assert_eq!(h.stage_raw(&frame), 0);
@@ -865,7 +867,7 @@ fn blobs_are_carried_when_opening_reads_them_and_listed_when_it_only_counts_them
     assert_eq!(report["status"], "refused", "{report}");
     assert_eq!(report["error"]["error"]["reason"], "missing", "{report}");
     assert!(bytes.is_empty());
-    assert_eq!(h.view()["project"]["name"], "Untitled");
+    assert_eq!(h.view()["project"]["name"], "Sketch");
 
     // Listed blobs behave as a read-only folder.
     let (_, staged) = parse_folder(&frame_with_blobs_listed("dense", &fs)).unwrap();
@@ -1055,7 +1057,7 @@ fn a_new_project_has_its_own_identity_and_no_folder() {
         "the engine starts over from the new project"
     );
     assert_ne!(h.view()["project"]["id"], first);
-    assert_eq!(h.view()["project"]["name"], "Untitled");
+    assert_eq!(h.view()["project"]["name"], "Sketch");
     assert_eq!(h.core().undo_depth(), 0);
     // The save pending for the old project, and what the old folder held, are forgotten.
     assert!(!h.dirty());
@@ -1141,6 +1143,14 @@ fn a_session_change_is_a_change_to_save_but_not_a_change_to_the_project() {
         !h.core().project_dirty(),
         "but a project nobody edited has no need of a home"
     );
+    // A solo is undoable (#473); its undo and redo are session changes too, never project ones.
+    h.apply(json!({"type": "history.undo"}));
+    assert!(
+        !h.core().project_dirty(),
+        "undoing a solo is no project edit"
+    );
+    h.apply(json!({"type": "history.redo"}));
+    assert!(!h.core().project_dirty(), "nor redoing it");
     h.apply(json!({"type": "project.rename", "name": "Mine"}));
     assert!(h.dirty() && h.core().project_dirty());
     h.paths(1);
@@ -1421,4 +1431,33 @@ fn the_history_lists_entries_with_author_and_time_and_a_bad_author_changes_nothi
     assert_eq!(view["undo"].as_array().unwrap().len(), 3);
     assert_eq!(view["redo"][0]["name"], "project.rename");
     assert_eq!(view["redo"][0]["at"], 1234);
+}
+
+#[test]
+fn a_new_core_takes_the_name_the_page_gives_it() {
+    // The page names its new draft as it creates the core (#473): no history entry.
+    write_inbox("  Sketch Nov 2, 14:05  ");
+    let h = Handle(pw_new(
+        KIND_SINGLE_SYNTH,
+        1,
+        1_760_000_000_000.0,
+        1,
+        2,
+        3,
+        24,
+    ));
+    assert_eq!(h.view()["project"]["name"], "Sketch Nov 2, 14:05");
+    assert!(
+        !h.core().history().undo.iter().any(|_| true),
+        "no edit to undo"
+    );
+    // No name, or one that is not valid, leaves the default name.
+    let none = Handle(pw_new(KIND_EMPTY, 1, 0.0, 1, 2, 4, 0));
+    assert_eq!(none.view()["project"]["name"], "Sketch");
+    write_inbox("   ");
+    let blank = Handle(pw_new(KIND_EMPTY, 1, 0.0, 1, 2, 5, 3));
+    assert_eq!(blank.view()["project"]["name"], "Sketch");
+    write_inbox(&"x".repeat(201));
+    let long = Handle(pw_new(KIND_EMPTY, 1, 0.0, 1, 2, 6, 201));
+    assert_eq!(long.view()["project"]["name"], "Sketch");
 }

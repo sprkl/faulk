@@ -49,8 +49,8 @@ export interface ProjectHost {
   saved(applied: boolean): void
   /** `project.open` on the folder's files. */
   openProject(name: string, entries: FolderEntry[]): Promise<OpenOutcome>
-  /** `project.new`; false when the project cannot be replaced now. */
-  newProject(): Promise<boolean>
+  /** `project.new`, named `name` (else the page's draft name); false when the project cannot be replaced now. */
+  newProject(name?: string): Promise<boolean>
   /** The identity of the project now. */
   projectId(): string | null
   /** The name of the project now (for the file an export hands over). */
@@ -787,11 +787,11 @@ export class ProjectStorage {
     return true
   }
 
-  /** New project: asks first when changes would be lost. */
-  newProject(): Promise<boolean> {
+  /** New project, named `name` (else the page's draft name): asks first when changes would be lost. */
+  newProject(name?: string): Promise<boolean> {
     return this.enqueue(async () => {
       if (!(await this.makeRoom('new'))) return false
-      if (!(await this.host.newProject())) return false
+      if (!(await this.host.newProject(name))) return false
       await this.detach()
       this.reset()
       return true

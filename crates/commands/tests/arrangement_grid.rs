@@ -99,18 +99,9 @@ fn a_clip_sent_from_the_grid_is_an_independent_copy_and_a_linked_one_follows_the
     assert_eq!(track.clips[&copy].slot, None, "the copy is not in the grid");
     assert_eq!(track.clips[&f.looped].slot, Some(f.scene_a.clone()));
     assert_eq!(track.placements[&placement].clip, copy);
-    // The copy takes the next name, as clip.duplicate does; the grid clip keeps its own.
+    // The copy keeps the grid clip's name, as clip.duplicate does (#473).
     let grid_name = track.clips[&f.looped].name.clone();
-    let expected = ::project::names::copy_name(
-        &grid_name,
-        grid.project
-            .tracks
-            .values()
-            .flat_map(|t| t.clips.values())
-            .map(|c| c.name.as_str()),
-    );
-    assert_ne!(track.clips[&copy].name, grid_name);
-    assert_eq!(track.clips[&copy].name, expected);
+    assert_eq!(track.clips[&copy].name, grid_name);
     assert_eq!(
         spans(&s, &f.track).last(),
         Some(&(11520, 3840, 0)),

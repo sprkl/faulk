@@ -56,7 +56,7 @@ test('the clips are named cells, reached by the arrows, moved by Alt+arrows, ope
   const cells = page.getByTestId('arr-item')
   await expect(cells).toHaveCount(3)
   await expect(page.getByTestId('arr-items')).toHaveAttribute('role', 'grid')
-  await expect(cells.first()).toHaveAccessibleName(/^Clip( \d+)?, Synth, bars 1 to 1/)
+  await expect(cells.first()).toHaveAccessibleName(/^Synth \d+, Synth, bars 1 to 1/)
 
   // One cell in the tab order: Tab from the timeline lands on it.
   await page.getByTestId('arr-stage').getByTestId('timegrid').focus()

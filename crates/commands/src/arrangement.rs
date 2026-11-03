@@ -249,7 +249,7 @@ domain! {
     /// Copy placements, in one command. The copies start `by` ticks after the originals
     /// (default: right after the selection, one selection length later; negative copies
     /// earlier). By default each copy is independent: a new clip, a copy of the source
-    /// (the next name, "Clip 2" gives "Clip 3"; same colour, length, loop and notes; not
+    /// (same name, colour, length, loop and notes; not
     /// in the launch grid), one per
     /// distinct source clip, so placements that were linked stay linked among the copies
     /// and editing a copy never changes the original (founder's decision 11). With
@@ -279,7 +279,7 @@ domain! {
     /// Put a MIDI clip of the launch grid in the arrangement, on its own track, as a
     /// placement at the timeline tick `start` that plays the whole clip once (offset 0,
     /// the clip's length). By default the placement plays an independent copy: a new
-    /// clip, a copy of the grid clip (the next name like `clip.duplicate`, "Clip 2" gives "Clip 3"; same colour, length, loop and notes, not in
+    /// clip, a copy of the grid clip (same name, colour, length, loop and notes, not in
     /// the launch grid), so editing one never changes the other (founder's decision 11).
     /// With `linked: true` the placement references the grid clip itself: editing the
     /// clip in the grid changes what the arrangement plays. The placement wins on overlap
@@ -1119,7 +1119,6 @@ fn send_from_grid(
     let mut seen = HashSet::new();
     let mut new_clips = 0usize;
     // The names of the copies made so far: the project does not hold them yet.
-    let mut new_names: Vec<String> = Vec::new();
     let mut notes_added = 0usize;
     let notes_in_project = project_notes(project);
     for id in ids {
@@ -1165,8 +1164,6 @@ fn send_from_grid(
             new_clips += 1;
             let copy_id = ClipId::generate(&mut ctx.ids);
             let mut copied = clip.clone();
-            copied.name = project.copy_clip_name(&clip.name, &new_names);
-            new_names.push(copied.name.clone());
             copied.slot = None;
             work.new_clips.insert(copy_id.clone(), copied);
             if let Some(geo) = work.geo.get(id).copied() {
@@ -1369,7 +1366,6 @@ fn duplicate(
     let mut new_placements: BTreeMap<PlacementId, PlacementId> = BTreeMap::new();
     let mut new_clip_ids = Vec::new();
     // The names of the copies made so far: the project does not hold them yet.
-    let mut new_names: Vec<String> = Vec::new();
     let mut notes_added = 0usize;
     let notes_in_project = project_notes(project);
     for (track_id, list) in groups {
@@ -1404,8 +1400,6 @@ fn duplicate(
                 check_note_limits(notes.len(), notes_in_project.saturating_add(notes_added))?;
                 let copy_id = ClipId::generate(&mut ctx.ids);
                 let mut copy = clip.clone();
-                copy.name = project.copy_clip_name(&clip.name, &new_names);
-                new_names.push(copy.name.clone());
                 copy.slot = None;
                 work.new_clips.insert(copy_id.clone(), copy);
                 if let Some(geo) = work.geo.get(source).copied() {
