@@ -381,6 +381,7 @@ test('piano roll: Alt+Up and Alt+Down transpose the selection (Alt+Shift: an oct
   // Plain Up and Shift+Up do not transpose.
   await page.keyboard.press('ArrowUp')
   await page.keyboard.press('Shift+ArrowUp')
+  await page.waitForTimeout(400)
   expect(await pitches(page)).toEqual([60, 64])
 
   await page.keyboard.press('Alt+ArrowUp')
@@ -402,14 +403,19 @@ test('piano roll: Alt+Up and Alt+Down transpose the selection (Alt+Shift: an oct
   await expect(page.getByTestId('roll-cursor')).toBeFocused()
   await page.keyboard.press('Alt+ArrowUp')
   await expect.poll(() => pitches(page)).toEqual([60, 64])
+  // Each of those was one entry: two undos take both back.
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => pitches(page)).toEqual([59, 63])
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => pitches(page)).toEqual([60, 64])
 
   // The list and the gesture agree.
   await page.keyboard.press('?')
   const dialog = page.getByRole('dialog')
   const transpose = dialog.locator('li', { hasText: /Transpose the selected notes/ })
-  await expect(transpose).toContainText('Alt')
-  await expect(transpose).not.toContainText(/^\s*↑/)
+  await expect(transpose.locator('kbd')).toHaveText(['Alt', '↑', 'Alt', '↓', 'Alt', 'Shift', '↑', 'Alt', 'Shift', '↓'])
   const step = dialog.locator('li', { hasText: /previous or next note in time/ })
-  await expect(step).toContainText('↑')
+  await expect(step.locator('kbd')).toHaveText(['←', '→', '↑', '↓', 'Shift', '←', 'Shift', '→', 'Shift', '↑', 'Shift', '↓'])
+  await expect(dialog.locator('li', { hasText: /On a note: move the selected notes/ }).locator('kbd')).toHaveText(['Alt', '←', 'Alt', '→'])
   expect(seen.errors).toEqual([])
 })

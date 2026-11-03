@@ -1097,7 +1097,11 @@
   function transposeChosen(semitones: number) {
     if (!edited) return
     const changes = transposeChanges(chosenNotes, semitones)
-    if (!changes || changes.length === 0) return
+    if (!changes || changes.length === 0) {
+      // Past the top or the bottom of the keyboard: said, as on a note's cell (nothing to say with no selection).
+      if (chosenNotes.length > 0) announce(t('pianoRoll.saidCannotMove'))
+      return
+    }
     run(transposeNotes(edited.id, [...chosenNotes], semitones))
     picked = afterChanges(picked, changes)
     sound(changes[0]!.to.pitch, changes[0]!.to.velocity)
