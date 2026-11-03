@@ -488,6 +488,11 @@ test('piano roll: Alt+arrows move from the grid and the cursor, an edge refusal 
   expect(Number(await said.getAttribute('data-n'))).toBeGreaterThan(n)
   expect(await pitches(page)).toEqual([120])
 
+  // A key event whose target is the window itself (no node) is ignored, not an error (#550).
+  await page.evaluate(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true })))
+  await page.waitForTimeout(200)
+  expect(seen.errors).toEqual([])
+
   // The draw velocity comes back when the roll is closed and opened again.
   const draw = page.getByTestId('roll-draw-velocity')
   await draw.fill('64')

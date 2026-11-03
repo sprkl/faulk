@@ -756,7 +756,7 @@
       if (action.direction === 'up' || action.direction === 'down') {
         if (chosenNotes.length === 0) return announce(t('pianoRoll.saidNoSelection'))
         transposeChosen((action.direction === 'up' ? 1 : -1) * (event.shiftKey ? 12 : 1))
-      } else nudgeChosen(action.direction === 'left' ? -1 : 1)
+      } else if (!event.shiftKey) nudgeChosen(action.direction === 'left' ? -1 : 1)
       return
     }
     if (action.kind === 'focus' || action.kind === 'extend') {
