@@ -70,15 +70,40 @@ fn snr_db(signal: &[f32], decoded: &[f32]) -> f64 {
     10.0 * (s / n.max(1e-30)).log10()
 }
 
+/// How far a decode of `REFERENCE_PCM` may be from the samples kept (measured: 3.3e-7 at most
+/// between Windows and WebAssembly).
+const PCM_TOLERANCE: f32 = 1e-6;
+
+/// The largest difference between `pcm` and the decode kept in `<name>.pcm`; infinite when their
+/// lengths differ.
+fn reference_gap(name: &str, pcm: &[f32]) -> f32 {
+    let kept: Vec<f32> = read(&format!("{name}.pcm"))
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| f32::from_le_bytes(*b))
+        .collect();
+    if kept.len() != pcm.len() {
+        return f32::INFINITY;
+    }
+    kept.iter()
+        .zip(pcm)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0, f32::max)
+}
+
 fn outcome(name: &str) -> Value {
     match import(read(name), extension(name)) {
+        // MP3 and AAC: their samples are checked against `<name>.pcm` at a tolerance, so the
+        // record names that file instead of a digest no other C library would give.
         Ok((imported, pcm)) => json!({
             "sha256": imported.hash.to_string(),
             "sample_rate": imported.info.sample_rate,
             "channels": imported.info.channels,
             "frames": imported.info.frames,
             "direct": imported.layout.is_some(),
-            "pcm_sha256": pcm_digest(&pcm),
+            "pcm_sha256": if REFERENCE_PCM.contains(&name) { Value::Null } else { pcm_digest(&pcm).into() },
+            "pcm_reference": if REFERENCE_PCM.contains(&name) { format!("{name}.pcm").into() } else { Value::Null },
         }),
         Err(e) => json!({ "error": e.code() }),
     }
@@ -98,14 +123,15 @@ fn each_fixture_imports_as_recorded() {
         }
         return;
     }
-    // The decodes kept whole are this build's.
+    // The decodes kept whole match this build's to a millionth: the last bit of `powf` and `cos`
+    // differs between C libraries (Windows, Linux, macOS) as between native and WebAssembly.
     for name in REFERENCE_PCM {
         let (_, pcm) = import(read(name), extension(name)).unwrap();
-        let mut bytes = Vec::new();
-        audio_import::cache::encode(&pcm, &mut bytes);
+        let worst = reference_gap(name, &pcm);
+        println!("{name}: this build and {name}.pcm differ by {worst:e} at most");
         assert!(
-            bytes == read(&format!("{name}.pcm")),
-            "{name}.pcm is not this build's decode"
+            worst <= PCM_TOLERANCE,
+            "{name}: decode differs from {name}.pcm by {worst}"
         );
     }
     let text =
