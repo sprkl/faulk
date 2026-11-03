@@ -119,6 +119,10 @@ pub struct Context {
     /// The projects the host keeps, staged for `project.list_stored` (#323): taken by the
     /// command, so a list serves one answer and a later one never shows an old list.
     pub stored: Option<StoredProjects>,
+    /// The audio files the host imported in this session (AU-1), by their SHA-256: the
+    /// metadata it decoded from the file's bytes, which `clip.import_audio` writes into the
+    /// clip. Kept for the session (a second clip of the same file, a redo), never taken.
+    pub media: BTreeMap<project::Hash, project::AudioMedia>,
 }
 
 /// The projects a host can open, as it lists them: what `project.list_stored` answers and the
@@ -218,6 +222,7 @@ impl Context {
             folder: None,
             opened: None,
             stored: None,
+            media: BTreeMap::new(),
         }
     }
 }

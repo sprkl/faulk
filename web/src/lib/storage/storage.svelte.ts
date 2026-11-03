@@ -11,6 +11,8 @@
 // draft, written as often as a folder would be and offered again when the page reopens; where the
 // browser has no folder to offer (Firefox, Safari) it is the project's normal home. A project in
 // the OPFS is "browser" in this file, a project in a folder the user chose is "folder".
+import { ImportError } from '../audio/import/abi'
+import type { CacheReport, ImportedMedia, MediaRef } from '../audio/import/pipeline'
 import type { MessageKey } from '../i18n'
 import { needsBytes, type FolderEntry, type SaveEntry, type SaveFrame, type SaveMode } from '../project/core'
 import type { PackExport, PackImport } from '../project/core'
@@ -61,6 +63,8 @@ export interface ProjectHost {
   packImport(zip: Uint8Array): Promise<PackImport>
   /** Makes the project core ahead of a click that will need it, so the click still has its permission to prompt. */
   prepare?(): Promise<void>
+  /** The audio files the project's clips play (AU-1), whose PCM caches an opening makes again. */
+  audioMedia?(): MediaRef[]
 }
 
 /** The browser calls the controller makes, so tests run it without a dialog, a Worker or a clock. */
@@ -974,6 +978,68 @@ export class ProjectStorage {
     if (this.current !== current) return
     if (current.kind === 'folder') current.stopWatching = this.deps.watch(handle, () => this.folderMayHaveChanged())
     if (this.dirty) this.schedule()
+    this.refreshAudioCache(current)
+  }
+
+  // ------------------------------------------------------------------ audio files (AU-1)
+
+  /** The PCM caches made again after the last attach, in the background (`ensureAudioCache`); `null` meanwhile. */
+  audioCache = $state.raw<CacheReport | null>(null)
+  /** That background work, for tests and the dev hook to wait on. */
+  audioCacheDone: Promise<void> = Promise.resolve()
+
+  /**
+   * The caches a folder lacks are made again where its disk is held: here, in both modes (the helper
+   * holds no disk). In the background, never in the storage's queue (it writes only `.faulk/cache/`,
+   * which no save, scan or copy reads).
+   */
+  private refreshAudioCache(current: Attached) {
+    const media = this.host.audioMedia?.() ?? []
+    this.audioCache = null
+    if (media.length === 0) return
+    // Stopped when the project leaves this place (`detach`): it would make caches for nothing.
+    const abort = new AbortController()
+    this.audioCacheAbort = abort
+    this.audioCacheDone = current.store
+      .ensureAudioCache(media, undefined, abort.signal)
+      .then((report) => {
+        if (this.current === current) this.audioCache = report
+      })
+      .catch((error: unknown) => {
+        // The project stays usable: a clip whose cache is missing waits for the next opening.
+        if (!(error instanceof StoreError || error instanceof ImportError)) console.error(error)
+      })
+  }
+
+  private audioCacheAbort: AbortController | null = null
+
+  /**
+   * Imports an audio file into the project's home (AU-1): its bytes into `blobs/`, its decoded audio
+   * checked and cached. A project with no home yet gets its draft in the browser's storage first,
+   * where there is one (the file needs a place to live before a clip refers to it). In the storage's
+   * queue: a save, a save as or an opening never runs in the middle of an import, so a save as never
+   * copies the blobs without the one being imported. The blob's stamp joins the stamps of the page's
+   * own writes, so the folder's watcher never takes the import for an outside change.
+   */
+  importAudio(file: File, onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<ImportedMedia> {
+    this.cancelTimers()
+    return this.enqueue(async () => {
+      while (this.attaching) await this.attaching
+      // Cancelled while it waited in the queue: nothing started, nothing to keep.
+      if (signal?.aborted) throw new ImportError('cancelled', 'cancelled before it started')
+      if (!this.current && this.deps.browser.available) await this.startBrowserProject(true)
+      const current = this.current
+      if (!current) throw new ImportError('unavailable', 'the project has no place to keep audio files: save it first')
+      if (this.block === 'permission') throw new StoreError('permission', 'the folder needs the permission again')
+      try {
+        const outcome = await current.store.importAudio(file, onProgress, signal)
+        if (this.current === current) current.expected[outcome.blob.path] = outcome.blob.stamp
+        return outcome.media
+      } finally {
+        // What waited behind the import (an edit made meanwhile) is written now.
+        if (this.current === current && (this.host.dirty() ?? false)) this.schedule()
+      }
+    })
   }
 
   /** Whether the recent projects, as last listed, hold this folder. */
@@ -987,6 +1053,8 @@ export class ProjectStorage {
   private async detach() {
     const current = this.current
     this.cancelTimers()
+    this.audioCacheAbort?.abort()
+    this.audioCacheAbort = null
     if (this.externalTimer) clearTimeout(this.externalTimer)
     this.externalTimer = null
     this.current = null

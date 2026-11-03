@@ -6,7 +6,7 @@ import { NativeEngine, NoOutputError } from '../engine/native-engine'
 import { WebEngine } from '../engine/web-engine'
 import { withFrame } from '../engine/clock'
 import { decodeMidi } from '../midi/decode'
-import type { AgentResult, Command, HistoryView, ProjectEvent, RunReport } from '../generated/protocol'
+import type { AgentResult, AudioMedia, Command, HistoryView, ProjectEvent, RunReport } from '../generated/protocol'
 import { WebMidiHost } from '../midi/web-midi'
 import { draftName } from '../project/draft-name'
 import { CoreError, coreModule, engineStep, ProjectCore, type EngineStep, type FolderEntry, type StoredProjects } from '../project/core'
@@ -20,6 +20,8 @@ import {
   newProjectName,
 } from '../project-commands'
 import type { AudioExport, ExportHost } from '../export/audio-export.svelte'
+import type { AudioImport } from '../audio/import/audio-import.svelte'
+import { audioMediaOf } from '../audio/import/media'
 import type { ProjectHost, ProjectStorage } from '../storage/storage.svelte'
 import { releaseAllNotes, requestMidiInputs } from './housekeeping'
 import { takePairLink } from '../pair-link'
@@ -342,7 +344,18 @@ export class Dispatcher {
     packExport: async (files) => (await this.ensureCore()).packExport(files),
     packImport: async (zip) => (await this.ensureCore()).packImport(zip),
     prepare: async () => void (await this.ensureCore()),
+    audioMedia: () => audioMediaOf(this.project.view?.project),
   }
+
+  /** Stages an imported audio file in the core (AU-1), for `clip.import_audio`; false while there is no core. */
+  stageMedia(media: AudioMedia): boolean {
+    if (!this.core) return false
+    this.core.stageMedia(media)
+    return true
+  }
+
+  /** Importing audio files (AU-1); set once by `createStores`. */
+  audioImport: AudioImport | null = null
 
   /** The project's storage; set once by `createStores`. */
   storage: ProjectStorage | null = null
@@ -662,6 +675,8 @@ export class Dispatcher {
       loadFolderVersion: () => void this.storage?.loadDisk(),
       allowAccess: () => void this.storage?.resume(),
       exportAudio: (request) => this.audioExport?.request(request),
+      chooseAudio: (track) => this.audioImport?.choose(track),
+      cancelAudioImport: () => this.audioImport?.cancel(),
       cued: () => this.project.cued?.(),
     })
     // Whatever the command did, the folder may now lack changes: the storage writes them soon.

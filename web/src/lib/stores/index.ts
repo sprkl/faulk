@@ -7,6 +7,7 @@
 import { getContext, setContext } from 'svelte'
 import type { Command } from '../generated/protocol'
 import type { MainViewId, PanelViewId } from '../../views/registry'
+import { AudioImport, browserAudioPicker, browserCanAsk } from '../audio/import/audio-import.svelte'
 import { AudioExport, type ExportDeps } from '../export/audio-export.svelte'
 import { browserExportDeps } from '../export/browser'
 import { browserDeps } from '../storage/browser'
@@ -41,6 +42,8 @@ export interface Stores {
   storage: ProjectStorage
   /** Exporting the song as a WAV file (#297): the dialog and the render. */
   audioExport: AudioExport
+  /** Importing audio files into an audio track (AU-1): the dialog, the progress, the failures. */
+  audioImport: AudioImport
   /** The computer keyboard as a piano, in every view (#361). */
   keys: KeyboardPlayer
   /** What the lanes drive at the play position (AM-4): the controls show it while the transport runs. */
@@ -60,6 +63,14 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
   dispatcher.storage = storage
   const audioExport = new AudioExport(dispatcher.exportHost, exportDeps)
   dispatcher.audioExport = audioExport
+  const audioImport = new AudioImport({
+    canAsk: browserCanAsk,
+    pick: browserAudioPicker,
+    importFile: (file, onProgress, signal) => storage.importAudio(file, onProgress, signal),
+    stage: (media) => dispatcher.stageMedia(media),
+    run: (command) => dispatcher.run(command),
+  })
+  dispatcher.audioImport = audioImport
   const recorder = new Recorder({
     run: (command) => dispatcher.run(command),
     mode: () => engine.mode,
@@ -98,6 +109,13 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
       __faulkNotice: () => storage.notice,
       // What the last write of the project cost (`project-save.spec.ts`).
       __faulkWrite: () => storage.lastWrite,
+      // The PCM caches the last opening made again (AU-1), once that background work is over (`audio-import.spec.ts`).
+      // Imports files into an audio track as the dialog would (AU-1): a check builds a file too big for the file chooser in the page.
+      __faulkImportAudio: (track: string, files: File[]) => audioImport.importFiles(track, files),
+      __faulkAudioCache: async () => {
+        await storage.audioCacheDone
+        return storage.audioCache
+      },
       // The folder store of SV-2 does not exist yet: a check hands the folder's files over (bytes as numbers).
       __faulkOpen: (name: string, files: { path: string; bytes?: number[]; size?: number }[]) =>
         dispatcher.openProject(
@@ -117,6 +135,7 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
     dispatcher,
     storage,
     audioExport,
+    audioImport,
     keys: new KeyboardPlayer(project, engine, ui, dispatcher),
     automated: new AutomatedValues(project, engine, ui),
     meters: new MeterStore(project, engine),
