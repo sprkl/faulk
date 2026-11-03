@@ -5,9 +5,12 @@
 //! The contract of the clip commands, written once here and repeated in their
 //! descriptions for agents:
 //!
-//! - A clip lives in a MIDI track and is addressed by its `ClipId`; only `clip.create`
-//!   and `clip.restore` name the track. Audio clips come from import (AU): the commands
-//!   that read or write notes, and `clip.delete` and `clip.duplicate`, refuse them.
+//! - A clip lives in a track and is addressed by its `ClipId`; only `clip.create`,
+//!   `clip.restore`, `clip.import_audio` and `clip.restore_audio` name the track. A MIDI clip
+//!   lives in a MIDI track; an audio clip lives in an audio track and comes from an imported
+//!   file (`clip.import_audio`, AU-1): the commands that read or write notes, lengths or
+//!   loops in ticks, and `clip.duplicate`, refuse it; `clip.rename` and `clip.delete` take
+//!   both (the undo of deleting an audio clip is `clip.restore_audio`).
 //! - One command is one history entry, whatever the size of its batch, and it is atomic:
 //!   everything is checked before anything changes, so a refusal leaves the project as
 //!   it was.
@@ -27,12 +30,12 @@ use crate::contract::{ClipPart, CommandError, Context, Outcome, ProjectEvent, St
 use crate::macros::domain;
 use crate::query::{ClipContentInfo, ClipSummary, PageInfo, PlacementInfo};
 use project::limits::{
-    MAX_CLIPS, MAX_CLIPS_PER_TRACK, MAX_NAME_CHARS, MAX_NOTES, MAX_NOTES_PER_CLIP, MAX_PLACEMENTS,
-    MAX_PLACEMENTS_PER_TRACK, MAX_TICK,
+    MAX_CHANNELS, MAX_CLIPS, MAX_CLIPS_PER_TRACK, MAX_FRAME, MAX_NAME_CHARS, MAX_NOTES,
+    MAX_NOTES_PER_CLIP, MAX_PLACEMENTS, MAX_PLACEMENTS_PER_TRACK, MAX_TICK, SAMPLE_RATES,
 };
 use project::{
-    Clip, ClipContent, ClipId, Note, Placement, PlacementId, Project, Quantize, Rgb, SceneId, Span,
-    Tick, TickLoop, Track, TrackId, TrackKind,
+    AudioMedia, Clip, ClipContent, ClipId, Frame, FrameLoop, Hash, Note, Placement, PlacementId,
+    Project, Quantize, Rgb, SceneId, Span, Tick, TickLoop, Track, TrackId, TrackKind,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -97,6 +100,50 @@ pub struct ClipSnapshot {
     pub notes: Vec<Note>,
 }
 
+/// An audio clip as `clip.restore_audio` brings it back (everything but its identifier).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AudioClipSnapshot {
+    pub name: String,
+    pub color: Option<Rgb>,
+    /// The scene of its launch-grid slot, when it sits in one.
+    pub slot: Option<SceneId>,
+    /// A per-clip launch quantization, when one was set (the MVP never sets one).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_quantize: Option<Quantize>,
+    /// The audio file it plays, with its metadata.
+    pub media: AudioMedia,
+    /// First frame of the file the clip plays.
+    #[schemars(with = "u64")]
+    pub start: Frame,
+    /// How many frames it plays.
+    #[schemars(with = "u64")]
+    pub frames: Frame,
+    /// Clip gain in dB; `null` for silence.
+    #[schemars(with = "Option<f64>")]
+    #[serde(with = "project::serde_util::db")]
+    pub gain_db: f64,
+    /// Loop in frames, relative to `start`.
+    pub looping: Option<FrameLoop>,
+}
+
+/// A placement of an audio clip, with its identifier, as `clip.restore_audio` brings it
+/// back: it starts at a tick of the arrangement and plays `length` frames of the clip from
+/// `offset`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AudioPlacementSnapshot {
+    pub id: PlacementId,
+    /// Start in the arrangement, in ticks.
+    pub start: Tick,
+    /// Length played, in frames of the file.
+    #[schemars(with = "u64")]
+    pub length: Frame,
+    /// Where in the clip the placement starts, in frames.
+    #[schemars(with = "u64")]
+    pub offset: Frame,
+}
+
 domain! {
     domain = "clip", schema = ("ClipCommand", "ClipOutput");
 
@@ -123,8 +170,10 @@ domain! {
         placement: Option<PlacementId>,
     };
 
-    /// Delete a MIDI clip and its placements in the arrangement. Undo: `clip.restore`
-    /// brings back the clip, its notes and its placements with their identifiers.
+    /// Delete a clip (MIDI or audio) and its placements in the arrangement. Undo:
+    /// `clip.restore` brings back a MIDI clip, its notes and its placements with their
+    /// identifiers; `clip.restore_audio` an audio clip and its placements. The file of an
+    /// audio clip stays in the project's `blobs/` (blobs are removed on request only).
     "clip.delete" (kind = "edit", undo = "inverse", destructive = false)
     Delete { clip: ClipId } => {
         /// How many placements were removed with the clip.
@@ -144,6 +193,61 @@ domain! {
         snapshot: ClipSnapshot,
         placements: Vec<PlacementSnapshot>,
     } => {};
+
+    /// Make an audio clip in an audio track from an imported audio file (AU-1). `media` is
+    /// the SHA-256 of the file (64 lower-case hexadecimal characters, the name of its blob):
+    /// either a file the page has just imported (the page reads the file the user chose,
+    /// stores its bytes in the project's `blobs/` and stages its metadata before running
+    /// this command), or a file an audio clip of the project already uses (`clip.get` shows
+    /// its `media.hash`), so another clip of the same file needs no new import. The clip
+    /// plays the whole file, at 0 dB, without a loop, and sits in the track's pool (no
+    /// launch-grid slot, no placement). `name` is optional (trimmed, at most 200
+    /// characters): without one the clip takes the file's name without its extension.
+    /// Refused when the track is not an audio track or the media is unknown. Undo:
+    /// `clip.delete` of the clip; the file stays in the project's `blobs/` (blobs are removed
+    /// on request only).
+    "clip.import_audio" (kind = "edit", undo = "inverse", destructive = false)
+    ImportAudio {
+        track: TrackId,
+        media: Hash,
+        name: Option<String>,
+    } => {
+        /// The clip created.
+        clip: ClipId,
+    };
+
+    /// Bring back an audio clip with its identifier, as `clip.delete` removed it: the
+    /// inverse of deleting an audio clip. Its placements give their length and offset in
+    /// frames of the file. Refused when the track is not an audio track, when the clip's
+    /// identifier or a placement's already exists in the project, when the slot is taken
+    /// or its scene is gone, or when the snapshot breaks a rule of the project (a range
+    /// outside the file, a loop outside the range, a gain that is not a number). Undo:
+    /// `clip.delete`.
+    "clip.restore_audio" (kind = "edit", undo = "inverse", destructive = false)
+    RestoreAudio {
+        track: TrackId,
+        clip: ClipId,
+        snapshot: AudioClipSnapshot,
+        placements: Vec<AudioPlacementSnapshot>,
+    } => {};
+
+    /// Ask the user for audio files to import into an audio track (AU-1): the page opens
+    /// its file dialog, then imports each file chosen (its bytes are kept in the project's
+    /// `blobs/`, its decoded audio checked) and makes a clip of it with `clip.import_audio`.
+    /// A file dialog needs a click by the user, so an agent that is not driven by one gets a
+    /// notice in the page instead. Formats: WAV, AIFF, CAF, FLAC, MP3, AAC (MP4, M4A, ADTS),
+    /// ALAC, Ogg Vorbis; Opus is not supported yet. The answer only says the request was
+    /// accepted; the clips arrive with `clip.import_audio`, one history entry each. Refused
+    /// when the track is not an audio track. Not undoable itself.
+    "clip.choose_audio" (kind = "live", undo = "none", destructive = false)
+    ChooseAudio { track: TrackId } => {};
+
+    /// Stop the audio import under way in the page (the files chosen by `clip.choose_audio`):
+    /// the file being imported is dropped (nothing of it is kept) and the files after it are
+    /// not imported; the clips of the files already imported stay. Does nothing when no import
+    /// runs. Not undoable itself.
+    "clip.cancel_audio_import" (kind = "live", undo = "none", destructive = false)
+    CancelAudioImport {} => {};
 
     /// Copy a MIDI clip into a new, independent clip with the same name ("Bass 2" stays
     /// "Bass 2": a copy plays the same part), colour, length, loop and notes; editing one never changes the other. The copy always sits in a
@@ -939,6 +1043,23 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             snapshot,
             placements,
         } => restore(state, track, clip, snapshot, placements),
+        Command::ImportAudio { track, media, name } => {
+            import_audio(state, ctx, track, media, name.as_deref())
+        }
+        Command::RestoreAudio {
+            track,
+            clip,
+            snapshot,
+            placements,
+        } => restore_audio(state, track, clip, snapshot, placements),
+        // The file dialog and the import belong to the page (a dialog needs a click): the
+        // command only checks the track, so an agent hears at once of a wrong one.
+        Command::ChooseAudio { track } => {
+            audio_track(&state.project, track)?;
+            Ok(unchanged(Output::ChooseAudio {}))
+        }
+        // The import runs in the page: the command only says it is to stop.
+        Command::CancelAudioImport {} => Ok(unchanged(Output::CancelAudioImport {})),
         Command::Duplicate { clip, slot, track } => {
             duplicate(state, ctx, clip, slot.as_ref(), track.as_ref())
         }
@@ -1074,6 +1195,9 @@ fn delete(state: &mut State, clip_id: &ClipId) -> Result<Out, CommandError> {
         .clips
         .get(clip_id)
         .ok_or_else(|| not_found("clip", clip_id))?;
+    if !clip.content.is_midi() {
+        return delete_audio(state, &track_id, clip_id);
+    }
     let snap = snapshot(clip)?;
     let mut placements = Vec::new();
     for (id, p) in &track.placements {
@@ -1107,6 +1231,331 @@ fn delete(state: &mut State, clip_id: &ClipId) -> Result<Out, CommandError> {
             track: track_id,
             clip: clip_id.clone(),
             placements: ids,
+        }],
+    ))
+}
+
+pub(crate) fn audio_track<'a>(
+    project: &'a Project,
+    track: &TrackId,
+) -> Result<&'a Track, CommandError> {
+    let found = project
+        .tracks
+        .get(track)
+        .ok_or_else(|| not_found("track", track))?;
+    if found.kind != TrackKind::Audio {
+        return Err(invalid(
+            "track",
+            "an audio clip lives in an audio track (`track.create` with `kind: audio`)",
+        ));
+    }
+    Ok(found)
+}
+
+/// The clip name a file gives: its name without the extension, trimmed and cut to the
+/// longest name a clip takes.
+fn name_of_file(file: &str) -> String {
+    let stem = match file.rsplit_once('.') {
+        Some((stem, ext)) if !stem.trim().is_empty() && !ext.is_empty() && !ext.contains(' ') => {
+            stem
+        }
+        _ => file,
+    };
+    stem.trim()
+        .chars()
+        .take(MAX_NAME_CHARS)
+        .collect::<String>()
+        .trim()
+        .to_owned()
+}
+
+/// The metadata of a media: staged by the host after an import, or recorded by a clip of the
+/// project. The staged one comes from decoding the file's bytes, so it wins.
+fn known_media(project: &Project, ctx: &Context, hash: &Hash) -> Option<AudioMedia> {
+    ctx.media.get(hash).cloned().or_else(|| {
+        project
+            .tracks
+            .values()
+            .flat_map(|t| t.clips.values())
+            .find_map(|c| match &c.content {
+                ClipContent::Audio { media, .. } if media.hash == *hash => Some(media.clone()),
+                _ => None,
+            })
+    })
+}
+
+/// Refuses an audio file's metadata that the project's validation would refuse.
+fn check_media(media: &AudioMedia, field: &str) -> Result<(), CommandError> {
+    check_name(&media.name, &format!("{field}.name"))?;
+    if !(1..=MAX_CHANNELS).contains(&media.channels) {
+        return Err(invalid(format!("{field}.channels"), "1 to 64 channels"));
+    }
+    if !SAMPLE_RATES.contains(&media.sample_rate.hz()) {
+        return Err(invalid(
+            format!("{field}.sample_rate"),
+            "a sample rate from 8 to 768 kHz",
+        ));
+    }
+    if media.frames.get() == 0 || media.frames.get() > MAX_FRAME {
+        return Err(invalid(format!("{field}.frames"), "1 to 2^40 frames"));
+    }
+    Ok(())
+}
+
+/// Refuses an audio clip's content that the project's validation would refuse.
+fn check_audio(snap: &AudioClipSnapshot, field: &str) -> Result<(), CommandError> {
+    check_media(&snap.media, &format!("{field}.media"))?;
+    let media = &snap.media;
+    let end = snap.start.get().checked_add(snap.frames.get());
+    if snap.frames.get() == 0 || end.is_none_or(|end| end > media.frames.get()) {
+        return Err(invalid(
+            format!("{field}.frames"),
+            "the range [start, start + frames) is inside the file and not empty",
+        ));
+    }
+    if !(snap.gain_db.is_finite() || snap.gain_db == f64::NEG_INFINITY) {
+        return Err(invalid(
+            format!("{field}.gain_db"),
+            "a number of dB, or null",
+        ));
+    }
+    if let Some(l) = snap.looping
+        && !(l.start < l.end && l.end <= snap.frames)
+    {
+        return Err(invalid(
+            format!("{field}.looping"),
+            "0 <= start < end <= frames",
+        ));
+    }
+    Ok(())
+}
+
+fn import_audio(
+    state: &mut State,
+    ctx: &mut Context,
+    track_id: &TrackId,
+    hash: &Hash,
+    name: Option<&str>,
+) -> Result<Out, CommandError> {
+    let project = &state.project;
+    let track = audio_track(project, track_id)?;
+    let media = known_media(project, ctx, hash).ok_or_else(|| {
+        invalid(
+            "media",
+            format!("no imported file has the SHA-256 {hash}: import the file first (`clip.choose_audio`)"),
+        )
+    })?;
+    check_media(&media, "media")?;
+    let name = name.map(str::trim).unwrap_or_default();
+    check_name(name, "name")?;
+    let name = if name.is_empty() {
+        name_of_file(&media.name)
+    } else {
+        name.to_owned()
+    };
+    check_clips(project, track)?;
+    let snap = AudioClipSnapshot {
+        name,
+        color: None,
+        slot: None,
+        launch_quantize: None,
+        frames: media.frames,
+        media,
+        start: Frame(0),
+        gain_db: 0.0,
+        looping: None,
+    };
+    let clip_id = ClipId::generate(&mut ctx.ids);
+    insert_audio(state, track_id, &clip_id, &snap, &[])?;
+    Ok(edited(
+        Output::ImportAudio {
+            clip: clip_id.clone(),
+        },
+        Command::Delete {
+            clip: clip_id.clone(),
+        },
+        vec![ProjectEvent::ClipCreated {
+            track: track_id.clone(),
+            clip: clip_id,
+            placements: vec![],
+        }],
+    ))
+}
+
+/// Puts an audio clip and its placements into a track (checked before).
+fn insert_audio(
+    state: &mut State,
+    track_id: &TrackId,
+    clip_id: &ClipId,
+    snap: &AudioClipSnapshot,
+    placements: &[AudioPlacementSnapshot],
+) -> Result<(), CommandError> {
+    let track = state
+        .project
+        .tracks
+        .get_mut(track_id)
+        .ok_or_else(|| not_found("track", track_id))?;
+    track.clips.insert(
+        clip_id.clone(),
+        Clip {
+            name: snap.name.clone(),
+            color: snap.color,
+            slot: snap.slot.clone(),
+            launch_quantize: snap.launch_quantize,
+            content: ClipContent::Audio {
+                media: snap.media.clone(),
+                start: snap.start,
+                frames: snap.frames,
+                gain_db: snap.gain_db,
+                looping: snap.looping,
+            },
+        },
+    );
+    for p in placements {
+        track.placements.insert(
+            p.id.clone(),
+            Placement {
+                clip: clip_id.clone(),
+                start: p.start,
+                span: Span::Frames {
+                    length: p.length,
+                    offset: p.offset,
+                },
+            },
+        );
+    }
+    Ok(())
+}
+
+fn delete_audio(
+    state: &mut State,
+    track_id: &TrackId,
+    clip_id: &ClipId,
+) -> Result<Out, CommandError> {
+    let track = state
+        .project
+        .tracks
+        .get_mut(track_id)
+        .ok_or_else(|| not_found("track", track_id))?;
+    let clip = track
+        .clips
+        .get(clip_id)
+        .ok_or_else(|| not_found("clip", clip_id))?;
+    let ClipContent::Audio {
+        media,
+        start,
+        frames,
+        gain_db,
+        looping,
+    } = &clip.content
+    else {
+        return Err(invalid("clip", "not an audio clip"));
+    };
+    let snap = AudioClipSnapshot {
+        name: clip.name.clone(),
+        color: clip.color,
+        slot: clip.slot.clone(),
+        launch_quantize: clip.launch_quantize,
+        media: media.clone(),
+        start: *start,
+        frames: *frames,
+        gain_db: *gain_db,
+        looping: *looping,
+    };
+    let mut placements = Vec::new();
+    for (id, p) in &track.placements {
+        if p.clip != *clip_id {
+            continue;
+        }
+        let Span::Frames { length, offset } = p.span else {
+            return Err(invalid("clip", "an audio clip has a placement in ticks"));
+        };
+        placements.push(AudioPlacementSnapshot {
+            id: id.clone(),
+            start: p.start,
+            length,
+            offset,
+        });
+    }
+    track.clips.remove(clip_id);
+    track.placements.retain(|_, p| p.clip != *clip_id);
+    let ids = placements.iter().map(|p| p.id.clone()).collect::<Vec<_>>();
+    Ok(edited(
+        Output::Delete {
+            placements: count(placements.len()),
+        },
+        Command::RestoreAudio {
+            track: track_id.clone(),
+            clip: clip_id.clone(),
+            snapshot: snap,
+            placements,
+        },
+        vec![ProjectEvent::ClipDeleted {
+            track: track_id.clone(),
+            clip: clip_id.clone(),
+            placements: ids,
+        }],
+    ))
+}
+
+fn restore_audio(
+    state: &mut State,
+    track_id: &TrackId,
+    clip_id: &ClipId,
+    snap: &AudioClipSnapshot,
+    placements: &[AudioPlacementSnapshot],
+) -> Result<Out, CommandError> {
+    let project = &state.project;
+    let track = audio_track(project, track_id)?;
+    if project.contains_id(&clip_id.0) {
+        return Err(invalid(
+            "clip",
+            format!("the identifier {clip_id} is already in use"),
+        ));
+    }
+    let mut seen = HashSet::new();
+    for p in placements {
+        if project.contains_id(&p.id.0) || p.id.0 == clip_id.0 || !seen.insert(&p.id) {
+            return Err(invalid(
+                "placements",
+                format!("the identifier {} is already in use", p.id),
+            ));
+        }
+    }
+    check_name(&snap.name, "snapshot.name")?;
+    check_audio(snap, "snapshot")?;
+    check_clips(project, track)?;
+    check_placements(project, track, placements.len())?;
+    if let Some(scene) = &snap.slot {
+        check_slot(project, track, scene, "snapshot.slot")?;
+    }
+    let tempo = project.tempo();
+    for (i, p) in placements.iter().enumerate() {
+        let field = format!("placements[{i}]");
+        let end = p
+            .start
+            .saturating_add(tempo.frames_to_ticks(p.length, snap.media.sample_rate));
+        if !(0..=MAX_TICK).contains(&p.start.get())
+            || end.get() > MAX_TICK
+            || p.length.get() == 0
+            || p.length.get() > MAX_FRAME
+        {
+            return Err(invalid(field, "a placement lies on the timeline"));
+        }
+        if p.offset >= snap.frames {
+            return Err(invalid(field, "a placement's offset is inside the clip"));
+        }
+    }
+    insert_audio(state, track_id, clip_id, snap, placements)?;
+    Ok(edited(
+        Output::RestoreAudio {},
+        Command::Delete {
+            clip: clip_id.clone(),
+        },
+        vec![ProjectEvent::ClipCreated {
+            track: track_id.clone(),
+            clip: clip_id.clone(),
+            placements: placements.iter().map(|p| p.id.clone()).collect(),
         }],
     ))
 }

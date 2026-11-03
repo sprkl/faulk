@@ -2002,3 +2002,59 @@ describe("an agent's calls in Boost (AG-1)", () => {
     expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
   })
 })
+
+describe('audio files imported by the page (AU-1)', () => {
+  beforeEach(() => {
+    webs = []
+    nativeEngine = null
+    midiOn = false
+    midiReleaseAll = () => Promise.resolve()
+    localStorage.clear()
+  })
+
+  it('clip.choose_audio reaches the import; a file imported becomes a clip by clip.import_audio, and in Boost no byte of it goes to the helper', async () => {
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
+      close: vi.fn(() => Promise.resolve()),
+    }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    await session.dispatcher.enterBoost()
+    session.dispatcher.run({ type: 'track.create', kind: 'audio' } as Command)
+    const track = Object.entries(session.project.view!.project.tracks).find(([, t]) => t?.kind === 'audio')![0]
+    const choose = vi.spyOn(session.audioImport, 'choose').mockImplementation(() => {})
+    expect(session.dispatcher.run({ type: 'clip.choose_audio', track })).toBe(true)
+    expect(choose).toHaveBeenCalledWith(track)
+    const cancel = vi.spyOn(session.audioImport, 'cancel')
+    expect(session.dispatcher.run({ type: 'clip.cancel_audio_import' })).toBe(true)
+    expect(cancel).toHaveBeenCalledTimes(1)
+    // The store's import (its own tests run the pipeline): the metadata of a file it kept.
+    const hash = '9e'.repeat(32)
+    vi.spyOn(session.storage, 'importAudio').mockResolvedValue({ hash, sample_rate: 44_100, channels: 2, frames: 22_050, name: 'kick.wav' })
+    const sent = nativeEngine.send.mock.calls.length
+    const pushed = nativeEngine.push.mock.calls.length
+    const file = new File([new Uint8Array(1 << 16).fill(0x5a)], 'kick.wav')
+    expect(await session.audioImport.importFiles(track, [file])).toEqual([hash])
+    const clips = Object.values(session.project.view!.project.tracks[track]!.clips)
+    expect(clips).toHaveLength(1)
+    expect(clips[0]).toMatchObject({ name: 'kick', content: { audio: { media: { hash, name: 'kick.wav', frames: 22_050 } } } })
+    expect(session.dispatcher.history().undo.at(-1)).toBeDefined()
+    // Whatever reached the helper is engine messages, a few bytes, never the file's.
+    const reached = [
+      ...nativeEngine.send.mock.calls.slice(sent).map((call) => call[1] as Uint8Array),
+      ...nativeEngine.push.mock.calls.slice(pushed).map((call) => call[0] as Uint8Array),
+    ]
+    const total = reached.reduce((n, bytes) => n + bytes.length, 0)
+    expect(total).toBeLessThan(1024)
+    for (const bytes of reached)
+      expect(bytes.some((_, i) => bytes.subarray(i, i + 64).length === 64 && bytes.subarray(i, i + 64).every((b) => b === 0x5a))).toBe(false)
+    // Undo takes the clip away; the file stays where the store put it (no store call).
+    session.dispatcher.run({ type: 'history.undo' })
+    expect(Object.values(session.project.view!.project.tracks[track]!.clips)).toHaveLength(0)
+  })
+})

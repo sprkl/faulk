@@ -1,6 +1,7 @@
 // The project storage controller (SV-2) against stand-ins for the browser and the core: when it
 // writes, what it says, and what it does when the folder, the permission or the page goes away.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { CacheReport, ImportOutcome, MediaRef } from '../audio/import/pipeline'
 import type { FolderEntry, PackExport, PackImport, SaveEntry, SaveFrame, SaveMode } from '../project/core'
 import type { OpenOutcome } from '../stores/open'
 import {
@@ -50,8 +51,10 @@ class FakeStore implements ProjectStore {
   async readBlobs() {
     return [...this.media].map(([path, bytes]) => ({ path, bytes }))
   }
+  /** Files with a stamp of their own (an imported blob); the others share the folder's. */
+  stamps = new Map<string, number>()
   signature(): Signature {
-    return Object.fromEntries([...this.files.keys()].map((path) => [path, `${this.files.get(path)!.length}:${this.stamp}`]))
+    return Object.fromEntries([...this.files.keys()].map((path) => [path, `${this.files.get(path)!.length}:${this.stamps.get(path) ?? this.stamp}`]))
   }
   async apply(entries: SaveEntry[]) {
     if (this.hold) await this.hold
@@ -75,6 +78,33 @@ class FakeStore implements ProjectStore {
     this.copied.push(source)
   }
   async cleanUp() {}
+  /** The imports made (file names), what an import answers, and the caches asked for (AU-1). */
+  imports: string[] = []
+  importFails: Error | null = null
+  importHold: Promise<void> | null = null
+  caches: MediaRef[][] = []
+  async importAudio(file: File, onProgress?: (fraction: number) => void): Promise<ImportOutcome> {
+    if (this.importHold) await this.importHold
+    if (this.importFails) throw this.importFails
+    this.imports.push(file.name)
+    onProgress?.(0.5)
+    onProgress?.(1)
+    const hash = (this.imports.length % 16).toString(16).repeat(64)
+    // A blob has a stamp of its own: writing it changes no other file's.
+    this.files.set(`blobs/${hash}`, 'audio')
+    this.stamps.set(`blobs/${hash}`, 900 + this.imports.length)
+    return {
+      media: { hash, sample_rate: 44_100, channels: 2, frames: 22_050, name: file.name },
+      direct: true,
+      blob: { path: `blobs/${hash}`, stamp: `5:${900 + this.imports.length}`, created: true },
+    }
+  }
+  cacheSignals: (AbortSignal | undefined)[] = []
+  async ensureAudioCache(media: MediaRef[], _onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<CacheReport> {
+    this.caches.push(media)
+    this.cacheSignals.push(signal)
+    return { made: media.map((m) => m.hash), missing: [], failed: [] }
+  }
   close() {
     this.closed = true
   }
@@ -88,6 +118,7 @@ class FakeStore implements ProjectStore {
 /** The core, reduced to its revision counter: `save` gives one file, `project.json`, that carries the revision. */
 class FakeHost implements ProjectHost {
   prepare?: () => Promise<void>
+  audioMedia?: () => MediaRef[]
   revision = 0
   clean = 0
   pending = 0
@@ -2478,5 +2509,89 @@ describe('one banner at a time (#474)', () => {
     w.storage.notice = 'pack.invalid'
     expect(w.storage.noticeVars).toBeNull()
     expect(w.storage.noticeOpen).toBeNull()
+  })
+})
+
+describe('importing an audio file (AU-1)', () => {
+  const wav = () => new File([new Uint8Array(4)], 'kick.wav')
+
+  it('goes into the folder, and the folder watcher does not take the new blob for an outside change', async () => {
+    const { w, store } = await saved()
+    const media = await w.storage.importAudio(wav())
+    expect(store.imports).toEqual(['kick.wav'])
+    expect(media.name).toBe('kick.wav')
+    // The clip the import makes is an edit: the folder now differs from the project.
+    w.edit()
+    w.watchers.forEach((f) => f())
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(w.storage.block).toBeNull()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MAX_WAIT_MS)
+    expect(store.files.get('project.json')).toBe('rev 2')
+  })
+
+  it('a project with no home gets its draft in the browser first; with no storage at all it is refused by name', async () => {
+    const w = world()
+    w.browser.available = true
+    await w.storage.importAudio(wav())
+    const dir = w.browser.only
+    expect(w.stores.get(w.browser.handles.get(dir)!)!.imports).toEqual(['kick.wav'])
+    expect(w.storage.place).toBe('browser')
+    const none = world()
+    await expect(none.storage.importAudio(wav())).rejects.toMatchObject({ name: 'ImportError', code: 'unavailable' })
+  })
+
+  it('waits for a write under way, and a save as never runs in the middle of an import', async () => {
+    const { w, store } = await saved()
+    let release = () => {}
+    store.importHold = new Promise((resolve) => (release = resolve))
+    const importing = w.storage.importAudio(wav())
+    w.edit()
+    const order: string[] = []
+    const flushed = w.storage.flush().then(() => order.push('flush'))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(order).toEqual([])
+    release()
+    await importing
+    order.push('import')
+    await flushed
+    expect(order).toEqual(['import', 'flush'])
+  })
+
+  it('a refusal of the store or of the file reaches the caller as it is, and the queue goes on', async () => {
+    const { w, store } = await saved()
+    store.importFails = new StoreError('full', 'quota')
+    await expect(w.storage.importAudio(wav())).rejects.toMatchObject({ code: 'full' })
+    store.importFails = null
+    await expect(w.storage.importAudio(wav())).resolves.toMatchObject({ name: 'kick.wav' })
+    // A folder whose permission was withdrawn is not written by an import either.
+    w.storage.block = 'permission'
+    await expect(w.storage.importAudio(wav())).rejects.toMatchObject({ code: 'permission' })
+  })
+
+  it('an opening asks the store for the PCM caches of the project media, in the background', async () => {
+    const { w, handle, store } = await saved()
+    const media = [{ hash: 'a'.repeat(64), sample_rate: 44_100, channels: 2, frames: 10 }]
+    w.host.audioMedia = () => media
+    store.files.set('project.json', 'rev 0')
+    w.storage.sleep()
+    w.recents = [{ id: handle.name, name: handle.name, handle, at: 1 }]
+    await w.storage.newProject()
+    expect(await w.storage.openRecent(handle.name)).toBe(true)
+    await w.storage.audioCacheDone
+    expect(store.caches.at(-1)).toEqual(media)
+    expect(w.storage.audioCache).toEqual({ made: [media[0]!.hash], missing: [], failed: [] })
+    // The project leaves the folder: what remains of that work stops.
+    const signal = store.cacheSignals.at(-1)!
+    expect(signal.aborted).toBe(false)
+    await w.storage.newProject()
+    expect(signal.aborted).toBe(true)
+  })
+
+  it('an import cancelled while it waited in the queue never reaches the store', async () => {
+    const { w, store } = await saved()
+    const abort = new AbortController()
+    abort.abort()
+    await expect(w.storage.importAudio(wav(), undefined, abort.signal)).rejects.toMatchObject({ code: 'cancelled' })
+    expect(store.imports).toEqual([])
   })
 })

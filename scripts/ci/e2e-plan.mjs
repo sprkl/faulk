@@ -40,7 +40,9 @@ export const AREA = {
   tracks: ['tracks', 'track-order', 'lane-rows', 'discoverability'],
   keyboard: ['keyboard', 'keyboard-all-views', 'layout-4', 'live-input', 'typing-mode', 'track-state'],
   export: ['export-audio'],
-  storage: ['project-store', 'project-save', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability', 'open-url'],
+  storage: ['project-store', 'project-save', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability', 'open-url', 'audio-import'],
+  // Importing audio files (AU-1): the pipeline in the store's Worker, the Clips panel that starts it, the storage it writes.
+  audio: ['audio-import', 'clip-pool', 'browser-storage', 'project-store'],
   shortcuts: ['discoverability', 'keyboard-all-views'],
   shortcutsDialog: ['discoverability', 'keyboard-all-views', 'navigation'],
   bottomPanel: ['bottom-panel', 'layout-4', 'ux-quick-wins'],
@@ -96,11 +98,14 @@ export const RULES = [
   // rings, ABI, reports, the web engine that wires them, and its interface).
   [/^web\/src\/lib\/generated\//, ALL],
   [/^web\/src\/lib\/engine\/(helper-client|helper-copy|native-engine|local-access)\./, AREA.helper],
+  // The page side of the agents relay (#97): calls arrive over the helper link and run through the dispatcher.
+  [/^web\/src\/lib\/agents\//, [...AREA.helper, ...AREA.history]],
   // The CT-3 prototype (TypeScript and its crate): its own spec builds and runs it.
   [/^web\/src\/lib\/engine\/proto\//, ['engine-channel']],
   [/^web\/src\/lib\/engine\//, ALL],
   // Views.
   [/^web\/src\/views\/arrangement\//, AREA.arrangement],
+  [/^web\/src\/views\/clips\/ClipsView\.svelte$/, areas('clips', 'audio')], // it starts the audio import (AU-1)
   [/^web\/src\/views\/clips\//, AREA.clips],
   [/^web\/src\/views\/grid\//, AREA.grid],
   [/^web\/src\/views\/history\//, AREA.history],
@@ -125,7 +130,7 @@ export const RULES = [
   [/^web\/src\/lib\/components\/GainControl\.svelte$/, areas('mixer', 'tracks')],
   [/^web\/src\/lib\/components\/Knob\.svelte$/, areas('devices', 'valueEntry')],
   [/^web\/src\/lib\/components\/LevelMeter\.svelte$/, areas('arrangement', 'mixer', 'topBar')],
-  [/^web\/src\/lib\/components\/LinkMark\.svelte$/, areas('clips', 'grid')],
+  [/^web\/src\/lib\/components\/LinkMark\.svelte$/, areas('clips', 'grid', 'audio')],
   [/^web\/src\/lib\/components\/Monogram\.svelte$/, areas('landing', 'topBar')],
   [/^web\/src\/lib\/components\/PanControl\.svelte$/, areas('mixer', 'tracks')],
   [/^web\/src\/lib\/components\/ParamControl\.svelte$/, areas('devices', 'valueEntry')],
@@ -146,7 +151,7 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/journey\.ts$/, AREA.landing],
   [/^web\/src\/lib\/i18n\/arrangement\.ts$/, areas('arrangement', 'grid', 'shortcutsDialog')],
   [/^web\/src\/lib\/i18n\/automation\.ts$/, areas('arrangement', 'devices', 'mixer')],
-  [/^web\/src\/lib\/i18n\/clips\.ts$/, areas('clips')],
+  [/^web\/src\/lib\/i18n\/clips\.ts$/, areas('clips', 'audio')],
   [/^web\/src\/lib\/i18n\/(devices|synth|drums|echo|reverb|filter|compressor)\.ts$/, areas('devices')],
   [/^web\/src\/lib\/i18n\/controls\.ts$/, areas('mixer', 'tracks', 'devices', 'valueEntry', 'arrangement', 'pianoRoll')],
   [/^web\/src\/lib\/i18n\/engine\.ts$/, areas('arrangement', 'mixer', 'topBar')],
@@ -169,6 +174,7 @@ export const RULES = [
   [/^web\/src\/lib\/shortcuts\.ts$/, AREA.shortcuts],
   [/^web\/src\/lib\/export\//, AREA.export],
   [/^web\/src\/lib\/storage\//, AREA.storage],
+  [/^web\/src\/lib\/audio\//, AREA.audio],
   [/^web\/src\/lib\/midi\//, AREA.midi],
   [/^web\/src\/lib\/(keyboard\.ts|stores\/keyboard-player)/, AREA.keyboardPlayer],
   [/^web\/src\/lib\/context-menu\.ts$/, ['context-menu']],
@@ -187,12 +193,14 @@ export const RULES = [
   [/^web\/src\/app\.d\.ts$/, CORE],
   [/^web\/static\//, CORE],
   // The crates the page is built from (select-core.mjs hands over only the files of a crate whose own
-  // change reaches engine-wasm, project-wasm or protocol). The contracts: everything.
+  // change reaches engine-wasm, project-wasm, protocol or audio-import-wasm). The contracts: everything.
   [/^crates\/(protocol|commands)\//, ALL],
   [/^crates\/engine\/src\/msg(\.rs$|\/)/, ALL], // the engine sync contract (CT-3)
   [/^crates\/engine-wasm\//, ALL], // the engine's C ABI, the other end of the sync
   [/^crates\/engine\//, AREA.engine],
   [/^crates\/(project|project-wasm)\//, AREA.project],
+  // The audio import pipeline (AU-1) and its WebAssembly build, run by the store's Worker.
+  [/^crates\/(audio-import|audio-import-wasm)\//, AREA.audio],
   // Crates the page never runs: their tests are the Rust job's.
   [/^crates\/(helper|test-support)\//, NONE],
   // Anything else under the web app or the crates, and the build inputs: the whole suite.

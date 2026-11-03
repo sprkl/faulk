@@ -39,3 +39,8 @@ export const moveClip = (clip: string, scene: string, track: string | null): Com
  */
 export const auditionOn = (track: string, note: number, velocity: number): Command => ({ type: 'live.note_on', track, note, velocity })
 export const auditionOff = (track: string, note: number): Command => ({ type: 'live.note_off', track, note })
+
+/** Asks the user for audio files to import into an audio track (AU-1): the page's file dialog, from a click. */
+export const chooseAudio = (track: string): Command => ({ type: 'clip.choose_audio', track })
+/** Stops the audio import under way (AU-1). */
+export const cancelAudioImport = (): Command => ({ type: 'clip.cancel_audio_import' })

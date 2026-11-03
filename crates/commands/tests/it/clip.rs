@@ -382,9 +382,6 @@ fn duplicate_is_independent_and_audio_clips_are_refused() {
             slot: None,
             track: None,
         },
-        clip::Command::Delete {
-            clip: f.audio_clip.clone(),
-        },
         clip::Command::SetLoop {
             clip: f.audio_clip.clone(),
             looping: None,

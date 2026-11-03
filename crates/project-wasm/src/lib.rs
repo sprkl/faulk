@@ -373,6 +373,17 @@ impl Core {
         slots.get(&id)?.to_file().ok()
     }
 
+    /// Stages an audio file the page imported (AU-1), as the JSON of a `project::AudioMedia`
+    /// (its SHA-256, rate, channels, frames and name, from decoding the file's bytes), for
+    /// `clip.import_audio` to make clips of. Kept for the session; a second staging of the same
+    /// file replaces the first. Nothing is staged when the JSON is not that.
+    pub fn stage_media(&mut self, json: &[u8]) -> Result<(), StoredJsonError> {
+        let media: project::AudioMedia =
+            serde_json::from_slice(json).map_err(|_| StoredJsonError)?;
+        self.synced.ctx.media.insert(media.hash, media);
+        Ok(())
+    }
+
     /// Computes the writes that bring the project's folder up to date (see [`save`]); the
     /// frame is the call's output. Pending until [`Core::saved`].
     pub fn save(&mut self, mode: Mode) -> Vec<u8> {
@@ -906,6 +917,24 @@ pub unsafe extern "C" fn pw_preset_file(core: *mut Core, location: u32, len: u32
                     len
                 }
                 None => ERR_NO_PRESET,
+            }
+        })
+    }
+}
+
+/// [`Core::stage_media`] with the first `len` bytes of the inbox: 0, or [`ERR_BAD_INPUT`]
+/// (nothing staged). The clips are made by running `clip.import_audio` ([`pw_run`]).
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_stage_media(core: *mut Core, len: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe {
+        with_core(core, |core| {
+            match with_inbox(len, |json| core.stage_media(json)) {
+                Ok(()) => 0,
+                Err(StoredJsonError) => ERR_BAD_INPUT,
             }
         })
     }
