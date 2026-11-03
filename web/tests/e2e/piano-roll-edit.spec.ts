@@ -332,3 +332,35 @@ test('piano roll: Q quantizes the selection or the whole clip, says how many not
   expect(seen.errors).toEqual([])
   expect(warnings).toEqual([])
 })
+
+test('piano roll: on an AZERTY layout the quantize key is labelled with the character on it, in the tooltip, the menu and the shortcut list, and it still works by position', async ({
+  page,
+}) => {
+  test.setTimeout(120_000)
+  await page.addInitScript(() => {
+    const layout = new Map([['KeyQ', 'a']])
+    Object.defineProperty(navigator, 'keyboard', {
+      configurable: true,
+      value: { getLayoutMap: () => Promise.resolve(layout), addEventListener: () => {}, removeEventListener: () => {} },
+    })
+  })
+  const { seen } = await openRoll(page)
+  await page.getByTestId('roll-snap').selectOption('off')
+  await page.getByTestId('roll-quantize-grid').selectOption('quarter')
+  const g = await spot(page)
+  await page.mouse.click(g.x(130), g.y(60))
+  await expect(page.getByTestId('roll-quantize')).toHaveAttribute('title', /\(A\)$/)
+  await expect(page.getByTestId('roll-quantize')).toHaveAttribute('aria-keyshortcuts', 'A')
+  await page.mouse.click(g.x(150), g.y(60), { button: 'right' })
+  await expect(page.getByTestId('ctx-quantize')).toContainText('A')
+  await page.keyboard.press('Escape')
+  // The key by position still quantizes.
+  await focusGrid(page)
+  await page.keyboard.press('KeyQ')
+  await expect.poll(async () => starts(page)).toEqual([240])
+  // The shortcut list writes it the same way.
+  await page.keyboard.press('?')
+  const line = page.getByRole('dialog').locator('li', { hasText: /Quantize|Quantifier/ })
+  await expect(line.locator('kbd')).toHaveText('A')
+  expect(seen.errors).toEqual([])
+})

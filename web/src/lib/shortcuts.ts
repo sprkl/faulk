@@ -118,7 +118,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         ],
       },
       { label: 'shortcut.noteDuplicate', chords: [['Mod', 'D']] },
-      { label: 'shortcut.noteQuantize', chords: [['Q']] },
+      { label: 'shortcut.noteQuantize', chords: [['KeyQ']] },
       { label: 'shortcut.noteTranspose', chords: [['↑'], ['↓'], ['Shift', '↑'], ['Shift', '↓']] },
       { label: 'shortcut.noteCursor', chords: [['←'], ['→'], ['↑'], ['↓'], ['Shift', '↑'], ['Shift', '↓']] },
       { label: 'shortcut.noteCreate', chords: [['Enter']] },
@@ -181,19 +181,46 @@ export function isMac(platform: string = typeof navigator === 'undefined' ? '' :
   return /^(Mac|iPhone|iPad|iPod)/i.test(platform)
 }
 
-/** A key token as the platform writes it. */
-export function keyLabel(token: KeyToken, mac: boolean = isMac()): string {
+/**
+ * What the keyboard layout calls the keys, by position: the browser's `navigator.keyboard.getLayoutMap()`
+ * (`KeyQ` is "a" on an AZERTY keyboard). A key that works by position (`KeyboardEvent.code`, like the musical typing keys
+ * and Q for the quantize) is labelled with the character the user reads on it, never the one the code is named after.
+ */
+export interface KeyLayout {
+  get(code: string): string | undefined
+}
+
+/** The layout of the keyboard, or null where the browser cannot say (Firefox, Safari, an insecure page, an error). */
+type KeyboardNav = { keyboard?: { getLayoutMap?: () => Promise<KeyLayout> } }
+export async function readKeyLayout(nav: KeyboardNav | undefined = globalThis.navigator as unknown as KeyboardNav | undefined): Promise<KeyLayout | null> {
+  try {
+    return (await nav?.keyboard?.getLayoutMap?.()) ?? null
+  } catch {
+    return null
+  }
+}
+
+/** A position-based token (`KeyQ`) as written on the key: the layout's character in capitals, else the letter of the code. */
+export function positionKey(code: string, layout: KeyLayout | null = null): string {
+  const named = layout?.get(code)
+  if (named && named.length === 1) return named.toUpperCase()
+  return code.replace(/^Key/, '')
+}
+
+/** A key token as the platform writes it. A token `Key<X>` is a key by position, written as the layout names it. */
+export function keyLabel(token: KeyToken, mac: boolean = isMac(), layout: KeyLayout | null = null): string {
   if (token === 'Mod') return mac ? 'Cmd' : 'Ctrl'
   if (token === 'Alt') return mac ? 'Option' : 'Alt'
+  if (/^Key[A-Z]$/.test(token)) return positionKey(token, layout)
   return token
 }
 
 /** A chord as one phrase for tooltips and screen readers: "Ctrl+Shift+Z". */
-export function chordText(chord: readonly KeyToken[], mac: boolean = isMac()): string {
-  return chord.map((token) => keyLabel(token, mac)).join('+')
+export function chordText(chord: readonly KeyToken[], mac: boolean = isMac(), layout: KeyLayout | null = null): string {
+  return chord.map((token) => keyLabel(token, mac, layout)).join('+')
 }
 
 /** A tooltip or label with its shortcut: "Play (Space)". */
-export function withShortcut(text: string, chord: readonly KeyToken[], mac: boolean = isMac()): string {
-  return `${text} (${chordText(chord, mac)})`
+export function withShortcut(text: string, chord: readonly KeyToken[], mac: boolean = isMac(), layout: KeyLayout | null = null): string {
+  return `${text} (${chordText(chord, mac, layout)})`
 }

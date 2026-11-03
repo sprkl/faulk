@@ -66,9 +66,9 @@
                 <span class="keys">
                   {#each shortcut.chords as chord, i (i)}
                     {#if i > 0}<span class="or" aria-hidden="true">/</span>{/if}
-                    <span class="sr-only">{i > 0 ? t('shortcut.or') : ''} {chordText(chord, mac)}</span>
+                    <span class="sr-only">{i > 0 ? t('shortcut.or') : ''} {chordText(chord, mac, ui.keyLayout)}</span>
                     <span class="chord" aria-hidden="true">
-                      {#each chord as token, k (k)}<kbd>{keyLabel(token, mac)}</kbd>{/each}
+                      {#each chord as token, k (k)}<kbd>{keyLabel(token, mac, ui.keyLayout)}</kbd>{/each}
                     </span>
                   {/each}
                 </span>

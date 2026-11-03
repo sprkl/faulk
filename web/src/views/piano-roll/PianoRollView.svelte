@@ -26,7 +26,7 @@
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
   import ValueMenu from '../../lib/components/ValueMenu.svelte'
   import type { MenuItem } from '../../lib/context-menu'
-  import { chordText, withShortcut } from '../../lib/shortcuts'
+  import { chordText, positionKey, withShortcut } from '../../lib/shortcuts'
   import {
     DEFAULT_PX_PER_TICK,
     SNAP_SETTINGS,
@@ -39,7 +39,7 @@
     type View,
   } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
-  import { isQuantizeKey, isTextTarget } from '../../lib/keyboard'
+  import { isQuantizeKey, isTextTarget, QUANTIZE_CODE } from '../../lib/keyboard'
   import { instrumentNamedKeys, isMidi, trackColor as colorOfTrack } from '../../lib/project/tracks'
   import { beginGroup, endGroup } from '../../lib/track-commands'
   import { useStores } from '../../lib/stores'
@@ -954,7 +954,7 @@
     const items: MenuItem[] = []
     const some = key !== null || chosenNotes.length > 0
     const mod = (letter: string) => chordText(['Mod', letter])
-    if (notes.length > 0) items.push({ id: 'quantize', label: t('pianoRoll.quantize'), shortcut: QUANTIZE_KEY_LABEL, run: quantizeNow })
+    if (notes.length > 0) items.push({ id: 'quantize', label: t('pianoRoll.quantize'), shortcut: quantizeLabel, run: quantizeNow })
     if (some) {
       items.push(
         { id: 'duplicate', label: t('pianoRoll.duplicate'), shortcut: mod('D'), run: duplicateChosen },
@@ -1072,8 +1072,8 @@
     clearTimeout(quantizeTimer)
     quantizeTimer = setTimeout(() => (quantizeNote = null), 3000)
   }
-  /** The key as written for the person (the key is `KeyQ`, by position). */
-  const QUANTIZE_KEY_LABEL = 'Q'
+  /** The key as written on the person's keyboard: the quantize works by position (`KeyQ`), so it is "A" on an AZERTY keyboard. */
+  const quantizeLabel = $derived(positionKey(QUANTIZE_CODE, ui.keyLayout))
   let quantizeNote = $state<string | null>(null)
   let quantizeTimer: ReturnType<typeof setTimeout> | undefined
   onDestroy(() => clearTimeout(quantizeTimer))
@@ -1289,8 +1289,8 @@
         />
         <span>%</span>
         <button
-          title={withShortcut(t('pianoRoll.quantizeHint'), [QUANTIZE_KEY_LABEL])}
-          aria-keyshortcuts={QUANTIZE_KEY_LABEL}
+          title={withShortcut(t('pianoRoll.quantizeHint'), [quantizeLabel])}
+          aria-keyshortcuts={quantizeLabel}
           disabled={notes.length === 0}
           data-testid="roll-quantize"
           onclick={quantizeNow}>{t('pianoRoll.quantize')}</button
