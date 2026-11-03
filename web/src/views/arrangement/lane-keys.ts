@@ -7,7 +7,7 @@
  * The row's height handle (a separator) moves with the arrows, as the bottom panel's handle does.
  */
 
-import { CLIP_ROW, CLIP_ROW_MAX, CLIP_ROW_MIN, clampClipRow } from './automation/layout'
+import { CLIP_ROW_MAX, CLIP_ROW_MIN, clampClipRow } from './automation/layout'
 
 export type VolumeKey = { open: 'value' } | { open: 'typed'; text: string } | null
 
@@ -26,18 +26,14 @@ export function volumeKey(event: Pick<KeyboardEvent, 'key' | 'altKey' | 'ctrlKey
 export const HEIGHT_STEP = 4
 export const HEIGHT_STEP_BIG = 16
 
-/** The height a key on the row's height handle gives, or null for a key it does not use. Double click and Enter give back the default. */
-export function heightKey(
-  event: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey'>,
-  height: number,
-  base: number = CLIP_ROW,
-): number | null {
+/** The height a key on the row's height handle gives, or `'default'` for Enter (the density's default height, stored as no height), or null for a key it does not use. */
+export function heightKey(event: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey'>, height: number): number | 'default' | null {
   if (event.altKey || event.ctrlKey || event.metaKey) return null
   const step = event.shiftKey ? HEIGHT_STEP_BIG : HEIGHT_STEP
   if (event.key === 'ArrowDown') return clampClipRow(height + step)
   if (event.key === 'ArrowUp') return clampClipRow(height - step)
   if (event.key === 'Home') return CLIP_ROW_MIN
   if (event.key === 'End') return CLIP_ROW_MAX
-  if (event.key === 'Enter') return clampClipRow(base)
+  if (event.key === 'Enter') return 'default'
   return null
 }

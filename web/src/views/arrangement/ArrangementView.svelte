@@ -1715,7 +1715,6 @@
               <LaneHeader
                 entry={trackEntry}
                 height={row.height}
-                base={laneBase}
                 selected={project.selected?.id === trackEntry.id}
                 soloed={project.soloed.includes(trackEntry.id)}
                 armed={project.armed.includes(trackEntry.id)}

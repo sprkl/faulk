@@ -212,7 +212,7 @@ export class UiStore {
 
   /**
    * The project now open (its identity): its layout comes back (the view, each view's zoom and scroll, the open
-   * lanes, ), or the defaults when it has none. The same project again changes nothing. `isView`
+   * lanes), or the defaults when it has none. The same project again changes nothing. `isView`
    * says whether a stored view still exists.
    */
   useProject(project: string | null, isView: (view: string) => view is MainViewId) {

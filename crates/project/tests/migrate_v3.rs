@@ -48,7 +48,7 @@ fn a_format_2_folder_opens_as_before_with_no_height() {
 }
 
 #[test]
-fn a_folder_with_a_height_is_format_3_and_a_format_2_build_would_call_it_newer() {
+fn a_folder_is_written_in_format_3_and_keeps_the_height() {
     let (fs, tid, _) = folder(Some(96));
     let text = String::from_utf8(fs.read("project.json").unwrap()).unwrap();
     assert!(text.contains("\"format\": 3"), "{text}");

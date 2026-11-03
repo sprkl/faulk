@@ -478,6 +478,39 @@ fn a_colour_is_parsed_as_rrggbb_and_nothing_else() {
 }
 
 #[test]
+fn a_duplicate_keeps_the_height_of_its_source() {
+    let mut s = commands::testing::state();
+    let mut c = context();
+    let (source, _) = created(&run(&create(TrackKind::Midi), &mut s, &mut c).unwrap());
+    run(
+        &tc(track::Command::SetHeight {
+            track: source.clone(),
+            height: Some(120),
+        }),
+        &mut s,
+        &mut c,
+    )
+    .unwrap();
+    let out = run(
+        &tc(track::Command::Duplicate {
+            track: source.clone(),
+            name: None,
+        }),
+        &mut s,
+        &mut c,
+    )
+    .unwrap();
+    let copies: Vec<_> = s
+        .project
+        .tracks
+        .iter()
+        .filter(|(id, _)| **id != source)
+        .collect();
+    assert_eq!(copies.len(), 1, "{out:?}");
+    assert_eq!(copies[0].1.height, Some(120));
+}
+
+#[test]
 fn move_places_the_track_and_undo_restores_the_exact_key() {
     let mut s = commands::testing::state();
     let mut c = context();

@@ -14,13 +14,12 @@
   import { trackMenuItems } from '../../lib/track-menu'
   import { armTrack, renameTrack, selectTrack, setMute, setSolo, setTrackHeight, setVolume } from '../../lib/track-commands'
   import { parseGainEntry } from '../../lib/value-entry'
-  import { CLIP_ROW, CLIP_ROW_MAX, CLIP_ROW_MIN, clampClipRow } from './automation/layout'
+  import { CLIP_ROW_MAX, CLIP_ROW_MIN, clampClipRow } from './automation/layout'
   import { heightKey, volumeKey } from './lane-keys'
 
   let {
     entry,
     height,
-    base = CLIP_ROW,
     selected,
     soloed,
     armed,
@@ -34,8 +33,6 @@
     entry: TrackEntry
     /** The row's height, in px (the user's, else the `lane` token). */
     height: number
-    /** The `lane` token's height: what a double click on the handle gives back. */
-    base?: number
     selected: boolean
     soloed: boolean
     armed: boolean
@@ -180,18 +177,26 @@
     const preview = ui.laneHeightPreview
     ui.laneHeightPreview = null
     if (event.type === 'pointercancel' || preview?.track !== entry.id) return
-    setHeight(preview.height === clampClipRow(base) ? null : preview.height)
+    // A dragged height is the producer's own, even when it equals the density's default: only Enter or a double click give the default back.
+    setHeight(preview.height)
   }
   /** The height is the track's, in the project: the same height is no command. */
   function setHeight(next: number | null) {
     if ((track.height ?? null) !== next) dispatcher.run(setTrackHeight(entry.id, next))
   }
   function onHandleKey(event: KeyboardEvent) {
-    const next = heightKey(event, height, base)
+    const next = heightKey(event, height)
     if (next === null) return
     event.preventDefault()
-    setHeight(next === clampClipRow(base) ? null : next)
+    setHeight(next === 'default' ? null : next)
   }
+  // A row that leaves (the track deleted by an agent, a view switch) mid-drag takes its preview with it.
+  $effect(() => {
+    const id = entry.id
+    return () => {
+      if (ui.laneHeightPreview?.track === id) ui.laneHeightPreview = null
+    }
+  })
 
   // --- reordering: the colour bar is the grip; a drop on another row puts the track at that row's place ---------
   function onGripDragStart(event: DragEvent) {
