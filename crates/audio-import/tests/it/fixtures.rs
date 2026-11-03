@@ -2,7 +2,7 @@
 //! signal): what each import finds, compared with `sha256sum`, with the source signal and with
 //! the record `expected.json` that the WebAssembly build is checked against too
 //! (`web/src/lib/audio/import/import.test.ts`): the page and the helper decode the same file
-//! to the same PCM.
+//! to the same PCM (bit for bit, but MP3 and AAC at a tolerance: `REFERENCE_PCM`).
 //!
 //! `FAULK_BLESS=1 cargo test -p audio-import --test it fixtures::` rewrites `expected.json`
 //! (after a change of a fixture or of the decoder: raise `cache::DECODER` then).

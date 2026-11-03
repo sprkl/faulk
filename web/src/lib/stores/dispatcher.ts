@@ -604,6 +604,7 @@ export class Dispatcher {
       allowAccess: () => void this.storage?.resume(),
       exportAudio: (request) => this.audioExport?.request(request),
       chooseAudio: (track) => this.audioImport?.choose(track),
+      cancelAudioImport: () => this.audioImport?.cancel(),
       cued: () => this.project.cued?.(),
     })
     // Whatever the command did, the folder may now lack changes: the storage writes them soon.

@@ -471,6 +471,8 @@ type: "clip.restore_audio"
 track: string
 type: "clip.choose_audio"
 } | {
+type: "clip.cancel_audio_import"
+} | {
 /**
  * Identifier of a clip.
  */
@@ -1528,6 +1530,8 @@ type: "clip.import_audio"
 type: "clip.restore_audio"
 } | {
 type: "clip.choose_audio"
+} | {
+type: "clip.cancel_audio_import"
 } | {
 /**
  * Identifier of a clip.

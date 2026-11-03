@@ -390,12 +390,15 @@ pub fn examples() -> Vec<(Command, State)> {
 /// undone and redone by `tests/it/clip.rs`): asking the page for audio files.
 pub fn live_examples() -> Vec<(Command, State)> {
     let f = fx();
-    vec![(
-        c(clip::Command::ChooseAudio {
-            track: f.audio_track.clone(),
-        }),
-        f.state,
-    )]
+    vec![
+        (
+            c(clip::Command::ChooseAudio {
+                track: f.audio_track.clone(),
+            }),
+            f.state.clone(),
+        ),
+        (c(clip::Command::CancelAudioImport {}), f.state),
+    ]
 }
 
 /// The fixture's state with a placement (in frames) of its audio clip.

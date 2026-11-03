@@ -99,8 +99,10 @@ class FakeStore implements ProjectStore {
       blob: { path: `blobs/${hash}`, stamp: `5:${900 + this.imports.length}`, created: true },
     }
   }
-  async ensureAudioCache(media: MediaRef[]): Promise<CacheReport> {
+  cacheSignals: (AbortSignal | undefined)[] = []
+  async ensureAudioCache(media: MediaRef[], _onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<CacheReport> {
     this.caches.push(media)
+    this.cacheSignals.push(signal)
     return { made: media.map((m) => m.hash), missing: [], failed: [] }
   }
   close() {
@@ -2578,5 +2580,18 @@ describe('importing an audio file (AU-1)', () => {
     await w.storage.audioCacheDone
     expect(store.caches.at(-1)).toEqual(media)
     expect(w.storage.audioCache).toEqual({ made: [media[0]!.hash], missing: [], failed: [] })
+    // The project leaves the folder: what remains of that work stops.
+    const signal = store.cacheSignals.at(-1)!
+    expect(signal.aborted).toBe(false)
+    await w.storage.newProject()
+    expect(signal.aborted).toBe(true)
+  })
+
+  it('an import cancelled while it waited in the queue never reaches the store', async () => {
+    const { w, store } = await saved()
+    const abort = new AbortController()
+    abort.abort()
+    await expect(w.storage.importAudio(wav(), undefined, abort.signal)).rejects.toMatchObject({ code: 'cancelled' })
+    expect(store.imports).toEqual([])
   })
 })

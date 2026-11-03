@@ -242,6 +242,13 @@ domain! {
     "clip.choose_audio" (kind = "live", undo = "none", destructive = false)
     ChooseAudio { track: TrackId } => {};
 
+    /// Stop the audio import under way in the page (the files chosen by `clip.choose_audio`):
+    /// the file being imported is dropped (nothing of it is kept) and the files after it are
+    /// not imported; the clips of the files already imported stay. Does nothing when no import
+    /// runs. Not undoable itself.
+    "clip.cancel_audio_import" (kind = "live", undo = "none", destructive = false)
+    CancelAudioImport {} => {};
+
     /// Copy a MIDI clip into a new, independent clip with the same name ("Bass 2" stays
     /// "Bass 2": a copy plays the same part), colour, length, loop and notes; editing one never changes the other. The copy always sits in a
     /// launch-grid slot: of the source's track, or of `track` when given (another MIDI
@@ -1051,6 +1058,8 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             audio_track(&state.project, track)?;
             Ok(unchanged(Output::ChooseAudio {}))
         }
+        // The import runs in the page: the command only says it is to stop.
+        Command::CancelAudioImport {} => Ok(unchanged(Output::CancelAudioImport {})),
         Command::Duplicate { clip, slot, track } => {
             duplicate(state, ctx, clip, slot.as_ref(), track.as_ref())
         }

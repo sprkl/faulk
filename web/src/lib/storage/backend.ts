@@ -96,8 +96,8 @@ export class FolderBackend implements ProjectStore {
     return importAudio(this.root, file, this.deps(onProgress, signal))
   }
 
-  ensureAudioCache(media: MediaRef[]): Promise<CacheReport> {
-    return ensureAudioCache(this.root, media, this.deps())
+  ensureAudioCache(media: MediaRef[], onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<CacheReport> {
+    return ensureAudioCache(this.root, media, this.deps(onProgress, signal))
   }
 
   get name() {
@@ -372,9 +372,11 @@ export class FolderBackend implements ProjectStore {
       // What an interrupted creation or import left in `.faulk/tmp/`; the files of an import that runs
       // (in this tab or another, its lock held) are left to it.
       const tmp = await directory(this.root, ['.faulk', 'tmp'], false)
-      const running = await runningImports()
       const left: string[] = []
       for await (const entry of children(tmp)) left.push(entry.name)
+      // Asked after the listing: an import takes its lock before it makes its first file, so every
+      // file listed of an import that runs now is covered by a lock this query sees.
+      const running = await runningImports()
       for (const name of left) {
         if (name.startsWith(IMPORT_TMP_PREFIX) && running.has(importLock(name.slice(IMPORT_TMP_PREFIX.length).replace(/\.pcm$/, '')))) continue
         await tmp.removeEntry(name).catch(() => undefined)

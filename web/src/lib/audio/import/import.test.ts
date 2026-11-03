@@ -1,5 +1,5 @@
 // The import pipeline's WebAssembly build (AU-1) under Node, on the reference files of
-// crates/audio-import: the same hash and the same PCM, bit for bit, as the native build records in
+// crates/audio-import: the same hash and the same PCM (bit for bit, MP3 and AAC within 1e-6) as the native build records in
 // `expected.json` (the page and the helper decode a file the same way), then the pipeline over a
 // folder in memory: one blob per file, the PCM cache, nothing left behind by a failure or a cancel,
 // the caches an opening makes again, and what the store's clean-up leaves to a running import.
@@ -201,6 +201,17 @@ describe('the import pipeline over a project folder', () => {
     const native = new Float32Array(new Uint8Array(readFileSync(new URL('sine.m4a.pcm', FIXTURES))).buffer)
     const page = new Float32Array(made.bytes.slice(CACHE_HEADER_BYTES).buffer)
     expect(page.reduce((w, s, i) => Math.max(w, Math.abs(s - native[i]!)), 0)).toBeLessThanOrEqual(1e-6)
+  })
+
+  it('two imports of the same compressed file at once: one blob and one whole cache, no failure', async () => {
+    const dir = new MemoryDir('song')
+    const outcomes = await Promise.all([
+      importAudio(dir.handle(), file('sine.mp3'), deps()),
+      importAudio(dir.handle(), file('again.mp3', fixture('sine.mp3')), deps()),
+    ])
+    expect(outcomes[0]!.media.hash).toBe(outcomes[1]!.media.hash)
+    const hash = outcomes[0]!.media.hash
+    expect(dir.paths().sort()).toEqual([`.faulk/cache/pcm/${hash}.pcm`, `blobs/${hash}`])
   })
 
   it('names a media as the project takes it: trimmed, 200 characters at most', () => {

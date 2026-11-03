@@ -1937,6 +1937,9 @@ describe('audio files imported by the page (AU-1)', () => {
     const choose = vi.spyOn(session.audioImport, 'choose').mockImplementation(() => {})
     expect(session.dispatcher.run({ type: 'clip.choose_audio', track })).toBe(true)
     expect(choose).toHaveBeenCalledWith(track)
+    const cancel = vi.spyOn(session.audioImport, 'cancel')
+    expect(session.dispatcher.run({ type: 'clip.cancel_audio_import' })).toBe(true)
+    expect(cancel).toHaveBeenCalledTimes(1)
     // The store's import (its own tests run the pipeline): the metadata of a file it kept.
     const hash = '9e'.repeat(32)
     vi.spyOn(session.storage, 'importAudio').mockResolvedValue({ hash, sample_rate: 44_100, channels: 2, frames: 22_050, name: 'kick.wav' })

@@ -53,7 +53,7 @@ async function handle(request: Request): Promise<unknown> {
     const progress = (fraction: number) => post({ id: request.id, progress: fraction })
     try {
       if (request.op === 'import') return await backend.importAudio(request.file, progress, control.signal)
-      return await backend.ensureAudioCache(request.media)
+      return await backend.ensureAudioCache(request.media, progress, control.signal)
     } finally {
       running.delete(request.id)
     }

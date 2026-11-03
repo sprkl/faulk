@@ -253,14 +253,19 @@ function head(read: ReadSync, size: number): Uint8Array {
 
 /** Puts a decoded cache in place (replacing a stale one). */
 async function placeCache(root: FileSystemDirectoryHandle, hash: string, temp: TempFile) {
-  const dir = await directory(root, CACHE_DIR, true)
-  const name = `${hash}.pcm`
-  if (await maybeFile(dir, name)) await dir.removeEntry(name)
-  if (!(await temp.moveTo(dir, name))) {
-    // A cache made in place and cut short is harmless: its size says so, and it is made again.
-    await copyInto(dir, name, temp.handle)
-    await temp.discard()
-  }
+  // One job at a time per media in this Worker (two imports of one file, an import and an opening's caches).
+  await serialised(`${hash}.pcm`, async () => {
+    const dir = await directory(root, CACHE_DIR, true)
+    const name = `${hash}.pcm`
+    await dir.removeEntry(name).catch((error: unknown) => {
+      if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error
+    })
+    if (!(await temp.moveTo(dir, name))) {
+      // A cache made in place and cut short is harmless: its size says so, and it is made again.
+      await copyInto(dir, name, temp.handle)
+      await temp.discard()
+    }
+  })
 }
 
 /** The imports of a blob in this Worker, one at a time: two imports of the same file never race on its name. */

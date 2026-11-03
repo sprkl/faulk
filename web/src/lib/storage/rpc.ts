@@ -81,6 +81,8 @@ export class StoreWorker {
    */
   request<T>(message: RequestBody, transfer: Transferable[] = [], options: { onProgress?: (fraction: number) => void; signal?: AbortSignal } = {}): Promise<T> {
     if (this.dead) return Promise.reject(new StoreError('io', 'the project store stopped'))
+    // Cancelled before it was sent (it waited behind other work): never sent, so nothing to undo.
+    if (options.signal?.aborted) return Promise.reject(new ImportError('cancelled', 'cancelled before it started'))
     const id = this.next++
     return new Promise<T>((resolve, reject) => {
       // A Worker that never answers would hold the page's saves, new and open behind it for good.
@@ -172,9 +174,9 @@ export class WorkerStore implements ProjectStore {
     const key = await this.ready()
     return this.worker.request<ImportOutcome>({ op: 'import', key, file }, [], { onProgress, signal })
   }
-  async ensureAudioCache(media: MediaRef[]): Promise<CacheReport> {
+  async ensureAudioCache(media: MediaRef[], onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<CacheReport> {
     const key = await this.ready()
-    return this.worker.request<CacheReport>({ op: 'audioCache', key, media }, [], { onProgress: () => undefined })
+    return this.worker.request<CacheReport>({ op: 'audioCache', key, media }, [], { onProgress: onProgress ?? (() => undefined), signal })
   }
   cleanUp() {
     return this.call<void>('cleanUp')

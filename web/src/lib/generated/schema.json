@@ -5368,6 +5368,25 @@
         "undo": "none"
       },
       {
+        "description": "Stop the audio import under way in the page (the files chosen by `clip.choose_audio`):\nthe file being imported is dropped (nothing of it is kept) and the files after it are\nnot imported; the clips of the files already imported stay. Does nothing when no import\nruns. Not undoable itself.",
+        "destructive": false,
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "kind": "live",
+        "name": "clip.cancel_audio_import",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "undo": "none"
+      },
+      {
         "description": "Copy a MIDI clip into a new, independent clip with the same name (\"Bass 2\" stays\n\"Bass 2\": a copy plays the same part), colour, length, loop and notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot: of the source's track, or of `track` when given (another MIDI\ntrack). `slot` when given must be free in that track, otherwise the copy takes\nthe first free slot (below the source's scene in the same track, from the top in\nanother). Refused, with no effect, when the track has no free slot to give. A\nsecond placement of the same clip is an option of the arrangement commands, not\nof this one. Undo: `clip.delete` of the copy.",
         "destructive": false,
         "input_schema": {
@@ -15581,6 +15600,23 @@
             },
             {
               "additionalProperties": false,
+              "description": "Stop the audio import under way in the page (the files chosen by `clip.choose_audio`):\nthe file being imported is dropped (nothing of it is kept) and the files after it are\nnot imported; the clips of the files already imported stay. Does nothing when no import\nruns. Not undoable itself.",
+              "properties": {
+                "type": {
+                  "const": "clip.cancel_audio_import",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "live",
+              "x-undo": "none"
+            },
+            {
+              "additionalProperties": false,
               "description": "Copy a MIDI clip into a new, independent clip with the same name (\"Bass 2\" stays\n\"Bass 2\": a copy plays the same part), colour, length, loop and notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot: of the source's track, or of `track` when given (another MIDI\ntrack). `slot` when given must be free in that track, otherwise the copy takes\nthe first free slot (below the source's scene in the same track, from the top in\nanother). Refused, with no effect, when the track has no free slot to give. A\nsecond placement of the same clip is an option of the arrangement commands, not\nof this one. Undo: `clip.delete` of the copy.",
               "properties": {
                 "clip": {
@@ -20864,6 +20900,19 @@
               "properties": {
                 "type": {
                   "const": "clip.choose_audio",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "clip.cancel_audio_import",
                   "type": "string"
                 }
               },
@@ -28402,6 +28451,19 @@
               "properties": {
                 "type": {
                   "const": "clip.choose_audio",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "clip.cancel_audio_import",
                   "type": "string"
                 }
               },

@@ -126,6 +126,15 @@ describe('an audio import through the store worker (AU-1)', () => {
     await expect(full).rejects.toMatchObject({ name: 'StoreError', code: 'full' })
   })
 
+  it('an import cancelled before it is sent is never sent', async () => {
+    const { fake, store } = await importing()
+    const abort = new AbortController()
+    abort.abort()
+    const sent = fake.sent.length
+    await expect(store.importAudio(new File([], 'a.wav'), undefined, abort.signal)).rejects.toMatchObject({ code: 'cancelled' })
+    expect(fake.sent.length).toBe(sent)
+  })
+
   it('a cancel is sent for the import it names, and a late progress after the answer is ignored', async () => {
     const { fake, store } = await importing()
     const abort = new AbortController()

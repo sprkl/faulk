@@ -76,7 +76,7 @@ export interface ProjectStore {
    */
   importAudio(file: File, onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<ImportOutcome>
   /** Makes again the PCM caches the folder lacks for these media (after opening a project). */
-  ensureAudioCache(media: MediaRef[]): Promise<CacheReport>
+  ensureAudioCache(media: MediaRef[], onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<CacheReport>
   /** Removes the swap files an interrupted write left (`*.crswap`). Best effort. */
   cleanUp(): Promise<void>
   /** Releases what the store holds (its Worker's side). */

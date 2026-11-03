@@ -9,7 +9,7 @@
   import LinkMark from '../../lib/components/LinkMark.svelte'
   import { barStart } from '../../lib/arrangement-commands'
   import { CLIP_DRAG_TYPE, clipTrackType, freeScene, gridCommand, placeCommand, poolOf, type PoolClip } from '../../lib/clip-pool'
-  import { chooseAudio, deleteClip } from '../../lib/clip-commands'
+  import { cancelAudioImport, chooseAudio, deleteClip } from '../../lib/clip-commands'
   import type { ImportFailure } from '../../lib/audio/import/audio-import.svelte'
   import type { MessageKey } from '../../lib/i18n'
   import { useStores } from '../../lib/stores'
@@ -107,7 +107,9 @@
             ? t('clips.importingMany', { name: importing.name, index: importing.index, count: importing.count, percent: Math.round(importing.fraction * 100) })
             : t('clips.importing', { name: importing.name, percent: Math.round(importing.fraction * 100) })}
         </span>
-        <button class="ghost" type="button" data-testid="audio-import-cancel" onclick={() => audioImport.cancel()}>{t('clips.importCancel')}</button>
+        <button class="ghost" type="button" data-testid="audio-import-cancel" onclick={() => dispatcher.run(cancelAudioImport())}
+          >{t('clips.importCancel')}</button
+        >
       {:else if failed}
         <span class="failure" role="alert" data-testid="audio-import-failure" data-code={failed.code}>{failureText(failed)}</span>
         <button class="ghost" type="button" onclick={() => audioImport.dismiss()}>{t('clips.dismiss')}</button>

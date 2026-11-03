@@ -997,16 +997,21 @@ export class ProjectStorage {
     const media = this.host.audioMedia?.() ?? []
     this.audioCache = null
     if (media.length === 0) return
+    // Stopped when the project leaves this place (`detach`): it would make caches for nothing.
+    const abort = new AbortController()
+    this.audioCacheAbort = abort
     this.audioCacheDone = current.store
-      .ensureAudioCache(media)
+      .ensureAudioCache(media, undefined, abort.signal)
       .then((report) => {
         if (this.current === current) this.audioCache = report
       })
       .catch((error: unknown) => {
         // The project stays usable: a clip whose cache is missing waits for the next opening.
-        if (!(error instanceof StoreError)) console.error(error)
+        if (!(error instanceof StoreError || error instanceof ImportError)) console.error(error)
       })
   }
+
+  private audioCacheAbort: AbortController | null = null
 
   /**
    * Imports an audio file into the project's home (AU-1): its bytes into `blobs/`, its decoded audio
@@ -1020,6 +1025,8 @@ export class ProjectStorage {
     this.cancelTimers()
     return this.enqueue(async () => {
       while (this.attaching) await this.attaching
+      // Cancelled while it waited in the queue: nothing started, nothing to keep.
+      if (signal?.aborted) throw new ImportError('cancelled', 'cancelled before it started')
       if (!this.current && this.deps.browser.available) await this.startBrowserProject(true)
       const current = this.current
       if (!current) throw new ImportError('unavailable', 'the project has no place to keep audio files: save it first')
@@ -1046,6 +1053,8 @@ export class ProjectStorage {
   private async detach() {
     const current = this.current
     this.cancelTimers()
+    this.audioCacheAbort?.abort()
+    this.audioCacheAbort = null
     if (this.externalTimer) clearTimeout(this.externalTimer)
     this.externalTimer = null
     this.current = null
