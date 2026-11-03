@@ -649,6 +649,7 @@ dependencies = [
  "regex",
  "semver",
  "serde_json",
+ "test-support",
  "tokio",
  "tokio-tungstenite",
  "tray-icon",
