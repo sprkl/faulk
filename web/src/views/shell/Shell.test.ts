@@ -92,7 +92,6 @@ describe('the shell', () => {
     pill = render(Shell, { props: { stores } }).body
     expect(pill).toContain('data-testid="engine-load"')
     expect(pill).toContain('CPU 42 %')
-    expect(pill).toContain('max 60 %')
     expect(pill).toContain('CPU load 42 %, peak 60 %')
     expect(pill).toContain('42 % (peak 60 % over the last 3 s)')
     stores.ui.lang = 'fr'

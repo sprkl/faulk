@@ -21,9 +21,9 @@
   const latencyShort = $derived(
     engine.status?.estimatedLatencyMs != null ? t('engine.latencyShort', { ms: Math.round(engine.status.estimatedLatencyMs) }) : t('engine.latencyUnknown'),
   )
-  // The engine's load (#486), smoothed, and its peak of the last seconds; hidden while the engine does not measure it.
+  // The engine's load (#486): the smoothed figure in the pill (the bar has no room for a second one at 1280 px), with its
+  // peak of the last seconds in the tooltip and the accessible name; hidden while the engine does not measure it.
   const load = $derived(engine.load ? t('engine.loadShort', { pct: Math.round(engine.load.smoothed * 100) }) : null)
-  const peak = $derived(engine.load ? t('engine.peakShort', { pct: Math.round(engine.load.peak * 100) }) : null)
   const loadPeak = $derived(
     engine.load ? t('engine.loadPeak', { pct: Math.round(engine.load.smoothed * 100), peak: Math.round(engine.load.peak * 100) }) : null,
   )
@@ -75,7 +75,7 @@
           {t('engine.web')}
         {/if}
         <span class="value" data-testid="latency">{latencyShort}</span>
-        {#if load}<span class="value" data-testid="engine-load">{load}</span><span class="value peak" data-testid="engine-peak">{peak}</span>{/if}
+        {#if load}<span class="value load" data-testid="engine-load">{load}</span>{/if}
       </button>
       <!-- The master's level, in every view: the output is what the listener hears, whatever the view shows. -->
       <div class="master-meter">
@@ -213,13 +213,9 @@
     background: var(--fk-accent);
     color: #fff;
   }
-  /* The load figures change about 30 times a second: fixed-width digits keep the pill still. */
-  .mode .value {
+  /* The load changes about 30 times a second: fixed-width digits keep the pill still while its digit count stays. */
+  .mode .load {
     font-variant-numeric: tabular-nums;
-  }
-  .mode .peak {
-    font-weight: 400;
-    opacity: 0.8;
   }
   .help {
     flex: none;
