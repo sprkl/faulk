@@ -439,3 +439,33 @@ fn the_input_grids_are_pinned_to_their_ids_and_ticks() {
         assert_eq!(grid.ticks(), ticks);
     }
 }
+
+#[test]
+fn replace_and_quantize_together_erase_the_played_range_and_write_the_quantized_notes() {
+    let r = rec();
+    // Played at 1900 (the clip's note at 1920 is in the range [1900, 2000)); a quarter grid
+    // takes 1900 to 1920, the very note that was erased: it comes back as the take's own.
+    let tracks = take(&r, vec![note(3840 + 1900, 50, 100)], Some(3840));
+    let (state, out) = commit_with(
+        &r,
+        scene(&r),
+        tracks,
+        Some(true),
+        Some(InputGrid::ThirtySecond),
+        Some(100),
+    );
+    let RO::CommitTake { replaced, .. } = out else {
+        panic!()
+    };
+    assert_eq!(
+        replaced, 1,
+        "the clip's note at 1920 went, a take note took its place"
+    );
+    assert_eq!(
+        notes_of(&state, &r.grid_clip),
+        vec![
+            Note::new(Tick(0), 48, Tick(480), 90),
+            Note::new(Tick(1920), 50, Tick(100), 100),
+        ]
+    );
+}

@@ -972,13 +972,14 @@ fn commit(
                             !erase.iter().any(|(from, to)| (*from..*to).contains(&s))
                         })
                         .collect();
-                    let gone = had.len() - all.len();
                     let kept = all.len();
                     all.extend(notes.iter().copied());
                     let added = all.len() - kept;
                     if all == had && length.is_none() {
                         continue;
                     }
+                    // Notes the clip had and no longer has: one the take plays again is not replaced.
+                    let gone = had.difference(&all).count();
                     replaced = replaced.saturating_add(crate::clip::count(gone));
                     new.snapshot.notes = all.into_iter().collect();
                     if let Some(length) = length {

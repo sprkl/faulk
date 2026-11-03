@@ -64,7 +64,7 @@ La cible vient de la sélection du moment : la cellule sélectionnée dans la gr
 
 - **Par défaut : ajout (overdub).** Les notes jouées s'ajoutent à celles du clip. Rien n'est effacé, donc rien n'est perdu par erreur.
 - **Remplacement** (réglage de l'enregistrement, pas de la piste) : à l'arrivée de la première note de la prise, les notes existantes de la plage enregistrée sont retirées, puis la prise s'écrit. La plage est celle où l'on a joué, de la première note à la fin de la prise. Les notes en dehors ne bougent pas.
-- La boucle du transport enregistre en couches : chaque tour ajoute (ajout), ou chaque tour remplace le précédent (remplacement). Les prises superposées d'un même passage sont fusionnées en une seule prise d'historique.
+- La boucle du transport enregistre en couches : chaque tour ajoute (ajout), ou chaque tour remplace le précédent (remplacement). **Livré par #500 : le remplacement tour par tour n'existe pas encore, tous les tours d'une prise s'ajoutent à la plage entière (voir § 9).** Les prises superposées d'un même passage sont fusionnées en une seule prise d'historique.
 
 **[Question ouverte 3]** Le remplacement doit-il être le comportement par défaut pour un clip de grille en boucle (tour après tour on affine) ? Proposition : non, ajout partout, remplacement à choisir.
 
