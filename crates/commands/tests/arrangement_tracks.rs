@@ -200,3 +200,57 @@ fn a_move_where_everything_stays_changes_nothing_and_makes_no_history() {
     assert!(outcome.events.is_empty());
     assert_eq!(state, f.state);
 }
+
+#[test]
+fn a_move_to_another_track_is_refused_for_an_audio_source_and_at_the_placement_limit() {
+    let f = fx();
+    let (mut state, second) = with_second_track(&f);
+    // An audio placement is not moved (audio arrangement comes with the import).
+    let mut ids = ::project::IdGenerator::new(1_692_000_000_000, 0x00AC_0000_0000_0000_0001);
+    let audio = ::project::PlacementId::generate(&mut ids);
+    state
+        .project
+        .tracks
+        .get_mut(&f.audio_track)
+        .unwrap()
+        .placements
+        .insert(
+            audio.clone(),
+            ::project::Placement {
+                clip: f.audio_clip.clone(),
+                start: Tick(0),
+                span: Span::Frames {
+                    length: ::project::Frame(100),
+                    offset: ::project::Frame(0),
+                },
+            },
+        );
+    let err = check_refusal(&a(to_track(&[(&audio, &second)], None)), &state, &context()).unwrap();
+    assert!(matches!(err, CommandError::Invalid { .. }), "{err}");
+    // The target track is full: refused before anything is written.
+    let mut state = with_second_track(&f).0;
+    let mut at = 1_000_000;
+    let target = state.project.tracks.get_mut(&second).unwrap();
+    let clip = target.clips.keys().next().unwrap().clone();
+    while target.placements.len() < ::project::limits::MAX_PLACEMENTS_PER_TRACK {
+        target.placements.insert(
+            PlacementId::generate(&mut ids),
+            ::project::Placement {
+                clip: clip.clone(),
+                start: Tick(at),
+                span: Span::Ticks {
+                    length: Tick(1),
+                    offset: Tick(0),
+                },
+            },
+        );
+        at += 2;
+    }
+    let err = check_refusal(
+        &a(to_track(&[(&f.a, &second)], Some(500_000))),
+        &state,
+        &context(),
+    )
+    .unwrap();
+    assert!(matches!(err, CommandError::Limit { .. }), "{err}");
+}

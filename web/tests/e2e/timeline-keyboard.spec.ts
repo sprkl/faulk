@@ -342,5 +342,15 @@ test('a clip moves to the track below and back from the keyboard, the menu and t
   await page.keyboard.press('Alt+ArrowDown')
   await expect(page.getByTestId('arr-said')).toHaveText(/No track there/)
   expect(await done(page)).toBe(entries)
+
+  // An audio track below is not a target: refused out loud, nothing moves and no entry is made.
+  await run(page, { type: 'track.create', kind: 'audio' })
+  await expect(page.getByTestId('track-header')).toHaveCount(4)
+  entries = await done(page)
+  await cells.first().focus()
+  await page.keyboard.press('Alt+ArrowDown')
+  await expect(page.getByTestId('arr-said')).toHaveText(/is not a MIDI track/)
+  expect(await done(page)).toBe(entries)
+  expect(await rowOf()).toEqual([2])
   expect(errors).toEqual([])
 })
