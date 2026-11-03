@@ -1726,12 +1726,13 @@ fn repeat(
     )?;
     let mut work = TrackWork::new(project, &track_id)?;
     let mut made = Vec::new();
-    let mut overwritten = 0;
+    // The copies tile `[end, until)`: one carve for the whole range (a carve per copy would
+    // scan the track once for each of up to a hundred thousand copies).
+    let overwritten = work.carve(&mut ctx.ids, end, until)?;
     let mut at = end;
     while at < until {
         let len = length.min(until - at);
         check_extent(at, len, "until")?;
-        overwritten += work.carve(&mut ctx.ids, at, at + len)?;
         let new_id = PlacementId::generate(&mut ctx.ids);
         work.put(new_id.clone(), &clip, at, len, offset);
         made.push(new_id);

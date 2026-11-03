@@ -426,6 +426,14 @@ test('a clip of 8 bars is repeated up to bar 64 as linked placements, from the k
   await page.keyboard.press('Control+Shift+r')
   await expect(page.getByTestId('repeat-dialog')).toBeVisible()
   await expect(field).toHaveValue('9')
+  // The chord is cancelled even with the field open and typed in (the browser would reload the page), and does not open a second one.
+  const cancelled = await page.evaluate(() => {
+    const event = new KeyboardEvent('keydown', { key: 'R', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true })
+    document.activeElement?.dispatchEvent(event)
+    return event.defaultPrevented
+  })
+  expect(cancelled).toBe(true)
+  await expect(page.getByTestId('repeat-dialog')).toBeVisible()
   await field.fill('8')
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('repeat-error')).toBeVisible()

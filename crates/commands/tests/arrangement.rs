@@ -579,6 +579,41 @@ fn a_repeat_lays_linked_copies_end_to_end_and_shortens_the_last_one() {
 }
 
 #[test]
+fn an_audio_placement_is_not_repeated_and_nothing_changes() {
+    let f = fx();
+    let mut s = f.state.clone();
+    let mut ids = ::project::IdGenerator::new(1_700_000_000_700, 0x00DD_0000_0000_0000_0000);
+    let audio = PlacementId::generate(&mut ids);
+    s.project
+        .tracks
+        .get_mut(&f.audio_track)
+        .unwrap()
+        .placements
+        .insert(
+            audio.clone(),
+            Placement {
+                clip: f.audio_clip.clone(),
+                start: Tick(0),
+                span: Span::Frames {
+                    length: ::project::Frame::new(44_100),
+                    offset: ::project::Frame::new(0),
+                },
+            },
+        );
+    s.project.validate().unwrap();
+    let error = check_refusal(
+        &a(arrangement::Command::Repeat {
+            placement: audio,
+            until: Tick(3840 * 4),
+        }),
+        &s,
+        &context(),
+    )
+    .unwrap();
+    assert!(matches!(error, CommandError::Invalid { .. }), "{error:?}");
+}
+
+#[test]
 fn a_repeat_is_one_history_entry_and_undo_brings_back_what_it_covered() {
     let f = fx();
     let mut s = f.state.clone();

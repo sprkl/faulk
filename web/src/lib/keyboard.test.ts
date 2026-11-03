@@ -647,12 +647,11 @@ describe('arrangementShortcut (#473)', () => {
 })
 
 describe('repeatShortcut (#555)', () => {
-  const press = (over: object = {}) => ({ key: 'R', ctrlKey: true, metaKey: false, altKey: false, shiftKey: true, target: null, ...over })
+  const press = (over: object = {}) => ({ key: 'R', ctrlKey: true, metaKey: false, altKey: false, shiftKey: true, ...over })
   it('is Ctrl or Cmd + Shift + R, nothing else', () => {
     expect(repeatShortcut(press())).toBe(true)
     expect(repeatShortcut(press({ ctrlKey: false, metaKey: true, key: 'r' }))).toBe(true)
     for (const over of [{ ctrlKey: false }, { shiftKey: false }, { altKey: true }, { key: 'd' }]) expect(repeatShortcut(press(over))).toBe(false)
-    expect(repeatShortcut(press({ target: { closest: () => ({}) } }))).toBe(false)
   })
 })
 

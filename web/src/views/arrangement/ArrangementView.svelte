@@ -555,13 +555,15 @@
   // Alt+K, Alt+Page Up/Down and Alt+Z, wherever the focus is in the page (the arrangement is shown).
   onMount(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (document.querySelector('[aria-modal="true"]')) return
-      // Ctrl+Shift+R (#555): taken wherever the focus is, or the browser would reload the page; a held key opens the field once.
+      const modal = !!document.querySelector('[aria-modal="true"]')
+      // Ctrl+Shift+R (#555): cancelled wherever the focus is (a field and an open dialog included), or the browser would reload
+      // the page; it opens the field once per press, outside a text field and a dialog.
       if (repeatShortcut(event)) {
         event.preventDefault()
-        if (!event.repeat) openRepeat()
+        if (!modal && !event.repeat && !isTextTarget(event.target)) openRepeat()
         return
       }
+      if (modal) return
       const action = arrangementShortcut(event)
       if (!action) return
       event.preventDefault()
@@ -1157,8 +1159,8 @@
     const target = repeating
     repeating = null
     if (!target) return
-    run(repeatPlacement(target.id, barNumber * bar))
-    announce(t('arrangement.saidRepeated', { bar: barNumber }))
+    // A refusal (an audio clip, the limit, no audio started) shows in the page's own banner; only a success is said here.
+    if (run(repeatPlacement(target.id, barNumber * bar))) announce(t('arrangement.saidRepeated', { bar: barNumber }))
   }
 
   function removeSelected() {
