@@ -96,6 +96,8 @@ export const RULES = [
   // rings, ABI, reports, the web engine that wires them, and its interface).
   [/^web\/src\/lib\/generated\//, ALL],
   [/^web\/src\/lib\/engine\/(helper-client|helper-copy|native-engine|local-access)\./, AREA.helper],
+  // The page side of the agents relay (#97): calls arrive over the helper link and run through the dispatcher.
+  [/^web\/src\/lib\/agents\//, [...AREA.helper, ...AREA.history]],
   // The CT-3 prototype (TypeScript and its crate): its own spec builds and runs it.
   [/^web\/src\/lib\/engine\/proto\//, ['engine-channel']],
   [/^web\/src\/lib\/engine\//, ALL],
