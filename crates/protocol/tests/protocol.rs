@@ -129,7 +129,7 @@ fn every_server_message_is_in_the_round_trip_test() {
     let clients = bundle["client_message"]["oneOf"].as_array().unwrap();
     assert_eq!(
         clients.len(),
-        3,
+        4,
         "add the new message to messages_round_trip_through_json"
     );
 }
