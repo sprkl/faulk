@@ -20,7 +20,7 @@
 
 use std::fs::{File, TryLockError};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::JoinHandle;
@@ -111,11 +111,17 @@ fn take_waiting(path: &Path) -> std::io::Result<InstanceLock> {
 
 static INSTANCE_LOCK: OnceLock<Arc<InstanceLock>> = OnceLock::new();
 
+/// Lets go of this process's instance lock ([`InstanceLock::release`]): a helper whose start
+/// failed calls it once its update check has ended, so that it does not keep the next start
+/// from applying an update while its error stays on screen.
+pub fn release_instance_lock() {
+    if let Some(lock) = INSTANCE_LOCK.get() {
+        lock.release();
+    }
+}
+
 fn instance_lock_path() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(std::env::temp_dir)
-        .join("faulk")
-        .join("helper.lock")
+    crate::config_dir().join("helper.lock")
 }
 
 /// The lock file every running helper holds in shared mode. A helper is alone when it can take
@@ -226,6 +232,16 @@ impl InstanceLock {
         }
     }
 
+    /// Holds nothing any more: other helpers no longer see this one. For a helper that will not
+    /// run any longer (its start failed; it only shows its error before exiting).
+    pub fn release(&self) {
+        if self.gate.lock().is_err() {
+            return;
+        }
+        let _gate = Gate(&self.gate);
+        let _ = self.file.unlock();
+    }
+
     /// Back to a shared hold: after [`InstanceLock::take`] when alone, or after
     /// [`InstanceLock::claim_alone`] (for instance a failed apply).
     pub fn share(&self) {
@@ -239,7 +255,9 @@ impl InstanceLock {
 }
 
 /// Velopack reports through the `log` crate; without a logger a failed apply or delta patch
-/// would leave no trace. Velopack's warnings and errors go to the helper's journal
+/// would leave no trace. Velopack's warnings and errors, and its update manager's information
+/// (the newer release found, delta or full package, a delta that falls back), go to the
+/// helper's journal
 /// ([`crate::log`]), like the rest of the helper: the log file once `main` has opened it,
 /// stderr only before that (the apply at start runs before the file is open; Velopack's
 /// `Update.exe`, which performs the apply, keeps its own log). Records of other crates are left
@@ -249,7 +267,13 @@ struct JournalLog;
 
 impl log::Log for JournalLog {
     fn enabled(&self, metadata: &log::Metadata) -> bool {
-        metadata.level() <= log::Level::Warn && metadata.target().starts_with("velopack")
+        let target = metadata.target();
+        // Information from the update manager only (a few lines per check); the locator and the
+        // startup hook would add a dozen lines at every start.
+        target.starts_with("velopack")
+            && (metadata.level() <= log::Level::Warn
+                || (metadata.level() == log::Level::Info
+                    && target.starts_with("velopack::manager")))
     }
     fn log(&self, record: &log::Record) {
         if self.enabled(record.metadata()) {
@@ -263,7 +287,7 @@ static LOGGER: JournalLog = JournalLog;
 
 fn install_logger() {
     if log::set_logger(&LOGGER).is_ok() {
-        log::set_max_level(log::LevelFilter::Warn);
+        log::set_max_level(log::LevelFilter::Info);
     }
 }
 
@@ -717,6 +741,10 @@ enum Command {
 /// needs it.
 pub struct Updater {
     status: Arc<Mutex<UpdateStatus>>,
+    /// End of the last check, in seconds since the Unix epoch; 0 before the first.
+    checked_at: Arc<AtomicU64>,
+    /// The installed version, `None` when updates are disabled.
+    current: Option<String>,
     backend: Option<Arc<dyn Backend>>,
     commands: Option<SyncSender<Command>>,
     thread: Option<JoinHandle<()>>,
@@ -785,6 +813,8 @@ impl Updater {
     pub fn disabled(reason: String) -> Updater {
         Updater {
             status: Arc::new(Mutex::new(UpdateStatus::Disabled { reason })),
+            checked_at: Arc::new(AtomicU64::new(0)),
+            current: None,
             backend: None,
             commands: None,
             thread: None,
@@ -798,7 +828,9 @@ impl Updater {
     /// Starts the update thread on any backend: one check now, then every `interval`.
     pub fn start_with<B: Backend>(backend: B, interval: Duration) -> Updater {
         let backend: Arc<dyn Backend> = Arc::new(backend);
+        let current = backend.current_version();
         let status = Arc::new(Mutex::new(UpdateStatus::Idle));
+        let checked_at = Arc::new(AtomicU64::new(0));
         // Capacity 1: clicks on "Check for updates" during a check coalesce into one more check.
         let (tx, rx) = mpsc::sync_channel(1);
         let stopping = Arc::new(AtomicBool::new(false));
@@ -806,15 +838,28 @@ impl Updater {
         let thread = {
             let backend = backend.clone();
             let status = status.clone();
+            let checked_at = checked_at.clone();
             let stopping = stopping.clone();
             let busy = busy.clone();
             std::thread::Builder::new()
                 .name("faulk-updater".into())
-                .spawn(move || run_loop(backend.as_ref(), &status, &rx, interval, &stopping, &busy))
+                .spawn(move || {
+                    run_loop(
+                        backend.as_ref(),
+                        &status,
+                        &checked_at,
+                        &rx,
+                        interval,
+                        &stopping,
+                        &busy,
+                    )
+                })
         };
         match thread {
             Ok(thread) => Updater {
                 status,
+                checked_at,
+                current: Some(current),
                 backend: Some(backend),
                 commands: Some(tx),
                 thread: Some(thread),
@@ -830,6 +875,15 @@ impl Updater {
     /// The current status.
     pub fn status(&self) -> UpdateStatus {
         lock(&self.status).clone()
+    }
+
+    /// A read-only handle on the status, for the server and for a failed start.
+    pub fn watch(&self) -> UpdateWatch {
+        UpdateWatch {
+            status: self.status.clone(),
+            checked_at: self.checked_at.clone(),
+            current: self.current.clone(),
+        }
     }
 
     /// Asks for a check now, without waiting for it. Returns `false` when updates are disabled.
@@ -936,9 +990,95 @@ fn set(status: &Mutex<UpdateStatus>, next: UpdateStatus) {
     *lock(status) = next;
 }
 
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Read-only view of an [`Updater`]: what the page is told (`update.status`), and the wait of a
+/// helper whose start failed ([`UpdateWatch::settle`]). Cheap to clone; never blocks for long
+/// (one short lock).
+#[derive(Clone)]
+pub struct UpdateWatch {
+    status: Arc<Mutex<UpdateStatus>>,
+    checked_at: Arc<AtomicU64>,
+    current: Option<String>,
+}
+
+impl UpdateWatch {
+    pub fn status(&self) -> UpdateStatus {
+        lock(&self.status).clone()
+    }
+
+    /// End of the last check, in seconds since the Unix epoch.
+    pub fn checked_at(&self) -> Option<u64> {
+        match self.checked_at.load(Ordering::Acquire) {
+            0 => None,
+            secs => Some(secs),
+        }
+    }
+
+    /// The `update.status` message of the session.
+    pub fn message(&self) -> protocol::ServerMessage {
+        protocol::ServerMessage::UpdateStatus {
+            current: self.current.clone(),
+            checked_at: self.checked_at(),
+            status: to_protocol(&self.status()),
+        }
+    }
+
+    /// Waits, at most `limit`, until the updater is neither about to check, checking nor
+    /// downloading. Returns whether it got there. A helper whose start failed calls it before
+    /// exiting, so that a first check started at launch can still download its update (applied
+    /// at the next start).
+    pub fn settle(&self, limit: Duration) -> bool {
+        let start = std::time::Instant::now();
+        loop {
+            if !matches!(
+                self.status(),
+                UpdateStatus::Idle | UpdateStatus::Checking | UpdateStatus::Downloading { .. }
+            ) {
+                return true;
+            }
+            if start.elapsed() >= limit {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+}
+
+/// The updater's status as the protocol carries it.
+pub fn to_protocol(status: &UpdateStatus) -> protocol::HelperUpdate {
+    use protocol::HelperUpdate as P;
+    match status {
+        UpdateStatus::Disabled { reason } => P::Disabled {
+            reason: reason.clone(),
+        },
+        UpdateStatus::Idle => P::Idle,
+        UpdateStatus::Checking => P::Checking,
+        UpdateStatus::UpToDate { version } => P::UpToDate {
+            version: version.clone(),
+        },
+        UpdateStatus::Downloading { version, percent } => P::Downloading {
+            version: version.clone(),
+            percent: *percent,
+        },
+        UpdateStatus::Ready { version } => P::Ready {
+            version: version.clone(),
+        },
+        UpdateStatus::Failed { error } => P::Failed {
+            error: error.to_string(),
+        },
+    }
+}
+
 fn run_loop(
     backend: &dyn Backend,
     status: &Mutex<UpdateStatus>,
+    checked_at: &AtomicU64,
     commands: &Receiver<Command>,
     interval: Duration,
     stopping: &AtomicBool,
@@ -951,6 +1091,7 @@ fn run_loop(
         {
             let _busy = busy.lock().unwrap_or_else(|p| p.into_inner());
             run_check(backend, status);
+            checked_at.store(unix_now().max(1), Ordering::Release);
         }
         match commands.recv_timeout(interval) {
             Ok(Command::CheckNow) | Err(RecvTimeoutError::Timeout) => continue,
@@ -959,8 +1100,72 @@ fn run_loop(
     }
 }
 
-/// One check, and the download it leads to. Public for tests; the thread calls it.
-pub fn run_check(backend: &dyn Backend, status: &Mutex<UpdateStatus>) {
+/// How a check ended: one journal line each ([`Outcome::line`]), so that every check leaves a
+/// trace, an up-to-date one included.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Outcome {
+    /// Nothing newer than the installed version on the channel's feed.
+    UpToDate { version: String },
+    /// Nothing newer on the feed, and a package downloaded earlier waits to be applied.
+    Waiting { version: String },
+    /// The newest version was downloaded by this check.
+    Downloaded { version: String },
+    /// The newest version was downloaded by an earlier check and is still on disk.
+    AlreadyDownloaded { version: String },
+    /// The feed could not be read; `pending` is a package still applicable.
+    CheckFailed {
+        error: UpdateError,
+        pending: Option<String>,
+    },
+    /// The download failed; `pending` is a package still applicable.
+    DownloadFailed {
+        version: String,
+        error: UpdateError,
+        pending: Option<String>,
+    },
+}
+
+impl Outcome {
+    /// The journal line, without the `update: ` prefix.
+    pub fn line(&self) -> String {
+        let waiting = |pending: &Option<String>| match pending {
+            Some(v) => format!("; {v}, downloaded earlier, is applied at the next start"),
+            None => String::new(),
+        };
+        match self {
+            Outcome::UpToDate { version } => format!("up to date ({version})"),
+            Outcome::Waiting { version } => {
+                format!(
+                    "no newer version; {version}, downloaded earlier, is applied at the next start"
+                )
+            }
+            Outcome::Downloaded { version } => {
+                format!("{version} downloaded, applied at the next start")
+            }
+            Outcome::AlreadyDownloaded { version } => {
+                format!("{version} already downloaded, applied at the next start")
+            }
+            Outcome::CheckFailed { error, pending } => {
+                format!("check failed: {error}{}", waiting(pending))
+            }
+            Outcome::DownloadFailed {
+                version,
+                error,
+                pending,
+            } => format!("download of {version} failed: {error}{}", waiting(pending)),
+        }
+    }
+}
+
+/// One check, and the download it leads to; logs how it ended and returns it. Public for
+/// tests; the thread calls it.
+pub fn run_check(backend: &dyn Backend, status: &Mutex<UpdateStatus>) -> Outcome {
+    let outcome = check_and_download(backend, status);
+    crate::log!("update: {}", outcome.line());
+    outcome
+}
+
+fn check_and_download(backend: &dyn Backend, status: &Mutex<UpdateStatus>) -> Outcome {
     let ready_before = match &*lock(status) {
         UpdateStatus::Ready { version } => Some(version.clone()),
         _ => None,
@@ -969,22 +1174,36 @@ pub fn run_check(backend: &dyn Backend, status: &Mutex<UpdateStatus>) {
     let update = match backend.check() {
         Ok(Some(update)) => update,
         Ok(None) => {
-            let next = match backend.pending() {
-                Some(asset) => UpdateStatus::Ready {
-                    version: asset.Version,
-                },
-                None => UpdateStatus::UpToDate {
-                    version: backend.current_version(),
-                },
+            let (next, outcome) = match backend.pending() {
+                Some(asset) => (
+                    UpdateStatus::Ready {
+                        version: asset.Version.clone(),
+                    },
+                    Outcome::Waiting {
+                        version: asset.Version,
+                    },
+                ),
+                None => {
+                    let version = backend.current_version();
+                    (
+                        UpdateStatus::UpToDate {
+                            version: version.clone(),
+                        },
+                        Outcome::UpToDate { version },
+                    )
+                }
             };
             set(status, next);
-            return;
+            return outcome;
         }
         Err(e) => {
             let error = classify(&e);
-            crate::log!("update: check failed: {error}");
-            set(status, after_failure(backend, error));
-            return;
+            let next = after_failure(backend, error.clone());
+            set(status, next.clone());
+            return Outcome::CheckFailed {
+                error,
+                pending: ready_version(&next),
+            };
         }
     };
     let version = update.TargetFullRelease.Version.clone();
@@ -994,8 +1213,13 @@ pub fn run_check(backend: &dyn Backend, status: &Mutex<UpdateStatus>) {
         .pending()
         .is_some_and(|asset| asset.Version == version);
     if ready_before.as_deref() == Some(version.as_str()) && still_pending {
-        set(status, UpdateStatus::Ready { version });
-        return;
+        set(
+            status,
+            UpdateStatus::Ready {
+                version: version.clone(),
+            },
+        );
+        return Outcome::AlreadyDownloaded { version };
     }
     crate::log!("update: {version} available, downloading");
     set(
@@ -1024,14 +1248,31 @@ pub fn run_check(backend: &dyn Backend, status: &Mutex<UpdateStatus>) {
     });
     match result {
         Ok(()) => {
-            crate::log!("update: {version} downloaded, applied at the next start");
-            set(status, UpdateStatus::Ready { version });
+            set(
+                status,
+                UpdateStatus::Ready {
+                    version: version.clone(),
+                },
+            );
+            Outcome::Downloaded { version }
         }
         Err(e) => {
             let error = classify(&e);
-            crate::log!("update: download of {version} failed: {error}");
-            set(status, after_failure(backend, error));
+            let next = after_failure(backend, error.clone());
+            set(status, next.clone());
+            Outcome::DownloadFailed {
+                version,
+                error,
+                pending: ready_version(&next),
+            }
         }
+    }
+}
+
+fn ready_version(status: &UpdateStatus) -> Option<String> {
+    match status {
+        UpdateStatus::Ready { version } => Some(version.clone()),
+        _ => None,
     }
 }
 

@@ -57,4 +57,23 @@ describe('the Boost engine reads the helper', () => {
     expect(events.onFeedback).toHaveBeenCalledTimes(1)
     expect(events.onError).not.toHaveBeenCalled()
   })
+
+  it('keeps the helper update state and hands each change to onHelperUpdate (#515)', async () => {
+    vi.stubGlobal('WebSocket', FakeSocket)
+    const events = { onStatus: vi.fn(), onFeedback: vi.fn(), onError: vi.fn(), onClosed: vi.fn(), onHelperUpdate: vi.fn() } satisfies EngineEvents
+    const connected = NativeEngine.connect('t', events)
+    const socket = FakeSocket.last
+    socket.onmessage!({ data: JSON.stringify({ type: 'hello', protocol: PROTOCOL_VERSION, sample_rate: 48000 }) })
+    // The first state arrives right after the hello, before the page made this engine current.
+    socket.onmessage!({
+      data: JSON.stringify({ type: 'update.status', current: '0.1.11', checked_at: null, status: { state: 'downloading', version: '0.1.12', percent: 40 } }),
+    })
+    const engine = await connected
+    expect(engine.update).toEqual({ current: '0.1.11', checkedAt: null, status: { state: 'downloading', version: '0.1.12', percent: 40 } })
+    socket.onmessage!({ data: JSON.stringify({ type: 'update.status', checked_at: 1793665000, status: { state: 'ready', version: '0.1.12' } }) })
+    expect(engine.update).toEqual({ current: null, checkedAt: 1793665000, status: { state: 'ready', version: '0.1.12' } })
+    expect(events.onHelperUpdate).toHaveBeenCalledTimes(2)
+    expect(events.onHelperUpdate.mock.calls[1][0]).toEqual(engine.update)
+    expect(events.onError).not.toHaveBeenCalled()
+  })
 })

@@ -1009,6 +1009,93 @@ describe('the start of a page', () => {
     expect(w.storage.reopen).toBeNull()
     expect(w.storage.folder).toBeNull()
   })
+
+  it('keeps the project that would not open for the notice’s actions (#504): locked, then unreadable, then opened by a retry', async () => {
+    const { w } = await remembered('granted')
+    w.locks.add('abc')
+    await w.storage.restore()
+    expect(w.storage.notice).toBe('storage.locked')
+    expect(w.storage.failedReopen).toEqual({ id: 'last', name: 'last', kind: 'folder' })
+
+    // A retry that fails the same way keeps the actions; a failure of another kind keeps them too.
+    expect(await w.storage.reopenLast()).toBe(false)
+    expect(w.storage.failedReopen).toEqual({ id: 'last', name: 'last', kind: 'folder' })
+    w.locks.clear()
+    const open = w.host.openProject.bind(w.host)
+    w.host.openProject = async () => {
+      throw new StoreError('io', 'unreadable')
+    }
+    expect(await w.storage.reopenLast()).toBe(false)
+    expect(w.storage.notice).toBe('project.open.unreadable')
+    expect(w.storage.failedReopen).toEqual({ id: 'last', name: 'last', kind: 'folder' })
+
+    w.host.openProject = open
+    expect(await w.storage.reopenLast()).toBe(true)
+    expect(w.storage.folder).toEqual({ name: 'last' })
+    expect(w.storage.notice).toBeNull()
+    expect(w.storage.failedReopen).toBeNull()
+  })
+
+  it('keeps the actions when a retry runs into the permission instead (#504)', async () => {
+    const { w, handle } = await remembered('granted')
+    w.locks.add('abc')
+    await w.storage.restore()
+    expect(w.storage.failedReopen).not.toBeNull()
+    w.locks.clear()
+    w.permission.set(handle, 'prompt')
+    w.asked = 'denied'
+    expect(await w.storage.reopenLast()).toBe(false)
+    expect(w.storage.notice).toBe('storage.permissionDenied')
+    expect(w.storage.failedReopen).toEqual({ id: 'last', name: 'last', kind: 'folder' })
+    w.asked = 'granted'
+    expect(await w.storage.reopenLast()).toBe(true)
+    expect(w.storage.failedReopen).toBeNull()
+  })
+
+  it('keeps the notice and its actions when a retry is declined at the question about unsaved changes, and joins a second click (#504)', async () => {
+    const { w } = await remembered('granted')
+    w.locks.add('abc')
+    await w.storage.restore()
+    expect(w.storage.notice).toBe('storage.locked')
+    w.locks.clear()
+    w.edit()
+    const first = w.storage.reopenLast()
+    const second = w.storage.reopenLast()
+    await settle()
+    expect(w.storage.confirm).toEqual({ action: 'open', name: null })
+    w.storage.respond(false)
+    expect(await first).toBe(false)
+    expect(await second).toBe(false)
+    expect(w.storage.notice).toBe('storage.locked')
+    expect(w.storage.failedReopen).toEqual({ id: 'last', name: 'last', kind: 'folder' })
+    expect(w.host.opened).toEqual([])
+  })
+
+  it('does not offer the actions when the user refuses the permission on the first try of the reopen banner (#504)', async () => {
+    const { w } = await remembered('prompt')
+    await w.storage.restore()
+    w.asked = 'denied'
+    expect(await w.storage.reopenLast()).toBe(false)
+    expect(w.storage.notice).toBe('storage.permissionDenied')
+    expect(w.storage.failedReopen).toBeNull()
+  })
+
+  it('offers no retry for a notice a second try cannot answer, and drops it with the notice', async () => {
+    const { w, handle } = await remembered('granted')
+    w.stores.get(handle)!.project = false
+    await w.storage.restore()
+    expect(w.storage.notice).toBe('project.open.notAProject')
+    expect(w.storage.failedReopen).toBeNull()
+
+    const locked = await remembered('granted')
+    locked.w.locks.add('abc')
+    await locked.w.storage.restore()
+    expect(locked.w.storage.failedReopen).not.toBeNull()
+    locked.w.storage.dismissNotice()
+    expect(locked.w.storage.failedReopen).toBeNull()
+    expect(await locked.w.storage.reopenLast()).toBe(false)
+    expect(locked.w.storage.notice).toBe('storage.nothingToReopen')
+  })
 })
 
 // ---------------------------------------------------------------------- SV-3: the browser's storage
@@ -1582,6 +1669,28 @@ describe('the start of a page with drafts', () => {
     w.edit()
     await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
     expect(w.browser.created.length).toBe(1)
+  })
+
+  it('keeps a draft that is unreadable, then locked, for the notice’s actions, and a retry opens it (#504)', async () => {
+    const { w, dir } = await leftBehind(true)
+    const open = w.host.openProject.bind(w.host)
+    w.host.openProject = async () => {
+      throw new StoreError('io', 'unreadable')
+    }
+    await w.storage.restore()
+    expect(w.storage.notice).toBe('project.open.unreadable')
+    expect(w.storage.failedReopen).toMatchObject({ id: dir, kind: 'browser' })
+
+    w.host.openProject = open
+    w.locks.add(`dir.${dir}`)
+    expect(await w.storage.reopenLast()).toBe(false)
+    expect(w.storage.notice).toBe('storage.locked')
+    expect(w.storage.failedReopen).toMatchObject({ id: dir, kind: 'browser' })
+
+    w.locks.delete(`dir.${dir}`)
+    expect(await w.storage.reopenLast()).toBe(true)
+    expect(w.storage.failedReopen).toBeNull()
+    expect(w.storage.place).toBe('browser')
   })
 
   it('reopens the project by itself where the browser’s storage is the only home', async () => {

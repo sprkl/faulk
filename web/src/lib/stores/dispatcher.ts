@@ -95,6 +95,9 @@ export class Dispatcher {
       onMidiActivity: (note, velocity) => {
         if (kind === 'web' || current()) this.markNote(note, velocity)
       },
+      onHelperUpdate: (update) => {
+        if (kind === 'native' && current()) this.state.helperUpdate = update
+      },
       onStreamRefused: (code, at) => {
         if (current()) void this.stopWeb(code, at)
       },
@@ -649,6 +652,7 @@ export class Dispatcher {
       this.boosts++
       this.state.mode = 'native'
       this.state.status = session.status
+      this.state.helperUpdate = session.update
       this.state.helper = 'connected'
       this.state.selectedInput = null
       // The helper gets the page's settings before anything is awaited: no note reaches it at its defaults.
@@ -706,6 +710,7 @@ export class Dispatcher {
     const web = this.web
     this.native = null
     this.state.mode = 'web'
+    this.state.helperUpdate = null
     this.state.activeNotes = []
     // The project moved on while the helper played: the Web engine catches up by snapshot.
     const ready = web ? this.syncWeb(web) : false
