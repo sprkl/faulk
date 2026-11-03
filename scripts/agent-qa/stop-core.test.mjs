@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  RECORD_LIMIT,
+  addRecord,
   blockReason,
   exemptAgentMarker,
   isAgentWorktreePath,
@@ -22,21 +24,21 @@ describe("stopDecision", () => {
   });
 
   it("allows a turn with a verification and a review of the current state", () => {
-    assert.deepEqual(stopDecision({ fingerprint: "f1", writer: true, baseline: "f0", verification: verified, review: reviewed }), {
+    assert.deepEqual(stopDecision({ fingerprint: "f1", writer: true, baseline: "f0", verifications: [verified], reviews: [reviewed] }), {
       allow: true,
     });
   });
 
   const cases = [
     ["without any record", {}, ["verification", "review"]],
-    ["with the verification only", { verification: verified }, ["review"]],
-    ["with the review only", { review: reviewed }, ["verification"]],
+    ["with the verification only", { verifications: [verified] }, ["review"]],
+    ["with the review only", { reviews: [reviewed] }, ["verification"]],
     [
       "with records of an earlier state",
-      { verification: { ...verified, fingerprint: "f0" }, review: { ...reviewed, fingerprint: "f0", branch: "develop" } },
+      { verifications: [{ ...verified, fingerprint: "f0" }], reviews: [{ ...reviewed, fingerprint: "f0", branch: "feat/7-y" }] },
       ["verification", "review"],
     ],
-    ["with a record of the wrong status", { verification: { ...verified, status: "deferred" }, review: reviewed }, ["verification"]],
+    ["with a record of the wrong status", { verifications: [{ ...verified, status: "deferred" }], reviews: [reviewed] }, ["verification"]],
   ];
   for (const [label, records, missing] of cases) {
     it(`blocks ${label}`, () => {
@@ -68,13 +70,13 @@ describe("stopDecision: one delivery review per task branch", () => {
 
   it("keeps the review for a later state of the same task branch once it is verified", () => {
     assert.deepEqual(
-      stopDecision({ fingerprint: "f2", writer: true, baseline: "f0", branch: "feat/6-x", verification: laterVerification, review }),
+      stopDecision({ fingerprint: "f2", writer: true, baseline: "f0", branch: "feat/6-x", verifications: [laterVerification], reviews: [review] }),
       { allow: true },
     );
   });
 
   it("still requires the verification of the later state", () => {
-    assert.deepEqual(stopDecision({ fingerprint: "f2", writer: true, baseline: "f0", branch: "feat/6-x", verification: verified, review }), {
+    assert.deepEqual(stopDecision({ fingerprint: "f2", writer: true, baseline: "f0", branch: "feat/6-x", verifications: [verified], reviews: [review] }), {
       allow: false,
       missing: ["verification"],
     });
@@ -82,7 +84,7 @@ describe("stopDecision: one delivery review per task branch", () => {
 
   it("requires a review on a branch that has none (another branch's review does not count)", () => {
     assert.deepEqual(
-      stopDecision({ fingerprint: "f2", writer: true, baseline: "f0", branch: "feat/7-y", verification: laterVerification, review }),
+      stopDecision({ fingerprint: "f2", writer: true, baseline: "f0", branch: "feat/7-y", verifications: [laterVerification], reviews: [review] }),
       { allow: false, missing: ["review"] },
     );
   });
@@ -93,12 +95,95 @@ describe("stopDecision: one delivery review per task branch", () => {
         fingerprint: "f2",
         writer: true, baseline: "f0",
         branch,
-        verification: laterVerification,
-        review: { ...review, branch },
+        verifications: [laterVerification],
+        reviews: [{ ...review, branch }],
       });
       assert.equal(decision.allow, false);
     });
   }
+});
+
+describe("stopDecision: the records of every branch of a checkout (#492)", () => {
+  const a = { verified: { status: "verified", fingerprint: "fa", branch: "feat/6-x" }, reviewed: { status: "reviewed", fingerprint: "fa", branch: "feat/6-x" } };
+  const b = { verified: { status: "verified", fingerprint: "fb", branch: "feat/7-y" }, reviewed: { status: "reviewed", fingerprint: "fb", branch: "feat/7-y" } };
+  const records = { verifications: [a.verified, b.verified], reviews: [a.reviewed, b.reviewed] };
+
+  it("finds the records of the judged state among those of other branches, in any order", () => {
+    for (const [fingerprint, branch] of [["fa", "feat/6-x"], ["fb", "feat/7-y"]]) {
+      assert.deepEqual(stopDecision({ fingerprint, writer: true, branch, ...records }), { allow: true });
+      assert.deepEqual(
+        stopDecision({
+          fingerprint,
+          writer: true,
+          branch,
+          verifications: [...records.verifications].reverse(),
+          reviews: [...records.reviews].reverse(),
+        }),
+        { allow: true },
+      );
+    }
+  });
+
+  it("carries a branch's review over to its later state while another branch's records are newer", () => {
+    const later = { status: "verified", fingerprint: "fa2", branch: "feat/6-x" };
+    assert.deepEqual(
+      stopDecision({ fingerprint: "fa2", writer: true, branch: "feat/6-x", verifications: [a.verified, later, b.verified], reviews: records.reviews }),
+      { allow: true },
+    );
+  });
+
+  it("does not take another branch's records for this state", () => {
+    assert.deepEqual(stopDecision({ fingerprint: "fc", writer: true, branch: "feat/8-z", ...records }), {
+      allow: false,
+      missing: ["verification", "review"],
+    });
+  });
+
+  it("says when a review of this branch exists but is not carried over (a branch named outside the convention)", () => {
+    for (const branch of ["fix/po-ui-only", "develop"]) {
+      const decision = stopDecision({
+        fingerprint: "f2",
+        writer: true,
+        branch,
+        verifications: [{ status: "verified", fingerprint: "f2" }],
+        reviews: [{ status: "reviewed", fingerprint: "f1", branch }],
+      });
+      assert.deepEqual(decision, { allow: false, missing: ["review"], reviewNotCarried: true });
+      const reason = blockReason({ root: "/r", fingerprint: "f2", files: ["web/a.ts"], ...decision, branch });
+      assert.match(reason, new RegExp(`review of an earlier state of ${branch} exists, but it is not carried over`));
+      assert.doesNotMatch(reason, /has no delivery review yet/);
+    }
+    // Another branch's review, or none: the usual message.
+    const other = stopDecision({ fingerprint: "f2", writer: true, branch: "fix/po-ui-only", reviews: [{ status: "reviewed", fingerprint: "f1", branch: "wip" }] });
+    assert.equal(other.reviewNotCarried, undefined);
+    assert.match(blockReason({ root: "/r", fingerprint: "f2", files: ["web/a.ts"], ...other }), /has no delivery review yet/);
+  });
+});
+
+describe("addRecord", () => {
+  const entry = (fingerprint, branch = "feat/6-x", status = "verified") => ({ status, fingerprint, branch });
+
+  it("appends, and moves a state recorded again to the end", () => {
+    assert.deepEqual(addRecord([], entry("f1")), [entry("f1")]);
+    assert.deepEqual(addRecord(undefined, entry("f1")), [entry("f1")]);
+    const again = { ...entry("f1"), at: "later" };
+    assert.deepEqual(addRecord([entry("f1"), entry("f2")], again), [entry("f2"), again]);
+  });
+
+  it("keeps the same state of two branches apart", () => {
+    assert.deepEqual(addRecord([entry("f1", "feat/6-x")], entry("f1", "feat/7-y")), [entry("f1", "feat/6-x"), entry("f1", "feat/7-y")]);
+  });
+
+  it("keeps the last `limit` entries, oldest dropped", () => {
+    let list = [];
+    for (let i = 0; i < RECORD_LIMIT + 5; i++) {
+      list = addRecord(list, entry(`f${i}`));
+    }
+    assert.equal(list.length, RECORD_LIMIT);
+    assert.equal(list[0].fingerprint, "f5");
+    assert.equal(list.at(-1).fingerprint, `f${RECORD_LIMIT + 4}`);
+    assert.deepEqual(addRecord([entry("a"), entry("b"), entry("c")], entry("d"), 2), [entry("c"), entry("d")]);
+  });
 });
 
 describe("stopDecision: a session is judged only on what it changed", () => {

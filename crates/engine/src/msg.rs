@@ -203,7 +203,7 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use crate::engine::{Clip, DeviceEntry, Lane, Source, State, Track};
-use crate::time::{Frame, LoopRegion, Quantize, Tempo, Tick, TimeSignature};
+use crate::time::{Frame, LoopRegion, Quantize, SampleRate, Tempo, Tick, TimeSignature};
 
 pub mod codec;
 pub use codec::{
@@ -1437,6 +1437,10 @@ pub enum LaunchMsg {
 pub enum RtMsg {
     /// A fresh engine state; the old one goes to [`Garbage::State`].
     Reset(Box<State>),
+    /// A new sample rate (#236, `Preparer::set_sample_rate`): the clock (its playhead kept),
+    /// the metronome, the limiter and the graph's fades follow it; the devices built for it
+    /// come after, one `DevicePut` each. Not a `ControlMsg`: the rate is the host's.
+    SetSampleRate(SampleRate),
     SetTransport {
         tempo: Tempo,
         signature: TimeSignature,
