@@ -14,7 +14,8 @@ const lib = fileURLToPath(new URL('../src/lib/', import.meta.url))
 const cargo = process.env.CARGO ?? 'cargo'
 // `--strip-names` (the production build, `pnpm build`): the copies next to the loaders lose their "name" section, the
 // function names of stack traces (#248). `pnpm dev`, `pnpm test` and `pnpm build:wasm` keep them, so an error in
-// development names the function. The cargo output is the same either way: only the copy changes.
+// development names the function. The cargo output is the same either way: only the copy changes, and `postbuild`
+// copies the named modules back, so the dev server and the e2e specs that follow a build still read them.
 const strip = process.argv.includes('--strip-names')
 
 // Where cargo puts its output: `target/` of the checkout, or what CARGO_TARGET_DIR, CARGO_BUILD_TARGET_DIR

@@ -14,6 +14,7 @@
     "build:wasm": "node scripts/build-wasm.mjs",
     "dev": "node scripts/build-wasm.mjs && vite dev",
     "build": "node scripts/build-wasm.mjs --strip-names && vite build",
+    "postbuild": "node scripts/build-wasm.mjs",
     "preview": "vite preview",
     "prepare": "svelte-kit sync || echo \"\"",
     "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
