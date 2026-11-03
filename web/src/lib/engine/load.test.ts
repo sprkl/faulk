@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { blockSeconds, MAX_TIMED_BLOCK_MS, renderClock } from './engine-abi'
-import { LOAD_SMOOTHING_MS, LoadMeter, PEAK_HOLD_MS } from './load'
+import { LOAD_SMOOTHING_MS, LoadMeter, PEAK_HOLD_MS, sameLoad } from './load'
 
 describe('LoadMeter (#486)', () => {
   it('starts from the first report, then smooths with the real time between reports', () => {
@@ -37,6 +37,17 @@ describe('LoadMeter (#486)', () => {
     meter.update(0.9, 1, 0)
     meter.reset()
     expect(meter.update(0.2, 0.2, 5)).toEqual({ smoothed: 0.2, peak: 0.2 })
+  })
+})
+
+describe('sameLoad (#486)', () => {
+  it('compares whole percents, and null only with null', () => {
+    expect(sameLoad({ smoothed: 0.121, peak: 0.3 }, { smoothed: 0.118, peak: 0.302 })).toBe(true)
+    expect(sameLoad({ smoothed: 0.12, peak: 0.3 }, { smoothed: 0.13, peak: 0.3 })).toBe(false)
+    expect(sameLoad({ smoothed: 0.12, peak: 0.3 }, { smoothed: 0.12, peak: 0.31 })).toBe(false)
+    expect(sameLoad(null, null)).toBe(true)
+    expect(sameLoad(null, { smoothed: 0, peak: 0 })).toBe(false)
+    expect(sameLoad({ smoothed: 0, peak: 0 }, null)).toBe(false)
   })
 })
 

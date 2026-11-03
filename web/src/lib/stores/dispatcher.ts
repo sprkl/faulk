@@ -1,7 +1,7 @@
 import type { Engine, EngineEvents } from '../engine/engine'
 import { probeHelper, pairHelper } from '../engine/helper-client'
 import { peakOf } from '../engine/feedback'
-import { LoadMeter } from '../engine/load'
+import { LoadMeter, sameLoad } from '../engine/load'
 import { NativeEngine, NoOutputError } from '../engine/native-engine'
 import { WebEngine } from '../engine/web-engine'
 import { withFrame } from '../engine/clock'
@@ -94,7 +94,8 @@ export class Dispatcher {
       onFeedback: (report) => {
         if (!current()) return
         this.state.feedback = report
-        this.state.load = load.update(report.cpuLoad, report.cpuPeak, performance.now())
+        const shown = load.update(report.cpuLoad, report.cpuPeak, performance.now())
+        if (!sameLoad(this.state.load, shown)) this.state.load = shown
         this.state.peak = peakOf(report.master)
         this.state.voices = report.voices
         this.recorder?.feedback(report)

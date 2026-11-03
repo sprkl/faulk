@@ -14,6 +14,15 @@ export interface EngineLoad {
 }
 
 /**
+ * Whether two loads show the same (whole percents): the page keeps the one it has, so that the views
+ * that show the load do not recompute about 30 times a second for a figure that did not change.
+ */
+export function sameLoad(a: EngineLoad | null, b: EngineLoad | null): boolean {
+  if (a == null || b == null) return a === b
+  return Math.round(a.smoothed * 100) === Math.round(b.smoothed * 100) && Math.round(a.peak * 100) === Math.round(b.peak * 100)
+}
+
+/**
  * Smooths the reports' load (an exponential moving average whose weight follows the real time
  * between two reports, so that a dropped or late report weighs right) and holds the largest
  * peak of the last [`PEAK_HOLD_MS`].
