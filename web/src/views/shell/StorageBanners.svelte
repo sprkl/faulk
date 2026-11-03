@@ -6,7 +6,18 @@
    * A project opened by its link (#497): the question before a link of the address is downloaded, the
    * download under way, and a download that failed, with the way out (import a file instead).
    */
-  import { allowAccess, exportPack, importPack, keepMine, loadFolderVersion, openBrowserProject, openUrl, reopenLast, save } from '../../lib/project-commands'
+  import {
+    allowAccess,
+    exportPack,
+    importPack,
+    keepMine,
+    loadFolderVersion,
+    openBrowserProject,
+    openFolder,
+    openUrl,
+    reopenLast,
+    save,
+  } from '../../lib/project-commands'
   import { useStores } from '../../lib/stores'
 
   const { ui, storage, dispatcher } = useStores()
@@ -105,6 +116,15 @@
     {#if storage.noticeOpen && storage.noticeVars}
       {@const dir = storage.noticeOpen}
       <button class="primary" data-testid="notice-open" onclick={() => dispatcher.run(openBrowserProject(dir))}>{t('pack.openIt', storage.noticeVars)}</button>
+    {/if}
+    {#if storage.failedReopen}
+      <!-- The project of last time would not open (#504): try it again, or go to another through the same commands as the menu. -->
+      <button class="primary" data-testid="notice-retry" onclick={() => dispatcher.run(reopenLast())}>{t('save.banner.reopenRetry')}</button>
+      {#if storage.failedReopen.kind === 'folder'}
+        <button data-testid="notice-open-other" onclick={() => dispatcher.run(openFolder())}>{t('save.banner.openOther')}</button>
+      {:else}
+        <button data-testid="notice-import" onclick={() => dispatcher.run(importPack())}>{t('save.banner.importOther')}</button>
+      {/if}
     {/if}
     <button onclick={() => storage.dismissNotice()}>{t('save.banner.dismiss')}</button>
   </p>

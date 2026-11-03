@@ -1009,6 +1009,49 @@ describe('the start of a page', () => {
     expect(w.storage.reopen).toBeNull()
     expect(w.storage.folder).toBeNull()
   })
+
+  it('keeps the project that would not open for the notice’s actions (#504): locked, then unreadable, then opened by a retry', async () => {
+    const { w } = await remembered('granted')
+    w.locks.add('abc')
+    await w.storage.restore()
+    expect(w.storage.notice).toBe('storage.locked')
+    expect(w.storage.failedReopen).toEqual({ id: 'last', name: 'last', kind: 'folder' })
+
+    // A retry that fails the same way keeps the actions; a failure of another kind keeps them too.
+    expect(await w.storage.reopenLast()).toBe(false)
+    expect(w.storage.failedReopen).toEqual({ id: 'last', name: 'last', kind: 'folder' })
+    w.locks.clear()
+    const open = w.host.openProject.bind(w.host)
+    w.host.openProject = async () => {
+      throw new StoreError('io', 'unreadable')
+    }
+    expect(await w.storage.reopenLast()).toBe(false)
+    expect(w.storage.notice).toBe('project.open.unreadable')
+    expect(w.storage.failedReopen).toEqual({ id: 'last', name: 'last', kind: 'folder' })
+
+    w.host.openProject = open
+    expect(await w.storage.reopenLast()).toBe(true)
+    expect(w.storage.folder).toEqual({ name: 'last' })
+    expect(w.storage.notice).toBeNull()
+    expect(w.storage.failedReopen).toBeNull()
+  })
+
+  it('offers no retry for a notice a second try cannot answer, and drops it with the notice', async () => {
+    const { w, handle } = await remembered('granted')
+    w.stores.get(handle)!.project = false
+    await w.storage.restore()
+    expect(w.storage.notice).toBe('project.open.notAProject')
+    expect(w.storage.failedReopen).toBeNull()
+
+    const locked = await remembered('granted')
+    locked.w.locks.add('abc')
+    await locked.w.storage.restore()
+    expect(locked.w.storage.failedReopen).not.toBeNull()
+    locked.w.storage.dismissNotice()
+    expect(locked.w.storage.failedReopen).toBeNull()
+    expect(await locked.w.storage.reopenLast()).toBe(false)
+    expect(locked.w.storage.notice).toBe('storage.nothingToReopen')
+  })
 })
 
 // ---------------------------------------------------------------------- SV-3: the browser's storage

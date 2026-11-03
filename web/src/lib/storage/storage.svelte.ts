@@ -194,11 +194,17 @@ export class ProjectStorage {
   /** What the notice names (a project), and the project of the browser it can open for the user (#474). Cleared with every new notice. */
   noticeVars = $state.raw<{ name: string } | null>(null)
   noticeOpen = $state.raw<string | null>(null)
+  /**
+   * The project of last time that would not open (locked by another tab, or unreadable) while its notice is
+   * shown (#504): the notice then offers to try again and a way to another project. Cleared with every new notice.
+   */
+  failedReopen = $state.raw<{ id: string; name: string; kind: 'folder' | 'browser' } | null>(null)
   get notice(): MessageKey | null {
     return this.shownNotice
   }
   set notice(key: MessageKey | null) {
     this.shownNotice = key
+    this.failedReopen = null
     this.noticeVars = null
     this.noticeOpen = null
   }
@@ -699,13 +705,21 @@ export class ProjectStorage {
   }
 
   /** The banner after a reload: the project that was open comes back with the user's click. */
-  reopenLast(): Promise<boolean> {
-    const last = this.reopen
+  async reopenLast(): Promise<boolean> {
+    // The project that would not open comes second: its notice offers to try it again (#504).
+    const last = this.reopen ?? this.failedReopen
     if (!last) {
       this.notice = 'storage.nothingToReopen'
-      return Promise.resolve(false)
+      return false
     }
-    return last.kind === 'browser' ? this.openBrowserProject(last.id) : this.openRecent(last.id)
+    const opened = await (last.kind === 'browser' ? this.openBrowserProject(last.id) : this.openRecent(last.id))
+    if (!opened) this.markReopenFailed(last)
+    return opened
+  }
+
+  /** Keeps the project that did not open for the notice's actions, when the notice is one a second try can answer. */
+  private markReopenFailed(target: { id: string; name: string; kind: 'folder' | 'browser' }) {
+    if (this.shownNotice === 'storage.locked' || this.shownNotice === 'project.open.unreadable') this.failedReopen = target
   }
 
   /**
@@ -1166,12 +1180,14 @@ export class ProjectStorage {
     // into, a project in the browser by its newest file.
     if (draft && (!last || draft.modified > last.at)) {
       // A project kept in the browser needs no permission: it opens by itself, in every browser (#474).
-      await this.openBrowserProject(draft.dir)
+      const opened = await this.openBrowserProject(draft.dir)
+      if (!opened) this.markReopenFailed({ id: draft.dir, name: draft.name, kind: 'browser' })
       return
     }
     if (!last) return
     if ((await this.deps.permission(last.handle)) === 'granted') {
-      await this.enqueue(() => this.openHandle(last.handle, { forgetIfGone: last.id }))
+      const opened = await this.enqueue(() => this.openHandle(last.handle, { forgetIfGone: last.id }))
+      if (!opened) this.markReopenFailed({ id: last.id, name: last.name, kind: 'folder' })
     } else {
       this.offer({ id: last.id, name: last.name, kind: 'folder' })
     }
