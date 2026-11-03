@@ -2085,7 +2085,8 @@
         {/each}
       </div>
       <!-- The ruler row of the keyboard cursor (#554): one cell, where Enter puts the playhead. -->
-      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -- the group only relays the keys of its one focusable cell, as the clips' grid does -->
+      <!-- The group only relays the keys of its one focusable cell, as the clips' grid does. -->
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
       <div
         class="ruler-items"
         role="group"
