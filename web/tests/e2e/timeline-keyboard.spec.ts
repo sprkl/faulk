@@ -354,3 +354,41 @@ test('a clip moves to the track below and back from the keyboard, the menu and t
   expect(await rowOf()).toEqual([2])
   expect(errors).toEqual([])
 })
+
+/** A click on an empty row of the third track clears the selection. */
+async function clearSelection(page: Page) {
+  const box = (await page.getByTestId('arr-stage').boundingBox())!
+  await page.mouse.click(box.x + 600, box.y + RULER + 2 * LANE + LANE / 2)
+}
+
+test('a lone clip is selected from the keyboard by Shift+arrow, then Ctrl+D copies it (#553)', async ({ page }) => {
+  const { errors } = watch(page)
+  await start(page)
+  await clipAt(page, 0, 0)
+  const arr = page.getByTestId('arrangement')
+  await expect(arr).toHaveAttribute('data-block-count', '1')
+  const [only] = await blocks(page)
+  const cell = page.locator(`[data-testid=arr-item][data-block="${only!.id}"]`)
+
+  // Focused by the keyboard, the clip is not selected; a Shift+arrow with no neighbour selects it.
+  await clearSelection(page)
+  await expect(arr).toHaveAttribute('data-selected-count', '0')
+  await cell.focus()
+  await expect(arr).toHaveAttribute('data-selected-count', '0')
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect(arr).toHaveAttribute('data-selected-count', '1')
+  await expect(page.getByTestId('arr-said')).toHaveText(/selected/)
+  await page.keyboard.press('Control+d')
+  await expect(arr).toHaveAttribute('data-block-count', '2')
+
+  // Focused and not selected: Alt+arrow moves it and Delete removes it, without any selection step.
+  const [first] = (await blocks(page)).sort((x, y) => x.start - y.start)
+  await clearSelection(page)
+  await expect(arr).toHaveAttribute('data-selected-count', '0')
+  await page.locator(`[data-testid=arr-item][data-block="${first!.id}"]`).focus()
+  await page.keyboard.press('Alt+ArrowRight')
+  await expect.poll(async () => (await blocks(page)).find((x) => x.id === first!.id)?.start).toBeGreaterThan(first!.start)
+  await page.keyboard.press('Delete')
+  await expect(arr).toHaveAttribute('data-block-count', '1')
+  expect(errors).toEqual([])
+})
