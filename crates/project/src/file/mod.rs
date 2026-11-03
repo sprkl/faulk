@@ -22,7 +22,7 @@
 //! refuses it with a typed error ([`FileError::Invalid`]) when it does not.
 
 mod cache;
-mod canon;
+pub(crate) mod canon;
 mod dto;
 mod error;
 mod fs;

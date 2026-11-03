@@ -10,6 +10,7 @@
 use crate::ids::{DeviceId, Id, LaneId};
 use crate::limits::*;
 use crate::model::*;
+use crate::preset::MAX_PROJECT_PRESETS;
 use engine::time::{Frame, Tick};
 use std::collections::{BTreeMap, HashSet};
 use std::fmt;
@@ -96,6 +97,9 @@ pub enum ViolationKind {
     MissingInstrument,
     /// An audio file's sample rate outside [`SAMPLE_RATES`].
     BadSampleRate,
+    /// A preset of the project that breaks a rule of the preset format, or a device's preset
+    /// with an id that is not one of its location (#191).
+    BadPreset,
     /// More elements than a safety limit allows.
     TooMany { limit: usize },
 }
@@ -265,6 +269,13 @@ impl Project {
             c.tick(marker.tick, &path);
         }
 
+        c.count(self.presets.len(), MAX_PROJECT_PRESETS, "presets");
+        for (id, preset) in &self.presets {
+            let path = format!("presets/{id}");
+            c.id(&id.0, &path);
+            c.check(preset.check().is_ok(), &path, ViolationKind::BadPreset);
+        }
+
         c.count(self.tracks.len(), c.limits.tracks, "tracks");
         for (id, track) in &self.tracks {
             let path = format!("tracks/{id}");
@@ -329,6 +340,9 @@ impl Project {
                 c.check(is_key(param), &path, ViolationKind::BadKey);
                 c.check(value.is_finite(), &path, ViolationKind::NotFinite);
             }
+            if let Some(preset) = &device.preset {
+                c.check(preset.is_valid(), &path, ViolationKind::BadPreset);
+            }
         }
     }
 
@@ -390,6 +404,9 @@ impl Project {
             for (param, value) in &device.params {
                 c.check(is_key(param), &path, ViolationKind::BadKey);
                 c.check(value.is_finite(), &path, ViolationKind::NotFinite);
+            }
+            if let Some(preset) = &device.preset {
+                c.check(preset.is_valid(), &path, ViolationKind::BadPreset);
             }
         }
 

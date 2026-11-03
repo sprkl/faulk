@@ -9,7 +9,7 @@ use crate::clip_examples;
 use crate::marker_examples;
 use crate::transport_examples;
 use commands::{
-    Command, State, arrangement, automation, clip, device, project, scene, track, transport,
+    Command, State, arrangement, automation, clip, device, preset, project, scene, track, transport,
 };
 
 pub fn examples() -> Vec<(Command, State)> {
@@ -121,5 +121,9 @@ pub fn examples() -> Vec<(Command, State)> {
             marker_examples::fx().state,
         ),
         on_clips(Command::Arrangement(arrangement::Command::ListMarkers {})),
+        on_clips(Command::Preset(preset::Command::List {
+            device: None,
+            kind: Some("faulk.osc_synth".into()),
+        })),
     ]
 }

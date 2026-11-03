@@ -1,0 +1,15 @@
+{
+  "category": "Bass",
+  "device": "faulk.osc_synth",
+  "format": 1,
+  "name": "Round Bass",
+  "params": {
+    "attack": 0.003,
+    "decay": 0.25,
+    "gain": 0.85,
+    "release": 0.08,
+    "sustain": 0.6,
+    "waveform": 3.0
+  },
+  "version": 1
+}

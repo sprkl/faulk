@@ -70,6 +70,7 @@ impl ProjectDoc {
             master_automation: BTreeMap::new(),
             tracks: BTreeMap::new(),
             markers: self.markers,
+            presets: BTreeMap::new(),
         }
     }
 }

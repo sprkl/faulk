@@ -93,6 +93,7 @@ pub fn decorate(mut p: Project, seed: u64) -> Project {
                 },
                 params: BTreeMap::new(),
                 state: None,
+                preset: None,
             },
         );
     }

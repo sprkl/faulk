@@ -422,6 +422,7 @@ pub(crate) fn built(builtin: &Builtin, role: DeviceRole, order: OrderKey) -> Dev
             .map(|p| (p.key.to_owned(), p.default))
             .collect(),
         state: None,
+        preset: None,
     }
 }
 

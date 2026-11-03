@@ -20,6 +20,7 @@ use crate::blob::Hash;
 use crate::ids::{ClipId, DeviceId, LaneId, TrackId};
 use crate::limits::*;
 use crate::model::*;
+use crate::preset::{MAX_PRESET_BYTES, MAX_PROJECT_PRESETS, Preset, PresetId};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// How to open.
@@ -169,6 +170,11 @@ pub(crate) fn text_path(path: &str) -> bool {
             .strip_suffix(".tsv")
             .is_some_and(|id| LaneId::parse(id).is_ok());
     }
+    if let Some(f) = path.strip_prefix("presets/") {
+        return f
+            .strip_suffix(".json")
+            .is_some_and(|id| PresetId::parse(id).is_ok());
+    }
     let mut parts = path.split('/');
     if parts.next() != Some("tracks") || TrackId::parse(parts.next().unwrap_or("")).is_err() {
         return false;
@@ -224,6 +230,12 @@ pub(crate) fn project_files(fs: &dyn FileSystem) -> Result<Vec<(String, DirEntry
     }
     for f in fs.list("master/automation")? {
         let file = format!("master/automation/{}", f.name);
+        if !f.is_dir && text_path(&file) {
+            out.push((file, f));
+        }
+    }
+    for f in fs.list("presets")? {
+        let file = format!("presets/{}", f.name);
         if !f.is_dir && text_path(&file) {
             out.push((file, f));
         }
@@ -434,6 +446,44 @@ impl Reader<'_> {
             lanes.insert(id, lane);
         }
         Ok(lanes)
+    }
+
+    /// The presets saved in the project (#191): `presets/<id>.json`, one preset file each
+    /// (`crate::preset`). A folder without them is a project without presets. A file whose name
+    /// is not a preset id is ignored; a preset file that does not read refuses the folder, as
+    /// any other file of the project does.
+    fn read_presets(&mut self) -> Result<BTreeMap<PresetId, Preset>, FileError> {
+        let mut presets = BTreeMap::new();
+        let dir = "presets";
+        for e in self.list(dir)? {
+            let path = format!("{dir}/{}", e.name);
+            let Some(id) = e
+                .name
+                .strip_suffix(".json")
+                .and_then(|s| PresetId::parse(s).ok())
+                .filter(|_| !e.is_dir)
+            else {
+                self.ignore(path);
+                continue;
+            };
+            if presets.len() >= MAX_PROJECT_PRESETS {
+                return Err(FileError::corrupt(
+                    dir,
+                    "more presets than a project can hold",
+                ));
+            }
+            if e.size > MAX_PRESET_BYTES as u64 {
+                return Err(FileError::corrupt(
+                    &path,
+                    format!("a preset file has at most {MAX_PRESET_BYTES} bytes"),
+                ));
+            }
+            let (bytes, _) = self.fetch(&path, &e)?;
+            let preset =
+                Preset::parse(&bytes).map_err(|err| FileError::corrupt(&path, err.to_string()))?;
+            presets.insert(id, preset);
+        }
+        Ok(presets)
     }
 
     fn read_track(&mut self, tid: &TrackId, entries: Vec<DirEntry>) -> Result<Track, FileError> {
@@ -684,6 +734,7 @@ fn read_folder(
     }
 
     project.master_automation = reader.read_master_lanes(&project.master_devices)?;
+    project.presets = reader.read_presets()?;
 
     project
         .validate()
