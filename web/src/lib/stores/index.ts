@@ -13,6 +13,7 @@ import { browserDeps } from '../storage/browser'
 import { ProjectStorage, type StorageDeps } from '../storage/storage.svelte'
 import { AutomatedValues } from './automated.svelte'
 import { Dispatcher } from './dispatcher'
+import { PresetLibrary } from '../storage/presets'
 import { draftName } from '../project/draft-name'
 import { EngineStore } from './engine.svelte'
 import { KeyboardPlayer } from './keyboard-player.svelte'
@@ -66,6 +67,19 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
     now: () => performance.now(),
   })
   dispatcher.recorder = recorder
+  // The user's preset library (#191): the browser's storage, read again when another tab changed it or the page comes back.
+  dispatcher.presetLibrary = new PresetLibrary()
+  if (typeof window !== 'undefined') {
+    const reload = () => {
+      dispatcher.retryPresets()
+      void dispatcher.loadLibrary().catch((error: unknown) => console.error(error))
+    }
+    if (typeof BroadcastChannel !== 'undefined') {
+      dispatcher.presetChannel = new BroadcastChannel('faulk.presets')
+      dispatcher.presetChannel.onmessage = reload
+    }
+    window.addEventListener('focus', reload)
+  }
   // Dev server only: lets the browser checks send a command through the one entry point
   // (`Dispatcher.run`) while a view for it (the transport, TR-4) does not exist yet, and read
   // the project back (the ids of what they made, for the next command).
@@ -78,6 +92,8 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
       __faulkHistory: () => dispatcher.history(),
       // The answer of `project.list_stored` (`storage-commands.spec.ts`).
       __faulkStored: () => dispatcher.listStored(),
+      // The presets of a device kind, as `preset.list` answers (`presets.spec.ts`).
+      __faulkPresets: (kind: string) => dispatcher.listPresetsOfKind(kind),
       // The storage's notice, whether or not a banner shows it: a banner of higher priority (the permission's) hides it (`storage-commands.spec.ts`).
       __faulkNotice: () => storage.notice,
       // What the last write of the project cost (`project-save.spec.ts`).

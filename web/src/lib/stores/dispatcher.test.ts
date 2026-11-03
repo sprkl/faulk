@@ -8,6 +8,7 @@ import { CoreError, ProjectCore, type FolderEntry } from '../project/core'
 import { readFolder, SONG_FOLDER } from '../project/reference-folder'
 import { OUTPUT_POLL_MS, REFUSAL_TOAST_MS } from './dispatcher'
 import { TOKEN_KEY } from './storage'
+import type { PresetLibrary } from '../storage/presets'
 import { inputNoteOff, inputNoteOn } from '../synth-commands'
 
 const pairHelper = vi.fn()
@@ -1907,5 +1908,57 @@ describe('the recorder in the dispatcher (#513)', () => {
     await session.dispatcher.start()
     expect(session.recorder.phase).toBe('idle')
     expect(session.recorder.dropped).toBe('engine')
+  })
+})
+
+describe('the preset library (#191)', () => {
+  const kept = '01HZY00000000000000000AAAA'
+  const file = `{"format": 1, "device": "faulk.osc_synth", "version": 1, "name": "Kept", "params": {"attack": 0.5}}`
+
+  async function started(files: { id: string; text: string }[], write = vi.fn(() => Promise.resolve())) {
+    const session = newSession()
+    const remove = vi.fn(() => Promise.resolve())
+    const read = vi.fn(() => Promise.resolve(files))
+    session.dispatcher.presetLibrary = { available: true, read, write, remove } as unknown as PresetLibrary
+    await session.dispatcher.start()
+    await vi.waitFor(() => expect(read).toHaveBeenCalled())
+    await vi.waitFor(() => expect(session.project.presetsRev).toBeGreaterThan(0))
+    return { session, read, write, remove }
+  }
+
+  it('reads the library when the core is made, writes a preset saved there and removes a deleted one', async () => {
+    const { session, write, remove } = await started([{ id: kept, text: file }])
+    expect(session.dispatcher.run({ type: 'preset.save', device: SYNTH_DEVICE, name: 'Mine', location: 'library' })).toBe(true)
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1))
+    const [id, bytes] = write.mock.calls[0] as unknown as [string, Uint8Array]
+    expect(new TextDecoder().decode(bytes)).toContain('"name": "Mine"')
+    // The device shows it, unmodified.
+    const shown = session.dispatcher.listPresets(SYNTH_DEVICE)
+    expect(shown?.current?.name).toBe('Mine')
+    expect(shown?.modified).toBe(false)
+    // A library change is not a project change.
+    session.dispatcher.run({ type: 'preset.delete', preset: { location: 'library', id } })
+    await vi.waitFor(() => expect(remove).toHaveBeenCalledWith(id))
+    // Its undo writes the file again.
+    session.dispatcher.run({ type: 'history.undo' })
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(2))
+  })
+
+  it('says so when a write fails, keeps the preset in the tab, and writes it on the next try', async () => {
+    let fail = true
+    const write = vi.fn(() => (fail ? Promise.reject(new DOMException('full', 'QuotaExceededError')) : Promise.resolve()))
+    const { session, read } = await started([], write)
+    session.dispatcher.run({ type: 'preset.save', device: SYNTH_DEVICE, name: 'Mine', location: 'library' })
+    await vi.waitFor(() => expect(session.engine.notice).toBe('presets.writeFailed'))
+    // A read of the library while a write waits does not take the preset back.
+    const reads = read.mock.calls.length
+    await session.dispatcher.loadLibrary()
+    expect(read.mock.calls.length).toBe(reads)
+    expect(session.dispatcher.listPresetsOfKind('faulk.osc_synth')?.presets.some((p) => p.name === 'Mine')).toBe(true)
+    fail = false
+    session.dispatcher.retryPresets()
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(2))
+    await session.dispatcher.loadLibrary()
+    expect(read.mock.calls.length).toBe(reads + 1)
   })
 })

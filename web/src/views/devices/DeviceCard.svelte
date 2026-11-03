@@ -1,12 +1,13 @@
 <script lang="ts">
   /**
    * One device of the chain: its name, bypass, and for an effect its place in the chain and its
-   * removal, then one control per parameter of its descriptor (`ParamControl`). Generic: no device
+   * removal, its presets (#191), then one control per parameter of its descriptor (`ParamControl`). Generic: no device
    * has a panel of its own. Every action is a command (`device-commands.ts`).
    */
   import { onDestroy } from 'svelte'
   import ParamControl from '../../lib/components/ParamControl.svelte'
   import ReductionMeter from '../../lib/components/ReductionMeter.svelte'
+  import PresetBar from './PresetBar.svelte'
   import { setDeviceParam } from '../../lib/device-commands'
   import { createLane, createMasterLane } from '../../lib/automation-commands'
   import { createGesture } from '../../lib/gesture'
@@ -140,6 +141,9 @@
       {/if}
     </div>
   </header>
+  {#if descriptor}
+    <PresetBar device={entry.id} {name} />
+  {/if}
   {#if reduces}
     <ReductionMeter reductionDb={reduction} label={t('devices.gainReduction')} />
   {/if}

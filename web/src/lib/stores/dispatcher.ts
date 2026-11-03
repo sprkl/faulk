@@ -26,6 +26,9 @@ import { applyEffects } from './effects'
 import type { EngineStore, HelperState } from './engine.svelte'
 import { refusalNotice, type OpenOutcome, type OpenRefusal } from './open'
 import type { ProjectStore } from './project.svelte'
+import type { PresetLibrary } from '../storage/presets'
+import type { PresetList } from '../presets'
+import { listPresets as listPresetsCommand } from '../preset-commands'
 import type { Recorder } from './recorder.svelte'
 import { refusalOf } from './refusal'
 import { storage, TOKEN_KEY } from './storage'
@@ -194,7 +197,11 @@ export class Dispatcher {
   /** The page's project core, created on first use (by `start`, or by opening a project before audio starts). */
   private async ensureCore(): Promise<ProjectCore> {
     const module = await coreModule()
-    return (this.core ??= ProjectCore.create(module, 'single_synth', FIRST_EPOCH, undefined, this.nameNew()))
+    if (this.core) return this.core
+    this.core = ProjectCore.create(module, 'single_synth', FIRST_EPOCH, undefined, this.nameNew())
+    // The user's preset library is every project's: the core gets it as soon as it exists (#191).
+    void this.loadLibrary().catch((error: unknown) => console.error(error))
+    return this.core
   }
 
   /**
@@ -556,6 +563,7 @@ export class Dispatcher {
     }
     this.mirror(step.events)
     this.recorder?.ran(command, 'output' in step ? step.output : undefined, step.events)
+    this.writePresets(step.events)
     if ('streamError' in step) {
       // No report (it was lost): the command may have applied, read the project again.
       if (step.events.length === 0) this.refresh()
@@ -595,6 +603,87 @@ export class Dispatcher {
     // Whatever the command did, the folder may now lack changes: the storage writes them soon.
     this.storage?.changed()
     return true
+  }
+
+  // ---------------------------------------------------------------- presets (#191)
+
+  /** The user's preset library (the browser's storage); set once by `createStores`, `null` in a bare dispatcher. */
+  presetLibrary: PresetLibrary | null = null
+  /** Library files waiting to be written or removed, by preset id, in order: the core's state is the truth until they are. */
+  private presetWrites = new Set<string>()
+  private presetQueue: Promise<void> = Promise.resolve()
+  /** Told to the other tabs of this browser when the library changed, so that they read it again; set by `createStores`. */
+  presetChannel: BroadcastChannel | null = null
+
+  /**
+   * Reads the library from the browser's storage and gives it to the core (`pw_stage_library`). A write still
+   * waiting is applied first, so that a read never takes back a preset the core already holds. A file that does
+   * not read is left where it is (the console names it).
+   */
+  async loadLibrary(): Promise<void> {
+    const library = this.presetLibrary
+    const core = this.core
+    if (!library || !core) return
+    await this.presetQueue
+    if (this.presetWrites.size > 0) return
+    const files = await library.read()
+    // A command that changed the library while the files were read wins: read again later.
+    if (this.presetWrites.size > 0 || this.core !== core) return
+    const report = core.stageLibrary(files)
+    if (report.skipped.length > 0) console.warn('presets left out of the library', report.skipped)
+    this.project.presetsRev++
+  }
+
+  /** Writes or removes the file of each library preset the events name. */
+  private writePresets(events: readonly ProjectEvent[]) {
+    for (const event of events) {
+      if (event.type !== 'preset_changed') continue
+      this.project.presetsRev++
+      if (event.location === 'library') this.writePreset(event.preset)
+    }
+  }
+
+  /** Queues the write of a library preset's file, or its removal when the core no longer holds it. */
+  private writePreset(id: string) {
+    const library = this.presetLibrary
+    if (!library) return
+    this.presetWrites.add(id)
+    this.presetQueue = this.presetQueue.then(async () => {
+      const bytes = this.core?.presetFile('library', id) ?? null
+      try {
+        if (bytes) await library.write(id, bytes)
+        else await library.remove(id)
+        this.presetWrites.delete(id)
+        this.presetChannel?.postMessage({ changed: id })
+      } catch (error) {
+        console.error(error)
+        this.state.notice = 'presets.writeFailed'
+        // Kept pending: the next try (the page coming back, another tab's change) writes it again.
+      }
+    })
+  }
+
+  /** Writes again what could not be written. */
+  retryPresets() {
+    for (const id of [...this.presetWrites]) this.writePreset(id)
+  }
+
+  /** `preset.list` for a device kind (the device browser's list, and the checks). `null` before the core exists. */
+  listPresetsOfKind(kind: string): PresetList | null {
+    return this.presetList(listPresetsCommand({ kind }))
+  }
+
+  private presetList(command: Command): PresetList | null {
+    const core = this.core
+    if (!core) return null
+    const { report } = core.run(command)
+    if (report.status !== 'applied' || !('presets' in report.output)) return null
+    return { presets: report.output.presets, current: report.output.current ?? null, modified: report.output.modified ?? null }
+  }
+
+  /** `preset.list` for a device: what its panel shows. `null` before the core exists. */
+  listPresets(device: string): PresetList | null {
+    return this.presetList(listPresetsCommand({ device }))
   }
 
   /** The undo history for the history panel; empty before audio starts (no core yet). */
