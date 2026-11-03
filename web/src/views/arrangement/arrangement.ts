@@ -205,11 +205,19 @@ export function clipPosition(block: Pick<Block, 'looping' | 'clipLength'>, e: nu
  * The passes of a block: where each starts on the timeline and the clip tick it starts from. The first starts at the
  * block's start from its offset; each later one at a repeat boundary, from the cycle's start. At most `max`.
  */
-export function passesOf(block: Block, max = 256): { at: number; from: number }[] {
+export function passesOf(block: Block, max = 256, after = block.start): { at: number; from: number }[] {
   const { start, end } = cycleOf(block)
   const out: { at: number; from: number }[] = []
   let at = block.start
   let from = block.offset
+  // Jump straight to the pass that holds `after` (a long block in view from its middle): no walk from the start.
+  const first = end - from
+  const span = end - start
+  if (span > 0 && first > 0 && after >= block.start + first) {
+    const k = Math.floor((after - block.start - first) / span)
+    at = block.start + first + k * span
+    from = start
+  }
   while (at < block.end && out.length < max) {
     out.push({ at, from })
     if (end <= from) break
@@ -217,6 +225,15 @@ export function passesOf(block: Block, max = 256): { at: number; from: number }[
     from = start
   }
   return out
+}
+
+/** How many passes a block plays (the first one counted even when partial), without walking them. */
+export function passCount(block: Block): number {
+  const { start, end } = cycleOf(block)
+  const first = end - block.offset
+  const span = end - start
+  if (span <= 0 || first <= 0 || block.length <= first) return 1
+  return 1 + Math.ceil((block.length - first) / span)
 }
 
 /**

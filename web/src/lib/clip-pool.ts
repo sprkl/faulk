@@ -12,11 +12,17 @@ import { duplicateClip, moveClip } from './clip-commands'
 /** The data type of a clip dragged from the pool. */
 export const CLIP_DRAG_TYPE = 'application/x-faulk-clip'
 
+/**
+ * A second type naming the clip's track: a drag's data is hidden until the drop, but its types are not, so a lane or a
+ * cell of another track can refuse the drag while it hovers (types are lower-cased by the browser).
+ */
+export const clipTrackType = (track: string): string => `application/x-faulk-clip-track-${track.toLowerCase()}`
+
 export interface PoolClip {
   id: string
   clip: Clip
   /** Its placements in the arrangement, earliest first. */
-  placements: { id: string; start: number }[]
+  placements: { id: string; start: number; length: number }[]
   /** The scene of its launch-grid slot. */
   slot: string | null
   /** Placements plus the slot: more than one is a linked clip. */
@@ -28,11 +34,11 @@ export interface PoolClip {
 export function poolOf(project: Pick<Project, 'tracks'>, track: string): PoolClip[] {
   const t = project.tracks[track]
   if (!t) return []
-  const placed = new Map<string, { id: string; start: number }[]>()
+  const placed = new Map<string, { id: string; start: number; length: number }[]>()
   for (const [id, p] of Object.entries(t.placements as Record<string, Placement | undefined>)) {
     if (!p) continue
     const list = placed.get(p.clip) ?? []
-    list.push({ id, start: p.start })
+    list.push({ id, start: p.start, length: 'ticks' in p.span ? p.span.ticks.length : 0 })
     placed.set(p.clip, list)
   }
   const out: PoolClip[] = []
@@ -52,7 +58,8 @@ export function placeCommand(entry: PoolClip, start: Tick, linked: boolean): Com
   if (entry.slot) return placeFromSlot(entry.id, start, linked)
   const first = entry.placements[0]
   // Used in the arrangement already: a copy of its first placement by default, the same clip with `linked`.
-  if (first && !linked) return duplicatePlacements([first.id], false, start - first.start)
+  // A copy that would land on its own source (the playhead on it) goes right after it instead of replacing it.
+  if (first && !linked) return duplicatePlacements([first.id], false, start === first.start ? first.length : start - first.start)
   return { type: 'arrangement.place', clip: entry.id, start }
 }
 

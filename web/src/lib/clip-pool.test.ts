@@ -38,6 +38,8 @@ describe('the clip pool (#473)', () => {
     expect(placeCommand(loose!, 960, false)).toEqual({ type: 'arrangement.place', clip: 'loose', start: 960 })
     expect(placeCommand(arr!, 960, false)).toEqual({ type: 'arrangement.duplicate', placements: ['p0'], linked: false, by: 960 })
     expect(placeCommand(arr!, 960, true)).toEqual({ type: 'arrangement.place', clip: 'arr', start: 960 })
+    // At its own start, a copy goes right after its source, never onto it.
+    expect(placeCommand(arr!, 0, false)).toEqual({ type: 'arrangement.duplicate', placements: ['p0'], linked: false, by: 3840 })
     expect(placeCommand(grid!, 960, false)).toEqual({ type: 'arrangement.place_from_slot', clip: 'grid', start: 960, linked: false })
     expect(placeCommand(both!, 960, true)).toEqual({ type: 'arrangement.place_from_slot', clip: 'both', start: 960, linked: true })
   })

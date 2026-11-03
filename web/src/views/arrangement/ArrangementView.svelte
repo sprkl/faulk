@@ -52,7 +52,7 @@
   import { liveTick, settle } from '../piano-roll/playhead'
   import { PPQ, barTicks, beatTicks } from '../transport/time'
   import { itemAt, moveCursor, rovingKey, step as stepItem, timelineCursorStep, zoomKey, type Cursor, type Direction, type RovingKey } from '../../lib/roving'
-  import { CLIP_DRAG_TYPE, placeCommand, poolOf } from '../../lib/clip-pool'
+  import { CLIP_DRAG_TYPE, clipTrackType, placeCommand, poolOf } from '../../lib/clip-pool'
   import {
     blocksOf,
     clampScrollY,
@@ -63,7 +63,7 @@
     lastEnd,
     moveDelta,
     moved,
-    passesOf,
+    passCount,
     resizeTo,
     resized,
     laneHeight,
@@ -931,8 +931,9 @@
     return entry && isMidi(entry.track) ? entry.id : null
   }
   function onDragOver(event: DragEvent) {
-    // The data is hidden until the drop: the type says it is a clip; its track is checked on drop.
-    if (!event.dataTransfer?.types.includes(CLIP_DRAG_TYPE) || dropRow(event) === null) return
+    // The data is hidden until the drop, its types are not: only the clip's own track takes it.
+    const track = dropRow(event)
+    if (!event.dataTransfer || track === null || !event.dataTransfer.types.includes(clipTrackType(track))) return
     event.preventDefault()
     event.dataTransfer.dropEffect = event.altKey ? 'link' : 'copy'
   }
@@ -1043,7 +1044,7 @@
     const parts = [t('arrangement.clipItem', { name, track: entry ? trackLabel(entry, t) : '', from: where.from, to: where.to })]
     // A linked clip and a repeated content are said (#473), as they are drawn.
     if (b.uses > 1) parts.push(t('arrangement.clipLinked'))
-    const passes = passesOf(b).length
+    const passes = passCount(b)
     if (passes > 1) parts.push(t('arrangement.clipPasses', { n: passes }))
     if (selectedIds.has(b.id)) parts.push(t('arrangement.clipSelected'))
     return parts.join(', ')

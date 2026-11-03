@@ -8,7 +8,7 @@
    */
   import LinkMark from '../../lib/components/LinkMark.svelte'
   import { barStart } from '../../lib/arrangement-commands'
-  import { CLIP_DRAG_TYPE, freeScene, gridCommand, placeCommand, poolOf, type PoolClip } from '../../lib/clip-pool'
+  import { CLIP_DRAG_TYPE, clipTrackType, freeScene, gridCommand, placeCommand, poolOf, type PoolClip } from '../../lib/clip-pool'
   import { deleteClip } from '../../lib/clip-commands'
   import { useStores } from '../../lib/stores'
   import { barTicks } from '../transport/time'
@@ -52,6 +52,7 @@
     if (!event.dataTransfer || !trackId) return
     event.dataTransfer.effectAllowed = 'copyMove'
     event.dataTransfer.setData(CLIP_DRAG_TYPE, JSON.stringify({ clip: entry.id, track: trackId }))
+    event.dataTransfer.setData(clipTrackType(trackId), entry.id)
     event.dataTransfer.setData('text/plain', entry.clip.name)
   }
 

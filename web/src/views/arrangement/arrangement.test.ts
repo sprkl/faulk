@@ -18,6 +18,7 @@ import {
   resized,
   rowAt,
   passesOf,
+  passCount,
   clipPosition,
   splittable,
   type Block,
@@ -244,6 +245,11 @@ describe('split', () => {
     // A loop [480, 1920): the first pass to 1920, then every 1440.
     expect(passesOf(looped).map((p) => p.at)).toEqual([0, 1920, 3360, 4800, 6240])
     expect(passesOf({ ...p1, end: p1.start + 100, length: 100 })).toHaveLength(1)
+    // Counted without a walk, and listed from a tick in the middle.
+    expect(passCount(short)).toBe(2)
+    expect(passCount(looped)).toBe(5)
+    expect(passCount({ ...short, end: 3840 * 400, length: 3840 * 400 })).toBe(400)
+    expect(passesOf(looped, 256, 5000).map((p) => p.at)).toEqual([4800, 6240])
   })
 
   it('finds the clip position round the clip or its loop', () => {

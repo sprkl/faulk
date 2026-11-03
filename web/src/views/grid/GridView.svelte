@@ -22,7 +22,7 @@
   import { activeCells, activeSignature, cellClips, cellKey, clipCounts, clipHomes, sortedScenes, visibleRange } from './cells'
   import Glyph from './Glyph.svelte'
   import LinkMark from '../../lib/components/LinkMark.svelte'
-  import { CLIP_DRAG_TYPE, gridCommand, poolOf } from '../../lib/clip-pool'
+  import { CLIP_DRAG_TYPE, clipTrackType, gridCommand, poolOf } from '../../lib/clip-pool'
 
   type CellClipState = 'idle' | 'restarting' | ClipState
 
@@ -337,8 +337,9 @@
   // --- a clip dropped from the Clips panel (#473) ----------------------------------------------------------------
   /** The empty cell a clip of the pool is dragged over. */
   let poolOver = $state<string | null>(null)
-  function onPoolDragOver(event: DragEvent, key: string, midi: boolean) {
-    if (!midi || !event.dataTransfer?.types.includes(CLIP_DRAG_TYPE)) return
+  function onPoolDragOver(event: DragEvent, key: string, midi: boolean, track: string) {
+    // The data is hidden until the drop, its types are not: only a cell of the clip's own track takes it.
+    if (!midi || !event.dataTransfer?.types.includes(clipTrackType(track))) return
     event.preventDefault()
     event.dataTransfer.dropEffect = event.altKey ? 'link' : 'copy'
     poolOver = key
@@ -898,7 +899,7 @@
                   data-si={si}
                   data-pool-drop={poolOver === key ? 'true' : undefined}
                   aria-label={midi ? t('grid.cellEmptyCreate', { track: label, scene: name }) : t('grid.cellEmpty', { track: label, scene: name })}
-                  ondragover={(event) => onPoolDragOver(event, key, midi)}
+                  ondragover={(event) => onPoolDragOver(event, key, midi, entry.id)}
                   ondragleave={() => poolOver === key && (poolOver = null)}
                   ondrop={(event) => onPoolDrop(event, entry.id, sc.id)}
                 ></button>

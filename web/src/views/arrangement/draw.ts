@@ -7,7 +7,7 @@
 import { tickToX } from '../../lib/components/timegrid/grid'
 import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
 import type { LoopRegion, Note } from '../../lib/generated/protocol'
-import { BLOCK_INSET, cycleOf, laneHeight, laneTop, passesOf, type Block } from './arrangement'
+import { BLOCK_INSET, cycleOf, laneHeight, laneTop, passCount, passesOf, type Block } from './arrangement'
 import type { Layout } from './automation/layout'
 
 export interface ArrangementFrame {
@@ -122,7 +122,9 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
       // The clip is shown from its offset and goes round its loop, or round the whole clip, where the block
       // outlasts it (#473; a few passes at most: a long block of a short loop is a texture, not a score).
       const cycle = cycleOf(block).end
-      for (const { at, from } of passesOf(block, 64)) {
+      // Only the passes in sight (a long block of a short clip is drawn where it shows).
+      const fromTick = Math.max(block.start, view.scrollTick)
+      for (const { at, from } of passesOf(block, 64, fromTick)) {
         const upto = Math.min(cycle, from + (block.end - at))
         for (const note of notes) {
           const s = Math.max(note.start, from)
@@ -138,12 +140,13 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
     }
     // The repeat boundaries (#473): a line where each pass after the first starts, so the clip's length reads
     // as the distance between them and the block's as the block.
-    const passes = passesOf(block, 256)
-    if (passes.length > 1 && w > 6) {
+    const passes = passesOf(block, 256, Math.max(block.start, view.scrollTick))
+    if (passCount(block) > 1 && w > 6) {
       ctx.save()
       ctx.globalAlpha = (ghost ? 0.5 : 0.75) * k
       ctx.fillStyle = block.color
-      for (const { at } of passes.slice(1)) {
+      for (const { at } of passes) {
+        if (at === block.start) continue
         const bx = Math.round(tickToX(at, view))
         if (bx <= x0 + 1 || bx >= x0 + w - 1) continue
         ctx.fillRect(bx, y + 1, 1, h - 2)
