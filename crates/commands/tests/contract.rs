@@ -947,3 +947,215 @@ fn a_command_that_can_lose_work_is_never_declared_destructive_and_says_the_page_
         );
     }
 }
+
+/// Every `$ref` in `value`, at any depth (definitions included).
+fn refs_in(value: &serde_json::Value, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for (key, v) in map {
+                if let ("$ref", Some(r)) = (key.as_str(), v.as_str()) {
+                    out.push(r.to_owned());
+                }
+                refs_in(v, out);
+            }
+        }
+        serde_json::Value::Array(items) => items.iter().for_each(|v| refs_in(v, out)),
+        _ => {}
+    }
+}
+
+/// Whether `value` holds `key` as an object key at any depth.
+fn has_key(value: &serde_json::Value, key: &str) -> bool {
+    match value {
+        serde_json::Value::Object(map) => map.iter().any(|(k, v)| k == key || has_key(v, key)),
+        serde_json::Value::Array(items) => items.iter().any(|v| has_key(v, key)),
+        _ => false,
+    }
+}
+
+/// A tool's schema keeps only the definitions it reaches (#559): each of them unchanged, every
+/// reference resolvable inside the tool's own schema, and none kept that nothing reaches. This
+/// is what guarantees the trimmed schemas validate as before: a definition no reference reaches
+/// cannot change a verdict, provided no keyword addresses one by another way (checked first).
+#[test]
+fn each_tool_schema_holds_exactly_the_definitions_it_references() {
+    let roots = [
+        ("input", commands::schema()),
+        ("output", commands::output_schema()),
+    ];
+    for (what, root) in &roots {
+        for key in [
+            "$id",
+            "$anchor",
+            "$dynamicRef",
+            "$dynamicAnchor",
+            "$recursiveRef",
+            "$recursiveAnchor",
+        ] {
+            assert!(!has_key(root, key), "{what} root uses {key}");
+        }
+        // Every reference names a whole definition, so resolving a name resolves the pointer.
+        let mut all = Vec::new();
+        refs_in(root, &mut all);
+        assert!(!all.is_empty(), "{what}");
+        for r in &all {
+            let name = r
+                .strip_prefix("#/$defs/")
+                .unwrap_or_else(|| panic!("{what}: {r}"));
+            assert!(
+                !name.contains(['/', '~', '%']),
+                "{what}: {r} is not a plain definition name"
+            );
+        }
+    }
+    let mut kept = 0;
+    for tool in catalog() {
+        for ((what, root), schema) in roots.iter().zip([&tool.input_schema, &tool.output_schema]) {
+            let root_defs = root["$defs"].as_object().unwrap();
+            let defs = schema
+                .get("$defs")
+                .map(|d| d.as_object().unwrap().clone())
+                .unwrap_or_default();
+            assert!(
+                schema.get("$defs").is_none() || !defs.is_empty(),
+                "{} {what}: an empty $defs",
+                tool.name
+            );
+            for (name, def) in &defs {
+                assert_eq!(
+                    Some(def),
+                    root_defs.get(name),
+                    "{} {what}: {name} differs from the root's",
+                    tool.name
+                );
+            }
+            // Walk from the fields: what is reached must be exactly what is kept.
+            let mut fields = schema.clone();
+            fields.as_object_mut().unwrap().remove("$defs");
+            let mut pending = Vec::new();
+            refs_in(&fields, &mut pending);
+            let mut reached = std::collections::BTreeSet::new();
+            while let Some(r) = pending.pop() {
+                let name = r.strip_prefix("#/$defs/").unwrap().to_owned();
+                let def = defs
+                    .get(&name)
+                    .unwrap_or_else(|| panic!("{} {what}: {r} does not resolve", tool.name));
+                if reached.insert(name) {
+                    refs_in(def, &mut pending);
+                }
+            }
+            assert_eq!(
+                reached,
+                defs.keys().cloned().collect(),
+                "{} {what}: a kept definition nothing reaches",
+                tool.name
+            );
+            kept += defs.len();
+        }
+    }
+    assert!(kept > 100, "{kept}");
+}
+
+/// The instances to compare two schemas on: the example itself, then one unknown field added,
+/// each required field removed, and each field replaced by a value of every JSON type.
+fn mutations(instance: &serde_json::Value, schema: &serde_json::Value) -> Vec<serde_json::Value> {
+    use serde_json::json;
+    let object = instance.as_object().unwrap();
+    let mut out = vec![instance.clone()];
+    let mut extra = object.clone();
+    extra.insert("x_unknown_field".into(), json!(1));
+    out.push(extra.into());
+    for required in schema["required"].as_array().into_iter().flatten() {
+        let mut less = object.clone();
+        less.remove(required.as_str().unwrap());
+        out.push(less.into());
+    }
+    let others = [
+        json!(null),
+        json!(true),
+        json!(-1),
+        json!(0.5),
+        json!("x"),
+        json!([]),
+        json!([1, "x"]),
+        json!({}),
+        json!({ "x_unknown_field": 1 }),
+    ];
+    for field in object.keys() {
+        for other in &others {
+            let mut changed = object.clone();
+            changed.insert(field.clone(), other.clone());
+            out.push(changed.into());
+        }
+    }
+    out
+}
+
+/// A tool schema validates what it did when it carried the whole root `$defs` (before #559):
+/// every example's input and output, and the variants of each that `mutations` builds, get the
+/// same verdict from both through a JSON Schema 2020-12 validator (the draft schemars writes).
+#[test]
+fn trimmed_tool_schemas_validate_the_examples_as_the_whole_definitions_did() {
+    let tools: std::collections::HashMap<String, commands::ToolSpec> =
+        catalog().into_iter().map(|t| (t.name.clone(), t)).collect();
+    let roots = [commands::schema(), commands::output_schema()];
+    assert_eq!(
+        roots[0]["$schema"], "https://json-schema.org/draft/2020-12/schema",
+        "the validator below is pinned to draft 2020-12"
+    );
+    // The schema of a tool as `catalog` built it before #559: the same fields, every definition.
+    let whole = |schema: &serde_json::Value, root: &serde_json::Value| {
+        let mut s = schema.clone();
+        s["$defs"] = root["$defs"].clone();
+        s
+    };
+    let validator = |schema: &serde_json::Value| {
+        jsonschema::draft202012::new(schema).unwrap_or_else(|e| panic!("{e}: {schema}"))
+    };
+    let mut cache = std::collections::HashMap::new();
+    let (mut compared, mut refused) = (0, 0);
+    let mut refused_examples = Vec::new();
+    for (command, from) in examples() {
+        let name = command.name();
+        let tool = &tools[name];
+        let outcome = command.apply(&mut from.clone(), &mut context()).unwrap();
+        let mut input = serde_json::to_value(&command).unwrap();
+        let mut output = serde_json::to_value(&outcome.output).unwrap();
+        for value in [&mut input, &mut output] {
+            value.as_object_mut().unwrap().remove("type");
+        }
+        let sides = [
+            ("input", &input, &tool.input_schema, &roots[0]),
+            ("output", &output, &tool.output_schema, &roots[1]),
+        ];
+        for (side, instance, schema, root) in sides {
+            let (before, after) = cache
+                .entry((name, side))
+                .or_insert_with(|| (validator(&whole(schema, root)), validator(schema)));
+            for (i, case) in mutations(instance, schema).into_iter().enumerate() {
+                let verdict = before.is_valid(&case);
+                assert_eq!(verdict, after.is_valid(&case), "{name} {side}: {case}");
+                match i {
+                    0 if !verdict => refused_examples.push((name, side)),
+                    1 => assert!(!verdict, "{name} {side}: an unknown field passes: {case}"),
+                    _ => {}
+                }
+                compared += 1;
+                refused += usize::from(!verdict);
+            }
+        }
+    }
+    // Known defects of the schemas, the same before and after #559: a required `Option` field
+    // whose schema lost `null` (#561). Remove an entry when its schema is fixed.
+    assert_eq!(
+        refused_examples,
+        [("view.select_track", "input"), ("track.set_color", "input")],
+        "examples their own tool schema refuses"
+    );
+    assert_eq!(cache.len(), 2 * tools.len(), "a tool without an example");
+    println!("{compared} instances compared, {refused} refused by both schemas");
+    assert!(
+        refused > 1000 && compared - refused > 1000,
+        "{compared} compared, {refused} refused"
+    );
+}

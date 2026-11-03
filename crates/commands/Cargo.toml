@@ -23,3 +23,6 @@ project = { path = "../project" }
 [dev-dependencies]
 # The crate itself with `testing` on, so that its tests have an effect to insert.
 commands = { path = ".", features = ["testing"] }
+# Validates the contract examples against the MCP tool schemas (#559). No default features:
+# no HTTP or file resolution of references, which the tests never need.
+jsonschema = { version = "0.60.2", default-features = false }
