@@ -126,8 +126,8 @@ test('the timeline: a clip from the cursor, and Enter opens the piano roll on th
   const cursor = page.getByTestId('arr-cursor')
   await expect(cursor).toBeFocused()
   await expect(cursor).toHaveAccessibleName(/^Cursor, .+, bar 1$/)
-  // Up to the first track. With the snap on Auto (a 1/32 at the default zoom), Right still goes by a beat at least.
-  await page.keyboard.press('ArrowUp')
+  // Up to the first track (the cursor starts on the second one; one more Up would reach the ruler row, #554). With the snap on Auto
+  // (a 1/32 at the default zoom), Right still goes by a beat at least.
   await page.keyboard.press('ArrowUp')
   await expect(cursor).toHaveAttribute('data-row', '0')
   await page.keyboard.press('ArrowRight')

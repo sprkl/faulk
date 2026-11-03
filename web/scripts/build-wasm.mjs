@@ -3,14 +3,20 @@
 // shared memory, link arguments in .cargo/config.toml) and the page's project and commands
 // (crates/project-wasm, for wasm32-unknown-unknown).
 import { execFileSync } from 'node:child_process'
-import { copyFileSync, mkdirSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { withTargetLock } from './target-lock.mjs'
+import { stripNames } from './wasm-names.mjs'
 
 const root = fileURLToPath(new URL('../..', import.meta.url))
 const lib = fileURLToPath(new URL('../src/lib/', import.meta.url))
 const cargo = process.env.CARGO ?? 'cargo'
+// `--strip-names` (the production build, `pnpm build`): the copies next to the loaders lose their "name" section, the
+// function names of stack traces (#248). `pnpm dev`, `pnpm test` and `pnpm build:wasm` keep them, so an error in
+// development names the function. The cargo output is the same either way: only the copy changes, and `postbuild`
+// copies the named modules back, so the dev server and the e2e specs that follow a build still read them.
+const strip = process.argv.includes('--strip-names')
 
 // Where cargo puts its output: `target/` of the checkout, or what CARGO_TARGET_DIR, CARGO_BUILD_TARGET_DIR
 // or `build.target-dir` say (a build cache shared by several checkouts). Cargo itself answers.
@@ -30,7 +36,8 @@ for (const { crate, target, file, out } of builds) {
   withTargetLock(targetDir, () => {
     execFileSync(cargo, ['build', '-q', '-p', crate, '--release', '--target', target], { cwd: root, stdio: 'inherit' })
     mkdirSync(dirname(lib + out), { recursive: true })
-    copyFileSync(join(targetDir, target, 'release', file), lib + out)
+    const built = readFileSync(join(targetDir, target, 'release', file))
+    writeFileSync(lib + out, strip ? stripNames(built) : built)
   })
-  console.log(`built src/lib/${out}`)
+  console.log(`built src/lib/${out}${strip ? ' (names stripped)' : ''}`)
 }

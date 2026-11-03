@@ -89,6 +89,8 @@ export class UiStore {
   keyLayout = $state.raw<KeyLayout | null>(null)
   /** The shortcut list is open (#474). Page state, not project state. */
   helpOpen = $state(false)
+  /** The "Go to" field (#554) is open: a bar, or a bar and a beat, to put the playhead on. Page state, not project state. */
+  gotoOpen = $state(false)
   /** The context menu that is open (#524): one at a time, drawn by the shell. Page state, not project state. */
   contextMenu = $state.raw<OpenMenu | null>(null)
 
