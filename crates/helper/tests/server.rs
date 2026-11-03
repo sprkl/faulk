@@ -949,7 +949,7 @@ async fn the_inputs_notes_play_on_the_engine_with_the_pages_table_and_still_reac
     assert_eq!(next_midi(&mut ws).await, (vec![0x90, 60, 100], false));
     assert_eq!(play(&mut h.core, 50), 0);
     h.midi.receive(&[0x80, 60, 0]);
-    assert_eq!(next_midi(&mut ws).await.1, false);
+    assert!(!next_midi(&mut ws).await.1);
 
     // With the page's table, a key sounds at once, without a stream of the page.
     let table = routing(&page);
@@ -971,7 +971,7 @@ async fn the_inputs_notes_play_on_the_engine_with_the_pages_table_and_still_reac
     // A table of another epoch is ignored: the previous one (no track) stays.
     route(&mut ws, page.0.epoch().wrapping_add(1), vec![0]).await;
     h.midi.receive(&[0x90, 62, 100]);
-    assert_eq!(next_midi(&mut ws).await.1, true);
+    assert!(next_midi(&mut ws).await.1);
     assert_eq!(play(&mut h.core, 50), 0, "the ignored table played nothing");
     h.midi.receive(&[0x80, 62, 0]);
     // A control change is the page's.

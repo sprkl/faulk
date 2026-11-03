@@ -85,7 +85,9 @@ fn controller_to_sound_in_boost() {
     let mut controller = loopback().unwrap_or(Controller::Direct);
     let source = match &controller {
         Controller::Loopback { .. } => "through a MIDI loopback",
-        Controller::Direct => "no MIDI loopback seen: handed to the helper's input (MIDI driver left out)",
+        Controller::Direct => {
+            "no MIDI loopback seen: handed to the helper's input (MIDI driver left out)"
+        }
     };
     let mut report = Vec::new();
     for (path, busy) in [

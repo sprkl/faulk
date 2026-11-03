@@ -27,8 +27,13 @@ use std::sync::{Arc, Mutex};
 /// What a MIDI message means for the live input.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Note {
-    On { note: u8, velocity: u8 },
-    Off { note: u8 },
+    On {
+        note: u8,
+        velocity: u8,
+    },
+    Off {
+        note: u8,
+    },
     /// Control change 120 (all sound off) or 123 (all notes off).
     AllOff,
     /// Anything else (other control changes, pitch bend...): not a note.
@@ -88,8 +93,7 @@ impl LiveInput {
     /// kept) when that engine is not the open one, when `epoch` is not its epoch, or when
     /// `tracks` holds more tracks than an engine can. Returns whether it was taken.
     pub fn set_routing(&self, generation: u64, epoch: u16, tracks: Vec<u32>) -> bool {
-        if tracks.len() > MAX_TRACKS as usize
-            || self.engine.current() != Some((generation, epoch))
+        if tracks.len() > MAX_TRACKS as usize || self.engine.current() != Some((generation, epoch))
         {
             return false;
         }
