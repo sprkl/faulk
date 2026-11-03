@@ -141,6 +141,30 @@ test('piano roll: the right click on a note opens its actions, the keyboard reac
   expect(seen.errors).toEqual([])
 })
 
+// #583: the global `.label` class (uppercase, 11 px) must not leak into the entries of the shared menu.
+test('the entries of the menu keep the case and the size of the body text', async ({ page }) => {
+  const seen = await openRoll(page)
+  await page.getByTestId('roll-snap').selectOption('off')
+  const g = await spot(page)
+  await page.mouse.click(g.x(130), g.y(60))
+  await page.mouse.click(g.x(130 + 20), g.y(60), { button: 'right' })
+  await expect(page.getByTestId('ctx-quantize')).toBeVisible()
+  const looks = await menu(page).evaluate((root) =>
+    [...root.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((button) => {
+      const span = button.querySelector<HTMLElement>('span')!
+      const style = getComputedStyle(span)
+      return { transform: style.textTransform, size: style.fontSize, buttonSize: getComputedStyle(button).fontSize, spacing: style.letterSpacing }
+    }),
+  )
+  expect(looks.length).toBeGreaterThan(0)
+  for (const look of looks) {
+    expect(look.transform).not.toBe('uppercase')
+    expect(look.size).toBe(look.buttonSize)
+    expect(look.spacing).toBe('normal')
+  }
+  expect(seen.errors).toEqual([])
+})
+
 test('the menu is in French when the page is', async ({ page }) => {
   const seen = await openRoll(page, 'fr')
   await page.getByTestId('roll-snap').selectOption('off')
