@@ -50,6 +50,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         ],
       },
       { label: 'shortcut.panel', chords: [['Alt', 'M']] },
+      { label: 'shortcut.tap', chords: [['Alt', 'T']] },
       { label: 'shortcut.help', chords: [['?']] },
       { label: 'shortcut.goTo', chords: [['Mod', 'G']] },
       { label: 'shortcut.tab', chords: [['Tab'], ['Shift', 'Tab']], covers: ['Tab'] },
@@ -200,7 +201,10 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       { label: 'shortcut.sliderBig', chords: [['Page Up'], ['Page Down'], ['Home'], ['End']], covers: ['PageUp', 'PageDown'] },
       { label: 'shortcut.sliderDefault', chords: [['Delete']] },
       { label: 'shortcut.sliderType', chords: [['Enter']] },
-      { label: 'shortcut.tempo', chords: [['↑'], ['↓'], ['Enter']] },
+      {
+        label: 'shortcut.tempo',
+        chords: [['↑'], ['↓'], ['Shift', '↑'], ['Shift', '↓'], ['Enter']],
+      },
     ],
   },
 ]
