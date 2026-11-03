@@ -544,6 +544,7 @@ pub fn channel_with(
         overflow_seen: 0,
         live_block: Table::try_with_capacity(limits::LIVE_QUEUE_CAPACITY)?,
         release_live: false,
+        host_origin: 0,
         applied: 0,
         skipped: 0,
         leaked: 0,
@@ -1607,12 +1608,14 @@ fn live_event(msg: &ControlMsg) -> Option<LiveEvent> {
             track,
             pitch,
             velocity,
+            at,
         } => Some(LiveEvent::NoteOn {
             track,
             pitch,
             velocity,
+            at,
         }),
-        ControlMsg::NoteOff { track, pitch } => Some(LiveEvent::NoteOff { track, pitch }),
+        ControlMsg::NoteOff { track, pitch, at } => Some(LiveEvent::NoteOff { track, pitch, at }),
         ControlMsg::AllNotesOff { track } => Some(LiveEvent::AllNotesOff { track }),
         _ => None,
     }
@@ -1704,6 +1707,9 @@ pub struct Engine {
     overflow_seen: u32,
     live_block: Table<LiveEvent>,
     release_live: bool,
+    /// The host's frame minus the engine's sample, at the start of the next block (#499,
+    /// [`Engine::set_host_frame`]): 0 until a host gives its clock.
+    host_origin: i64,
     applied: u64,
     skipped: u32,
     leaked: u32,
@@ -1841,6 +1847,8 @@ impl Engine {
                     sample: self.transport.total_samples(),
                     samples_per_tick: self.transport.samples_per_tick(),
                     frames,
+                    anchors: self.transport.anchors(),
+                    rate: f64::from(self.transport.sample_rate().hz()),
                 },
                 live,
                 first && self.release_live,
@@ -2113,11 +2121,46 @@ impl Engine {
         while !self.live_block.is_full() {
             let Ok(event) = self.live.pop() else { break };
             // Room was checked just above: the push cannot fail.
-            let _ = self.live_block.push(event);
+            let _ = self.live_block.push(self.to_engine_time(event));
         }
         let total = self.overflow.total();
         self.release_live = total != self.overflow_seen;
         self.overflow_seen = total;
+    }
+
+    /// Tells the engine the host's frame of the first sample of the next block (#499): the
+    /// web worklet passes the audio context's `currentFrame` before each block. A live note's
+    /// stamp is a host frame; the engine turns it into its own sample counter with this. A
+    /// host that never calls it has the engine's sample counter as its clock.
+    pub fn set_host_frame(&mut self, frame: u64) {
+        let origin = i128::from(frame) - i128::from(self.transport.total_samples());
+        self.host_origin = origin.clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64;
+    }
+
+    /// A live event with its stamp turned from a host frame into an engine sample (`None`
+    /// when it falls before the engine's first sample).
+    fn to_engine_time(&self, event: LiveEvent) -> LiveEvent {
+        let origin = i128::from(self.host_origin);
+        let convert = |at: Option<u64>| at.and_then(|h| u64::try_from(i128::from(h) - origin).ok());
+        match event {
+            LiveEvent::NoteOn {
+                track,
+                pitch,
+                velocity,
+                at,
+            } => LiveEvent::NoteOn {
+                track,
+                pitch,
+                velocity,
+                at: convert(at),
+            },
+            LiveEvent::NoteOff { track, pitch, at } => LiveEvent::NoteOff {
+                track,
+                pitch,
+                at: convert(at),
+            },
+            other => other,
+        }
     }
 
     /// `Engine::apply` of the spec: applies one rt message on the audio path. No

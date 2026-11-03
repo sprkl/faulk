@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // UI-1 (#105): the app shell's navigation in a real browser. The views to visit come from the
 // registry's source (`src/views/registry.ts`, parsed because Playwright cannot import the .svelte
@@ -71,7 +71,7 @@ for (const lang of ['en', 'fr'] as const) {
 
       // Audio: the top bar's button, then the engine state shows the mode.
       await page.getByTestId('engine-state').getByRole('button').click()
-      await expect(page.getByTestId('engine-mode')).toBeVisible()
+      await engineUp(page)
       await expect(page.getByTestId('voices')).toBeVisible()
 
       for (const id of main) {

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // SV-2 (#95): what the automatic save costs on a project of some size, and whether it holds up the
 // page while the engine plays. Dev project only (it builds the project through the dispatcher's
@@ -26,13 +26,13 @@ async function simulatePicker(page: Page, name: string) {
   }, name)
 }
 
-test('the automatic save of a medium project: its cost, and the page and the audio meanwhile', async ({ page }) => {
+test('the automatic save of a medium project: its cost, and the page and the audio meanwhile @full', async ({ page }) => {
   test.setTimeout(120_000)
   const { errors } = watch(page)
   await simulatePicker(page, 'song-medium')
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   const hooks = await page.evaluate(() => typeof (window as unknown as Partial<Hooks>).__faulkRun)
   test.skip(hooks !== 'function', 'the dispatcher hook exists in the dev server only')
 
@@ -98,16 +98,18 @@ test('the automatic save of a medium project: its cost, and the page and the aud
 
   const costs: { coreMs: number; writeMs: number; files: number; bytes: number }[] = []
   for (let i = 0; i < 5; i++) {
-    // One note, as an edit while playing: the autosave writes the one file that changed.
-    await page.evaluate(() => {
+    // One note, as an edit while playing: the autosave writes the one file that changed. A distinct note each time: the
+    // same note again (a random start drew it twice in about 2% of runs, #539) is "unchanged", nothing is written, and
+    // the wait below times out.
+    await page.evaluate((index) => {
       const w = window as unknown as Hooks & { __lastBefore: unknown }
       // `__faulkWrite()` is a new object for each write: the save of this edit is the first one after this point.
       w.__lastBefore = w.__faulkWrite()
       const view = w.__faulkView()
       const track = Object.keys(view.project.tracks).find((id) => Object.keys(view.project.tracks[id]!.clips).length > 0)!
       const clip = Object.keys(view.project.tracks[track]!.clips)[0]!
-      w.__faulkRun({ type: 'clip.notes.add', clip, notes: [{ start: 3000 + Math.floor(Math.random() * 500), pitch: 40, length: 12, velocity: 90 }] })
-    })
+      w.__faulkRun({ type: 'clip.notes.add', clip, notes: [{ start: 3000 + index * 20, pitch: 40, length: 12, velocity: 90 }] })
+    }, i)
     // Not "Unsaved changes" first: that state lasts only the autosave delay, and a loaded machine can take longer than
     // that to get from the edit to the check (#493). A new write is what proves the edit was saved, whenever it ran.
     await expect

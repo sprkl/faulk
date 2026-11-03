@@ -94,6 +94,7 @@ impl Rig {
             track: TrackSlot(track),
             pitch,
             velocity: 100,
+            at: None,
         }]);
     }
 
@@ -101,6 +102,7 @@ impl Rig {
         self.send(&[M::NoteOff {
             track: TrackSlot(track),
             pitch,
+            at: None,
         }]);
     }
 
@@ -384,10 +386,12 @@ fn the_report_carries_the_take_its_count_its_last_notes_and_whether_it_captures(
                     track: TrackSlot(0),
                     pitch,
                     velocity: 90,
+                    at: None,
                 },
                 M::NoteOff {
                     track: TrackSlot(0),
                     pitch,
+                    at: None,
                 },
             ],
         );
@@ -448,6 +452,7 @@ fn an_all_notes_off_closes_its_track_and_an_overflow_closes_every_note() {
         let _ = rig.p.handle(M::NoteOff {
             track: TrackSlot(1),
             pitch: (i % 128) as u8,
+            at: None,
         });
     }
     rig.blocks(2);

@@ -15,7 +15,7 @@ class FakeInput implements MidiInputLike {
     this.closed = true
   }
   play(...bytes: number[]) {
-    this.onmidimessage?.({ data: new Uint8Array(bytes) })
+    this.onmidimessage?.({ data: new Uint8Array(bytes), timeStamp: 1000 + bytes[1] })
   }
 }
 
@@ -28,10 +28,13 @@ function setup() {
     inputs: { forEach: (cb) => map.forEach((v) => cb(v)), get: (id) => map.get(id) },
     onstatechange: null,
   }
-  const log = { inputs: [] as [MidiInput[], string | null][], commands: [] as Command[], activity: [] as number[][] }
+  const log = { inputs: [] as [MidiInput[], string | null][], commands: [] as Command[], stamps: [] as (number | undefined)[], activity: [] as number[][] }
   const host = new WebMidiHost({
     onInputs: (inputs, selected) => log.inputs.push([inputs, selected]),
-    onCommand: (c) => log.commands.push(c),
+    onCommand: (c, timeStamp) => {
+      log.commands.push(c)
+      log.stamps.push(timeStamp)
+    },
     onActivity: (n, v) => log.activity.push([n, v]),
   })
   return { map, access, log, host }
@@ -54,6 +57,8 @@ describe('WebMidiHost', () => {
     map.get('b')!.play(0x90, 61, 100) // not selected: ignored
     map.get('a')!.play(0x80, 60, 0)
     expect(log.commands).toEqual([inputNoteOn(60, 100), inputNoteOff(60)])
+    // With the time of the MIDI message, for the recording (#499).
+    expect(log.stamps).toEqual([1060, 1060])
     expect(log.activity).toEqual([
       [60, 100],
       [60, 0],

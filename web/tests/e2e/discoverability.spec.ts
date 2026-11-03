@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #474: the shortcut list ("?" button and key), the guide of the empty timeline, errors that say what to do
 // (the tempo's range, an import that names the project and offers to open it), one banner at a time, and the
@@ -13,7 +13,7 @@ const dialog = (page: Page) => page.getByTestId('shortcuts-dialog')
 
 async function start(page: Page) {
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
 }
 
 async function addTrack(page: Page, item: string) {

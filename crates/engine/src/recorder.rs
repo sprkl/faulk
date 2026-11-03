@@ -15,9 +15,8 @@
 //! # What it captures
 //!
 //! The live events of the block ([`LiveEvent`], the live queue) on an **armed** MIDI track
-//! (`Track::armed`): a note on opens a held note at the playhead of the start of the block
-//! (the events of a block are applied at its start, so a note is stamped to the block: 128
-//! frames, 2.7 ms at 48 kHz), a note off closes it whether the track is still armed or not
+//! (`Track::armed`): a note on opens a held note at the playhead of the sample it was played
+//! at (below), a note off closes it whether the track is still armed or not
 //! (disarming a track during a note does not leave it held), and a note off of a key that
 //! is not held (pressed before the capture) is ignored. A second press of a held key closes
 //! the first one: a key is held once, so a lost note off never fills the table. The length is measured in samples since
@@ -26,6 +25,33 @@
 //! held note converts the whole length at the new tempo). An all-notes-off, a live-queue overflow (the release of every
 //! live note) and the end of the capture close the held notes at the start of their block:
 //! the notes still held when a take ends are cut there (spec § 11, question 7).
+//!
+//! # The sample a note was played at (#499)
+//!
+//! A live note carries the engine sample it was played at when its host gave one
+//! (`LiveEvent::NoteOn::at`, the host frame converted by `Engine::begin_block`). By the time
+//! it reaches the engine the block that takes it has usually moved past that sample (the
+//! note crossed the page, the prepare side and the live queue), so the recorder places it
+//! behind the block, at the playhead of that sample ([`Anchors`]: across a loop wrap or a
+//! tempo change too). A stamp may also lie ahead of the block: the web page stamps the frame
+//! heard at the key press plus the estimated output latency (the take is moved back by the
+//! same estimate, `record.commit_take`'s `shift_ms`), and when the estimate is larger than
+//! how far the rendering really runs ahead of the output (measured 31 to 42 ms against an
+//! estimate of 42 ms in Chromium on Windows, #499), the stamp is a few milliseconds ahead;
+//! it is placed there, by the current anchor. The sample it uses ([`Recorder::sample_of`]):
+//!
+//! - a stamp inside the block, or ahead of it by at most [`MAX_STAMP_DISTANCE_SECONDS`]: the stamp;
+//! - a stamp behind the block by at most [`MAX_STAMP_DISTANCE_SECONDS`]: the stamp, but never
+//!   before the take began (a note played during the count-in or before the take counts
+//!   from the take's first sample, as it did before stamps) nor before the oldest sample the
+//!   clock's anchors cover (the last `Play` or `Seek`);
+//! - no stamp, or a stamp further than that either way (a stalled page, a clock that means
+//!   nothing here): the start of the block, as before stamps existed (128 frames of
+//!   uncertainty, 2.7 ms at 48 kHz, plus the time the note took to arrive).
+//!
+//! A note's length is the samples between the samples of its note on and its note off.
+//! Only the recording uses the stamp: the note sounds at the start of the block that takes
+//! it, stamped or not (`crate::graph`, `route_live`).
 //!
 //! # Where the notes go
 //!
@@ -43,6 +69,11 @@ use crate::msg::{
     LiveEvent, MAX_RECORDED_PER_REPORT, MsgError, Note, RecordedNote, Table, TrackKind, TrackSlot,
 };
 use crate::time::Tick;
+use crate::transport::Anchors;
+
+/// How far from its block, behind or ahead, a stamped note may have been played and still be
+/// placed at its stamp (module doc): further, it counts from the start of its block.
+pub const MAX_STAMP_DISTANCE_SECONDS: f64 = 1.0;
 
 /// Keys held at once on the armed tracks that the recorder follows.
 pub const MAX_HELD: usize = 256;
@@ -87,6 +118,10 @@ pub struct RecordClock {
     pub samples_per_tick: f64,
     /// Frames of the block.
     pub frames: usize,
+    /// The clock's anchors, read after the block's segments were taken (#499).
+    pub anchors: Anchors,
+    /// The sample rate, in Hz: how many samples [`MAX_STAMP_DISTANCE_SECONDS`] is.
+    pub rate: f64,
 }
 
 impl RecordClock {
@@ -111,6 +146,10 @@ pub struct Recorder {
     capturing: bool,
     /// The cue a count-in leads to: capture waits until the playhead reaches it.
     count_in_to: Option<i64>,
+    /// The first sample of the take in progress: no stamp places a note before it.
+    take_from: u64,
+    /// Stamped events of the take whose stamp could not be used (module doc).
+    unplaced: u32,
 }
 
 impl Recorder {
@@ -124,6 +163,8 @@ impl Recorder {
             dropped: 0,
             capturing: false,
             count_in_to: None,
+            take_from: 0,
+            unplaced: 0,
         })
     }
 
@@ -150,6 +191,13 @@ impl Recorder {
     /// Notes finished in the current take.
     pub fn total(&self) -> u32 {
         self.total
+    }
+
+    /// Stamped note ons and note offs of the current take whose stamp was not usable (older
+    /// than [`MAX_STAMP_DISTANCE_SECONDS`] from their block, either way): they counted from the start of
+    /// their block (module doc).
+    pub fn unplaced(&self) -> u32 {
+        self.unplaced
     }
 
     /// Notes of the current take lost because the held table was full.
@@ -194,6 +242,8 @@ impl Recorder {
                 held.used = false;
             }
             self.capturing = true;
+            self.take_from = clock.sample;
+            self.unplaced = 0;
         } else if !on && self.capturing {
             self.close_all(None, clock);
             self.capturing = false;
@@ -207,14 +257,19 @@ impl Recorder {
                     track,
                     pitch,
                     velocity,
+                    at,
                 } => {
+                    let at = self.placed(at, clock);
                     // The note's previous press is closed first: a key is held once.
-                    self.close(track.0, pitch, clock);
+                    self.close(track.0, pitch, at, clock);
                     if velocity > 0 && armed(state, track) {
-                        self.open(track.0, pitch, velocity, clock);
+                        self.open(track.0, pitch, velocity, at, clock);
                     }
                 }
-                LiveEvent::NoteOff { track, pitch } => self.close(track.0, pitch, clock),
+                LiveEvent::NoteOff { track, pitch, at } => {
+                    let at = self.placed(at, clock);
+                    self.close(track.0, pitch, at, clock);
+                }
                 LiveEvent::AllNotesOff { track } => self.close_all(Some(track.0), clock),
             }
         }
@@ -223,8 +278,39 @@ impl Recorder {
         }
     }
 
-    fn open(&mut self, track: u32, pitch: u8, velocity: u8, clock: RecordClock) {
-        let start = clock.position.floor();
+    /// The sample a live event counts from (module doc, "The sample a note was played at"):
+    /// its stamp when it is usable, `None` (the start of the block) otherwise.
+    pub fn sample_of(&self, at: Option<u64>, clock: RecordClock) -> Option<u64> {
+        let at = at?;
+        let start = clock.sample;
+        let bound = MAX_STAMP_DISTANCE_SECONDS * clock.rate;
+        if at >= start {
+            return ((at - start) as f64 <= bound).then_some(at);
+        }
+        if (start - at) as f64 > bound {
+            return None;
+        }
+        Some(at.max(self.take_from).max(clock.anchors.earliest()))
+    }
+
+    /// [`Recorder::sample_of`], counting a stamp it cannot use.
+    fn placed(&mut self, at: Option<u64>, clock: RecordClock) -> Option<u64> {
+        let sample = self.sample_of(at, clock);
+        if at.is_some() && sample.is_none() {
+            self.unplaced = self.unplaced.saturating_add(1);
+        }
+        sample
+    }
+
+    /// The playhead, in fractional ticks, at the sample an event counts from: the block's
+    /// own playhead for one without a usable stamp, as before stamps existed.
+    fn position_of(at: Option<u64>, clock: RecordClock) -> f64 {
+        at.and_then(|s| clock.anchors.position_of(s))
+            .unwrap_or(clock.position)
+    }
+
+    fn open(&mut self, track: u32, pitch: u8, velocity: u8, at: Option<u64>, clock: RecordClock) {
+        let start = Self::position_of(at, clock).floor();
         let start = if start.is_finite() {
             start.clamp(i64::MIN as f64, i64::MAX as f64) as i64
         } else {
@@ -238,14 +324,14 @@ impl Recorder {
                     pitch,
                     velocity,
                     start,
-                    from: clock.sample,
+                    from: at.unwrap_or(clock.sample),
                 };
             }
             None => self.dropped = self.dropped.saturating_add(1),
         }
     }
 
-    fn close(&mut self, track: u32, pitch: u8, clock: RecordClock) {
+    fn close(&mut self, track: u32, pitch: u8, at: Option<u64>, clock: RecordClock) {
         let mut found = None;
         for (i, h) in self.held.as_slice().iter().enumerate() {
             if h.used && h.track == track && h.pitch == pitch {
@@ -254,7 +340,7 @@ impl Recorder {
             }
         }
         if let Some(i) = found {
-            self.finish(i, clock);
+            self.finish(i, at.unwrap_or(clock.sample), clock);
         }
     }
 
@@ -262,19 +348,19 @@ impl Recorder {
         for i in 0..self.held.len() {
             let held = self.held.as_slice().get(i).copied().unwrap_or_default();
             if held.used && track.is_none_or(|t| t == held.track) {
-                self.finish(i, clock);
+                self.finish(i, clock.sample, clock);
             }
         }
     }
 
-    /// Ends the held note `i` at the start of this block and puts it in the ring.
-    fn finish(&mut self, i: usize, clock: RecordClock) {
+    /// Ends the held note `i` at the absolute sample `at` and puts it in the ring.
+    fn finish(&mut self, i: usize, at: u64, clock: RecordClock) {
         let Some(held) = self.held.as_mut_slice().get_mut(i) else {
             return;
         };
         let h = *held;
         held.used = false;
-        let samples = clock.sample.saturating_sub(h.from) as f64;
+        let samples = at.saturating_sub(h.from) as f64;
         let ticks = if clock.samples_per_tick > 0.0 {
             (samples / clock.samples_per_tick).round()
         } else {

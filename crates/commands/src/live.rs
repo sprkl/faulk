@@ -52,13 +52,19 @@ domain! {
     /// is a MIDI note number, 0 to 127 (60 = middle C); `velocity` 1 to 127, 0 acts as a
     /// note off. Release it with `live.input_note_off`, which reaches the same tracks
     /// whatever was selected or armed meanwhile. The output lists the tracks it went to.
-    /// Played live: not undoable, not saved.
+    /// `frame` (optional) is when the key was played, as a frame of the host's audio clock
+    /// (in the web page, the frame of its audio context; a host without such a clock counts
+    /// the engine's samples): a recording places the note at that frame. Without it, or
+    /// with a frame more than a second away from the engine's, the note counts from when
+    /// the engine takes it. It never delays the sound. Played live: not undoable, not saved.
     "live.input_note_on" (kind = "live", undo = "none", destructive = false)
     InputNoteOn {
         #[schemars(range(max = 127))]
         note: u8,
         #[schemars(range(max = 127))]
         velocity: u8,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        frame: Option<u64>,
     } => {
         /// The tracks the note is routed to; empty when no MIDI track is selected or armed.
         /// A track the engine has no room for is listed but plays nothing.
@@ -66,12 +72,15 @@ domain! {
     };
 
     /// Release a note started with `live.input_note_on`: on the tracks that note went
-    /// to, even if the selection or the arming changed since. Played live: not undoable,
-    /// not saved.
+    /// to, even if the selection or the arming changed since. `frame` (optional) is when
+    /// the key was released, as for `live.input_note_on`. Played live: not undoable, not
+    /// saved.
     "live.input_note_off" (kind = "live", undo = "none", destructive = false)
     InputNoteOff {
         #[schemars(range(max = 127))]
         note: u8,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        frame: Option<u64>,
     } => {
         /// The tracks the note was released on; empty when it was not held.
         tracks: Vec<TrackId>,
@@ -129,7 +138,7 @@ pub fn apply(
         }
         Command::AllNotesOff {} => Output::AllNotesOff {},
         Command::AllSoundOff {} => Output::AllSoundOff {},
-        Command::InputNoteOn { note, velocity } => {
+        Command::InputNoteOn { note, velocity, .. } => {
             check_midi("note", *note)?;
             check_midi("velocity", *velocity)?;
             // Velocity 0 is a note off: it goes where the note is held.
@@ -140,7 +149,7 @@ pub fn apply(
             };
             Output::InputNoteOn { tracks }
         }
-        Command::InputNoteOff { note } => {
+        Command::InputNoteOff { note, .. } => {
             check_midi("note", *note)?;
             Output::InputNoteOff {
                 tracks: released(&ctx.engine, *note),

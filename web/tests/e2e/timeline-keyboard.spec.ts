@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #471: the timeline and the piano roll from the keyboard and for a screen reader. The canvas has named cells over it
 // (a grid, one cell in the tab order); the arrows move between clips or notes, Shift+arrows extend the selection,
@@ -23,7 +23,7 @@ async function start(page: Page) {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
-  await expect(page.getByTestId('engine-mode')).toContainText('Web')
+  await engineUp(page, 'Web')
   for (let i = 0; i < 2; i++) {
     await page.getByTestId('add-track').click()
     await page.getByTestId('add-track-menu').getByRole('menuitem', { name: 'Drums', exact: true }).click()

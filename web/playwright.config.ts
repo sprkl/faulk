@@ -35,6 +35,9 @@ const onGrid = (origin: string) => ({ cookies: [], origins: [{ origin, localStor
 
 export default defineConfig({
   testDir: 'tests/e2e',
+  // Above the boot ceiling (`BOOT` in tests/e2e/support.ts, 30 s): a default test of 30 s would cut it short (#539).
+  // A test that waits for the engine twice or does more sets its own.
+  timeout: 90_000,
   workers: 1,
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),

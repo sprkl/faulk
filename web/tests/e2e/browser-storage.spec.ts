@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { BOOT, engineUp, watch } from './support'
 
 // SV-3 (#96): the browser's own storage (the OPFS) in a real browser. A project with no folder is a
 // draft there, offered again after a reload; where the browser has no folder to offer it is the
@@ -22,7 +22,7 @@ async function addTrack(page: Page, item: string) {
 
 async function start(page: Page) {
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
 }
 
 /** The page's `showDirectoryPicker` hands back the OPFS directory `name`. */
@@ -192,7 +192,7 @@ test.describe('a draft before a folder is chosen', () => {
     await expect(page.getByTestId('storage-notice')).toContainText('is open')
   })
 
-  test('French: the state is in French', async ({ page }) => {
+  test('French: the state is in French @full', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('faulk.lang', 'fr'))
     await page.setViewportSize({ width: 1440, height: 900 })
     await simulatePicker(page, 'song-fr-draft')
@@ -397,7 +397,7 @@ test.describe('the project of last time would not reopen (#504)', () => {
     const reloadedErrors = watch(reloaded).errors
     await reloaded.goto('/app')
     const notice = reloaded.getByTestId('storage-notice')
-    await expect(notice).toContainText('open in another tab')
+    await expect(notice).toContainText('open in another tab', BOOT)
     await expect(tracks(reloaded)).toHaveCount(0)
     await expect(reloaded.getByTestId('notice-retry')).toHaveText('Retry')
     await expect(reloaded.getByTestId('notice-import')).toHaveText('Import a file…')
@@ -405,7 +405,7 @@ test.describe('the project of last time would not reopen (#504)', () => {
 
     // Retry while the other tab still holds it: the same notice, the same actions.
     await reloaded.getByTestId('notice-retry').click()
-    await expect(notice).toContainText('open in another tab')
+    await expect(notice).toContainText('open in another tab', BOOT)
     await expect(reloaded.getByTestId('notice-retry')).toBeVisible()
 
     // Import a file… is the project menu's command: it opens the file chooser.
@@ -446,7 +446,7 @@ test.describe('the project of last time would not reopen (#504)', () => {
       await simulatePicker(reloaded, 'song-unreadable')
       await reloaded.goto('/app')
       const notice = reloaded.getByTestId('storage-notice')
-      await expect(notice).toContainText('could not be read')
+      await expect(notice).toContainText('could not be read', BOOT)
       await expect(tracks(reloaded)).toHaveCount(0)
       await expect(reloaded.getByTestId('notice-retry')).toHaveText('Retry')
       await expect(reloaded.getByTestId('notice-open-other')).toHaveText('Open another project…')
@@ -454,13 +454,13 @@ test.describe('the project of last time would not reopen (#504)', () => {
 
       // Retry with the Worker still refused: the same notice, the same actions.
       await reloaded.getByTestId('notice-retry').click()
-      await expect(notice).toContainText('could not be read')
+      await expect(notice).toContainText('could not be read', BOOT)
       await expect(reloaded.getByTestId('notice-retry')).toBeVisible()
 
       // Both go through the project menu's commands: Retry is project.reopen_last, Open another project… is project.open_folder (the simulated picker hands back the folder).
       await reloaded.unroute(STORE_WORKER)
       await reloaded.getByTestId(action).click()
-      await expect(tracks(reloaded)).toHaveCount(2)
+      await expect(tracks(reloaded)).toHaveCount(2, BOOT)
       await expect(notice).toHaveCount(0)
       // The refused Worker is the only error the page logs.
       expect(errors).toEqual([])
@@ -487,18 +487,18 @@ test.describe('the project of last time would not reopen (#504)', () => {
     await simulatePicker(reloaded, 'song-folder-locked')
     await reloaded.goto('/app')
     const notice = reloaded.getByTestId('storage-notice')
-    await expect(notice).toContainText('open in another tab')
+    await expect(notice).toContainText('open in another tab', BOOT)
     await expect(tracks(reloaded)).toHaveCount(0)
     await expect(reloaded.getByTestId('notice-retry')).toHaveText('Retry')
     await expect(reloaded.getByTestId('notice-open-other')).toHaveText('Open another project…')
     await expect(reloaded.getByTestId('notice-import')).toHaveCount(0)
 
     await reloaded.getByTestId('notice-retry').click()
-    await expect(notice).toContainText('open in another tab')
+    await expect(notice).toContainText('open in another tab', BOOT)
 
     await page.close()
     await reloaded.getByTestId('notice-retry').click()
-    await expect(tracks(reloaded)).toHaveCount(2)
+    await expect(tracks(reloaded)).toHaveCount(2, BOOT)
     await expect(notice).toHaveCount(0)
     expect([...errors, ...reloadedErrors]).toEqual([])
   })

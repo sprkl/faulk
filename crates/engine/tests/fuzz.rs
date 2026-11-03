@@ -40,6 +40,14 @@ fn valid_stream() -> Vec<u8> {
             track: TrackSlot(0),
             pitch: 60,
             velocity: 90,
+            at: None,
+        },
+        // A stamped live note (#499), so that the mutations reach its stamp too.
+        ControlMsg::NoteOn {
+            track: TrackSlot(0),
+            pitch: 62,
+            velocity: 90,
+            at: Some(1_234_567),
         },
     ];
     msgs.push(ControlMsg::ClipNotesUpload {
@@ -126,5 +134,13 @@ fn the_valid_stream_is_accepted_whole() {
     assert_eq!(p.rejected(), 0);
     assert_eq!(e.skipped(), 0);
     assert!(e.state().clip(ClipSlot(2000)).is_some());
-    assert_eq!(e.live_events().len(), 1);
+    assert_eq!(e.live_events().len(), 2);
+    // No host clock given: the stamp is already an engine sample.
+    assert!(matches!(
+        e.live_events()[1],
+        engine::msg::LiveEvent::NoteOn {
+            at: Some(1_234_567),
+            ..
+        }
+    ));
 }
