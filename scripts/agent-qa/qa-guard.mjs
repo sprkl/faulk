@@ -27,12 +27,15 @@ import {
   isBranchName,
   mergedIntoDevelop,
   readRecord,
+  readRecords,
   refFingerprint,
   refTip,
   reviewPath,
+  reviewsPath,
   samePath,
   stashesSince,
   verificationPath,
+  verificationsPath,
 } from "./fingerprint.mjs";
 import { agentKey, ensureBaselines, sessionKey, sessionState, stateRoot } from "./session.mjs";
 import { blockReason, exemptAgentMarker, isAgentWorktreePath, stopDecision } from "./stop-core.mjs";
@@ -74,15 +77,17 @@ function judgeRef(root, session, marker, current, ctx) {
     }
     files = [`the committed content of ${marker.ref}`];
   }
+  const branch = onIt ? (currentBranch(root) ?? undefined) : isBranchName(marker.ref) ? marker.ref : undefined;
   const decision = stopDecision({
     fingerprint,
     writer: true,
     // A subagent has no baseline: its events never write the session's, and one
     // taken by the lead's own stop would hold the agent's work as already there.
     baseline: onIt && !marker.agent ? session.baseline(root)?.fingerprint : undefined,
-    branch: onIt ? (currentBranch(root) ?? undefined) : isBranchName(marker.ref) ? marker.ref : undefined,
-    verification: readRecord(verificationPath(root)),
-    review: readRecord(reviewPath(root)),
+    branch,
+    // Every record of the checkout: each branch stacked in it is judged on its own (#492).
+    verifications: readRecords(verificationsPath(root), verificationPath(root)),
+    reviews: readRecords(reviewsPath(root), reviewPath(root)),
     deferral: readRecord(deferralPath(root)),
   });
   if (decision.consumeDeferral) {
@@ -107,7 +112,7 @@ function judgeRef(root, session, marker, current, ctx) {
       `A call of this session moved HEAD without authoring code ("${move.move}"); the baseline moved with it, so only the changes made by the session's own calls count.`,
     );
   }
-  return { reason: [blockReason({ root, fingerprint, files, missing: decision.missing }), ...notes].join(" ") };
+  return { reason: [blockReason({ root, fingerprint, files, missing: decision.missing, branch, reviewNotCarried: decision.reviewNotCarried }), ...notes].join(" ") };
 }
 
 /**
