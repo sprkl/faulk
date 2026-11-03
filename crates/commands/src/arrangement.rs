@@ -449,6 +449,15 @@ domain! {
     /// `arrangement.marker.add` would refuse. Undo: `arrangement.marker.delete`.
     "arrangement.marker.restore" (kind = "edit", undo = "inverse", destructive = false)
     RestoreMarker { marker: MarkerId, tick: Tick, name: String } => {};
+
+    /// List the section markers of the arrangement in timeline order (tick, then
+    /// identifier): each with its identifier, its tick (960 per quarter note) and its name.
+    /// A query: changes nothing and never enters the history.
+    "arrangement.marker.list" (kind = "query", undo = "none", destructive = false)
+    ListMarkers {} => {
+        /// The markers, in timeline order.
+        markers: Vec<crate::marker::MarkerInfo>,
+    };
 }
 
 type Out = Outcome<Command, Output>;

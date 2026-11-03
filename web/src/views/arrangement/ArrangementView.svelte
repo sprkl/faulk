@@ -476,20 +476,29 @@
    * next marker instead of finding the old position again.
    */
   let jumpedTo = $state<number | null>(null)
+  /** The marker jumped to last: two markers on one tick are reached one after the other. */
+  let lastMarker: string | null = null
+  let jumpTimer: ReturnType<typeof setTimeout> | undefined
   $effect(() => {
     const tick = shownTick
     if (tick !== null && jumpedTo !== null && Math.abs(tick - jumpedTo) < bar / 4) untrack(() => (jumpedTo = null))
   })
+  onDestroy(() => clearTimeout(jumpTimer))
   /** The tick the playhead stands on: a jump not reported yet, else the report's, else the start. */
   const headTick = () => Math.max(0, jumpedTo ?? shownTick ?? 0)
   function addMarkerHere() {
     run(addMarker(Math.floor(headTick() / bar) * bar))
   }
   function jumpMarker(direction: 1 | -1) {
-    const to = markerJump(markers, headTick(), direction)
+    const from = headTick()
+    const to = markerJump(markers, from, direction, lastMarker)
     if (!to) return
     run(seek(to.tick))
+    lastMarker = to.id
     jumpedTo = to.tick
+    // A seek the engine does not report (stopped elsewhere, refused) must not hold the next jump for ever.
+    clearTimeout(jumpTimer)
+    jumpTimer = setTimeout(() => (jumpedTo = null), 1000)
     if (stageW > 0) view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: to.tick - (stageW / shown.pxPerTick) * PAGE_LEAD }, stageW, totalTicks)
     announce(t('arrangement.markerSaid', { name: to.name, bar: Math.floor(to.tick / bar) + 1 }))
   }
@@ -1774,7 +1783,11 @@
                 data-testid="arr-marker"
                 data-marker={marker.id}
                 onpointerdown={(e) => e.stopPropagation()}
-                onclick={() => run(seek(marker.tick))}
+                onclick={() => {
+                  lastMarker = marker.id
+                  jumpedTo = null
+                  run(seek(marker.tick))
+                }}
                 ondblclick={(e) => {
                   e.stopPropagation()
                   renaming = { id: marker.id, text: marker.name }

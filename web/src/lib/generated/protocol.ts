@@ -769,6 +769,8 @@ marker: string
 name: string
 tick: Tick
 type: "arrangement.marker.restore"
+} | {
+type: "arrangement.marker.list"
 })
 /**
  * The edge of a placement that `arrangement.resize` moves.
@@ -1806,6 +1808,12 @@ tick: number
 type: "arrangement.marker.delete"
 } | {
 type: "arrangement.marker.restore"
+} | {
+/**
+ * The markers, in timeline order.
+ */
+markers: MarkerInfo[]
+type: "arrangement.marker.list"
 })
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
@@ -3643,6 +3651,17 @@ clip: string
  * Identifier of a track.
  */
 track: string
+}
+/**
+ * A section marker as `arrangement.marker.list` answers it.
+ */
+export interface MarkerInfo {
+/**
+ * Identifier of a section marker of the arrangement (#473).
+ */
+marker: string
+name: string
+tick: Tick
 }
 /**
  * An automation lane without its points (`automation.lane.points` pages them).

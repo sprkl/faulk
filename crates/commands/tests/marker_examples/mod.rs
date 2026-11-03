@@ -62,6 +62,7 @@ pub fn examples() -> Vec<(Command, State)> {
             marker: f.chorus.clone(),
             tick: Tick(3840 * 12),
         }),
+        on(arrangement::Command::ListMarkers {}),
         on(arrangement::Command::DeleteMarker {
             marker: f.verse.clone(),
         }),

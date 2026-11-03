@@ -310,6 +310,10 @@ describe('sections and zoom (#473)', () => {
     expect(markerJump(marks, 3840 * 16, -1)?.id).toBe('c')
     expect(markerJump(marks, 0, -1)).toBeNull()
     expect(markerJump([], 100, 1)).toBeNull()
+    // From the first of two markers on one tick, the next is the second, then the one after.
+    expect(markerJump(marks, 3840 * 8, 1, 'b')?.id).toBe('c')
+    expect(markerJump(marks, 3840 * 8, 1, 'c')?.id).toBe('d')
+    expect(markerJump(marks, 3840 * 8, -1, 'c')?.id).toBe('b')
   })
 
   it('opens on 16 to 32 bars from bar 1', () => {

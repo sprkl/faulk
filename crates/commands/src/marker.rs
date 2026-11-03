@@ -21,6 +21,15 @@ use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, Undo}
 use project::limits::{MAX_MARKERS, MAX_NAME_CHARS, MAX_TICK};
 use project::{Marker, MarkerId, Tick};
 
+/// A section marker as `arrangement.marker.list` answers it.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MarkerInfo {
+    pub marker: MarkerId,
+    pub tick: Tick,
+    pub name: String,
+}
+
 /// The prefix of a marker's default name ("Section 3").
 pub const DEFAULT_PREFIX: &str = "Section";
 
@@ -136,6 +145,7 @@ pub(crate) fn apply(
             | Command::MoveMarker { .. }
             | Command::DeleteMarker { .. }
             | Command::RestoreMarker { .. }
+            | Command::ListMarkers {}
     )
     .then(|| run_marker(command, state, ctx))
 }
@@ -235,6 +245,18 @@ fn run_marker(
                 },
             ))
         }
+        Command::ListMarkers {} => Ok(crate::query::answer(Output::ListMarkers {
+            markers: state
+                .project
+                .markers_in_order()
+                .into_iter()
+                .map(|(id, m)| MarkerInfo {
+                    marker: id.clone(),
+                    tick: m.tick,
+                    name: m.name.clone(),
+                })
+                .collect(),
+        })),
         _ => Err(CommandError::Unsupported {
             command: command.name().into(),
         }),

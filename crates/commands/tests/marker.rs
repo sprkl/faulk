@@ -208,3 +208,16 @@ fn time_edits_move_the_markers_and_undo_puts_them_back() {
     assert_eq!(s.project.markers[&f.chorus].tick, Tick(3840 * 6));
     s.project.validate().unwrap();
 }
+
+#[test]
+fn the_list_answers_in_timeline_order() {
+    let f = fx();
+    let mut s = f.state.clone();
+    let out = run(&m(arrangement::Command::ListMarkers {}), &mut s, &mut context()).unwrap();
+    let Output::Arrangement(arrangement::Output::ListMarkers { markers }) = out.output else {
+        panic!()
+    };
+    let names: Vec<_> = markers.iter().map(|m| (m.name.as_str(), m.tick)).collect();
+    assert_eq!(names, [("Verse", Tick(0)), ("Chorus", Tick(3840 * 8))]);
+    assert_eq!(markers[0].marker, f.verse);
+}

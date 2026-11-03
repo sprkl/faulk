@@ -261,7 +261,11 @@ export interface MarkerView {
  * The marker a jump goes to from the tick `from`: the first after it, or the last before it (one at `from` itself is
  * not a jump target, so a second press goes on to the next). `null` when there is none that way.
  */
-export function markerJump(markers: readonly MarkerView[], from: number, direction: 1 | -1): MarkerView | null {
+export function markerJump(markers: readonly MarkerView[], from: number, direction: 1 | -1, current: string | null = null): MarkerView | null {
+  // From the marker jumped to last (when the playhead is still on it): its neighbour in (tick, id) order, so two
+  // markers on one tick are both reached.
+  const at = current === null ? -1 : markers.findIndex((m) => m.id === current && m.tick === from)
+  if (at >= 0) return markers[at + direction] ?? null
   if (direction > 0) return markers.find((m) => m.tick > from) ?? null
   return markers.findLast((m) => m.tick < from) ?? null
 }
