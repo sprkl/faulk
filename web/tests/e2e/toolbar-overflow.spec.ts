@@ -52,7 +52,9 @@ for (const [locale, width] of [
   ['fr-FR', 1280],
   ['fr-FR', 1920],
 ] as const) {
-  test(`the arrangement toolbar is one line at ${width} px in ${locale} (#575)${locale === 'fr-FR' && width === 1280 ? ' @full' : ''}`, async ({ browser }, info) => {
+  test(`the arrangement toolbar is one line at ${width} px in ${locale} (#575)${locale === 'fr-FR' && width === 1280 ? ' @full' : ''}`, async ({
+    browser,
+  }, info) => {
     const context = await browser.newContext({ locale, baseURL: info.project.use.baseURL })
     const page = await context.newPage()
     const seen = watch(page)
@@ -83,7 +85,9 @@ for (const [locale, repeat] of [
   ['en-US', 'Repeat until…'],
   ['fr-FR', 'Répéter jusqu’à…'],
 ] as const) {
-  test(`the More menu is used from the keyboard, with its shortcuts written (${locale}) (#575)${locale === 'fr-FR' ? ' @full' : ''}`, async ({ browser }, info) => {
+  test(`the More menu is used from the keyboard, with its shortcuts written (${locale}) (#575)${locale === 'fr-FR' ? ' @full' : ''}`, async ({
+    browser,
+  }, info) => {
     const context = await browser.newContext({ locale, baseURL: info.project.use.baseURL })
     const page = await context.newPage()
     const seen = watch(page)

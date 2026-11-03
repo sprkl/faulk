@@ -53,8 +53,8 @@ async function selectTime(page: Page, fromBar: number, toBar: number) {
 }
 
 for (const [locale, insertLabel, deleteLabel] of [
-  ['en-US', 'Insert bars', 'Delete selected bars'],
-  ['fr-FR', 'Insérer des mesures', 'Supprimer les mesures sélectionnées'],
+  ['en-US', 'Insert bars…', 'Delete selected bars'],
+  ['fr-FR', 'Insérer des mesures…', 'Supprimer les mesures sélectionnées'],
 ] as const) {
   test(`arrangement view (${locale}): insert bars, select time with Shift+drag, delete the selected bars, each one undo${locale === 'fr-FR' ? ' @full' : ''}`, async ({
     browser,

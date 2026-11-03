@@ -1170,7 +1170,13 @@
       box.left,
       box.bottom + 2,
       [
-        { id: 'more-duplicate-linked', label: t('arrangement.duplicateLinked'), shortcut: mod(['Shift', 'D']), disabled: selection.length === 0, run: () => duplicate(true) },
+        {
+          id: 'more-duplicate-linked',
+          label: t('arrangement.duplicateLinked'),
+          shortcut: mod(['Shift', 'D']),
+          disabled: selection.length === 0,
+          run: () => duplicate(true),
+        },
         { id: 'more-repeat', label: t('arrangement.repeatUntil'), shortcut: mod(['Shift', 'R']), disabled: selection.length !== 1, run: openRepeat },
         { id: 'more-insert-bars', label: t('arrangement.insertBars'), separator: true, run: () => (inserting = true) },
         { id: 'more-delete-bars', label: t('arrangement.deleteBars'), disabled: !timeSel, run: deleteSelectedTime },
@@ -2593,15 +2599,6 @@
   }
   .stage[data-cursor='add'] {
     cursor: crosshair;
-  }
-  .curves,
-  .time {
-    display: inline-flex;
-    gap: 2px;
-  }
-  .time input {
-    width: 4.5em;
-    font: inherit;
   }
   .limit-note {
     position: absolute;
