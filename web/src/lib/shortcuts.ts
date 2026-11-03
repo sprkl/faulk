@@ -93,6 +93,8 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         chords: [
           ['Alt', '←'],
           ['Alt', '→'],
+          ['Alt', '↑'],
+          ['Alt', '↓'],
         ],
       },
       { label: 'shortcut.clipOpen', chords: [['Enter']], covers: ['Enter'] },

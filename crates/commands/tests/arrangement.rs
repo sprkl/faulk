@@ -190,6 +190,7 @@ fn no_arrangement_command_touches_a_lane() {
     let expected: std::collections::BTreeSet<&str> = [
         "arrangement.place",
         "arrangement.move",
+        "arrangement.move_to_track",
         "arrangement.resize",
         "arrangement.split",
         "arrangement.delete",

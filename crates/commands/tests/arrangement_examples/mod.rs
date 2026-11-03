@@ -111,6 +111,30 @@ pub fn after(mut state: State, command: &Command) -> (State, Command) {
     (state, *inverse)
 }
 
+/// The fixture with a second MIDI track (a duplicate of the first, with its own clips and
+/// placements, ids of its own) and the identifier of that track.
+pub fn with_second_track(f: &ArFx) -> (State, TrackId) {
+    let mut state = f.state.clone();
+    let out = commands::run(
+        &Command::Track(commands::track::Command::Duplicate {
+            track: f.track.clone(),
+            name: None,
+        }),
+        &mut state,
+        // Identifiers apart from every other context's, so the commands under test never
+        // generate one that the second track already holds.
+        &mut commands::Context::new(
+            commands::Author::User,
+            ::project::IdGenerator::new(1_680_000_000_000, 0x00DD_0000_0000_0000_0000),
+        ),
+    )
+    .unwrap();
+    let commands::Output::Track(commands::track::Output::Duplicate { track }) = out.output else {
+        panic!("not a track duplicate")
+    };
+    (state, track)
+}
+
 /// One example of every branch of every arrangement command.
 pub fn examples() -> Vec<(Command, State)> {
     let f = fx();
@@ -169,6 +193,50 @@ pub fn examples() -> Vec<(Command, State)> {
             by: Some(Tick(7000)),
         }),
     ];
+    // To another MIDI track: one placement of a clip another one still uses (the clip
+    // stays), both placements of it (the clip goes), over what the target holds, and with a
+    // shift in time.
+    let (two, second) = with_second_track(&f);
+    let to_second = |moves: Vec<(&PlacementId, &TrackId)>, by: Option<i64>| {
+        (
+            a(arrangement::Command::MoveToTrack {
+                moves: moves
+                    .into_iter()
+                    .map(|(p, t)| arrangement::TrackMove {
+                        placement: p.clone(),
+                        track: t.clone(),
+                    })
+                    .collect(),
+                by: by.map(Tick),
+            }),
+            two.clone(),
+        )
+    };
+    all.push(to_second(vec![(&f.a, &second)], None));
+    all.push(to_second(vec![(&f.a, &second), (&f.b, &second)], Some(480)));
+    all.push(to_second(
+        vec![(&f.c, &second), (&f.b, &f.track)],
+        Some(-480),
+    ));
+    {
+        let (state, restore) = after(
+            two.clone(),
+            &a(arrangement::Command::MoveToTrack {
+                moves: vec![
+                    arrangement::TrackMove {
+                        placement: f.a.clone(),
+                        track: second.clone(),
+                    },
+                    arrangement::TrackMove {
+                        placement: f.b.clone(),
+                        track: second.clone(),
+                    },
+                ],
+                by: None,
+            }),
+        );
+        all.push((restore, state));
+    }
     // From the launch grid: an independent copy, a linked placement, one over what is
     // there, and a whole scene both ways.
     let grid = f.grid_state();

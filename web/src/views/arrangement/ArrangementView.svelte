@@ -14,6 +14,7 @@
     duplicatePlacements,
     insertTime,
     movePlacements,
+    moveToTrack,
     resizePlacement,
     splitPlacement,
   } from '../../lib/arrangement-commands'
@@ -66,6 +67,8 @@
     lastEnd,
     moveDelta,
     moved,
+    clampRows,
+    trackTargets,
     passCount,
     markerJump,
     openingView,
@@ -114,6 +117,8 @@
         snapshot: Block[]
         grabTick: number
         delta: number
+        /** Tracks down from the grabbed clip's own (negative is up): a move only, a copy stays on its track. */
+        rows: number
         moved: boolean
         linked: boolean
         startX: number
@@ -346,6 +351,7 @@
     return moved(
       blocks.filter((b) => g.ids.includes(b.id)),
       g.delta,
+      g.rows,
     )
   })
   const hidden = $derived.by<ReadonlySet<string>>(() => {
@@ -481,9 +487,11 @@
   /** The marker jumped to last: two markers on one tick are reached one after the other. */
   let lastMarker: string | null = null
   let jumpTimer: ReturnType<typeof setTimeout> | undefined
+  /** Where the report stood when the last jump was made: a report that still says so is the old one, not the jump's. */
+  let jumpFrom: number | null = null
   $effect(() => {
     const tick = shownTick
-    if (tick !== null && jumpedTo !== null && Math.abs(tick - jumpedTo) < bar / 4) untrack(() => (jumpedTo = null))
+    if (tick !== null && jumpedTo !== null && tick !== jumpFrom && Math.abs(tick - jumpedTo) < bar / 4) untrack(() => (jumpedTo = null))
   })
   onDestroy(() => clearTimeout(jumpTimer))
   /** The tick the playhead stands on: a jump not reported yet, else the report's, else the start. */
@@ -497,6 +505,7 @@
     if (!to) return
     run(seek(to.tick))
     lastMarker = to.id
+    jumpFrom = shownTick
     jumpedTo = to.tick
     // A seek the engine does not report (stopped elsewhere, refused) must not hold the next jump for ever.
     clearTimeout(jumpTimer)
@@ -704,6 +713,7 @@
         snapshot: blocks.filter((b) => picked.has(b.id)),
         grabTick: xToTick(x, shown),
         delta: 0,
+        rows: 0,
         moved: false,
         linked: copy && event.shiftKey,
         startX: x,
@@ -761,7 +771,10 @@
       gesture = { ...g, moved: true, to: resizeTo(g.grabbed, g.edge, xToTick(x, shown), stepOf(event)) }
     } else {
       const chosen = blocks.filter((b) => g.ids.includes(b.id))
-      gesture = { ...g, moved: true, delta: moveDelta(chosen, g.grabbed, xToTick(x, shown), g.grabTick, stepOf(event)) }
+      // A move follows the pointer from track to track (the master and the free ground below keep the last track).
+      const under = g.kind === 'move' ? rowAt(layout, y, y0) : null
+      const rows = g.kind === 'move' ? clampRows(chosen, under ? under.track - g.grabbed.row : g.rows, entries.length) : 0
+      gesture = { ...g, moved: true, rows, delta: moveDelta(chosen, g.grabbed, xToTick(x, shown), g.grabTick, stepOf(event)) }
     }
   }
 
@@ -796,12 +809,54 @@
       return
     }
     const ids = blocks.filter((b) => g.ids.includes(b.id)).map((b) => b.id)
-    if (ids.length !== g.ids.length || g.delta === 0) return
-    if (g.kind === 'move') {
+    if (ids.length !== g.ids.length || (g.delta === 0 && g.rows === 0)) return
+    if (g.kind === 'move' && g.rows !== 0) {
+      sendToTracks(
+        blocks.filter((b) => g.ids.includes(b.id)),
+        g.rows,
+        g.delta,
+        g.grabbed.id,
+      )
+    } else if (g.kind === 'move') {
       run(movePlacements(ids, g.delta))
       const moved = blocks.find((b) => b.id === g.grabbed.id)
       if (moved) announce(t('arrangement.saidMoved', { n: ids.length, bar: barsOf(moved).from }))
     } else copyAndSelect(ids, g.linked, g.delta)
+  }
+
+  /** The tracks a clip may move to, in track order: a MIDI clip only goes to a MIDI track. */
+  const trackList = $derived(entries.map((e) => ({ id: e.id, midi: isMidi(e.track) })))
+
+  /**
+   * Moves clips `rows` tracks (negative is up) and `delta` ticks, in one `arrangement.move_to_track`; refused out loud at the first
+   * or last track and for a target that is not a MIDI track. The moved clips become the selection (they get new identifiers in
+   * their new track). Returns where each landed, by the identifier it had, or `null` when nothing moved.
+   */
+  function sendToTracks(chosen: readonly Block[], rows: number, delta: number, follow?: string): Record<string, Block> | null {
+    const targets = trackTargets(chosen, rows, trackList)
+    if ('refused' in targets) {
+      if (targets.refused === 'edge') announce(t('arrangement.saidNoTrack'))
+      else {
+        const entry = entries.find((e) => e.id === targets.track)
+        announce(t('arrangement.saidNotMidiTrack', { track: entry ? trackLabel(entry, t) : '' }))
+      }
+      return null
+    }
+    run(moveToTrack(targets.moves, delta))
+    const landed: Record<string, Block> = {}
+    for (const b of chosen) {
+      const now = blocks.find((n) => n.row === b.row + rows && n.start === b.start + delta && n.end === b.end + delta && n.offset === b.offset)
+      if (now) landed[b.id] = now
+    }
+    const all = Object.values(landed)
+    if (all.length === 0) return null
+    picked = new Set(all.map((b) => b.id))
+    const lead = (follow ? landed[follow] : undefined) ?? all[0]!
+    const entry = entries[lead.row]
+    select(lead.track)
+    ui.editClip(lead.clip, lead.id)
+    announce(t('arrangement.saidMovedTrack', { n: all.length, track: entry ? trackLabel(entry, t) : '', bar: barsOf(lead).from }))
+    return landed
   }
 
   /** Copies, then selects the copies (the placements that were not there before). */
@@ -969,6 +1024,21 @@
         { id: 'duplicate', label: t('arrangement.duplicate'), shortcut: mod(['D']), separator: true, run: () => duplicate(false) },
         { id: 'duplicate-linked', label: t('arrangement.duplicateLinked'), shortcut: mod(['Shift', 'D']), run: () => duplicate(true) },
         { id: 'split', label: t('arrangement.split'), shortcut: mod(['E']), disabled: cuts.length === 0, run: splitSelected },
+        {
+          id: 'move-up',
+          label: t('arrangement.moveUp'),
+          shortcut: chordText(['Alt', '↑']),
+          separator: true,
+          disabled: !('moves' in trackTargets(selection, -1, trackList)),
+          run: () => sendToTracks(selection, -1, 0, block.id),
+        },
+        {
+          id: 'move-down',
+          label: t('arrangement.moveDown'),
+          shortcut: chordText(['Alt', '↓']),
+          disabled: !('moves' in trackTargets(selection, 1, trackList)),
+          run: () => sendToTracks(selection, 1, 0, block.id),
+        },
         { id: 'delete', label: t('arrangement.delete'), shortcut: chordText(['Delete']), separator: true, run: removeSelected },
       )
     } else {
@@ -1324,10 +1394,15 @@
       return
     }
     if (key.kind === 'move') {
-      // No command moves a clip to another track: say so rather than nothing.
-      if (key.direction === 'up' || key.direction === 'down') return announce(t('arrangement.saidSameTrack'))
       const chosen = selectedIds.has(current.id) ? selection : [current]
       if (!selectedIds.has(current.id)) picked = new Set([current.id])
+      // Up and Down move the clips to the track above or below (`arrangement.move_to_track`).
+      if (key.direction === 'up' || key.direction === 'down') {
+        const landed = sendToTracks(chosen, key.direction === 'up' ? -1 : 1, 0, current.id)
+        const now = landed?.[current.id]
+        if (now) void focusItem(now.id)
+        return
+      }
       const sign = key.direction === 'left' ? -1 : 1
       const delta = moveDelta(chosen, current, current.start + sign * nudge, current.start, null)
       if (delta === 0) return announce(t('arrangement.saidCannotMove'))
