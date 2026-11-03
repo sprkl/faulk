@@ -1599,3 +1599,127 @@ describe('the commands for the projects the page keeps (#323)', () => {
     await vi.waitFor(() => expect(run).toHaveBeenCalled())
   })
 })
+
+describe('the recorder in the dispatcher (#513)', () => {
+  const boostEngine = () =>
+    (nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      close: vi.fn(() => Promise.resolve()),
+    })
+  const startTake = { type: 'record.start', target: { at: 'arrangement' } } as Command
+  /** A started session with the synth track armed and a take running. */
+  async function recording() {
+    const session = newSession()
+    await session.dispatcher.start()
+    expect(session.dispatcher.run({ type: 'track.arm', track: SYNTH_TRACK, armed: true } as Command)).toBe(true)
+    expect(session.dispatcher.run(startTake)).toBe(true)
+    expect(session.recorder.phase).toBe('recording')
+    return session
+  }
+  const sentTypes = (mock: { mock: { calls: unknown[][] } }) => mock.mock.calls.map(([c]) => (c as Command).type)
+
+  beforeEach(() => {
+    webs = []
+    nativeEngine = null
+    midiOn = false
+    midiReleaseAll = () => Promise.resolve()
+    localStorage.clear()
+  })
+
+  it('follows a take in the core: one take at a time, until it is dropped', async () => {
+    const session = await recording()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(session.recorder.take?.take).toBe(1)
+    // The core refuses a second take: the recorder keeps the first.
+    expect(session.dispatcher.run(startTake)).toBe(false)
+    expect(session.recorder.take?.take).toBe(1)
+    session.dispatcher.run({ type: 'record.discard_take' })
+    expect(session.recorder.phase).toBe('idle')
+    expect(session.dispatcher.run(startTake)).toBe(true)
+    expect(session.recorder.take?.take).toBe(2)
+  })
+
+  it('drops the take, in the project too, when Boost takes over, and says so', async () => {
+    const native = boostEngine()
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = await recording()
+    await session.dispatcher.enterBoost()
+    expect(session.engine.mode).toBe('native')
+    expect(session.recorder.phase).toBe('idle')
+    expect(session.recorder.take).toBeNull()
+    expect(session.recorder.dropped).toBe('engine')
+    // The discard went to the Web engine that captured the take, before the helper became current: the helper never saw it.
+    expect(sentTypes(webs[0].send)).toContain('record.discard_take')
+    expect(sentTypes(native.send)).not.toContain('record.discard_take')
+    // Back in the page a new take starts (a snapshot gives the core a fresh engine context too: the `send` assertion above is the proof of the discard).
+    await session.dispatcher.enterWeb()
+    expect(session.dispatcher.run(startTake)).toBe(true)
+    expect(session.recorder.phase).toBe('recording')
+  })
+
+  it('refuses record.start in Boost, whoever asks, with the reason, and sends nothing to the helper', async () => {
+    const native = boostEngine()
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    session.dispatcher.run({ type: 'track.arm', track: SYNTH_TRACK, armed: true } as Command)
+    await session.dispatcher.enterBoost()
+    expect(session.engine.mode).toBe('native')
+    const sent = native.send.mock.calls.length
+    // A click, an agent's tool call and a quiet run all reach the same entry point.
+    for (const run of [
+      () => session.dispatcher.run(startTake),
+      () => session.dispatcher.run(startTake, { author: 'agent:test' }),
+      () => session.dispatcher.run(startTake, { quiet: true }),
+    ]) {
+      session.engine.notice = null
+      expect(run()).toBe(false)
+      expect(session.engine.notice).toBe('transport.recordBoost')
+      expect(session.recorder.phase).toBe('idle')
+    }
+    expect(native.send.mock.calls.length).toBe(sent)
+    expect(sentTypes(native.send).filter((type) => type.startsWith('record.'))).toEqual([])
+    // Only the start is refused: another command still reaches the helper.
+    session.dispatcher.run(setParamCommand(firstParam, 0.2))
+    expect(native.send.mock.calls.at(-1)![0]).toMatchObject({ type: 'device.set_param' })
+  })
+
+  it('drops the take when another project replaces the project (an opened folder, a new project), and says so', async () => {
+    const opened = await recording()
+    expect(await opened.dispatcher.openProject('song', readFolder(SONG_FOLDER))).toEqual({ status: 'opened', name: 'Song "one"' })
+    expect(opened.recorder.phase).toBe('idle')
+    expect(opened.recorder.take).toBeNull()
+    expect(opened.recorder.dropped).toBe('engine')
+
+    const fresh = await recording()
+    expect(await fresh.dispatcher.newProject()).toBe(true)
+    expect(fresh.recorder.phase).toBe('idle')
+    expect(fresh.recorder.take).toBeNull()
+    expect(fresh.recorder.dropped).toBe('engine')
+    // The new project holds no take: arm a track of it and record.
+    const tracks = fresh.project.view!.project.tracks
+    const track = Object.keys(tracks).find((id) => tracks[id]?.kind === 'midi')!
+    fresh.dispatcher.run({ type: 'track.arm', track, armed: true } as Command)
+    expect(fresh.dispatcher.run(startTake)).toBe(true)
+    expect(fresh.recorder.phase).toBe('recording')
+  })
+
+  it('drops the take when the engine stops on a refused stream, also one waiting to be written, and when it starts over from a snapshot', async () => {
+    const waiting = await recording()
+    waiting.dispatcher.run({ type: 'record.stop' })
+    expect(waiting.recorder.phase).toBe('closing')
+    webEvents?.onStreamRefused?.(-3, 128)
+    // No report will ever settle it: it does not wait for audio to start again.
+    expect(waiting.recorder.phase).toBe('idle')
+    expect(waiting.recorder.dropped).toBe('engine')
+
+    const session = await recording()
+    webEvents?.onStreamRefused?.(-3, 128)
+    expect(session.recorder.phase).toBe('idle')
+    await session.dispatcher.start()
+    expect(session.recorder.phase).toBe('idle')
+    expect(session.recorder.dropped).toBe('engine')
+  })
+})

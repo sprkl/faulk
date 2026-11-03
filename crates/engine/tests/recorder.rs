@@ -11,7 +11,7 @@ use engine::engine::{Engine, Preparer, channel};
 use engine::host::{channel as host_channel, read_feedback};
 use engine::msg::{ControlMsg as M, RecordedNote, TrackKind, TrackSlot, encode_stream, limits};
 use engine::recorder::MAX_HELD;
-use engine::time::{LoopRegion, Quantize, Tempo, Tick, TimeSignature};
+use engine::time::{LoopRegion, Quantize, SampleRate, Tempo, Tick, TimeSignature};
 
 #[global_allocator]
 static ALLOCATOR: AllocDisabler = AllocDisabler;
@@ -460,4 +460,86 @@ fn an_all_notes_off_closes_its_track_and_an_overflow_closes_every_note() {
     assert_eq!(notes.len(), 2, "{notes:?}");
     assert_eq!(notes[1].track, TrackSlot(0));
     assert_eq!(notes[1].note.pitch, 60);
+}
+
+/// Ten blocks, a change of pace, ten blocks: the ticks the note ran (#513).
+/// 1 280 frames at 120 BPM and 48 kHz are 51.2 ticks; after a change that doubles the samples
+/// per tick (60 BPM, or 96 kHz) the same frames are 25.6 ticks: 76.8 ticks in all, 77 rounded.
+const HELD_ACROSS_A_CHANGE: Tick = Tick(77);
+
+#[test]
+fn a_note_held_across_a_sample_rate_change_keeps_the_ticks_it_ran() {
+    let mut rig = Rig::new();
+    rig.record(0);
+    rig.on(0, 60);
+    rig.blocks(10);
+    rig.p.set_sample_rate(SampleRate::HZ_96000).unwrap();
+    rig.blocks(10);
+    rig.off(0, 60);
+    rig.blocks(2);
+    let notes = rig.notes();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(notes[0].note.length, HELD_ACROSS_A_CHANGE);
+    // Control: the same notes with no change run 20 blocks of 128 frames at 25 samples a tick.
+    let mut rig = Rig::new();
+    rig.record(0);
+    rig.on(0, 60);
+    rig.blocks(20);
+    rig.off(0, 60);
+    rig.blocks(2);
+    assert_eq!(
+        rig.notes()[0].note.length,
+        Tick((20.0 * BLOCK as f64 / SPT).round() as i64)
+    );
+}
+
+#[test]
+fn a_note_held_across_a_tempo_change_keeps_the_ticks_it_ran() {
+    let mut rig = Rig::new();
+    rig.record(0);
+    rig.on(0, 60);
+    rig.blocks(10);
+    rig.send(&[M::SetTransport {
+        tempo: Tempo::new(60.0).unwrap(),
+        signature: TimeSignature::new(4, 4).unwrap(),
+        launch_quantize: Quantize::default(),
+    }]);
+    rig.blocks(10);
+    rig.off(0, 60);
+    rig.blocks(2);
+    let notes = rig.notes();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(notes[0].note.length, HELD_ACROSS_A_CHANGE);
+}
+
+#[test]
+fn a_change_of_pace_moves_every_held_note_and_the_ones_pressed_after_it_are_exact() {
+    let mut rig = Rig::new();
+    rig.record(0);
+    rig.on(0, 60);
+    rig.on(2, 64);
+    rig.blocks(4);
+    // 240 BPM halves the samples per tick.
+    rig.send(&[M::SetTransport {
+        tempo: Tempo::new(240.0).unwrap(),
+        signature: TimeSignature::new(4, 4).unwrap(),
+        launch_quantize: Quantize::default(),
+    }]);
+    rig.blocks(4);
+    rig.on(0, 62);
+    rig.blocks(4);
+    rig.off(0, 60);
+    rig.off(2, 64);
+    rig.off(0, 62);
+    rig.blocks(2);
+    let mut lengths: Vec<(u8, i64)> = rig
+        .notes()
+        .iter()
+        .map(|n| (n.note.pitch, n.note.length.0))
+        .collect();
+    lengths.sort();
+    // 4 blocks at 25 samples a tick, then 8 at 12.5.
+    let long = (4.0 * 128.0 / 25.0 + 8.0 * 128.0 / 12.5_f64).round() as i64;
+    let late = (4.0 * 128.0 / 12.5_f64).round() as i64;
+    assert_eq!(lengths, vec![(60, long), (62, late), (64, long)]);
 }
