@@ -22,8 +22,9 @@ use windows_sys::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock,
 use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
 use windows_sys::Win32::System::Threading::GetCurrentThreadId;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    DispatchMessageW, GetMessageW, GetSystemMetrics, MB_ICONERROR, MB_OK, MSG, MessageBoxW,
-    PostThreadMessageW, SM_CXSMICON, SetTimer, TranslateMessage, WM_APP,
+    DispatchMessageW, GetMessageW, GetSystemMetrics, MB_ICONERROR, MB_OK, MB_SETFOREGROUND,
+    MB_TOPMOST, MSG, MessageBoxW, PostThreadMessageW, SM_CXSMICON, SetTimer, TranslateMessage,
+    WM_APP,
 };
 use winreg::RegKey;
 use winreg::enums::HKEY_CURRENT_USER;
@@ -44,7 +45,9 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-/// Shows a blocking error box (used when the helper cannot start: no console).
+/// Shows a blocking error box (used when the helper cannot start: no console), on top of every
+/// window and brought to the front, so it cannot hide behind them while the helper waits on it
+/// (#525).
 pub fn error_box(title: &str, text: &str) {
     let (title, text) = (wide(title), wide(text));
     // SAFETY: both strings are NUL-terminated UTF-16 buffers that outlive the call.
@@ -53,7 +56,7 @@ pub fn error_box(title: &str, text: &str) {
             std::ptr::null_mut(),
             text.as_ptr(),
             title.as_ptr(),
-            MB_OK | MB_ICONERROR,
+            MB_OK | MB_ICONERROR | MB_TOPMOST | MB_SETFOREGROUND,
         );
     }
 }
@@ -304,7 +307,9 @@ pub fn run(config: TrayConfig<'_>) -> Result<(), String> {
             match event {
                 HelperEvent::Code(c) => state.code = c,
                 HelperEvent::Session(on) => state.page_connected = on,
-                HelperEvent::AudioError => state.audio_error = true,
+                // The supervisor's `Output` says it too, in order with the reopening.
+                HelperEvent::AudioError => {}
+                HelperEvent::Output(open) => state.no_output = !open,
             }
         }
         changed

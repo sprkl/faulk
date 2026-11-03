@@ -1,7 +1,7 @@
 import type { Engine, EngineEvents } from '../engine/engine'
 import { probeHelper, pairHelper } from '../engine/helper-client'
 import { peakOf } from '../engine/feedback'
-import { NativeEngine } from '../engine/native-engine'
+import { NativeEngine, NoOutputError } from '../engine/native-engine'
 import { WebEngine } from '../engine/web-engine'
 import { withFrame } from '../engine/clock'
 import { bringHelperCopyUpToDate } from '../engine/helper-copy'
@@ -33,6 +33,13 @@ import { storage, TOKEN_KEY } from './storage'
 
 /** The epoch of the first engine stream of the page's project core (newer than a fresh engine's 0). */
 const FIRST_EPOCH = 1
+
+/** While the page waits for the helper's audio output (#525): how often it asks the helper, in milliseconds. */
+export const OUTPUT_POLL_MS = 2000
+/** A Boost session that loses its output sooner than this after it began counts as a flap: the next return waits longer. */
+export const OUTPUT_FLAP_MS = 60_000
+/** The longest the output must stay before the page goes back to Boost after flaps. */
+export const OUTPUT_STEADY_MAX_MS = 60_000
 
 /** How long a refusal stays on screen, in milliseconds. */
 export const REFUSAL_TOAST_MS = 6000
@@ -108,9 +115,19 @@ export class Dispatcher {
         if (code === 'session.replaced') this.state.notice = 'helper.replaced'
         else if (code === 'midi.connect') this.state.notice = 'midi.connectError'
         else if (code === 'audio.stream' && kind === 'native') {
-          // The helper's output stopped (device unplugged or changed): play in the page.
+          // The helper's output stopped (device unplugged or changed): play in the page, and go
+          // back to Boost once the helper has an output again (#525). An output lost soon after
+          // Boost began is a flap: the next return waits for the output to stay longer.
+          const lasted = this.boostSince === null ? Infinity : Date.now() - this.boostSince
+          this.outputFlaps = lasted < OUTPUT_FLAP_MS ? this.outputFlaps + 1 : 0
           this.state.notice = 'audio.error'
+          // The wait starts once the switch is done, even a failed one, unless "Stay in Web" came meanwhile.
+          const waits = this.outputWaits
           void this.enterWeb()
+            .catch((error: unknown) => console.error(error))
+            .then(() => {
+              if (this.outputWaits === waits) this.awaitOutput()
+            })
         }
       },
       onClosed: () => {
@@ -626,6 +643,80 @@ export class Dispatcher {
     }
   }
 
+  /** The next probe of the wait for the helper's audio output (#525); `null` while the page does not wait. */
+  private outputTimer: ReturnType<typeof setTimeout> | null = null
+  /** When the probes of the wait began to see an output, in a row; `null` when the last one saw none. */
+  private outputSeenSince: number | null = null
+  /** Outputs lost soon after Boost began, in a row (`OUTPUT_FLAP_MS`): each doubles how long an output must stay before the page goes back. */
+  private outputFlaps = 0
+  /** When the current helper session became the engine; `null` in Web mode. */
+  private boostSince: number | null = null
+  /** Counts the ends of a wait asked by the user ("Stay in Web"), so a switch under way does not start the wait again. */
+  private outputWaits = 0
+
+  /**
+   * The helper runs but has no audio output (#525): the page keeps playing itself and asks the
+   * helper every `OUTPUT_POLL_MS` (its probe, which leaves the helper state as it is) until it has
+   * one, then enters Boost. After flaps the output must be seen for a while first; a hidden page
+   * waits until it is shown, so that a background tab never takes the helper from the one in use.
+   * A helper that is gone or of another version ends the wait.
+   */
+  private awaitOutput() {
+    if (this.native) return
+    this.state.awaitingOutput = true
+    this.outputSeenSince = null
+    this.scheduleOutputProbe()
+  }
+
+  private scheduleOutputProbe() {
+    if (this.outputTimer) clearTimeout(this.outputTimer)
+    this.outputTimer = setTimeout(() => {
+      this.outputTimer = null
+      void this.probeOutput()
+    }, OUTPUT_POLL_MS)
+  }
+
+  private async probeOutput() {
+    if (!this.state.awaitingOutput || this.native) return this.stopAwaitingOutput()
+    const result = await probeHelper()
+    // "Stay in Web", or Boost entered by a click, meanwhile.
+    if (!this.state.awaitingOutput) return
+    if (this.native) return this.stopAwaitingOutput()
+    if (result.status !== 'available') {
+      // Another helper may come: its flaps start from none.
+      this.stopAwaitingOutput()
+      this.outputFlaps = 0
+      void this.checkHelper()
+      return
+    }
+    if (!result.audioOutput) {
+      this.outputSeenSince = null
+      return this.scheduleOutputProbe()
+    }
+    const now = Date.now()
+    this.outputSeenSince ??= now
+    const steady = this.outputFlaps === 0 ? 0 : Math.min(OUTPUT_STEADY_MAX_MS, OUTPUT_POLL_MS * 2 ** this.outputFlaps)
+    const hidden = typeof document !== 'undefined' && document.hidden
+    if (hidden || now - this.outputSeenSince < steady) return this.scheduleOutputProbe()
+    // A refusal for want of an output starts the wait again (`connect`).
+    this.stopAwaitingOutput()
+    await this.enterBoost()
+  }
+
+  private stopAwaitingOutput() {
+    if (this.outputTimer) clearTimeout(this.outputTimer)
+    this.outputTimer = null
+    this.outputSeenSince = null
+    this.state.awaitingOutput = false
+  }
+
+  /** "Stay in Web": the page stops waiting for the helper's audio output and plays itself until Boost is asked again. */
+  stayInWeb() {
+    this.outputWaits++
+    this.stopAwaitingOutput()
+    this.outputFlaps = 0
+  }
+
   /** The connection to the helper under way: a second request (button, pairing link) waits for it, so two sessions never overlap. */
   private pendingBoost: Promise<void> | null = null
 
@@ -662,6 +753,8 @@ export class Dispatcher {
       this.state.activeNotes = []
       this.native = session
       this.boosts++
+      this.boostSince = Date.now()
+      this.stopAwaitingOutput()
       this.state.mode = 'native'
       this.state.status = session.status
       this.state.helperUpdate = session.update
@@ -675,7 +768,14 @@ export class Dispatcher {
       // Back to Web meanwhile (the button, a lost helper): nothing left to do for this session.
       if (this.native !== session) return
       await this.web?.suspend()
-    } catch {
+    } catch (error) {
+      if (error instanceof NoOutputError) {
+        // The helper runs and took the token, but has no audio output yet: the Web engine plays
+        // on, the pairing stays, and the page waits for the output (#525).
+        this.state.helper = 'available'
+        this.awaitOutput()
+        return
+      }
       if (opened) {
         // The helper accepted the session and a later step failed: the switch to Web closes that
         // session, unless the helper was lost meanwhile and that switch is already done. A session
@@ -721,6 +821,7 @@ export class Dispatcher {
     const native = this.native
     const web = this.web
     this.native = null
+    this.boostSince = null
     this.state.mode = 'web'
     this.state.helperUpdate = null
     this.state.activeNotes = []
