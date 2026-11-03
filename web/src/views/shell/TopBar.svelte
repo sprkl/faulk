@@ -4,15 +4,100 @@
    * (`src/views/transport/`), engine state (mode, latency, load; or the start button).
    */
   import { resolve } from '$app/paths'
+  import { flushSync, onMount } from 'svelte'
   import LevelMeter from '../../lib/components/LevelMeter.svelte'
   import Monogram from '../../lib/components/Monogram.svelte'
   import { MASTER_METER, useStores } from '../../lib/stores'
   import { viewsIn } from '../registry'
+  import { setLaunchQuantize } from '../../lib/transport-commands'
   import Transport from '../transport/Transport.svelte'
+  import { QUANTIZE_ORDER } from '../transport/time'
   import ProjectMenu from './ProjectMenu.svelte'
 
-  const { engine, ui, dispatcher, keys, meters, storage } = useStores()
+  const { engine, project, ui, dispatcher, keys, meters, storage } = useStores()
   const t = ui.t
+
+  /**
+   * How full the bar is (#604). The bar is one row that never overlaps: when its contents do not fit, `fit` goes up one
+   * step at a time until they do. The order is what the producer reads least while working, first to go first:
+   *   1  the master meter gets shorter (64 px, still readable),
+   *   2  the keyboard octave readout moves to the "more" menu (it plays in every view, so it keeps a place), the project
+   *      name's room and the tabs' padding get tighter,
+   *   3  the launch quantization moves to that menu too (the command is the same, the menu runs it),
+   *   4  the idle take target text hides (the record button's title and a status line for screen readers keep it; the live
+   *      count-in and a lost-note notice never hide). It goes last: it says where the next take lands (spec § 4.1).
+   * The project name keeps its minimum room at every step (`ProjectMenu.svelte`). Never hidden: the project, the views, the
+   * transport's main controls, the engine pill with its latency and load, the help.
+   */
+  const LAST_FIT = 4
+  let fit = $state(0)
+  let bar = $state<HTMLElement | null>(null)
+  let moreButton = $state<HTMLElement | null>(null)
+
+  /** Raises `fit` from 0 to the first step at which the bar's contents fit, reading the layout between the steps. */
+  function measure() {
+    if (!bar) return
+    const fits = () => bar!.scrollWidth <= bar!.clientWidth
+    // A control that folds has the focus (the select being used, the menu's button): the folded parts stay in the page
+    // (hidden, never removed), the search only goes up from the current step, and a bar that fits is left as it is.
+    // Any other control (Record, a view tab) keeps its focus whatever is folded, so the bar measures from the start.
+    const active = document.activeElement
+    const keepsFocus = active instanceof HTMLElement && active.closest('[data-folds]') !== null
+    if (keepsFocus && fits()) return
+    for (let step = keepsFocus ? fit : 0; step <= LAST_FIT; step++) {
+      fit = step
+      flushSync()
+      if (fits()) break
+    }
+    // A trial step blurs the control that had the focus: give it back, or, when the control is now folded away
+    // (it cannot take the focus), hand it to the "more" button that holds what it did.
+    if (keepsFocus) {
+      // The browser moves the focus off a hidden control later, not at once: decide from the control, not from `activeElement`.
+      const folded = (active as HTMLElement).closest('[hidden]') !== null || (active as HTMLElement).offsetParent === null
+      if (folded) moreButton?.focus({ preventScroll: true })
+      else if (document.activeElement !== active) (active as HTMLElement).focus({ preventScroll: true })
+    }
+  }
+
+  onMount(() => {
+    if (!bar || typeof ResizeObserver === 'undefined') return
+    // The bar and every one of its children: a longer text (a language, a take's target, a tempo tap) is a change of width too.
+    const observer = new ResizeObserver(measure)
+    observer.observe(bar)
+    for (const child of bar.children) observer.observe(child)
+    measure()
+    return () => observer.disconnect()
+  })
+
+  /** The menu of what the bar folded: the launch quantization (a radio group) and the keyboard octave. */
+  function openMore(event: MouseEvent) {
+    const box = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    const current = project.view?.project.transport.launch_quantize ?? 'bar'
+    const ready = engine.started && project.view !== null
+    ui.openMenuAt(
+      box.left,
+      box.bottom + 2,
+      [
+        // The octave readout, folded from the bar at step 2 (the keys play in every view, even with the keyboard panel closed).
+        { id: 'more-octave', label: t('keys.octaveShort', { n: keys.octave }), disabled: true, run: () => {} },
+        ...(fit >= 3
+          ? [
+              { id: 'more-quantize', label: t('transport.launchQuantize'), separator: true, disabled: true, run: () => {} },
+              ...QUANTIZE_ORDER.map((q) => ({
+                id: `more-quantize-${q}`,
+                label: t(`transport.quantize.${q}`),
+                detail: q === current ? '✓' : undefined,
+                disabled: !ready,
+                run: () => {
+                  if (q !== current) void dispatcher.run(setLaunchQuantize(q))
+                },
+              })),
+            ]
+          : []),
+      ],
+      t('transport.more'),
+    )
+  }
 
   const latency = $derived(
     engine.status?.estimatedLatencyMs != null ? t('engine.latency', { ms: Math.round(engine.status.estimatedLatencyMs) }) : t('engine.latencyUnknown'),
@@ -31,7 +116,7 @@
   const waiting = $derived(engine.mode === 'web' && engine.awaitingOutput ? t('engine.boostWaiting') : null)
 </script>
 
-<header class="top">
+<header class="top" bind:this={bar} data-fit={fit} style:--fk-project-max={fit >= 2 ? '128px' : '160px'}>
   <h1 class="sr-only">Faulk</h1>
   <!-- Full page load: the landing page has its own theme and no client-side router. -->
   <a class="home" href={resolve('/')} data-sveltekit-reload aria-label={t('app.home')}><Monogram size={20} /></a>
@@ -52,7 +137,20 @@
 
   <div class="spacer"></div>
 
-  <Transport />
+  <Transport hideTarget={fit >= 4} hideQuantize={fit >= 3} />
+  <button
+    class="more"
+    bind:this={moreButton}
+    hidden={fit < 2}
+    data-folds
+    type="button"
+    aria-haspopup="menu"
+    aria-expanded={ui.contextMenu?.label === t('transport.more')}
+    aria-label={t('transport.more')}
+    title={t('transport.moreHint')}
+    data-testid="bar-more"
+    onclick={openMore}>⋯</button
+  >
 
   <div class="engine" data-testid="engine-state">
     {#if engine.started}
@@ -81,7 +179,7 @@
         {#if waiting}<span class="waiting" aria-hidden="true" data-testid="engine-waiting"></span>{/if}
       </button>
       <!-- The master's level, in every view: the output is what the listener hears, whatever the view shows. -->
-      <div class="master-meter">
+      <div class="master-meter" class:short={fit >= 1}>
         <LevelMeter
           snap={meters.snap(MASTER_METER)}
           orientation="horizontal"
@@ -93,7 +191,9 @@
         />
       </div>
       <!-- The octave of the computer keyboard, which plays in every view (#361); the keyboard tab of the bottom panel has the keys. -->
-      <span class="value muted" data-testid="keys-octave-bar" title={keys.targetHint}>{t('keys.octaveShort', { n: keys.octave })}</span>
+      <span class="value muted" hidden={fit >= 2} data-folds data-testid="keys-octave-bar" title={keys.targetHint}
+        >{t('keys.octaveShort', { n: keys.octave })}</span
+      >
       <!-- The voices playing: for the browser checks (the dialog shows them to the eye), out of the screen reader's way. -->
       <span class="sr-only" aria-hidden="true" data-testid="voices">{t('engine.voices', { n: engine.voices })}</span>
       <!-- The engine's report as data, for the browser checks. -->
@@ -128,7 +228,8 @@
 </header>
 
 <style>
-  /* One row from 1280 px up, in every view and both languages: nothing wraps, the spacer gives way first. */
+  /* One row from 1280 px up, in every view and both languages: nothing wraps and nothing overlaps (#604). The spacer gives way
+     first, then the project name down to its minimum, then `fit` folds the least-read parts (script). */
   .top {
     flex-shrink: 0;
     min-height: 52px;
@@ -183,7 +284,7 @@
     color: var(--fk-bg);
   }
   .spacer {
-    flex: 1;
+    flex: 1 1 0;
     min-width: 0;
   }
   .engine {
@@ -267,6 +368,34 @@
   }
   .master-meter :global(.meter) {
     --len: 96px;
+  }
+  .master-meter.short :global(.meter) {
+    --len: 64px;
+  }
+  /* The overflow button: as wide as a transport tool, so it costs one slot of the bar. */
+  .more {
+    flex: none;
+    width: 28px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--fk-radius-panel);
+    background: var(--fk-surface-2);
+    color: var(--fk-text);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .more[hidden],
+  .muted[hidden] {
+    display: none;
+  }
+  .more:hover,
+  .more[aria-expanded='true'] {
+    border-color: var(--fk-line);
+  }
+  .top:is([data-fit='2'], [data-fit='3'], [data-fit='4']) .views button {
+    padding: 0 var(--fk-space-2);
   }
   button.primary {
     height: 30px;

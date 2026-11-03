@@ -20,6 +20,7 @@
     barTicks,
     DEFAULT_LOOP_BARS,
     DENOMINATORS,
+    QUANTIZE_ORDER,
     formatPosition,
     formatTempo,
     formatTime,
@@ -34,10 +35,14 @@
   import { createSeries } from './series'
   import { NO_TAPS, TAP_RESET_MS, tap, type TapState } from './tap-tempo'
 
+  /**
+   * What the top bar folds away when it is full (#604, `TopBar.svelte`): the take's target text turns screen-reader-only
+   * (the record button's title still says it), and the launch quantization leaves for the bar's overflow menu.
+   */
+  let { hideTarget = false, hideQuantize = false }: { hideTarget?: boolean; hideQuantize?: boolean } = $props()
+
   const { engine, project, ui, dispatcher, recorder } = useStores()
   const t = ui.t
-
-  const QUANTIZE_ORDER = ['none', 'sixteenth', 'beat', 'bar', 'bars_2', 'bars_4', 'bars_8'] as const
 
   const settings = $derived(project.view?.project.transport ?? null)
   const bpm = $derived(project.view?.project.tempo[0]?.bpm ?? null)
@@ -386,7 +391,7 @@
     <span class="rec-target warn" data-testid="transport-record-notice" role="status" title={takeNotice}>{takeNotice}</span>
   {:else if recording || (armedMidi.length > 0 && recordBlocked === null)}
     <!-- The target, shown before the take starts (spec § 4.1), and the count-in while it runs. -->
-    <span class="rec-target" class:live={recording} data-testid="transport-record-target" aria-live="polite">
+    <span class="rec-target" class:live={recording} class:sr-only={hideTarget && !recording} data-testid="transport-record-target" aria-live="polite">
       {countingIn ? t('transport.countIn') : recording ? (takeTarget ?? recordTarget) : recordTarget}
     </span>
   {/if}
@@ -502,7 +507,7 @@
     </select>
   </div>
 
-  <label class="field">
+  <label class="field" hidden={hideQuantize} data-folds>
     <span class="sr-only">{t('transport.launchQuantize')}</span>
     <select
       class="value quant"
@@ -619,6 +624,9 @@
   }
   .muted {
     font-size: 11px;
+  }
+  .field[hidden] {
+    display: none;
   }
   .field {
     display: inline-flex;
