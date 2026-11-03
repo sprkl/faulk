@@ -99,7 +99,7 @@ fn a_journey_pack_sounds_as_its_old_export_after_the_migration() {
     let worst = diff(&left[..frames], &now.left[..frames])
         .max(diff(&right[..frames], &now.right[..frames]));
     eprintln!(
-        "old export {} frames, migrated render {} frames, largest sample difference {worst:.6}",
+        "old export {} frames, migrated render {} frames, largest sample difference {worst:e}",
         left.len(),
         now.left.len()
     );
@@ -107,11 +107,12 @@ fn a_journey_pack_sounds_as_its_old_export_after_the_migration() {
         let repeated = export_native(&State::new(raw.project.clone()), settings).render();
         let frames_r = left.len().min(repeated.left.len());
         let worst_r = diff(&left[..frames_r], &repeated.left[..frames_r]);
-        eprintln!("unmigrated (repeating) render: largest sample difference {worst_r:.6}");
+        eprintln!("unmigrated (repeating) render: largest sample difference {worst_r:e}");
     }
-    // 24-bit quantisation and the dither-free export: the same song within a hair.
+    // The same song: no sample further than a few 24-bit steps (rounding of the 24-bit
+    // export, about -132 dBFS for two steps) from the old export.
     assert!(
-        worst < 1e-3,
+        worst <= 4.0 / 8_388_608.0,
         "the migrated song does not sound as its old export: {worst}"
     );
 }

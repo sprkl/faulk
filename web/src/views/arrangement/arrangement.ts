@@ -209,7 +209,8 @@ export function passesOf(block: Block, max = 256, after = block.start): { at: nu
   const { start, end } = cycleOf(block)
   const out: { at: number; from: number }[] = []
   let at = block.start
-  let from = block.offset
+  // An offset at or past the loop's end plays from its place round the loop (the engine's rule).
+  let from = clipPosition(block, block.offset)
   // Jump straight to the pass that holds `after` (a long block in view from its middle): no walk from the start.
   const first = end - from
   const span = end - start
@@ -230,7 +231,7 @@ export function passesOf(block: Block, max = 256, after = block.start): { at: nu
 /** How many passes a block plays (the first one counted even when partial), without walking them. */
 export function passCount(block: Block): number {
   const { start, end } = cycleOf(block)
-  const first = end - block.offset
+  const first = end - clipPosition(block, block.offset)
   const span = end - start
   if (span <= 0 || first <= 0 || block.length <= first) return 1
   return 1 + Math.ceil((block.length - first) / span)

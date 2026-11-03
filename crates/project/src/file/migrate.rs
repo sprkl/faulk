@@ -26,8 +26,8 @@ pub const MIGRATIONS: &[Migration] = &[Migration {
 /// Format 2 (#473): in the arrangement, a placement longer than its MIDI clip repeats the
 /// clip, even one without a loop; in format 1 such a clip was silent after its end. So that
 /// a song written before sounds the same, a placement of a MIDI clip without a loop is cut
-/// at the clip's end (what lay past it was silence), and one that starts past it (silent
-/// whole) is removed. A clip with a loop repeated it already and is left alone.
+/// at the clip's end (what lay past it was silence). A clip with a loop repeated it already
+/// and is left alone.
 fn v1_to_v2(mem: &mut MemFs) -> Result<(), String> {
     use serde_json::Value;
     let mut project: Value = serde_json::from_slice(
@@ -65,9 +65,9 @@ fn v1_to_v2(mem: &mut MemFs) -> Result<(), String> {
                 })
             };
             match cut {
-                // Silent whole: the placement goes.
-                Some((clip_len, offset)) if offset >= clip_len => changed = true,
-                Some((clip_len, offset)) => {
+                // An offset at or past the clip's end is invalid in any format: left as it
+                // is, for the reader to refuse the folder as corrupt.
+                Some((clip_len, offset)) if offset < clip_len => {
                     changed = true;
                     let ending = &line[row.len()..];
                     out.push_str(&format!(
@@ -79,7 +79,7 @@ fn v1_to_v2(mem: &mut MemFs) -> Result<(), String> {
                         cols[4]
                     ));
                 }
-                None => out.push_str(line),
+                _ => out.push_str(line),
             }
         }
         if changed {

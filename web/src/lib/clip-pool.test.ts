@@ -36,7 +36,9 @@ describe('the clip pool (#473)', () => {
   it('places a clip used nowhere itself, and copies a used one unless linked (founder decision 11)', () => {
     const [arr, loose, both, grid] = poolOf(project, 't')
     expect(placeCommand(loose!, 960, false)).toEqual({ type: 'arrangement.place', clip: 'loose', start: 960 })
-    expect(placeCommand(arr!, 960, false)).toEqual({ type: 'arrangement.duplicate', placements: ['p0'], linked: false, by: 960 })
+    // A start inside the source placement: the copy goes right after it, never over it.
+    expect(placeCommand(arr!, 960, false)).toEqual({ type: 'arrangement.duplicate', placements: ['p0'], linked: false, by: 3840 })
+    expect(placeCommand(arr!, 19200, false)).toEqual({ type: 'arrangement.duplicate', placements: ['p0'], linked: false, by: 19200 })
     expect(placeCommand(arr!, 960, true)).toEqual({ type: 'arrangement.place', clip: 'arr', start: 960 })
     // At its own start, a copy goes right after its source, never onto it.
     expect(placeCommand(arr!, 0, false)).toEqual({ type: 'arrangement.duplicate', placements: ['p0'], linked: false, by: 3840 })

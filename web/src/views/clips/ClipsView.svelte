@@ -50,7 +50,8 @@
 
   function onDragStart(event: DragEvent, entry: PoolClip) {
     if (!event.dataTransfer || !trackId) return
-    event.dataTransfer.effectAllowed = 'copyMove'
+    // Copy by default, link with Alt: both drop effects are allowed.
+    event.dataTransfer.effectAllowed = 'all'
     event.dataTransfer.setData(CLIP_DRAG_TYPE, JSON.stringify({ clip: entry.id, track: trackId }))
     event.dataTransfer.setData(clipTrackType(trackId), entry.id)
     event.dataTransfer.setData('text/plain', entry.clip.name)

@@ -250,6 +250,10 @@ describe('split', () => {
     expect(passCount(looped)).toBe(5)
     expect(passCount({ ...short, end: 3840 * 400, length: 3840 * 400 })).toBe(400)
     expect(passesOf(looped, 256, 5000).map((p) => p.at)).toEqual([4800, 6240])
+    // An offset past the loop's end plays from its place in the loop.
+    const late = { ...looped, offset: 2400, end: 2880, length: 2880 }
+    expect(passesOf(late)[0]).toEqual({ at: 0, from: 480 + ((2400 - 1920) % 1440) })
+    expect(passCount(late)).toBe(3)
   })
 
   it('finds the clip position round the clip or its loop', () => {

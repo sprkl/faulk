@@ -58,8 +58,11 @@ export function placeCommand(entry: PoolClip, start: Tick, linked: boolean): Com
   if (entry.slot) return placeFromSlot(entry.id, start, linked)
   const first = entry.placements[0]
   // Used in the arrangement already: a copy of its first placement by default, the same clip with `linked`.
-  // A copy that would land on its own source (the playhead on it) goes right after it instead of replacing it.
-  if (first && !linked) return duplicatePlacements([first.id], false, start === first.start ? first.length : start - first.start)
+  // A copy that would land on its own source (the playhead inside it) goes right after it instead of cutting it.
+  if (first && !linked) {
+    const inside = start >= first.start && start < first.start + first.length
+    return duplicatePlacements([first.id], false, inside ? first.length : start - first.start)
+  }
   return { type: 'arrangement.place', clip: entry.id, start }
 }
 

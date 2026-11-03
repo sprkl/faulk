@@ -115,6 +115,27 @@ fn a_format_1_song_is_cut_where_it_was_silent_and_sounds_the_same() {
 }
 
 #[test]
+fn a_format_1_placement_past_its_clip_is_still_refused_as_corrupt() {
+    let (mut fs, track, p, _) = v1_folder();
+    let path = format!("tracks/{track}/arrangement.tsv");
+    let text = String::from_utf8(fs.read(&path).unwrap()).unwrap();
+    // p[1] plays 1920 ticks from 960: move its offset to the clip's end (3840).
+    let line = text
+        .lines()
+        .find(|l| l.starts_with(&p[1].to_string()))
+        .unwrap()
+        .to_owned();
+    let cols: Vec<&str> = line.split('\t').collect();
+    let bad = format!("{}\t{}\t{}\t{}\t3840", cols[0], cols[1], cols[2], cols[3]);
+    fs.insert(path, text.replacen(&line, &bad, 1));
+    let err = open(&fs, &OpenOptions::default()).unwrap_err();
+    assert!(
+        matches!(err, FileError::Invalid { .. } | FileError::Corrupt { .. }),
+        "{err:?}"
+    );
+}
+
+#[test]
 fn a_current_song_keeps_its_stretched_clips() {
     let (mut fs, track, p, project) = v1_folder();
     let text = String::from_utf8(fs.read("project.json").unwrap()).unwrap();
