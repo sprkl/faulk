@@ -163,6 +163,10 @@ describe('a big project through the page', () => {
     const e = engine()
     e.queue.push(core.setup().engine)
     e.untilApplied()
+    // The project that plays: a key held on its synth.
+    e.queue.push(run(core, { type: 'live.note_on', track: SINGLE_SYNTH.track, note: 60, velocity: 100 }).engine)
+    for (let q = 0; q < 20; q++) e.quantum()
+    expect(e.peakSince()).toBeGreaterThan(0.01)
     core.stage('big', entries)
     const { report: opened, engine: bytes } = core.open('big')
     expect(opened.status).toBe('applied')

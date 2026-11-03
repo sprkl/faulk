@@ -128,7 +128,9 @@ struct Waiting {
 /// queue are full, as a big project's snapshot makes them) keeps its rest, from the message
 /// that stopped it ([`Preparer::stopped_at`]; the refused message left nothing behind), and
 /// is sent again at the next [`StreamQueue::flush`], before anything sent after it: nothing
-/// is lost nor reordered. Any other stop drops that stream (the engine is then behind the
+/// is lost nor reordered among the streams. (Once nothing waits here, the prepare side's own
+/// queue may still hold the tail of a stream, and a live note sent then goes straight to the
+/// live queue, ahead of that tail: `Preparer::handle`.) Any other stop drops that stream (the engine is then behind the
 /// project until a resync) and is returned.
 ///
 /// [`Preparer::stopped_at`]: crate::engine::Preparer::stopped_at

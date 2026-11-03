@@ -99,8 +99,12 @@ pub struct EventSender {
     queue: StreamQueue,
     /// The one-synth project the commands run on, and the engine's stream (PR-3).
     stream: Synced,
-    /// A resync could not be sent: flushes left before the next try ([`RESYNC_RETRY_FLUSHES`]).
+    /// A resync is due: flushes left before it is tried ([`RESYNC_RETRY_FLUSHES`]).
     behind: Option<u32>,
+    /// Flushes since the last resync was tried: two resyncs are at least
+    /// [`RESYNC_RETRY_FLUSHES`] apart, so that a snapshot the engine keeps refusing does not
+    /// make the flusher encode the whole project again at every tick.
+    since_resync: u32,
 }
 
 impl EventSender {
@@ -118,7 +122,7 @@ impl EventSender {
             }
             Err(SyncError::Stream(error)) => {
                 crate::log!("the command's engine messages did not encode: {error:?}");
-                self.resync();
+                self.fall_behind();
                 return;
             }
         };
@@ -129,7 +133,7 @@ impl EventSender {
     fn submit(&mut self, bytes: &[u8]) {
         if let Err(error) = self.queue.send(bytes) {
             crate::log!("the engine refused a command: {error:?}");
-            self.resync();
+            self.fall_behind();
         }
     }
 
@@ -137,6 +141,7 @@ impl EventSender {
     /// drops the garbage. A waiting stream stopped for another reason than a busy engine is
     /// logged and the engine resynced; a resync that could not be sent is tried again.
     pub fn flush(&mut self) {
+        self.since_resync = self.since_resync.saturating_add(1);
         if let Some(left) = self.behind {
             if left == 0 {
                 self.resync();
@@ -146,7 +151,18 @@ impl EventSender {
         }
         if let Err(error) = self.queue.flush() {
             crate::log!("the engine refused a stream: {error:?}");
+            self.fall_behind();
+        }
+    }
+
+    /// The engine is behind the project: resync it now, or once [`RESYNC_RETRY_FLUSHES`]
+    /// flushes have passed since the last resync.
+    fn fall_behind(&mut self) {
+        if self.since_resync >= RESYNC_RETRY_FLUSHES {
             self.resync();
+        } else if self.behind.is_none() {
+            // Counted down by the flushes to come: the try falls on the one that ends the pause.
+            self.behind = Some((RESYNC_RETRY_FLUSHES - self.since_resync).saturating_sub(1));
         }
     }
 
@@ -154,6 +170,7 @@ impl EventSender {
     /// `Reset` with the project's snapshot goes in a new epoch, as the page does after a
     /// stream its engine refused.
     fn resync(&mut self) {
+        self.since_resync = 0;
         self.queue.clear();
         let sent = self
             .stream
@@ -218,6 +235,7 @@ pub(crate) fn audio_core_for(
         queue: StreamQueue::new(prepare),
         stream,
         behind: None,
+        since_resync: RESYNC_RETRY_FLUSHES,
     };
     if let Ok(mut report) = meter.report.lock() {
         *report = Some(host.feedback_shared());
@@ -592,6 +610,31 @@ mod tests {
         sender.drop_waiting();
         sender.flush();
         assert_eq!(sender.stream.epoch(), epoch + 1);
+    }
+
+    #[test]
+    fn two_refusals_in_a_row_resync_once_then_again_after_a_pause() {
+        let (mut core, mut sender, _) = big_core(2);
+        until_applied(&mut core, &mut sender);
+        let epoch = sender.stream.epoch();
+        sender.submit(&[1, 2, 3]);
+        assert_eq!(
+            sender.stream.epoch(),
+            epoch + 1,
+            "the first refusal resyncs at once"
+        );
+        // Refused again right after (a snapshot the engine keeps refusing): no new encoding
+        // of the whole project at this tick, one after the pause.
+        sender.submit(&[1, 2, 3]);
+        assert_eq!(sender.stream.epoch(), epoch + 1);
+        assert!(sender.behind.is_some());
+        for _ in 0..RESYNC_RETRY_FLUSHES {
+            sender.flush();
+        }
+        assert_eq!(sender.stream.epoch(), epoch + 2, "resynced after the pause");
+        assert!(sender.behind.is_none());
+        until_applied(&mut core, &mut sender);
+        assert_eq!(sender.queue.prepare().preparer().epoch(), epoch + 2);
     }
 
     #[test]
