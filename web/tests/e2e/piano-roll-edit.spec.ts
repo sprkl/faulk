@@ -304,23 +304,30 @@ test('piano roll: Q quantizes the selection or the whole clip, says how many not
   await page.keyboard.press('Control+z')
   await expect.poll(async () => (await starts(page)).slice().sort((a, b) => a - b)).toEqual(drawn)
 
-  // No selection: every note.
+  // No selection: every note, and one undo takes all three back (one history entry).
   await page.keyboard.press('Escape')
   await expect(roll(page)).toHaveAttribute('data-selected-count', '0')
   await page.keyboard.press('KeyQ')
   await expect.poll(async () => (await starts(page)).every((s) => s % 960 === 0)).toBe(true)
   await expect(page.getByTestId('roll-quantize-said')).toContainText(/3/)
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await starts(page)).slice().sort((a, b) => a - b)).toEqual(drawn)
+  await page.keyboard.press('Control+Shift+z')
+  await expect.poll(async () => (await starts(page)).every((s) => s % 960 === 0)).toBe(true)
 
   // The menu: the entry shows the key.
   await page.mouse.click(g.x(2500), g.y(64), { button: 'right' })
   await expect(page.getByTestId('ctx-quantize')).toContainText('Q')
   await page.keyboard.press('Escape')
 
-  // Q with the focus in a field types, it does not quantize.
+  // Q with the focus in a field types, it does not quantize: undo first so that notes are off the grid, then press Q in the field.
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await starts(page)).slice().sort((a, b) => a - b)).toEqual(drawn)
   await page.getByTestId('roll-quantize-strength').focus()
-  const kept = (await starts(page)).slice().sort((a, b) => a - b)
   await page.keyboard.press('KeyQ')
-  expect((await starts(page)).slice().sort((a, b) => a - b)).toEqual(kept)
+  await page.waitForTimeout(300)
+  expect((await starts(page)).slice().sort((a, b) => a - b)).toEqual(drawn)
+  await expect(page.getByTestId('roll-quantize-said')).toHaveCount(0)
 
   expect(seen.errors).toEqual([])
   expect(warnings).toEqual([])

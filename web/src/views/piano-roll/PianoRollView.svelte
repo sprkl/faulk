@@ -1056,7 +1056,8 @@
 
   /** Quantizes the chosen notes, or every note when none is chosen. Nothing is sent when no start would move. */
   function quantizeNow() {
-    if (!edited) return
+    // Not in the middle of a drag: the drag commits positions computed before the quantize.
+    if (!edited || gesture) return
     const chosen = chosenNotes.length > 0
     const changes = quantizeChanges(chosen ? chosenNotes : notes, gridTicks, quantizeStrength, clipLength).filter((c) => noteKey(c.from) !== noteKey(c.to))
     const said = quantizeSaid(changes.length, chosen ? chosenNotes.length : notes.length)
@@ -1294,7 +1295,7 @@
           data-testid="roll-quantize"
           onclick={quantizeNow}>{t('pianoRoll.quantize')}</button
         >
-        {#if quantizeNote}<span class="said" role="status" data-testid="roll-quantize-said">{quantizeNote}</span>{/if}
+        {#if quantizeNote}<span class="said" data-testid="roll-quantize-said">{quantizeNote}</span>{/if}
       </div>
       <span class="count" data-testid="roll-count" title={chosenNotes.length > 0 ? t('pianoRoll.selected', { n: chosenNotes.length }) : undefined}
         >{t('pianoRoll.count', { n: notes.length })}</span
