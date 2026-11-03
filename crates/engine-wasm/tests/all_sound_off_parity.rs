@@ -55,6 +55,7 @@ fn scenario() -> Vec<Step> {
         track: t,
         pitch,
         velocity: 110,
+        at: None,
     };
     const MIXED: &[usize] = &[128, 37, 2048, 1, 500];
 
@@ -91,6 +92,7 @@ fn scenario() -> Vec<Step> {
         &[M::NoteOff {
             track: t,
             pitch: 60,
+            at: None,
         }],
         &mut steps,
     );

@@ -55,6 +55,7 @@ fn playing(slot: u32) -> Vec<M> {
             track: TrackSlot(slot),
             pitch: 69,
             velocity: 100,
+            at: None,
         },
     ]
 }

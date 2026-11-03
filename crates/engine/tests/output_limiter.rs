@@ -72,6 +72,7 @@ impl Rig {
                     track,
                     pitch,
                     velocity: 127,
+                    at: None,
                 }]);
             }
         }
@@ -240,6 +241,7 @@ fn many_tracks_hot_and_growth_never_allocate() {
                 track,
                 pitch: 40 + t as u8,
                 velocity: 127,
+                at: None,
             },
         ]);
     }

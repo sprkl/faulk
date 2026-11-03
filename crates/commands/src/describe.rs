@@ -136,6 +136,10 @@ fn placements(p: &Project, ids: &[PlacementId]) -> Option<Subject> {
     Some(subject)
 }
 
+fn marker(p: &Project, id: &project::MarkerId) -> Option<String> {
+    p.markers.get(id).map(|m| m.name.clone())
+}
+
 fn scene(p: &Project, id: &SceneId) -> Option<String> {
     p.scenes.get(id).map(|s| s.name.clone())
 }
@@ -304,6 +308,13 @@ pub fn before(command: &Command, p: &Project) -> Option<Subject> {
             | ar::Command::Split { placement: id, .. } => placement(p, id)
                 .map(|(c, t)| Subject::one(Some(c).filter(|c| !c.is_empty()), Some(t))),
             ar::Command::PlaceScene { scene: id, .. } => Some(Subject::one(scene(p, id), None)),
+            ar::Command::RenameMarker { marker: id, name } => {
+                marker(p, id).map(|n| Subject::one(Some(n), None).to(trimmed(name)))
+            }
+            ar::Command::MoveMarker { marker: id, .. }
+            | ar::Command::DeleteMarker { marker: id } => {
+                marker(p, id).map(|n| Subject::one(Some(n), None))
+            }
             _ => None,
         },
         Command::Automation(c) => match c {
@@ -375,6 +386,9 @@ pub fn after(output: &crate::Output, p: &Project) -> Option<Subject> {
         }
         crate::Output::Clip(cl::Output::Create { clip: id, .. }) => clip_subject(p, id),
         crate::Output::Automation(au::Output::LaneCreate { lane: id }) => lane(p, id, 1),
+        crate::Output::Arrangement(crate::arrangement::Output::AddMarker { marker: id }) => {
+            marker(p, id).map(|n| Subject::one(Some(n), None))
+        }
         _ => None,
     }
 }

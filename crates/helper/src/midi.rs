@@ -21,20 +21,28 @@ pub fn all_notes_off() -> Command {
 /// The note and velocity a command plays, for the MIDI activity light (0: released).
 pub fn light(command: &Command) -> Option<(u8, u8)> {
     match command {
-        Command::Live(live::Command::InputNoteOn { note, velocity }) => Some((*note, *velocity)),
-        Command::Live(live::Command::InputNoteOff { note }) => Some((*note, 0)),
+        Command::Live(live::Command::InputNoteOn { note, velocity, .. }) => {
+            Some((*note, *velocity))
+        }
+        Command::Live(live::Command::InputNoteOff { note, .. }) => Some((*note, 0)),
         _ => None,
     }
 }
 
 /// The live input's note on: the command layer routes it to the selected and the armed
-/// tracks (RE-1), so the helper knows no track.
+/// tracks (RE-1), so the helper knows no track. Not stamped (`frame: None`): the helper's
+/// MIDI time is not tied to its audio clock yet (#501), so the note counts from the block
+/// that takes it.
 fn note_on(note: u8, velocity: u8) -> Command {
-    Command::Live(live::Command::InputNoteOn { note, velocity })
+    Command::Live(live::Command::InputNoteOn {
+        note,
+        velocity,
+        frame: None,
+    })
 }
 
 fn note_off(note: u8) -> Command {
-    Command::Live(live::Command::InputNoteOff { note })
+    Command::Live(live::Command::InputNoteOff { note, frame: None })
 }
 
 fn control_change(controller: u8, value: u8) -> Command {

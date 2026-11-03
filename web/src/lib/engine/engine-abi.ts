@@ -23,6 +23,8 @@ export interface EngineExports {
   fk_pump(channel: number): number
   fk_render_block(channel: number, frames: number): number
   fk_render(channel: number, frames: number): number
+  /** `fk_render` after telling the engine the host frame of the block's first sample (#499): the worklet's `currentFrame`. */
+  fk_render_at(channel: number, frames: number, hostFrame: number): number
   /** Runs every message once on a throwaway channel (#355): 0, or an error code. */
   fk_warm(sampleRate: number): number
   fk_left(channel: number): number

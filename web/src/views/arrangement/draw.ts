@@ -29,6 +29,8 @@ export interface ArrangementFrame {
   fallbackName: string
   /** The tracks that make no sound (muted, or silenced by a solo): their clips are drawn at 40 %. */
   silent: ReadonlySet<string>
+  /** The section markers (#473): a line down the arrangement at each; their names are buttons on the ruler. */
+  markers: readonly { tick: number }[]
 }
 
 /** How much of its colour a clip of a silent track keeps. */
@@ -181,6 +183,18 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
   }
   for (const ghost of scene.ghosts) drawBlock(ghost, true, true)
   ctx.restore()
+
+  // The section markers: a thin line from the ruler down.
+  if (scene.markers.length > 0) {
+    ctx.fillStyle = colors.text
+    ctx.globalAlpha = 0.35
+    for (const marker of scene.markers) {
+      const x = Math.round(tickToX(marker.tick, view))
+      if (x < 0 || x > width) continue
+      ctx.fillRect(x, RULER_HEIGHT / 2, 1, height - RULER_HEIGHT / 2)
+    }
+    ctx.globalAlpha = 1
+  }
 
   // The time selection: a band over the whole height.
   if (scene.timeSel) {

@@ -313,6 +313,28 @@ pub unsafe extern "C" fn fk_render(ch: *mut Channel, frames: u32) -> u32 {
     unsafe { host(ch) }.map_or(0, |h| h.render(frames as usize) as u32)
 }
 
+/// One block like [`fk_render`], after telling the engine the host's frame of its first
+/// sample (#499, `Engine::set_host_frame`): the worklet passes the audio context's
+/// `currentFrame`, so the live notes the page stamped in that clock are recorded where they
+/// were played. A `host_frame` that is negative, not finite or beyond `2^53` is ignored (a
+/// JavaScript number, no `BigInt`: the worklet allocates nothing). Returns the frames rendered.
+///
+/// # Safety
+/// `ch` as in [`host`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_render_at(ch: *mut Channel, frames: u32, host_frame: f64) -> u32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { host(ch) }.map_or(0, |h| {
+        if (0.0..=MAX_SAFE_FRAME).contains(&host_frame) {
+            h.set_host_frame(host_frame as u64);
+        }
+        h.render(frames as usize) as u32
+    })
+}
+
+/// The largest frame a JavaScript number holds exactly (`2^53`).
+const MAX_SAFE_FRAME: f64 = 9_007_199_254_740_992.0;
+
 /// Warms the apply path (#355): runs every message of the engine once on a throwaway channel
 /// of its own at `sample_rate`, so that V8, which compiles a WebAssembly function at its first
 /// call, does it here and not in the first pump that applies messages. Call it once from the

@@ -72,13 +72,14 @@ export class KeyboardPlayer {
     // It sends the note off where the note on went, so a track change while the key is held ends it.
     if (!this.target && this.armedMidi.length === 0) return
     this.held.set(event.code, note)
-    this.dispatcher.run(inputNoteOn(note, 100))
+    // Stamped with the key's time, so a recording places it where it was played (#499).
+    this.dispatcher.runPlayed(inputNoteOn(note, 100), event.timeStamp)
   }
 
   keyUp(event: KeyboardEvent) {
     const note = this.held.get(event.code)
     if (note === undefined) return
     this.held.delete(event.code)
-    this.dispatcher.run(inputNoteOff(note))
+    this.dispatcher.runPlayed(inputNoteOff(note), event.timeStamp)
   }
 }

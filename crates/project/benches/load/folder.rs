@@ -162,6 +162,7 @@ impl WithoutTracks for Project {
             master_devices: self.master_devices.clone(),
             master_automation: self.master_automation.clone(),
             tracks: BTreeMap::new(),
+            markers: self.markers.clone(),
         }
     }
 }
