@@ -77,6 +77,22 @@ describe('the Boost engine reads the helper', () => {
     expect(events.onError).not.toHaveBeenCalled()
   })
 
+  it('takes a later hello as the status of the output the helper reopened (#577)', async () => {
+    vi.stubGlobal('WebSocket', FakeSocket)
+    const events = { onStatus: vi.fn(), onFeedback: vi.fn(), onError: vi.fn(), onClosed: vi.fn() } satisfies EngineEvents
+    const connected = NativeEngine.connect('t', events)
+    const socket = FakeSocket.last
+    socket.onmessage!({ data: JSON.stringify({ type: 'hello', protocol: PROTOCOL_VERSION, sample_rate: 48000, estimated_latency_ms: 12 }) })
+    const engine = await connected
+    // The output was replaced and the session plays on: a new hello at the new output's rate.
+    socket.onmessage!({ data: JSON.stringify({ type: 'hello', protocol: PROTOCOL_VERSION, sample_rate: 44100, buffer_frames: 441, estimated_latency_ms: 20 }) })
+    expect(engine.status).toEqual({ kind: 'native', sampleRate: 44100, estimatedLatencyMs: 20 })
+    expect(events.onStatus).toHaveBeenCalledTimes(2)
+    expect(events.onStatus.mock.calls[1][0]).toEqual(engine.status)
+    expect(events.onError).not.toHaveBeenCalled()
+    expect(events.onClosed).not.toHaveBeenCalled()
+  })
+
   it('rejects with NoOutputError when the helper has no audio output (#525)', async () => {
     vi.stubGlobal('WebSocket', FakeSocket)
     const events = { onStatus: vi.fn(), onFeedback: vi.fn(), onError: vi.fn(), onClosed: vi.fn() } satisfies EngineEvents

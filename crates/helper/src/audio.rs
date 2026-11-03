@@ -21,6 +21,7 @@ use commands::Command;
 use commands::engine_msgs::{SyncError, Synced};
 use engine::host::{Host, StreamQueue};
 use engine::msg::MsgError;
+use engine::time::SampleRate;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
@@ -87,6 +88,12 @@ impl Meter {
         if let Ok(mut report) = self.report.lock() {
             *report = None;
         }
+        self.forget_output();
+    }
+
+    /// Forgets the output that went away but keeps the engine's report region: the engine is
+    /// kept for the next output (#577), whose callback size and delay are not known yet.
+    pub fn forget_output(&self) {
         self.peak_bits.store(0, Ordering::Relaxed);
         self.voices.store(0, Ordering::Relaxed);
         self.callback_frames.store(0, Ordering::Relaxed);
@@ -209,6 +216,21 @@ impl EventSender {
         self.queue.prepare().preparer().rejected()
     }
 
+    /// Changes the engine's sample rate to `hz`, keeping its playhead and its project (#577):
+    /// every device is built again for it off the audio thread
+    /// (`StreamQueue::set_sample_rate`). A call at the current rate does nothing; nothing
+    /// changes on an error.
+    pub fn set_sample_rate(&mut self, hz: f32) -> Result<(), MsgError> {
+        // A rate the driver gives is a whole number of hertz; 0 is refused here, any other
+        // rate below the devices' lowest by the prepare side.
+        let rate = SampleRate::new(hz as u32).ok_or(MsgError::LimitExceeded {
+            what: "sample rate of zero",
+            limit: 1,
+            requested: 0,
+        })?;
+        self.queue.set_sample_rate(rate)
+    }
+
     /// Streams waiting for the engine to take them.
     pub fn waiting(&self) -> usize {
         self.queue.waiting()
@@ -264,6 +286,17 @@ impl EngineSlot {
             sender,
             sample_rate,
         });
+    }
+
+    /// Changes the rate of the engine in the slot to `hz` ([`EventSender::set_sample_rate`],
+    /// #577), for the output it is about to play on. `NoSuchTarget` when the slot is empty;
+    /// nothing changes on an error.
+    pub fn set_sample_rate(&self, hz: f32) -> Result<(), MsgError> {
+        let mut running = self.running.lock().unwrap_or_else(|p| p.into_inner());
+        let running = running.as_mut().ok_or(MsgError::NoSuchTarget)?;
+        running.sender.set_sample_rate(hz)?;
+        running.sample_rate = hz;
+        Ok(())
     }
 
     /// The output went away: drops its engine's prepare side.
@@ -333,6 +366,12 @@ pub fn spawn_flusher(slot: &Arc<EngineSlot>) -> std::thread::JoinHandle<()> {
 }
 
 impl AudioCore {
+    /// The engine this core renders, for tests that read its clock.
+    #[cfg(test)]
+    pub(crate) fn engine(&self) -> &engine::engine::Engine {
+        self.host.engine()
+    }
+
     /// The values this core publishes for the UI.
     pub fn meter(&self) -> &Meter {
         &self.meter

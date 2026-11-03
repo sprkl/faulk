@@ -411,6 +411,10 @@ fn main() {
                 let shared = shared.clone();
                 Box::new(move || shared.output_lost())
             },
+            reopened: {
+                let shared = shared.clone();
+                Box::new(move || shared.output_reopened())
+            },
             report: Box::new(move |open| notify(HelperEvent::Output(open))),
         },
         output::Timing::default(),

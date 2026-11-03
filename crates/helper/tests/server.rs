@@ -480,6 +480,46 @@ async fn a_lost_output_is_told_to_its_session_only() {
     assert!(quiet.is_err(), "no stale error: {quiet:?}");
 }
 
+/// An output replaced within the grace plays the same engine (#577): the session stays and
+/// gets a new hello at the new output's rate and latency, and no error.
+#[tokio::test]
+async fn a_reopened_output_says_hello_again_at_its_rate() {
+    let mut h = start().await;
+    let path = format!("/session?token={TOKEN}");
+    let mut ws = connect(h.port, &path, Some(ORIGIN)).await.unwrap();
+    match next(&mut ws).await {
+        ServerMessage::Hello { sample_rate, .. } => assert_eq!(sample_rate, 48_000.0),
+        other => panic!("expected hello, got {other:?}"),
+    }
+    // What the supervisor does: the old output forgotten (`forget_output`), the same engine at
+    // the new rate, the new output's first callback, then the server is told.
+    h.core.meter().forget_output();
+    assert_eq!(h.core.meter().callback_frames(), None);
+    h.engine.set_sample_rate(44_100.0).unwrap();
+    // The new output calls back with 441-frame buffers.
+    let mut out = vec![0.0; 441 * 2];
+    h.core.process(&mut out, 2);
+    h.shared.output_reopened();
+    loop {
+        match next(&mut ws).await {
+            ServerMessage::Hello {
+                sample_rate,
+                buffer_frames,
+                estimated_latency_ms,
+                ..
+            } => {
+                assert_eq!(sample_rate, 44_100.0);
+                assert_eq!(buffer_frames, Some(441));
+                assert!(estimated_latency_ms.is_some());
+                break;
+            }
+            ServerMessage::MidiInputs { .. } | ServerMessage::UpdateStatus { .. } => {}
+            other => panic!("expected a second hello, got {other:?}"),
+        }
+    }
+    assert!(h.engine.is_open());
+}
+
 /// The next binary frame of the session within 5 s (text frames are skipped).
 async fn next_report(ws: &mut Ws) -> Vec<u8> {
     loop {
