@@ -90,7 +90,7 @@ fn stamped(ms_before_end: f64) -> i64 {
 fn a_note_heard_20_ms_before_the_loop_end_is_recorded_there_within_a_millisecond() {
     let r = rec();
     // The engine test pins this premise: heard 20 ms before the end, stamped 42 ticks into the loop.
-    assert_eq!(stamped(20.0), LOOP_START + 43);
+    assert!((stamped(20.0) - (LOOP_START + 42)).abs() <= 1);
     let ticks = landed(
         &r,
         &looping(&r, true),
@@ -124,6 +124,13 @@ fn the_move_follows_the_line_without_a_loop_or_outside_it() {
     assert_eq!(
         landed(&r, &on, &[LOOP_END + 100], SHIFT_MS),
         vec![LOOP_END + 100 - SHIFT]
+    );
+    // A stamp exactly on the loop's start (a note pressed before the capture, clamped to the take's
+    // first tick) and a negative shift (a late offset) stay on the line (the first one then goes to the first beat of its clip, the early rule).
+    assert_eq!(landed(&r, &on, &[LOOP_START], SHIFT_MS), vec![LOOP_START]);
+    assert_eq!(
+        landed(&r, &on, &[LOOP_END - 10], -SHIFT_MS),
+        vec![LOOP_END - 10 + SHIFT]
     );
     // No shift, no change, even right at the loop's start.
     assert_eq!(

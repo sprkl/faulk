@@ -916,15 +916,19 @@ fn restored(track: &project::Track, clip_id: &ClipId) -> Result<RestoredClip, Co
 /// is a position of the loop: the engine wrapped it when the stamp fell after the loop's end
 /// (the host stamps the frame heard plus the output latency, `shift` brings it back). The move
 /// is made on the loop, not on the line, so a note heard in the last milliseconds of the loop
-/// stays there instead of leaving before its start (#542). A stamp outside the loop, or a
-/// transport that does not loop, moves on the line.
+/// stays there instead of leaving before its start (#542). A stamp outside the loop, a move
+/// that is not backwards, a stamp exactly on the loop's start (a note pressed before the capture
+/// began is clamped to the take's first tick: it stays on the line, where the clip's early rule
+/// takes it to its first beat) and a transport that does not loop move on the line. Known limit:
+/// a command cannot tell a stamp the engine wrapped from a note anticipating the loop's start
+/// while the playhead enters the loop from before it (first pass only), which is folded too.
 fn shift_start(start: i64, shift: i64, looping: Option<project::LoopRegion>) -> i64 {
     let line = start.saturating_sub(shift);
     let Some(region) = looping else {
         return line;
     };
     let (from, to) = (region.start().get(), region.end().get());
-    if !(from..to).contains(&start) || (from..to).contains(&line) {
+    if shift <= 0 || start <= from || start >= to || (from..to).contains(&line) {
         return line;
     }
     let len = i128::from(to) - i128::from(from);
