@@ -1,0 +1,15 @@
+{
+  "category": "Lead",
+  "device": "faulk.osc_synth",
+  "format": 1,
+  "name": "Square Lead",
+  "params": {
+    "attack": 0.005,
+    "decay": 0.15,
+    "gain": 0.65,
+    "release": 0.2,
+    "sustain": 0.75,
+    "waveform": 2.0
+  },
+  "version": 1
+}

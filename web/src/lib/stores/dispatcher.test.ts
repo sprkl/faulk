@@ -1307,7 +1307,7 @@ describe('opening a project folder (SV-4)', () => {
     const newer = withFile(
       song(),
       'project.json',
-      new TextDecoder().decode((song().find((e) => e.path === 'project.json') as { bytes: Uint8Array }).bytes).replace('"format": 3', '"format": 99'),
+      new TextDecoder().decode((song().find((e) => e.path === 'project.json') as { bytes: Uint8Array }).bytes).replace(/"format": \d+/, '"format": 99'),
     )
     const cases: [string, FolderEntry[], string, string][] = [
       ['a newer format', newer, 'newer_format', 'project.open.newer'],

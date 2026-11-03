@@ -480,6 +480,7 @@ fn clip_player() -> Device {
         },
         params: BTreeMap::new(),
         state: None,
+        preset: None,
     }
 }
 

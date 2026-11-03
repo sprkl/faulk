@@ -1,0 +1,14 @@
+{
+  "category": "Space",
+  "device": "faulk.reverb",
+  "format": 1,
+  "name": "Small Room",
+  "params": {
+    "damping": 0.6,
+    "mix": 0.2,
+    "predelay": 0.005,
+    "size": 0.25,
+    "time_change": 0.0
+  },
+  "version": 1
+}

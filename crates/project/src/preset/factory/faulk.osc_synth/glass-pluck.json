@@ -1,0 +1,15 @@
+{
+  "category": "Pluck",
+  "device": "faulk.osc_synth",
+  "format": 1,
+  "name": "Glass Pluck",
+  "params": {
+    "attack": 0.002,
+    "decay": 0.4,
+    "gain": 0.8,
+    "release": 0.35,
+    "sustain": 0.0,
+    "waveform": 0.0
+  },
+  "version": 1
+}

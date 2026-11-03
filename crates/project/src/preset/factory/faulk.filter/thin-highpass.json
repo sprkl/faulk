@@ -1,0 +1,13 @@
+{
+  "category": "Tone",
+  "device": "faulk.filter",
+  "format": 1,
+  "name": "Thin Highpass",
+  "params": {
+    "cutoff": 600.0,
+    "mix": 1.0,
+    "mode": 1.0,
+    "resonance": 0.15
+  },
+  "version": 1
+}

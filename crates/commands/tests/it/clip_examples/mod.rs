@@ -130,6 +130,7 @@ pub fn fx() -> ClipFx {
             },
             params: Default::default(),
             state: None,
+            preset: None,
         },
     );
     audio.clips.insert(

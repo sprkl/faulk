@@ -279,6 +279,7 @@ pub fn fixture() -> Fixture {
                 .map(|(name, value)| (name.to_owned(), f64::from(value)))
                 .collect(),
             state: None,
+            preset: None,
         },
     );
     state.project.tracks.insert(track.clone(), midi);

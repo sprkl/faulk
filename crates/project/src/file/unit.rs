@@ -8,6 +8,7 @@ use super::text;
 use crate::blob::Hash;
 use crate::ids::{ClipId, DeviceId, LaneId, TrackId};
 use crate::model::*;
+use crate::preset::PresetId;
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -46,6 +47,11 @@ pub fn master_lane_file(l: &LaneId) -> String {
     format!("master/automation/{l}.tsv")
 }
 
+/// A preset saved in the project (#191): `presets/<id>.json`.
+pub fn preset_file(p: &PresetId) -> String {
+    format!("presets/{p}.json")
+}
+
 pub fn blob_file(h: &Hash) -> String {
     format!("blobs/{h}")
 }
@@ -70,6 +76,8 @@ pub enum Unit {
     Lane(TrackId, LaneId),
     /// A lane of the master (#378).
     MasterLane(LaneId),
+    /// A preset saved in the project (#191).
+    Preset(PresetId),
 }
 
 impl Unit {
@@ -88,6 +96,7 @@ impl Unit {
             Unit::Arrangement(t) => path == arrangement_file(t),
             Unit::Lane(t, l) => path == lane_file(t, l),
             Unit::MasterLane(l) => path == master_lane_file(l),
+            Unit::Preset(p) => path == preset_file(p),
         }
     }
 }
@@ -327,6 +336,16 @@ pub fn emit(
         Unit::Lane(t, l) => {
             let lane = project.tracks.get(t).and_then(|t| t.automation.get(l));
             emit_lane(lane, Some(t), l, lane_file(t, l), ctx, sink)?;
+        }
+        Unit::Preset(p) => {
+            if let Some(preset) = project.presets.get(p) {
+                let path = preset_file(p);
+                let bytes = preset.to_file().map_err(|e| FileError::Unwritable {
+                    path: path.clone(),
+                    message: e.to_string(),
+                })?;
+                sink(Out::text(path, bytes))?;
+            }
         }
         Unit::MasterLane(l) => {
             emit_lane(

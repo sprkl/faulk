@@ -1,0 +1,11 @@
+{
+  "category": "Tone",
+  "device": "faulk.filter",
+  "format": 1,
+  "name": "Warm",
+  "params": {
+    "cutoff": 800.0,
+    "resonance": 0.3
+  },
+  "version": 1
+}

@@ -18,10 +18,12 @@ use crate::clip_examples;
 use crate::device_examples;
 use crate::grid_examples;
 use crate::marker_examples;
+use crate::preset_examples;
 use crate::query_examples;
 use crate::record_examples;
 use crate::track_examples;
 use crate::transport_examples;
+
 const TRACK: &str = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
 
 fn track() -> TrackId {
@@ -194,6 +196,7 @@ fn examples() -> Vec<(Command, State)> {
     .chain(query_examples::examples())
     .chain(record_examples::examples())
     .chain(marker_examples::examples())
+    .chain(preset_examples::examples())
     .collect()
 }
 
@@ -228,13 +231,14 @@ fn every_command_has_an_example() {
 }
 
 #[test]
-fn the_sixteen_domains_are_frozen_in_the_spec_order() {
+fn the_domains_are_frozen_in_the_spec_order() {
     assert_eq!(
         Command::DOMAINS,
         [
             "project",
             "track",
             "device",
+            "preset",
             "clip",
             "note",
             "scene",

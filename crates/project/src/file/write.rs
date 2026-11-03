@@ -164,6 +164,7 @@ pub fn save(
                     .cloned()
                     .map(Unit::MasterLane),
             )
+            .chain(project.presets.keys().cloned().map(Unit::Preset))
             .collect(),
     };
     // `project.json` last.
