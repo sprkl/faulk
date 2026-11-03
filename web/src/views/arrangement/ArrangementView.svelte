@@ -1579,7 +1579,7 @@
         return
       }
       if (key.direction === 'down' && at.row === -1) {
-        cursorAt = { row: key.kind === 'focus' ? 0 : Math.min(1, entries.length - 1), tick: at.tick }
+        cursorAt = { row: 0, tick: at.tick }
         void focusCursor()
         return
       }
