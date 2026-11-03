@@ -173,10 +173,12 @@
   }
   function onHandleUp(event: PointerEvent) {
     if (!resize || event.pointerId !== resize.id) return
+    const from = resize.from
     resize = null
     const preview = ui.laneHeightPreview
     ui.laneHeightPreview = null
-    if (event.type === 'pointercancel' || preview?.track !== entry.id) return
+    // A click, or a drag back to where it started, changes nothing: no explicit height is written for a jitter.
+    if (event.type === 'pointercancel' || preview?.track !== entry.id || preview.height === from) return
     // A dragged height is the producer's own, even when it equals the density's default: only Enter or a double click give the default back.
     setHeight(preview.height)
   }

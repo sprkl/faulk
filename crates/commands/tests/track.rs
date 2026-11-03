@@ -418,9 +418,10 @@ fn rename_and_colour_change_one_thing_and_a_repeat_changes_nothing() {
     assert_eq!(s.project.tracks[t].height, None);
     for bad in [27u16, 177, 0, u16::MAX] {
         let before = s.project.clone();
+        let err = run(&height(Some(bad)), &mut s, &mut context()).unwrap_err();
         assert!(
-            run(&height(Some(bad)), &mut s, &mut context()).is_err(),
-            "{bad}"
+            matches!(err, CommandError::Invalid { ref field, .. } if field == "height"),
+            "{bad}: {err:?}"
         );
         assert_eq!(s.project, before);
     }
