@@ -60,9 +60,18 @@ export function parseTempo(text: string): number | null {
   return Number.isFinite(bpm) && bpm >= MIN_TEMPO && bpm <= MAX_TEMPO ? bpm : null
 }
 
-/** The tempo after an arrow key: the next whole BPM up or down, kept inside 20 to 999. */
-export function stepTempo(bpm: number, direction: 1 | -1): number {
-  const next = direction === 1 ? Math.floor(bpm) + 1 : Math.ceil(bpm) - 1
+/**
+ * The tempo after an arrow key or a wheel notch: the next whole BPM up or down, or with `fine` the next 0.1 BPM, kept inside
+ * 20 to 999. The fine step counts in tenths, so 120.3 goes to 120.4 and not to 120.40000000000001.
+ */
+export function stepTempo(bpm: number, direction: 1 | -1, fine = false): number {
+  // The fine step goes to the next tenth strictly beyond `bpm` (the epsilon keeps 120.3, which is 1203.0000000000002 tenths, on its tenth).
+  const tenths = bpm * 10
+  const next = fine
+    ? (direction === 1 ? Math.floor(tenths + 1e-6) + 1 : Math.ceil(tenths - 1e-6) - 1) / 10
+    : direction === 1
+      ? Math.floor(bpm) + 1
+      : Math.ceil(bpm) - 1
   return Math.min(MAX_TEMPO, Math.max(MIN_TEMPO, next))
 }
 

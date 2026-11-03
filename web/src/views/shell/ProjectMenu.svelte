@@ -193,7 +193,7 @@
     align-items: center;
     gap: var(--fk-space-2);
     height: 22px;
-    max-width: 130px;
+    max-width: min(130px, 100%);
     padding: 0 var(--fk-space-3);
     border: 1px solid var(--fk-line);
     border-radius: var(--fk-radius-pill);
