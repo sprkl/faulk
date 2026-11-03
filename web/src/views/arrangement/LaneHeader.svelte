@@ -12,7 +12,7 @@
   import { formatGain, instrumentName, MAX_GAIN_DB, trackColor, trackLabel, type DragHooks, type TrackEntry } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
   import { trackMenuItems } from '../../lib/track-menu'
-  import { armTrack, renameTrack, selectTrack, setMute, setSolo, setVolume } from '../../lib/track-commands'
+  import { armTrack, renameTrack, selectTrack, setMute, setSolo, setTrackHeight, setVolume } from '../../lib/track-commands'
   import { parseGainEntry } from '../../lib/value-entry'
   import { CLIP_ROW, CLIP_ROW_MAX, CLIP_ROW_MIN, clampClipRow } from './automation/layout'
   import { heightKey, volumeKey } from './lane-keys'
@@ -169,18 +169,28 @@
     ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
     resize = { id: event.pointerId, y: event.clientY, from: height }
   }
+  // While the pointer moves the row follows locally (header and timeline); the release sends one command (#490).
   function onHandleMove(event: PointerEvent) {
     if (!resize || event.pointerId !== resize.id) return
-    ui.setLaneHeight(entry.id, clampClipRow(resize.from + event.clientY - resize.y))
+    ui.laneHeightPreview = { track: entry.id, height: clampClipRow(resize.from + event.clientY - resize.y) }
   }
   function onHandleUp(event: PointerEvent) {
-    if (resize && event.pointerId === resize.id) resize = null
+    if (!resize || event.pointerId !== resize.id) return
+    resize = null
+    const preview = ui.laneHeightPreview
+    ui.laneHeightPreview = null
+    if (event.type === 'pointercancel' || preview?.track !== entry.id) return
+    setHeight(preview.height === clampClipRow(base) ? null : preview.height)
+  }
+  /** The height is the track's, in the project: the same height is no command. */
+  function setHeight(next: number | null) {
+    if ((track.height ?? null) !== next) dispatcher.run(setTrackHeight(entry.id, next))
   }
   function onHandleKey(event: KeyboardEvent) {
     const next = heightKey(event, height, base)
     if (next === null) return
     event.preventDefault()
-    ui.setLaneHeight(entry.id, next === clampClipRow(base) ? null : next)
+    setHeight(next === clampClipRow(base) ? null : next)
   }
 
   // --- reordering: the colour bar is the grip; a drop on another row puts the track at that row's place ---------
@@ -331,7 +341,7 @@
     onpointerup={onHandleUp}
     onpointercancel={onHandleUp}
     onkeydown={onHandleKey}
-    ondblclick={() => ui.setLaneHeight(entry.id, null)}
+    ondblclick={() => setHeight(null)}
   ></div>
 </div>
 

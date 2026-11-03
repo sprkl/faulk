@@ -1,7 +1,6 @@
 import { defaultLang, LANG_STORAGE_KEY, type Lang, type MessageKey, translate } from '../i18n/index'
 import type { MainViewId, PanelViewId } from '../../views/registry'
 import { COLLAPSED_KEY, HEIGHTS_KEY, parseHeights } from '../../views/shell/panel-size'
-import { clampClipRow } from '../../views/arrangement/automation/layout'
 import { storage } from './storage'
 import { readLayout, writeLayout, type Layout } from './layout'
 import type { KeyLayout } from '../shortcuts'
@@ -23,6 +22,12 @@ function write(key: string, value: string) {
   }
 }
 
+/** localStorage key of the density (the page's preference, #490). */
+export const DENSITY_KEY = 'faulk.density'
+
+/** The density of the rows: comfortable (the default) or compact (the `lane` and `row` tokens of `[data-density='compact']`). */
+export type Density = 'comfortable' | 'compact'
+
 /** localStorage key of the main view shown last (the page's preference, not the project). */
 export const VIEW_KEY = 'faulk.view'
 
@@ -33,6 +38,8 @@ export const VIEW_KEY = 'faulk.view'
  */
 export class UiStore {
   lang = $state<Lang>(defaultLang(storage()?.getItem(LANG_STORAGE_KEY) ?? null, globalThis.navigator?.language))
+  /** The density of the rows, kept in the browser and set as `data-density` on the document (#490). */
+  density = $state<Density>(storage()?.getItem(DENSITY_KEY) === 'compact' ? 'compact' : 'comfortable')
   /** The registry's view shown in the main area. */
   view: MainViewId
   /** The registry's view shown in the bottom panel. */
@@ -118,6 +125,7 @@ export class UiStore {
     this.view = $state(view)
     this.panel = $state(panel)
     if (view === 'grid' || view === 'arrangement') this.recordView = view
+    this.applyDensity()
   }
 
   t = (key: MessageKey, vars?: Record<string, string | number>) => translate(this.lang, key, vars)
@@ -125,6 +133,19 @@ export class UiStore {
   setLang(lang: Lang) {
     this.lang = lang
     storage()?.setItem(LANG_STORAGE_KEY, lang)
+  }
+
+  setDensity(density: Density) {
+    this.density = density
+    write(DENSITY_KEY, density)
+    this.applyDensity()
+  }
+
+  /** Puts the density on the document, where the stylesheet reads it. Comfortable is the absence of the attribute. */
+  applyDensity() {
+    if (typeof document === 'undefined') return
+    if (this.density === 'compact') document.documentElement.dataset.density = 'compact'
+    else delete document.documentElement.dataset.density
   }
 
   show(view: MainViewId) {
@@ -180,7 +201,7 @@ export class UiStore {
   }
 
   // --- each project's layout (#473) -------------------------------------------------------------------
-  /** The project whose layout the memory, the lane heights and the view are; `null` before one is known. */
+  /** The project whose layout the memory and the view are; `null` before one is known. */
   private project: string | null = null
   private keepTimer: ReturnType<typeof setTimeout> | null = null
   /**
@@ -191,7 +212,7 @@ export class UiStore {
 
   /**
    * The project now open (its identity): its layout comes back (the view, each view's zoom and scroll, the open
-   * lanes, the lane heights), or the defaults when it has none. The same project again changes nothing. `isView`
+   * lanes, ), or the defaults when it has none. The same project again changes nothing. `isView`
    * says whether a stored view still exists.
    */
   useProject(project: string | null, isView: (view: string) => view is MainViewId) {
@@ -201,7 +222,6 @@ export class UiStore {
     const layout: Layout | null = project ? readLayout(project) : null
     this.memory.clear()
     for (const [id, state] of Object.entries(layout?.memory ?? {})) this.memory.set(id, state)
-    this.laneHeights = { ...(layout?.laneHeights ?? {}) }
     if (layout?.view && isView(layout.view) && layout.view !== this.view) {
       this.panelRevealed = false
       this.view = layout.view
@@ -226,15 +246,7 @@ export class UiStore {
     if (this.keepTimer !== null) clearTimeout(this.keepTimer)
     this.keepTimer = null
     if (this.project === null) return
-    writeLayout(this.project, { view: this.view, memory: Object.fromEntries(this.memory), laneHeights: { ...this.laneHeights } })
-  }
-
-  /** Forgets the lane heights of tracks the project no longer has. */
-  forgetLaneHeights(tracks: ReadonlySet<string>) {
-    const kept = Object.entries(this.laneHeights).filter(([id]) => tracks.has(id))
-    if (kept.length === Object.keys(this.laneHeights).length) return
-    this.laneHeights = Object.fromEntries(kept)
-    this.keepSoon()
+    writeLayout(this.project, { view: this.view, memory: Object.fromEntries(this.memory) })
   }
 
   /** What the view left when it closed, or `undefined` on its first opening. */
@@ -292,19 +304,11 @@ export class UiStore {
   }
 
   /**
-   * The height the user gave each track's row in the arrangement (px, by track id), #471. View state, not in the
-   * project (an agent has no use for it, and saving it would be a project change): kept with the project's layout in
-   * `localStorage` (#473, keyed by the project, since track ids belong to one project). Missing: the `lane` token's height.
+   * The height a row is being dragged to (px), while the pointer moves (#471, #490): the header and the timeline both
+   * draw it, and nothing is sent until the release, which runs one `track.set_height`. The height itself is the
+   * project's (`Track.height`), not the page's.
    */
-  laneHeights = $state<Readonly<Record<string, number>>>({})
-
-  setLaneHeight(track: string, height: number | null) {
-    const next = { ...this.laneHeights }
-    if (height === null) delete next[track]
-    else next[track] = clampClipRow(height)
-    this.laneHeights = next
-    this.keepSoon()
-  }
+  laneHeightPreview = $state<{ track: string; height: number } | null>(null)
 
   setPanelHeight(panel: PanelViewId, height: number) {
     this.panelMaximized = false

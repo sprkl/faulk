@@ -20,6 +20,13 @@ fn coloured(state: &State, track: &::project::TrackId) -> State {
     s
 }
 
+/// The state with the first track given a height, so that clearing it changes something.
+fn tall(state: &State, track: &::project::TrackId) -> State {
+    let mut s = state.clone();
+    s.project.tracks.get_mut(track).unwrap().height = Some(96);
+    s
+}
+
 pub fn examples() -> Vec<(Command, State)> {
     let f = fx();
     let on = |command: track::Command| (t(command), f.state.clone());
@@ -82,6 +89,17 @@ pub fn examples() -> Vec<(Command, State)> {
                 color: None,
             }),
             coloured(&f.state, &f.track),
+        ),
+        on(track::Command::SetHeight {
+            track: f.track.clone(),
+            height: Some(96),
+        }),
+        (
+            t(track::Command::SetHeight {
+                track: f.track.clone(),
+                height: None,
+            }),
+            tall(&f.state, &f.track),
         ),
         on(track::Command::Move {
             track: f.track.clone(),

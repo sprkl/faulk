@@ -18,10 +18,32 @@ pub struct Migration {
 }
 
 /// The migrations of this build, one per format below [`crate::FORMAT_VERSION`].
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    from: 1,
-    apply: v1_to_v2,
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        from: 1,
+        apply: v1_to_v2,
+    },
+    Migration {
+        from: 2,
+        apply: v2_to_v3,
+    },
+];
+
+/// Format 3 (#490): tracks may hold a `height`. Nothing in the files changes; the number
+/// does, so that a build of format 2 reports the folder as made by a newer build.
+fn v2_to_v3(mem: &mut MemFs) -> Result<(), String> {
+    use serde_json::Value;
+    let mut project: Value = serde_json::from_slice(
+        mem.files()
+            .get("project.json")
+            .ok_or("project.json is missing")?,
+    )
+    .map_err(|e| format!("project.json: {e}"))?;
+    project["format"] = Value::from(3);
+    let bytes = serde_json::to_vec_pretty(&project).map_err(|e| e.to_string())?;
+    mem.insert("project.json", bytes);
+    Ok(())
+}
 
 /// Format 2 (#473): in the arrangement, a placement longer than its MIDI clip repeats the
 /// clip, even one without a loop; in format 1 such a clip was silent after its end. So that

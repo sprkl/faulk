@@ -19,7 +19,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// The on-disk format version this crate reads and writes (§ 2.6). Format 2 (#473): a
 /// placement longer than a MIDI clip without a loop repeats the clip (format 1: silence).
-pub const FORMAT_VERSION: u32 = 2;
+/// Format 3 (#490): a track may hold a row `height`, so that a build of format 2, which
+/// would refuse the field as corrupt, says the folder is from a newer build instead.
+pub const FORMAT_VERSION: u32 = 3;
 
 /// The built-in instrument of audio tracks: the clip player.
 pub const CLIP_PLAYER: &str = "faulk.clip_player";
@@ -172,6 +174,12 @@ pub struct Scene {
 pub struct Track {
     pub name: String,
     pub color: Option<Rgb>,
+    /// The height of the track's row in the arrangement, in pixels, from
+    /// [`MIN_TRACK_HEIGHT`] to [`MAX_TRACK_HEIGHT`] (#490). `None` is the page's default
+    /// height (its density's). A presentation choice that belongs to the project, so that a
+    /// producer finds it again on reopening: never read by the engine. Not written when `None`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u16>,
     pub order: OrderKey,
     pub kind: TrackKind,
     pub mixer: Mixer,
@@ -214,6 +222,11 @@ pub const MIN_GAIN_DB: f64 = -96.0;
 /// The highest finite gain of a track, the master, the metronome or a gain automation point,
 /// in dB (MX-2, #269).
 pub const MAX_GAIN_DB: f64 = 6.0;
+
+/// Lowest height of a track's row, in pixels (#490): the page's compact row.
+pub const MIN_TRACK_HEIGHT: u16 = 28;
+/// Highest height of a track's row, in pixels (#490).
+pub const MAX_TRACK_HEIGHT: u16 = 176;
 
 /// Gain, pan and mute of a track or of the master. Solo is not here: it is session state
 /// (founder's decision 10). Sends come after the MVP.
@@ -679,6 +692,7 @@ impl Track {
         Self {
             name: name.into(),
             color: None,
+            height: None,
             order,
             kind,
             mixer: Mixer::default(),
