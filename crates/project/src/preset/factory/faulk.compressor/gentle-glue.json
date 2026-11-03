@@ -1,0 +1,14 @@
+{
+  "category": "Dynamics",
+  "device": "faulk.compressor",
+  "format": 1,
+  "name": "Gentle Glue",
+  "params": {
+    "attack": 0.03,
+    "makeup": 2.0,
+    "ratio": 2.0,
+    "release": 0.25,
+    "threshold": -14.0
+  },
+  "version": 1
+}

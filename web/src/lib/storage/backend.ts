@@ -45,9 +45,9 @@ async function directory(root: FileSystemDirectoryHandle, parts: string[], creat
   return dir
 }
 
-/** What of the root belongs to the project: `project.json`, the tracks, the master's lanes (`master/automation/`, #378) and the blobs. A README, a mixdown, the `.DS_Store` the file manager writes are the user's, never a change to the project. */
+/** What of the root belongs to the project: `project.json`, the tracks, the master's lanes (`master/automation/`, #378), the presets (`presets/`, #191) and the blobs. A README, a mixdown, the `.DS_Store` the file manager writes are the user's, never a change to the project. */
 const PROJECT_ROOT_FILES: readonly string[] = ['project.json']
-const PROJECT_ROOT_DIRS: readonly string[] = ['tracks', 'master', 'blobs']
+const PROJECT_ROOT_DIRS: readonly string[] = ['tracks', 'master', 'presets', 'blobs']
 
 /** Whether a scan looks at this path (what `apply` stamps must be what `scan` lists). */
 function isProjectPath(path: string): boolean {

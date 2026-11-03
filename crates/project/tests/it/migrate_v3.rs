@@ -51,7 +51,10 @@ fn a_format_2_folder_opens_as_before_with_no_height() {
 fn a_folder_is_written_in_format_3_and_keeps_the_height() {
     let (fs, tid, _) = folder(Some(96));
     let text = String::from_utf8(fs.read("project.json").unwrap()).unwrap();
-    assert!(text.contains("\"format\": 3"), "{text}");
+    assert!(
+        text.contains(&format!("\"format\": {FORMAT_VERSION}")),
+        "{text}"
+    );
     let opened = open(&fs, &OpenOptions::default()).unwrap();
     assert_eq!(opened.project.tracks[&tid].height, Some(96));
     // The format 2 build then refuses it as newer: the reader compares the number before any

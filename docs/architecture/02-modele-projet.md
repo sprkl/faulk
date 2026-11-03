@@ -60,6 +60,7 @@ pub struct Project {
     pub master_devices: BTreeMap<DeviceId, Device>, // master's chain: effects only, run on the sum before the master fader (#364); absent from project.json when empty
     pub master_automation: BTreeMap<LaneId, AutomationLane>, // master's automation lanes (#378): its gain and pan, the parameters of master_devices; files master/automation/<lane>.tsv, never in project.json
     pub tracks: BTreeMap<TrackId, Track>,
+    pub presets: BTreeMap<PresetId, Preset>, // device presets saved in the project (#191): files presets/<id>.json, never in project.json; absent when empty
 }
 
 pub struct TransportSettings {
@@ -93,6 +94,7 @@ pub struct Device {
     pub source: DeviceSource,            // Builtin { id, version } | Module { name, hash }; plugins after the MVP
     pub params: BTreeMap<String, f64>,   // param id -> value in natural unit
     pub state: Option<Hash>,             // opaque instrument state, stored as a blob
+    pub preset: Option<DevicePreset>,    // the preset it was last set from (#191): { location, id, name }; absent when none
 }
 
 pub struct Clip {
@@ -185,6 +187,8 @@ Mon morceau/
 ├── master/
 │   └── automation/
 │       └── <lane>.tsv                # a lane of the master (#378): same file as a track's lane; the folder exists only when the master has lanes
+├── presets/
+│   └── <preset>.json                 # a device preset saved in the project (#191), named by its ULID; the folder exists only when the project has presets
 ├── blobs/
 │   └── <sha256>                      # audio, dense automation, opaque instrument state; never modified
 ├── .faulk/                           # cache snapshot, view state, temp files; ignored by git
@@ -255,7 +259,7 @@ Le même projet produit toujours **exactement les mêmes octets**. Règles, tout
 
 ### 2.6 Versions du format et migrations
 
-`project.json` porte `"format": 3` (format 3 depuis #490 : une piste peut garder la hauteur de sa ligne, la migration de 2 à 3 ne change que le numéro, et un build de format 2 dit alors « fait par un build plus récent » au lieu de « corrompu » ; format 2 depuis #473, format 1 avant : la migration de 1 à 2 coupe à la fin du clip un placement plus long qu'un clip MIDI sans boucle, qui se taisait au-delà et se répète désormais, pour que les morceaux enregistrés avant sonnent pareil). Faulk lit toutes les versions passées et migre en mémoire ; il n'écrit que la version courante. Une migration s'enregistre comme une **version à part**, pour que son diff ne se mélange pas avec des changements musicaux. Les migrations sont des fonctions pures testées sur des projets de référence.
+`project.json` porte `"format": 4` (format 4 depuis #191 : un device peut nommer le preset dont il vient (`preset`) et le dossier peut contenir `presets/` ; la migration de 3 à 4 ne change que le numéro, et un build de format 3, qui refuserait le champ `preset` d'un device comme corrompu, dit alors « fait par un build plus récent » ; format 3 depuis #490 : une piste peut garder la hauteur de sa ligne, la migration de 2 à 3 ne change que le numéro, et un build de format 2 dit alors « fait par un build plus récent » au lieu de « corrompu » ; format 2 depuis #473, format 1 avant : la migration de 1 à 2 coupe à la fin du clip un placement plus long qu'un clip MIDI sans boucle, qui se taisait au-delà et se répète désormais, pour que les morceaux enregistrés avant sonnent pareil). Faulk lit toutes les versions passées et migre en mémoire ; il n'écrit que la version courante. Une migration s'enregistre comme une **version à part**, pour que son diff ne se mélange pas avec des changements musicaux. Les migrations sont des fonctions pures testées sur des projets de référence.
 
 ### 2.7 Lecture, écriture et limites (SV-1)
 
@@ -272,6 +276,36 @@ Le code fait foi (`crates/project/src/file/`) ; ce qui suit en résume le contra
 - **Ouvrir dans le moteur** (`project.open`, SV-4) : la commande `project.open { folder }` (édition, non annulable, destructive : elle remplace le projet et vide l'historique) lit le dossier que l'hôte a mis dans le contexte (`Context.folder`, un `Folder` qui enveloppe un `FileSystem` en lecture seule), avec `open` (instantané de cache compris) puis `load_session`. Tout est lu, validé et construit avant que l'état ne change : un dossier refusé laisse le projet en cours, son historique et sa session intacts, et le dossier est consommé (il sert une fois). Le refus est une `CommandError::Folder { error }` dont `FolderError` est typée (`not_a_project`, `newer_format`, `unsupported_format`, `missing`, `corrupt`, `too_large`, `invalid` avec les premières violations, `io`, `migration`, `not_staged`) ; la page en tire un texte par classe. Le moteur repart de zéro : l'hôte (`Synced::run`, donc `project-wasm`, le helper plus tard et le banc de rendu) répond à une ouverture réussie par un `Reset` dans l'époque suivante et l'instantané du nouveau projet, solo et sélection de la session compris ; les pistes de l'ancien projet s'éteignent en 5 ms (`FADE_SECONDS`), rien de l'ancien projet ne sonne ensuite. Le solo n'est dans aucun fichier versionné : il revient de `.faulk/session.json`. Dans la page, le magasin (SV-2) lit son stockage et passe le dossier à `ProjectCore.stage(nom, entrées)` : un cadre binaire (`parse_folder`, borné à 512 Mio, chemins relatifs sans `..`) dont les fichiers texte et les blobs de couloirs d'automation (`FKAUTO01`) portent leurs octets, les autres blobs seulement leur taille (`needsBytes`), de sorte que la mémoire de l'ouverture est celle du projet, pas celle de son audio (le cadre et la copie qu'en fait `MemFs` coexistent un instant : la mémoire linéaire du wasm monte à environ le double du cadre et ne redescend pas avant le rechargement de la page). Le temps, mesuré sur le profil de QA-7 (Rust natif sur `MemFs`, en release, sur un poste chargé) : 0,33 s pour mettre le cadre en place et 1,77 s pour `project.open` (lecture avec instantané, validation, instantané moteur de 78 Mio encodé), soit 2,1 s, pour 1,56 à 2,45 s mesurés par QA-7 pour la seule ouverture dans la page. Non mesurés : la lecture du stockage et la construction du cadre côté JavaScript, la version wasm, et le blocage du fil principal de la page pendant l'ouverture.
 - **Git** : `.gitattributes` et `.gitignore` sont écrits quand ils sont absents, jamais réécrits.
 - **`.faulkpack`** (`export_pack`, `import_pack`) : zip déterministe (entrées triées, dates fixes) des fichiers du projet et des seuls blobs qu'il utilise (pas `.faulk/`, pas `.git/`, pas les blobs orphelins) ; l'export ouvre donc le projet (un projet invalide n'est pas exporté). L'import exige un dossier vide, n'accepte que les chemins du format, compte les octets produits (pas ceux déclarés), vérifie le nom de chaque blob contre son SHA-256, ouvre et valide le résultat, et ne laisse rien en cas d'échec.
+
+### 2.8 Presets de device (#191)
+
+Le code fait foi (`crates/project/src/preset/`, `crates/commands/src/preset.rs`) ; ce qui suit en résume le contrat.
+
+- **Un seul format de fichier**, partout où vit un preset : le dossier du projet (`presets/<id>.json`), la bibliothèque de l'utilisateur et les presets d'usine. JSON canonique, comme les fichiers du projet (§ 2.4, § 2.5) : clés triées, une valeur par ligne, `\n` final, la représentation décimale la plus courte, jamais `-0`. Écrire ce qu'on a lu redonne les mêmes octets (test de propriété, et chaque fichier d'usine est comparé à sa réécriture).
+
+  ```json
+  {
+    "category": "Bass",
+    "device": "faulk.osc_synth",
+    "format": 1,
+    "name": "Round Bass",
+    "params": {
+      "attack": 0.003,
+      "decay": 0.25,
+      "gain": 0.85,
+      "release": 0.08,
+      "sustain": 0.6,
+      "waveform": 3.0
+    },
+    "version": 1
+  }
+  ```
+
+  `format` est la version du format de fichier (1 ; un fichier plus récent est refusé comme « fait par un Faulk plus récent ») ; `device` et `version` sont le type de device et sa version au moment de l'enregistrement ; `params` tient les valeurs par identifiant stable de paramètre, dans l'unité que le device déclare ; `category` est absent quand il n'y en a pas. Lecture bornée : 64 Kio, 256 valeurs, identifiants de 64 octets, nom de 1 à 200 caractères sans espace autour, catégorie de 1 à 64 ; un champ inconnu ou un nombre que JSON ne tient pas est refusé, jamais une panique.
+- **Appliquer un preset** (`preset::resolve`) : un preset d'un autre type de device est refusé ; un preset d'une version du device plus récente que celle du build est refusé avec un message qui nomme les deux versions ; un preset plus ancien passe par les migrations du device (`MIGRATIONS`, vide aujourd'hui : chaque device intégré est à sa version 1 ; le mécanisme est testé avec une table d'essai), puis chaque paramètre absent prend sa valeur par défaut ; une valeur sans paramètre est ignorée ; une valeur hors bornes est bornée et arrondie au pas, comme `device.set_param`. La commande dit ce qui a été ignoré, borné, complété ou migré.
+- **Trois emplacements** (`location`) : `factory` (intégrés au build, en lecture seule : `crates/project/src/preset/factory/<type>/<slug>.json`, identifiant `<type>/<slug>`, au moins deux par device du registre, noms en anglais jamais traduits comme les noms de devices), `project` (dans le dossier du projet, un fichier par preset nommé par son ULID : renommer change une ligne, pas un chemin ; le preset voyage avec le projet, par git comme par `.faulkpack`) et `library` (la bibliothèque de l'utilisateur, disponible dans tous les projets : [stockage local](03-stockage-local.md) § 5.10). Un preset d'usine modifié s'enregistre sous un nouveau nom, dans le projet ou la bibliothèque.
+- **Le preset d'un device** : `Device.preset` retient l'emplacement, l'identifiant et le nom du preset dont le device vient (chargé ou enregistré), pour que l'en-tête de son panneau le nomme après un rechargement et sur une autre machine. « Modifié » se déduit : `preset.list { device }` compare les valeurs du device à celles du preset résolu (`modified` ; `null` quand le preset n'est pas là, comme un preset de bibliothèque d'un autre ordinateur). Renommer ou supprimer un preset ne touche pas aux devices.
+- **Commandes** (domaine `preset`, ajouté par #191) : `preset.save`, `preset.load`, `preset.delete`, `preset.rename`, `preset.copy` (un preset d'usine ou du projet copié dans la bibliothèque, sans toucher aux devices), la requête `preset.list`, et les inverses `preset.restore` et `preset.restore_device`. Toutes les éditions s'annulent ; un chargement s'annule d'un seul geste. Deux presets d'un même type de device ne partagent pas un nom dans un emplacement (sans tenir compte de la casse ni des espaces autour).
 
 ## 3. Les blobs
 

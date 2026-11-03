@@ -4,6 +4,11 @@
   "params": {
     "cutoff": 800.0
   },
+  "preset": {
+    "id": "01HF000000000000000000000W",
+    "location": "project",
+    "name": "Warm"
+  },
   "role": "effect",
   "source": {
     "builtin": {

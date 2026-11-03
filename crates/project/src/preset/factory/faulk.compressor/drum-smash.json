@@ -1,0 +1,14 @@
+{
+  "category": "Dynamics",
+  "device": "faulk.compressor",
+  "format": 1,
+  "name": "Drum Smash",
+  "params": {
+    "attack": 0.001,
+    "makeup": 8.0,
+    "ratio": 10.0,
+    "release": 0.08,
+    "threshold": -30.0
+  },
+  "version": 1
+}

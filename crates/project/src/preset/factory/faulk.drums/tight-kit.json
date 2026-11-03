@@ -1,0 +1,25 @@
+{
+  "category": "Kit",
+  "device": "faulk.drums",
+  "format": 1,
+  "name": "Tight Kit",
+  "params": {
+    "clap_decay": 0.22,
+    "clap_level": 0.7,
+    "clap_tone": 1800.0,
+    "gain": 0.8,
+    "hat_decay": 0.035,
+    "hat_level": 0.55,
+    "hat_open_decay": 0.35,
+    "hat_tone": 8500.0,
+    "kick_decay": 0.3,
+    "kick_level": 0.9,
+    "kick_punch": 0.75,
+    "kick_tune": 58.0,
+    "snare_decay": 0.14,
+    "snare_level": 0.8,
+    "snare_snap": 0.7,
+    "snare_tune": 210.0
+  },
+  "version": 1
+}

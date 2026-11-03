@@ -1,0 +1,15 @@
+{
+  "category": "Pad",
+  "device": "faulk.osc_synth",
+  "format": 1,
+  "name": "Soft Pad",
+  "params": {
+    "attack": 0.8,
+    "decay": 1.5,
+    "gain": 0.6,
+    "release": 1.6,
+    "sustain": 0.8,
+    "waveform": 1.0
+  },
+  "version": 1
+}

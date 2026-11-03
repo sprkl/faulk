@@ -1,0 +1,2 @@
+2026-11-03
+* **Update** (#604): the app's top bar never overlaps. When it is full it folds its least-read parts one step at a time (master meter shorter, keyboard octave readout into a "more" menu, then the launch quantization into it, running the same command, and the idle take target last; the live count-in and a lost-note notice never fold), and the project name keeps a minimum room; `top-bar.spec.ts` checks the boxes at 1280, 1440 and 1920 px in English and French, in the busiest state.
