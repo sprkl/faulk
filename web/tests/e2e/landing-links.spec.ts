@@ -19,6 +19,24 @@ const SECTIONS = ['modes', 'boost', 'modules'] as const
 /** The links of the bar (`header`) or of the footer (`footer`). */
 const links = (page: Page, bar: 'header' | 'footer') => page.locator(`${bar} a`)
 
+/**
+ * Clicks a link and waits for the page to be at `url`. The wait ends when the navigation commits, not on the `load` event:
+ * the destination's own load (a dev server compiling modules on a loaded machine) is not what is checked here, and a stalled
+ * one held the whole test for its 90 s (#611). A click lost to a layout move between the mouse going down and up leaves the
+ * page where it was: it is made once more after 15 s, and a second failure names the page it stayed on.
+ */
+async function clickToReach(page: Page, link: Locator, url: RegExp) {
+  for (let attempt = 1; ; attempt++) {
+    await link.click()
+    try {
+      await page.waitForURL(url, { waitUntil: 'commit', timeout: 15_000 })
+      return
+    } catch (error) {
+      if (attempt === 2) throw new Error(`the click did not reach ${url}: still on ${page.url()}`, { cause: error })
+    }
+  }
+}
+
 /** Every point of a grid over the link's box (corners and edges included, a pixel inside) must belong to the link. */
 async function wholeSurfaceIsTheLinks(link: Locator, scroll = true) {
   if (scroll) await link.scrollIntoViewIfNeeded()
@@ -92,33 +110,29 @@ for (const lang of LANGS) {
           await open()
           const a = links(page, bar).and(page.locator(`a[href$="#${id}"]`))
           await expect(a).toHaveCount(1)
-          await a.click()
-          await page.waitForURL(new RegExp(`/${lang}/?#${id}$`))
+          await clickToReach(page, a, new RegExp(`/${lang}/?#${id}$`))
           await expect(page.locator(`#${id}`)).toBeVisible()
           await expect.poll(() => page.locator(`#${id}`).evaluate((s) => s.getBoundingClientRect().top < window.innerHeight)).toBe(true)
         }
 
         // Journey.
         await open()
-        await links(page, bar)
-          .and(page.locator(`a:not([data-lang])[href$="/${lang}/journey"]`))
-          .click()
-        await page.waitForURL(new RegExp(`/${lang}/journey/?$`))
+        await clickToReach(page, links(page, bar).and(page.locator(`a:not([data-lang])[href$="/${lang}/journey"]`)), new RegExp(`/${lang}/journey/?$`))
         await expect(page.locator('h1')).toBeVisible()
 
         // The language switch keeps the page: the landing page goes to the other landing page, the Journey page to its own.
         await open()
         const other = OTHER[lang]
-        await links(page, bar)
-          .and(page.locator(`a[data-lang="${other}"]`))
-          .click()
-        await page.waitForURL(new RegExp(`/${other}${from === 'journey' ? '/journey' : ''}/?$`))
-        await expect(page.locator('html')).toHaveAttribute('lang', other)
+        await clickToReach(
+          page,
+          links(page, bar).and(page.locator(`a[data-lang="${other}"]`)),
+          new RegExp(`/${other}${from === 'journey' ? '/journey' : ''}/?$`),
+        )
+        await expect(page.locator('html')).toHaveAttribute('lang', other, { timeout: 30_000 })
 
         // Open Faulk: a full page load of the DAW.
         await open()
-        await links(page, bar).and(page.locator('a[href$="/app"]')).click()
-        await page.waitForURL(/\/app\/?$/)
+        await clickToReach(page, links(page, bar).and(page.locator('a[href$="/app"]')), /\/app\/?$/)
 
         expect(errors).toEqual([])
       })

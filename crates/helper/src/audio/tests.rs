@@ -140,31 +140,64 @@ fn latency_estimate_adds_the_driver_delay_to_one_buffer() {
     assert_eq!(meter.estimated_latency_ms(48_000.0), Some(22.5));
 }
 
-/// The load and peak of the last report, after `callbacks` callbacks of 480 frames.
-fn load_after(core: &mut AudioCore, callbacks: usize) -> (f32, f32) {
+/// The load and peak of the last report, after `callbacks` callbacks of 480 frames. With a
+/// `cost`, each chunk's render lasts that many seconds on a synthetic clock; without, the real
+/// monotonic clock times it.
+fn load_after(core: &mut AudioCore, callbacks: usize, cost: Option<f64>) -> (f32, f32) {
     let mut out = vec![0.0; 480 * 2];
+    let mut t = 0.0f64;
+    let mut starting = true;
     for _ in 0..callbacks {
-        core.process(&mut out, 2);
+        match cost {
+            Some(cost) => core.process_with(&mut out, 2, &mut || {
+                // Called twice per chunk: at its start, then at its end.
+                if !starting {
+                    t += cost;
+                }
+                starting = !starting;
+                t
+            }),
+            None => core.process(&mut out, 2),
+        }
     }
     let report = engine::host::read_feedback(core.host.feedback()).unwrap();
     (report.cpu_load, report.cpu_peak)
 }
 
+/// The same with the real clock: the comparison depends on the machine's load, so it is not
+/// part of the default run (`cargo test -p helper -- --ignored`).
 #[test]
-fn the_callback_times_its_render_and_more_voices_weigh_more() {
+#[ignore = "compares measured times: depends on the machine's load"]
+fn the_real_clock_times_the_render_and_more_voices_weigh_more() {
     let (mut core, mut sender, _, mut page) = with_page();
-    let (idle, idle_peak) = load_after(&mut core, 20);
+    let (idle, _) = load_after(&mut core, 200, None);
+    for note in 0..16 {
+        sender.submit(&page.note_on(40 + note * 3, 100)).unwrap();
+    }
+    let (busy, busy_peak) = load_after(&mut core, 200, None);
+    assert!(busy > 0.0 && busy_peak >= busy && busy_peak <= 1.0);
+    assert!(
+        busy > idle,
+        "16 voices weigh more than none: {busy} against {idle}"
+    );
+}
+
+#[test]
+fn the_callback_times_its_render_and_a_slower_render_weighs_more() {
+    // A synthetic clock (#611): the loads depend on the injected times only.
+    let (mut core, mut sender, _, mut page) = with_page();
+    let (idle, idle_peak) = load_after(&mut core, 20, Some(0.000_5));
     assert!((0.0..=1.0).contains(&idle), "{idle}");
     assert!(idle_peak >= idle && idle_peak <= 1.0, "{idle_peak}");
     for note in 0..16 {
         sender.submit(&page.note_on(40 + note * 3, 100)).unwrap();
     }
-    let (busy, busy_peak) = load_after(&mut core, 20);
+    let (busy, busy_peak) = load_after(&mut core, 20, Some(0.004));
     assert!(busy > 0.0, "a measured load: {busy}");
     assert!(busy_peak >= busy && busy_peak <= 1.0, "{busy_peak}");
     assert!(
         busy > idle,
-        "16 voices weigh more than none: {busy} against {idle}"
+        "a slower render weighs more: {busy} against {idle}"
     );
 }
 

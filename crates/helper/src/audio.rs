@@ -437,6 +437,14 @@ impl AudioCore {
     /// Fills an interleaved output buffer of `channels` channels.
     /// Channel 0 gets the left signal, channel 1 the right one, others silence.
     pub fn process(&mut self, out: &mut [f32], channels: usize) {
+        let origin = Instant::now();
+        self.process_with(out, channels, &mut || origin.elapsed().as_secs_f64());
+    }
+
+    /// [`process`](Self::process) with the clock that times the renders injected (#611): `now`
+    /// returns seconds on a monotonic scale. A test passes a synthetic clock, so the CPU load
+    /// it checks does not depend on the machine's load.
+    fn process_with(&mut self, out: &mut [f32], channels: usize, now: &mut impl FnMut() -> f64) {
         let channels = channels.max(1);
         let frames = out.len() / channels;
         self.meter
@@ -448,10 +456,9 @@ impl AudioCore {
             // The CPU load (#486): each chunk's render timed with the monotonic clock (a
             // user-mode counter read on the supported systems; no allocation, no lock), its
             // time added with its frames. The copy below is not counted.
-            let start = Instant::now();
+            let start = now();
             let n = self.host.render((frames - done).min(CHUNK_FRAMES));
-            self.host
-                .add_render_time(start.elapsed().as_secs_f32(), n as u32);
+            self.host.add_render_time((now() - start) as f32, n as u32);
             let (left, right) = (self.host.left(), self.host.right());
             for i in 0..n {
                 let frame = &mut out[(done + i) * channels..(done + i + 1) * channels];
