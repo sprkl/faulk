@@ -240,22 +240,46 @@ fn start_is_refused_without_an_armed_midi_track_or_with_a_bad_latency() {
 fn the_offset_is_session_state_in_range_and_shifts_the_take() {
     let r = rec();
     let mut s = synced(&r);
-    let (out, events, _) = run(&mut s, R::SetSettings { offset_ms: -15 });
+    let (out, events, _) = run(
+        &mut s,
+        R::SetSettings {
+            offset_ms: Some(-15),
+            replace: None,
+            quantize_on_input: None,
+            quantize_strength: None,
+        },
+    );
     assert_eq!(
         out,
         Output::Record(RO::SetSettings {
-            previous_offset_ms: 0
+            previous_offset_ms: 0,
+            previous_replace: false,
+            previous_quantize_on_input: project::InputGrid::None,
+            previous_quantize_strength: 100,
         })
     );
     assert_eq!(
         events,
-        vec![ProjectEvent::RecordSettingsChanged { offset_ms: -15 }]
+        vec![ProjectEvent::RecordSettingsChanged {
+            offset_ms: -15,
+            replace: false,
+            quantize_on_input: project::InputGrid::None,
+            quantize_strength: 100
+        }]
     );
     assert_eq!(s.state.session.record.offset_ms, -15);
     assert!(s.state.history.undo.len() == r.state.history.undo.len());
     for bad in [-501, 501] {
         assert!(matches!(
-            refused(&mut s, R::SetSettings { offset_ms: bad }),
+            refused(
+                &mut s,
+                R::SetSettings {
+                    offset_ms: Some(bad),
+                    replace: None,
+                    quantize_on_input: None,
+                    quantize_strength: None
+                }
+            ),
             CommandError::Invalid { .. }
         ));
     }
@@ -283,6 +307,9 @@ fn commit(
     let mut state = r.state.clone();
     let outcome = commands::run(
         &Command::Record(R::CommitTake {
+            replace: None,
+            quantize_on_input: None,
+            quantize_strength: None,
             take: None,
             target,
             shift_ms,
@@ -324,6 +351,7 @@ fn an_overdub_lands_where_the_looping_grid_clip_played() {
     assert_eq!(
         out,
         RO::CommitTake {
+            replaced: 0,
             clips: vec![TakeClip {
                 track: r.track.clone(),
                 clip: r.grid_clip.clone(),
@@ -370,7 +398,7 @@ fn an_empty_cell_gets_a_looping_clip_from_the_bar_of_the_first_note() {
         50.0,
         take(&r, vec![note(4096, 60, 240), note(9096, 62, 240)], None),
     );
-    let RO::CommitTake { clips, dropped } = out else {
+    let RO::CommitTake { clips, dropped, .. } = out else {
         panic!()
     };
     assert_eq!(dropped, 0);
@@ -429,7 +457,7 @@ fn the_arrangement_puts_each_note_where_it_was_played() {
             None,
         ),
     );
-    let RO::CommitTake { clips, dropped } = out else {
+    let RO::CommitTake { clips, dropped, .. } = out else {
         panic!()
     };
     assert_eq!(dropped, 1, "the note that ends before tick 0");
@@ -488,6 +516,9 @@ fn a_take_is_one_history_entry_that_one_undo_removes_and_redo_brings_back() {
     let (out, events, _) = run(
         &mut s,
         R::CommitTake {
+            replace: None,
+            quantize_on_input: None,
+            quantize_strength: None,
             take: Some(1),
             target: RecordTarget::Scene {
                 scene: r.empty.clone(),
@@ -530,30 +561,45 @@ fn a_bad_take_or_restore_is_refused_and_changes_nothing() {
     let mut s = synced(&r);
     for c in [
         R::CommitTake {
+            replace: None,
+            quantize_on_input: None,
+            quantize_strength: None,
             take: None,
             target: RecordTarget::Arrangement {},
             shift_ms: f64::NAN,
             tracks: take(&r, vec![note(0, 60, 100)], None),
         },
         R::CommitTake {
+            replace: None,
+            quantize_on_input: None,
+            quantize_strength: None,
             take: None,
             target: RecordTarget::Arrangement {},
             shift_ms: 0.0,
             tracks: take(&r, vec![note(0, 60, 0)], None),
         },
         R::CommitTake {
+            replace: None,
+            quantize_on_input: None,
+            quantize_strength: None,
             take: None,
             target: RecordTarget::Arrangement {},
             shift_ms: 0.0,
             tracks: [take(&r, vec![], None), take(&r, vec![], None)].concat(),
         },
         R::CommitTake {
+            replace: None,
+            quantize_on_input: None,
+            quantize_strength: None,
             take: None,
             target: RecordTarget::Arrangement {},
             shift_ms: 0.0,
             tracks: take(&r, vec![note(0, 60, i64::MAX)], None),
         },
         R::CommitTake {
+            replace: None,
+            quantize_on_input: None,
+            quantize_strength: None,
             take: None,
             target: RecordTarget::Arrangement {},
             shift_ms: 0.0,
@@ -603,6 +649,9 @@ fn a_commit_without_the_take_number_leaves_the_take_waiting() {
         let (_, events, _) = run(
             &mut s,
             R::CommitTake {
+                replace: None,
+                quantize_on_input: None,
+                quantize_strength: None,
                 take,
                 target: RecordTarget::Arrangement {},
                 shift_ms: 0.0,
@@ -635,7 +684,7 @@ fn a_first_note_played_just_before_the_bar_starts_the_clip_on_that_bar() {
         0.0,
         take(&r, vec![note(7660, 60, 240), note(8640, 62, 240)], None),
     );
-    let RO::CommitTake { clips, dropped } = out else {
+    let RO::CommitTake { clips, dropped, .. } = out else {
         panic!()
     };
     assert_eq!(dropped, 0);

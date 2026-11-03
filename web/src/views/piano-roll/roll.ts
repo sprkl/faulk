@@ -220,6 +220,12 @@ export function velocityOf(position: number): number {
   return clamp(Math.round(finite(position, 0) * MAX_VELOCITY), MIN_VELOCITY, MAX_VELOCITY)
 }
 
+/** The draw velocity typed in the toolbar (#527): rounded and kept between 1 and 127; `fallback` when it is not a number. */
+export function parseDrawVelocity(text: string, fallback: number): number {
+  const value = text.trim() === '' ? Number.NaN : Number(text)
+  return Number.isFinite(value) ? clamp(Math.round(value), MIN_VELOCITY, MAX_VELOCITY) : fallback
+}
+
 /** Where the default velocity sits in the lane, held by the magnet. */
 export const VELOCITY_HOME = DEFAULT_VELOCITY / MAX_VELOCITY
 

@@ -64,7 +64,7 @@ La cible vient de la sélection du moment : la cellule sélectionnée dans la gr
 
 - **Par défaut : ajout (overdub).** Les notes jouées s'ajoutent à celles du clip. Rien n'est effacé, donc rien n'est perdu par erreur.
 - **Remplacement** (réglage de l'enregistrement, pas de la piste) : à l'arrivée de la première note de la prise, les notes existantes de la plage enregistrée sont retirées, puis la prise s'écrit. La plage est celle où l'on a joué, de la première note à la fin de la prise. Les notes en dehors ne bougent pas.
-- La boucle du transport enregistre en couches : chaque tour ajoute (ajout), ou chaque tour remplace le précédent (remplacement). Les prises superposées d'un même passage sont fusionnées en une seule prise d'historique.
+- La boucle du transport enregistre en couches : chaque tour ajoute (ajout), ou chaque tour remplace le précédent (remplacement). **Livré par #500 : le remplacement tour par tour n'existe pas encore, tous les tours d'une prise s'ajoutent à la plage entière (voir § 9).** Les prises superposées d'un même passage sont fusionnées en une seule prise d'historique.
 
 **[Question ouverte 3]** Le remplacement doit-il être le comportement par défaut pour un clip de grille en boucle (tour après tour on affine) ? Proposition : non, ajout partout, remplacement à choisir.
 
@@ -110,10 +110,10 @@ Toutes sont des commandes de `crates/commands/src/record.rs` (schéma, descripti
 
 | Commande | Entrée | Sortie | Annulation |
 |---|---|---|---|
-| `record.set_settings` | `offset_ms` (entier, -500 à 500) | l'ancien décalage | Aucune : c'est un état de session (il appartient à la machine), comme l'armement ; il est enregistré avec la session, jamais dans le projet, et n'entre pas dans l'historique (décision du lead, 2026-11-02). |
+| `record.set_settings` | `offset_ms` (entier, -500 à 500), `replace` (booléen, défaut faux), `quantize_on_input` (`none`, `quarter`, `eighth`, `sixteenth`, `thirty-second`, `eighth-triplet`, `sixteenth-triplet` ; défaut `none`), `quantize_strength` (0 à 100, défaut 100) ; tous optionnels, un champ absent ne change pas | les quatre valeurs d'avant | Aucune : ce sont des états de session (ils appartiennent à la machine), comme l'armement ; ils sont enregistrés avec la session, jamais dans le projet, et n'entrent pas dans l'historique (décision du lead, 2026-11-02). |
 | `record.start` | `target` (`{"at": "scene", "scene": …}` ou `{"at": "arrangement"}`, par défaut l'arrangement), `latency_ms` (latence de sortie estimée par l'hôte, 0 à 1000) | le numéro de la prise, la cible, les pistes armées qui enregistrent, le décalage total `shift_ms`, s'il y a un décompte | Aucune : état de session. Refusée sans piste MIDI armée, ou tant qu'une prise n'est ni écrite ni abandonnée. |
 | `record.stop` | rien | le numéro de la prise arrêtée, ou `null` | Aucune. Le transport continue ; la page écrit ensuite la prise avec `record.commit_take` dès que le moteur a rendu ses dernières notes. |
-| `record.commit_take` | `take` (optionnel : la prise qu'il libère), `target`, `shift_ms`, par piste les notes jouées (début en ticks du transport, durée, hauteur, vélocité) et l'ancre du clip de la cellule | les clips touchés, les notes écartées | **Une** entrée d'historique pour toute la prise ; son inverse est `record.restore`. |
+| `record.commit_take` | `take` (optionnel : la prise qu'il libère), `target`, `shift_ms`, par piste les notes jouées (début en ticks du transport, durée, hauteur, vélocité) et l'ancre du clip de la cellule ; `replace`, `quantize_on_input`, `quantize_strength` optionnels (absents : les réglages de la session) | les clips touchés, les notes écartées, les notes remplacées (`replaced`) | **Une** entrée d'historique pour toute la prise ; son inverse est `record.restore`, qui rend aussi les notes remplacées. |
 | `record.restore` | les clips à remettre (leur contenu et leurs placements, ou `null` pour les retirer) | rien | Le `record.restore` inverse. |
 | `record.discard_take` | rien | le numéro de la prise abandonnée, ou `null` | Aucune : la prise n'avait rien écrit dans le projet. |
 | `track.arm` | existe déjà | | existe déjà |
@@ -123,7 +123,9 @@ Toutes sont des commandes de `crates/commands/src/record.rs` (schéma, descripti
 
 Le moteur reçoit `SetRecording` et rend les notes capturées dans son rapport (version 5 : numéro de la prise, nombre de notes, notes perdues, drapeau de capture, dernières notes), ce qui permet au piano roll de les montrer en direct (critère de RE-5). Il n'y a pas d'allocation sur le chemin audio : les tables de capture sont préparées avec le moteur, et une table pleine est comptée et affichée, jamais cachée.
 
-**Différé** (reports acceptés par le lead le 2026-11-02) : le placement à ± 1 ms par horodatage des entrées en Boost (#501 ; en Web, livré par #499), le mode remplacement et la quantification à l'entrée (#500), l'enregistrement en Boost, désactivé jusqu'à BO-1 (#501).
+**Différé** (reports acceptés par le lead le 2026-11-02) : le placement à ± 1 ms par horodatage des entrées en Boost (#501 ; en Web, livré par #499), l'enregistrement en Boost, désactivé jusqu'à BO-1 (#501). Livrés par #500 : le mode remplacement et la quantification à l'entrée.
+
+**Remplacement et quantification (#500), tels que le code les applique.** Les trois réglages sont lus à l'écriture de la prise, sauf si `record.commit_take` reçoit les siens (la commande reste rejouable par un agent). Remplacement : par piste, la plage va du début de la première note à la fin de la dernière note de la prise (la commande ne connaît pas la fin de la prise elle-même, qui peut être plus tardive) ; dans chaque clip qui reçoit des notes (cellule de la grille, ou placement de l'arrangement, borné au placement), les notes du clip dont le **début** tombe dans la plage sont retirées, en suivant la boucle du clip ; une prise plus longue que la boucle remplace tout le clip ; un clip neuf n'a rien à remplacer. Le remplacement tour par tour d'une boucle de transport n'est pas fait : tous les tours d'une prise s'ajoutent à la plage entière. Quantification : le début des notes de la prise est ramené vers la grille **du clip** (sa position 0 est une ligne de la grille) avec `quantize_strength` ; la durée ne change pas ; une note ne sort jamais de son clip ; les notes déjà dans le clip ne bougent pas.
 
 ## 10. Ce que les agents peuvent en faire
 

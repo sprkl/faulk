@@ -14,6 +14,7 @@ use commands::{Author, Command, Context, Output, State, run};
 /// The fixture's MIDI track, armed, with two scenes: in the first a looping clip of one bar
 /// (notes at 0 and 1920), the second empty; and a clip of one bar placed at bar 3 (tick
 /// 7680) in the arrangement.
+#[derive(Clone)]
 pub struct Rec {
     pub state: State,
     pub track: TrackId,
@@ -132,7 +133,12 @@ pub fn examples() -> Vec<(Command, State)> {
     let r = rec();
     let on = |c: R| (Command::Record(c), r.state.clone());
     vec![
-        on(R::SetSettings { offset_ms: 12 }),
+        on(R::SetSettings {
+            offset_ms: Some(12),
+            replace: None,
+            quantize_on_input: None,
+            quantize_strength: None,
+        }),
         on(R::Start {
             target: Some(RecordTarget::Scene {
                 scene: r.scene.clone(),
@@ -143,6 +149,9 @@ pub fn examples() -> Vec<(Command, State)> {
         on(R::DiscardTake {}),
         // Overdub into the looping grid clip.
         on(R::CommitTake {
+            replace: None,
+            quantize_on_input: None,
+            quantize_strength: None,
             take: None,
             target: RecordTarget::Scene {
                 scene: r.scene.clone(),
@@ -152,6 +161,9 @@ pub fn examples() -> Vec<(Command, State)> {
         }),
         // A new grid clip.
         on(R::CommitTake {
+            replace: None,
+            quantize_on_input: None,
+            quantize_strength: None,
             take: None,
             target: RecordTarget::Scene {
                 scene: r.empty.clone(),
@@ -161,6 +173,9 @@ pub fn examples() -> Vec<(Command, State)> {
         }),
         // The arrangement: one note into the placed clip, one in a new clip before it.
         on(R::CommitTake {
+            replace: None,
+            quantize_on_input: None,
+            quantize_strength: None,
             take: None,
             target: RecordTarget::Arrangement {},
             shift_ms: 10.0,

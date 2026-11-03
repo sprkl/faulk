@@ -379,6 +379,10 @@ async fn session(ws: Ws, shared: &Arc<Shared>) {
     let _ = tx.send(Out::Msg(shared.hello()));
     shared.midi.lock().expect("MIDI lock poisoned").refresh();
     let _ = tx.send(Out::Msg(shared.midi_inputs()));
+    // A page that just connected may be waiting on a release: look for it now (rate-limited).
+    if let Some(updates) = &shared.updates {
+        updates.request_check();
+    }
     if let Some(update) = shared.update_status() {
         let _ = tx.send(Out::Msg(update));
     }
