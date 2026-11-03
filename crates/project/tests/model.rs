@@ -509,6 +509,7 @@ fn kind_name(kind: &ViolationKind) -> &'static str {
         MeterMap => "MeterMap",
         NotFinite => "NotFinite",
         GainOutOfRange => "GainOutOfRange",
+        HeightOutOfRange => "HeightOutOfRange",
         PanOutOfRange => "PanOutOfRange",
         TooManyInstruments => "TooManyInstruments",
         InstrumentNotFirst => "InstrumentNotFirst",
@@ -522,7 +523,7 @@ fn kind_name(kind: &ViolationKind) -> &'static str {
     }
 }
 
-const ALL_KINDS: [&str; 32] = [
+const ALL_KINDS: [&str; 33] = [
     "MissingInstrument",
     "BadSampleRate",
     "Format",
@@ -547,6 +548,7 @@ const ALL_KINDS: [&str; 32] = [
     "MeterMap",
     "NotFinite",
     "GainOutOfRange",
+    "HeightOutOfRange",
     "PanOutOfRange",
     "TooManyInstruments",
     "InstrumentNotFirst",
@@ -565,7 +567,7 @@ fn cases() -> Vec<(&'static str, Mutation, &'static str)> {
         })
     };
     vec![
-        ("format 3", Box::new(|fx| fx.project.format = 3), "Format"),
+        ("format 4", Box::new(|fx| fx.project.format = 4), "Format"),
         (
             "empty project name",
             Box::new(|fx| fx.project.name.clear()),
@@ -968,6 +970,16 @@ fn cases() -> Vec<(&'static str, Mutation, &'static str)> {
             "NotFinite",
         ),
         (
+            "track height 27 px",
+            Box::new(|fx| midi_track(fx).height = Some(27)),
+            "HeightOutOfRange",
+        ),
+        (
+            "track height 177 px",
+            Box::new(|fx| midi_track(fx).height = Some(177)),
+            "HeightOutOfRange",
+        ),
+        (
             "master gain 6.5 dB",
             Box::new(|fx| fx.project.master.gain_db = 6.5),
             "GainOutOfRange",
@@ -1235,7 +1247,7 @@ fn every_kind_has_a_failing_case() {
 #[test]
 fn violations_carry_their_path_and_are_all_reported() {
     let mut fx = fixture();
-    fx.project.format = 3;
+    fx.project.format = 4;
     midi_track(&mut fx).mixer.pan = 2.0;
     let violations = fx.project.validate().unwrap_err();
     assert_eq!(violations.len(), 2, "{violations:?}");
@@ -1388,11 +1400,11 @@ fn the_format_is_read_before_the_strict_document() {
     // probe still reads the version, so the reader can say "newer format".
     let fx = fixture();
     let mut value = serde_json::to_value(&fx.project).unwrap();
-    value["format"] = 3.into();
+    value["format"] = 4.into();
     value["tempo_curve"] = serde_json::json!([]);
     assert!(serde_json::from_value::<Project>(value.clone()).is_err());
     let probe: FormatProbe = serde_json::from_value(value).unwrap();
-    assert_eq!(probe, FormatProbe { format: 3 });
+    assert_eq!(probe, FormatProbe { format: 4 });
 }
 
 #[test]

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { messages } from './app'
 import { COMMAND_LABEL_PREFIX, PHRASE_PREFIX } from './history'
 
-// Read at run time, never imported: schema.json is tens of MB, and a JSON import makes the compiler infer its whole type (heap out of memory in the typecheck).
+// Read at run time, never imported: schema.json is over a megabyte, and a JSON import makes the compiler infer its whole type (heap out of memory in the typecheck).
 const schema = JSON.parse(readFileSync(new URL('../generated/schema.json', import.meta.url), 'utf8')) as {
   command: { catalog: { name: string; kind: string }[] }
 }

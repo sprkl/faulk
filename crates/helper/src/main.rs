@@ -226,11 +226,14 @@ fn open_in_browser(url: &str) {
 
 /// Ends every note, then waits up to `limit` for the voices to finish their release.
 /// Returns whether they did. A lock poisoned by a panic does not skip the note off.
+/// What waits for the engine is dropped first, so that the note off is not queued behind it.
 fn release_all_voices(sender: &Mutex<EventSender>, meter: &Meter, limit: Duration) -> bool {
-    sender
+    let mut sender = sender
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .send(&all_notes_off());
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    sender.drop_waiting();
+    sender.send(&all_notes_off());
+    drop(sender);
     let deadline = Instant::now() + limit;
     loop {
         if meter.take().1 == 0 {

@@ -295,6 +295,7 @@ fn each_edit_compiles_to_its_messages() {
     for v in [
         json!({"type": "project.rename", "name": "Other"}),
         json!({"type": "track.rename", "track": a, "name": "A"}),
+        json!({"type": "track.set_height", "track": a, "height": 80}),
         json!({"type": "track.move", "track": a, "index": 0}),
         json!({"type": "midi.list_inputs"}),
     ] {

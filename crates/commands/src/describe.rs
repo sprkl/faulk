@@ -200,6 +200,7 @@ pub fn before(command: &Command, p: &Project) -> Option<Subject> {
         Command::Track(c) => match c {
             tr::Command::Delete { track: id }
             | tr::Command::SetColor { track: id, .. }
+            | tr::Command::SetHeight { track: id, .. }
             | tr::Command::Move { track: id, .. }
             | tr::Command::Duplicate { track: id, .. } => Some(Subject::one(track(p, id), None)),
             tr::Command::Rename { track: id, name } => {

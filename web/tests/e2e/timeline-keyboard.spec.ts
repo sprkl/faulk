@@ -355,6 +355,58 @@ test('a clip moves to the track below and back from the keyboard, the menu and t
   expect(errors).toEqual([])
 })
 
+test('the free cursor reaches the ruler row with Up; Enter there and Shift+Enter on a track put the playhead at the cursor (#554)', async ({ page }) => {
+  const { errors } = watch(page)
+  await start(page)
+  const arr = page.getByTestId('arrangement')
+  await expect(arr).toHaveAttribute('data-block-count', '0')
+  const cursor = page.getByTestId('arr-cursor')
+  const position = page.getByTestId('transport-position')
+  await cursor.focus()
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('ArrowRight')
+  const tick = Number(await cursor.getAttribute('data-tick'))
+  expect(tick).toBeGreaterThan(0)
+  const at = `${Math.floor(tick / 3840) + 1}.${Math.floor((tick % 3840) / 960) + 1}.`
+
+  // Shift+Enter on a track row: the playhead goes there, and no clip is created.
+  await page.keyboard.press('Shift+Enter')
+  await expect(position).toContainText(at)
+  await expect(page.getByTestId('arr-said')).toHaveText(/^Playhead at bar/)
+  await expect(arr).toHaveAttribute('data-block-count', '0')
+
+  // Up from the first track reaches the ruler row; Right moves along it, Enter puts the playhead on the new tick.
+  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowUp')
+  await expect(cursor).toHaveAttribute('data-row', '-1')
+  await expect(cursor).toBeFocused()
+  await expect(cursor).toHaveAccessibleName(/^Ruler, bar/)
+  await page.keyboard.press('ArrowRight')
+  const later = Number(await cursor.getAttribute('data-tick'))
+  expect(later).toBeGreaterThan(tick)
+  await page.keyboard.press('Enter')
+  await expect(position).toContainText(`${Math.floor(later / 3840) + 1}.${Math.floor((later % 3840) / 960) + 1}.`)
+  await expect(arr).toHaveAttribute('data-block-count', '0')
+
+  // Down comes back to the first track.
+  await page.keyboard.press('ArrowDown')
+  await expect(cursor).toHaveAttribute('data-row', '0')
+
+  // Cut at a bar the keyboard reached: a clip of one bar, the playhead put at its beat 3 by Ctrl+G, then Ctrl+E cuts it in two.
+  await clipAt(page, 0, 2)
+  await expect(arr).toHaveAttribute('data-block-count', '1')
+  const [clip] = await blocks(page)
+  await page.locator(`[data-testid=arr-item][data-block="${clip!.id}"]`).focus()
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect(arr).toHaveAttribute('data-selected-count', '1')
+  await page.keyboard.press('Control+g')
+  await page.keyboard.type('3.3')
+  await page.keyboard.press('Enter')
+  await expect(position).toContainText('3.3')
+  await page.keyboard.press('Control+e')
+  await expect(arr).toHaveAttribute('data-block-count', '2')
+  expect(errors).toEqual([])
+})
+
 /** A click on an empty row of the third track clears the selection. */
 async function clearSelection(page: Page) {
   const box = (await page.getByTestId('arr-stage').boundingBox())!

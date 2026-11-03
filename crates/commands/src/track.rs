@@ -1,4 +1,4 @@
-//! `track.*`: create, delete, restore, rename, colour, reorder and duplicate tracks (PR-8),
+//! `track.*`: create, delete, restore, rename, colour, row height, reorder and duplicate tracks (PR-8),
 //! and arm or monitor them (RE-1). Selecting a track is `view.select_track`.
 //!
 //! The contract of the track commands, written once here and repeated in their
@@ -40,8 +40,8 @@ use project::limits::{
 };
 use project::{
     AutomationLane, AutomationTarget, CLIP_PLAYER, Clip, ClipContent, ClipId, Device, DeviceId,
-    DeviceRole, DeviceSource, LaneId, OrderKey, Placement, PlacementId, Rgb, Track, TrackId,
-    TrackKind,
+    DeviceRole, DeviceSource, LaneId, MAX_TRACK_HEIGHT, MIN_TRACK_HEIGHT, OrderKey, Placement,
+    PlacementId, Rgb, Track, TrackId, TrackKind,
 };
 use std::collections::BTreeMap;
 
@@ -110,11 +110,28 @@ domain! {
         track: TrackId,
         /// Required: `null` clears the colour, a missing field is an error.
         #[serde(deserialize_with = "Option::deserialize")]
-        #[schemars(required)]
+        #[schemars(required, transform = crate::contract::allow_null)]
         color: Option<Rgb>,
     } => {
         /// The colour before the command.
         previous: Option<Rgb>,
+    };
+
+    /// Set the height of a track's row in the arrangement, in pixels from 28 to 176, or `null`
+    /// for the default height (the one of the page's density). The height is kept with the
+    /// project, so a producer finds it again on reopening; it changes nothing to the sound.
+    /// Refused with `invalid` outside 28 to 176 (never clamped). Undo: set the previous height
+    /// back.
+    "track.set_height" (kind = "edit", undo = "inverse", destructive = false)
+    SetHeight {
+        track: TrackId,
+        /// Required: `null` is the default height, a missing field is an error.
+        #[serde(deserialize_with = "Option::deserialize")]
+        #[schemars(required, schema_with = "nullable_height")]
+        height: Option<u16>,
+    } => {
+        /// The height before the command, `null` for the default.
+        previous: Option<u16>,
     };
 
     /// Move a track to `index` in the list of tracks, 0 first; an index past the end
@@ -310,6 +327,7 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
         Command::Restore { track, snapshot } => restore(state, track, snapshot),
         Command::Rename { track, name } => rename(state, track, name),
         Command::SetColor { track, color } => set_color(state, track, *color),
+        Command::SetHeight { track, height } => set_height(state, track, *height),
         Command::Move { track, index } => move_track(state, track, *index),
         Command::RestoreOrder { track, order } => restore_order(state, track, order),
         Command::SetInstrument { track, instrument } => {
@@ -822,6 +840,50 @@ fn rename(state: &mut State, track_id: &TrackId, name: &str) -> Result<Out, Comm
             name: previous,
         })),
         events: changed(track_id, TrackPart::Name),
+        control: vec![],
+    })
+}
+
+/// The schema of a height: an integer from [`MIN_TRACK_HEIGHT`] to [`MAX_TRACK_HEIGHT`], or `null`
+/// for the default (the derived schema of an optional field drops the `null`).
+fn nullable_height(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({
+        "type": ["integer", "null"],
+        "minimum": MIN_TRACK_HEIGHT,
+        "maximum": MAX_TRACK_HEIGHT,
+        "description": "Required: `null` is the default height, a missing field is an error."
+    })
+}
+
+fn set_height(
+    state: &mut State,
+    track_id: &TrackId,
+    height: Option<u16>,
+) -> Result<Out, CommandError> {
+    let track = track_mut(state, track_id)?;
+    if let Some(h) = height
+        && !(MIN_TRACK_HEIGHT..=MAX_TRACK_HEIGHT).contains(&h)
+    {
+        return Err(invalid(
+            "height",
+            format!(
+                "a track height is from {MIN_TRACK_HEIGHT} to {MAX_TRACK_HEIGHT} px, or null for the default, not {h}"
+            ),
+        ));
+    }
+    let previous = track.height;
+    let output = Output::SetHeight { previous };
+    if previous == height {
+        return Ok(unchanged(output));
+    }
+    track.height = height;
+    Ok(Outcome {
+        output,
+        undo: Undo::Inverse(Box::new(Command::SetHeight {
+            track: track_id.clone(),
+            height: previous,
+        })),
+        events: changed(track_id, TrackPart::Height),
         control: vec![],
     })
 }
