@@ -54,37 +54,26 @@ pub struct Policy {
 }
 
 /// Where the MCP token comes from. The user creates it (`faulk-helper mcp-token`, a
-/// confirmation of theirs); the helper never does, and refuses every MCP request until the file
-/// exists. Read again while missing, so a token created while the helper runs is taken.
+/// confirmation of theirs); the helper never does, and refuses every MCP request while the file
+/// is missing. The file is read at each request: a token created while the helper runs is taken
+/// at once, and deleting the file closes the MCP server at once (the user's revocation).
 pub enum McpToken {
     /// A token given as is (tests).
     Fixed(String),
     /// The token file in the helper's config directory.
-    File {
-        dir: std::path::PathBuf,
-        loaded: std::sync::Mutex<Option<String>>,
-    },
+    File(std::path::PathBuf),
 }
 
 impl McpToken {
     pub fn file(dir: std::path::PathBuf) -> Self {
-        Self::File {
-            dir,
-            loaded: std::sync::Mutex::new(None),
-        }
+        Self::File(dir)
     }
 
-    /// The token, or `None` while the user has not created it.
+    /// The token, or `None` while the user has not created it (or removed it).
     pub fn get(&self) -> Option<String> {
         match self {
             Self::Fixed(token) => Some(token.clone()),
-            Self::File { dir, loaded } => {
-                let mut loaded = loaded.lock().unwrap_or_else(|p| p.into_inner());
-                if loaded.is_none() {
-                    *loaded = read_secret(dir, MCP_TOKEN_FILE);
-                }
-                loaded.clone()
-            }
+            Self::File(dir) => read_secret(dir, MCP_TOKEN_FILE),
         }
     }
 }
@@ -420,6 +409,20 @@ mod tests {
         );
         let bearer = format!("Bearer {token}");
         assert_eq!(p.check_mcp(&mcp(HOST, false, Some(&bearer))), Ok(()));
+        // Deleting the file revokes it at once.
+        std::fs::remove_file(dir.join(MCP_TOKEN_FILE)).unwrap();
+        assert_eq!(
+            p.check_mcp(&mcp(HOST, false, Some(&bearer))),
+            Err(McpRefusal::NoToken)
+        );
+        let token = load_or_create_mcp_token(&dir).unwrap();
+        let renewed = format!("Bearer {token}");
+        assert_eq!(p.check_mcp(&mcp(HOST, false, Some(&renewed))), Ok(()));
+        assert_eq!(
+            p.check_mcp(&mcp(HOST, false, Some(&bearer))),
+            Err(McpRefusal::BadToken),
+            "a new token replaces the old one"
+        );
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;

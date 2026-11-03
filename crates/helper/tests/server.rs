@@ -1410,6 +1410,14 @@ async fn mcp_refuses_another_host_any_origin_and_any_other_token_before_the_mcp_
             "{bad}"
         );
     }
+    // A session the MCP server does not know (the helper restarted): 404, which the stdio bridge
+    // turns into "restart the agent".
+    let body = r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#;
+    let unknown = format!(
+        "POST /mcp HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\n{bearer}Mcp-Session-Id: no-such-session\r\nMCP-Protocol-Version: 2025-06-18\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    assert_eq!(http_status(h.port, unknown).await, 404);
     // The page's routes still answer on the same port.
     let mut ws = connect(h.port, "/probe", Some(ORIGIN)).await.unwrap();
     assert!(matches!(next(&mut ws).await, ServerMessage::Probe { .. }));

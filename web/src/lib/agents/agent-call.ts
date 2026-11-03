@@ -14,12 +14,12 @@ export interface AgentHost {
  * The commands whose page action opens a picker or a permission prompt: the browser allows those only
  * during a click in the page (spec § SV, #323), which an agent's call never is. They are answered
  * `unavailable` before anything runs, instead of applying in the project while their page action fails.
+ * Not listed: `project.open_recent` and `project.reopen_last`, which prompt only when the browser took the
+ * folder's permission back, and `project.save`, which asks for a folder only for a project that has none.
  */
 export const NEEDS_A_CLICK: ReadonlySet<string> = new Set([
   'project.save_as',
   'project.open_folder',
-  'project.open_recent',
-  'project.reopen_last',
   'project.allow_access',
   'project.import_pack',
   'project.export_pack',

@@ -41,7 +41,7 @@ N'importe quel site ouvert dans le navigateur peut tenter de joindre un serveur 
 - vérifie l'en-tête `Host` (contre le DNS rebinding) et l'en-tête `Origin` : seules les origines de Faulk ouvrent une session de page, et une requête MCP qui porte un `Origin` (donc venue d'une page web, celle de Faulk comprise) est refusée ;
 - ne lance que les agents ACP que l'utilisateur a configurés, jamais une commande reçue de la page.
 
-Les commandes destructrices demandent une confirmation de l'utilisateur, quel que soit l'appelant.
+Les commandes destructrices demandent une confirmation de l'utilisateur, quel que soit l'appelant. Écart connu jusqu'à AG-4 (#100) : depuis AG-1 (#97), un agent MCP les exécute sans confirmation (elles restent annulables, sauf `project.new` qui garde d'abord le projet courant).
 
 ## Licences
 

@@ -256,6 +256,8 @@ impl Shared {
                     let _ = pending.answer.send(result);
                 }
             }
+            // Defensive: a replaced or ended session's calls are dropped first, so another
+            // session finds none of them today; this keeps it so if that order ever changes.
             Some(_) => crate::log!("ignored an agent result from another session (call {call})"),
             None => crate::log!("ignored an agent result for no waiting call (call {call})"),
         }

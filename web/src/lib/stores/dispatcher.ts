@@ -550,8 +550,11 @@ export class Dispatcher {
       const view = this.core?.project()
       return { status: 'applied', output: { name: view?.project.name ?? name ?? '' } }
     }
+    // Without a core, `execute` would make one and run the command later: nothing an agent can be told.
+    if (!this.core) return { status: 'unavailable', reason: 'the page has no project yet: start audio in the page first' }
     const ran = this.execute(command, { quiet: true, author })
-    if (ran.status === 'started') return { status: 'unavailable', reason: 'the page has no project yet: start audio in the page first' }
+    // Only the commands answered above start without answering; none reaches here with a core.
+    if (ran.status === 'started') return { status: 'unavailable', reason: 'the page answers this command later' }
     return ran
   }
 
@@ -576,6 +579,8 @@ export class Dispatcher {
     if (instead) return this.execute(instead, options)
     const refusal = this.recorder?.refusal(command)
     if (refusal) {
+      // Shown whoever asks, quiet runs and agents included (#513): the user sees why a take did not start;
+      // an agent gets the same reason as its answer.
       this.state.notice = refusal
       return { status: 'refused', error: { code: refusal } }
     }

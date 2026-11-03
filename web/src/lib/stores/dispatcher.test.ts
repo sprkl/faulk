@@ -1976,6 +1976,14 @@ describe("an agent's calls in Boost (AG-1)", () => {
     expect(nativeEngine!.send.mock.calls.length).toBe(sends)
   })
 
+  it('answers unavailable before audio starts, and runs nothing later', async () => {
+    const session = newSession()
+    const result = await session.dispatcher.runForAgent({ type: 'project.reopen_last' } as Command, 'agent:a')
+    expect(result).toMatchObject({ status: 'unavailable' })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(session.dispatcher.history().undo).toEqual([])
+  })
+
   it('answers the stored projects for project.list_stored', async () => {
     await boosted()
     expect(await call('a', { type: 'project.list_stored' })).toEqual({

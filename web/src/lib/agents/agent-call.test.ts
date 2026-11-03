@@ -33,7 +33,7 @@ describe('answerAgentCall', () => {
   })
 
   it('answers unavailable for every command that needs a click, without running it', async () => {
-    expect(NEEDS_A_CLICK.size).toBe(8)
+    expect(NEEDS_A_CLICK.size).toBe(6)
     for (const type of NEEDS_A_CLICK) {
       const h = host()
       const result = await answerAgentCall(h, 'a', { type })
