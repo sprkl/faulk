@@ -65,6 +65,7 @@ fn scenario() -> Vec<Step> {
         track: t,
         pitch,
         velocity,
+        at: None,
     };
     const MIXED: &[usize] = &[128, 37, 2048, 1, 500];
 

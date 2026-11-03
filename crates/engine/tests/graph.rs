@@ -151,6 +151,7 @@ fn note(slot: u32, pitch: u8) -> M {
         track: t(slot),
         pitch,
         velocity: 127,
+        at: None,
     }
 }
 
@@ -756,6 +757,7 @@ fn a_note_off_in_a_block_of_zero_frames_is_not_lost() {
     r.send(&[M::NoteOff {
         track: t(0),
         pitch: 69,
+        at: None,
     }]);
     // The host renders nothing in this block: the note-off waits for the next block.
     assert_no_alloc(|| r.e.process(&mut [], &mut []));
@@ -768,6 +770,7 @@ fn a_note_off_in_a_block_of_zero_frames_is_not_lost() {
     r.send(&[M::NoteOff {
         track: t(0),
         pitch: 69,
+        at: None,
     }]);
     assert_no_alloc(|| r.e.begin_block());
     assert_no_alloc(|| r.e.render(&mut [], &mut []));
@@ -841,6 +844,7 @@ fn a_bypassed_instrument_keeps_no_stuck_note() {
     r.send(&[M::NoteOff {
         track: t(0),
         pitch: 69,
+        at: None,
     }]);
     r.run(2);
     r.send(&[disable(true)]);
@@ -876,6 +880,7 @@ fn an_effect_switched_off_and_on_loses_its_tail() {
         r.send(&[M::NoteOff {
             track: t(0),
             pitch: 69,
+            at: None,
         }]);
         r
     };

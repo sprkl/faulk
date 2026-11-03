@@ -334,6 +334,15 @@ impl<'a> Reader<'a> {
         out.extend_from_slice(rest);
         Ok(out)
     }
+    /// The optional stamp that ends a live note (#499): a `u64` when the payload has 8 bytes
+    /// left, nothing when it has none; any other length is left for [`Reader::end`] to refuse.
+    fn stamp(&mut self) -> Result<Option<u64>, Bad> {
+        if self.bytes.len() == 8 {
+            Ok(Some(self.u64()?))
+        } else {
+            Ok(None)
+        }
+    }
     fn end(&self) -> Result<(), Bad> {
         check(self.bytes.is_empty())
     }
@@ -582,14 +591,23 @@ impl ControlMsg {
                 track,
                 pitch,
                 velocity,
+                at,
             } => {
                 w.u32(track.0);
                 w.u8(*pitch);
                 w.u8(*velocity);
+                // The stamp is written only when there is one (#499): an unstamped note is
+                // the same bytes as before it existed.
+                if let Some(at) = at {
+                    w.u64(*at);
+                }
             }
-            ControlMsg::NoteOff { track, pitch } => {
+            ControlMsg::NoteOff { track, pitch, at } => {
                 w.u32(track.0);
                 w.u8(*pitch);
+                if let Some(at) = at {
+                    w.u64(*at);
+                }
             }
         }
     }
@@ -788,10 +806,12 @@ impl ControlMsg {
                 track: r.track()?,
                 pitch: r.midi()?,
                 velocity: r.midi()?,
+                at: r.stamp()?,
             },
             Tag::NoteOff => ControlMsg::NoteOff {
                 track: r.track()?,
                 pitch: r.midi()?,
+                at: r.stamp()?,
             },
             Tag::AllNotesOff => ControlMsg::AllNotesOff { track: r.track()? },
             Tag::AllSoundOff => ControlMsg::AllSoundOff,

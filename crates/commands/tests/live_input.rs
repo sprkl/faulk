@@ -46,6 +46,7 @@ fn note_on(slot: u32, pitch: u8) -> ControlMsg {
         track: TrackSlot(slot),
         pitch,
         velocity: 100,
+        at: None,
     }
 }
 
@@ -53,6 +54,7 @@ fn note_off(slot: u32, pitch: u8) -> ControlMsg {
     ControlMsg::NoteOff {
         track: TrackSlot(slot),
         pitch,
+        at: None,
     }
 }
 
@@ -200,7 +202,8 @@ fn the_live_input_goes_to_the_selected_and_armed_midi_tracks() {
         [ControlMsg::NoteOn {
             track: TrackSlot(0),
             pitch: 62,
-            velocity: 90
+            velocity: 90,
+            at: None,
         }]
     );
     run(&mut s, json!({"type": "live.input_note_off", "note": 62}));
@@ -389,4 +392,82 @@ fn the_new_commands_are_live_and_not_undoable() {
     }
     let state: State = testing::fixture().state;
     assert!(state.session.armed.is_empty());
+}
+
+/// #499: the time a live note was played (`frame`, a host frame) reaches the engine with
+/// every message the note becomes, its note off included (velocity 0 or `input_note_off`);
+/// without it the messages carry none, and the JSON of an unstamped command has no `frame`.
+#[test]
+fn the_frame_of_a_live_note_reaches_its_engine_messages() {
+    let (mut s, [a, b, _]) = synced();
+    run(&mut s, json!({"type": "view.select_track", "track": a}));
+    run(
+        &mut s,
+        json!({"type": "track.arm", "track": b, "armed": true}),
+    );
+    let stamp = |slot: u32, at: Option<u64>| ControlMsg::NoteOn {
+        track: TrackSlot(slot),
+        pitch: 60,
+        velocity: 90,
+        at,
+    };
+    let (_, _, msgs) = run(
+        &mut s,
+        json!({"type": "live.input_note_on", "note": 60, "velocity": 90, "frame": 123_456}),
+    );
+    assert_eq!(msgs, [stamp(0, Some(123_456)), stamp(1, Some(123_456))]);
+    let (_, _, msgs) = run(
+        &mut s,
+        json!({"type": "live.input_note_off", "note": 60, "frame": 130_000}),
+    );
+    let mut msgs = msgs;
+    msgs.sort_by_key(|m| format!("{m:?}"));
+    assert_eq!(
+        msgs,
+        [
+            ControlMsg::NoteOff {
+                track: TrackSlot(0),
+                pitch: 60,
+                at: Some(130_000)
+            },
+            ControlMsg::NoteOff {
+                track: TrackSlot(1),
+                pitch: 60,
+                at: Some(130_000)
+            },
+        ]
+    );
+    // A velocity 0 note on is a note off, with its frame.
+    run(
+        &mut s,
+        json!({"type": "live.input_note_on", "note": 62, "velocity": 90}),
+    );
+    let (_, _, msgs) = run(
+        &mut s,
+        json!({"type": "live.input_note_on", "note": 62, "velocity": 0, "frame": 140_000}),
+    );
+    assert!(
+        msgs.iter().all(|m| matches!(
+            m,
+            ControlMsg::NoteOff {
+                at: Some(140_000),
+                ..
+            }
+        )),
+        "{msgs:?}"
+    );
+    assert_eq!(msgs.len(), 2);
+    // An unstamped command serializes without the field.
+    let plain = cmd(json!({"type": "live.input_note_on", "note": 60, "velocity": 90}));
+    assert_eq!(
+        serde_json::to_value(&plain).unwrap(),
+        json!({"type": "live.input_note_on", "note": 60, "velocity": 90})
+    );
+    // A frame that is not a whole frame is refused by the schema.
+    assert!(
+        serde_json::from_value::<Command>(
+            json!({"type": "live.input_note_off", "note": 60, "frame": -1})
+        )
+        .is_err()
+    );
 }

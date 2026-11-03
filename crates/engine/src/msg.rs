@@ -156,6 +156,15 @@
 //! is applied before the release, never after it), so no note stays
 //! stuck even if nothing else is ever sent. The count is reported in [`Feedback`].
 //!
+//! **Stamps (#499).** A live note on or off may carry `at`, the frame of the host's audio
+//! clock at which it was played (web: the audio context's frame). The host tells the engine
+//! the host frame of each block (`Engine::set_host_frame`, the worklet's `currentFrame`
+//! through `fk_render_at`); `Engine::begin_block` turns the stamp into an engine sample, and
+//! the recorder places the note there ([`crate::recorder`]). A live note still sounds at the
+//! start of the block that takes it: by then its stamp is in the past, so the stamp adds no
+//! latency. In the binary format the stamp is a `u64` appended to the payload only when
+//! present: an unstamped note is the bytes it was before stamps existed.
+//!
 //! # Binary format of `ControlMsg`
 //!
 //! Little-endian everywhere, whatever the host. A message is a [`Header`] of
@@ -629,14 +638,20 @@ pub enum ControlMsg {
         recording: bool,
     },
     // live input (the only messages that go through the bounded live queue)
+    /// A note played live. `at` is the host frame at which it was played (#499; module doc,
+    /// live input), `None` when the host gives no time: it then counts from the start of the
+    /// block that takes it.
     NoteOn {
         track: TrackSlot,
         pitch: u8,
         velocity: u8,
+        at: Option<u64>,
     },
+    /// A live note released; `at` as for [`ControlMsg::NoteOn`].
     NoteOff {
         track: TrackSlot,
         pitch: u8,
+        at: Option<u64>,
     },
     AllNotesOff {
         track: TrackSlot,
@@ -1517,14 +1532,18 @@ pub enum RtMsg {
 /// live queue, never `prepare` (module doc, live input).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LiveEvent {
+    /// `at`: the engine sample at which the note was played (the host frame of the message
+    /// converted by `Engine::begin_block`), `None` when unknown.
     NoteOn {
         track: TrackSlot,
         pitch: u8,
         velocity: u8,
+        at: Option<u64>,
     },
     NoteOff {
         track: TrackSlot,
         pitch: u8,
+        at: Option<u64>,
     },
     AllNotesOff {
         track: TrackSlot,

@@ -2,6 +2,7 @@ import type { Command } from '../generated/protocol'
 import type { Engine, EngineEvents, EngineStatus } from './engine'
 import { engineMemory } from './engine-abi'
 import { readFeedback } from './feedback'
+import { contextFrameAt } from './clock'
 import type { FromPrepare, ToPrepare } from './prepare-worker'
 import type { WorkletMessage } from './worklet'
 import workletUrl from './worklet.ts?worker&url'
@@ -22,6 +23,8 @@ const FEEDBACK_MS = 33
 export class WebEngine implements Engine {
   readonly kind = 'web' as const
   private readonly timer: ReturnType<typeof setInterval>
+  /** The output latency last reported (`status`), in seconds: what `record.start` takes as `latency_ms`. */
+  private reportedLatency = 0
 
   private constructor(
     private readonly context: AudioContext,
@@ -97,10 +100,26 @@ export class WebEngine implements Engine {
     const engine = new WebEngine(context, worker, memory, { at: ready.feedback, len: ready.feedbackLen }, events)
     node.connect(context.destination)
     await context.resume()
-    events.onStatus(engine.status())
+    engine.report(events)
     // outputLatency is only known once audio runs: report again shortly after.
-    setTimeout(() => events.onStatus(engine.status()), 500)
+    setTimeout(() => engine.report(events), 500)
     return engine
+  }
+
+  /** Reports the status, and keeps the latency it says for `frameAt`. */
+  private report(events: EngineEvents) {
+    const status = this.status()
+    this.reportedLatency = (status.estimatedLatencyMs ?? 0) / 1000
+    events.onStatus(status)
+  }
+
+  /**
+   * The audio context's frame at which a note was played at `timeStamp` (#499, `contextFrameAt`),
+   * with the latency last reported, the one a take starts with.
+   */
+  frameAt(timeStamp: number | undefined): number | null {
+    if (this.context.state !== 'running' || typeof this.context.getOutputTimestamp !== 'function') return null
+    return contextFrameAt(this.context.getOutputTimestamp(), timeStamp, this.reportedLatency, this.context.sampleRate)
   }
 
   status(): EngineStatus {

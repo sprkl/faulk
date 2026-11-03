@@ -27,6 +27,8 @@ let registered: (new () => Processor) | null = null
 async function shippedProcessor(): Promise<Processor> {
   const scope = globalThis as unknown as Record<string, unknown>
   scope.sampleRate = 48_000
+  // The context frame of the block (#499): the stub does not advance it, nothing here is stamped.
+  scope.currentFrame = 0
   scope.AudioWorkletProcessor = class {
     port = {
       onmessage: null,

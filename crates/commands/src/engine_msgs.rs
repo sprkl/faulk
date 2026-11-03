@@ -73,6 +73,7 @@ pub fn compile(
                     track,
                     pitch: *note,
                     velocity: *velocity,
+                    at: None,
                 });
             }
         }
@@ -82,12 +83,17 @@ pub fn compile(
                 out.push(ControlMsg::NoteOff {
                     track,
                     pitch: *note,
+                    at: None,
                 });
             }
         }
-        Command::Live(live::Command::InputNoteOn { note, velocity }) => {
+        Command::Live(live::Command::InputNoteOn {
+            note,
+            velocity,
+            frame,
+        }) => {
             if *velocity == 0 {
-                release_input(sync, *note, &mut out);
+                release_input(sync, *note, *frame, &mut out);
             } else {
                 // Where the note goes is the session as it stands; where it is held is
                 // remembered, so its note off reaches the same tracks.
@@ -97,14 +103,15 @@ pub fn compile(
                             track: slot,
                             pitch: *note,
                             velocity: *velocity,
+                            at: *frame,
                         });
                         sync.held.insert((*note, track));
                     }
                 }
             }
         }
-        Command::Live(live::Command::InputNoteOff { note }) => {
-            release_input(sync, *note, &mut out);
+        Command::Live(live::Command::InputNoteOff { note, frame }) => {
+            release_input(sync, *note, *frame, &mut out);
         }
         Command::Launch(launch::Command::BackToArrangement {}) => {
             out.push(ControlMsg::BackToArrangement);
@@ -227,8 +234,9 @@ pub fn compile(
     out
 }
 
-/// Releases a live input note on the tracks that hold it.
-fn release_input(sync: &mut EngineSlots, note: u8, out: &mut Vec<ControlMsg>) {
+/// Releases a live input note on the tracks that hold it; `at` is when it was released (the
+/// command's `frame`).
+fn release_input(sync: &mut EngineSlots, note: u8, at: Option<u64>, out: &mut Vec<ControlMsg>) {
     let tracks: Vec<TrackId> = sync
         .held
         .iter()
@@ -241,6 +249,7 @@ fn release_input(sync: &mut EngineSlots, note: u8, out: &mut Vec<ControlMsg>) {
             out.push(ControlMsg::NoteOff {
                 track: slot,
                 pitch: note,
+                at,
             });
         }
     }

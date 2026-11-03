@@ -9,6 +9,8 @@ import { MAX_FRAMES, becomeRenderInstance, instantiate, warmUp, type EngineExpor
 declare function registerProcessor(name: string, processor: unknown): void
 /** The sample rate of the audio context, a global of the AudioWorkletGlobalScope. */
 declare const sampleRate: number
+/** The context frame of the block being rendered, a global of the AudioWorkletGlobalScope. */
+declare const currentFrame: number
 declare class AudioWorkletProcessor {
   readonly port: MessagePort
 }
@@ -68,7 +70,8 @@ class FaulkProcessor extends AudioWorkletProcessor {
     if (!this.exports || !output || output.length === 0) return true
     const outLeft = output[0]
     const outRight = output[1]
-    const frames = this.exports.fk_render(this.channel, outLeft.length)
+    // The engine learns the context frame of this block, the clock the page stamps live notes in (#499).
+    const frames = this.exports.fk_render_at(this.channel, outLeft.length, currentFrame)
     this.takeViews()
     const left = this.left
     const right = this.right

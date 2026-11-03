@@ -205,6 +205,52 @@ pub fn bar_position(tick: Tick, signature: TimeSignature) -> BarPosition {
     }
 }
 
+/// Where the playhead was at the samples just behind it (#499): the anchor in force and the
+/// one before it, so that a live note stamped a little earlier than the block that takes it
+/// is placed where it was played, even across a loop wrap or a tempo change. A `Play`, a
+/// `Seek` and a sample-rate change forget the previous one: nothing before them is placed.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Anchors {
+    now: Anchor,
+    previous: Option<Anchor>,
+}
+
+/// The clock's anchor: `tick` is played at the fractional absolute `sample`.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+struct Anchor {
+    tick: f64,
+    sample: f64,
+    samples_per_tick: f64,
+}
+
+impl Anchor {
+    fn position_at(&self, sample: f64) -> f64 {
+        self.tick + (sample - self.sample) / self.samples_per_tick
+    }
+}
+
+impl Anchors {
+    /// The playhead, in fractional ticks, at the absolute `sample`, when one of the anchors
+    /// covers it (it is at or after that anchor); `None` before the oldest.
+    pub fn position_of(&self, sample: u64) -> Option<f64> {
+        let at = sample as f64;
+        let anchor = if at >= self.now.sample {
+            Some(self.now)
+        } else {
+            self.previous.filter(|p| at >= p.sample)
+        }?;
+        let position = anchor.position_at(at);
+        (anchor.samples_per_tick > 0.0 && position.is_finite()).then_some(position)
+    }
+
+    /// The first whole sample [`Anchors::position_of`] covers.
+    pub fn earliest(&self) -> u64 {
+        let first = self.previous.map_or(self.now.sample, |p| p.sample).ceil();
+        // `as` saturates and sends NaN to zero.
+        first as u64
+    }
+}
+
 /// The audio side's musical clock. See the module documentation.
 #[derive(Clone, Debug)]
 pub struct Transport {
@@ -218,6 +264,9 @@ pub struct Transport {
     anchor_tick: f64,
     /// Absolute sample (fractional) where `anchor_tick` is played.
     anchor_sample: f64,
+    /// The anchor before the current one, when it moved at a loop wrap or a tempo change
+    /// (#499, [`Anchors`]).
+    previous: Option<Anchor>,
     /// The first tick not yet delivered.
     next_tick: Tick,
     /// Absolute sample index of the start of the block in progress (or of the next one).
@@ -253,6 +302,7 @@ impl Transport {
             frozen: 0.0,
             anchor_tick: 0.0,
             anchor_sample: 0.0,
+            previous: None,
             next_tick: Tick::ZERO,
             total: 0,
             frames: 0,
@@ -302,6 +352,23 @@ impl Transport {
         }
     }
 
+    /// The current and previous anchors, to place a sample just behind the block
+    /// ([`Anchors`]). Read after the block's segments were taken, they cover its loop wraps.
+    pub fn anchors(&self) -> Anchors {
+        Anchors {
+            now: self.anchor(),
+            previous: self.previous,
+        }
+    }
+
+    fn anchor(&self) -> Anchor {
+        Anchor {
+            tick: self.anchor_tick,
+            sample: self.anchor_sample,
+            samples_per_tick: self.samples_per_tick,
+        }
+    }
+
     /// Samples per tick at the clock's tempo and rate.
     pub fn samples_per_tick(&self) -> f64 {
         self.samples_per_tick
@@ -342,6 +409,8 @@ impl Transport {
             self.anchor_tick = self.position_at(total);
             self.anchor_sample = total;
         }
+        // The samples behind count at the old rate: none of them is placed any more.
+        self.previous = None;
         self.rate = new_rate;
         self.samples_per_tick = samples_per_tick(self.tempo, new_rate);
     }
@@ -357,6 +426,7 @@ impl Transport {
         let tempo = state.transport.tempo;
         if tempo != self.tempo {
             if self.running {
+                self.previous = Some(self.anchor());
                 self.anchor_tick = self.position_at(total);
                 self.anchor_sample = total;
             }
@@ -440,6 +510,7 @@ impl Transport {
                 // loop start is anchored at the fractional wrap sample.
                 let stop = ((reaches - total).ceil() as usize).clamp(offset, self.frames);
                 let to = Tick(region.end().0.max(from.0));
+                self.previous = Some(self.anchor());
                 self.anchor_tick = region.start().0 as f64;
                 self.anchor_sample = reaches;
                 self.next_tick = region.start();
@@ -502,6 +573,7 @@ impl Transport {
     }
 
     fn start_at(&mut self, tick: f64, next: Tick) {
+        self.previous = None;
         self.running = true;
         self.anchor_tick = tick;
         self.anchor_sample = self.total as f64;

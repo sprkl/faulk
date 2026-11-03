@@ -89,6 +89,7 @@ fn session(warm_between: bool) -> (Vec<u32>, u64, u32) {
                 track: TrackSlot(0),
                 pitch: 60,
                 velocity: 100,
+                at: None,
             },
         ],
     )

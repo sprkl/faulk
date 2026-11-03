@@ -3,6 +3,7 @@ import { probeHelper, pairHelper } from '../engine/helper-client'
 import { peakOf } from '../engine/feedback'
 import { NativeEngine } from '../engine/native-engine'
 import { WebEngine } from '../engine/web-engine'
+import { withFrame } from '../engine/clock'
 import { bringHelperCopyUpToDate } from '../engine/helper-copy'
 import type { Command, HistoryView, ProjectEvent, RunReport } from '../generated/protocol'
 import { WebMidiHost } from '../midi/web-midi'
@@ -385,12 +386,23 @@ export class Dispatcher {
         this.state.inputs = inputs
         this.state.selectedInput = selected
       },
-      onCommand: (command) => {
-        if (this.state.mode === 'web') this.run(command)
+      onCommand: (command, timeStamp) => {
+        if (this.state.mode === 'web') this.runPlayed(command, timeStamp)
       },
       onActivity: (note, velocity) => this.markNote(note, velocity),
     })
     this.state.midiState = (await this.midi.enable()) ? 'ok' : 'denied'
+  }
+
+  /**
+   * A note played on a MIDI input or the computer keyboard at `timeStamp` (the event's time on the
+   * page's performance clock): while the Web engine plays it is stamped with the audio context's
+   * frame of that instant (`frame`), so a recording places it where it was played (#499). In Boost
+   * the page's clock means nothing to the helper's engine: the note goes unstamped.
+   */
+  runPlayed(command: Command, timeStamp?: number): boolean {
+    const frame = !this.native && this.web ? this.web.frameAt(timeStamp) : null
+    return this.run(withFrame(command, frame))
   }
 
   /**

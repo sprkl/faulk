@@ -138,8 +138,12 @@ fn examples() -> Vec<(Command, State)> {
         on(Command::Live(live::Command::InputNoteOn {
             note: 60,
             velocity: 100,
+            frame: None,
         })),
-        on(Command::Live(live::Command::InputNoteOff { note: 60 })),
+        on(Command::Live(live::Command::InputNoteOff {
+            note: 60,
+            frame: Some(48_000),
+        })),
         on(Command::Live(live::Command::ControlChange {
             controller: 1,
             value: 64,

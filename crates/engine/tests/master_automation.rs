@@ -111,6 +111,7 @@ impl Rig {
                 track: TrackSlot(0),
                 pitch: 57,
                 velocity: 127,
+                at: None,
             },
         ]);
         r.run(WARM.div_ceil(block) * block);
