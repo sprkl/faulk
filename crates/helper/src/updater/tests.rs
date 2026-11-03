@@ -1885,3 +1885,24 @@ fn a_page_request_on_a_disabled_updater_does_nothing() {
     let disabled = Updater::disabled("test".into());
     assert!(!disabled.watch().request_check());
 }
+
+#[test]
+fn a_page_request_during_a_check_or_download_is_refused() {
+    let backend = Arc::new(FakeBackend::default());
+    let updater = Updater::start_with(backend, NEVER).with_page_gap(Duration::ZERO);
+    let watch = updater.watch();
+    wait_until(|| watch.checked_at().is_some());
+    for busy in [
+        UpdateStatus::Checking,
+        UpdateStatus::Downloading {
+            version: "0.2.0".into(),
+            percent: 10,
+        },
+    ] {
+        set(&watch.status, busy);
+        assert!(!watch.request_check());
+    }
+    set(&watch.status, UpdateStatus::Idle);
+    assert!(watch.request_check());
+    updater.shutdown();
+}

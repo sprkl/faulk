@@ -987,7 +987,8 @@ impl Updater {
         self.stopping.store(true, Ordering::Release);
         if let Some(tx) = self.commands.take() {
             // A full queue means a check is already queued: the loop sees `stopping` before
-            // running it, and dropping `tx` wakes a loop that waits.
+            // running it. `Shutdown` wakes a loop that waits; dropping `tx` would not, because every
+            // `UpdateWatch` keeps a sender alive.
             let _ = tx.try_send(Command::Shutdown);
         }
     }
@@ -1064,13 +1065,20 @@ pub struct UpdateWatch {
 impl UpdateWatch {
     /// Asks for a check because a page just connected, so that a release published since the
     /// last automatic check is seen now and not at the next one. Rate-limited: nothing happens
-    /// while the first check has not ended, or when the last one ended less than the page gap
+    /// while a check or a download runs, while the first check has not ended, or when the last one ended less than the page gap
     /// ago ([`nudge_due`]). Returns whether a check was requested; a check already queued or
     /// running absorbs the request.
     pub fn request_check(&self) -> bool {
         let Some(tx) = &self.commands else {
             return false;
         };
+        // A check or a download in progress already looks; it ends with a fresh `checked_at`.
+        if matches!(
+            self.status(),
+            UpdateStatus::Checking | UpdateStatus::Downloading { .. }
+        ) {
+            return false;
+        }
         if !nudge_due(self.checked_at(), unix_now(), self.page_gap) {
             return false;
         }
