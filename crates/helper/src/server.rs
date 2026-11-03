@@ -105,6 +105,14 @@ impl Shared {
         self.to_session(audio_stream_error());
     }
 
+    /// An output opened with the engine of the one that failed (#577): the session plays on, and
+    /// a new `hello` tells the page the output's rate, buffer and latency.
+    pub fn output_reopened(&self) {
+        if let Some(hello) = self.hello() {
+            self.to_session(hello);
+        }
+    }
+
     /// Reports `updates` to every session: after `midi.inputs` at its start, then on change.
     pub fn with_updates(mut self, updates: UpdateWatch) -> Self {
         self.updates = Some(updates);
