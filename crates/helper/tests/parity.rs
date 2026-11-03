@@ -40,6 +40,7 @@ async fn render_through_the_helper(scenario: &Scenario) -> Render {
             port,
             allowed_origins: vec![ORIGIN.into()],
             token: TOKEN.into(),
+            mcp_token: helper::security::McpToken::Fixed(TOKEN.into()),
         },
         engine.clone(),
         MidiManager::new(MidiSink::new(
