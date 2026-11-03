@@ -62,19 +62,19 @@ fn project_json_that_is_not_json_is_corrupt_and_names_the_file() {
 fn a_newer_project_is_refused_as_such_even_if_it_has_fields_this_build_does_not_know() {
     let mut fs = song_fs();
     edit(&mut fs, "project.json", |s| {
-        s.replacen("\"format\": 2", "\"format\": 3,\n  \"swing\": 0.5", 1)
+        s.replacen("\"format\": 3", "\"format\": 4,\n  \"swing\": 0.5", 1)
     });
     assert_eq!(
         refused(&fs),
         FileError::NewerFormat {
-            found: 3,
-            supported: 2
+            found: 4,
+            supported: 3
         }
     );
     // Never rewritten: the refusal comes before anything else is read.
     let mut fs = song_fs();
     edit(&mut fs, "project.json", |s| {
-        s.replacen("\"format\": 2", "\"format\": 4000000000", 1)
+        s.replacen("\"format\": 3", "\"format\": 4000000000", 1)
     });
     assert!(matches!(
         refused(&fs),
@@ -89,7 +89,7 @@ fn a_newer_project_is_refused_as_such_even_if_it_has_fields_this_build_does_not_
 fn format_zero_and_older_formats_without_a_migration_are_unsupported() {
     let mut fs = song_fs();
     edit(&mut fs, "project.json", |s| {
-        s.replacen("\"format\": 2", "\"format\": 0", 1)
+        s.replacen("\"format\": 3", "\"format\": 0", 1)
     });
     assert_eq!(refused(&fs), FileError::UnsupportedFormat { found: 0 });
 }
@@ -402,7 +402,7 @@ fn v0_folder() -> MemFs {
     // a project name under `title`.
     let mut fs = song_fs();
     edit(&mut fs, "project.json", |s| {
-        s.replacen("\"format\": 2", "\"format\": 0", 1)
+        s.replacen("\"format\": 3", "\"format\": 0", 1)
             .replacen("\"name\"", "\"title\"", 1)
     });
     for path in fs
@@ -426,6 +426,16 @@ fn one_to_two(fs: &mut MemFs) -> Result<(), String> {
     fs.insert(
         "project.json",
         text.replacen("\"format\": 1", "\"format\": 2", 1),
+    );
+    Ok(())
+}
+
+fn two_to_three(fs: &mut MemFs) -> Result<(), String> {
+    let text = String::from_utf8(fs.read("project.json").map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+    fs.insert(
+        "project.json",
+        text.replacen("\"format\": 2", "\"format\": 3", 1),
     );
     Ok(())
 }
@@ -458,6 +468,10 @@ fn an_older_project_is_migrated_in_memory_and_saving_rewrites_what_the_migration
         Migration {
             from: 1,
             apply: one_to_two,
+        },
+        Migration {
+            from: 2,
+            apply: two_to_three,
         },
     ];
     let mut fs = v0_folder();
@@ -525,6 +539,10 @@ fn a_migration_that_fails_or_leaves_the_wrong_format_is_a_typed_error() {
             Migration {
                 from: 1,
                 apply: one_to_two,
+            },
+            Migration {
+                from: 2,
+                apply: two_to_three,
             },
         ],
     )

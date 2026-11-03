@@ -80,6 +80,9 @@ impl ProjectDoc {
 pub struct TrackDoc {
     pub name: String,
     pub color: Option<Rgb>,
+    /// Not written when unset (#490): a track without a height reads and writes as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height: Option<u16>,
     pub order: crate::order::OrderKey,
     pub kind: TrackKind,
     pub mixer: Mixer,
@@ -91,6 +94,7 @@ impl TrackDoc {
         Self {
             name: t.name.clone(),
             color: t.color,
+            height: t.height,
             order: t.order.clone(),
             kind: t.kind,
             mixer: t.mixer,
@@ -102,6 +106,7 @@ impl TrackDoc {
         Track {
             name: self.name,
             color: self.color,
+            height: self.height,
             order: self.order,
             kind: self.kind,
             mixer: self.mixer,

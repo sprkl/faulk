@@ -400,6 +400,40 @@ fn rename_and_colour_change_one_thing_and_a_repeat_changes_nothing() {
     run(&color(None), &mut s, &mut context()).unwrap();
     assert_eq!(s.project.tracks[t].color, None);
     s.project.validate().unwrap();
+    // Height (#490): kept, no-op when equal, undone exactly, refused outside the range.
+    let height = |h: Option<u16>| {
+        tc(track::Command::SetHeight {
+            track: t.clone(),
+            height: h,
+        })
+    };
+    let set = run(&height(Some(96)), &mut s, &mut context()).unwrap();
+    assert_eq!(s.project.tracks[t].height, Some(96));
+    let again = run(&height(Some(96)), &mut s, &mut context()).unwrap();
+    assert!(again.events.is_empty() && again.undo == Undo::None);
+    let Undo::Inverse(inverse) = set.undo else {
+        panic!("an inverse")
+    };
+    run(&inverse, &mut s, &mut context()).unwrap();
+    assert_eq!(s.project.tracks[t].height, None);
+    for bad in [27u16, 177, 0, u16::MAX] {
+        let before = s.project.clone();
+        let err = run(&height(Some(bad)), &mut s, &mut context()).unwrap_err();
+        assert!(
+            matches!(err, CommandError::Invalid { ref field, .. } if field == "height"),
+            "{bad}: {err:?}"
+        );
+        assert_eq!(s.project, before);
+    }
+    for edge in [28u16, 176] {
+        run(&height(Some(edge)), &mut s, &mut context()).unwrap();
+    }
+    s.project.validate().unwrap();
+    assert_eq!(
+        (::project::MIN_TRACK_HEIGHT, ::project::MAX_TRACK_HEIGHT),
+        (28, 176),
+        "the schema's range literals follow the constants"
+    );
     // An unknown track.
     let mut ids = IdGenerator::new(1_730_000_000_000, 3);
     let ghost = TrackId::generate(&mut ids);
@@ -411,6 +445,10 @@ fn rename_and_colour_change_one_thing_and_a_repeat_changes_nothing() {
         tc(track::Command::SetColor {
             track: ghost.clone(),
             color: None,
+        }),
+        tc(track::Command::SetHeight {
+            track: ghost.clone(),
+            height: None,
         }),
         mv(&ghost, 0),
         tc(track::Command::RestoreOrder {
@@ -436,6 +474,41 @@ fn a_colour_is_parsed_as_rrggbb_and_nothing_else() {
     }
     let missing = r#"{"type":"track.set_color","track":"01ARZ3NDEKTSV4RRFFQ69G5FAV"}"#;
     assert!(serde_json::from_str::<Command>(missing).is_err());
+    let missing = r#"{"type":"track.set_height","track":"01ARZ3NDEKTSV4RRFFQ69G5FAV"}"#;
+    assert!(serde_json::from_str::<Command>(missing).is_err());
+}
+
+#[test]
+fn a_duplicate_keeps_the_height_of_its_source() {
+    let mut s = commands::testing::state();
+    let mut c = context();
+    let (source, _) = created(&run(&create(TrackKind::Midi), &mut s, &mut c).unwrap());
+    run(
+        &tc(track::Command::SetHeight {
+            track: source.clone(),
+            height: Some(120),
+        }),
+        &mut s,
+        &mut c,
+    )
+    .unwrap();
+    let out = run(
+        &tc(track::Command::Duplicate {
+            track: source.clone(),
+            name: None,
+        }),
+        &mut s,
+        &mut c,
+    )
+    .unwrap();
+    let copies: Vec<_> = s
+        .project
+        .tracks
+        .iter()
+        .filter(|(id, _)| **id != source)
+        .collect();
+    assert_eq!(copies.len(), 1, "{out:?}");
+    assert_eq!(copies[0].1.height, Some(120));
 }
 
 #[test]

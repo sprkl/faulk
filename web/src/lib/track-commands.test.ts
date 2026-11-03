@@ -6,6 +6,7 @@ import type { Command, ProjectView, RunReport } from './generated/protocol'
 import { coreModule, ProjectCore } from './project/core'
 import { sortedTracks, TRACK_COLORS } from './project/tracks'
 import * as commands from './track-commands'
+import { CLIP_ROW_MAX, CLIP_ROW_MIN } from '../views/arrangement/automation/layout'
 
 let module: WebAssembly.Module
 beforeAll(async () => {
@@ -19,6 +20,22 @@ function run(core: ProjectCore, command: Command): RunReport & { status: 'applie
 }
 
 const project = (core: ProjectCore): ProjectView['project'] => core.project().project
+
+describe('the height of a track (#490)', () => {
+  it('is kept with the project, goes back to the default with null, and is refused outside the range the page offers', () => {
+    const core = ProjectCore.create(module, 'empty', 1)
+    run(core, commands.createTrack('midi', 'faulk.osc_synth', '#58c27d'))
+    const id = sortedTracks(project(core))[0].id
+    run(core, commands.setTrackHeight(id, 120))
+    expect(project(core).tracks[id]!.height).toBe(120)
+    run(core, commands.setTrackHeight(id, null))
+    expect(project(core).tracks[id]!.height ?? null).toBeNull()
+    // The page's clamp is the command's range: the ends are accepted, one step past them is refused.
+    for (const edge of [CLIP_ROW_MIN, CLIP_ROW_MAX]) run(core, commands.setTrackHeight(id, edge))
+    for (const bad of [CLIP_ROW_MIN - 1, CLIP_ROW_MAX + 1]) expect(core.run(commands.setTrackHeight(id, bad)).report.status).not.toBe('applied')
+    expect(project(core).tracks[id]!.height).toBe(CLIP_ROW_MAX)
+  })
+})
 
 describe('the commands of the track headers', () => {
   it('creates a MIDI track for each instrument and an audio track, unnamed, with a colour', () => {
@@ -57,6 +74,7 @@ describe('the commands of the track headers', () => {
     const actions: Command[] = [
       commands.renameTrack(id, 'Bass'),
       commands.setTrackColor(id, '#5b8def'),
+      commands.setTrackHeight(id, 96),
       commands.setMute(id, true),
       commands.setVolume(id, -12),
       commands.setVolume(id, null),
