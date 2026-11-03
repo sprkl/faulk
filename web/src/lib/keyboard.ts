@@ -285,6 +285,26 @@ export function historyShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | '
  * text field. Playing ignores any Alt event (`ignoreKeyEvent`), so none of these plays a note.
  */
 const PANEL_CODE = 'KeyM'
+/**
+ * The arrangement's keys for its sections and its zoom (#473): Alt+K adds a section marker at the playhead's bar,
+ * Alt+Page Up and Alt+Page Down jump to the previous and the next marker, Alt+Z shows the whole song. Never bare
+ * letters (they play notes in musical typing); nothing from a text field.
+ */
+export function arrangementShortcut(
+  event: Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'target'>,
+): 'addMarker' | 'prevMarker' | 'nextMarker' | 'fitSong' | null {
+  if (!event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || isTextTarget(event.target)) return null
+  return ARRANGEMENT_CODES[event.code] ?? null
+}
+
+/** The codes of `arrangementShortcut`, always with Alt (so not bare shortcuts). */
+const ARRANGEMENT_CODES: Readonly<Record<string, 'addMarker' | 'prevMarker' | 'nextMarker' | 'fitSong'>> = {
+  KeyK: 'addMarker',
+  PageUp: 'prevMarker',
+  PageDown: 'nextMarker',
+  KeyZ: 'fitSong',
+}
+
 export function layoutShortcut(
   event: Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'repeat' | 'target'>,
 ): { view: number } | 'panel' | null {

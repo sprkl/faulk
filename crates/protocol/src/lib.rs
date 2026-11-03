@@ -9,7 +9,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 15;
+pub const PROTOCOL_VERSION: u32 = 16;
+
+// Version 16 (#473, markers): the arrangement gains named section markers (`arrangement.marker.add`, `.rename`, `.move`, `.delete`, `.restore`), the project its `markers`, `arrangement.restore_time` an optional `markers`, the events `markers_changed`.
 
 // Version 15 (#473, clip pool): the arrangement commands' outputs lose `clips_removed` (a clip that loses its last placement stays in its track), `clip.move` takes a clip out of the grid into the pool, and a placement longer than a clip without a loop repeats the whole clip.
 

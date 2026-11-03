@@ -7,7 +7,9 @@
 //! checked by [`Project::validate`] before use.
 
 use crate::blob::Hash;
-use crate::ids::{ClipId, DeviceId, Id, LaneId, PlacementId, ProjectId, SceneId, TrackId};
+use crate::ids::{
+    ClipId, DeviceId, Id, LaneId, MarkerId, PlacementId, ProjectId, SceneId, TrackId,
+};
 use crate::order::{OrderKey, by_order};
 use crate::serde_util::{Rgb, db, finite, finite_map, unique_map, unique_set, unique_tick_map};
 use engine::time::{Frame, LoopRegion, Quantize, SampleRate, Tempo, Tick, TimeSignature};
@@ -69,6 +71,26 @@ pub struct Project {
     /// The tracks.
     #[serde(deserialize_with = "unique_map")]
     pub tracks: BTreeMap<TrackId, Track>,
+    // The named section markers of the arrangement (#473), by id; the page shows them in
+    // (tick, id) order. Absent from a project that has none, so its file is unchanged. Not a
+    // doc comment, like `master_devices`: a description beside the map would inline a copy.
+    #[serde(
+        default,
+        deserialize_with = "unique_map",
+        skip_serializing_if = "BTreeMap::is_empty"
+    )]
+    pub markers: BTreeMap<MarkerId, Marker>,
+}
+
+/// A named section marker: a point of the timeline the arrangement shows on its ruler and
+/// the keyboard jumps to (#473).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct Marker {
+    /// Where it stands on the timeline, in ticks.
+    pub tick: Tick,
+    /// Its name: trimmed, not empty, at most 200 characters.
+    pub name: String,
 }
 
 /// A tempo from a tick on.
@@ -522,6 +544,7 @@ impl Project {
             master_devices: BTreeMap::new(),
             master_automation: BTreeMap::new(),
             tracks: BTreeMap::new(),
+            markers: BTreeMap::new(),
         }
     }
 
@@ -546,6 +569,7 @@ impl Project {
     pub fn contains_id(&self, id: &Id) -> bool {
         self.id.0 == *id
             || self.scenes.keys().any(|k| k.0 == *id)
+            || self.markers.keys().any(|k| k.0 == *id)
             || self.master_devices.keys().any(|k| k.0 == *id)
             || self.master_automation.keys().any(|k| k.0 == *id)
             || self.tracks.iter().any(|(k, t)| {
@@ -626,6 +650,13 @@ impl Project {
             placements: c.placements + t.placements.len(),
             lanes: c.lanes + t.automation.len(),
         })
+    }
+
+    /// The markers in timeline order (tick, then id).
+    pub fn markers_in_order(&self) -> Vec<(&MarkerId, &Marker)> {
+        let mut out: Vec<_> = self.markers.iter().collect();
+        out.sort_by(|a, b| (a.1.tick, a.0).cmp(&(b.1.tick, b.0)));
+        out
     }
 
     /// The scenes in display order (order key, then id).

@@ -248,6 +248,49 @@ export function playsAt(block: Block, at: number): boolean {
 /** The blocks a split at `at` cuts: those it falls strictly inside, and where the clip still plays. */
 export const splittable = (selection: readonly Block[], at: number): Block[] => selection.filter((b) => at > b.start && at < b.end && playsAt(b, at))
 
+// --- sections and zoom (#473) -------------------------------------------------------------------------
+
+/** A section marker as the view shows it, in timeline order. */
+export interface MarkerView {
+  id: string
+  tick: number
+  name: string
+}
+
+/**
+ * The marker a jump goes to from the tick `from`: the first after it, or the last before it (one at `from` itself is
+ * not a jump target, so a second press goes on to the next). `null` when there is none that way.
+ */
+export function markerJump(markers: readonly MarkerView[], from: number, direction: 1 | -1): MarkerView | null {
+  if (direction > 0) return markers.find((m) => m.tick > from) ?? null
+  return markers.findLast((m) => m.tick < from) ?? null
+}
+
+/** The bars the arrangement opens on: the whole song when it is 16 to 32 bars long, else 16 or 32 (#473). */
+export const OPEN_MIN_BARS = 16
+export const OPEN_MAX_BARS = 32
+
+/** The zoom (pixels per tick) that shows `bars` bars of `bar` ticks across `width` pixels; `null` without a width. */
+export function zoomForBars(bars: number, bar: number, width: number): number | null {
+  if (!(width > 0) || !(bar > 0) || !(bars > 0)) return null
+  return width / (bars * bar)
+}
+
+/** The opening view of a song that ends at `end` ticks: from bar 1, 16 to 32 bars across the window. */
+export function openingView(end: number, bar: number, width: number): { pxPerTick: number; scrollTick: number } | null {
+  const songBars = bar > 0 ? Math.ceil(Math.max(0, end) / bar) : 0
+  const bars = Math.min(OPEN_MAX_BARS, Math.max(OPEN_MIN_BARS, songBars))
+  const pxPerTick = zoomForBars(bars, bar, width)
+  return pxPerTick === null ? null : { pxPerTick, scrollTick: 0 }
+}
+
+/** The whole-song view: from bar 1 to the song's end (at least 16 bars) and one bar more. */
+export function wholeSongView(end: number, bar: number, width: number): { pxPerTick: number; scrollTick: number } | null {
+  const songBars = bar > 0 ? Math.ceil(Math.max(0, end) / bar) : 0
+  const pxPerTick = zoomForBars(Math.max(OPEN_MIN_BARS, songBars) + 1, bar, width)
+  return pxPerTick === null ? null : { pxPerTick, scrollTick: 0 }
+}
+
 /** Whether `[start, end)` is free on a lane (`clip.create` into the arrangement refuses an overlap). */
 export const isFree = (blocks: readonly Block[], row: number, start: number, end: number): boolean =>
   start >= 0 && end <= MAX_TICK && !blocks.some((b) => b.row === row && b.start < end && start < b.end)

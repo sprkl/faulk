@@ -78,8 +78,8 @@ use project::limits::{
     MAX_CLIPS_PER_TRACK, MAX_PLACEMENTS, MAX_PLACEMENTS_PER_TRACK, MAX_POINTS, MAX_TICK,
 };
 use project::{
-    AutomationPoint, Clip, ClipContent, ClipId, IdGenerator, LaneId, LoopRegion, Note, Placement,
-    PlacementId, Project, SceneId, Span, Tick, TickLoop, Track, TrackId,
+    AutomationPoint, Clip, ClipContent, ClipId, IdGenerator, LaneId, LoopRegion, MarkerId, Note,
+    Placement, PlacementId, Project, SceneId, Span, Tick, TickLoop, Track, TrackId,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -317,9 +317,9 @@ domain! {
     /// the master, in one history entry (bar-level editing: a bar is 3840 ticks in 4/4).
     /// A placement that starts at or after `at` moves `length` ticks later; one that
     /// straddles `at` is split there, the right part (a new placement of the same clip, so
-    /// linked) moving later and resuming the clip where the left part stops (a clip without
-    /// a loop that ended before `at` leaves no right part). The points of every automation
-    /// lane at or after `at` move too (a ramp that straddles `at` stretches), and so do the
+    /// linked) moving later and resuming the clip where the left part stops, round the clip.
+    /// The points of every automation lane at or after `at` move too (a ramp that straddles
+    /// `at` stretches), so do the section markers at or after `at` (#473), and so do the
     /// loop region's boundaries after `at` (a loop that contains `at` grows). Tempo and time
     /// signature hold one point at tick 0 and do not move; the playhead and the launch grid
     /// do not move. Refused with `invalid` when `at` is not in [0, 2^40], `length` is less
@@ -346,7 +346,8 @@ domain! {
     /// in its track's pool. The points of every automation lane inside the range are removed and the
     /// later ones move back, so the last point before the cut links straight to the first
     /// one after it (a `step` point keeps holding its value up to the cut, then the next
-    /// value applies: the lane is not smoothed). The loop region follows (a boundary inside
+    /// value applies: the lane is not smoothed). The section markers after the range move
+    /// back, one inside it goes to `from` (#473). The loop region follows (a boundary inside
     /// the range falls to `from`;
     /// a loop left empty is cleared and switched off). Tempo and time signature hold one
     /// point at tick 0 and do not move; the playhead and the launch grid do not move.
@@ -373,10 +374,11 @@ domain! {
     /// The inverse of `arrangement.insert_time` and `arrangement.delete_time`: write the
     /// placements as `arrangement.restore` does (`edits`, may be empty here), replace the
     /// points of the named automation lanes by exactly those given (`lanes`, a value kept as
-    /// it is, within the parameter's range) and put the loop settings back (`transport`,
-    /// absent: untouched), in one history entry and all or nothing. Refused when nothing is
-    /// given, when a lane is unknown or listed twice, when a point is out of range, when the
-    /// loop is on without a region, or for any reason `arrangement.restore` refuses.
+    /// it is, within the parameter's range), put the loop settings back (`transport`,
+    /// absent: untouched) and the section markers at their ticks (`markers`), in one history
+    /// entry and all or nothing. Refused when nothing is given, when a lane or a marker is
+    /// unknown or listed twice, when a point or a marker is out of range, when the loop is
+    /// on without a region, or for any reason `arrangement.restore` refuses.
     /// Undo: the restore of what it changed.
     "arrangement.restore_time" (kind = "edit", undo = "inverse", destructive = false)
     RestoreTime {
@@ -385,6 +387,9 @@ domain! {
         lanes: Vec<LanePoints>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         transport: Option<LoopState>,
+        /// The section markers to put back at their ticks (#473).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        markers: Vec<MarkerTick>,
     } => {};
 
     /// Write the placements of one or more tracks exactly as given, without the overlap
@@ -398,6 +403,52 @@ domain! {
     /// note outside the length, a limit). Undo: the restore of what it changed.
     "arrangement.restore" (kind = "edit", undo = "inverse", destructive = false)
     Restore { edits: Vec<TrackEdit> } => {};
+
+    /// Add a named section marker (a named point of the arrangement, not the transport's
+    /// cue) at the timeline tick `tick` (960 per quarter note, 0 to
+    /// 2^40). `name` is optional (trimmed, at most 200 characters): without one the marker
+    /// is called "Section n", n the first number no marker has. Refused with `limit` past
+    /// 1 024 markers. Undo: `arrangement.marker.delete`.
+    "arrangement.marker.add" (kind = "edit", undo = "inverse", destructive = false)
+    AddMarker {
+        tick: Tick,
+        #[serde(default)]
+        name: Option<String>,
+    } => {
+        /// The marker added.
+        marker: MarkerId,
+    };
+
+    /// Rename a marker. The name is trimmed, not empty, at most 200 characters. Undo:
+    /// rename it back.
+    "arrangement.marker.rename" (kind = "edit", undo = "inverse", destructive = false)
+    RenameMarker { marker: MarkerId, name: String } => {
+        /// The name before the command.
+        previous: String,
+    };
+
+    /// Move a marker to the timeline tick `tick` (0 to 2^40). Undo: move it back.
+    "arrangement.marker.move" (kind = "edit", undo = "inverse", destructive = false)
+    MoveMarker { marker: MarkerId, tick: Tick } => {
+        /// The tick before the command.
+        previous: Tick,
+    };
+
+    /// Delete a marker. Not destructive: undo (`arrangement.marker.restore`) brings it back with its
+    /// identifier.
+    "arrangement.marker.delete" (kind = "edit", undo = "inverse", destructive = false)
+    DeleteMarker { marker: MarkerId } => {
+        /// Where it stood.
+        tick: Tick,
+        /// Its name.
+        name: String,
+    };
+
+    /// Bring back a deleted marker with its identifier: the inverse of `arrangement.marker.delete`.
+    /// Refused when the identifier is already in use in the project, or for a tick or a name
+    /// `arrangement.marker.add` would refuse. Undo: `arrangement.marker.delete`.
+    "arrangement.marker.restore" (kind = "edit", undo = "inverse", destructive = false)
+    RestoreMarker { marker: MarkerId, tick: Tick, name: String } => {};
 }
 
 type Out = Outcome<Command, Output>;
@@ -678,6 +729,16 @@ struct Extra {
     lanes: BTreeMap<LaneId, BTreeMap<Tick, AutomationPoint>>,
     /// The loop region and whether the loop is on, when they change.
     transport: Option<(Option<LoopRegion>, bool)>,
+    /// The section markers' new ticks (#473), for those a time edit moves.
+    markers: BTreeMap<MarkerId, Tick>,
+}
+
+/// A section marker at a tick: what `arrangement.restore_time` puts back.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MarkerTick {
+    pub marker: MarkerId,
+    pub tick: Tick,
 }
 
 /// [`commit`] for an edit that also changes automation lanes and the loop: all of it
@@ -813,6 +874,25 @@ fn commit_time(
         lane_writes.push((owner, id.clone(), table.clone()));
     }
     check_total("automation points", points, 0, MAX_POINTS)?;
+    let mut marker_inverse = Vec::new();
+    for (id, tick) in &extra.markers {
+        let marker = project
+            .markers
+            .get(id)
+            .ok_or_else(|| not_found("marker", id))?;
+        if !(0..=MAX_TICK).contains(&tick.get()) {
+            return Err(invalid(
+                "markers",
+                format!("a marker is within 0 to {MAX_TICK} ticks"),
+            ));
+        }
+        if marker.tick != *tick {
+            marker_inverse.push(MarkerTick {
+                marker: id.clone(),
+                tick: marker.tick,
+            });
+        }
+    }
     let current = &project.transport;
     let loop_inverse = extra
         .transport
@@ -821,7 +901,11 @@ fn commit_time(
             loop_region: as_tick_loop(current.loop_region),
             loop_enabled: current.loop_enabled,
         });
-    if inverse.is_empty() && lane_inverse.is_empty() && loop_inverse.is_none() {
+    if inverse.is_empty()
+        && lane_inverse.is_empty()
+        && loop_inverse.is_none()
+        && marker_inverse.is_empty()
+    {
         return Ok(Outcome {
             output,
             undo: Undo::None,
@@ -872,13 +956,22 @@ fn commit_time(
             enabled,
         });
     }
-    let undo = if lane_inverse.is_empty() && loop_inverse.is_none() {
+    if !marker_inverse.is_empty() {
+        for (id, tick) in extra.markers {
+            if let Some(marker) = state.project.markers.get_mut(&id) {
+                marker.tick = tick;
+            }
+        }
+        events.push(ProjectEvent::MarkersChanged {});
+    }
+    let undo = if lane_inverse.is_empty() && loop_inverse.is_none() && marker_inverse.is_empty() {
         Command::Restore { edits: inverse }
     } else {
         Command::RestoreTime {
             edits: inverse,
             lanes: lane_inverse,
             transport: loop_inverse,
+            markers: marker_inverse,
         }
     };
     Ok(Outcome {
@@ -969,7 +1062,14 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             edits,
             lanes,
             transport,
-        } => restore_time(state, edits, lanes, *transport),
+            markers,
+        } => restore_time(state, edits, lanes, *transport, markers),
+        // The section markers (#473): their own module.
+        _ => crate::marker::apply(command, state, ctx).unwrap_or_else(|| {
+            Err(CommandError::Unsupported {
+                command: command.name().into(),
+            })
+        }),
     }
 }
 
@@ -1651,14 +1751,38 @@ fn insert_time(
         }
     };
     let loop_changed = transport.is_some_and(|t| t.0 != project.transport.loop_region);
-    commit_time(state, works, Extra { lanes, transport }, || {
-        Output::InsertTime {
+    // The section markers from the point on move with the time (#473).
+    let mut markers = BTreeMap::new();
+    for (id, marker) in &project.markers {
+        let t = marker.tick.get();
+        if t >= at {
+            let to = t
+                .checked_add(length)
+                .filter(|n| *n <= MAX_TICK)
+                .ok_or_else(|| {
+                    invalid(
+                        "length",
+                        format!("a section marker would pass {MAX_TICK} ticks"),
+                    )
+                })?;
+            markers.insert(id.clone(), Tick(to));
+        }
+    }
+    commit_time(
+        state,
+        works,
+        Extra {
+            lanes,
+            transport,
+            markers,
+        },
+        || Output::InsertTime {
             split,
             shifted,
             points_shifted,
             loop_changed,
-        }
-    })
+        },
+    )
 }
 
 fn delete_time(
@@ -1721,16 +1845,33 @@ fn delete_time(
     let loop_changed = transport.is_some_and(|t| {
         t.0 != project.transport.loop_region || t.1 != project.transport.loop_enabled
     });
-    commit_time(state, works, Extra { lanes, transport }, || {
-        Output::DeleteTime {
+    // The section markers after the cut move back; one inside it goes to its start (#473).
+    let markers = project
+        .markers
+        .iter()
+        .filter(|(_, m)| m.tick.get() > start)
+        .map(|(id, m)| {
+            let t = m.tick.get();
+            (id.clone(), Tick(if t >= end { t - length } else { start }))
+        })
+        .collect();
+    commit_time(
+        state,
+        works,
+        Extra {
+            lanes,
+            transport,
+            markers,
+        },
+        || Output::DeleteTime {
             removed,
             cut,
             shifted,
             points_removed,
             points_shifted,
             loop_changed,
-        }
-    })
+        },
+    )
 }
 
 fn restore_time(
@@ -1738,11 +1879,12 @@ fn restore_time(
     edits: &[TrackEdit],
     lanes: &[LanePoints],
     transport: Option<LoopState>,
+    markers: &[MarkerTick],
 ) -> Result<Out, CommandError> {
-    if edits.is_empty() && lanes.is_empty() && transport.is_none() {
+    if edits.is_empty() && lanes.is_empty() && transport.is_none() && markers.is_empty() {
         return Err(invalid(
             "edits",
-            "give placements, lanes or the loop to restore",
+            "give placements, lanes, the loop or markers to restore",
         ));
     }
     let works = if edits.is_empty() {
@@ -1787,12 +1929,22 @@ fn restore_time(
             Some((region, loop_enabled))
         }
     };
+    let mut moves = BTreeMap::new();
+    for m in markers {
+        if moves.insert(m.marker.clone(), m.tick).is_some() {
+            return Err(invalid(
+                "markers",
+                format!("marker {} is listed twice", m.marker),
+            ));
+        }
+    }
     commit_time(
         state,
         works,
         Extra {
             lanes: tables,
             transport,
+            markers: moves,
         },
         || Output::RestoreTime {},
     )
