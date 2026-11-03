@@ -487,9 +487,11 @@
   /** The marker jumped to last: two markers on one tick are reached one after the other. */
   let lastMarker: string | null = null
   let jumpTimer: ReturnType<typeof setTimeout> | undefined
+  /** Where the report stood when the last jump was made: a report that still says so is the old one, not the jump's. */
+  let jumpFrom: number | null = null
   $effect(() => {
     const tick = shownTick
-    if (tick !== null && jumpedTo !== null && Math.abs(tick - jumpedTo) < bar / 4) untrack(() => (jumpedTo = null))
+    if (tick !== null && jumpedTo !== null && tick !== jumpFrom && Math.abs(tick - jumpedTo) < bar / 4) untrack(() => (jumpedTo = null))
   })
   onDestroy(() => clearTimeout(jumpTimer))
   /** The tick the playhead stands on: a jump not reported yet, else the report's, else the start. */
@@ -500,6 +502,7 @@
   /** Puts the playhead on a tick (`transport.seek`); the next marker jump starts from there even before the engine reports it. */
   function placeHead(tick: number) {
     run(seek(tick))
+    jumpFrom = shownTick
     jumpedTo = tick
     // A seek the engine does not report (stopped elsewhere, refused) must not hold the next jump for ever.
     clearTimeout(jumpTimer)

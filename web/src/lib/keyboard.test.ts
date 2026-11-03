@@ -455,6 +455,9 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'views/mixer/MixerView.svelte': ['Escape'], // closes the add-track menu
       'views/piano-roll/PianoRollView.svelte': [
         'ArrowDown',
+        'ArrowLeft',
+        'ArrowLeft',
+        'ArrowRight',
         'ArrowUp',
         'ArrowUp',
         'Backspace',
