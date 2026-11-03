@@ -1052,6 +1052,7 @@ fn a_full_live_queue_counts_the_overflow_and_the_block_releases_once() {
             track: T0,
             pitch: (i % 128) as u8,
             velocity: 1,
+            at: None,
         })
         .unwrap();
     }
@@ -1059,6 +1060,7 @@ fn a_full_live_queue_counts_the_overflow_and_the_block_releases_once() {
     p.handle(M::NoteOff {
         track: T0,
         pitch: 0,
+        at: None,
     })
     .unwrap();
     assert_eq!(p.overflow().total(), 1);
@@ -1070,7 +1072,8 @@ fn a_full_live_queue_counts_the_overflow_and_the_block_releases_once() {
         LiveEvent::NoteOn {
             track: T0,
             pitch: 0,
-            velocity: 1
+            velocity: 1,
+            at: None,
         }
     );
     assert!(e.release_live());

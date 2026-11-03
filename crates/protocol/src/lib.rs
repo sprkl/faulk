@@ -9,7 +9,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 16;
+pub const PROTOCOL_VERSION: u32 = 17;
+
+// Version 17 (#499): `live.input_note_on` and `live.input_note_off` take an optional `frame`, the host frame the key was played at, so that a recording places the note where it was played; a helper of version 16 would refuse the field (commands refuse unknown fields).
 
 // Version 16 (#473, markers): the arrangement gains named section markers (`arrangement.marker.add`, `.rename`, `.move`, `.delete`, `.restore`), the project its `markers`, `arrangement.restore_time` an optional `markers`, the events `markers_changed`.
 

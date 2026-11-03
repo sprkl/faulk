@@ -104,6 +104,7 @@ impl Rig {
             track: TrackSlot(0),
             pitch,
             velocity: 110,
+            at: None,
         }]);
     }
 
@@ -134,6 +135,7 @@ fn ringing() -> Rig {
     rig.send(&[M::NoteOff {
         track: TrackSlot(0),
         pitch: 60,
+        at: None,
     }]);
     rig.secs(0.4);
     rig

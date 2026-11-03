@@ -48,5 +48,10 @@ export interface Engine {
    * takes the command (its temporary copy of the project, until BO-1, ignores the bytes).
    */
   send(command: Command, bytes: Uint8Array): void
+  /**
+   * The frame of the engine's host clock at which a note was played at `timeStamp` (the page's
+   * performance clock), for `live.input_note_on/off` (#499); `null` when the engine cannot tell.
+   */
+  frameAt?(timeStamp: number | undefined): number | null
   close(): Promise<void>
 }
