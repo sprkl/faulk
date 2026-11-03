@@ -205,3 +205,52 @@ test('the notes are named cells: arrows move between them, Alt+arrows move and t
   await page.screenshot({ path: `${SHOTS}/piano-roll-keyboard-focus.png` })
   expect(errors).toEqual([])
 })
+
+test('after Ctrl+D the copies are the selection; Shift+arrow from the original starts a new one; Ctrl+D copies the focused clip (#528)', async ({ page }) => {
+  const { errors } = watch(page)
+  await start(page)
+  await page.getByTestId('arr-zoom-out').click()
+  await page.getByTestId('arr-zoom-out').click()
+  await clipAt(page, 0, 0)
+  await clipAt(page, 0, 1)
+  const arr = page.getByTestId('arrangement')
+  await expect(arr).toHaveAttribute('data-block-count', '2')
+  const cell = (id: string) => page.locator(`[data-testid=arr-item][data-block="${id}"]`)
+  const [a, b] = (await blocks(page)).sort((x, y) => x.start - y.start)
+
+  // Two clips selected from the keyboard: the Duplicate button says how many before the copy.
+  await cell(a!.id).focus()
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect(arr).toHaveAttribute('data-selected-count', '2')
+  await expect(page.getByTestId('arr-duplicate')).toContainText('(2)')
+  await page.keyboard.press('Control+d')
+  await expect(arr).toHaveAttribute('data-block-count', '4')
+  await expect(arr).toHaveAttribute('data-selected-count', '2')
+  const copies = JSON.parse((await arr.getAttribute('data-selection')) ?? '[]') as string[]
+  expect(copies).not.toContain(a!.id)
+
+  // From the original, Shift+arrow starts a new selection of two clips: the copies are not added to it.
+  await cell(a!.id).focus()
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect(arr).toHaveAttribute('data-selected-count', '2')
+  const fresh = JSON.parse((await arr.getAttribute('data-selection')) ?? '[]') as string[]
+  expect([...fresh].sort()).toEqual([a!.id, b!.id].sort())
+  // The two copies of the first Ctrl+D are untouched; this one lands on them (a copy carves what it covers), never more than two clips.
+  await page.keyboard.press('Control+d')
+  await expect(arr).toHaveAttribute('data-selected-count', '2')
+  expect(Number(await arr.getAttribute('data-block-count'))).toBeLessThanOrEqual(6)
+
+  // Ctrl+D acts on the focused clip when the selection does not hold it.
+  await cell(b!.id).focus()
+  await page.keyboard.press('ArrowRight')
+  const lone = JSON.parse((await arr.getAttribute('data-selection')) ?? '[]') as string[]
+  expect(lone).toHaveLength(1)
+  const count = Number(await arr.getAttribute('data-block-count'))
+  const before = new Set((await blocks(page)).map((x) => x.id))
+  await cell(a!.id).focus()
+  await page.keyboard.press('Control+d')
+  await expect.poll(async () => (await blocks(page)).filter((x) => !before.has(x.id)).length).toBeGreaterThan(0)
+  expect(Number(await arr.getAttribute('data-selected-count'))).toBe(1)
+  expect(count).toBeGreaterThan(0)
+  expect(errors).toEqual([])
+})

@@ -1022,11 +1022,12 @@
   }
   onDestroy(() => clearTimeout(limitTimer))
 
-  function duplicate(linked: boolean) {
-    const by = copyShift(selection)
+  /** Copies the given clips (the selection by default), one bar group right after them. */
+  function duplicate(linked: boolean, from: readonly Block[] = selection) {
+    const by = copyShift(from)
     if (by !== null)
       copyAndSelect(
-        selection.map((b) => b.id),
+        from.map((b) => b.id),
         linked,
         by,
       )
@@ -1141,8 +1142,14 @@
       const ref = lane ? laneRefs.get(lane) : undefined
       if (lane && ref) autoPick = { lane, ticks: new Set(pointsOf(ref.info.lane).map((p) => p.tick)) }
       else picked = new Set(blocks.map((b) => b.id))
-    } else if (mod && event.key.toLowerCase() === 'd') duplicate(event.shiftKey)
-    else if (mod && !event.shiftKey && event.key.toLowerCase() === 'e') splitSelected()
+    } else if (mod && event.key.toLowerCase() === 'd') {
+      // From a focused clip that is not part of the selection (a Tab, a click elsewhere), Ctrl+D copies that clip, not the
+      // selection it is not in (#528).
+      const id = (event.target as HTMLElement | null)?.dataset?.block
+      const focused = id && !selectedIds.has(id) ? blocks.find((b) => b.id === id) : undefined
+      if (focused) picked = new Set([focused.id])
+      duplicate(event.shiftKey, focused ? [focused] : selection)
+    } else if (mod && !event.shiftKey && event.key.toLowerCase() === 'e') splitSelected()
     else return
     event.preventDefault()
   }
@@ -1332,7 +1339,9 @@
     const target = stepItem(items, current, key.direction as Direction)
     if (!target) return
     const block = blocks.find((b) => b.id === target.id)!
-    if (key.kind === 'extend') picked = new Set([...picked, current.id, target.id])
+    // Shift+arrow extends the selection the focused clip is in; from a clip outside it (after a copy, a click elsewhere) it
+    // starts a new one from that clip, so the old selection is never added to (#528).
+    if (key.kind === 'extend') picked = new Set(selectedIds.has(current.id) ? [...picked, target.id] : [current.id, target.id])
     else picked = new Set([target.id])
     select(block.track)
     ui.editClip(block.clip, block.id)
@@ -1592,7 +1601,8 @@
     </label>
     <button title={t('arrangement.splitHint')} disabled={cuts.length === 0} data-testid="arr-split" onclick={splitSelected}>{t('arrangement.split')}</button>
     <button title={t('arrangement.duplicateHint')} disabled={selection.length === 0} data-testid="arr-duplicate" onclick={() => duplicate(false)}
-      >{t('arrangement.duplicate')}</button
+      >{t('arrangement.duplicate')}{#if selection.length > 1}
+        ({selection.length}){/if}</button
     >
     <button title={t('arrangement.duplicateLinkedHint')} disabled={selection.length === 0} data-testid="arr-duplicate-linked" onclick={() => duplicate(true)}
       >{t('arrangement.duplicateLinked')}</button
