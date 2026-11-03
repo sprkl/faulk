@@ -77,6 +77,7 @@ fn skeleton_track(t: &Track) -> Track {
     Track {
         name: t.name.clone(),
         color: t.color,
+        height: t.height,
         order: t.order.clone(),
         kind: t.kind,
         mixer: t.mixer,

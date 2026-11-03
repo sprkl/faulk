@@ -1,6 +1,6 @@
 /**
  * Each project's layout, kept in the browser (#473): the view shown, each view's zoom and scroll, the open automation
- * lanes and the lane heights come back when the project is opened again (a reload, a reopen). Page state, not project
+ * lanes come back when the project is opened again (a reload, a reopen). Page state, not project
  * data: an agent has no use for it, and saving it would make every scroll a change to the project's files. Keyed by
  * the project's identity in `localStorage`, at most {@link MAX_PROJECTS} projects (the least recently used goes).
  * A browser that refuses storage just forgets it; a project opened in another browser starts from the defaults.
@@ -13,8 +13,6 @@ export interface Layout {
   view?: string
   /** Each view's memory (`UiStore.remember`), by view id. */
   memory?: Record<string, unknown>
-  /** The arrangement's row heights, by track id. */
-  laneHeights?: Record<string, number>
 }
 
 export const LAYOUT_PREFIX = 'faulk.layout.'
@@ -64,11 +62,6 @@ export function readLayout(project: string): Layout | null {
     const layout: Layout = {}
     if (typeof record.view === 'string') layout.view = record.view
     if (record.memory && typeof record.memory === 'object' && !Array.isArray(record.memory)) layout.memory = record.memory as Record<string, unknown>
-    if (record.laneHeights && typeof record.laneHeights === 'object' && !Array.isArray(record.laneHeights)) {
-      layout.laneHeights = Object.fromEntries(
-        Object.entries(record.laneHeights as Record<string, unknown>).filter((e): e is [string, number] => typeof e[1] === 'number' && Number.isFinite(e[1])),
-      )
-    }
     return layout
   } catch {
     return null

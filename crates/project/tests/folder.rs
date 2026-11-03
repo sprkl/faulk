@@ -1103,3 +1103,21 @@ fn names_the_unnamed_clips() {
     assert_eq!(again.report.named_clips, 0);
     assert_eq!(again.project, opened.project);
 }
+
+#[test]
+fn a_track_height_is_kept_with_the_folder_and_absent_when_unset() {
+    let (mut project, tid, _) = lane_project(0);
+    let track_json = |fs: &MemFs| {
+        let path = format!("tracks/{tid}/track.json");
+        String::from_utf8(fs.files()[&path].clone()).expect("utf8")
+    };
+    let (fs, _) = save_all(&project);
+    assert!(!track_json(&fs).contains("height"), "unset: not written");
+
+    project.tracks.get_mut(&tid).expect("track").height = Some(120);
+    let (fs, _) = save_all(&project);
+    assert!(track_json(&fs).contains("\"height\": 120"));
+    let opened = open_default(&fs);
+    assert_eq!(opened.project.tracks[&tid].height, Some(120));
+    assert_eq!(opened.project, project);
+}

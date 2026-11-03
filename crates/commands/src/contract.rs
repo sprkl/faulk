@@ -514,6 +514,8 @@ pub(crate) fn gesture_unchanged(
 pub enum TrackPart {
     Name,
     Color,
+    /// The height of the track's row in the arrangement (#490).
+    Height,
     /// The track's position in the list changed.
     Order,
 }
