@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { chooseMidiInput, fakeWebMidi, watch } from './support'
+import { chooseMidiInput, engineUp, fakeWebMidi, watch } from './support'
 
 // #469: the state of every track where the music is (M, S, R, a meter, the dimming), the master
 // meter in the top bar in every view, and the one voice of the violet. Real worklet and engine.
@@ -17,7 +17,7 @@ async function start(page: Page) {
   await fakeWebMidi(page)
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
-  await expect(page.getByTestId('engine-mode')).toContainText('Web')
+  await engineUp(page, 'Web')
   await chooseMidiInput(page, 'E2E Keys')
   await expect(page.getByTestId('track-list')).toHaveAttribute('data-track-count', '1')
   for (let i = 0; i < 2; i++) {

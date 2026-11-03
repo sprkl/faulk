@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #432: with a long history and the tab open, every edit re-read the whole history and redrew every row.
 // Measured on 10 000 entries (Chromium, a 100-step history group, one frame per step): the read
@@ -13,13 +13,13 @@ const SEEDED = 10_000
 const PAGE = 200
 const MEDIAN_FRAME_MS = 50
 
-test('history panel: a 10 000-entry history draws a page of rows and an edit stays within a few frames', async ({ page }) => {
+test('history panel: a 10 000-entry history draws a page of rows and an edit stays within a few frames @full', async ({ page }) => {
   test.setTimeout(180_000)
   const { errors } = watch(page)
   await page.setViewportSize({ width: 1400, height: 900 })
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   const hook = await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)
   test.skip(hook !== 'function', 'the dispatcher hook exists in the dev server only')
   await page.evaluate((n) => {

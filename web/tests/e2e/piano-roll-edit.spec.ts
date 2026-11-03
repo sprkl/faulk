@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // PN-2 (#83): advanced editing of the piano roll in a real browser: quantize with a strength,
 // transpose, duplicate, copy, cut and paste, by the toolbar and by the keyboard. Each action is one
@@ -39,7 +39,7 @@ async function openRoll(page: Page, lang?: 'fr') {
   await page.setViewportSize({ width: 1400, height: 900 })
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await page.getByTestId('panel-piano-roll').click()
   await page.getByTestId('roll-create-clip').click()
   await expect(roll(page)).toHaveAttribute('data-note-count', '0')
@@ -417,5 +417,37 @@ test('piano roll: Alt+Up and Alt+Down transpose the selection (Alt+Shift: an oct
   const step = dialog.locator('li', { hasText: /previous or next note in time/ })
   await expect(step.locator('kbd')).toHaveText(['←', '→', '↑', '↓', 'Shift', '←', 'Shift', '→', 'Shift', '↑', 'Shift', '↓'])
   await expect(dialog.locator('li', { hasText: /On a note: move the selected notes/ }).locator('kbd')).toHaveText(['Alt', '←', 'Alt', '→'])
+  expect(seen.errors).toEqual([])
+})
+
+// #527: a drawn note takes the draw velocity of the toolbar, whatever velocity the notes touched before had.
+test('piano roll: a drawn note takes the draw velocity, not the velocity of the last touched note', async ({ page }) => {
+  test.setTimeout(120_000)
+  const { seen } = await openRoll(page)
+  const draw = page.getByTestId('roll-draw-velocity')
+  await expect(draw).toHaveValue('100')
+  const g = await spot(page)
+
+  await page.mouse.click(g.x(100), g.y(60))
+  await page.getByTestId('roll-tool-select').click()
+  await page.mouse.click(g.x(100), g.y(60))
+  await expect(roll(page)).toHaveAttribute('data-selected-count', '1')
+  // The selection goes down to 1 (Page Down, again and again, to the floor); the draw velocity stays.
+  for (let i = 0; i < 12; i++) await page.keyboard.press('PageDown')
+  expect((await notes(page)).map((n) => n.velocity)).toEqual([1])
+  await expect(draw).toHaveValue('100')
+
+  await page.getByTestId('roll-tool-draw').click()
+  await page.mouse.click(g.x(1000), g.y(62))
+  expect((await notes(page)).find((n) => n.pitch === 62)!.velocity).toBe(100)
+
+  // The draw velocity is its own setting: typed, kept between 1 and 127, used by the next note.
+  await draw.fill('64')
+  await draw.blur()
+  await page.mouse.click(g.x(2000), g.y(64))
+  expect((await notes(page)).find((n) => n.pitch === 64)!.velocity).toBe(64)
+  await draw.fill('500')
+  await draw.blur()
+  await expect(draw).toHaveValue('127')
   expect(seen.errors).toEqual([])
 })

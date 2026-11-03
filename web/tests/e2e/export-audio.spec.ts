@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #297: the song exported as a WAV file, in a real browser. The render is the real engine module
 // in a real Worker, fed by the real project core; the save dialog of the File System Access API
@@ -106,7 +106,7 @@ async function makeSong(page: Page, bars = 1) {
   await page.setViewportSize({ width: 1280, height: 1000 })
   await page.goto('/app')
   await startAudio(page)
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await page.getByTestId('panel-piano-roll').click()
   await page.getByTestId('roll-create-clip').click()
   await expect(page.getByTestId('piano-roll')).toHaveAttribute('data-note-count', '0')
@@ -323,7 +323,7 @@ test('the dialog is in French when the page is', async ({ browser }) => {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/app')
   await startAudio(page)
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await openDialog(page)
   await expect(dialog(page).getByRole('heading')).toHaveText('Exporter l’audio')
   // Nothing to export yet: the button waits, and says why.
@@ -380,7 +380,7 @@ test.describe('with the dispatcher hook (dev server)', () => {
     await page.setViewportSize({ width: 1280, height: 900 })
     await page.goto('/app')
     await startAudio(page)
-    await expect(page.getByTestId('engine-mode')).toBeVisible()
+    await engineUp(page)
     test.skip(
       (await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function',
       'the dispatcher hook exists in the dev server only',

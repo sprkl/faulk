@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // PR-7 (#52): the history panel in a real browser. A note drag is one entry; each entry shows its
 // label, who did it (you, or an agent) and when; undo and redo (buttons and Ctrl+Z) move entries
@@ -36,7 +36,7 @@ test('history panel: a note drag is one entry, entries show author and time, und
   await page.setViewportSize({ width: 1400, height: 900 })
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await page.getByTestId('panel-piano-roll').click()
   await page.getByTestId('roll-create-clip').click()
   await expect(roll(page)).toHaveAttribute('data-note-count', '0')
@@ -102,7 +102,7 @@ test('history panel: French labels and an empty history', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('faulk.lang', 'fr'))
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   test.skip((await hooks(page)) !== 'function', 'the dispatcher hook exists in the dev server only')
   await page.getByTestId('panel-history').click()
   await expect(page.getByTestId('history')).toBeVisible()

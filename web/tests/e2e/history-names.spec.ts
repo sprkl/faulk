@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #473: the history names what each entry acted on ("Mute Synth", "Delete 6 clips (Bass, Drums, Synth)"), the
 // transport's switches leave the undo history for its activity log, a solo is undone like a mute, a new project is
@@ -28,7 +28,7 @@ const view = (page: Page) => page.evaluate(() => (window as unknown as { __faulk
 async function start(page: Page) {
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
 }
 
 async function trackNamed(page: Page, name: string): Promise<string> {

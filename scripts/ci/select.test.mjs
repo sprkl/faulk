@@ -47,20 +47,29 @@ test('an unreadable file list runs everything', () => {
   assert.equal(outputs.mode, 'full')
 })
 
-test('a view change writes the targeted end-to-end plan: its specs, the smoke tests, one shard (#377)', () => {
+test('a view change writes the area tier: its specs, the core tests, one shard (#377, #533)', () => {
   const { r, outputs } = run(['--event', 'pull_request', '--base', 'develop', '--files', 'web/src/views/tracks/TrackList.svelte'])
   assert.equal(r.status, 0)
   assert.equal(outputs.e2e, 'dev')
+  assert.equal(outputs.e2e_tier, 'area')
+  assert.match(outputs.e2e_why, /area of: web\/src\/views\/tracks\/TrackList\.svelte/)
   assert.equal(outputs.e2e_all, 'false')
   assert.equal(outputs.e2e_specs, 'tests/e2e/discoverability.spec.ts tests/e2e/lane-rows.spec.ts tests/e2e/track-order.spec.ts tests/e2e/tracks.spec.ts')
-  assert.ok(outputs.e2e_smoke.includes('tests/e2e/export-audio.spec.ts') && outputs.e2e_smoke_grep.includes('export-audio'))
+  assert.ok(outputs.e2e_core.includes('tests/e2e/export-audio.spec.ts') && outputs.e2e_core_grep.includes('export-audio'))
   assert.equal(outputs.e2e_shards, '[1]')
   assert.equal(outputs.e2e_shard_total, '1')
 })
 
-test('a shared web file, the release and a failure to list the files run every spec on three machines (#377)', () => {
+test('a shared page file writes the core tier: no area spec, the core tests, one shard (#533)', () => {
+  const { outputs } = run(['--event', 'pull_request', '--base', 'develop', '--files', 'web/src/lib/stores/dispatcher.ts'])
+  assert.deepEqual([outputs.e2e, outputs.e2e_tier, outputs.e2e_all, outputs.e2e_specs, outputs.e2e_shards], ['dev', 'core', 'false', '', '[1]'])
+  assert.ok(outputs.e2e_core.includes('tests/e2e/helper.spec.ts'))
+  assert.match(outputs.e2e_why, /shared page file/)
+})
+
+test('a contract, the release and a failure to list the files run every spec on three machines (#377)', () => {
   for (const args of [
-    ['--base', 'develop', '--files', 'web/src/lib/stores/dispatcher.ts'],
+    ['--base', 'develop', '--files', 'web/src/lib/generated/protocol.ts'],
     ['--base', 'main', '--files', 'docs/a.md'],
     ['--base', 'develop', '--files-from', join(tmpdir(), 'does-not-exist-select')],
   ]) {

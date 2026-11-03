@@ -38,6 +38,6 @@ pub use ids::{
 pub use model::*;
 pub use order::OrderKey;
 pub use serde_util::Rgb;
-pub use session::{RecordSettings, SessionState};
+pub use session::{InputGrid, RecordSettings, SessionState};
 pub use slots::{EngineSlots, SlotTable, Take, TrackSlots};
 pub use validate::{Violation, ViolationKind};
