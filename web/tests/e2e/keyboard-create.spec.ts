@@ -166,7 +166,8 @@ test('the timeline: a clip from the cursor, and Enter opens the piano roll on th
   expect(new Set(placed.map((b) => b.clip)).size).toBe(1)
   await page.getByTestId('arr-item').first().focus()
   await page.keyboard.press('ArrowRight')
-  await expect(focused).toHaveAccessibleName(/bars 3 to 3, selected$/)
+  // The copy is the same clip: it is said linked (#473).
+  await expect(focused).toHaveAccessibleName(/bars 3 to 3, linked, selected$/)
   const copy = placed.find((b) => b.start === Math.max(...placed.map((x) => x.start)))!
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('piano-roll')).toBeVisible()
@@ -190,7 +191,7 @@ test('the timeline: a clip from the cursor, and Enter opens the piano roll on th
   await page.keyboard.press('ArrowRight')
   await expect(cursor).toHaveAccessibleName(/^Cursor, Synth, bar 2$/)
   await page.keyboard.press('Enter')
-  await expect(focused).toHaveAccessibleName(/, Synth, bars 2 to 2, selected$/)
+  await expect(focused).toHaveAccessibleName(/, Synth, bars 2 to 2, linked, selected$/)
   await expect(page.getByTestId('arrangement')).toHaveAttribute('data-block-count', '3')
 
   // No room for a bar before the next clip: refused in words. A clip at bar 5, then the cursor at bar 4 beat 2.

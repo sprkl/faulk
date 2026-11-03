@@ -9,7 +9,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 14;
+pub const PROTOCOL_VERSION: u32 = 15;
+
+// Version 15 (#473, clip pool): the arrangement commands' outputs lose `clips_removed` (a clip that loses its last placement stays in its track), `clip.move` takes a clip out of the grid into the pool, and a placement longer than a clip without a loop repeats the whole clip.
 
 // Version 14 (#473): commands gain the `setting` kind (`transport.toggle_loop` and `transport.set_metronome` leave the undo history for its activity log), `mixer.set_solo` becomes an undoable edit, `transport.set_loop` an optional `enabled`, `project.new` an optional `name`; the history view carries each entry's subject and the activity log.
 

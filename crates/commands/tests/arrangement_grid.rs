@@ -89,12 +89,11 @@ fn a_clip_sent_from_the_grid_is_an_independent_copy_and_a_linked_one_follows_the
         placement,
         clip: Some(copy),
         overwritten,
-        clips_removed,
     } = out
     else {
         panic!("a copy was expected")
     };
-    assert_eq!((overwritten, clips_removed), (0, 0));
+    assert_eq!(overwritten, 0);
     let track = &s.project.tracks[&f.track];
     assert_eq!(track.clips[&copy].slot, None, "the copy is not in the grid");
     assert_eq!(track.clips[&f.looped].slot, Some(f.scene_a.clone()));

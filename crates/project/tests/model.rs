@@ -565,7 +565,7 @@ fn cases() -> Vec<(&'static str, Mutation, &'static str)> {
         })
     };
     vec![
-        ("format 2", Box::new(|fx| fx.project.format = 2), "Format"),
+        ("format 3", Box::new(|fx| fx.project.format = 3), "Format"),
         (
             "empty project name",
             Box::new(|fx| fx.project.name.clear()),
@@ -1388,11 +1388,11 @@ fn the_format_is_read_before_the_strict_document() {
     // probe still reads the version, so the reader can say "newer format".
     let fx = fixture();
     let mut value = serde_json::to_value(&fx.project).unwrap();
-    value["format"] = 2.into();
+    value["format"] = 3.into();
     value["tempo_curve"] = serde_json::json!([]);
     assert!(serde_json::from_value::<Project>(value.clone()).is_err());
     let probe: FormatProbe = serde_json::from_value(value).unwrap();
-    assert_eq!(probe, FormatProbe { format: 2 });
+    assert_eq!(probe, FormatProbe { format: 3 });
 }
 
 #[test]

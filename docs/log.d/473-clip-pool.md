@@ -1,0 +1,2 @@
+2026-11-03
+* **Update** (#473): un clip étiré dans l'arrangement répète son contenu (sa boucle, sinon le clip entier) avec des limites de répétition dessinées ; un clip qui perd son dernier placement reste dans la réserve de sa piste (panneau Clips, glisser vers l'arrangement ou la grille) ; un clip lié est marqué (`02-decoupage-mvp.md`, `02-modele-projet.md`). Format de projet 2 : la migration depuis le format 1 coupe à la fin du clip un placement plus long qu'un clip MIDI sans boucle, pour que les morceaux enregistrés avant sonnent pareil.

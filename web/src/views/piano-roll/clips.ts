@@ -150,6 +150,8 @@ export function clipLabel(entry: MidiClip, fallback: string): string {
 export interface OriginLabels {
   grid: (scene: string) => string
   arrangement: (start: Tick) => string
+  /** A clip used nowhere, in its track's pool (#473). */
+  pool?: () => string
 }
 
 /**
@@ -161,5 +163,7 @@ export function clipOrigin(entry: MidiClip, labels: OriginLabels, start: Tick | 
   if (entry.scene !== null) where.push(labels.grid(entry.scene))
   const at = start ?? entry.firstStart
   if (at !== null) where.push(labels.arrangement(at))
+  // A clip of the pool, used nowhere (#473).
+  if (where.length === 0 && labels.pool) where.push(labels.pool())
   return where.join(', ')
 }

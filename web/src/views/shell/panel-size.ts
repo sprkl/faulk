@@ -5,7 +5,7 @@
 import type { PanelViewId } from '../registry'
 
 /** Smallest height of the panel, per view (px). */
-export const PANEL_MIN: Record<PanelViewId, number> = { devices: 120, history: 120, keyboard: 190, 'piano-roll': 392 }
+export const PANEL_MIN: Record<PanelViewId, number> = { clips: 120, devices: 120, history: 120, keyboard: 190, 'piano-roll': 392 }
 /** Height the main view keeps at least (px): the panel never grows past what leaves it. */
 export const MAIN_MIN = 120
 /** Panel width from which the piano roll shows the devices beside it (px): the roll keeps about 600 and the devices column 300. */
