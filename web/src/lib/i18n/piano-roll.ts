@@ -50,6 +50,9 @@ export const pianoRoll = defineFeature(
     'pianoRoll.transposeUp': 'Transpose up one semitone',
     'pianoRoll.transposeUpHint': 'Up one semitone (Arrow Up), one octave with Shift',
     'pianoRoll.quantize': 'Quantize',
+    'pianoRoll.quantizeMoved': 'Notes moved to the grid: {n}',
+    'pianoRoll.quantizeOnGrid': 'Already on the grid',
+    'pianoRoll.quantizeNone': 'No notes to quantize',
     'pianoRoll.quantizeGrid': 'Quantize grid',
     'pianoRoll.quantizeStrength': 'Quantize strength in percent',
     'pianoRoll.quantizeHint':
@@ -131,6 +134,9 @@ export const pianoRoll = defineFeature(
     'pianoRoll.transposeUp': 'Transposer d’un demi-ton vers le haut',
     'pianoRoll.transposeUpHint': 'Un demi-ton plus haut (Flèche haut), une octave avec Maj',
     'pianoRoll.quantize': 'Quantifier',
+    'pianoRoll.quantizeMoved': 'Notes déplacées sur la grille : {n}',
+    'pianoRoll.quantizeOnGrid': 'Déjà sur la grille',
+    'pianoRoll.quantizeNone': 'Aucune note à quantifier',
     'pianoRoll.quantizeGrid': 'Grille de quantification',
     'pianoRoll.quantizeStrength': 'Force de la quantification en pourcent',
     'pianoRoll.quantizeHint':

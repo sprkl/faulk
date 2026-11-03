@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest'
 import { translate } from './i18n'
 import { BARE_SHORTCUT_CODES, PLAYING_KEYS, TYPING_TOGGLE_CODE } from './keyboard'
-import { chordText, helpShortcut, keyLabel, SHORTCUT_GROUPS, uncoveredShortcuts, withShortcut } from './shortcuts'
+import { chordText, helpShortcut, keyLabel, positionKey, readKeyLayout, SHORTCUT_GROUPS, uncoveredShortcuts, withShortcut } from './shortcuts'
 
 const key = (init: Partial<Parameters<typeof helpShortcut>[0]> & { key: string }) =>
   helpShortcut({ ctrlKey: false, metaKey: false, altKey: false, repeat: false, target: null, ...init })
@@ -69,5 +69,31 @@ describe('the ? key', () => {
     const field = document.createElement('input')
     field.type = 'text'
     expect(key({ key: '?', target: field })).toBe(false)
+  })
+})
+
+describe('keys by position are written as the layout names them', () => {
+  const azerty = new Map([
+    ['KeyQ', 'a'],
+    ['KeyA', 'q'],
+  ])
+  it('shows the character on the key: A for the quantize key on AZERTY, Q on QWERTY', () => {
+    expect(positionKey('KeyQ', azerty)).toBe('A')
+    expect(positionKey('KeyQ', new Map([['KeyQ', 'q']]))).toBe('Q')
+    expect(keyLabel('KeyQ', false, azerty)).toBe('A')
+    expect(chordText(['Mod', 'KeyQ'], false, azerty)).toBe('Ctrl+A')
+    expect(withShortcut('Quantize', ['KeyQ'], false, azerty)).toBe('Quantize (A)')
+  })
+  it('falls back to the letter of the code when the layout is unknown or gives no single character', () => {
+    expect(positionKey('KeyQ', null)).toBe('Q')
+    expect(positionKey('KeyQ', new Map())).toBe('Q')
+    expect(positionKey('KeyQ', new Map([['KeyQ', 'dead']]))).toBe('Q')
+    expect(keyLabel('KeyQ', false)).toBe('Q')
+  })
+  it('reads the layout map of the browser, and gives null where it is missing or refuses', async () => {
+    expect(await readKeyLayout({ keyboard: { getLayoutMap: () => Promise.resolve(azerty) } })).toBe(azerty)
+    expect(await readKeyLayout({})).toBeNull()
+    expect(await readKeyLayout(undefined)).toBeNull()
+    expect(await readKeyLayout({ keyboard: { getLayoutMap: () => Promise.reject(new Error('denied')) } })).toBeNull()
   })
 })
