@@ -133,7 +133,8 @@ pub enum ServerMessage {
     #[serde(rename = "pairing_refused")]
     PairingRefused { attempts_left: u32 },
     /// First message of a session; a helper without an audio output sends `error`
-    /// `audio.no_output` instead and closes the session.
+    /// `audio.no_output` instead and closes the session. Sent again when the output was
+    /// replaced and the session plays on (#577): the new output's rate, buffer and latency.
     #[serde(rename = "hello")]
     Hello {
         protocol: u32,

@@ -370,6 +370,8 @@ export class Dispatcher {
     const web = this.web
     if (!web) return
     this.web = null
+    // The engine that captured a take is gone, and no report will settle a take waiting to be written (#513).
+    this.recorder?.engineReplaced()
     this.state.streamError = { code, at }
     this.state.started = false
     this.state.status = null

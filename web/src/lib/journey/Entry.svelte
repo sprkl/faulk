@@ -106,7 +106,11 @@
         <li><a href={midiUrl(entry)} rel="external">{j('entry.midi')}</a></li>
         <li><a href={entry.journal} rel="external">{j('entry.journal')}</a></li>
       </ul>
-      <p class="agent">{agent} · <span class="commit">{fill(j('entry.commit'), { commit: entry.commit })}</span></p>
+      <p class="agent">
+        {agent}{#if entry.style}
+          · <span data-testid="entry-style">{fill(j('entry.style'), { style: entry.style })}</span>{/if} ·
+        <span class="commit">{fill(j('entry.commit'), { commit: entry.commit })}</span>
+      </p>
     </div>
   </div>
 {/snippet}
