@@ -1052,6 +1052,15 @@ describe('the start of a page', () => {
     expect(w.storage.failedReopen).toBeNull()
   })
 
+  it('does not offer the actions when the user refuses the permission on the first try of the reopen banner (#504)', async () => {
+    const { w } = await remembered('prompt')
+    await w.storage.restore()
+    w.asked = 'denied'
+    expect(await w.storage.reopenLast()).toBe(false)
+    expect(w.storage.notice).toBe('storage.permissionDenied')
+    expect(w.storage.failedReopen).toBeNull()
+  })
+
   it('offers no retry for a notice a second try cannot answer, and drops it with the notice', async () => {
     const { w, handle } = await remembered('granted')
     w.stores.get(handle)!.project = false

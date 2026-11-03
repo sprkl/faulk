@@ -712,21 +712,24 @@ export class ProjectStorage {
       this.notice = 'storage.nothingToReopen'
       return false
     }
+    // A retry of a project that already failed keeps its actions through a permission notice too; a first try (the reopen
+    // banner) does not: refusing the browser's prompt there is the user's own answer.
+    const retrying = this.failedReopen !== null
     // A notice from before is not this attempt's: only one that this attempt raises may carry the actions.
     this.notice = null
     const opened = await (last.kind === 'browser' ? this.openBrowserProject(last.id) : this.openRecent(last.id))
-    if (!opened) this.markReopenFailed(last)
+    if (!opened) this.markReopenFailed(last, retrying)
     return opened
   }
 
   /**
    * Keeps the project that did not open for the notice's actions, when the notice is one a second try can answer:
-   * the project is locked or unreadable, or a retry ran into the permission (denied, or a click missing).
+   * the project is locked or unreadable, or, for a retry, the permission was denied or a click was missing.
    */
-  private markReopenFailed(target: { id: string; name: string; kind: 'folder' | 'browser' }) {
+  private markReopenFailed(target: { id: string; name: string; kind: 'folder' | 'browser' }, retrying = false) {
     const notice = this.shownNotice
-    if (notice === 'storage.locked' || notice === 'project.open.unreadable' || notice === 'storage.permissionDenied' || notice === 'storage.needsClick')
-      this.failedReopen = target
+    const permission = notice === 'storage.permissionDenied' || notice === 'storage.needsClick'
+    if (notice === 'storage.locked' || notice === 'project.open.unreadable' || (retrying && permission)) this.failedReopen = target
   }
 
   /**
