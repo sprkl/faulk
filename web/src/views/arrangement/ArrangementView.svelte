@@ -1798,9 +1798,6 @@
     <button title={t('arrangement.duplicateLinkedHint')} disabled={selection.length === 0} data-testid="arr-duplicate-linked" onclick={() => duplicate(true)}
       >{t('arrangement.duplicateLinked')}</button
     >
-    <button title={t('arrangement.repeatHint')} disabled={selection.length !== 1} data-testid="arr-repeat" onclick={openRepeat}
-      >{t('arrangement.repeatUntil')}</button
-    >
     <button disabled={selection.length === 0 && !autoSel} data-testid="arr-delete" onclick={() => (autoSel ? removePicked() : removeSelected())}
       >{t('arrangement.delete')}</button
     >

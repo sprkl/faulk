@@ -407,7 +407,7 @@ test('the free cursor reaches the ruler row with Up; Enter there and Shift+Enter
   expect(errors).toEqual([])
 })
 
-test('a clip of 8 bars is repeated up to bar 64 as linked placements, from the keyboard, the menu and the button, one undo each (#555)', async ({ page }) => {
+test('a clip of 8 bars is repeated up to bar 64 as linked placements, from the keyboard and the menu, one undo each (#555)', async ({ page }) => {
   const { errors } = watch(page)
   await start(page)
   await page.getByTestId('arr-zoom-out').click()
@@ -445,15 +445,17 @@ test('a clip of 8 bars is repeated up to bar 64 as linked placements, from the k
   await expect(page.getByTestId('pool-clip')).toContainText('8 in the arrangement')
   await expect(page.getByTestId('pool-clip')).toContainText('Linked')
 
-  // One undo takes every copy away; the button and the context menu do the same, then.
+  // One undo takes every copy away; with nothing selected or focused the shortcut says so, with one clip selected it opens the field.
   await page.keyboard.press('Control+z')
   await expect(arr).toHaveAttribute('data-block-count', '1')
   await clearSelection(page)
-  await expect(page.getByTestId('arr-repeat')).toBeDisabled()
+  await page.keyboard.press('Control+Shift+r')
+  await expect(page.getByTestId('arr-said')).toHaveText(/Select one clip/)
+  await expect(page.getByTestId('repeat-dialog')).toBeHidden()
   await cell.focus()
   await page.keyboard.press('Shift+ArrowRight')
-  await expect(page.getByTestId('arr-repeat')).toBeEnabled()
-  await page.getByTestId('arr-repeat').click()
+  await page.keyboard.press('Control+Shift+r')
+  await expect(page.getByTestId('repeat-dialog')).toBeVisible()
   await field.fill('24')
   await page.keyboard.press('Enter')
   await expect(arr).toHaveAttribute('data-block-count', '3')
