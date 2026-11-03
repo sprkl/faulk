@@ -22,9 +22,10 @@ fn faulk_helper(allowed: &str, delay: Duration) -> u16 {
     faulk_helper_signalling(allowed, delay).0
 }
 
-/// [`faulk_helper`] and a receiver that gets a message when the server is built and about to
-/// accept: until then the thread is still creating its runtime, its engine and its MIDI
-/// manager, which takes as long as the machine lets it (#605).
+/// [`faulk_helper`] and a receiver that gets a message when the server is built, just before
+/// `serve` (which spawns a few small tasks before it accepts): until then the thread is still
+/// creating its runtime, its engine and its MIDI manager, which takes as long as the machine
+/// lets it (#605).
 fn faulk_helper_signalling(allowed: &str, delay: Duration) -> (u16, mpsc::Receiver<()>) {
     let (ready, serving) = mpsc::channel();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
