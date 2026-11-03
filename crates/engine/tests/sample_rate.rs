@@ -281,6 +281,34 @@ fn every_device_is_built_again_with_its_settings_and_its_bypass() {
     );
 }
 
+/// The rebuilt devices go through the device fades (#233): on a heard chain the old ones
+/// fade out at their slots while the new ones fade in, and then leave.
+#[test]
+fn the_rebuilt_devices_fade_in_over_the_old_ones() {
+    let mut r = Rig::new(48_000.0);
+    r.send(&[M::DeviceInsert {
+        track: TrackSlot(0),
+        device: DeviceSlot(1),
+        kind: filter::DESCRIPTOR.kind_id,
+        state: vec![],
+    }]);
+    r.note(true);
+    r.secs(0.2);
+    r.change_rate(96_000);
+    r.secs(BLOCK as f32 / 96_000.0);
+    let track = r.host.engine().state().track(TrackSlot(0)).unwrap();
+    assert_eq!(
+        track.graph.outgoing_len(),
+        2,
+        "the synth and the filter fade out"
+    );
+    let fade = track.devices.as_slice()[1].as_ref().unwrap().fade();
+    assert!(fade > 0.0 && fade < 1.0, "the new filter fades in: {fade}");
+    r.secs(0.05);
+    let track = r.host.engine().state().track(TrackSlot(0)).unwrap();
+    assert_eq!(track.graph.outgoing_len(), 0, "they left");
+}
+
 #[test]
 fn a_rate_the_devices_cannot_build_for_is_refused() {
     let mut r = Rig::new(48_000.0);

@@ -40,7 +40,9 @@ use crate::arrangement;
 use crate::automation::TrackLanes;
 use crate::clip_player::{ClipNotes, ClipPlayer};
 use crate::device::{Device, DeviceDescriptor, DeviceRole, DeviceSetup, EventBuffer, Factory};
-use crate::graph::{BlockClock, Graph, RETIRE_RING_CAPACITY, TRACK_INPUT_EVENTS, TrackGraph};
+use crate::graph::{
+    BlockClock, Graph, Outgoing, RETIRE_RING_CAPACITY, Retired, TRACK_INPUT_EVENTS, TrackGraph,
+};
 use crate::launcher;
 use crate::limiter::Limiter;
 use crate::metronome::{Clicker, MAX_COUNT_IN_BARS};
@@ -88,6 +90,36 @@ pub struct DeviceEntry {
     /// A MIDI effect's output, sized by `prepare` from its declared bounds
     /// ([`crate::graph::TRACK_INPUT_EVENTS`]); `None` for the other roles.
     pub events_out: Option<EventBuffer>,
+    /// How much of the device's output the chain hears, in `[0, 1]`, moving toward 1 while
+    /// it is enabled and in its slot and toward 0 otherwise (#233, [`crate::graph`] >
+    /// Device fades). 1 as `prepare` builds it.
+    pub(crate) fade: f32,
+    /// The slot an outgoing device held: it fades out there.
+    pub(crate) slot: u16,
+}
+
+impl DeviceEntry {
+    /// A device as `prepare` builds it: enabled, fully heard.
+    pub fn new(device: Box<dyn Device>, events_out: Option<EventBuffer>) -> Self {
+        DeviceEntry {
+            device,
+            enabled: true,
+            events_out,
+            fade: 1.0,
+            slot: 0,
+        }
+    }
+
+    /// How much of the device's output the chain hears at the next frame (#233).
+    pub fn fade(&self) -> f32 {
+        self.fade
+    }
+
+    /// The level its fade moves toward: 1 while enabled, 0 otherwise (an outgoing device is
+    /// disabled).
+    pub(crate) fn target(&self) -> f32 {
+        if self.enabled { 1.0 } else { 0.0 }
+    }
 }
 
 impl core::fmt::Debug for DeviceEntry {
@@ -743,7 +775,7 @@ pub struct Preparer {
     factories: Resolver,
     rt: Producer<RtMsg>,
     garbage: Consumer<Garbage>,
-    retired: Consumer<Box<Track>>,
+    retired: Consumer<Retired>,
     live: Producer<LiveEvent>,
     overflow: Arc<LiveOverflow>,
     pending: VecDeque<RtMsg>,
@@ -916,16 +948,16 @@ impl Preparer {
         }
     }
 
-    /// Drops what the audio side sent back (the garbage, and the tracks that finished
-    /// fading out); returns how many items.
+    /// Drops what the audio side sent back (the garbage, and the tracks and devices that
+    /// finished fading out); returns how many items.
     pub fn collect(&mut self) -> usize {
         let mut n = 0;
         while let Ok(garbage) = self.garbage.pop() {
             drop(garbage);
             n += 1;
         }
-        while let Ok(track) = self.retired.pop() {
-            drop(track);
+        while let Ok(retired) = self.retired.pop() {
+            drop(retired);
             n += 1;
         }
         self.collected += n as u64;
@@ -1473,11 +1505,7 @@ impl Preparer {
             )?),
             _ => None,
         };
-        let value = try_box(DeviceEntry {
-            device: built,
-            enabled: true,
-            events_out,
-        })?;
+        let value = try_box(DeviceEntry::new(built, events_out))?;
         Ok((value, descriptor))
     }
 
@@ -1491,7 +1519,8 @@ impl Preparer {
     /// parameters it was given and its enabled state, then the audio side receives the new
     /// rate (`Engine::set_sample_rate`: clock, metronome, limiter, fades) followed by each
     /// device on its own slot (a `DevicePut`, the path of an insert on an occupied slot:
-    /// the old device goes, an instrument's notes are released, and every device restarts
+    /// on a heard chain the old device fades out as the new one fades in (#233), an
+    /// instrument's notes are released, and every device restarts
     /// clean: effect tails, envelopes and filter states start again). The automation lanes
     /// give a rebuilt device their values again (AM-2); a lane already removed does not,
     /// so the device takes the value the project holds, as a resync gives. A call at the
@@ -2126,10 +2155,14 @@ impl Engine {
     fn reset_devices(&mut self) {
         // The silence a cut leaves does not carry the gain of the overs before it.
         self.limiter.reset();
+        // The output is already silent: every device fade ends where it goes (#233), and the
+        // outgoing devices leave at the next block.
         for track in self.state.tracks.as_mut_slice().iter_mut().flatten() {
             for entry in track.devices.as_mut_slice().iter_mut().flatten() {
                 entry.device.reset();
+                entry.fade = entry.target();
             }
+            track.graph.outgoing().end();
             track.graph.release_notes();
         }
         for entry in self
@@ -2140,7 +2173,9 @@ impl Engine {
             .flatten()
         {
             entry.device.reset();
+            entry.fade = entry.target();
         }
+        self.graph.master_outgoing().end();
     }
 
     /// The current gain of the output protection ([`crate::limiter`], #402): `1.0` at rest,
@@ -2368,6 +2403,10 @@ impl Engine {
                 }
                 // The master's strip takes the new state's faders back.
                 self.graph.reset_master();
+                // The old master chain is swapped at once (its devices are in the garbage
+                // item): the devices that left it and still fade out go with it, rather than
+                // running inside the new project's chain (#233).
+                self.graph.master_outgoing().end();
                 // The limiter is not reset on a project swap: the retiring tracks keep
                 // fading through the same limiter, so a project opened while the previous
                 // one was hot does not produce a gain jump. The release (80 ms) decays the
@@ -2534,29 +2573,49 @@ impl Engine {
                 state.selected = track;
                 None
             }
-            RtMsg::DevicePut { track, put } => match state.chain_mut(track) {
-                Some(chain) => {
-                    let device = DeviceSlot(put.slot as u16);
-                    let midi = takes_notes(&put.value);
-                    let (spare, out) = put_slot(chain, put);
-                    skipped = out;
-                    if (midi || spare.item.as_deref().is_some_and(takes_notes))
-                        && let Some(t) = state.track_mut(track)
-                    {
-                        t.graph.release_notes();
+            RtMsg::DevicePut { track, put } => {
+                let audible = chain_audible(state, &self.graph, track);
+                match state.chain_mut(track) {
+                    Some(chain) => {
+                        let device = DeviceSlot(put.slot as u16);
+                        let midi = takes_notes(&put.value);
+                        let slot = put.slot as usize;
+                        let (mut spare, out) = put_slot(chain, put);
+                        // Inside the table (grown by the put if need be) the device is in
+                        // its slot and the spare item is the one it replaced; beyond, the
+                        // spare item is the new device, never heard.
+                        let placed = slot < chain.capacity();
+                        skipped = out;
+                        if (midi || (placed && spare.item.as_deref().is_some_and(takes_notes)))
+                            && let Some(t) = state.track_mut(track)
+                        {
+                            t.graph.release_notes();
+                        }
+                        if placed {
+                            // The new device fades in on a heard chain; the one it replaces
+                            // fades out at its slot (#233).
+                            if let Some(entry) = device_mut(state, track, device) {
+                                entry.fade = if audible && fades(entry) { 0.0 } else { 1.0 };
+                            }
+                            if let Some(old) = spare.item.take() {
+                                spare.item =
+                                    send_off(state, &mut self.graph, track, device, old, audible);
+                            }
+                        }
+                        resend_lanes(state, &self.graph, track, device);
+                        Some(Garbage::Devices(spare))
                     }
-                    resend_lanes(state, &self.graph, track, device);
-                    Some(Garbage::Devices(spare))
+                    None => {
+                        skipped = true;
+                        Some(Garbage::Devices(Spare {
+                            table: put.grown,
+                            item: Some(put.value),
+                        }))
+                    }
                 }
-                None => {
-                    skipped = true;
-                    Some(Garbage::Devices(Spare {
-                        table: put.grown,
-                        item: Some(put.value),
-                    }))
-                }
-            },
+            }
             RtMsg::DeviceRemove { track, device } => {
+                let audible = chain_audible(state, &self.graph, track);
                 match state.chain_mut(track).map(|chain| {
                     let old = take_slot(chain, device.0.into());
                     let release = matches!(&old, Ok(Some(entry)) if takes_notes(entry));
@@ -2566,10 +2625,12 @@ impl Engine {
                         if release && let Some(t) = state.track_mut(track) {
                             t.graph.release_notes();
                         }
-                        Some(Garbage::Devices(Spare {
-                            table: None,
-                            item: old,
-                        }))
+                        // A heard device fades out at its slot (#233), then comes back
+                        // through the retire ring.
+                        let item = old.and_then(|old| {
+                            send_off(state, &mut self.graph, track, device, old, audible)
+                        });
+                        Some(Garbage::Devices(Spare { table: None, item }))
                     }
                     _ => {
                         skipped = true;
@@ -2583,16 +2644,14 @@ impl Engine {
                 enabled,
             } => {
                 let mut release = false;
+                let audible = chain_audible(state, &self.graph, track);
                 match device_mut(state, track, device) {
                     Some(entry) => {
                         let changed = entry.enabled != enabled;
                         release = changed && takes_notes(entry);
-                        if changed && !takes_notes(entry) {
-                            // An audio effect that is switched on or off starts clean: a
-                            // tail (an echo) never comes back from before the switch.
-                            entry.device.reset();
+                        if changed {
+                            switch(entry, enabled, audible);
                         }
-                        entry.enabled = enabled;
                     }
                     None => skipped = true,
                 }
@@ -2892,6 +2951,73 @@ fn forget_lane(state: &mut State, graph: &mut Graph, track: TrackSlot, target: A
 /// its next block (MO-3). An audio effect receives no notes: changing it releases nothing.
 fn takes_notes(entry: &DeviceEntry) -> bool {
     entry.device.descriptor().role != DeviceRole::Effect
+}
+
+/// Whether a change of the device fades (#233): an instrument's or an audio effect's does; a
+/// MIDI effect has no sound of its own (its change releases the instrument's notes).
+fn fades(entry: &DeviceEntry) -> bool {
+    entry.device.descriptor().role != DeviceRole::MidiEffect
+}
+
+/// Whether the chain of `track` (the master's for the master) is heard: its strip is not at
+/// silence. A change of a chain nobody hears (a track not yet faded in, a muted one) applies
+/// at once (#233).
+fn chain_audible(state: &State, graph: &Graph, track: TrackSlot) -> bool {
+    let (l, r) = if track.is_master() {
+        graph.master_levels()
+    } else {
+        match state.track(track) {
+            Some(t) => t.graph.levels(),
+            None => return false,
+        }
+    };
+    l != 0.0 || r != 0.0
+}
+
+/// Switches a device on or off (#233). On a heard chain an instrument or an audio effect
+/// fades toward its new state; otherwise it is there at once. An audio effect switched on
+/// starts clean, so a tail (an echo) never comes back from before the switch, unless it is
+/// still heard fading out (its tail goes on); one switched off is cleared once silent (at
+/// once, or by the graph at the end of its fade).
+fn switch(entry: &mut DeviceEntry, enabled: bool, audible: bool) {
+    let heard = entry.fade > 0.0;
+    entry.enabled = enabled;
+    let fading = audible && fades(entry);
+    if !fading {
+        entry.fade = entry.target();
+    }
+    let clear = if enabled { !(fading && heard) } else { !fading };
+    if clear && !takes_notes(entry) {
+        entry.device.reset();
+    }
+}
+
+/// Where a device that left slot `slot` goes (#233): on a heard chain, an instrument or an
+/// audio effect still heard joins the chain's outgoing list and fades out there (moving a
+/// `Box`: no allocation); otherwise, or when the list is full ([`crate::graph::OUTGOING_ROOM`]),
+/// it is returned for the garbage.
+fn send_off(
+    state: &mut State,
+    graph: &mut Graph,
+    track: TrackSlot,
+    slot: DeviceSlot,
+    mut old: Box<DeviceEntry>,
+    audible: bool,
+) -> Option<Box<DeviceEntry>> {
+    if !audible || !fades(&old) || old.fade <= 0.0 {
+        return Some(old);
+    }
+    let list: &mut Outgoing = if track.is_master() {
+        graph.master_outgoing()
+    } else {
+        match state.track_mut(track) {
+            Some(t) => t.graph.outgoing(),
+            None => return Some(old),
+        }
+    };
+    old.enabled = false;
+    old.slot = slot.0;
+    list.push(old).err()
 }
 
 fn device_mut(state: &mut State, track: TrackSlot, device: DeviceSlot) -> Option<&mut DeviceEntry> {

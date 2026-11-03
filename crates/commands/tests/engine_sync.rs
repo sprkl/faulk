@@ -1008,6 +1008,45 @@ fn a_placement_moved_to_another_track_reaches_the_engine_and_its_undo_restores_i
 }
 
 #[test]
+fn a_repeat_reaches_the_engine_as_one_placement_table_and_its_undo_restores_it() {
+    let (mut s, synth, _) = synced();
+    let (out, _) = run(
+        &mut s,
+        json!({"type": "clip.create", "track": synth, "at": {"at": "arrangement", "start": 0}}),
+    );
+    let Output::Clip(commands::clip::Output::Create {
+        placement: Some(first),
+        ..
+    }) = out
+    else {
+        panic!()
+    };
+    let tables = |msgs: &[ControlMsg]| {
+        msgs.iter()
+            .filter(|m| matches!(m, ControlMsg::TrackPlacementsUpload { .. }))
+            .count()
+    };
+    let (out, msgs) = run(
+        &mut s,
+        json!({"type": "arrangement.repeat", "placement": first, "until": 3840 * 8}),
+    );
+    let Output::Arrangement(commands::arrangement::Output::Repeat { placements, .. }) = out else {
+        panic!()
+    };
+    assert!(!placements.is_empty());
+    // The copies are placements of the same clip: one table, no new clip.
+    assert_eq!(tables(&msgs), 1, "{msgs:?}");
+    assert!(
+        !msgs
+            .iter()
+            .any(|m| matches!(m, ControlMsg::ClipNotesUpload { .. })),
+        "{msgs:?}"
+    );
+    let (_, msgs) = run(&mut s, json!({"type": "history.undo"}));
+    assert_eq!(tables(&msgs), 1, "{msgs:?}");
+}
+
+#[test]
 fn stop_brings_the_head_to_the_cue_and_a_second_stop_to_the_start() {
     let (mut s, _, _) = synced();
     let stop = || json!({"type": "transport.stop"});
