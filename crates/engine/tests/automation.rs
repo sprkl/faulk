@@ -114,6 +114,7 @@ impl Rig {
                     track: TrackSlot(t),
                     pitch: 57 + t as u8 % 24,
                     velocity: 127,
+                    at: None,
                 },
             ]);
         }

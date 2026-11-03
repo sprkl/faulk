@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { chooseMidiInput, fakeWebMidi, watch } from './support'
+import { chooseMidiInput, engineUp, fakeWebMidi, watch } from './support'
 
 // PR-5: the page owns one project core; every command goes through it, the engine gets the bytes
 // it encoded, the project store is fed by its events. Real worklet, real engine, real core.
@@ -12,7 +12,7 @@ test('a played key makes sound and a synth change reaches the project store', as
   const { errors } = watch(page)
   await page.goto('/app')
   await startAudio(page)
-  await expect(page.getByTestId('engine-mode')).toContainText('Web')
+  await engineUp(page, 'Web')
   expect(await meterDb(page)).toBe(SILENCE_DB)
 
   // Synth parameter: the choice the view shows comes from the project store, fed by the core's events.
@@ -80,7 +80,7 @@ test('a stream the engine refuses stops audio with a message, and restarting kee
   await expect(message).toHaveCount(0)
   await expect(page.getByRole('radio', { name: 'Sine' })).toHaveAttribute('aria-checked', 'true')
   // The panel shows the project before the engine is up (it used to appear only once started): wait for the engine.
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await page.keyboard.down('KeyA')
   await expect.poll(() => meterDb(page), { timeout: 10_000 }).toBeGreaterThan(SILENCE_DB)
   await page.keyboard.up('KeyA')

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #361: the computer keyboard plays the selected track in every view, not only the instrument view.
 // Real worklet, engine and project core; the per-track peaks of the hidden `feedback` element say that
@@ -12,7 +12,7 @@ const masterPeak = async (page: Page) => Number(await page.getByTestId('feedback
 async function start(page: Page) {
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await expect(page.getByTestId('track-inspector')).toBeVisible()
 }
 

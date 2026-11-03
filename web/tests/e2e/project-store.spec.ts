@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // SV-2 (#95): the project in a real folder, in a real browser. The folder picker is simulated: the
 // page's `showDirectoryPicker` hands back a directory of the origin private file system, which is a
@@ -18,9 +18,18 @@ async function addTrack(page: Page, item: string) {
   await page.getByRole('menuitem', { name: item, exact: true }).click()
 }
 
+/**
+ * Waits for the write of an edit that adds a track: its file is in the folder. Not the "Unsaved changes" state first: it
+ * lasts only the autosave delay, and a loaded machine can take longer than that to get from the edit to the check (#493,
+ * #539). The folder is the fact itself, read the same way in the dev server and in the production build (the page's
+ * `__faulkWrite` hook exists in the dev server only), and no earlier write can satisfy it.
+ */
+const expectTrackFiles = (page: Page, folder: string, count: number) =>
+  expect.poll(async () => (await listFolder(page, folder)).filter((p) => p.endsWith('track.json')).length, { timeout: 8000 }).toBe(count)
+
 async function start(page: Page) {
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
 }
 
 /** The picker of the page returns the OPFS directory `name` (made if need be); `mode` can make it fail. */
@@ -136,12 +145,11 @@ test.describe('the project in a folder', () => {
     expect(await listFolder(page, 'song-a')).toEqual(expect.arrayContaining(['project.json', '.faulk/session.json', '.gitignore']))
     expect((await listFolder(page, 'song-a')).filter((p) => p.endsWith('track.json'))).toHaveLength(2)
 
-    // An edit: unsaved for a moment, then saved by itself.
+    // An edit: saved by itself (the write of this edit, then the state it leaves).
     await addTrack(page, 'Oscillator')
     await expect(tracks(page)).toHaveCount(3)
-    await expect(state(page)).toHaveText('Unsaved changes')
+    await expectTrackFiles(page, 'song-a', 3)
     await expect(state(page)).toHaveText(/^Saved at/, { timeout: 8000 })
-    expect((await listFolder(page, 'song-a')).filter((p) => p.endsWith('track.json'))).toHaveLength(3)
 
     // Reload: the project comes back by itself, with its three tracks.
     await page.reload()
@@ -164,11 +172,11 @@ test.describe('the project in a folder', () => {
     await start(page)
     await saveAs(page)
     await expect(state(page)).toHaveText(/^Saved at/)
+    // Ctrl+S right after the edit; whichever of it and the autosave writes first, the edit is written.
     await addTrack(page, 'Drums')
-    await expect(state(page)).toHaveText('Unsaved changes')
     await page.keyboard.press('Control+s')
+    await expectTrackFiles(page, 'song-keys', 2)
     await expect(state(page)).toHaveText(/^Saved at/)
-    expect((await listFolder(page, 'song-keys')).filter((p) => p.endsWith('track.json'))).toHaveLength(2)
     expect(errors).toEqual([])
     // Everything is in the folder: closing the tab asks nothing.
     expect(await leaveAsks(page)).toBe(false)
@@ -490,7 +498,7 @@ test.describe('the project in a folder', () => {
     expect(errors).toEqual([])
   })
 
-  test('French: the state and the menu are in French', async ({ page }) => {
+  test('French: the state and the menu are in French @full', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('faulk.lang', 'fr'))
     await simulatePicker(page, 'song-fr')
     await page.goto('/app')

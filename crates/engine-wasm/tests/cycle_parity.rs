@@ -272,6 +272,7 @@ fn a_refused_memory_growth_is_a_typed_error_and_the_instance_plays_on() {
                 track: TrackSlot(0),
                 pitch: 69,
                 velocity: 100,
+                at: None,
             },
         ],
     )

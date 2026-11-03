@@ -105,6 +105,7 @@ fn play(rig: &mut Rig) {
         track: TrackSlot(0),
         pitch: 60,
         velocity: 120,
+        at: None,
     }]);
     rig.secs(0.6);
 }
@@ -231,6 +232,7 @@ fn the_master_slot_is_the_chain_in_the_device_messages_and_nothing_else() {
             track: TrackSlot::MASTER,
             pitch: 60,
             velocity: 100,
+            at: None,
         }
     ));
     // Only effects: an instrument on the master is refused by `prepare`.
@@ -343,6 +345,7 @@ fn a_reset_empties_the_master_chain() {
                 track: TrackSlot(0),
                 pitch: 60,
                 velocity: 120,
+                at: None,
             },
         ],
     )

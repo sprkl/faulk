@@ -41,11 +41,12 @@ fn input_on(note: u8) -> Command {
     Command::Live(live::Command::InputNoteOn {
         note,
         velocity: 100,
+        frame: None,
     })
 }
 
 fn input_off(note: u8) -> Command {
-    Command::Live(live::Command::InputNoteOff { note })
+    Command::Live(live::Command::InputNoteOff { note, frame: None })
 }
 
 #[test]
@@ -119,10 +120,42 @@ fn all_notes_off_and_velocity_zero_release_the_held_notes() {
     s.run(Command::Live(live::Command::InputNoteOn {
         note: 60,
         velocity: 0,
+        frame: None,
     }));
     assert_eq!(s.ctx().engine.held.len(), 1);
     s.run(Command::Live(live::Command::AllNotesOff {}));
     assert!(s.ctx().engine.held.is_empty());
     s.render_secs(0.4);
     parity(s.scenario()).assert_silent(0.2..0.4);
+}
+
+/// #499: the stamp (`frame`) of a live note serves the recording only. A note sounds at the
+/// start of the block that takes it, stamped or not, so a stamp adds no latency: the same
+/// notes stamped in the past, in the block, ahead of it or not at all render the same samples,
+/// natively and in the WASM build.
+#[test]
+fn a_stamped_live_note_sounds_exactly_like_an_unstamped_one() {
+    let render = |frame: Option<u64>| {
+        let (mut s, _a, _b) = start();
+        s.render_secs(0.1);
+        s.run(Command::Live(live::Command::InputNoteOn {
+            note: 64,
+            velocity: 100,
+            frame,
+        }));
+        s.render_secs(0.2);
+        s.run(Command::Live(live::Command::InputNoteOff {
+            note: 64,
+            frame: frame.map(|f| f + 9_600),
+        }));
+        s.render_secs(0.3);
+        parity(s.scenario())
+    };
+    let plain = render(None);
+    plain.assert_audible(0.1..0.3, 0.05);
+    for frame in [Some(0), Some(4_000), Some(4_800), Some(1 << 40)] {
+        let stamped = render(frame);
+        assert_eq!(stamped.left, plain.left, "frame {frame:?}");
+        assert_eq!(stamped.right, plain.right, "frame {frame:?}");
+    }
 }

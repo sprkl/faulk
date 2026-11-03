@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #494: writing from the keyboard. The timeline and the piano roll each have a free cursor (the only tab stop of an empty
 // grid); Enter on it creates a clip of one bar or a note of the drawing length, Escape on an item frees it there, Page Up and
@@ -20,7 +20,7 @@ async function start(page: Page) {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
-  await expect(page.getByTestId('engine-mode')).toContainText('Web')
+  await engineUp(page, 'Web')
   await page.getByTestId('add-track').click()
   await page.getByTestId('add-track-menu').getByRole('menuitem', { name: 'Drums', exact: true }).click()
   await expect(page.getByTestId('track-header')).toHaveCount(2)

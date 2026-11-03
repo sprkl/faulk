@@ -59,6 +59,7 @@ fn note_on(pitch: u8, velocity: u8) -> M {
         track: TrackSlot(0),
         pitch,
         velocity,
+        at: None,
     }
 }
 
@@ -96,6 +97,7 @@ fn the_host_renders_the_registered_synth_as_its_own_calls_do() {
             vec![M::NoteOff {
                 track: TrackSlot(0),
                 pitch: 60,
+                at: None,
             }],
         ),
         (
@@ -226,6 +228,7 @@ fn a_full_live_queue_releases_every_note() {
     msgs.push(M::NoteOff {
         track: TrackSlot(0),
         pitch: 60,
+        at: None,
     });
     session.send(&msgs);
     // Release time 0.3 s: after a second, silence.
@@ -267,6 +270,7 @@ fn two_tracks(gain: f32) -> Session {
             track: TrackSlot(1),
             pitch: 69,
             velocity: 127,
+            at: None,
         },
     ]);
     // The fades settle (5 ms), then a few reporting periods.

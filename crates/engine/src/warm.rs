@@ -389,6 +389,14 @@ pub fn messages() -> Vec<Phase> {
             track: synth_track,
             pitch: 64,
             velocity: 90,
+            at: None,
+        },
+        // A stamped note (#499): the stamp's decoding and conversion.
+        M::NoteOn {
+            track: synth_track,
+            pitch: 67,
+            velocity: 90,
+            at: Some(0),
         },
     ];
     // A note on every instrument, at the first key it names (a drum kit) or middle C.
@@ -398,6 +406,7 @@ pub fn messages() -> Vec<Phase> {
                 track: *track,
                 pitch: desc.named_keys.first().map_or(60, |k| k.key),
                 velocity: 100,
+                at: None,
             });
         }
     }
@@ -412,6 +421,12 @@ pub fn messages() -> Vec<Phase> {
         M::NoteOff {
             track: synth_track,
             pitch: 60,
+            at: None,
+        },
+        M::NoteOff {
+            track: synth_track,
+            pitch: 67,
+            at: Some(0),
         },
         M::AllNotesOff { track: synth_track },
         M::SetRecording { recording: false },

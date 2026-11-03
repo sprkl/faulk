@@ -354,6 +354,7 @@ fn an_edit_that_changes_the_sounding_note_ends_it_once_and_spares_the_live_notes
             track: TrackSlot(0),
             pitch: 72,
             velocity: 100,
+            at: None,
         }]);
         r.run(128, 128);
         r.send(&[with_first(pad_clip(vec![note(3300, 100, 60)]), first)]);
@@ -853,6 +854,7 @@ fn shared_clip(pads: Vec<Note>, alias: Option<(u32, u32)>) -> Rig {
         track: TrackSlot(0),
         pitch: 72,
         velocity: 100,
+        at: None,
     }]);
     r.run(128, 128);
     r

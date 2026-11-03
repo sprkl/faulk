@@ -221,14 +221,25 @@ fn render_native(steps: &[Step]) -> Vec<f32> {
 
 /// The render and the report region (its bytes) after the last step.
 fn run_native(steps: &[Step]) -> (Vec<f32>, Vec<u8>, usize) {
+    run_native_at(steps, None)
+}
+
+/// [`run_native`] with a host clock (#499): the host frame of the engine's first sample, told
+/// to the engine before each block (`Host::set_host_frame`), as the worklet does.
+fn run_native_at(steps: &[Step], origin: Option<u64>) -> (Vec<f32>, Vec<u8>, usize) {
     let (mut prepare, mut host) = engine::host::channel(SAMPLE_RATE).unwrap();
     let mut out = Vec::new();
+    let mut rendered = 0u64;
     for step in steps {
         match step {
             Step::Push(bytes) => prepare.submit(bytes).unwrap(),
             Step::Render(blocks) => {
                 for _ in 0..*blocks {
+                    if let Some(origin) = origin {
+                        host.set_host_frame(origin + rendered);
+                    }
                     let n = host.render(QUANTUM as usize);
+                    rendered += n as u64;
                     out.extend_from_slice(&host.left()[..n]);
                     out.extend_from_slice(&host.right()[..n]);
                 }
@@ -267,6 +278,11 @@ fn render_wasm(steps: &[Step]) -> Vec<f32> {
 
 /// The render and the report region (its bytes) after the last step.
 fn run_wasm(steps: &[Step]) -> (Vec<f32>, Vec<u8>) {
+    run_wasm_at(steps, None)
+}
+
+/// [`run_wasm`] with a host clock, through `fk_render_at` (#499).
+fn run_wasm_at(steps: &[Step], origin: Option<u64>) -> (Vec<f32>, Vec<u8>) {
     let bytes = std::fs::read(build_wasm()).expect("the wasm module exists");
     let engine = Engine::default();
     let module = Module::new(&engine, &bytes[..]).expect("valid module");
@@ -287,6 +303,7 @@ fn run_wasm(steps: &[Step]) -> (Vec<f32>, Vec<u8>) {
     let inbox = func::<(i32, i32), i32>(&instance, &store, "fk_inbox");
     let push = func::<(i32, i32, i32), i32>(&instance, &store, "fk_push");
     let render = func::<(i32, i32), i32>(&instance, &store, "fk_render");
+    let render_at = func::<(i32, i32, f64), i32>(&instance, &store, "fk_render_at");
     let left_ptr = func::<i32, i32>(&instance, &store, "fk_left");
     let right_ptr = func::<i32, i32>(&instance, &store, "fk_right");
     let prepare_counter = func::<(i32, i32), i32>(&instance, &store, "fk_prepare_counter");
@@ -309,6 +326,7 @@ fn run_wasm(steps: &[Step]) -> (Vec<f32>, Vec<u8>) {
     };
 
     let mut out = Vec::new();
+    let mut rendered = 0u64;
     for step in steps {
         match step {
             Step::Push(bytes) => {
@@ -319,7 +337,13 @@ fn run_wasm(steps: &[Step]) -> (Vec<f32>, Vec<u8>) {
             }
             Step::Render(blocks) => {
                 for _ in 0..*blocks {
-                    let frames = render.call(&mut store, (ch, QUANTUM as i32)).unwrap() as usize;
+                    let frames = match origin {
+                        Some(origin) => render_at
+                            .call(&mut store, (ch, QUANTUM as i32, (origin + rendered) as f64))
+                            .unwrap(),
+                        None => render.call(&mut store, (ch, QUANTUM as i32)).unwrap(),
+                    } as usize;
+                    rendered += frames as u64;
                     let left = left_ptr.call(&mut store, ch).unwrap() as usize;
                     let right = right_ptr.call(&mut store, ch).unwrap() as usize;
                     read(&store, left, frames, &mut out);
@@ -533,6 +557,7 @@ fn report_session() -> Vec<Step> {
         track: TrackSlot(t),
         pitch,
         velocity: 100,
+        at: None,
     };
     vec![
         push(&setup),
@@ -642,10 +667,12 @@ fn record_session() -> Vec<Step> {
         track: TrackSlot(t),
         pitch,
         velocity: 80 + pitch % 20,
+        at: None,
     };
     let off = |t: u32, pitch: u8| M::NoteOff {
         track: TrackSlot(t),
         pitch,
+        at: None,
     };
     vec![
         push(&setup),
@@ -691,4 +718,100 @@ fn native_and_wasm_record_the_same_take() {
         )
     );
     assert_eq!(n.recorded, w.recorded);
+}
+
+/// A take of notes stamped with the host frame they were played at (#499), each reaching the
+/// engine some blocks later, on a host clock 1 000 000 frames ahead of the engine.
+fn stamped_session() -> Vec<Step> {
+    use engine::msg::{ControlMsg as M, encode_stream};
+    use engine::time::Tick;
+    const ORIGIN: u64 = 1_000_000;
+    let mut seq = 0;
+    let mut push = |msgs: &[M]| {
+        let bytes = encode_stream(1, seq, msgs).unwrap();
+        seq += msgs.len() as u32;
+        Step::Push(bytes)
+    };
+    let setup = [
+        M::Reset { epoch: 1 },
+        M::SetMetronome {
+            enabled: false,
+            volume: 1.0,
+            count_in_bars: 0,
+        },
+        M::TrackCreate {
+            track: TrackSlot(0),
+            kind: TrackKind::Midi,
+        },
+        M::TrackArm {
+            track: TrackSlot(0),
+            armed: true,
+        },
+        M::SetRecording { recording: true },
+        M::Play { from: Tick(0) },
+    ];
+    let note = |on: bool, pitch: u8, sample: u64| {
+        let at = Some(ORIGIN + sample);
+        let track = TrackSlot(0);
+        if on {
+            M::NoteOn {
+                track,
+                pitch,
+                velocity: 100,
+                at,
+            }
+        } else {
+            M::NoteOff { track, pitch, at }
+        }
+    };
+    // The take plays from sample 0 (the first block applies the play); a beat is 24 000
+    // samples at the default 120 BPM.
+    vec![
+        push(&setup),
+        // Beat 1 played at 24 000, taken at block 200 (25 600).
+        Step::Render(200),
+        push(&[note(true, 60, 24_000)]),
+        // Released at 30 000, taken at block 240 (30 720).
+        Step::Render(40),
+        push(&[note(false, 60, 30_000)]),
+        // Beat 2 and a note between two ticks, both taken at block 430 (55 040).
+        Step::Render(190),
+        push(&[note(true, 64, 48_000), note(true, 67, 48_013)]),
+        Step::Render(5),
+        push(&[note(false, 64, 50_000), note(false, 67, 50_000)]),
+        Step::Render(5),
+        push(&[M::SetRecording { recording: false }]),
+        // Long enough for a report after the take.
+        Step::Render(30),
+    ]
+}
+
+#[test]
+fn native_and_wasm_record_stamped_notes_on_their_beats() {
+    use engine::host::decode_feedback;
+    use engine::time::Tick;
+    let steps = stamped_session();
+    let (native_out, native, _) = run_native_at(&steps, Some(1_000_000));
+    let (wasm_out, wasm) = run_wasm_at(&steps, Some(1_000_000));
+    let n = decode_feedback(&native).expect("a native report");
+    let w = decode_feedback(&wasm).expect("a wasm report");
+    assert_eq!(n.record_total, 3);
+    assert_eq!(n.recorded, w.recorded);
+    let mut starts: Vec<(u8, Tick, Tick)> = n
+        .recorded
+        .iter()
+        .map(|r| (r.note.pitch, r.note.start, r.note.length))
+        .collect();
+    starts.sort();
+    // On the beats exactly (25 samples per tick); 13 samples after beat 2 is still its tick,
+    // and that note is 1 987 samples long (79.48 ticks).
+    assert_eq!(
+        starts,
+        [
+            (60, Tick(960), Tick(240)),
+            (64, Tick(1920), Tick(80)),
+            (67, Tick(1920), Tick(79)),
+        ]
+    );
+    assert_eq!(native_out.len(), wasm_out.len());
 }

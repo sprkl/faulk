@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { expect, test, type CDPSession, type Page } from '@playwright/test'
-import { best, chooseMidiInput, fakeWebMidi, mainThreadMeter, watch } from './support'
+import { best, chooseMidiInput, engineUp, fakeWebMidi, mainThreadMeter, watch } from './support'
 
 // MX-3 (#92): the mixer view in a real browser. Real worklet, engine and project core: every
 // control goes through the dispatcher as a command, and the meters are the engine's own report.
@@ -17,7 +17,7 @@ async function start(page: Page) {
   await fakeWebMidi(page)
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
-  await expect(page.getByTestId('engine-mode')).toContainText('Web')
+  await engineUp(page, 'Web')
   await chooseMidiInput(page, 'E2E Keys')
   await expect(page.getByTestId('track-list')).toHaveAttribute('data-track-count', '1')
   await page.getByTestId('nav-mixer').click()
@@ -232,7 +232,7 @@ function frames(page: Page, ms: number) {
 /** Main-thread time per frame of the mixer view, in reference units (`mainThreadMeter`); about 0.4 here, up to 0.75 with a 4x slower CPU, so ten times the work of the view crosses it and a noisy runner does not. */
 const MIXER_CEILING = 1.5
 
-test('32 strips with every meter moving: render cost', async ({ page }) => {
+test('32 strips with every meter moving: render cost @full', async ({ page }) => {
   test.setTimeout(240_000)
   const { errors } = watch(page)
   await start(page)

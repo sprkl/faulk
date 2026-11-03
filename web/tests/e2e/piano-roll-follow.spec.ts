@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #470, stage 2: the piano roll follows the clip selected in the arrangement, opens a clip it never showed on that clip's
 // notes, and draws the notes of the other tracks hollow on screen. Real worklet, engine and project core; the clips are
@@ -23,7 +23,7 @@ async function start(page: Page) {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
-  await expect(page.getByTestId('engine-mode')).toContainText('Web')
+  await engineUp(page, 'Web')
   test.skip((await hooks(page)) !== 'function', 'the clips are made through the hook of the dev server')
   await page.getByTestId('nav-arrangement').click()
   await expect.poll(async () => Number(await page.getByTestId('arr-stage').getByTestId('timegrid').getAttribute('data-draw-count'))).toBeGreaterThan(0)

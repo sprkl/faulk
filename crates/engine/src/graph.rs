@@ -1220,10 +1220,13 @@ fn launch_pending(env: &Option<Env<'_>>) -> bool {
 fn route_live(input: &Input<'_>, sink: &mut Sink) {
     for event in input.live {
         let event = match *event {
+            // A live note sounds at the start of the block that takes it, stamped or not
+            // (#499): by then its stamp is in the past.
             LiveEvent::NoteOn {
                 track,
                 pitch,
                 velocity,
+                ..
             } if track == input.slot => live_voice(pitch).map(|voice| Event::NoteOn {
                 offset: 0,
                 voice,
@@ -1231,13 +1234,12 @@ fn route_live(input: &Input<'_>, sink: &mut Sink) {
                 velocity: f32::from(velocity.min(127)) / 127.0,
                 tune_cents: 0.0,
             }),
-            LiveEvent::NoteOff { track, pitch } if track == input.slot => {
-                live_voice(pitch).map(|voice| Event::NoteOff {
+            LiveEvent::NoteOff { track, pitch, .. } if track == input.slot => live_voice(pitch)
+                .map(|voice| Event::NoteOff {
                     offset: 0,
                     voice,
                     key: pitch,
-                })
-            }
+                }),
             LiveEvent::AllNotesOff { track } if track == input.slot => {
                 Some(Event::AllNotesOff { offset: 0 })
             }

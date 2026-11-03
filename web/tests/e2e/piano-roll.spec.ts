@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // PN-1 (#82): the piano roll in a real browser. Real worklet, engine and project core: every gesture
 // reaches the project as a clip command and a drag is one history entry. The gestures run through
@@ -58,7 +58,7 @@ async function openRoll(page: Page) {
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/app')
   await startAudio(page)
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await page.getByTestId('panel-piano-roll').click()
   return { seen, warnings }
 }
@@ -225,7 +225,7 @@ test('piano roll: a Drums track names its sounds, and a click draws a note of th
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/app')
   await startAudio(page)
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await page.getByTestId('add-track').click()
   await page.getByRole('menuitem', { name: 'Drums', exact: true }).click()
   await page.getByTestId('panel-piano-roll').click()
@@ -284,7 +284,7 @@ test('piano roll: the empty states and the toolbar speak the page language', asy
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await page.getByTestId('panel-piano-roll').click()
   await expect(page.getByTestId('roll-create-clip')).toHaveText('Créer un clip')
   await createClip(page)

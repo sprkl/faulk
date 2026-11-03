@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // UI-3 (#107): the computer keyboard plays through the live input commands, so it reaches the
 // selected MIDI track and the armed ones; a track change while a key is held ends the note where it
@@ -49,13 +49,15 @@ const TEXTS = {
 } as const
 
 for (const lang of ['en', 'fr'] as const) {
-  test(`computer keyboard, ${lang}: oscillator and drums, track switch while held, armed track, no shortcut`, async ({ page }) => {
+  test(`computer keyboard, ${lang}: oscillator and drums, track switch while held, armed track, no shortcut${lang === 'fr' ? ' @full' : ''}`, async ({
+    page,
+  }) => {
     const x = TEXTS[lang]
     const { errors } = watch(page)
     await page.addInitScript((l) => localStorage.setItem('faulk.lang', l), lang)
     await page.goto('/app')
     await page.getByTestId('engine-state').getByRole('button').click()
-    await expect(page.getByTestId('engine-mode')).toBeVisible()
+    await engineUp(page)
     await expect(page.getByTestId('inspector-name')).toHaveText('Synth')
     await page.getByTestId('panel-keyboard').click()
     await expect(page.getByTestId('keys-target')).toHaveText(x.target('Synth'))

@@ -14,7 +14,6 @@ status: draft
 > **État de l'implémentation (#470, étape 2).** Livré : la capture dans le moteur (`crates/engine/src/recorder.rs`), les notes dans le rapport (version 5), les commandes `record.set_settings`, `record.start`, `record.stop`, `record.discard_take`, `record.commit_take` et `record.restore` (`crates/commands/src/record.rs`), le bouton d'enregistrement avec la cible affichée et le décompte, le bouton « Rec » des pistes, les notes de la prise dans le piano roll. Écarts avec le texte ci-dessous, à lire comme la référence :
 >
 > - reports acceptés par le lead (2026-11-02), voir « Différé » au § 9 :
-> - les notes sont placées au début du bloc qui les applique (2,7 ms à 48 kHz en Web), pas à ± 1 ms : #499 ;
 > - le mode remplacement et la quantification à l'entrée ne sont pas livrés (§ 4.2, § 6 ; choix par défaut : ajout, quantification après coup) : #500 ;
 > - l'enregistrement en Boost attend BO-1 : le bouton est désactivé en Boost, avec la raison ; le décalage manuel est déjà dans la session : #501 ;
 > - `record.set_settings` ne porte que `offset_ms` ; c'est un état de session, comme l'armement, donc il n'entre pas dans l'historique (§ 9 à jour) ;
@@ -22,6 +21,8 @@ status: draft
 > - la cible de la grille est la scène de la dernière cellule touchée (sinon la première scène) ; avec le transport arrêté, `record.start` lance le clip de cette scène sur chaque piste armée, et la prise s'y ajoute en suivant sa boucle ;
 > - dans l'arrangement, une note jouée dans un clip placé s'y ajoute ; les autres font un nouveau clip par intervalle libre, de la mesure de la première note à la mesure après la dernière, coupé au clip suivant ;
 > - le décompte sonne même métronome éteint et s'arrête au repère (§ 5) ; il n'a lieu que transport arrêté.
+>
+> **Horodatage des entrées (#499).** En Web, une note MIDI ou une touche du clavier porte l'instant où elle a été jouée (`MIDIMessageEvent.timeStamp`, `KeyboardEvent.timeStamp`) : la page le convertit en image du contexte audio (`getOutputTimestamp()`, plus la latence de sortie estimée que la prise reçoit aussi dans `latency_ms`, si bien que les deux s'annulent) et l'envoie dans le champ facultatif `frame` de `live.input_note_on` et `live.input_note_off`. Le worklet donne au moteur l'image de chaque bloc (`currentFrame`), le moteur en tire son propre échantillon et l'enregistreur place la note sur cet échantillon, même arrivée plusieurs blocs plus tard, même de l'autre côté d'un bouclage ou d'un changement de tempo. Une note dont l'instant s'écarte de plus d'une seconde du bloc qui la prend, dans un sens ou dans l'autre, compte depuis le début de ce bloc, comme avant (l'instant peut précéder ce bloc de quelques millisecondes quand la latence estimée dépasse l'avance réelle du rendu sur la sortie : mesuré 31 à 42 ms d'avance pour 42 ms estimées dans Chromium sous Windows ; la prise est ramenée de la même estimation, donc la note reste là où elle a été entendue). Le son n'est pas retardé : la note sonne au début du bloc qui la prend, horodatée ou non. Méthode de mesure du critère de RE-2 (± 1 ms) : tests hors ligne à horodatage connu (`crates/engine/tests/live_stamps.rs`, parité native et WASM dans `crates/engine-wasm/tests/parity.rs`), et dans Chromium deux notes MIDI simulées d'horodatages distants d'un temps, envoyées au même instant, enregistrées à un temps l'une de l'autre (`web/tests/e2e/recording.spec.ts`). En Boost, l'horodatage de midir reste à faire : #501.
 
 ## 1. Ce que l'utilisateur veut
 
@@ -63,7 +64,7 @@ La cible vient de la sélection du moment : la cellule sélectionnée dans la gr
 
 - **Par défaut : ajout (overdub).** Les notes jouées s'ajoutent à celles du clip. Rien n'est effacé, donc rien n'est perdu par erreur.
 - **Remplacement** (réglage de l'enregistrement, pas de la piste) : à l'arrivée de la première note de la prise, les notes existantes de la plage enregistrée sont retirées, puis la prise s'écrit. La plage est celle où l'on a joué, de la première note à la fin de la prise. Les notes en dehors ne bougent pas.
-- La boucle du transport enregistre en couches : chaque tour ajoute (ajout), ou chaque tour remplace le précédent (remplacement). Les prises superposées d'un même passage sont fusionnées en une seule prise d'historique.
+- La boucle du transport enregistre en couches : chaque tour ajoute (ajout), ou chaque tour remplace le précédent (remplacement). **Livré par #500 : le remplacement tour par tour n'existe pas encore, tous les tours d'une prise s'ajoutent à la plage entière (voir § 9).** Les prises superposées d'un même passage sont fusionnées en une seule prise d'historique.
 
 **[Question ouverte 3]** Le remplacement doit-il être le comportement par défaut pour un clip de grille en boucle (tour après tour on affine) ? Proposition : non, ajout partout, remplacement à choisir.
 
@@ -109,10 +110,10 @@ Toutes sont des commandes de `crates/commands/src/record.rs` (schéma, descripti
 
 | Commande | Entrée | Sortie | Annulation |
 |---|---|---|---|
-| `record.set_settings` | `offset_ms` (entier, -500 à 500) | l'ancien décalage | Aucune : c'est un état de session (il appartient à la machine), comme l'armement ; il est enregistré avec la session, jamais dans le projet, et n'entre pas dans l'historique (décision du lead, 2026-11-02). |
+| `record.set_settings` | `offset_ms` (entier, -500 à 500), `replace` (booléen, défaut faux), `quantize_on_input` (`none`, `quarter`, `eighth`, `sixteenth`, `thirty-second`, `eighth-triplet`, `sixteenth-triplet` ; défaut `none`), `quantize_strength` (0 à 100, défaut 100) ; tous optionnels, un champ absent ne change pas | les quatre valeurs d'avant | Aucune : ce sont des états de session (ils appartiennent à la machine), comme l'armement ; ils sont enregistrés avec la session, jamais dans le projet, et n'entrent pas dans l'historique (décision du lead, 2026-11-02). |
 | `record.start` | `target` (`{"at": "scene", "scene": …}` ou `{"at": "arrangement"}`, par défaut l'arrangement), `latency_ms` (latence de sortie estimée par l'hôte, 0 à 1000) | le numéro de la prise, la cible, les pistes armées qui enregistrent, le décalage total `shift_ms`, s'il y a un décompte | Aucune : état de session. Refusée sans piste MIDI armée, ou tant qu'une prise n'est ni écrite ni abandonnée. |
 | `record.stop` | rien | le numéro de la prise arrêtée, ou `null` | Aucune. Le transport continue ; la page écrit ensuite la prise avec `record.commit_take` dès que le moteur a rendu ses dernières notes. |
-| `record.commit_take` | `take` (optionnel : la prise qu'il libère), `target`, `shift_ms`, par piste les notes jouées (début en ticks du transport, durée, hauteur, vélocité) et l'ancre du clip de la cellule | les clips touchés, les notes écartées | **Une** entrée d'historique pour toute la prise ; son inverse est `record.restore`. |
+| `record.commit_take` | `take` (optionnel : la prise qu'il libère), `target`, `shift_ms`, par piste les notes jouées (début en ticks du transport, durée, hauteur, vélocité) et l'ancre du clip de la cellule ; `replace`, `quantize_on_input`, `quantize_strength` optionnels (absents : les réglages de la session) | les clips touchés, les notes écartées, les notes remplacées (`replaced`) | **Une** entrée d'historique pour toute la prise ; son inverse est `record.restore`, qui rend aussi les notes remplacées. |
 | `record.restore` | les clips à remettre (leur contenu et leurs placements, ou `null` pour les retirer) | rien | Le `record.restore` inverse. |
 | `record.discard_take` | rien | le numéro de la prise abandonnée, ou `null` | Aucune : la prise n'avait rien écrit dans le projet. |
 | `track.arm` | existe déjà | | existe déjà |
@@ -122,7 +123,9 @@ Toutes sont des commandes de `crates/commands/src/record.rs` (schéma, descripti
 
 Le moteur reçoit `SetRecording` et rend les notes capturées dans son rapport (version 5 : numéro de la prise, nombre de notes, notes perdues, drapeau de capture, dernières notes), ce qui permet au piano roll de les montrer en direct (critère de RE-5). Il n'y a pas d'allocation sur le chemin audio : les tables de capture sont préparées avec le moteur, et une table pleine est comptée et affichée, jamais cachée.
 
-**Différé** (reports acceptés par le lead le 2026-11-02) : le placement à ± 1 ms par horodatage des entrées (#499), le mode remplacement et la quantification à l'entrée (#500), l'enregistrement en Boost, désactivé jusqu'à BO-1 (#501).
+**Différé** (reports acceptés par le lead le 2026-11-02) : le placement à ± 1 ms par horodatage des entrées en Boost (#501 ; en Web, livré par #499), l'enregistrement en Boost, désactivé jusqu'à BO-1 (#501). Livrés par #500 : le mode remplacement et la quantification à l'entrée.
+
+**Remplacement et quantification (#500), tels que le code les applique.** Les trois réglages sont lus à l'écriture de la prise, sauf si `record.commit_take` reçoit les siens (la commande reste rejouable par un agent). Remplacement : par piste, la plage va du début de la première note à la fin de la dernière note de la prise (la commande ne connaît pas la fin de la prise elle-même, qui peut être plus tardive) ; dans chaque clip qui reçoit des notes (cellule de la grille, ou placement de l'arrangement, borné au placement), les notes du clip dont le **début** tombe dans la plage sont retirées, en suivant la boucle du clip ; une prise plus longue que la boucle remplace tout le clip ; un clip neuf n'a rien à remplacer. Le remplacement tour par tour d'une boucle de transport n'est pas fait : tous les tours d'une prise s'ajoutent à la plage entière. Quantification : le début des notes de la prise est ramené vers la grille **du clip** (sa position 0 est une ligne de la grille) avec `quantize_strength` ; la durée ne change pas ; une note ne sort jamais de son clip ; les notes déjà dans le clip ne bougent pas.
 
 ## 10. Ce que les agents peuvent en faire
 

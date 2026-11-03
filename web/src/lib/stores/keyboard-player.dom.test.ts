@@ -9,26 +9,45 @@ const entry = (id: string, track: unknown) => ({ id, index: 0, track })
 
 function setup(over: { selected?: ReturnType<typeof entry> | null; armed?: string[]; started?: boolean } = {}) {
   const sent: Command[] = []
+  const stamps: (number | undefined)[] = []
   const selected = over.selected === undefined ? entry('t1', midi('faulk.osc_synth')) : over.selected
   const project = { selected, armed: over.armed ?? [], tracks: selected ? [selected] : [] }
   const engine = { started: over.started ?? true }
   const ui = new UiStore('arrangement', 'devices')
-  const keys = new KeyboardPlayer(project as never, engine as never, ui, { run: (c: Command) => void sent.push(c) } as never)
-  return { keys, sent, project, ui }
+  const keys = new KeyboardPlayer(project as never, engine as never, ui, {
+    run: (c: Command) => void sent.push(c),
+    runPlayed: (c: Command, timeStamp?: number) => {
+      sent.push(c)
+      stamps.push(timeStamp)
+    },
+  } as never)
+  return { keys, sent, stamps, project, ui }
 }
 
 const key = (code: string, over: Record<string, unknown> = {}) =>
-  ({ code, repeat: false, ctrlKey: false, metaKey: false, altKey: false, defaultPrevented: false, target: document.body, ...over }) as unknown as KeyboardEvent
+  ({
+    code,
+    timeStamp: 1234.5,
+    repeat: false,
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    defaultPrevented: false,
+    target: document.body,
+    ...over,
+  }) as unknown as KeyboardEvent
 
 describe('the computer keyboard played from the shell (#361)', () => {
   it('plays the selected MIDI track whatever the view: the player knows no view', () => {
-    const { keys, sent } = setup()
+    const { keys, sent, stamps } = setup()
     keys.keyDown(key('KeyA'))
-    keys.keyUp(key('KeyA'))
+    keys.keyUp(key('KeyA', { timeStamp: 1400 }))
     expect(sent).toEqual([
       { type: 'live.input_note_on', note: 60, velocity: 100 },
       { type: 'live.input_note_off', note: 60 },
     ])
+    // Each with the time of its key event, for the recording (#499).
+    expect(stamps).toEqual([1234.5, 1400])
   })
 
   it('plays nothing before the audio started, with no target, in a text field, under a view shortcut or with a modifier', () => {

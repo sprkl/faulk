@@ -187,6 +187,7 @@ pub fn scenario() -> Result<Vec<Step>, MsgError> {
                 track: track(0),
                 pitch: 57,
                 velocity: 100,
+                at: None,
             },
         ],
         &mut steps,
@@ -207,6 +208,7 @@ pub fn scenario() -> Result<Vec<Step>, MsgError> {
                 track: track(slot),
                 pitch: 60 + (slot % 12) as u8,
                 velocity: 60,
+                at: None,
             });
         }
         submit(&msgs, &mut steps)?;
@@ -305,6 +307,7 @@ pub fn scenario() -> Result<Vec<Step>, MsgError> {
             track: track(3),
             pitch: 64,
             velocity: 90,
+            at: None,
         },
         M::TrackSetMix {
             track: track(0),
@@ -331,6 +334,7 @@ pub fn scenario() -> Result<Vec<Step>, MsgError> {
         track: track(40),
         pitch: 76,
         velocity: 80,
+        at: None,
     });
     submit(&msgs, &mut steps)?;
     steps.push(Step::Render(6));
@@ -349,6 +353,7 @@ pub fn scenario() -> Result<Vec<Step>, MsgError> {
     msgs.push(M::NoteOff {
         track: track(0),
         pitch: 57,
+        at: None,
     });
     msgs.push(M::AllNotesOff { track: track(3) });
     for slot in (2..48u32).step_by(2) {

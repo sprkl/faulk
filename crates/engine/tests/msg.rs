@@ -179,10 +179,12 @@ fn samples() -> Vec<ControlMsg> {
             track: t,
             pitch: 60,
             velocity: 100,
+            at: None,
         },
         ControlMsg::NoteOff {
             track: t,
             pitch: 60,
+            at: None,
         },
         ControlMsg::AllNotesOff { track: t },
     ]
@@ -431,6 +433,18 @@ fn an_rt_message_is_small_and_sent_by_move() {
 fn rich_samples() -> Vec<ControlMsg> {
     use engine::msg::{Curve, Span};
     let mut out = samples();
+    // Stamped live notes (#499): the stamp is 8 more bytes, read back exactly.
+    out.push(ControlMsg::NoteOn {
+        track: TrackSlot(3),
+        pitch: 61,
+        velocity: 90,
+        at: Some(u64::MAX - 7),
+    });
+    out.push(ControlMsg::NoteOff {
+        track: TrackSlot(3),
+        pitch: 61,
+        at: Some(0),
+    });
     out.push(ControlMsg::ClipNotesUpload {
         clip: ClipSlot(8),
         length: Tick(7680),
@@ -616,6 +630,7 @@ fn out_of_range_values_are_bad_payloads() {
         track: TrackSlot(0),
         pitch: 60,
         velocity: 1,
+        at: None,
     };
     assert_eq!(decode(&on, 4, &[128]), bad(Tag::NoteOn));
     let looped = ControlMsg::SetLoop {
@@ -749,6 +764,7 @@ fn the_encoder_refuses_what_the_decoder_would() {
                 track: TrackSlot(0),
                 pitch: 200,
                 velocity: 1,
+                at: None,
             },
             Tag::NoteOn,
         ),
@@ -775,4 +791,31 @@ fn the_encoder_refuses_what_the_decoder_would() {
         assert_eq!(msg.encode(0, 0, &mut out), tag(t), "{msg:?}");
         assert_eq!(out, vec![7], "nothing appended");
     }
+}
+
+/// #499: a live note's stamp is written only when there is one, so an unstamped note is the
+/// same bytes as before stamps existed (the recorded streams stay valid), and a stamped one
+/// is exactly 8 bytes longer.
+#[test]
+fn a_live_notes_stamp_adds_eight_bytes_and_only_when_present() {
+    let len = |msg: ControlMsg| {
+        let mut bytes = Vec::new();
+        msg.encode(0, 0, &mut bytes).unwrap();
+        Header::decode(&bytes, 0).unwrap().len
+    };
+    let on = |at| ControlMsg::NoteOn {
+        track: TrackSlot(1),
+        pitch: 60,
+        velocity: 100,
+        at,
+    };
+    let off = |at| ControlMsg::NoteOff {
+        track: TrackSlot(1),
+        pitch: 60,
+        at,
+    };
+    assert_eq!(len(on(None)), 6, "track, pitch, velocity: as before #499");
+    assert_eq!(len(on(Some(48_000))), 14);
+    assert_eq!(len(off(None)), 5);
+    assert_eq!(len(off(Some(48_000))), 13);
 }

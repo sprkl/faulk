@@ -80,6 +80,7 @@ impl Rig {
                 track: TrackSlot(slot),
                 pitch,
                 velocity: 127,
+                at: None,
             },
         ]);
     }

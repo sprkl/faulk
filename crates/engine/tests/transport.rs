@@ -651,3 +651,46 @@ fn a_sample_rate_change_keeps_the_playhead_and_delivers_every_tick_once() {
     rig.t.set_sample_rate(SampleRate::HZ_96000);
     assert_eq!(rig.t.position(), frozen);
 }
+
+/// #499: the anchors place a sample just behind the clock: the current anchor from its sample
+/// on, the previous one across a loop wrap or a tempo change, nothing before a cue.
+#[test]
+fn the_anchors_place_the_samples_behind_the_clock() {
+    // 48 kHz, 120 BPM: 25 samples per tick.
+    let mut rig = Rig::new(48_000);
+    rig.set_loop(0, 960);
+    rig.play(0);
+    // 200 blocks of 128 = 25 600 samples: one wrap at 24 000 (tick 960 back to 0).
+    for _ in 0..200 {
+        rig.block(128);
+    }
+    let a = rig.t.anchors();
+    assert_eq!(a.position_of(24_000), Some(0.0), "the wrap: the loop start");
+    assert_eq!(a.position_of(25_000), Some(40.0));
+    assert_eq!(
+        a.position_of(23_900),
+        Some(956.0),
+        "before the wrap: the loop's end"
+    );
+    assert_eq!(a.position_of(0), Some(0.0), "the play's anchor");
+    assert_eq!(a.earliest(), 0);
+    // A tempo change: the samples before it keep the old tempo.
+    rig.tempo(60.0);
+    rig.block(128);
+    let b = rig.t.anchors();
+    assert_eq!(
+        b.position_of(25_000),
+        Some(40.0),
+        "120 BPM behind the change"
+    );
+    assert_eq!(b.position_of(25_600 + 50), Some(64.0 + 1.0), "60 BPM after");
+    assert_eq!(b.position_of(23_900), None, "two anchors back: not covered");
+    assert_eq!(b.earliest(), 24_000);
+    // A seek forgets everything behind it.
+    rig.seek(480);
+    rig.block(128);
+    let c = rig.t.anchors();
+    assert_eq!(c.earliest(), 25_728);
+    assert_eq!(c.position_of(25_727), None);
+    assert_eq!(c.position_of(25_728), Some(480.0));
+}

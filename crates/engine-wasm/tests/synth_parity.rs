@@ -66,8 +66,13 @@ fn scenario() -> Vec<Step> {
         track: t,
         pitch,
         velocity,
+        at: None,
     };
-    let off = |pitch: u8| M::NoteOff { track: t, pitch };
+    let off = |pitch: u8| M::NoteOff {
+        track: t,
+        pitch,
+        at: None,
+    };
     const MIXED: &[usize] = &[128, 37, 2048, 1, 500];
 
     submit(
