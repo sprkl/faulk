@@ -283,6 +283,14 @@ export function gotoShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'met
   return (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && !event.repeat && event.key.toLowerCase() === 'g' && !isTextTarget(event.target)
 }
 
+/**
+ * "Repeat until" asked by the keyboard in the arrangement (#555): Ctrl or Cmd + Shift + R, not from a text field. The
+ * browser reloads the page on it, so the arrangement takes the key whenever it is shown, whatever has the focus.
+ */
+export function repeatShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'target'>): boolean {
+  return (event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'r' && !isTextTarget(event.target)
+}
+
 /** Undo or redo asked by the keyboard (Ctrl or Cmd + Z, Shift for redo, Ctrl + Y), or null; never inside a text field. */
 export function historyShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'target'>): 'undo' | 'redo' | null {
   if (!(event.ctrlKey || event.metaKey) || event.altKey || isTextTarget(event.target)) return null

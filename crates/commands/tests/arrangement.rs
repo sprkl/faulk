@@ -195,6 +195,7 @@ fn no_arrangement_command_touches_a_lane() {
         "arrangement.split",
         "arrangement.delete",
         "arrangement.duplicate",
+        "arrangement.repeat",
         "arrangement.place_from_slot",
         "arrangement.place_scene",
         "arrangement.restore",
@@ -537,6 +538,70 @@ fn a_split_gives_the_right_part_its_offset_through_the_loop() {
 }
 
 #[test]
+fn a_repeat_lays_linked_copies_end_to_end_and_shortens_the_last_one() {
+    let f = fx();
+    let mut s = f.state.clone();
+    let clips = s.project.tracks[&f.track].clips.len();
+    // B is [3840, 5760) with offset 960 of the looped clip: the copies follow at 5760, 7680,
+    // 9600 and 11520, and the last one is cut at 13000 (it would end at 13440).
+    let (out, _) = ok(
+        &mut s,
+        arrangement::Command::Repeat {
+            placement: f.b.clone(),
+            until: Tick(13000),
+        },
+    );
+    let arrangement::Output::Repeat {
+        placements,
+        overwritten,
+    } = out
+    else {
+        panic!()
+    };
+    let track = &s.project.tracks[&f.track];
+    assert_eq!(placements.len(), 4);
+    assert_eq!(track.clips.len(), clips, "a repeat makes no clip");
+    for id in &placements {
+        assert_eq!(track.placements[id].clip, f.looped, "linked: the same clip");
+    }
+    let starts: Vec<i64> = placements
+        .iter()
+        .map(|id| track.placements[id].start.get())
+        .collect();
+    assert_eq!(starts, [5760, 7680, 9600, 11520]);
+    let Span::Ticks { length, offset } = track.placements[&placements[3]].span else {
+        panic!()
+    };
+    assert_eq!((length.get(), offset.get()), (13000 - 11520, 960));
+    // C sat at [7680, 11520): the second and third copies cover it whole, so it is gone and counted.
+    assert!(overwritten >= 1);
+    assert!(!track.placements.contains_key(&f.c));
+}
+
+#[test]
+fn a_repeat_is_one_history_entry_and_undo_brings_back_what_it_covered() {
+    let f = fx();
+    let mut s = f.state.clone();
+    let before = s.project.clone();
+    let mut ctx = context();
+    let outcome = run(
+        &a(arrangement::Command::Repeat {
+            placement: f.a.clone(),
+            until: Tick(3840 * 6),
+        }),
+        &mut s,
+        &mut ctx,
+    )
+    .unwrap();
+    assert_ne!(s.project, before);
+    let Undo::Inverse(inverse) = outcome.undo else {
+        panic!("no inverse")
+    };
+    inverse.apply(&mut s, &mut ctx).unwrap();
+    assert_eq!(s.project, before, "one undo removes every copy");
+}
+
+#[test]
 fn an_independent_copy_is_a_new_clip_and_a_linked_copy_is_a_new_placement() {
     let f = fx();
     let mut s = f.state.clone();
@@ -860,6 +925,40 @@ fn audio_is_refused_and_so_is_everything_that_leaves_the_timeline() {
         linked: false,
         by: Some(Tick(-1)),
     });
+    // Repeat: up to the end of the placement or before it, past the timeline, an audio
+    // placement, an unknown one, and so many copies that the track's limit is passed.
+    invalid(C::Repeat {
+        placement: f.a.clone(),
+        until: Tick(3840),
+    });
+    invalid(C::Repeat {
+        placement: f.a.clone(),
+        until: Tick(100),
+    });
+    invalid(C::Repeat {
+        placement: f.a.clone(),
+        until: Tick(::project::limits::MAX_TICK + 1),
+    });
+    assert!(matches!(
+        refused(
+            &f,
+            C::Repeat {
+                placement: unknown.clone(),
+                until: Tick(99999)
+            }
+        ),
+        CommandError::NotFound { .. }
+    ));
+    assert!(matches!(
+        refused(
+            &f,
+            C::Repeat {
+                placement: f.a.clone(),
+                until: Tick(::project::limits::MAX_TICK)
+            }
+        ),
+        CommandError::Limit { .. }
+    ));
     // Resize: the end before the start, the start past the end, before the clip's start.
     invalid(C::Resize {
         placement: f.a.clone(),
