@@ -98,3 +98,60 @@ test('the whole song in one zoom, and a long song opens on 32 bars', async ({ pa
   await expect.poll(async () => Math.round(await barsShown(page))).toBe(61)
   expect(errors).toEqual([])
 })
+
+test('Ctrl+G puts the playhead on a bar or a bar.beat from any view; Alt+arrows move a focused marker one grid step (#554)', async ({ page }) => {
+  const { errors } = watch(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await start(page)
+  await expect.poll(async () => Number(await grid(page).getAttribute('data-draw-count'))).toBeGreaterThan(0)
+  const position = page.getByTestId('transport-position')
+  const dialog = page.getByTestId('goto-dialog')
+
+  // A bar and a beat; the field is focused, Enter goes, the dialog closes.
+  await page.keyboard.press('Control+g')
+  await expect(dialog).toBeVisible()
+  await expect(page.getByTestId('goto-field')).toBeFocused()
+  await page.keyboard.type('5.3')
+  await page.keyboard.press('Enter')
+  await expect(dialog).toBeHidden()
+  await expect(position).toContainText('5.3')
+
+  // A text that means nothing is said and keeps the dialog open; Escape closes it and the playhead stays.
+  await page.keyboard.press('Control+g')
+  await page.keyboard.type('5.9')
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('goto-error')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(position).toContainText('5.3')
+
+  // In another view too (the mixer), a bar alone goes to its first beat.
+  await page.keyboard.press('Alt+3')
+  await page.keyboard.press('Control+g')
+  await page.keyboard.type('2')
+  await page.keyboard.press('Enter')
+  await expect(position).toContainText('2.1')
+
+  // The playhead placed by Ctrl+G is where the keyboard acts: Alt+K adds a marker at that bar, not at the old stop position.
+  await page.keyboard.press('Alt+1')
+  await page.keyboard.press('Control+g')
+  await page.keyboard.type('7.2')
+  await page.keyboard.press('Enter')
+  await expect(position).toContainText('7.2')
+  await page.keyboard.press('Alt+K')
+  await expect(page.getByTestId('arr-marker')).toHaveCount(1)
+  await expect(page.getByTestId('arr-marker')).toHaveAccessibleName(/bar 7$/)
+
+  // A focused marker moves by the snap step, right and back; its name is in the live region.
+  test.skip((await hooks(page)) !== 'function', 'the command hook exists in the dev server only')
+  const tickOf = async () => Object.values((await view(page)).project.markers ?? {}).map((m) => m.tick)
+  const [before] = await tickOf()
+  await page.getByTestId('arr-marker').focus()
+  await page.keyboard.press('Alt+ArrowRight')
+  await expect.poll(async () => (await tickOf())[0]).toBeGreaterThan(before!)
+  await expect(page.getByTestId('arr-said')).toHaveText(/Marker Section 1 moved to bar/)
+  await page.keyboard.press('Alt+ArrowLeft')
+  await expect.poll(async () => (await tickOf())[0]).toBe(before)
+  await expect(page.getByTestId('arr-marker')).toBeFocused()
+  expect(errors).toEqual([])
+})

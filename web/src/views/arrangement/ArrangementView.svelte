@@ -56,7 +56,7 @@
   import { PPQ, barTicks, beatTicks } from '../transport/time'
   import { itemAt, moveCursor, rovingKey, step as stepItem, timelineCursorStep, zoomKey, type Cursor, type Direction, type RovingKey } from '../../lib/roving'
   import { CLIP_DRAG_TYPE, clipTrackType, placeCommand, poolOf } from '../../lib/clip-pool'
-  import { addMarker, deleteMarker, renameMarker } from '../../lib/arrangement-commands'
+  import { addMarker, deleteMarker, moveMarker, renameMarker } from '../../lib/arrangement-commands'
   import {
     blocksOf,
     clampScrollY,
@@ -499,17 +499,23 @@
   function addMarkerHere() {
     run(addMarker(Math.floor(headTick() / bar) * bar))
   }
+  /** Puts the playhead on a tick (`transport.seek`); the next marker jump starts from there even before the engine reports it. */
+  function placeHead(tick: number) {
+    run(seek(tick))
+    jumpFrom = shownTick
+    jumpedTo = tick
+    // A seek the engine does not report (stopped elsewhere, refused) must not hold the next jump for ever.
+    clearTimeout(jumpTimer)
+    jumpTimer = setTimeout(() => (jumpedTo = null), 1000)
+  }
+  /** Bar and beat (from 1) of a tick, for what the live region says. */
+  const barBeat = (tick: number) => ({ bar: Math.floor(tick / bar) + 1, beat: Number(((tick % bar) / beatTicks(signature) + 1).toFixed(2)) })
   function jumpMarker(direction: 1 | -1) {
     const from = headTick()
     const to = markerJump(markers, from, direction, lastMarker)
     if (!to) return
-    run(seek(to.tick))
+    placeHead(to.tick)
     lastMarker = to.id
-    jumpFrom = shownTick
-    jumpedTo = to.tick
-    // A seek the engine does not report (stopped elsewhere, refused) must not hold the next jump for ever.
-    clearTimeout(jumpTimer)
-    jumpTimer = setTimeout(() => (jumpedTo = null), 1000)
     if (stageW > 0) view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: to.tick - (stageW / shown.pxPerTick) * PAGE_LEAD }, stageW, totalTicks)
     announce(t('arrangement.markerSaid', { name: to.name, bar: Math.floor(to.tick / bar) + 1 }))
   }
@@ -523,6 +529,22 @@
     if (marker && r.text.trim() && r.text.trim() !== marker.name) run(renameMarker(r.id, r.text))
   }
   function onMarkerKey(event: KeyboardEvent, marker: MarkerView) {
+    // Alt+Left and Alt+Right move the marker by the snap step (#554), so a section can be placed without the mouse.
+    if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+      event.preventDefault()
+      event.stopPropagation()
+      const to = Math.max(0, marker.tick + (event.key === 'ArrowLeft' ? -nudge : nudge))
+      if (to === marker.tick) return announce(t('arrangement.saidCannotMove'))
+      run(moveMarker(marker.id, to))
+      // Out of sight, the view follows it: the button would be removed with the focus on it.
+      const [from, end] = visibleRange(shown, stageW)
+      if (stageW > 0 && (to < from || to > end)) {
+        follow = false
+        view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: to - (stageW / shown.pxPerTick) * PAGE_LEAD }, stageW, totalTicks)
+      }
+      announce(t('arrangement.saidMarkerMoved', { name: marker.name, ...barBeat(to) }))
+      return
+    }
     if (event.key === 'F2') {
       event.preventDefault()
       renaming = { id: marker.id, text: marker.name }
@@ -1357,6 +1379,19 @@
       else if ((event.target as HTMLElement).dataset.cursor !== undefined) void focusCursor()
       return
     }
+    // Shift+Enter on the free cursor puts the playhead there (#554); the roving keys have no Shift+Enter.
+    if (
+      event.key === 'Enter' &&
+      event.shiftKey &&
+      !event.altKey &&
+      !event.ctrlKey &&
+      !event.metaKey &&
+      (event.target as HTMLElement).dataset.cursor !== undefined
+    ) {
+      event.preventDefault()
+      event.stopPropagation()
+      return putHeadAtCursor()
+    }
     const key = rovingKey(event)
     if (key && (event.target as HTMLElement).dataset.cursor !== undefined) return onCursorKey(event, key)
     // Page Up and Page Down mean a velocity: a clip has none.
@@ -1469,7 +1504,8 @@
   const cursorPos = $derived.by<Cursor | null>(() => {
     if (entries.length === 0) return null
     const last = Math.max(0, totalBars * bar - 1)
-    if (cursorAt) return { row: Math.min(cursorAt.row, entries.length - 1), tick: Math.min(cursorAt.tick, last) }
+    // Row -1 is the ruler (#554): where Enter puts the playhead.
+    if (cursorAt) return { row: Math.max(-1, Math.min(cursorAt.row, entries.length - 1)), tick: Math.min(cursorAt.tick, last) }
     const row = Math.max(
       0,
       entries.findIndex((e) => e.id === project.selected?.id),
@@ -1478,13 +1514,23 @@
   })
   /** The cursor's cell: one bar wide (the clip Enter would create), on its track's row. */
   const cursorCell = $derived.by(() => {
-    if (!cursorPos) return null
+    if (!cursorPos || cursorPos.row < 0) return null
     const top = laneTop(layout, cursorPos.row, y0) + BLOCK_INSET
     const height = Math.max(4, laneHeight(layout, cursorPos.row) - 2 * BLOCK_INSET)
     const left = tickToX(cursorPos.tick, shown)
     return { left, top, width: Math.max(4, tickToX(cursorPos.tick + bar, shown) - left), height }
   })
+  /** The ruler's cell (#554): the cursor's tick, over the ruler, one bar wide. */
+  const rulerCell = $derived.by(() => {
+    if (cursorPos?.row !== -1 || stageW === 0) return null
+    const left = tickToX(cursorPos.tick, shown)
+    return { left, width: Math.max(4, tickToX(cursorPos.tick + bar, shown) - left) }
+  })
   const cursorText = $derived.by(() => {
+    if (cursorPos?.row === -1) {
+      const { bar: at, beat } = barBeat(cursorPos.tick)
+      return cursorPos.tick % bar === 0 ? t('arrangement.rulerBar', { bar: at }) : t('arrangement.rulerBeat', { bar: at, beat })
+    }
     const entry = cursorPos ? entries[cursorPos.row] : undefined
     if (!cursorPos || !entry) return ''
     const into = cursorPos.tick % bar
@@ -1502,13 +1548,24 @@
       follow = false
       view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: at.tick - (stageW / shown.pxPerTick) * PAGE_LEAD }, stageW, totalTicks)
     }
-    const top = layout.trackTop[at.row] ?? 0
-    const height = laneHeight(layout, at.row)
-    const room = stageH - RULER_HEIGHT
-    if (top < y0) scrollY = clampScrollY(top, layout.total, stageH)
-    else if (top + height > y0 + room) scrollY = clampScrollY(top + height - room, layout.total, stageH)
+    // The ruler row does not scroll with the tracks.
+    if (at.row >= 0) {
+      const top = layout.trackTop[at.row] ?? 0
+      const height = laneHeight(layout, at.row)
+      const room = stageH - RULER_HEIGHT
+      if (top < y0) scrollY = clampScrollY(top, layout.total, stageH)
+      else if (top + height > y0 + room) scrollY = clampScrollY(top + height - room, layout.total, stageH)
+    }
     await tick()
-    itemsEl?.querySelector<HTMLElement>('[data-cursor]')?.focus()
+    stage?.querySelector<HTMLElement>('[data-testid="arr-cursor"]')?.focus()
+  }
+
+  /** The playhead goes to the free cursor's tick (`transport.seek`), and the live region says where. */
+  function putHeadAtCursor() {
+    const at = cursorPos
+    if (!at) return
+    placeHead(at.tick)
+    announce(t('arrangement.saidPlayhead', barBeat(at.tick)))
   }
 
   function onCursorKey(event: KeyboardEvent, key: NonNullable<RovingKey>) {
@@ -1518,6 +1575,18 @@
     event.preventDefault()
     event.stopPropagation()
     if (key.kind === 'focus' || key.kind === 'extend') {
+      // Up from the first track reaches the ruler row, Down from it comes back (#554).
+      if (key.direction === 'up' && at.row <= 0 && key.kind === 'focus') {
+        cursorAt = { row: -1, tick: at.tick }
+        void focusCursor()
+        return
+      }
+      if (key.direction === 'down' && at.row === -1) {
+        cursorAt = { row: 0, tick: at.tick }
+        void focusCursor()
+        return
+      }
+      if (at.row === -1 && (key.direction === 'up' || key.direction === 'down')) return
       cursorAt = moveCursor(
         at,
         key.direction,
@@ -1529,6 +1598,8 @@
       return
     }
     if (key.kind !== 'open') return
+    // Enter on the ruler row puts the playhead at the cursor's tick (#554); Shift+Enter does it on a track's row (`onItemKey`).
+    if (at.row === -1) return putHeadAtCursor()
     const under = itemAt(items, at)
     const entry = entries[at.row]
     if (under) {
@@ -2016,6 +2087,35 @@
           {/if}
         {/each}
       </div>
+      <!-- The ruler row of the keyboard cursor (#554): one cell, where Enter puts the playhead. -->
+      <!-- The group only relays the keys of its one focusable cell, as the clips' grid does. -->
+      <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+      <div
+        class="ruler-items"
+        role="group"
+        aria-label={t('arrangement.rulerRow')}
+        style:height="{RULER_HEIGHT}px"
+        onkeydown={onItemKey}
+        onfocusin={onItemsFocus}
+        onfocusout={onItemsFocusOut}
+      >
+        {#if rulerCell}
+          <div
+            class="item cursor"
+            role="button"
+            tabindex={cursorTab ? 0 : -1}
+            aria-label={cursorText}
+            data-cursor=""
+            data-testid="arr-cursor"
+            data-row="-1"
+            data-tick={cursorPos?.tick}
+            style:left="{rulerCell.left}px"
+            style:top="0px"
+            style:width="{rulerCell.width}px"
+            style:height="{RULER_HEIGHT}px"
+          ></div>
+        {/if}
+      </div>
       <p class="sr-only" aria-live="polite" data-testid="arr-said" data-n={said.n}>{said.text}</p>
       {#if limitNote}
         <p class="limit-note" role="status" data-testid="value-note" style:left="{limitNote.x}px" style:top="{limitNote.y + 14}px">{limitNote.text}</p>
@@ -2387,6 +2487,14 @@
     left: 0;
     right: 0;
     bottom: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .ruler-items {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
     overflow: hidden;
     pointer-events: none;
   }
