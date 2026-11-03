@@ -704,8 +704,16 @@ export class ProjectStorage {
     return this.enqueue(() => this.openHandle(entry.handle, { forgetIfGone: id }))
   }
 
+  /** A reopen under way: a second click on Retry meanwhile joins it instead of finding nothing to reopen. */
+  private reopening: Promise<boolean> | null = null
+
   /** The banner after a reload: the project that was open comes back with the user's click. */
-  async reopenLast(): Promise<boolean> {
+  reopenLast(): Promise<boolean> {
+    this.reopening ??= this.runReopenLast().finally(() => (this.reopening = null))
+    return this.reopening
+  }
+
+  private async runReopenLast(): Promise<boolean> {
     // The project that would not open comes second: its notice offers to try it again (#504).
     const last = this.reopen ?? this.failedReopen
     if (!last) {
@@ -715,10 +723,20 @@ export class ProjectStorage {
     // A retry of a project that already failed keeps its actions through a permission notice too; a first try (the reopen
     // banner) does not: refusing the browser's prompt there is the user's own answer.
     const retrying = this.failedReopen !== null
+    const before = { notice: this.shownNotice, vars: this.noticeVars, open: this.noticeOpen, failed: this.failedReopen }
     // A notice from before is not this attempt's: only one that this attempt raises may carry the actions.
     this.notice = null
     const opened = await (last.kind === 'browser' ? this.openBrowserProject(last.id) : this.openRecent(last.id))
-    if (!opened) this.markReopenFailed(last, retrying)
+    if (!opened) {
+      this.markReopenFailed(last, retrying)
+      // The attempt ended with no notice of its own (the question about unsaved changes was declined): the notice and its actions stay.
+      if (this.shownNotice === null && before.failed) {
+        this.notice = before.notice
+        this.noticeVars = before.vars
+        this.noticeOpen = before.open
+        this.failedReopen = before.failed
+      }
+    }
     return opened
   }
 

@@ -1052,6 +1052,25 @@ describe('the start of a page', () => {
     expect(w.storage.failedReopen).toBeNull()
   })
 
+  it('keeps the notice and its actions when a retry is declined at the question about unsaved changes, and joins a second click (#504)', async () => {
+    const { w } = await remembered('granted')
+    w.locks.add('abc')
+    await w.storage.restore()
+    expect(w.storage.notice).toBe('storage.locked')
+    w.locks.clear()
+    w.edit()
+    const first = w.storage.reopenLast()
+    const second = w.storage.reopenLast()
+    await settle()
+    expect(w.storage.confirm).toEqual({ action: 'open', name: null })
+    w.storage.respond(false)
+    expect(await first).toBe(false)
+    expect(await second).toBe(false)
+    expect(w.storage.notice).toBe('storage.locked')
+    expect(w.storage.failedReopen).toEqual({ id: 'last', name: 'last', kind: 'folder' })
+    expect(w.host.opened).toEqual([])
+  })
+
   it('does not offer the actions when the user refuses the permission on the first try of the reopen banner (#504)', async () => {
     const { w } = await remembered('prompt')
     await w.storage.restore()

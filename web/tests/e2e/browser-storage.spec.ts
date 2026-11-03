@@ -464,7 +464,7 @@ test.describe('the project of last time would not reopen (#504)', () => {
       await expect(notice).toHaveCount(0)
       // The refused Worker is the only error the page logs.
       expect(errors).toEqual([])
-      expect(reloadedErrors.filter((e) => !/ERR_FAILED|storage\/worker|worker-|project store|Worker/i.test(e))).toEqual([])
+      expect(reloadedErrors.filter((e) => !/ERR_FAILED|Failed to load resource/i.test(e))).toEqual([])
     })
   }
 })
