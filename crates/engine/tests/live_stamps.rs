@@ -317,6 +317,31 @@ fn a_note_played_just_before_a_loop_wrap_lands_at_the_end_of_the_loop() {
     assert_eq!(note.length, Tick(((96 + 48) as f64 / SPT).round() as i64));
 }
 
+/// #542: the web page stamps the frame heard plus the output latency (42 ms), and moves the take
+/// back by the same estimate (`record.commit_take`, `shift_ms`). A note heard 20 ms before the
+/// loop's end is stamped 22 ms after the wrap, so the engine places it near the loop's START:
+/// the tick `record.commit_take` must bring back to the loop's end (`crates/commands/tests/record.rs`).
+#[test]
+fn a_note_heard_just_before_the_loop_end_is_placed_after_the_wrap_by_the_latency() {
+    let mut rig = Rig::new(true);
+    rig.send(&[M::SetLoop {
+        region: LoopRegion::new(Tick(0), Tick(4 * PPQ)),
+    }]);
+    let zero = rig.record(0);
+    let wrap = zero + 4 * BEAT;
+    // Heard 20 ms (960 samples) before the end; the stamp adds 42 ms (2016 samples).
+    let stamp = wrap - 960 + 2016;
+    rig.until(wrap + 3 * BLOCK as u64);
+    rig.on(60, Some(rig.host(stamp)));
+    rig.blocks(1);
+    rig.off(60, Some(rig.host(stamp + 480)));
+    rig.blocks(1);
+    let note = rig.notes()[0].note;
+    // 1 056 samples past the wrap: 42.24 ticks, floored.
+    assert_eq!(note.start, Tick(42));
+    assert_eq!(rig.e.recorder().unplaced(), 0);
+}
+
 #[test]
 fn a_tempo_change_between_the_note_and_its_block_keeps_the_old_tempo_for_it() {
     let mut rig = Rig::new(true);
