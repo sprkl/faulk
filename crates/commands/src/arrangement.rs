@@ -111,6 +111,15 @@ pub struct PlacementRecord {
     pub offset: Tick,
 }
 
+/// One placement and the MIDI track it moves to (`arrangement.move_to_track`).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TrackMove {
+    pub placement: PlacementId,
+    /// The MIDI track the placement ends in; its own track leaves it where it is.
+    pub track: TrackId,
+}
+
 /// A MIDI clip that `arrangement.restore` brings back, with its identifier.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -195,6 +204,36 @@ domain! {
         placements: Vec<PlacementId>,
         by: Tick,
     } => {
+        /// How many other placements were carved.
+        overwritten: u32,
+    };
+
+    /// Move placements to other MIDI tracks, in one command and one history entry, and
+    /// optionally in time too (`by` ticks, default 0, negative is earlier). `moves` pairs
+    /// each placement with the track it ends in (its own track keeps it there): a selection
+    /// of several tracks can move one track down together, each clip to its own target.
+    /// The clip of a moved placement goes with it: the target track gets a copy of the
+    /// clip (one copy per source clip and target track, so placements that were linked and
+    /// move together stay linked; same name, colour, length, loop and notes, not in the
+    /// launch grid), and a source clip left with no placement and no grid slot is removed
+    /// from its track (a clip in the grid, or one still placed elsewhere, stays). The
+    /// moved placements get new identifiers in another track (`placements`, in the order of
+    /// `moves`) and keep their length and offset; they win on overlap in the target (the
+    /// placements they cover are carved, `overwritten` counts them). Refused when `moves`
+    /// is empty, names a placement twice or an unknown one, names an unknown track or one
+    /// that is not a MIDI track (audio clips come from import), when a placement is an
+    /// audio one, when one would start before tick 0 or end past 2^40, or on a limit.
+    /// Nothing moves (and no history entry is made) when every placement stays in its
+    /// track and `by` is 0. Undo: `arrangement.restore`, which puts the placements and the
+    /// removed clips back with their identifiers and removes the copies.
+    "arrangement.move_to_track" (kind = "edit", undo = "inverse", destructive = false)
+    MoveToTrack {
+        moves: Vec<TrackMove>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by: Option<Tick>,
+    } => {
+        /// The placements after the move, in the order of `moves`.
+        placements: Vec<PlacementId>,
         /// How many other placements were carved.
         overwritten: u32,
     };
@@ -1052,6 +1091,9 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             })
         }
         Command::Move { placements, by } => move_placements(state, ctx, placements, *by),
+        Command::MoveToTrack { moves, by } => {
+            move_to_track(state, ctx, moves, by.map_or(0, Tick::get))
+        }
         Command::Resize {
             placement,
             edge,
@@ -1265,6 +1307,157 @@ fn move_placements(
         works.insert(track_id, work);
     }
     commit(state, works, || Output::Move { overwritten })
+}
+
+/// `arrangement.move_to_track`: the placements are lifted, then put down in their target
+/// track (carving what they cover), with a copy of their clip when the track is another.
+fn move_to_track(
+    state: &mut State,
+    ctx: &mut Context,
+    moves: &[TrackMove],
+    by: i64,
+) -> Result<Out, CommandError> {
+    let project = &state.project;
+    let ids: Vec<PlacementId> = moves.iter().map(|m| m.placement.clone()).collect();
+    let groups = group_by_track(project, &ids, "moves")?;
+    let mut works = Works::new();
+    for track_id in groups.keys() {
+        let track = project
+            .tracks
+            .get(track_id)
+            .ok_or_else(|| not_found("track", track_id))?;
+        if track.kind != project::TrackKind::Midi {
+            return Err(invalid(
+                "moves",
+                format!(
+                    "track {track_id} is an audio track: its placements are not moved until the audio import supports it"
+                ),
+            ));
+        }
+        works.insert(track_id.clone(), TrackWork::new(project, track_id)?);
+    }
+    for m in moves {
+        let target = project
+            .tracks
+            .get(&m.track)
+            .ok_or_else(|| not_found("track", &m.track))?;
+        if target.kind != project::TrackKind::Midi {
+            return Err(invalid(
+                "moves",
+                format!(
+                    "track {} is not a MIDI track: a MIDI clip only moves to a MIDI track",
+                    m.track
+                ),
+            ));
+        }
+        if !works.contains_key(&m.track) {
+            works.insert(m.track.clone(), TrackWork::new(project, &m.track)?);
+        }
+    }
+    // Lift them all first: they may land on each other's old place.
+    let mut lifted = Vec::new();
+    for m in moves {
+        let source = track_of(project, &m.placement)?;
+        let p = works
+            .get_mut(&source)
+            .and_then(|w| w.placements.remove(&m.placement))
+            .ok_or_else(|| not_found("placement", &m.placement))?;
+        lifted.push((m, source, p));
+    }
+    let mut copies: BTreeMap<(TrackId, ClipId), ClipId> = BTreeMap::new();
+    let mut left: Vec<(TrackId, ClipId)> = Vec::new();
+    let mut moved_ids = Vec::new();
+    let mut overwritten = 0;
+    let mut new_clips = 0usize;
+    let mut notes_added = 0usize;
+    let notes_in_project = project_notes(project);
+    for (m, source, p) in lifted {
+        let (start, length, offset) = extent(&p)?;
+        let start = start
+            .checked_add(by)
+            .ok_or_else(|| invalid("by", "the placement leaves the timeline"))?;
+        check_extent(start, length, "by")?;
+        let stays = m.track == source;
+        let clip = if stays {
+            p.clip.clone()
+        } else if let Some(copy) = copies.get(&(m.track.clone(), p.clip.clone())) {
+            copy.clone()
+        } else {
+            let from = project
+                .tracks
+                .get(&source)
+                .and_then(|t| t.clips.get(&p.clip))
+                .ok_or_else(|| not_found("clip", &p.clip))?;
+            let (_, _, notes) = midi_ref(from)?;
+            notes_added = notes_added.saturating_add(notes.len());
+            check_note_limits(notes.len(), notes_in_project.saturating_add(notes_added))?;
+            let target = project
+                .tracks
+                .get(&m.track)
+                .ok_or_else(|| not_found("track", &m.track))?;
+            let geo = works.get(&source).and_then(|w| w.geo.get(&p.clip)).copied();
+            let work = works
+                .get_mut(&m.track)
+                .ok_or_else(|| not_found("track", &m.track))?;
+            check_total(
+                "clips per track",
+                target.clips.len(),
+                work.new_clips.len() + 1,
+                MAX_CLIPS_PER_TRACK,
+            )?;
+            check_total(
+                "clips",
+                project.counts().clips,
+                new_clips + 1,
+                project::limits::MAX_CLIPS,
+            )?;
+            new_clips += 1;
+            let copy = ClipId::generate(&mut ctx.ids);
+            let mut copied = from.clone();
+            copied.slot = None;
+            work.new_clips.insert(copy.clone(), copied);
+            if let Some(geo) = geo {
+                work.geo.insert(copy.clone(), geo);
+            }
+            copies.insert((m.track.clone(), p.clip.clone()), copy.clone());
+            left.push((source.clone(), p.clip.clone()));
+            copy
+        };
+        let work = works
+            .get_mut(&m.track)
+            .ok_or_else(|| not_found("track", &m.track))?;
+        overwritten += work.carve(&mut ctx.ids, start, start + length)?;
+        let id = if stays {
+            m.placement.clone()
+        } else {
+            PlacementId::generate(&mut ctx.ids)
+        };
+        work.put(id.clone(), &clip, start, length, offset);
+        moved_ids.push(id);
+    }
+    // A clip that no placement uses any more and that no slot holds goes with its placements.
+    for (source, clip) in left {
+        let held = project
+            .tracks
+            .get(&source)
+            .and_then(|t| t.clips.get(&clip))
+            .is_some_and(|c| c.slot.is_some());
+        let Some(work) = works.get_mut(&source) else {
+            continue;
+        };
+        if held
+            || work.gone_clips.contains(&clip)
+            || work.placements.values().any(|p| p.clip == clip)
+        {
+            continue;
+        }
+        work.geo.remove(&clip);
+        work.gone_clips.push(clip);
+    }
+    commit(state, works, || Output::MoveToTrack {
+        placements: moved_ids,
+        overwritten,
+    })
 }
 
 fn resize(
