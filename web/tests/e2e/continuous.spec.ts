@@ -92,16 +92,16 @@ test('the mixer fader: the magnet holds 0 dB, Ctrl passes it, reset is one undo 
   await expect(item).toContainText('Default value')
   await expect(item).toContainText('0.0 dB')
   await item.click()
-  await expect(page.getByTestId('value-menu')).toHaveCount(0)
+  await expect(page.getByTestId('context-menu')).toHaveCount(0)
   await expect(fader).toHaveAttribute('aria-valuetext', '0.0 dB')
   await page.keyboard.press('Control+z')
   await expect(fader).toHaveAttribute('aria-valuetext', '−6.0 dB')
 
   // Escape closes the menu and changes nothing.
   await fader.click({ button: 'right' })
-  await expect(page.getByTestId('value-menu')).toBeVisible()
+  await expect(page.getByTestId('context-menu')).toBeVisible()
   await page.keyboard.press('Escape')
-  await expect(page.getByTestId('value-menu')).toHaveCount(0)
+  await expect(page.getByTestId('context-menu')).toHaveCount(0)
   await expect(fader).toHaveAttribute('aria-valuetext', '−6.0 dB')
 
   // Delete puts it back too.

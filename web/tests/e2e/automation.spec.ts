@@ -176,7 +176,7 @@ test('automation: three points drawn by clicks, played into the device panel, ed
   await page.mouse.up()
   await expect(page.getByTestId('arr-count')).toContainText('3')
   await page.mouse.click(h.x(BAR / 2), h.y(0.2), { button: 'right' })
-  await expect(page.getByTestId('point-menu')).toBeVisible()
+  await expect(page.getByTestId('context-menu')).toBeVisible()
   await page.getByTestId('point-menu-step').click()
   expect(pointsOf((await lanes(page))[0]![1]).every((p) => p.shape === 'step')).toBe(true)
   await page.keyboard.press('Delete')
