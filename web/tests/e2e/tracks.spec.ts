@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // UI-2 (#106): the track list and its headers in a real browser. Real worklet, engine and project
 // core: every action below goes through the dispatcher as a command, and the headers show what the
@@ -79,7 +79,7 @@ for (const lang of ['en', 'fr'] as const) {
       await expect(page.getByTestId('tracks-waiting')).toBeVisible()
       await expect(page.getByTestId('track-header')).toHaveCount(0)
       await page.getByTestId('engine-state').getByRole('button').click()
-      await expect(page.getByTestId('engine-mode')).toBeVisible()
+      await engineUp(page)
 
       // The project starts with one oscillator track, named and selected; tracks created without a name show a translated default.
       await expect(page.getByTestId('track-header')).toHaveCount(1)

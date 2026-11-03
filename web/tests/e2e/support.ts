@@ -21,6 +21,17 @@ const REFUSED_PROBE = new RegExp(String.raw`^WebSocket connection to 'ws://127\.
  */
 export const BOOT = { timeout: 30_000 }
 
+/**
+ * Waits for the engine pill of the DAW: the page has started its engine, in any mode, or in `mode` ('Web', 'Boost') when
+ * given. Every spec that opens `/app` and waits for the engine goes through it, so none holds the default 5 s of
+ * `expect` on a boot (#539); see `BOOT`.
+ */
+export async function engineUp(page: Page, mode?: string) {
+  const pill = page.getByTestId('engine-mode')
+  if (mode === undefined) await expect(pill).toBeVisible(BOOT)
+  else await expect(pill).toContainText(mode, BOOT)
+}
+
 /** Collects console errors and uncaught exceptions, and every request the page makes. */
 export function watch(page: Page) {
   const errors: string[] = []

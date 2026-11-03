@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // AR-4 (#80): the arrangement view in a real browser, with the real worklet, engine and project core. Every
 // gesture reaches the project as an arrangement command (a refused command would be a console warning, which
@@ -66,7 +66,7 @@ test('arrangement view: place, move, resize, split, duplicate, delete, loop, see
   await page.setViewportSize({ width: 1800, height: 900 })
   await page.goto('/app')
   await startAudio(page)
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
 
   // A one-bar clip at the start of the selected track, made in the piano roll.
   await page.getByTestId('panel-piano-roll').click()
@@ -200,7 +200,7 @@ test('arrangement view: follow the play position, scrollbar, zoom buttons', asyn
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/app')
   await startAudio(page)
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await page.getByTestId('nav-arrangement').click()
   const grid = stage(page).getByTestId('timegrid')
   const num = async (attribute: string) => Number(await grid.getAttribute(attribute))
@@ -288,7 +288,7 @@ test('arrangement view: Stop, Back to start and a seek bring the view back to th
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/app')
   await startAudio(page)
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await page.getByTestId('nav-arrangement').click()
   const grid = stage(page).getByTestId('timegrid')
   const num = async (attribute: string) => Number(await grid.getAttribute(attribute))
@@ -368,7 +368,7 @@ test('arrangement view: the headers and the canvas scroll together, with a verti
   await page.setViewportSize({ width: 1400, height: 560 })
   await page.goto('/app')
   await startAudio(page)
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   // Ten tracks at the lane height (#471) reach past the window by more than the scrolls below.
   for (let i = 0; i < 10; i++) {
     await page.getByTestId('add-track').click()
