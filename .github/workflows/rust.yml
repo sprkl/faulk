@@ -21,10 +21,11 @@ jobs:
     # Observed 49-61 min (full suite on a release pull request); a hung job must not run for the 6 h default.
     timeout-minutes: 90
     env:
-      # Debug info of the dev and test profiles: line tables only (#595). The full `debuginfo=2` made
-      # `target/debug` outgrow the runner's disk (`No space left on device`, `ld ... Bus error`). Backtraces
-      # keep their file and line; debug assertions and the allocation detector are not affected.
-      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      # No debug info in the dev and test profiles (#595, founder's decision): CI is not where we debug, a
+      # failing test is reproduced locally. The full `debuginfo=2` made `target/debug` outgrow the runner's
+      # disk (`No space left on device`, `ld ... Bus error`). Debug assertions and the allocation detector
+      # are separate settings and stay on. The test profile inherits dev, so one variable covers both.
+      CARGO_PROFILE_DEV_DEBUG: "0"
     steps:
       - uses: actions/checkout@v4
         with:
@@ -49,11 +50,9 @@ jobs:
       - name: Free disk space
         if: steps.changes.outputs.rust == 'true'
         run: |
-          echo "### Disk before cleanup" >> "$GITHUB_STEP_SUMMARY"
-          df -h / | sed 's/^/    /' >> "$GITHUB_STEP_SUMMARY"
+          { echo "### Disk before cleanup"; df -h / | sed 's/^/    /'; } | tee -a "$GITHUB_STEP_SUMMARY"
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost
-          echo "### Disk after cleanup" >> "$GITHUB_STEP_SUMMARY"
-          df -h / | sed 's/^/    /' >> "$GITHUB_STEP_SUMMARY"
+          { echo "### Disk after cleanup"; df -h / | sed 's/^/    /'; } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Rust
         if: steps.changes.outputs.rust == 'true'
@@ -116,6 +115,10 @@ jobs:
             echo "### Disk at the end of the job"
             df -h / | sed 's/^/    /'
             echo "target/: $(du -sh target 2>/dev/null | cut -f1)"
+            bins=$(find target/debug/deps -maxdepth 1 -type f -executable ! -name '*.so' -size +1M -printf '%s %f\n' 2>/dev/null | sort -rn)
+            echo "executables above 1 MB in target/debug/deps: $(echo "$bins" | grep -c .), $(echo "$bins" | awk '{s+=$1} END {printf "%.0f MB", s/1048576}')"
+            echo "largest:"
+            echo "$bins" | head -15 | awk '{printf "    %.0f MB %s\n", $1/1048576, $2}'
           } | tee -a "$GITHUB_STEP_SUMMARY"
           avail=$(df --output=avail -BG / | tail -1 | tr -dc 0-9)
           if [ "$avail" -lt 5 ]; then echo "::warning::Only ${avail} GB free at the end of the job (margin wanted: 5 GB)"; fi
