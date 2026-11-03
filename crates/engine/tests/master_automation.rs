@@ -547,7 +547,8 @@ fn a_master_effect_lane_follows_its_device_when_it_is_put_again_and_survives_its
     let reference = reference(block, r.at);
     assert_levels(&r.left, &reference, start..removed, |_| 0.5);
     assert!(rebuilt > start);
-    assert_levels(&r.left, &reference, removed + block..r.at, |_| 1.0);
+    // The removed device fades out over the graph's fade (#233): 240 frames at 48 kHz.
+    assert_levels(&r.left, &reference, removed + 240..r.at, |_| 1.0);
 }
 
 #[test]

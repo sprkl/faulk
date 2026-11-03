@@ -60,6 +60,7 @@ pub fn render_wasm(scenario: &Scenario) -> Render {
     let left_ptr = func::<i32, i32>(&instance, &store, "fk_left");
     let right_ptr = func::<i32, i32>(&instance, &store, "fk_right");
     let flush = func::<i32, ()>(&instance, &store, "fk_flush");
+    let stopped_at = func::<i32, i32>(&instance, &store, "fk_stopped_at");
     let prepare_counter = func::<(i32, i32), i32>(&instance, &store, "fk_prepare_counter");
     let host_counter = func::<(i32, i32), i32>(&instance, &store, "fk_host_counter");
     let memory = instance
@@ -80,18 +81,38 @@ pub fn render_wasm(scenario: &Scenario) -> Render {
         );
     };
 
+    // The prepare Worker's queue (`push-queue.ts`, #245): the rest of a stream a busy
+    // engine stopped waits and goes in again at the next flush, before what came after it.
+    let mut waiting: std::collections::VecDeque<Vec<u8>> = std::collections::VecDeque::new();
+    let busy = engine::msg::MsgError::EngineBusy.code();
+    let drain = |store: &mut Store<()>, waiting: &mut std::collections::VecDeque<Vec<u8>>| {
+        while let Some(bytes) = waiting.front_mut() {
+            let at = inbox.call(&mut *store, (ch, bytes.len() as i32)).unwrap();
+            assert_ne!(at, 0, "the module refused the inbox's memory");
+            memory.write(&mut *store, at as usize, bytes).unwrap();
+            let code = push
+                .call(&mut *store, (ch, at, bytes.len() as i32))
+                .unwrap();
+            if code == busy {
+                let from = stopped_at.call(&mut *store, ch).unwrap().max(0) as usize;
+                bytes.drain(..from.min(bytes.len()));
+                return;
+            }
+            assert_eq!(code, 0, "the module refused a push");
+            waiting.pop_front();
+        }
+    };
     let (mut left, mut right) = (Vec::new(), Vec::new());
     for step in &scenario.steps {
         match step {
             Step::Push(bytes) => {
-                let at = inbox.call(&mut store, (ch, bytes.len() as i32)).unwrap();
-                memory.write(&mut store, at as usize, bytes).unwrap();
-                let code = push.call(&mut store, (ch, at, bytes.len() as i32)).unwrap();
-                assert_eq!(code, 0, "the module refused a push");
+                waiting.push_back(bytes.clone());
+                drain(&mut store, &mut waiting);
             }
             Step::Render(blocks) => {
                 for _ in 0..*blocks {
                     flush.call(&mut store, ch).unwrap();
+                    drain(&mut store, &mut waiting);
                     let frames = render.call(&mut store, (ch, QUANTUM as i32)).unwrap() as usize;
                     let l = left_ptr.call(&mut store, ch).unwrap() as usize;
                     let r = right_ptr.call(&mut store, ch).unwrap() as usize;
@@ -102,6 +123,11 @@ pub fn render_wasm(scenario: &Scenario) -> Render {
         }
     }
     flush.call(&mut store, ch).unwrap();
+    drain(&mut store, &mut waiting);
+    assert!(
+        waiting.is_empty(),
+        "streams still wait for the engine after the last block"
+    );
     let counter = |f: &TypedFunc<(i32, i32), i32>, store: &mut Store<()>, which| {
         f.call(store, (ch, which)).unwrap()
     };

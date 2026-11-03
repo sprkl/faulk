@@ -15,6 +15,7 @@
     insertTime,
     movePlacements,
     moveToTrack,
+    repeatPlacement,
     resizePlacement,
     splitPlacement,
   } from '../../lib/arrangement-commands'
@@ -42,7 +43,7 @@
     type View,
   } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
-  import { arrangementShortcut, isTextTarget } from '../../lib/keyboard'
+  import { arrangementShortcut, isTextTarget, repeatShortcut } from '../../lib/keyboard'
   import { MASTER_COLOR, isMidi, trackColor, trackLabel, type DragHooks } from '../../lib/project/tracks'
   import { offTimeline } from '../../lib/off-timeline'
   import { backTrackToArrangement } from '../../lib/scene-commands'
@@ -100,6 +101,7 @@
   } from './automation/gestures'
   import { CLIP_ROW, CLIP_ROW_MIN, clampClipRow, layoutOf, rowsBetween, type Row } from './automation/layout'
   import LaneHeader from './LaneHeader.svelte'
+  import RepeatDialog from './RepeatDialog.svelte'
   import { lanesOf, optionsOf, pointAtTick, pointsOf, targetKey, valueAt, type LaneInfo, type LanePoint, type Labels } from './automation/model'
 
   const { project, engine, ui, dispatcher, meters } = useStores()
@@ -580,7 +582,15 @@
   // Alt+K, Alt+Page Up/Down and Alt+Z, wherever the focus is in the page (the arrangement is shown).
   onMount(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (document.querySelector('[aria-modal="true"]')) return
+      const modal = !!document.querySelector('[aria-modal="true"]')
+      // Ctrl+Shift+R (#555): cancelled wherever the focus is (a field and an open dialog included), or the browser would reload
+      // the page; it opens the field once per press, outside a text field and a dialog.
+      if (repeatShortcut(event)) {
+        event.preventDefault()
+        if (!modal && !event.repeat && !isTextTarget(event.target)) openRepeat()
+        return
+      }
+      if (modal) return
       const action = arrangementShortcut(event)
       if (!action) return
       event.preventDefault()
@@ -1077,6 +1087,7 @@
         },
         { id: 'duplicate', label: t('arrangement.duplicate'), shortcut: mod(['D']), separator: true, run: () => duplicate(false) },
         { id: 'duplicate-linked', label: t('arrangement.duplicateLinked'), shortcut: mod(['Shift', 'D']), run: () => duplicate(true) },
+        { id: 'repeat', label: t('arrangement.repeatUntil'), shortcut: mod(['Shift', 'R']), disabled: picked.size !== 1, run: openRepeat },
         { id: 'split', label: t('arrangement.split'), shortcut: mod(['E']), disabled: cuts.length === 0, run: splitSelected },
         {
           id: 'move-up',
@@ -1167,6 +1178,24 @@
       .filter((b): b is Block => !!b)
       .sort((x, y) => x.start - y.start)[0]
     if (copied && keyboard && first) void focusItem(first.id)
+  }
+
+  // --- repeat until (#555) ------------------------------------------------------------------------------------------
+  /** The clip being repeated, and the first bar the field accepts (the one after the clip's end). */
+  let repeating = $state<{ id: string; min: number } | null>(null)
+  /** Opens the field for the one clip selected, or the one the keyboard focus is on when nothing is selected. */
+  function openRepeat() {
+    const focusedId = (document.activeElement as HTMLElement | null)?.dataset?.block
+    const block = selection.length === 1 ? selection[0] : selection.length === 0 && focusedId ? blocks.find((b) => b.id === focusedId) : undefined
+    if (!block) return announce(t('arrangement.saidRepeatOne'))
+    repeating = { id: block.id, min: Math.floor(block.end / bar) + 1 }
+  }
+  function repeatUpTo(barNumber: number) {
+    const target = repeating
+    repeating = null
+    if (!target) return
+    // A refusal (an audio clip, the limit, no audio started) shows in the page's own banner; only a success is said here.
+    if (run(repeatPlacement(target.id, barNumber * bar))) announce(t('arrangement.saidRepeated', { bar: barNumber }))
   }
 
   function removeSelected() {
@@ -2200,6 +2229,8 @@
     </div>
   </div>
 </div>
+
+<RepeatDialog open={repeating !== null} min={repeating?.min ?? 1} onsubmit={repeatUpTo} onclose={() => (repeating = null)} />
 
 <style>
   .empty {

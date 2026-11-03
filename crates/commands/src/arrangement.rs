@@ -306,6 +306,27 @@ domain! {
         overwritten: u32,
     };
 
+    /// Repeat one placement end to end up to the timeline tick `until` (#555): linked
+    /// copies, new placements of the same clip, each as long as the placement and with
+    /// its offset, the first starting where the placement ends, the next where the last
+    /// ends; the one that would pass `until` is shortened to stop exactly there. To fill
+    /// up to the end of bar N, give the tick where bar N ends. The copies win on overlap
+    /// (`overwritten` counts the placements they carved). Refused when the placement is
+    /// unknown or an audio one, when `until` is not after the end of the placement or
+    /// passes 2^40, or when the copies would pass the limit of placements. One history
+    /// entry; undo: `arrangement.restore`, which removes the copies and brings back what
+    /// they carved.
+    "arrangement.repeat" (kind = "edit", undo = "inverse", destructive = false)
+    Repeat {
+        placement: PlacementId,
+        until: Tick,
+    } => {
+        /// The new placements, in time order.
+        placements: Vec<PlacementId>,
+        /// How many other placements were carved.
+        overwritten: u32,
+    };
+
     /// Put a MIDI clip of the launch grid in the arrangement, on its own track, as a
     /// placement at the timeline tick `start` that plays the whole clip once (offset 0,
     /// the clip's length). By default the placement plays an independent copy: a new
@@ -1107,6 +1128,7 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             linked,
             by,
         } => duplicate(state, ctx, placements, *linked, *by),
+        Command::Repeat { placement, until } => repeat(state, ctx, placement, until.get()),
         Command::Restore { edits } => restore(state, edits),
         Command::InsertTime { at, length } => insert_time(state, ctx, at.get(), length.get()),
         Command::DeleteTime { from, to } => delete_time(state, ctx, from.get(), to.get()),
@@ -1671,6 +1693,56 @@ fn duplicate(
             .filter_map(|id| new_placements.get(id).cloned())
             .collect(),
         clips: new_clip_ids,
+        overwritten,
+    })
+}
+
+/// `arrangement.repeat`: linked copies of one placement, end to end, up to `until`.
+fn repeat(
+    state: &mut State,
+    ctx: &mut Context,
+    id: &PlacementId,
+    until: i64,
+) -> Result<Out, CommandError> {
+    let project = &state.project;
+    let track_id = track_of(project, id)?;
+    let track = midi_track(project, &track_id)?;
+    let (start, length, offset) = extent(placement_of(track, id)?)?;
+    let clip = placement_of(track, id)?.clip.clone();
+    // `extent` of a stored placement is valid, so `start + length` cannot overflow.
+    let end = start + length;
+    if until <= end || until > MAX_TICK {
+        return Err(invalid(
+            "until",
+            format!("repeat up to a tick after the placement's end ({end}) and within {MAX_TICK}"),
+        ));
+    }
+    // The count first, so a far `until` is refused before any copy is made.
+    let copies = (until - end + length - 1) / length;
+    check_total(
+        "placements per track",
+        track.placements.len(),
+        usize::try_from(copies).unwrap_or(usize::MAX),
+        MAX_PLACEMENTS_PER_TRACK,
+    )?;
+    let mut work = TrackWork::new(project, &track_id)?;
+    let mut made = Vec::new();
+    // The copies tile `[end, until)`: one carve for the whole range (a carve per copy would
+    // scan the track once for each of up to a hundred thousand copies).
+    let overwritten = work.carve(&mut ctx.ids, end, until)?;
+    let mut at = end;
+    while at < until {
+        let len = length.min(until - at);
+        check_extent(at, len, "until")?;
+        let new_id = PlacementId::generate(&mut ctx.ids);
+        work.put(new_id.clone(), &clip, at, len, offset);
+        made.push(new_id);
+        at += len;
+    }
+    let mut works = Works::new();
+    works.insert(track_id, work);
+    commit(state, works, || Output::Repeat {
+        placements: made,
         overwritten,
     })
 }

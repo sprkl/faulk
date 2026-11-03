@@ -99,6 +99,9 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         ],
       },
       { label: 'shortcut.clipOpen', chords: [['Enter']], covers: ['Enter'] },
+      { label: 'shortcut.clipDuplicate', chords: [['Mod', 'D']] },
+      { label: 'shortcut.clipDuplicateLinked', chords: [['Mod', 'Shift', 'D']] },
+      { label: 'shortcut.clipRepeat', chords: [['Mod', 'Shift', 'R']] },
       // The free cursor (#494): the timeline's and the piano roll's.
       { label: 'shortcut.cursorFree', chords: [['Esc']] },
       { label: 'shortcut.cursorMove', chords: [['←'], ['→'], ['↑'], ['↓']] },

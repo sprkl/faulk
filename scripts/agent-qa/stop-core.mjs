@@ -90,14 +90,39 @@ export function taskBranchIssue(branch) {
 export const isTaskBranch = (branch) => taskBranchIssue(branch) !== null;
 
 /**
+ * How many verifications, and how many reviews, a checkout keeps (#492): one
+ * per state, so that the branches stacked in one checkout keep theirs. The
+ * oldest go first; a state whose record went is asked for it again.
+ */
+export const RECORD_LIMIT = 64;
+
+/**
+ * `list` with `entry` added last: an entry of the same fingerprint, status and
+ * branch is replaced (recorded again, it moves to the end), and only the last
+ * `limit` entries are kept.
+ */
+export function addRecord(list, entry, limit = RECORD_LIMIT) {
+  const kept = (Array.isArray(list) ? list : []).filter(
+    (old) =>
+      !(old?.fingerprint === entry.fingerprint && old?.status === entry.status && (old?.branch ?? null) === (entry.branch ?? null)),
+  );
+  return [...kept, entry].slice(-limit);
+}
+
+/**
  * Decision for one checkout. `writer`: one of this session's own tool calls
  * changed the guarded code there; a session that did not is never blocked,
  * whatever other sessions or the user changed. `baseline`: the fingerprint the
- * first time the hooks saw this checkout in this session.
+ * first time the hooks saw this checkout in this session. `verifications` and
+ * `reviews`: every record of the checkout (`fingerprint.mjs` > readRecords),
+ * searched for the judged state, so that each branch of the checkout is judged
+ * on its own records.
  *
- * Returns `{ allow, consumeDeferral?, missing? }`.
+ * Returns `{ allow, consumeDeferral?, missing?, reviewNotCarried? }`;
+ * `reviewNotCarried`: a review of an earlier state of this branch exists, but
+ * the branch is not a task branch, so it holds for that state only.
  */
-export function stopDecision({ fingerprint, writer, baseline, branch, verification, review, deferral }) {
+export function stopDecision({ fingerprint, writer, baseline, branch, verifications = [], reviews = [], deferral }) {
   if (fingerprint === null || !writer) {
     return { allow: true };
   }
@@ -105,12 +130,13 @@ export function stopDecision({ fingerprint, writer, baseline, branch, verificati
     // The session undid its own changes.
     return { allow: true };
   }
-  const verified = verification?.fingerprint === fingerprint && verification.status === "verified";
+  const verified = verifications.some((v) => v?.status === "verified" && v.fingerprint === fingerprint);
   // Judge Dredd reviews a task once, at the end: the review stays valid for
   // later fixes on the same task branch, which only need a new verification.
-  const reviewed =
-    review?.status === "reviewed" &&
-    (review.fingerprint === fingerprint || (isTaskBranch(branch) && review.branch === branch));
+  const ofBranch = (r) => r?.status === "reviewed" && typeof branch === "string" && r.branch === branch;
+  const reviewed = reviews.some(
+    (r) => r?.status === "reviewed" && (r.fingerprint === fingerprint || (isTaskBranch(branch) && ofBranch(r))),
+  );
   if (verified && reviewed) {
     return { allow: true };
   }
@@ -124,7 +150,11 @@ export function stopDecision({ fingerprint, writer, baseline, branch, verificati
   if (!reviewed) {
     missing.push("review");
   }
-  return { allow: false, missing };
+  const decision = { allow: false, missing };
+  if (!reviewed && !isTaskBranch(branch) && reviews.some(ofBranch)) {
+    decision.reviewNotCarried = true;
+  }
+  return decision;
 }
 
 /**
@@ -170,7 +200,7 @@ export function verifiedCommand(files) {
 }
 
 /** The message the Stop hook gives the agent when it blocks. */
-export function blockReason({ root, fingerprint, files, missing }) {
+export function blockReason({ root, fingerprint, files, missing, branch, reviewNotCarried = false }) {
   const steps = [];
   if (missing.includes("verification")) {
     steps.push(
@@ -178,8 +208,11 @@ export function blockReason({ root, fingerprint, files, missing }) {
     );
   }
   if (missing.includes("review")) {
+    const why = reviewNotCarried
+      ? `a delivery review of an earlier state of ${branch} exists, but it is not carried over: ${branch} is not a task branch (feat|fix|spike/<issue>-<slug>, CLAUDE.md > Branches), and on any other branch a review holds only for the state it reviewed, so this state needs its own (name the next task branch by the convention; renaming this one does not carry the old review)`
+      : "this branch has no delivery review yet";
     steps.push(
-      'this branch has no delivery review yet: once the task is done and before opening its pull request (docs/agents/judge-dredd.md), write your report draft to .scratch/judge-dredd/<issue>-delivery.proposal.md, run node scripts/agent-review/brief.mjs <issue> delivery, then node scripts/agent-review/run.mjs .scratch/judge-dredd/<issue>-delivery.md, show the user every finding with your opinion, then: node scripts/agent-qa/record.mjs reviewed --brief .scratch/judge-dredd/<issue>-delivery.md --dispositions "<each finding: fixed, or rejected and why>". One review per task branch: later fixes on the same branch only need a new verification',
+      `${why}: once the task is done and before opening its pull request (docs/agents/judge-dredd.md), write your report draft to .scratch/judge-dredd/<issue>-delivery.proposal.md, run node scripts/agent-review/brief.mjs <issue> delivery, then node scripts/agent-review/run.mjs .scratch/judge-dredd/<issue>-delivery.md, show the user every finding with your opinion, then: node scripts/agent-qa/record.mjs reviewed --brief .scratch/judge-dredd/<issue>-delivery.md --dispositions "<each finding: fixed, or rejected and why>". One review per task branch (feat|fix|spike/<issue>-<slug>): later fixes on the same task branch only need a new verification`,
     );
   }
   const shown = files.slice(0, 10).join(", ") + (files.length > 10 ? `, and ${files.length - 10} more` : "");

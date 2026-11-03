@@ -52,14 +52,14 @@ export const AREA = {
   journey: ['journey'],
   // The shared time grid is drawn by the arrangement and the piano roll: both areas.
   timegrid: ['arrangement', 'arrangement-time', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'timegrid', 'lane-rows'],
-  helper: ['helper', 'local-access'],
+  helper: ['big-project', 'helper', 'local-access'],
   // Typed values in the continuous controls.
   valueEntry: ['value-entry'],
   refusal: ['refused-commands'],
   // What the engine's sound and timing reach: devices, mixer, master, automation, transport, the
   // shipped worklet's cost (engine-mo2), its reports (engine-mo5), the CT-3 prototype that builds
   // crates/engine itself (engine-channel), the export render.
-  engine: ['all-sound-off', 'automation', 'continuous', 'devices', 'engine-channel', 'engine-mo2', 'engine-mo5', 'export-audio', 'keyboard', 'master-chain', 'master-pan', 'mixer-sound', 'recording', 'stop-to-marker'],
+  engine: ['all-sound-off', 'automation', 'big-project', 'continuous', 'devices', 'engine-channel', 'engine-mo2', 'engine-mo5', 'export-audio', 'keyboard', 'master-chain', 'master-pan', 'mixer-sound', 'recording', 'stop-to-marker'],
   // What the project core (project, project-wasm) reaches beyond the core tests: storage, history, refusals.
   project: ['project-store', 'project-save', 'open-project', 'browser-storage', 'storage-commands', 'open-url', 'history', 'history-names', 'refused-commands'],
 }

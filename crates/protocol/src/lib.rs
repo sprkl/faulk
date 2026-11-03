@@ -9,7 +9,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 20;
+pub const PROTOCOL_VERSION: u32 = 21;
+
+// Version 21 (#555): the new command `arrangement.repeat` (linked copies of a placement, end to end, up to a tick); a helper of version 20 would refuse it.
 
 // Version 20 (#490): a track keeps the height of its row in the arrangement. The commands gain `track.set_height`, the track summary and the project's tracks an optional `height` (not written when unset), the event `track_changed` a part `height`. The project file format is 3 (was 2): `track.json` gets an optional `height`; format 2 folders migrate by the number alone, and a build of format 2 reports a format 3 folder as made by a newer build.
 
