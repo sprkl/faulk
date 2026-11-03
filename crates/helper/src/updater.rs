@@ -117,6 +117,16 @@ fn take_waiting(path: &Path) -> std::io::Result<InstanceLock> {
     }
 }
 
+/// Holds the instance lock shared for as long as the returned value lives, without the
+/// startup's update decision: what `faulk-helper mcp` (the stdio bridge, AG-1) takes, so that no
+/// helper applies an update over the executable the bridge runs from. `None` when the lock
+/// cannot be taken (the bridge runs anyway).
+pub fn hold_instance_lock() -> Option<InstanceLock> {
+    let lock = take_waiting(&instance_lock_path()).ok()?;
+    lock.share();
+    Some(lock)
+}
+
 static INSTANCE_LOCK: OnceLock<Arc<InstanceLock>> = OnceLock::new();
 
 /// Lets go of this process's instance lock ([`InstanceLock::release`]): a helper whose start

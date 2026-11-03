@@ -169,6 +169,7 @@ fn run(controller: &mut Controller, direct: bool, busy: bool) -> String {
             port,
             allowed_origins: vec![ORIGIN.into()],
             token: TOKEN.into(),
+            mcp_token: helper::security::McpToken::Fixed(TOKEN.into()),
         },
         engine.clone(),
         MidiManager::new(sink),

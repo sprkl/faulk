@@ -1,7 +1,7 @@
 use project::{DeviceId, TrackId};
 use protocol::{
-    Capabilities, ClientMessage, HelperUpdate, MidiInput, PROTOCOL_VERSION, ServerMessage,
-    schema_bundle, single_synth,
+    AgentResult, Capabilities, ClientMessage, HelperUpdate, MidiInput, PROTOCOL_VERSION,
+    ServerMessage, schema_bundle, single_synth,
 };
 
 #[test]
@@ -19,7 +19,50 @@ fn messages_round_trip_through_json() {
             epoch: 3,
             tracks: vec![0, 2],
         },
+        ClientMessage::AgentResult {
+            id: 1,
+            result: AgentResult::Applied {
+                output: serde_json::json!({ "track": "t1" }),
+            },
+        },
+        ClientMessage::AgentResult {
+            id: 2,
+            result: AgentResult::Applied {
+                output: serde_json::Value::Null,
+            },
+        },
+        ClientMessage::AgentResult {
+            id: 3,
+            result: AgentResult::Refused {
+                error: serde_json::json!({ "code": "not_found", "entity": "track", "id": "x" }),
+            },
+        },
+        ClientMessage::AgentResult {
+            id: 4,
+            result: AgentResult::Invalid {
+                message: "unknown variant".into(),
+            },
+        },
+        ClientMessage::AgentResult {
+            id: u64::MAX,
+            result: AgentResult::Unavailable {
+                reason: "no project".into(),
+            },
+        },
     ];
+    // The page's spelling (AG-1).
+    assert_eq!(
+        serde_json::from_str::<ClientMessage>(
+            r#"{"type":"agent.result","id":5,"result":{"status":"applied","output":{}}}"#
+        )
+        .unwrap(),
+        ClientMessage::AgentResult {
+            id: 5,
+            result: AgentResult::Applied {
+                output: serde_json::json!({})
+            }
+        }
+    );
     // The page's spelling (#598).
     assert_eq!(
         serde_json::from_str::<ClientMessage>(r#"{"type":"live.routing","epoch":3,"tracks":[]}"#)
@@ -44,6 +87,11 @@ fn messages_round_trip_through_json() {
             audio_output: false,
         },
         ServerMessage::Paired { token: "t".into() },
+        ServerMessage::AgentCall {
+            id: 9,
+            agent: "claude-code".into(),
+            command: serde_json::json!({ "type": "track.create", "kind": "midi" }),
+        },
         ServerMessage::PairingRefused { attempts_left: 2 },
         ServerMessage::Hello {
             protocol: 1,
@@ -123,13 +171,13 @@ fn every_server_message_is_in_the_round_trip_test() {
     let variants = bundle["server_message"]["oneOf"].as_array().unwrap();
     assert_eq!(
         variants.len(),
-        9,
+        10,
         "add the new message to messages_round_trip_through_json"
     );
     let clients = bundle["client_message"]["oneOf"].as_array().unwrap();
     assert_eq!(
         clients.len(),
-        4,
+        5,
         "add the new message to messages_round_trip_through_json"
     );
 }

@@ -84,7 +84,8 @@ pub fn output_schema() -> Value {
 /// schema and never written by hand.
 #[derive(Clone, Debug, PartialEq, Serialize, JsonSchema)]
 pub struct ToolSpec {
-    /// The command's name, `domain.verb`, also the tool's name.
+    /// The command's name, `domain.verb`. The MCP server names the tool after it with `_` for
+    /// `.` (`track_create`, `helper::mcp::tool_name`): model APIs refuse dots in a tool's name.
     pub name: String,
     /// The command's description, for agents.
     pub description: String,
