@@ -799,6 +799,36 @@ async fn a_replaced_sessions_streams_never_reach_the_engine() {
 }
 
 #[tokio::test]
+async fn a_replaced_pages_project_stops_and_its_notes_end_when_the_next_page_connects() {
+    let mut h = start().await;
+    let (mut first, epoch) = open_session(&h).await;
+    let mut a = Page::new();
+    send_bytes(&mut first, a.snapshot_after(epoch)).await;
+    send_bytes(&mut first, a.note_on(60)).await;
+    send_bytes(
+        &mut first,
+        a.run(commands::Command::Transport(
+            commands::transport::Command::Play {},
+        )),
+    )
+    .await;
+    received(&h, 3).await;
+    assert_eq!(play(&mut h.core, 50), 1, "the first page plays");
+    // A second page connects and has not sent its snapshot yet.
+    let (_second, _) = open_session(&h).await;
+    // The default release is 0.3 s: after 1 s the first page's note has ended.
+    assert_eq!(
+        play(&mut h.core, 1_000),
+        0,
+        "replacing the page released its notes"
+    );
+    let mut bytes = Vec::new();
+    assert!(h.core.meter().copy_report(&mut bytes));
+    let report = engine::host::decode_feedback(&bytes).unwrap();
+    assert_eq!(report.transport, engine::msg::TransportState::Stopped);
+}
+
+#[tokio::test]
 async fn a_session_whose_engine_was_replaced_is_told_its_output_is_gone() {
     let h = start().await;
     let (mut ws, epoch) = open_session(&h).await;

@@ -520,6 +520,9 @@ async fn session(mut ws: Ws, shared: &Arc<Shared>) {
                 code: "session.replaced".into(),
                 message: "another page opened a session".into(),
             }));
+            // The replaced page's project stops and its notes end now, not only once the new
+            // page's snapshot arrives (its streams are dropped from here on).
+            shared.engine.release_all();
         }
         *current = Some(Session {
             id,

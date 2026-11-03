@@ -106,9 +106,9 @@ impl Meter {
 }
 
 /// A stream the engine stopped (anything but a busy engine, which only waits): the code of
-/// its error (`MsgError::code`) and the byte, in what was submitted, of the message that
-/// stopped it. The engine is behind the page's project until the page sends a snapshot.
-/// `epoch` is the engine's at that moment: the page's snapshot goes in a newer one.
+/// its error (`MsgError::code`) and the byte of the message that stopped it, in the piece the
+/// engine was given (a stream sent in pieces counts from the rest being retried; informative).
+/// The engine is behind the page's project until the page sends a snapshot. `epoch` is the engine's at that moment: the page's snapshot goes in a newer one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Refusal {
     pub code: i32,

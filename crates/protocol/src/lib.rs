@@ -176,7 +176,7 @@ pub enum ServerMessage {
     },
     /// A stream of the page that the helper's engine stopped (corrupt, out of memory, past
     /// the waiting bound) or refused whole (not of the engine's epoch): `code` is
-    /// `engine::msg::MsgError::code`, `at` the byte of the message that stopped it, `epoch`
+    /// `engine::msg::MsgError::code`, `at` the byte of the message that stopped it in the piece the engine was given (for a stream sent in pieces, from the start of the rest it was retrying; informative only), `epoch`
     /// the engine's. The engine is behind the page's project: the page sends a snapshot in an
     /// epoch newer than `epoch`.
     #[serde(rename = "stream_refused")]
