@@ -121,7 +121,7 @@ test('the right click on a marker: go to, rename, move by the grid step, delete 
   expect(errors).toEqual([])
 })
 
-test('the whole song in one zoom,and a long song opens on 32 bars', async ({ page }) => {
+test('the whole song in one zoom, and a long song opens on 32 bars', async ({ page }) => {
   const { errors } = watch(page)
   await page.setViewportSize({ width: 1440, height: 900 })
   await start(page)
