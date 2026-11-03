@@ -155,6 +155,18 @@
         {/each}
       {/if}
       <hr />
+      <p class="heading" id="menu-density">{t('density.title')}</p>
+      <div role="group" aria-labelledby="menu-density" class="langs">
+        {#each ['comfortable', 'compact'] as const as density (density)}
+          <button
+            role="menuitemradio"
+            aria-checked={ui.density === density}
+            data-testid="menu-density-{density}"
+            onclick={() => choose(() => ui.setDensity(density))}>{t(`density.${density}`)}</button
+          >
+        {/each}
+      </div>
+      <hr />
       <p class="heading" id="menu-lang">{t('lang.title')}</p>
       <div role="group" aria-labelledby="menu-lang" class="langs">
         {#each ['en', 'fr'] as const as lang (lang)}

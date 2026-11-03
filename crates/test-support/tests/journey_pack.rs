@@ -14,13 +14,17 @@ use project::file::{FileSystem, Migration, OpenOptions, StdFs, open, open_with};
 use test_support::Session;
 use test_support::export::export_native;
 
-/// The format alone, without the cut: the song as format 2 would read it unmigrated.
+/// The format alone, without the cut: the song as the current format reads it unmigrated.
 fn bump_only(fs: &mut project::file::MemFs) -> Result<(), String> {
     let text = String::from_utf8(fs.read("project.json").map_err(|e| e.to_string())?)
         .map_err(|e| e.to_string())?;
     fs.insert(
         "project.json",
-        text.replacen("\"format\": 1", "\"format\": 2", 1),
+        text.replacen(
+            "\"format\": 1",
+            &format!("\"format\": {}", project::FORMAT_VERSION),
+            1,
+        ),
     );
     Ok(())
 }
@@ -157,7 +161,11 @@ fn a_stretched_one_shot_of_a_format_1_song_still_plays_once() {
     let text = String::from_utf8(fs.read("project.json").unwrap()).unwrap();
     fs.insert(
         "project.json",
-        text.replacen("\"format\": 2", "\"format\": 1", 1),
+        text.replacen(
+            &format!("\"format\": {}", project::FORMAT_VERSION),
+            "\"format\": 1",
+            1,
+        ),
     );
     let old = open(&fs, &OpenOptions::default()).unwrap();
     let settings = ExportSettings::of(None, None, Some(48_000), None, None).unwrap();

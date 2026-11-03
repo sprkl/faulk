@@ -79,8 +79,110 @@ export function answerIsComplete(text, checkpoint) {
   return checkpoint !== "delivery" || /^criterion: \S.*\n(?:\S.*\n)*?verdict: \S/m.test(text);
 }
 
+/** Lockfiles whose content the diff leaves out (thousands of generated lines). */
+const LOCKFILE_GLOBS = ["**/Cargo.lock", "**/pnpm-lock.yaml", "**/package-lock.json"];
+
+/**
+ * The git pathspecs for the lockfiles: `exclude` goes after `.` to leave their
+ * content out of the diff; `only` stands alone, without `.` (a `.` would
+ * select every changed file, not only the lockfiles).
+ */
+export function lockfilePathspecs() {
+  return {
+    exclude: LOCKFILE_GLOBS.map((glob) => `:(exclude,glob)${glob}`),
+    only: LOCKFILE_GLOBS.map((glob) => `:(glob)${glob}`),
+  };
+}
+
+/** Generated files over this size (either side of the change) are summarised, not copied. */
+export const HEAVY_FILE_BYTES = 256 * 1024;
+
+/** Folders of generated files that may be summarised when heavy. */
+export const GENERATED_DIRS = ["web/src/lib/generated/"];
+
+/** The hunks of a `git diff -U0` text: where the file changed, without its content. */
+export function diffHunks(diffText) {
+  const hunks = [];
+  for (const m of String(diffText).matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) {
+    hunks.push({
+      oldStart: Number(m[1]),
+      oldCount: m[2] === undefined ? 1 : Number(m[2]),
+      newStart: Number(m[3]),
+      newCount: m[4] === undefined ? 1 : Number(m[4]),
+    });
+  }
+  return hunks;
+}
+
+export const isGeneratedPath = (path) => GENERATED_DIRS.some((dir) => path.startsWith(dir));
+
+/**
+ * Tracked generated files over HEAVY_FILE_BYTES (before or after the change),
+ * with what changed in them. `git(args)` runs git and returns its output (it
+ * throws on failure); `sizeOnDisk(path)` is the size in the working tree, or
+ * null when the file is absent.
+ */
+export function heavyGeneratedFiles({ base, git, sizeOnDisk }) {
+  const entries = [];
+  // -z: paths come unquoted, whatever characters they hold.
+  const numstat = git(["diff", "--numstat", "-z", "--no-renames", base, "--", ...GENERATED_DIRS]);
+  for (const record of numstat.split("\0").filter(Boolean)) {
+    const [added, removed, ...rest] = record.split("\t");
+    const path = rest.join("\t");
+    let before = null;
+    try {
+      before = Number(git(["cat-file", "-s", `${base}:${path}`]).trim());
+    } catch {
+      // Absent in the base commit.
+    }
+    const after = sizeOnDisk(path);
+    if (Math.max(before ?? 0, after ?? 0) <= HEAVY_FILE_BYTES) {
+      continue;
+    }
+    const status = before === null ? "added" : after === null ? "deleted" : "modified";
+    let hunks = [];
+    try {
+      hunks = diffHunks(git(["diff", "--no-ext-diff", "--no-renames", "-U0", base, "--", `:(literal)${path}`]));
+    } catch {
+      // The diff of a huge rewrite can overflow the output buffer: the sizes and line counts stay, the sections go.
+    }
+    // A binary file has "-" for both counts.
+    entries.push({ path, status, before, after, added: Number(added) || 0, removed: Number(removed) || 0, hunks });
+  }
+  return entries;
+}
+
+const MAX_RANGES = 15;
+
+/**
+ * The note that replaces the content of heavy generated files in the diff.
+ * Each entry: { path, status, before, after (bytes or null), added, removed (lines), hunks }.
+ */
+export function heavyFilesNote(entries, base) {
+  if (entries.length === 0) {
+    return "";
+  }
+  const size = (bytes) => (bytes === null ? "absent" : `${bytes} bytes`);
+  const lines = [
+    `The content of these heavy generated files (over ${HEAVY_FILE_BYTES} bytes) is left out of the diff and summarised here; run git diff ${base} -- <file> if needed:`,
+  ];
+  for (const e of entries) {
+    const shown = e.hunks.slice(0, MAX_RANGES).map((h) => `-${h.oldStart},${h.oldCount} +${h.newStart},${h.newCount}`);
+    const more = e.hunks.length > MAX_RANGES ? `, and ${e.hunks.length - MAX_RANGES} more` : "";
+    const where = shown.length ? ` (${shown.join("; ")}${more})` : "";
+    lines.push(
+      `- ${e.path} (${e.status}): ${size(e.before)} before, ${size(e.after)} after, ${e.added} lines added, ${e.removed} removed, ${e.hunks.length} changed sections${where}`,
+    );
+  }
+  return lines.join("\n");
+}
+
 const fence = (text) => {
-  const longest = Math.max(2, ...[...String(text).matchAll(/`+/g)].map((m) => m[0].length));
+  // A loop, not Math.max(...spread): a huge text holds enough backtick runs to overflow the stack.
+  let longest = 2;
+  for (const match of String(text).matchAll(/`+/g)) {
+    longest = Math.max(longest, match[0].length);
+  }
   const ticks = "`".repeat(longest + 1);
   return `${ticks}\n${text}\n${ticks}`;
 };

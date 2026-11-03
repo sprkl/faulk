@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { PLAYING_KEYS } from '../../lib/keyboard'
-import { CLIP_ROW, CLIP_ROW_MAX, CLIP_ROW_MIN } from './automation/layout'
+import { CLIP_ROW_MAX, CLIP_ROW_MIN } from './automation/layout'
 import { HEIGHT_STEP, HEIGHT_STEP_BIG, heightKey, volumeKey } from './lane-keys'
 
 const key = (k: string, over: Partial<KeyboardEvent> = {}) =>
@@ -44,8 +44,7 @@ describe('the height handle of a track row', () => {
   it('goes to the bounds with Home and End, and back to the default with Enter', () => {
     expect(heightKey(key('Home'), 90)).toBe(CLIP_ROW_MIN)
     expect(heightKey(key('End'), 90)).toBe(CLIP_ROW_MAX)
-    expect(heightKey(key('Enter'), 90)).toBe(CLIP_ROW)
-    expect(heightKey(key('Enter'), 90, 28)).toBe(28)
+    expect(heightKey(key('Enter'), 90)).toBe('default')
   })
 
   it('ignores the other keys and the chords', () => {

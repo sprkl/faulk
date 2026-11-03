@@ -1,4 +1,4 @@
-// The ESLint guard of #436: a TypeScript or Svelte file of `src/` must not import the 42 MB schema bundle (svelte-check runs out of memory on its inferred type).
+// The ESLint guard of #436: a TypeScript or Svelte file of `src/` must not import the schema bundle (svelte-check ran out of memory on the inferred type of its 42 MB; 1.4 MB since #559, still far too large to type).
 import { ESLint } from 'eslint'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'

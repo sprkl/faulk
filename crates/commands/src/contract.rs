@@ -514,6 +514,8 @@ pub(crate) fn gesture_unchanged(
 pub enum TrackPart {
     Name,
     Color,
+    /// The height of the track's row in the arrangement (#490).
+    Height,
     /// The track's position in the list changed.
     Order,
 }
@@ -664,3 +666,77 @@ impl fmt::Display for CommandError {
 }
 
 impl std::error::Error for CommandError {}
+
+/// Schema transform of a required `Option<T>` field (`#[schemars(required, transform = ...)]`):
+/// the field accepts `null`, as the command does, and stays required. schemars drops the
+/// `null` of an `Option` it is told to require, so an agent reading the schema would believe
+/// `null` is refused (#561). The field's description stays on the field, beside the new
+/// `anyOf`, not inside it.
+pub(crate) fn allow_null(schema: &mut schemars::Schema) {
+    let Some(inner) = schema.as_object_mut() else {
+        return;
+    };
+    // Already nullable (`type: [.., "null"]`, or an `anyOf` with a `null` branch): nothing to add.
+    let is_null = |v: &serde_json::Value| v == "null";
+    let nullable = match (inner.get("type"), inner.get("anyOf")) {
+        (Some(t), _) if is_null(t) => true,
+        (Some(serde_json::Value::Array(types)), _) if types.iter().any(is_null) => true,
+        (_, Some(serde_json::Value::Array(any))) => any.iter().any(|b| b["type"] == "null"),
+        _ => false,
+    };
+    if nullable {
+        return;
+    }
+    let mut outer = serde_json::Map::new();
+    for key in ["title", "description", "default", "examples", "deprecated"] {
+        if let Some(value) = inner.remove(key) {
+            outer.insert(key.to_owned(), value);
+        }
+    }
+    let branches = vec![
+        serde_json::Value::Object(std::mem::take(inner)),
+        serde_json::json!({ "type": "null" }),
+    ];
+    outer.insert("anyOf".to_owned(), branches.into());
+    *inner = outer;
+}
+
+#[cfg(test)]
+mod allow_null_tests {
+    use super::allow_null;
+    use schemars::json_schema;
+
+    fn run(mut schema: schemars::Schema) -> serde_json::Value {
+        allow_null(&mut schema);
+        schema.into()
+    }
+
+    #[test]
+    fn wraps_a_reference_and_keeps_the_description_outside() {
+        let out = run(json_schema!({ "$ref": "#/$defs/Id", "description": "d" }));
+        assert_eq!(
+            out,
+            serde_json::json!({
+                "description": "d",
+                "anyOf": [{ "$ref": "#/$defs/Id" }, { "type": "null" }]
+            })
+        );
+    }
+
+    #[test]
+    fn does_not_wrap_a_nullable_schema_twice() {
+        for nullable in [
+            json_schema!({ "type": ["number", "null"] }),
+            json_schema!({ "type": "null" }),
+            json_schema!({ "anyOf": [{ "type": "string" }, { "type": "null" }] }),
+        ] {
+            let before: serde_json::Value = nullable.clone().into();
+            assert_eq!(run(nullable), before);
+        }
+    }
+
+    #[test]
+    fn leaves_a_boolean_schema_alone() {
+        assert_eq!(run(true.into()), serde_json::json!(true));
+    }
+}
