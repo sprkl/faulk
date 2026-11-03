@@ -13,7 +13,7 @@
     "pretest": "node scripts/gen-protocol.mjs",
     "build:wasm": "node scripts/build-wasm.mjs",
     "dev": "node scripts/build-wasm.mjs && vite dev",
-    "build": "node scripts/build-wasm.mjs && vite build",
+    "build": "node scripts/build-wasm.mjs --strip-names && vite build",
     "preview": "vite preview",
     "prepare": "svelte-kit sync || echo \"\"",
     "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
