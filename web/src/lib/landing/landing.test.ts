@@ -56,11 +56,11 @@ describe('landing honesty', () => {
     expect(withMs).toEqual([])
   })
 
-  it('labels every Boost download as coming soon', () => {
-    for (const key of ['boost.windows', 'boost.macos'] as const) {
-      expect(landingMessages.en[key]).toContain('coming soon')
-      expect(landingMessages.fr[key]).toContain('bientôt')
-    }
+  it('offers the Windows download and labels the macOS one as coming soon', () => {
+    expect(landingMessages.en['boost.windows']).toContain('Download')
+    expect(landingMessages.fr['boost.windows']).toContain('Télécharger')
+    expect(landingMessages.en['boost.macos']).toContain('coming soon')
+    expect(landingMessages.fr['boost.macos']).toContain('bientôt')
   })
 
   it('marks the Atelier and the library as not available yet', () => {

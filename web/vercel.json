@@ -30,9 +30,15 @@
       "permanent": false
     },
     {
-      "source": "/:path(.*)",
+      "source": "/helper/win/stable",
       "has": [{ "type": "host", "value": "get.faulk.app" }],
       "destination": "https://gpotfuhrpu6rafcn.public.blob.vercel-storage.com/helper/win/stable/FaulkHelper-win-Setup.exe",
+      "permanent": false
+    },
+    {
+      "source": "/:path(.*)",
+      "has": [{ "type": "host", "value": "get.faulk.app" }],
+      "destination": "https://www.faulk.app/",
       "permanent": false
     }
   ]
