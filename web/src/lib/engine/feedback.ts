@@ -1,10 +1,10 @@
-// Decodes the engine's report (the `Feedback` layout of crates/engine/src/msg.rs, version 5). The
+// Decodes the engine's report (the `Feedback` layout of crates/engine/src/msg.rs, version 6). The
 // same bytes reach the page two ways: the Web engine's render instance writes them under a
 // seqlock into the shared memory (`readFeedback`), the helper sends them as binary WebSocket
 // frames (`decodeFeedback` on the frame). One decoder, so that both modes show the same thing.
 
 /** Size of the fixed part of a report. */
-export const FEEDBACK_HEADER_BYTES = 72
+export const FEEDBACK_HEADER_BYTES = 76
 /** Size of one meter. */
 export const TRACK_METER_BYTES = 20
 /** Size of one active clip (track u32, scene u16, state u8, one padding byte, anchor i64). */
@@ -14,7 +14,7 @@ export const RECORDED_NOTE_BYTES = 32
 /** Most recorded notes one report carries (`MAX_RECORDED_PER_REPORT`). */
 export const MAX_RECORDED_PER_REPORT = 256
 /** The layout version this page reads. */
-export const FEEDBACK_VERSION = 5
+export const FEEDBACK_VERSION = 6
 
 /** Peak and RMS of both channels, linear amplitude, and the gain reduction of the strip's devices. */
 export interface Meter {
@@ -68,8 +68,10 @@ export interface FeedbackReport {
   playheadTick: number
   /** Playhead, in frames since the clock started. */
   playheadFrame: number
-  /** Render time over block time, 0 to 1; `null` where the host cannot measure it. */
+  /** Render time over the duration of the blocks timed in the period, 0 to 1; `null` until the host timed a block (#486). */
   cpuLoad: number | null
+  /** The largest load of one peak window of the period (one block with the helper's clock, about 100 ms with the worklet's), 0 to 1; `null` like `cpuLoad`. */
+  cpuPeak: number | null
   liveOverflows: number
   rejected: number
   diskUnderruns: number
@@ -168,6 +170,7 @@ export function decodeFeedback(bytes: ArrayBufferLike, at = 0, len = bytes.byteL
   const meters: Meter[] = []
   for (let i = 0; i < tracks; i++) meters.push(meterAt(view, FEEDBACK_HEADER_BYTES + i * TRACK_METER_BYTES))
   const load = view.getFloat32(24, true)
+  const peak = view.getFloat32(72, true)
   return {
     seq: view.getUint32(4, true),
     epoch: view.getUint16(2, true),
@@ -175,6 +178,7 @@ export function decodeFeedback(bytes: ArrayBufferLike, at = 0, len = bytes.byteL
     playheadTick: Number(view.getBigInt64(8, true)),
     playheadFrame: Number(view.getBigUint64(16, true)),
     cpuLoad: load >= 0 ? Math.min(load, 1) : null,
+    cpuPeak: peak >= 0 ? Math.min(peak, 1) : null,
     liveOverflows: view.getUint32(28, true),
     rejected: view.getUint32(32, true),
     diskUnderruns: view.getUint32(36, true),

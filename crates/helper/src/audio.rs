@@ -26,7 +26,7 @@ use engine::msg::{ControlMsg, Header, MsgError, Tag};
 use engine::time::SampleRate;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Frames rendered per chunk; a longer callback is rendered in several chunks.
 pub const CHUNK_FRAMES: usize = engine::msg::limits::MAX_BLOCK_FRAMES;
@@ -445,7 +445,13 @@ impl AudioCore {
         let mut peak = 0.0f32;
         let mut done = 0;
         while done < frames {
+            // The CPU load (#486): each chunk's render timed with the monotonic clock (a
+            // user-mode counter read on the supported systems; no allocation, no lock), its
+            // time added with its frames. The copy below is not counted.
+            let start = Instant::now();
             let n = self.host.render((frames - done).min(CHUNK_FRAMES));
+            self.host
+                .add_render_time(start.elapsed().as_secs_f32(), n as u32);
             let (left, right) = (self.host.left(), self.host.right());
             for i in 0..n {
                 let frame = &mut out[(done + i) * channels..(done + i + 1) * channels];

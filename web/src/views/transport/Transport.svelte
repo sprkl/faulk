@@ -7,7 +7,7 @@
    * through the dispatcher.
    */
   import { onMount } from 'svelte'
-  import { ignoreKeyEvent, spaceTogglesTransport, trackFocusOrigin } from '../../lib/keyboard'
+  import { ignoreKeyEvent, isTapChord, spaceTogglesTransport, tapShortcut, trackFocusOrigin } from '../../lib/keyboard'
   import type { MessageKey } from '../../lib/i18n/index'
   import { useStores } from '../../lib/stores'
   import { beginGroup, endGroup } from '../../lib/track-commands'
@@ -31,6 +31,8 @@
     stepTempo,
     type Signature,
   } from './time'
+  import { createSeries } from './series'
+  import { NO_TAPS, TAP_RESET_MS, tap, type TapState } from './tap-tempo'
 
   const { engine, project, ui, dispatcher, recorder } = useStores()
   const t = ui.t
@@ -154,6 +156,64 @@
     tempoDraft = bpm === null ? '' : formatTempo(bpm)
   }
 
+  // --- tap tempo and the wheel (#195): a series of tempo changes is one history entry ---------------------
+
+  /**
+   * How long after its last tap or wheel notch a series stays one history entry: a little longer than the tap window of
+   * `tap-tempo.ts` (a tap at exactly its limit still belongs to the series), shorter for the wheel.
+   */
+  const tapSeries = createSeries(run, TAP_RESET_MS + 100)
+  const wheelSeries = createSeries(run, 600)
+  let tapState: TapState = NO_TAPS
+  /** What the tap button says to a screen reader: the tempo the last tap measured (the field shows it too). */
+  let tapped = $state('')
+
+  function onTap() {
+    if (!ready) return
+    wheelSeries.end()
+    tapState = tap(tapState, performance.now())
+    // A tap that starts a new series (the first, or after a pause) closes the history entry of the one before.
+    if (tapState.taps.length === 1) tapSeries.end()
+    if (tapState.bpm === null) return
+    tapped = t('transport.tapped', { bpm: formatTempo(tapState.bpm) })
+    // A tap that gives the same tempo changes nothing but still belongs to the series: it keeps the entry open.
+    if (tapState.bpm !== bpm) tapSeries.apply(setTempo(tapState.bpm))
+    else tapSeries.touch()
+  }
+
+  /** Anything but a tap closes the series, so an undo right after the last tap is not refused by an open group. */
+  function endSeries(event: Event) {
+    // The tap key (a held one repeats) and the modifier that goes with it belong to the series.
+    if (event instanceof KeyboardEvent && (isTapChord(event) || ['Alt', 'Shift', 'Control', 'Meta'].includes(event.key))) return
+    if ((event.target as Element | null)?.closest?.('[data-tap]')) return
+    tapSeries.end()
+    wheelSeries.end()
+  }
+
+  /** Steps the tempo, one notch or one arrow press: the tempo field's text is the base when it is a valid tempo. */
+  function stepBy(direction: 1 | -1, fine: boolean): number | null {
+    const base = parseTempo(tempoDraft) ?? bpm
+    return base === null ? null : stepTempo(base, direction, fine)
+  }
+
+  /** The wheel over the tempo field: up raises, Shift or Ctrl (Cmd) steps by 0.1. Listens non-passively to keep the page from scrolling. */
+  function wheelTempo(node: HTMLElement) {
+    const onWheel = (event: WheelEvent) => {
+      // Some browsers turn Shift+wheel into a horizontal wheel: the notch is then in deltaX.
+      const delta = event.deltaY || event.deltaX
+      if (!ready || delta === 0) return
+      event.preventDefault()
+      const next = stepBy(delta < 0 ? 1 : -1, event.shiftKey || event.ctrlKey || event.metaKey)
+      if (next === null) return
+      tempoError = false
+      tapSeries.end()
+      if (next !== bpm) wheelSeries.apply(setTempo(next))
+      tempoDraft = formatTempo(next)
+    }
+    node.addEventListener('wheel', onWheel, { passive: false })
+    return { destroy: () => node.removeEventListener('wheel', onWheel) }
+  }
+
   function onTempoKey(event: KeyboardEvent) {
     if (event.key === 'Enter') commitTempo()
     else if (event.key === 'Escape') {
@@ -162,9 +222,9 @@
       ;(event.currentTarget as HTMLElement).blur()
     } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
       event.preventDefault()
-      const base = parseTempo(tempoDraft) ?? bpm
-      if (base === null) return
-      tempoDraft = formatTempo(stepTempo(base, event.key === 'ArrowUp' ? 1 : -1))
+      const next = stepBy(event.key === 'ArrowUp' ? 1 : -1, event.shiftKey || event.ctrlKey || event.metaKey)
+      if (next === null) return
+      tempoDraft = formatTempo(next)
       commitTempo()
     }
   }
@@ -218,9 +278,25 @@
   }
 
   // `:focus-visible` is not enough (it turns on at the first key press), so the origin of the focus is followed.
-  onMount(() => trackFocusOrigin())
+  onMount(() => {
+    const stopOrigin = trackFocusOrigin()
+    window.addEventListener('keydown', endSeries, true)
+    window.addEventListener('pointerdown', endSeries, true)
+    return () => {
+      stopOrigin?.()
+      window.removeEventListener('keydown', endSeries, true)
+      window.removeEventListener('pointerdown', endSeries, true)
+      tapSeries.end()
+      wheelSeries.end()
+    }
+  })
 
   function onSpace(event: KeyboardEvent) {
+    if (tapShortcut(event) && ready && !ui.helpOpen) {
+      event.preventDefault()
+      onTap()
+      return
+    }
     if (event.code !== 'Space' || !ready || ignoreKeyEvent(event) || ui.helpOpen) return
     // A text field or a keyboard-focused control keeps the space bar (`spaceTogglesTransport`); a clicked one does not.
     if (!spaceTogglesTransport(event.target)) return
@@ -368,6 +444,7 @@
       aria-invalid={tempoError}
       aria-describedby={tempoError ? 'tempo-error' : undefined}
       data-testid="transport-tempo"
+      use:wheelTempo
       bind:value={tempoDraft}
       onfocus={() => (tempoFocus = true)}
       onblur={() => {
@@ -380,6 +457,17 @@
       <span class="tempo-error" id="tempo-error" role="alert" data-testid="tempo-error">{t('transport.tempoRange', { min: MIN_TEMPO, max: MAX_TEMPO })}</span>
     {/if}
   </label>
+  <button
+    class="tool tap"
+    data-tap
+    disabled={!ready}
+    title={withShortcut(t('transport.tapHint'), ['Alt', 'T'])}
+    data-testid="transport-tap"
+    onclick={press(onTap)}
+  >
+    {t('transport.tap')}
+  </button>
+  <span class="sr-only" role="status" data-testid="transport-tapped">{tapped}</span>
 
   <div class="field" role="group" aria-label={t('transport.signature')}>
     <input
@@ -502,6 +590,12 @@
   .rec-target.live,
   .rec-target.warn {
     color: var(--fk-text);
+  }
+  .tool.tap {
+    width: auto;
+    min-width: 28px;
+    padding: 0 var(--fk-space-1);
+    font-size: 11px;
   }
   .tool:disabled {
     opacity: 0.45;

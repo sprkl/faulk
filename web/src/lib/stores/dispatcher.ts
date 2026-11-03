@@ -1,6 +1,7 @@
 import type { Engine, EngineEvents } from '../engine/engine'
 import { probeHelper, pairHelper } from '../engine/helper-client'
 import { peakOf } from '../engine/feedback'
+import { LoadMeter, sameLoad } from '../engine/load'
 import { NativeEngine, NoOutputError } from '../engine/native-engine'
 import { WebEngine } from '../engine/web-engine'
 import { withFrame } from '../engine/clock'
@@ -95,6 +96,8 @@ export class Dispatcher {
   private events(kind: 'web' | 'native', generation = this.webGeneration): EngineEvents {
     // A Web engine is told apart by its generation, a helper session by the count of sessions that became current.
     const current = () => this.engine?.kind === kind && generation === (kind === 'native' ? this.boosts : this.webGeneration)
+    // Each engine's load is smoothed from its own first report (#486).
+    const load = new LoadMeter()
     return {
       onStatus: (status) => {
         if (current()) this.state.status = status
@@ -102,6 +105,8 @@ export class Dispatcher {
       onFeedback: (report) => {
         if (!current()) return
         this.state.feedback = report
+        const shown = load.update(report.cpuLoad, report.cpuPeak, performance.now())
+        if (!sameLoad(this.state.load, shown)) this.state.load = shown
         this.state.peak = peakOf(report.master)
         this.state.voices = report.voices
         this.recorder?.feedback(report)
