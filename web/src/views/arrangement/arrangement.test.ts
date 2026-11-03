@@ -13,6 +13,8 @@ import {
   laneTop,
   moveDelta,
   moved,
+  clampRows,
+  trackTargets,
   playsAt,
   resizeTo,
   resized,
@@ -173,6 +175,43 @@ describe('move', () => {
       [1, 1440, 3360],
     ])
     expect(moveDelta([], p1, 5, 0, null)).toBe(0)
+  })
+})
+
+describe('moving to other tracks', () => {
+  const tracks = [
+    { id: 't0', midi: true },
+    { id: 't1', midi: true },
+    { id: 't2', midi: false },
+  ]
+  const onTrack0 = get('p1')
+  const onTrack1 = get('q1')
+
+  it('shifts the rows of the ghosts with the time', () => {
+    expect(moved([onTrack0], 480, 1).map((b) => [b.row, b.start])).toEqual([[onTrack0.row + 1, onTrack0.start + 480]])
+  })
+
+  it('keeps the rows of a selection inside the tracks', () => {
+    expect(clampRows([onTrack0, onTrack1], 5, 3)).toBe(1)
+    expect(clampRows([onTrack0, onTrack1], -5, 3)).toBe(0)
+    expect(clampRows([onTrack1], -1, 3)).toBe(-1)
+    expect(clampRows([], 2, 3)).toBe(0)
+  })
+
+  it('pairs each clip with the track that many tracks away', () => {
+    expect(trackTargets([onTrack0], 1, tracks)).toEqual({ moves: [{ placement: onTrack0.id, track: 't1' }] })
+    expect(trackTargets([onTrack0, onTrack1], 0, tracks)).toEqual({
+      moves: [
+        { placement: onTrack0.id, track: 't0' },
+        { placement: onTrack1.id, track: 't1' },
+      ],
+    })
+  })
+
+  it('refuses the whole move at the first or last track and for a track that is not MIDI', () => {
+    expect(trackTargets([onTrack0], -1, tracks)).toEqual({ refused: 'edge' })
+    expect(trackTargets([onTrack0, onTrack1], 1, tracks)).toEqual({ refused: 'incompatible', track: 't2' })
+    expect(trackTargets([onTrack1], 5, tracks)).toEqual({ refused: 'edge' })
   })
 })
 
