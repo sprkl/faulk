@@ -7,7 +7,8 @@
   import { goto } from '$app/navigation'
   import { onMount } from 'svelte'
   import { watchLocalAccess } from '../../lib/engine/local-access'
-  import { historyShortcut, layoutShortcut, saveShortcut } from '../../lib/keyboard'
+  import { isMenuKey, menuPointOf, unhandledContextMenu } from '../../lib/context-menu'
+  import { historyShortcut, isTextTarget, layoutShortcut, saveShortcut } from '../../lib/keyboard'
   import { takeOpenLink } from '../../lib/open-link'
   import { isPairHash } from '../../lib/pair-link'
   import { helpShortcut } from '../../lib/shortcuts'
@@ -15,6 +16,7 @@
   import { runHistory } from '../../lib/history-said'
   import { createStores, provideStores, type Stores } from '../../lib/stores'
   import { DEFAULT_PANEL, DEFAULT_VIEW, startView, viewById, viewsIn, type MainViewId } from '../registry'
+  import ContextMenu from '../../lib/components/ContextMenu.svelte'
   import BottomPanel from './BottomPanel.svelte'
   import { clampHeight, panelMax } from './panel-size'
   import EngineDialog from './EngineDialog.svelte'
@@ -84,7 +86,49 @@
     }
   })
 
+  // --- the right click (#524) ---------------------------------------------------------------------------------------
+  // The browser's menu never opens in the app, except in a text field. A view whose target has actions opens the shared
+  // menu from its own `contextmenu` handler (`ui.openMenu`); what no one handled ends here, cancelled, and opens nothing.
+  let menuKeyAt = -Infinity
+
+  /** Shift+F10 and the Menu key: the `contextmenu` event of the focused element, at its middle, as a right click would send it. */
+  function askMenu(event: KeyboardEvent) {
+    const target = (document.activeElement ?? document.body) as HTMLElement
+    if (isTextTarget(target) && target !== document.body) return
+    event.preventDefault()
+    const box = target.getBoundingClientRect()
+    const { x, y } = menuPointOf(box)
+    menuKeyAt = performance.now()
+    target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, composed: true, clientX: x, clientY: y, button: 2, view: window }))
+  }
+
+  /** The browser sends its own `contextmenu` for the key too (on key up, on some systems): the one we sent already answered it. */
+  function dropEcho(event: MouseEvent) {
+    if (event.isTrusted && performance.now() - menuKeyAt < 600 && !isTextTarget(event.target)) {
+      event.preventDefault()
+      event.stopImmediatePropagation()
+    }
+  }
+
+  function onContextMenu(event: MouseEvent) {
+    // Nothing under the pointer has an action. An open menu closes on the press itself (ContextMenu), not here: the
+    // browser's own echo of a Shift+F10 must not close the menu that key just opened.
+    if (unhandledContextMenu(event) === 'cancel') event.preventDefault()
+  }
+
+  onMount(() => {
+    // A press of the pointer ends the key's window: a right click right after the key is a click, not its echo.
+    const pointer = () => (menuKeyAt = -Infinity)
+    window.addEventListener('contextmenu', dropEcho, true)
+    window.addEventListener('pointerdown', pointer, true)
+    return () => {
+      window.removeEventListener('contextmenu', dropEcho, true)
+      window.removeEventListener('pointerdown', pointer, true)
+    }
+  })
+
   function onKeyDown(event: KeyboardEvent) {
+    if (isMenuKey(event)) return askMenu(event)
     const save = saveShortcut(event)
     if (save) {
       // The browser would offer to save the page as a file.
@@ -165,13 +209,24 @@
   }
 </script>
 
-<svelte:window onkeydown={onKeyDown} onkeyup={(event) => keys.keyUp(event)} onbeforeunload={onBeforeUnload} onfocus={() => void storage.wake()} />
+<svelte:window
+  oncontextmenu={onContextMenu}
+  onkeydown={onKeyDown}
+  onkeyup={(event) => keys.keyUp(event)}
+  onbeforeunload={onBeforeUnload}
+  onfocus={() => void storage.wake()}
+/>
 <svelte:document onvisibilitychange={onVisibility} />
 
 <div class="shell">
   <a class="skip" href="#fk-main" data-testid="skip-link" onclick={skipToMain}>{ui.t(ui.view === 'arrangement' ? 'shell.skipTimeline' : 'shell.skipMain')}</a>
   <TopBar />
   <StorageBanners />
+  {#if ui.contextMenu}
+    {#key ui.contextMenu}
+      <ContextMenu x={ui.contextMenu.x} y={ui.contextMenu.y} items={ui.contextMenu.items} label={ui.contextMenu.label} onclose={() => ui.closeMenu()} />
+    {/key}
+  {/if}
   <ExportDialog />
   <EngineDialog />
   <ShortcutsDialog />

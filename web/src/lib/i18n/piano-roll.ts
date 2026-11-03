@@ -39,6 +39,10 @@ export const pianoRoll = defineFeature(
     'pianoRoll.delete': 'Delete',
     'pianoRoll.edit': 'Edit the selected notes',
     'pianoRoll.duplicate': 'Duplicate',
+    'pianoRoll.copy': 'Copy',
+    'pianoRoll.cut': 'Cut',
+    'pianoRoll.paste': 'Paste',
+    'pianoRoll.menu': 'Note actions',
     'pianoRoll.duplicateHint':
       'Copy the selected notes a whole number of bars later, at least one bar (Ctrl or Cmd + D). The clip grows by whole bars if they do not fit.',
     'pianoRoll.transposeDown': 'Transpose down one semitone',
@@ -116,6 +120,10 @@ export const pianoRoll = defineFeature(
     'pianoRoll.delete': 'Supprimer',
     'pianoRoll.edit': 'Modifier les notes sélectionnées',
     'pianoRoll.duplicate': 'Dupliquer',
+    'pianoRoll.copy': 'Copier',
+    'pianoRoll.cut': 'Couper',
+    'pianoRoll.paste': 'Coller',
+    'pianoRoll.menu': 'Actions sur les notes',
     'pianoRoll.duplicateHint':
       'Copie les notes sélectionnées un nombre entier de mesures plus loin, au moins une mesure (Ctrl ou Cmd + D). Le clip s’allonge d’autant de mesures entières si elles ne tiennent pas.',
     'pianoRoll.transposeDown': 'Transposer d’un demi-ton vers le bas',

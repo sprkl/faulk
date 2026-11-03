@@ -190,6 +190,8 @@
 
   function onContextMenu(event: MouseEvent) {
     event.preventDefault()
+    // The control answers for itself: the card or the strip around it opens nothing more.
+    event.stopPropagation()
     // Keep the menu on screen.
     menu = { x: Math.max(0, Math.min(event.clientX, window.innerWidth - 220)), y: Math.max(0, Math.min(event.clientY, window.innerHeight - 56)) }
   }
