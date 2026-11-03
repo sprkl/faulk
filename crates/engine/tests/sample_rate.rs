@@ -303,6 +303,26 @@ fn a_rate_the_devices_cannot_build_for_is_refused() {
 }
 
 #[test]
+fn the_same_rate_rebuilds_nothing_and_the_reports_follow_a_new_one() {
+    let mut r = Rig::new(48_000.0);
+    r.secs(0.05);
+    assert_eq!(r.host.report_period(), 1_600);
+    let applied = r.host.engine().applied();
+    r.change_rate(48_000);
+    r.secs(0.05);
+    assert_eq!(r.host.engine().applied(), applied, "nothing sent");
+    assert_eq!(r.host.report_period(), 1_600);
+    // 30 reports a second at the new rate.
+    r.change_rate(96_000);
+    r.secs(0.05);
+    assert_eq!(r.host.report_period(), 3_200);
+    // A host built for a rate the clock rounds keeps the rate it was given until a change.
+    let (_, mut odd) = channel(44_100.4).unwrap();
+    assert_no_alloc(|| odd.render(BLOCK));
+    assert_eq!(odd.report_period(), 1_470);
+}
+
+#[test]
 fn with_no_room_in_the_queue_nothing_changes() {
     let mut r = Rig::new(48_000.0);
     // The engine does not run: the ring (4 096) then the queue (4 096) fill up.

@@ -1491,8 +1491,11 @@ impl Preparer {
     /// parameters it was given and its enabled state, then the audio side receives the new
     /// rate (`Engine::set_sample_rate`: clock, metronome, limiter, fades) followed by each
     /// device on its own slot (a `DevicePut`, the path of an insert on an occupied slot:
-    /// the old device goes, an instrument's notes are released). The automation lanes give a
-    /// rebuilt device their values again (AM-2).
+    /// the old device goes, an instrument's notes are released, and every device restarts
+    /// clean: effect tails, envelopes and filter states start again). The automation lanes
+    /// give a rebuilt device their values again (AM-2); a lane already removed does not,
+    /// so the device takes the value the project holds, as a resync gives. A call at the
+    /// current rate does nothing.
     ///
     /// Atomic: every device is built before anything changes, so an `OutOfMemory`, an
     /// `EngineBusy` when the queue has no room for `1 +` the devices, or a `LimitExceeded`
@@ -1507,12 +1510,25 @@ impl Preparer {
         // The devices build for 8 kHz to `MAX_SAMPLE_RATE` (below, they fall back to 48 kHz;
         // above, their lines are capped): a rate outside would leave them out of tune.
         let hz = rate.hz();
-        if !(MIN_DEVICE_RATE..=crate::device::MAX_SAMPLE_RATE as u32).contains(&hz) {
+        let max = crate::device::MAX_SAMPLE_RATE as u32;
+        if hz < MIN_DEVICE_RATE {
             return Err(MsgError::LimitExceeded {
-                what: "sample rate (8 000 to 192 000 Hz)",
-                limit: crate::device::MAX_SAMPLE_RATE as u64,
+                what: "sample rate below the lowest (8 000 Hz)",
+                limit: u64::from(MIN_DEVICE_RATE),
                 requested: u64::from(hz),
             });
+        }
+        if hz > max {
+            return Err(MsgError::LimitExceeded {
+                what: "sample rate above the highest (192 000 Hz)",
+                limit: u64::from(max),
+                requested: u64::from(hz),
+            });
+        }
+        // The same rate: nothing to build again (a rebuild would release notes and restart
+        // every effect for nothing).
+        if hz as f32 == self.setup.sample_rate {
+            return Ok(());
         }
         self.flush();
         // Every chain, tracks in slot order then the master (no allocation: an infallible

@@ -146,6 +146,9 @@ pub struct Host {
     report_frames: u32,
     feedback: Arc<[AtomicU32]>,
     feedback_seq: u32,
+    /// The clock's rate the host last saw (#236): a change makes the report period and the
+    /// load follow it.
+    clock_rate: u32,
 }
 
 impl core::fmt::Debug for Host {
@@ -199,6 +202,7 @@ pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
         report_frames: report_frames(sample_rate),
         feedback: Arc::from(feedback.into_boxed_slice()),
         feedback_seq: 0,
+        clock_rate: 0,
     };
     let prepare = Prepare { preparer, status };
     prepare.publish();
@@ -259,11 +263,15 @@ impl Host {
     /// is due. Returns the frames rendered.
     pub fn render_block(&mut self, frames: usize) -> usize {
         let frames = frames.min(self.left.len());
-        // A new sample rate (#236, applied by the last pump): the report period follows it.
-        let hz = self.engine.clock().sample_rate().hz() as f32;
-        if hz != self.sample_rate {
-            self.sample_rate = hz;
-            self.report_frames = report_frames(hz);
+        // A new sample rate (#236, applied by the last pump): the report period and the
+        // load follow it. Only a change: the rate the host was built for stays as given.
+        let hz = self.engine.clock().sample_rate().hz();
+        if hz != self.clock_rate {
+            if self.clock_rate != 0 {
+                self.sample_rate = hz as f32;
+                self.report_frames = report_frames(self.sample_rate);
+            }
+            self.clock_rate = hz;
         }
         let (left, right) = (&mut self.left[..frames], &mut self.right[..frames]);
         self.engine.render(left, right);
@@ -301,6 +309,11 @@ impl Host {
     /// The right channel of the last block.
     pub fn right(&self) -> &[f32] {
         &self.right
+    }
+
+    /// Frames between two reports, at the current rate ([`REPORTS_PER_SECOND`]).
+    pub fn report_period(&self) -> u32 {
+        self.report_frames
     }
 
     /// The report region: [`Feedback::max_size_for`] the track limit, in 32-bit words that
