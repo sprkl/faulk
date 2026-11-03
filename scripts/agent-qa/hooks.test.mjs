@@ -14,6 +14,7 @@ import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { changeFingerprint, codeState } from "./fingerprint.mjs";
 import { sessionState } from "./session.mjs";
+import { RECORD_LIMIT } from "./stop-core.mjs";
 
 const SCRIPTS = dirname(dirname(fileURLToPath(import.meta.url)));
 const REPO = dirname(SCRIPTS);
@@ -260,9 +261,130 @@ describe("Stop hook: what blocks", () => {
       assert.equal(stop(root), null);
       toolCall(root, "s1", () => writeCode(root, "pub fn gain() -> f32 { 0.3 }\n"));
       assert.equal(script("agent-qa/record.mjs", root, "verified", ...RUST).status, 0);
-      assert.match(stop(root).reason, /no delivery review yet/);
+      // The earlier review exists: the message says why it does not count (#492).
+      const reason = stop(root).reason;
+      assert.match(reason, new RegExp(`review of an earlier state of ${branch} exists, but it is not carried over: ${branch} is not a task branch`));
+      assert.doesNotMatch(reason, /no delivery review yet/);
     });
   }
+
+  describe("two branches stacked in one checkout (#492)", () => {
+    /** feat/6-x, then feat/7-y on top of it, each written by the session, committed, verified and reviewed through record.mjs. */
+    function stacked() {
+      const root = makeRepo();
+      startSession(root);
+      toolCall(root, "s1", () => {
+        writeCode(root);
+        git(root, "commit", "-q", "-am", "six");
+      });
+      assert.equal(script("agent-qa/record.mjs", root, "verified", ...RUST).status, 0);
+      deliveryReview(root, { issue: 6 });
+      assert.equal(review(root, ".scratch/judge-dredd/6-delivery.md").status, 0);
+      toolCall(root, "s1", () => {
+        git(root, "switch", "-q", "-c", "feat/7-y");
+        writeFileSync(join(root, "crates", "engine", "src", "seven.rs"), "pub const SEVEN: u8 = 7;\n");
+        git(root, "add", "-A");
+        git(root, "commit", "-q", "-m", "seven");
+      });
+      assert.equal(script("agent-qa/record.mjs", root, "verified", ...RUST).status, 0);
+      deliveryReview(root, { issue: 7 });
+      const reviewed = review(root, ".scratch/judge-dredd/7-delivery.md");
+      assert.equal(reviewed.status, 0, reviewed.stderr);
+      return root;
+    }
+    const list = (root, name) => JSON.parse(readFileSync(qa(root, name), "utf8"));
+
+    it("each branch keeps its records, and the turn ends", () => {
+      const root = stacked();
+      assert.deepEqual(list(root, "verifications.json").map((r) => r.branch), ["feat/6-x", "feat/7-y"]);
+      assert.deepEqual(list(root, "reviews.json").map((r) => r.branch), ["feat/6-x", "feat/7-y"]);
+      // The last records alone are still written, for an older guard.
+      assert.equal(JSON.parse(readFileSync(qa(root, "review.json"), "utf8")).branch, "feat/7-y");
+      assert.equal(stop(root), null);
+      // Back on the first branch, the second one is judged on its committed content: both still pass.
+      toolCall(root, "s1", () => git(root, "switch", "-q", "feat/6-x"));
+      assert.equal(stop(root), null);
+      assert.equal(script("agent-qa/record.mjs", root, "verified", ...RUST).status, 0);
+      assert.equal(stop(root), null);
+      assert.deepEqual(list(root, "verifications.json").map((r) => r.branch), ["feat/7-y", "feat/6-x"]);
+    });
+
+    it("a later fix of the first branch needs its verification only, and the second still passes", () => {
+      const root = stacked();
+      toolCall(root, "s1", () => git(root, "switch", "-q", "feat/6-x"));
+      toolCall(root, "s1", () => writeCode(root, "pub fn gain() -> f32 { 0.45 }\n"));
+      const output = stop(root);
+      assert.equal(output.decision, "block");
+      assert.match(output.reason, /record\.mjs verified/);
+      assert.doesNotMatch(output.reason, /delivery review/);
+      assert.equal(script("agent-qa/record.mjs", root, "verified", ...RUST).status, 0);
+      assert.equal(stop(root), null);
+    });
+
+    it("an unreadable list counts as empty and blocks (the legacy record alone still counts)", () => {
+      const root = stacked();
+      writeFileSync(qa(root, "verifications.json"), "{ not json");
+      const output = stop(root);
+      assert.equal(output.decision, "block");
+      // last-run.json holds feat/7-y, the current branch: only feat/6-x lost its verification.
+      assert.match(output.reason, /committed content of feat\/6-x/);
+      assert.doesNotMatch(output.reason, /seven\.rs/);
+    });
+  });
+
+  it("records made before the lists (last-run.json and review.json alone) still count, and are kept in the lists", () => {
+    const root = makeRepo();
+    startSession(root);
+    toolCall(root, "s1", () => writeCode(root));
+    const fingerprint = changeFingerprint(root);
+    mkdirSync(qa(root), { recursive: true });
+    writeFileSync(qa(root, "last-run.json"), JSON.stringify({ status: "verified", fingerprint, branch: "feat/6-x", at: "2026-11-01T00:00:00Z" }));
+    writeFileSync(qa(root, "review.json"), JSON.stringify({ status: "reviewed", fingerprint: "0ld", branch: "feat/6-x", at: "2026-11-01T00:00:00Z" }));
+    assert.equal(stop(root), null);
+    toolCall(root, "s1", () => writeCode(root, "pub fn gain() -> f32 { 0.2 }\n"));
+    assert.equal(script("agent-qa/record.mjs", root, "verified", ...RUST).status, 0);
+    const verifications = JSON.parse(readFileSync(qa(root, "verifications.json"), "utf8"));
+    assert.deepEqual(verifications.map((r) => r.fingerprint), [fingerprint, changeFingerprint(root)]);
+    assert.equal(stop(root), null);
+  });
+
+  it("a list record.mjs cannot write records nothing and leaves no temporary file", () => {
+    const root = makeRepo();
+    startSession(root);
+    toolCall(root, "s1", () => writeCode(root));
+    mkdirSync(qa(root, "verifications.json", "blocker"), { recursive: true }); // a directory where the list goes
+    const result = script("agent-qa/record.mjs", root, "verified", ...RUST);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /\[agent-qa\] could not write .*verifications\.json .*nothing was recorded/);
+    assert.deepEqual(readdirSync(qa(root)).filter((name) => name.endsWith(".tmp")), []);
+    assert.equal(existsSync(qa(root, "last-run.json")), false);
+    assert.equal(existsSync(qa(root, "history.jsonl")), false);
+    assert.equal(stop(root).decision, "block");
+  });
+
+  it("record.mjs keeps at most RECORD_LIMIT entries; a state whose record went is asked for it again", () => {
+    const root = makeRepo();
+    startSession(root);
+    toolCall(root, "s1", () => writeCode(root));
+    assert.equal(script("agent-qa/record.mjs", root, "verified", ...RUST).status, 0);
+    deliveryReview(root);
+    assert.equal(review(root).status, 0);
+    assert.equal(stop(root), null);
+    const filler = Array.from({ length: RECORD_LIMIT }, (_, i) => ({ status: "verified", fingerprint: `other${i}`, branch: "feat/8-z", at: `t${i}` }));
+    const own = JSON.parse(readFileSync(qa(root, "verifications.json"), "utf8"));
+    writeFileSync(qa(root, "verifications.json"), JSON.stringify([...own, ...filler.slice(0, -1)]));
+    // Another branch records one more state: the oldest entry (this branch's) goes.
+    writeFileSync(qa(root, "last-run.json"), JSON.stringify(filler.at(-1)));
+    git(root, "switch", "-q", "-c", "feat/8-z");
+    writeFileSync(join(root, "crates", "engine", "src", "eight.rs"), "pub const EIGHT: u8 = 8;\n");
+    assert.equal(script("agent-qa/record.mjs", root, "verified", ...RUST).status, 0);
+    const kept = JSON.parse(readFileSync(qa(root, "verifications.json"), "utf8"));
+    assert.equal(kept.length, RECORD_LIMIT);
+    assert.equal(kept.some((r) => r.branch === "feat/6-x"), false);
+    rmSync(join(root, "crates", "engine", "src", "eight.rs"));
+    git(root, "switch", "-q", "feat/6-x");
+    assert.match(stop(root).reason, /record\.mjs verified/);
+  });
 
   it("a session that undoes its own change is let through", () => {
     const root = makeRepo();

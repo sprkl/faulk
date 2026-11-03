@@ -81,6 +81,18 @@ impl Meter {
         self.output_delay_us.store(us, Ordering::Relaxed);
     }
 
+    /// Forgets the output that went away: its report, its callback size and its delay, so that
+    /// no stale report or latency reaches a later session (#525).
+    pub fn reset(&self) {
+        if let Ok(mut report) = self.report.lock() {
+            *report = None;
+        }
+        self.peak_bits.store(0, Ordering::Relaxed);
+        self.voices.store(0, Ordering::Relaxed);
+        self.callback_frames.store(0, Ordering::Relaxed);
+        self.output_delay_us.store(0, Ordering::Relaxed);
+    }
+
     /// Estimated output latency in ms: one callback buffer (an event waits for the next
     /// callback) plus the driver's output delay. An estimate from what the driver
     /// reports, never a measurement. `None` before the first callback.
@@ -203,6 +215,68 @@ impl EventSender {
     }
 }
 
+/// The engine of the open audio output, if any (#525): the prepare side and the rate it runs
+/// at. The server, the MIDI callback, the control thread and Quit reach the engine through it;
+/// the output supervisor (`crate::output`) fills it when an output opens and empties it when
+/// the output goes away. While it is empty, commands and MIDI notes go nowhere: nothing can
+/// sound. Non-real-time threads only.
+#[derive(Default)]
+pub struct EngineSlot {
+    running: Mutex<Option<Running>>,
+}
+
+struct Running {
+    sender: EventSender,
+    sample_rate: f32,
+}
+
+impl EngineSlot {
+    /// Runs `f` on the sender of the open output; `None` when there is none. A lock poisoned
+    /// by a panic is taken anyway (a note off must never be skipped).
+    pub fn with<R>(&self, f: impl FnOnce(&mut EventSender) -> R) -> Option<R> {
+        let mut running = self.running.lock().unwrap_or_else(|p| p.into_inner());
+        running.as_mut().map(|r| f(&mut r.sender))
+    }
+
+    /// Sends a command to the engine of the open output; dropped when there is none.
+    pub fn send(&self, command: &Command) {
+        self.with(|sender| sender.send(command));
+    }
+
+    /// Pushes what waited on the rt ring and drops the garbage, when an output is open.
+    pub fn flush(&self) {
+        self.with(EventSender::flush);
+    }
+
+    /// The rate of the open output; `None` when there is none.
+    pub fn sample_rate(&self) -> Option<f32> {
+        let running = self.running.lock().unwrap_or_else(|p| p.into_inner());
+        running.as_ref().map(|r| r.sample_rate)
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.sample_rate().is_some()
+    }
+
+    /// Makes `sender` the engine of the output just opened at `sample_rate`.
+    pub fn install(&self, sender: EventSender, sample_rate: f32) {
+        *self.running.lock().unwrap_or_else(|p| p.into_inner()) = Some(Running {
+            sender,
+            sample_rate,
+        });
+    }
+
+    /// The output went away: drops its engine's prepare side.
+    pub fn remove(&self) {
+        let old = self
+            .running
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take();
+        drop(old);
+    }
+}
+
 /// The audio thread's side.
 pub struct AudioCore {
     host: Host,
@@ -245,15 +319,14 @@ pub(crate) fn audio_core_for(
     Ok((AudioCore { host, meter }, sender))
 }
 
-/// The control thread: flushes the sender every [`FLUSH_INTERVAL`] until it is dropped.
-pub fn spawn_flusher(sender: &Arc<Mutex<EventSender>>) -> std::thread::JoinHandle<()> {
-    let sender: Weak<Mutex<EventSender>> = Arc::downgrade(sender);
+/// The control thread: flushes the engine of the open output every [`FLUSH_INTERVAL`] until
+/// the slot is dropped.
+pub fn spawn_flusher(slot: &Arc<EngineSlot>) -> std::thread::JoinHandle<()> {
+    let slot: Weak<EngineSlot> = Arc::downgrade(slot);
     std::thread::spawn(move || {
-        while let Some(sender) = sender.upgrade() {
-            if let Ok(mut sender) = sender.lock() {
-                sender.flush();
-            }
-            drop(sender);
+        while let Some(slot) = slot.upgrade() {
+            slot.flush();
+            drop(slot);
             std::thread::sleep(FLUSH_INTERVAL);
         }
     })
@@ -656,10 +729,54 @@ mod tests {
     #[test]
     fn the_control_thread_flushes_until_the_sender_is_dropped() {
         let (_core, sender, _) = core();
-        let sender = Arc::new(Mutex::new(sender));
-        let flusher = spawn_flusher(&sender);
+        let slot = Arc::new(EngineSlot::default());
+        slot.install(sender, 48_000.0);
+        let flusher = spawn_flusher(&slot);
         std::thread::sleep(FLUSH_INTERVAL * 3);
-        drop(sender);
+        drop(slot);
         flusher.join().unwrap();
+    }
+
+    #[test]
+    fn an_empty_slot_drops_commands_and_reports_no_rate() {
+        let slot = EngineSlot::default();
+        assert!(!slot.is_open());
+        assert_eq!(slot.sample_rate(), None);
+        slot.send(&note_on(60, 100));
+        slot.flush();
+        assert_eq!(slot.with(|s| s.rejected()), None);
+        let (mut core, sender, meter) = core();
+        slot.install(sender, 44_100.0);
+        assert_eq!(slot.sample_rate(), Some(44_100.0));
+        slot.send(&note_on(69, 127));
+        let mut out = vec![0.0; 960];
+        core.process(&mut out, 2);
+        assert_eq!(meter.take().1, 1, "the installed engine plays");
+        slot.remove();
+        assert!(!slot.is_open());
+    }
+
+    #[test]
+    fn a_reset_meter_forgets_the_output_that_went_away() {
+        let (mut core, mut sender, meter) = core();
+        sender.send(&note_on(69, 127));
+        let mut out = vec![0.0; 960];
+        core.process(&mut out, 2);
+        meter.set_output_delay(Duration::from_millis(5));
+        assert!(meter.callback_frames().is_some());
+        let mut report = Vec::new();
+        // The engine writes its report every few blocks.
+        for _ in 0..100 {
+            if meter.copy_report(&mut report) {
+                break;
+            }
+            core.process(&mut out, 2);
+        }
+        assert!(meter.copy_report(&mut report), "a report before the reset");
+        meter.reset();
+        assert_eq!(meter.callback_frames(), None);
+        assert_eq!(meter.estimated_latency_ms(48_000.0), None);
+        assert_eq!(meter.take(), (0.0, 0));
+        assert!(!meter.copy_report(&mut report), "no stale report");
     }
 }

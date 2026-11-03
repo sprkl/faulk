@@ -328,3 +328,31 @@ fn decoding_a_stream_refuses_cleanly_too() {
     }
     assert!(refused > 0);
 }
+
+/// `Preparer::set_sample_rate` (#236) builds every device again: each allocation refused in
+/// turn comes back as `OutOfMemory`, the rate and the devices stay as they were, and the
+/// same call with the memory back goes through.
+#[test]
+fn a_sample_rate_change_refused_at_each_allocation_changes_nothing() {
+    use engine::time::SampleRate;
+    let mut refused = 0;
+    for n in 1.. {
+        let (mut p, mut e) = base();
+        let applied = e.applied();
+        match armed(n, || p.set_sample_rate(SampleRate::HZ_96000)) {
+            Ok(()) => break,
+            Err(MsgError::OutOfMemory { .. }) => {
+                refused += 1;
+                settle(&mut p, &mut e);
+                assert_eq!(e.applied(), applied, "refusal {n}: nothing sent");
+                assert_eq!(p.sample_rate(), DeviceSetup::default().sample_rate);
+                p.set_sample_rate(SampleRate::HZ_96000).unwrap();
+                settle(&mut p, &mut e);
+                assert_eq!(e.clock().sample_rate(), SampleRate::HZ_96000);
+                assert_eq!(e.applied(), applied + 2, "the rate and the tone");
+            }
+            Err(other) => panic!("allocation {n} refused gave {other:?}"),
+        }
+    }
+    assert!(refused > 0, "no allocation site was reached");
+}

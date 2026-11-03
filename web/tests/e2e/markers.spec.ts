@@ -81,6 +81,47 @@ test('section markers: added, named, jumped to by keys, renamed and deleted, all
   expect(errors).toEqual([])
 })
 
+test('the right click on a marker: go to, rename, move by the grid step, delete (#530)', async ({ page }) => {
+  const { errors } = watch(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await start(page)
+  test.skip((await hooks(page)) !== 'function', 'the command hook exists in the dev server only')
+  await expect.poll(async () => Number(await grid(page).getAttribute('data-draw-count'))).toBeGreaterThan(0)
+  await run(page, { type: 'arrangement.marker.add', tick: BAR * 4, name: 'Verse' })
+  const marker = page.getByTestId('arr-marker').filter({ hasText: 'Verse' })
+  const menu = page.getByTestId('context-menu')
+
+  // Go to: the playhead reaches the marker's bar.
+  await marker.click({ button: 'right' })
+  await expect(menu).toHaveAttribute('aria-label', 'Marker Verse')
+  await expect(page.getByTestId('ctx-marker-jump')).toBeFocused()
+  await page.getByTestId('ctx-marker-jump').click()
+  await expect(page.getByTestId('transport-position')).toContainText('5.1')
+
+  // Later, then earlier: one grid step each, one command each.
+  await marker.click({ button: 'right' })
+  await page.getByTestId('ctx-marker-later').click()
+  await expect.poll(async () => (await markerNames(page))[0]).not.toBe('Verse@5')
+  await marker.click({ button: 'right' })
+  await page.getByTestId('ctx-marker-earlier').click()
+  await expect.poll(() => markerNames(page)).toEqual(['Verse@5'])
+
+  // Rename opens the field in place.
+  await marker.click({ button: 'right' })
+  await page.getByTestId('ctx-marker-rename').click()
+  await page.getByTestId('arr-marker-field').fill('Drop')
+  await page.keyboard.press('Enter')
+  await expect.poll(() => markerNames(page)).toEqual(['Drop@5'])
+
+  // Delete, then undo brings it back.
+  await page.getByTestId('arr-marker').filter({ hasText: 'Drop' }).click({ button: 'right' })
+  await page.getByTestId('ctx-marker-delete').click()
+  await expect.poll(() => markerNames(page)).toEqual([])
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => markerNames(page)).toEqual(['Drop@5'])
+  expect(errors).toEqual([])
+})
+
 test('the whole song in one zoom, and a long song opens on 32 bars', async ({ page }) => {
   const { errors } = watch(page)
   await page.setViewportSize({ width: 1440, height: 900 })

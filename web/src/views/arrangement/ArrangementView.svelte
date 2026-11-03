@@ -237,8 +237,6 @@
   let autoPick = $state.raw<{ lane: string; ticks: ReadonlySet<number> } | null>(null)
   /** The point under the pointer, for its readout. */
   let hover = $state.raw<{ lane: string; tick: number } | null>(null)
-  /** The context menu on points, at a client position. */
-  let menu = $state.raw<{ x: number; y: number } | null>(null)
   /** The point whose value is being typed. */
   let editing = $state.raw<{ lane: string; tick: number; x: number; y: number } | null>(null)
   let editAnchor: HTMLDivElement | undefined = $state()
@@ -539,21 +537,50 @@
     const marker = markers.find((m) => m.id === r.id)
     if (marker && r.text.trim() && r.text.trim() !== marker.name) run(renameMarker(r.id, r.text))
   }
+  /** Moves a marker by the snap step, earlier or later (Alt+Left and Alt+Right, #554, and the marker's menu), so a section can be placed without the mouse. */
+  function nudgeMarker(marker: MarkerView, direction: 1 | -1) {
+    const to = Math.max(0, marker.tick + direction * nudge)
+    if (to === marker.tick) return announce(t('arrangement.saidCannotMove'))
+    run(moveMarker(marker.id, to))
+    // Out of sight, the view follows it: the button would be removed with the focus on it.
+    const [from, end] = visibleRange(shown, stageW)
+    if (stageW > 0 && (to < from || to > end)) {
+      follow = false
+      view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: to - (stageW / shown.pxPerTick) * PAGE_LEAD }, stageW, totalTicks)
+    }
+    announce(t('arrangement.saidMarkerMoved', { name: marker.name, ...barBeat(to) }))
+  }
+  /** Puts the playhead on a marker, as a click on it does. */
+  function goToMarker(marker: MarkerView) {
+    lastMarker = marker.id
+    jumpedTo = null
+    run(seek(marker.tick))
+  }
+  /** The right click on a marker (#530): the same actions as its keys, each one a command. */
+  function onMarkerContext(event: MouseEvent, marker: MarkerView) {
+    ui.openMenu(
+      event,
+      [
+        { id: 'marker-jump', label: t('arrangement.markerJump'), run: () => goToMarker(marker) },
+        { id: 'marker-rename', label: t('arrangement.markerEdit'), shortcut: chordText(['F2']), run: () => (renaming = { id: marker.id, text: marker.name }) },
+        { id: 'marker-earlier', label: t('arrangement.markerEarlier'), shortcut: chordText(['Alt', '←']), separator: true, run: () => nudgeMarker(marker, -1) },
+        { id: 'marker-later', label: t('arrangement.markerLater'), shortcut: chordText(['Alt', '→']), run: () => nudgeMarker(marker, 1) },
+        {
+          id: 'marker-delete',
+          label: t('arrangement.markerRemove'),
+          shortcut: chordText(['Delete']),
+          separator: true,
+          run: () => run(deleteMarker(marker.id)),
+        },
+      ],
+      t('arrangement.markerMenu', { name: marker.name }),
+    )
+  }
   function onMarkerKey(event: KeyboardEvent, marker: MarkerView) {
-    // Alt+Left and Alt+Right move the marker by the snap step (#554), so a section can be placed without the mouse.
     if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
       event.preventDefault()
       event.stopPropagation()
-      const to = Math.max(0, marker.tick + (event.key === 'ArrowLeft' ? -nudge : nudge))
-      if (to === marker.tick) return announce(t('arrangement.saidCannotMove'))
-      run(moveMarker(marker.id, to))
-      // Out of sight, the view follows it: the button would be removed with the focus on it.
-      const [from, end] = visibleRange(shown, stageW)
-      if (stageW > 0 && (to < from || to > end)) {
-        follow = false
-        view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: to - (stageW / shown.pxPerTick) * PAGE_LEAD }, stageW, totalTicks)
-      }
-      announce(t('arrangement.saidMarkerMoved', { name: marker.name, ...barBeat(to) }))
+      nudgeMarker(marker, event.key === 'ArrowLeft' ? -1 : 1)
       return
     }
     if (event.key === 'F2') {
@@ -1030,12 +1057,20 @@
     if (!row || !ref || !row.lane) return
     event.preventDefault()
     const hit = hitPoint(pointsOf(ref.info.lane), ref.info.axis, x, y, shown, geoOf(row))
-    if (!hit) {
-      menu = null
-      return
-    }
+    // Off a point nothing opens (and the browser's menu stays shut).
+    if (!hit) return ui.openMenu(event, [])
     if (!(autoPick?.lane === row.lane && autoPick.ticks.has(hit.tick))) autoPick = { lane: row.lane, ticks: new Set([hit.tick]) }
-    menu = { x: event.clientX, y: event.clientY }
+    // The focus goes back to the grid when the menu closes, so that Delete and the shortcuts keep working.
+    focusGrid()
+    ui.openMenu(
+      event,
+      [
+        { id: 'point-linear', label: t('automation.menuLinear'), testid: 'point-menu-linear', run: () => setCurve('linear') },
+        { id: 'point-step', label: t('automation.menuStep'), testid: 'point-menu-step', run: () => setCurve('step') },
+        { id: 'point-delete', label: t('automation.menuDelete'), testid: 'point-menu-delete', separator: true, run: removePicked },
+      ],
+      t('automation.menu'),
+    )
   }
 
   /**
@@ -1328,8 +1363,7 @@
       if (autoSel) removePicked()
       else removeSelected()
     } else if (event.key === 'Escape') {
-      if (menu) menu = null
-      else if (gesture) cancel()
+      if (gesture) cancel()
       else {
         picked = new Set()
         autoPick = null
@@ -1829,12 +1863,7 @@
   </button>
 {/snippet}
 
-<svelte:window
-  onblur={silence}
-  onpointerdown={(event) => {
-    if (menu && !(event.target as Element | null)?.closest?.('[data-point-menu]')) menu = null
-  }}
-/>
+<svelte:window onblur={silence} />
 <svelte:document onvisibilitychange={silence} />
 
 <div
@@ -2094,11 +2123,8 @@
                 data-testid="arr-marker"
                 data-marker={marker.id}
                 onpointerdown={(e) => e.stopPropagation()}
-                onclick={() => {
-                  lastMarker = marker.id
-                  jumpedTo = null
-                  run(seek(marker.tick))
-                }}
+                onclick={() => goToMarker(marker)}
+                oncontextmenu={(e) => onMarkerContext(e, marker)}
                 ondblclick={(e) => {
                   e.stopPropagation()
                   renaming = { id: marker.id, text: marker.name }
@@ -2256,37 +2282,6 @@
       <div style:width="{totalTicks * shown.pxPerTick}px" style:height="1px"></div>
     </div>
   </div>
-  {#if menu}
-    <div class="menu" role="menu" aria-label={t('automation.menu')} style:left="{menu.x}px" style:top="{menu.y}px" data-point-menu data-testid="point-menu">
-      <button
-        role="menuitem"
-        data-testid="point-menu-linear"
-        onclick={() => {
-          setCurve('linear')
-          menu = null
-          focusGrid()
-        }}>{t('automation.menuLinear')}</button
-      >
-      <button
-        role="menuitem"
-        data-testid="point-menu-step"
-        onclick={() => {
-          setCurve('step')
-          menu = null
-          focusGrid()
-        }}>{t('automation.menuStep')}</button
-      >
-      <button
-        role="menuitem"
-        data-testid="point-menu-delete"
-        onclick={() => {
-          removePicked()
-          menu = null
-          focusGrid()
-        }}>{t('automation.menuDelete')}</button
-      >
-    </div>
-  {/if}
 </div>
 
 <BarDialog
@@ -2737,26 +2732,5 @@
     width: 100%;
     min-width: 0;
     font-size: 11px;
-  }
-  .menu {
-    position: fixed;
-    z-index: 20;
-    display: flex;
-    flex-direction: column;
-    min-width: 140px;
-    padding: var(--fk-space-1);
-    border: 1px solid var(--fk-line);
-    border-radius: var(--fk-radius-panel);
-    background: var(--fk-bg);
-    box-shadow: var(--fk-shadow-float);
-  }
-  .menu button {
-    height: 26px;
-    border-color: transparent;
-    background: transparent;
-    text-align: left;
-  }
-  .menu button:hover {
-    background: var(--fk-surface-2);
   }
 </style>

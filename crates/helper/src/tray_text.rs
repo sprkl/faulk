@@ -52,8 +52,9 @@ pub struct TrayState {
     /// Current pairing code, 8 digits.
     pub code: String,
     pub page_connected: bool,
-    /// The audio output reported an error; it stays until the helper restarts.
-    pub audio_error: bool,
+    /// The helper has no audio output (none at start, or the open one failed) and waits for
+    /// one (#525); cleared when an output opens.
+    pub no_output: bool,
 }
 
 /// Menu entries that never change with the state.
@@ -76,9 +77,9 @@ pub fn spaced_code(code: &str) -> String {
 
 impl TrayState {
     pub fn status(&self, lang: Lang) -> &'static str {
-        match (lang, self.audio_error, self.page_connected) {
-            (Lang::En, true, _) => "Audio error: restart the helper",
-            (Lang::Fr, true, _) => "Erreur audio : relance le helper",
+        match (lang, self.no_output, self.page_connected) {
+            (Lang::En, true, _) => "No audio output: waiting for one",
+            (Lang::Fr, true, _) => "Pas de sortie audio : en attente d’une sortie",
             (Lang::En, false, true) => "Page connected",
             (Lang::Fr, false, true) => "Page connectée",
             (Lang::En, false, false) => "Waiting for a page",
@@ -304,7 +305,7 @@ mod tests {
     }
 
     #[test]
-    fn status_follows_the_state_and_audio_error_wins() {
+    fn status_follows_the_state_and_a_missing_output_wins() {
         let mut state = TrayState {
             code: "12345678".into(),
             ..TrayState::default()
@@ -312,11 +313,16 @@ mod tests {
         assert_eq!(state.status(Lang::En), "Waiting for a page");
         state.page_connected = true;
         assert_eq!(state.status(Lang::En), "Page connected");
-        state.audio_error = true;
-        assert_eq!(state.status(Lang::En), "Audio error: restart the helper");
-        assert_eq!(state.status(Lang::Fr), "Erreur audio : relance le helper");
+        state.no_output = true;
+        assert_eq!(state.status(Lang::En), "No audio output: waiting for one");
+        assert_eq!(
+            state.status(Lang::Fr),
+            "Pas de sortie audio : en attente d’une sortie"
+        );
         state.page_connected = false;
-        assert_eq!(state.status(Lang::En), "Audio error: restart the helper");
+        assert_eq!(state.status(Lang::En), "No audio output: waiting for one");
+        state.no_output = false;
+        assert_eq!(state.status(Lang::En), "Waiting for a page");
     }
 
     #[test]
@@ -328,7 +334,7 @@ mod tests {
                 ..TrayState::default()
             },
             TrayState {
-                audio_error: true,
+                no_output: true,
                 ..TrayState::default()
             },
         ];

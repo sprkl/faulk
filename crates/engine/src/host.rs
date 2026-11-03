@@ -40,6 +40,7 @@ use crate::msg::{
     RECORDED_NOTE_WIRE_BYTES, RecordedNote, TRACK_METER_BYTES, Tag, TrackMeter, TrackSlot,
     TransportState, limits,
 };
+use crate::time::SampleRate;
 
 /// The device kinds the shipping hosts build: the registry of the built-in devices
 /// ([`crate::devices`], DV-1).
@@ -79,6 +80,16 @@ impl Prepare {
     pub fn flush(&mut self) {
         self.preparer.flush();
         self.publish();
+    }
+
+    /// Changes the sample rate, keeping the playhead: every device is built again for
+    /// `rate` here, off the audio thread ([`Preparer::set_sample_rate`], #236), then what
+    /// waited is pushed. Nothing changes on an error.
+    pub fn set_sample_rate(&mut self, rate: SampleRate) -> Result<(), MsgError> {
+        let result = self.preparer.set_sample_rate(rate);
+        self.preparer.flush();
+        self.publish();
+        result
     }
 
     /// The prepare/apply cycle's prepare side.
@@ -313,6 +324,9 @@ pub struct Host {
     report_frames: u32,
     feedback: Arc<[AtomicU32]>,
     feedback_seq: u32,
+    /// The clock's rate the host last saw (#236): a change makes the report period and the
+    /// load follow it.
+    clock_rate: u32,
 }
 
 impl core::fmt::Debug for Host {
@@ -334,7 +348,7 @@ fn try_slice<T: Clone>(n: usize, value: T) -> Result<Box<[T]>, MsgError> {
 }
 
 /// Builds the two sides for `sample_rate`, blocks up to [`limits::MAX_BLOCK_FRAMES`], the
-/// devices of [`factory`]. A new sample rate is a new channel (MO-1).
+/// devices of [`factory`]. A later rate change keeps the channel: [`Prepare::set_sample_rate`].
 pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
     let setup = DeviceSetup {
         sample_rate,
@@ -366,6 +380,7 @@ pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
         report_frames: report_frames(sample_rate),
         feedback: Arc::from(feedback.into_boxed_slice()),
         feedback_seq: 0,
+        clock_rate: 0,
     };
     let prepare = Prepare { preparer, status };
     prepare.publish();
@@ -426,6 +441,16 @@ impl Host {
     /// is due. Returns the frames rendered.
     pub fn render_block(&mut self, frames: usize) -> usize {
         let frames = frames.min(self.left.len());
+        // A new sample rate (#236, applied by the last pump): the report period and the
+        // load follow it. Only a change: the rate the host was built for stays as given.
+        let hz = self.engine.clock().sample_rate().hz();
+        if hz != self.clock_rate {
+            if self.clock_rate != 0 {
+                self.sample_rate = hz as f32;
+                self.report_frames = report_frames(self.sample_rate);
+            }
+            self.clock_rate = hz;
+        }
         let (left, right) = (&mut self.left[..frames], &mut self.right[..frames]);
         self.engine.render(left, right);
         self.voices = self.engine.voices();
@@ -462,6 +487,11 @@ impl Host {
     /// The right channel of the last block.
     pub fn right(&self) -> &[f32] {
         &self.right
+    }
+
+    /// Frames between two reports, at the current rate ([`REPORTS_PER_SECOND`]).
+    pub fn report_period(&self) -> u32 {
+        self.report_frames
     }
 
     /// The report region: [`Feedback::max_size_for`] the track limit, in 32-bit words that

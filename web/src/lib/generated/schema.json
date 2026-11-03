@@ -433,7 +433,7 @@
           },
           {
             "additionalProperties": false,
-            "description": "Add a named section marker (a named point of the arrangement, not the transport's\ncue) at the timeline tick `tick` (960 per quarter note, 0 to\n2^40). `name` is optional (trimmed, at most 200 characters): without one the marker\nis called \"Section n\", n the first number no marker has. Refused with `limit` past\n1 024 markers. Undo: `arrangement.marker.delete`.",
+            "description": "Add a named section marker (a named point of the arrangement, not the transport's\ncue) at the timeline tick `tick` (960 per quarter note, 0 to\n2^40). `name` is optional (trimmed, at most 200 characters): left out, empty or only\nspaces, the marker is called \"Section n\", n the first number no marker has (a blank\nname means \"no name\", unlike `arrangement.marker.rename`, which refuses it because it\nhas no default to fall back on). Refused with `limit` past 1 024 markers. Undo: `arrangement.marker.delete`.",
             "properties": {
               "name": {
                 "default": null,
@@ -15207,7 +15207,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Add a named section marker (a named point of the arrangement, not the transport's\ncue) at the timeline tick `tick` (960 per quarter note, 0 to\n2^40). `name` is optional (trimmed, at most 200 characters): without one the marker\nis called \"Section n\", n the first number no marker has. Refused with `limit` past\n1 024 markers. Undo: `arrangement.marker.delete`.",
+        "description": "Add a named section marker (a named point of the arrangement, not the transport's\ncue) at the timeline tick `tick` (960 per quarter note, 0 to\n2^40). `name` is optional (trimmed, at most 200 characters): left out, empty or only\nspaces, the marker is called \"Section n\", n the first number no marker has (a blank\nname means \"no name\", unlike `arrangement.marker.rename`, which refuses it because it\nhas no default to fall back on). Refused with `limit` past 1 024 markers. Undo: `arrangement.marker.delete`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -19643,7 +19643,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Add a named section marker (a named point of the arrangement, not the transport's\ncue) at the timeline tick `tick` (960 per quarter note, 0 to\n2^40). `name` is optional (trimmed, at most 200 characters): without one the marker\nis called \"Section n\", n the first number no marker has. Refused with `limit` past\n1 024 markers. Undo: `arrangement.marker.delete`.",
+              "description": "Add a named section marker (a named point of the arrangement, not the transport's\ncue) at the timeline tick `tick` (960 per quarter note, 0 to\n2^40). `name` is optional (trimmed, at most 200 characters): left out, empty or only\nspaces, the marker is called \"Section n\", n the first number no marker has (a blank\nname means \"no name\", unlike `arrangement.marker.rename`, which refuses it because it\nhas no default to fall back on). Refused with `limit` past 1 024 markers. Undo: `arrangement.marker.delete`.",
               "properties": {
                 "name": {
                   "default": null,
@@ -30102,6 +30102,10 @@
       "version": 1
     }
   ],
+  "error_codes": {
+    "audio_stream": "audio.stream",
+    "no_output": "audio.no_output"
+  },
   "fader_taper": [
     [
       0,
@@ -38019,7 +38023,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 21,
+  "protocol_version": 22,
   "server_message": {
     "$defs": {
       "HelperUpdate": {
@@ -38175,6 +38179,10 @@
         "additionalProperties": false,
         "description": "Answer to a probe: a Faulk helper listens here.",
         "properties": {
+          "audio_output": {
+            "description": "Whether the helper has an audio output open now (#525). Without one it serves\nanyway, and answers a session with `error` `audio.no_output` instead of `hello`.",
+            "type": "boolean"
+          },
           "helper": {
             "type": "string"
           },
@@ -38191,7 +38199,8 @@
         "required": [
           "type",
           "helper",
-          "protocol"
+          "protocol",
+          "audio_output"
         ],
         "type": "object"
       },
@@ -38235,7 +38244,7 @@
       },
       {
         "additionalProperties": false,
-        "description": "First message of a session.",
+        "description": "First message of a session; a helper without an audio output sends `error`\n`audio.no_output` instead and closes the session.",
         "properties": {
           "buffer_frames": {
             "description": "Frames per audio callback, once the device reported it.",
