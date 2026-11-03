@@ -801157,7 +801157,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Bring back the project that was open last time, the one the page offers after a reload\n(a folder, which asks the browser for its permission again and so needs a click by the\nuser, or a draft kept in the browser). Nothing happens, with a notice, when the page\noffers nothing. The current project is replaced; the page asks first when it has\nchanges that are kept nowhere. Not undoable: it replaces the history.",
+                  "description": "Bring back the project that was open last time, the one the page offers after a reload\n(a folder, which asks the browser for its permission again and so needs a click by the\nuser, or a draft kept in the browser), or the one that the page tried to reopen by itself\nand could not (locked by another tab, unreadable): the notice then offers this command\nas its retry. A folder still needs the user's click when the browser withdrew its\npermission: an agent that is not driven by one gets a notice in the page. Nothing\nhappens, with a notice, when the page offers nothing. The current project is replaced;\nthe page asks first when it has changes that are kept nowhere. Not undoable: it replaces\nthe history.",
                   "properties": {
                     "type": {
                       "const": "project.reopen_last",
@@ -810701,7 +810701,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Bring back the project that was open last time, the one the page offers after a reload\n(a folder, which asks the browser for its permission again and so needs a click by the\nuser, or a draft kept in the browser). Nothing happens, with a notice, when the page\noffers nothing. The current project is replaced; the page asks first when it has\nchanges that are kept nowhere. Not undoable: it replaces the history.",
+                  "description": "Bring back the project that was open last time, the one the page offers after a reload\n(a folder, which asks the browser for its permission again and so needs a click by the\nuser, or a draft kept in the browser), or the one that the page tried to reopen by itself\nand could not (locked by another tab, unreadable): the notice then offers this command\nas its retry. A folder still needs the user's click when the browser withdrew its\npermission: an agent that is not driven by one gets a notice in the page. Nothing\nhappens, with a notice, when the page offers nothing. The current project is replaced;\nthe page asks first when it has changes that are kept nowhere. Not undoable: it replaces\nthe history.",
                   "properties": {
                     "type": {
                       "const": "project.reopen_last",
@@ -820242,7 +820242,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Bring back the project that was open last time, the one the page offers after a reload\n(a folder, which asks the browser for its permission again and so needs a click by the\nuser, or a draft kept in the browser). Nothing happens, with a notice, when the page\noffers nothing. The current project is replaced; the page asks first when it has\nchanges that are kept nowhere. Not undoable: it replaces the history.",
+                  "description": "Bring back the project that was open last time, the one the page offers after a reload\n(a folder, which asks the browser for its permission again and so needs a click by the\nuser, or a draft kept in the browser), or the one that the page tried to reopen by itself\nand could not (locked by another tab, unreadable): the notice then offers this command\nas its retry. A folder still needs the user's click when the browser withdrew its\npermission: an agent that is not driven by one gets a notice in the page. Nothing\nhappens, with a notice, when the page offers nothing. The current project is replaced;\nthe page asks first when it has changes that are kept nowhere. Not undoable: it replaces\nthe history.",
                   "properties": {
                     "type": {
                       "const": "project.reopen_last",
@@ -829783,7 +829783,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Bring back the project that was open last time, the one the page offers after a reload\n(a folder, which asks the browser for its permission again and so needs a click by the\nuser, or a draft kept in the browser). Nothing happens, with a notice, when the page\noffers nothing. The current project is replaced; the page asks first when it has\nchanges that are kept nowhere. Not undoable: it replaces the history.",
+                  "description": "Bring back the project that was open last time, the one the page offers after a reload\n(a folder, which asks the browser for its permission again and so needs a click by the\nuser, or a draft kept in the browser), or the one that the page tried to reopen by itself\nand could not (locked by another tab, unreadable): the notice then offers this command\nas its retry. A folder still needs the user's click when the browser withdrew its\npermission: an agent that is not driven by one gets a notice in the page. Nothing\nhappens, with a notice, when the page offers nothing. The current project is replaced;\nthe page asks first when it has changes that are kept nowhere. Not undoable: it replaces\nthe history.",
                   "properties": {
                     "type": {
                       "const": "project.reopen_last",
@@ -839325,7 +839325,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Bring back the project that was open last time, the one the page offers after a reload\n(a folder, which asks the browser for its permission again and so needs a click by the\nuser, or a draft kept in the browser). Nothing happens, with a notice, when the page\noffers nothing. The current project is replaced; the page asks first when it has\nchanges that are kept nowhere. Not undoable: it replaces the history.",
+                  "description": "Bring back the project that was open last time, the one the page offers after a reload\n(a folder, which asks the browser for its permission again and so needs a click by the\nuser, or a draft kept in the browser), or the one that the page tried to reopen by itself\nand could not (locked by another tab, unreadable): the notice then offers this command\nas its retry. A folder still needs the user's click when the browser withdrew its\npermission: an agent that is not driven by one gets a notice in the page. Nothing\nhappens, with a notice, when the page offers nothing. The current project is replaced;\nthe page asks first when it has changes that are kept nowhere. Not undoable: it replaces\nthe history.",
                   "properties": {
                     "type": {
                       "const": "project.reopen_last",
@@ -848863,7 +848863,7 @@
                 },
                 {
                   "additionalProperties": false,
-                  "description": "Bring back the project that was open last time, the one the page offers after a reload\n(a folder, which asks the browser for its permission again and so needs a click by the\nuser, or a draft kept in the browser). Nothing happens, with a notice, when the page\noffers nothing. The current project is replaced; the page asks first when it has\nchanges that are kept nowhere. Not undoable: it replaces the history.",
+                  "description": "Bring back the project that was open last time, the one the page offers after a reload\n(a folder, which asks the browser for its permission again and so needs a click by the\nuser, or a draft kept in the browser), or the one that the page tried to reopen by itself\nand could not (locked by another tab, unreadable): the notice then offers this command\nas its retry. A folder still needs the user's click when the browser withdrew its\npermission: an agent that is not driven by one gets a notice in the page. Nothing\nhappens, with a notice, when the page offers nothing. The current project is replaced;\nthe page asks first when it has changes that are kept nowhere. Not undoable: it replaces\nthe history.",
                   "properties": {
                     "type": {
                       "const": "project.reopen_last",
