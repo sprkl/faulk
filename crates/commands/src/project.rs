@@ -565,8 +565,10 @@ fn new_project(
     if let Some(name) = name {
         name.clone_into(&mut next.project.name);
     }
-    // The MIDI input is the player's device, not the song's: it stays chosen.
+    // The MIDI input is the player's device, not the song's: it stays chosen. So does the
+    // user's preset library, which every project shares.
     next.session.midi_input = state.session.midi_input.take();
+    next.library = std::mem::take(&mut state.library);
     let name = next.project.name.clone();
     let history_changed = next.history.changed_event();
     *state = next;
@@ -575,6 +577,8 @@ fn new_project(
     // What a save knew of the old project's folder is no use to a project that has none.
     ctx.folder = None;
     ctx.opened = None;
+    // The files imported into the old project are in its folder, not in the new one's.
+    ctx.media.clear();
     Outcome {
         output: Output::New { name: name.clone() },
         undo: Undo::None,
@@ -621,11 +625,15 @@ fn open_folder(
     let name = opened.project.name.clone();
     let mut next = State::new(opened.project);
     next.session = session;
+    // The user's preset library is every project's.
+    next.library = std::mem::take(&mut state.library);
     let history_changed = next.history.changed_event();
     *state = next;
-    // The old project's group and engine slots mean nothing to the new one.
+    // The old project's group and engine slots mean nothing to the new one, and the files
+    // imported into it are in its folder, not in this one.
     ctx.group = None;
     ctx.engine = EngineSlots::default();
+    ctx.media.clear();
     ctx.opened = Some(OpenedFolder {
         state: opened.state,
         blobs,

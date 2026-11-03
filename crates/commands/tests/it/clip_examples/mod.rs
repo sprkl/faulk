@@ -130,6 +130,7 @@ pub fn fx() -> ClipFx {
             },
             params: Default::default(),
             state: None,
+            preset: None,
         },
     );
     audio.clips.insert(
@@ -379,6 +380,89 @@ pub fn examples() -> Vec<(Command, State)> {
         let (state, restore) = after(
             f.state.clone(),
             &c(clip::Command::Delete { clip: clip.clone() }),
+        );
+        all.push((restore, state));
+    }
+    all.extend(audio_examples(&f));
+    all
+}
+
+/// The live clip commands (no inverse, so apart from [`examples`], whose every example is
+/// undone and redone by `tests/it/clip.rs`): asking the page for audio files.
+pub fn live_examples() -> Vec<(Command, State)> {
+    let f = fx();
+    vec![
+        (
+            c(clip::Command::ChooseAudio {
+                track: f.audio_track.clone(),
+            }),
+            f.state.clone(),
+        ),
+        (c(clip::Command::CancelAudioImport {}), f.state),
+    ]
+}
+
+/// The fixture's state with a placement (in frames) of its audio clip.
+pub fn with_audio_placement(f: &ClipFx) -> (State, PlacementId) {
+    let mut state = f.state.clone();
+    let mut ids = IdGenerator::new(1_680_000_000_000, 0x00DD_2222_0000_0000_0000);
+    let id = PlacementId::generate(&mut ids);
+    state
+        .project
+        .tracks
+        .get_mut(&f.audio_track)
+        .unwrap()
+        .placements
+        .insert(
+            id.clone(),
+            Placement {
+                clip: f.audio_clip.clone(),
+                start: Tick(3840),
+                span: Span::Frames {
+                    length: Frame::new(22_050),
+                    offset: Frame::new(11_025),
+                },
+            },
+        );
+    state
+        .project
+        .validate()
+        .expect("the audio placement is valid");
+    (state, id)
+}
+
+/// The audio clip commands of AU-1: import (a staged file, a file the project already
+/// uses), delete and restore an audio clip (with and without a placement), choose files.
+fn audio_examples(f: &ClipFx) -> Vec<(Command, State)> {
+    let on = |command: clip::Command| (c(command), f.state.clone());
+    let mut all = vec![
+        on(clip::Command::ImportAudio {
+            track: f.audio_track.clone(),
+            media: commands::testing::imported_media().hash,
+            name: None,
+        }),
+        on(clip::Command::ImportAudio {
+            track: f.audio_track.clone(),
+            media: Hash([7; 32]),
+            name: Some("  Second loop  ".into()),
+        }),
+        on(clip::Command::Delete {
+            clip: f.audio_clip.clone(),
+        }),
+    ];
+    let (placed, _) = with_audio_placement(f);
+    all.push((
+        c(clip::Command::Delete {
+            clip: f.audio_clip.clone(),
+        }),
+        placed.clone(),
+    ));
+    for from in [f.state.clone(), placed] {
+        let (state, restore) = after(
+            from,
+            &c(clip::Command::Delete {
+                clip: f.audio_clip.clone(),
+            }),
         );
         all.push((restore, state));
     }

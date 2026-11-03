@@ -1,4 +1,6 @@
 // The page's side of the project store's Worker (SV-2): `ProjectStore` over `postMessage`.
+import { ImportError, type ImportErrorCode } from '../audio/import/abi'
+import type { CacheReport, ImportOutcome, MediaRef } from '../audio/import/pipeline'
 import type { FolderEntry, SaveEntry } from '../project/core'
 import { StoreError, type FolderHandle, type ProjectStore, type Signature, type StoreErrorCode } from './types'
 import { FolderBackend } from './backend'
@@ -11,10 +13,21 @@ export type Request =
   | { id: number; op: 'open'; key: number; handle: FileSystemDirectoryHandle }
   | { id: number; op: 'close'; key: number }
   | { id: number; op: 'call'; key: number; method: Method; args: unknown[] }
+  /** An audio import (AU-1): progress replies until the answer. */
+  | { id: number; op: 'import'; key: number; file: File }
+  /** The PCM caches a folder lacks, made again (AU-1). */
+  | { id: number; op: 'audioCache'; key: number; media: MediaRef[] }
+  /** Cancels the import `target` (no answer of its own). */
+  | { id: number; op: 'cancel'; target: number }
 
 type RequestBody = Request extends infer R ? (R extends unknown ? Omit<R, 'id'> : never) : never
 
-export type Reply = { id: number; ok: true; value: unknown } | { id: number; ok: false; code: StoreErrorCode; message: string }
+export type Reply =
+  | { id: number; ok: true; value: unknown }
+  /** `importCode`: the import refused the file (an `ImportError`), rather than the folder a write. */
+  | { id: number; ok: false; code: StoreErrorCode; message: string; importCode?: ImportErrorCode }
+  /** How far a long call (an import) is, from 0 to 1. */
+  | { id: number; progress: number }
 
 /** A call the Worker has not answered after this long is lost: the Worker is dropped and the call fails. */
 export const STORE_TIMEOUT_MS = 600_000
@@ -33,15 +46,20 @@ export class StoreWorker {
   dead = false
   private next = 1
   private nextKey = 1
-  private readonly waiting = new Map<number, { resolve(value: unknown): void; reject(error: StoreError): void }>()
+  private readonly waiting = new Map<number, { resolve(value: unknown): void; reject(error: Error): void; progress(fraction: number): void }>()
 
   constructor(private readonly worker: WorkerLike) {
     worker.onmessage = (event) => {
       const reply = event.data
       const waiter = this.waiting.get(reply.id)
       if (!waiter) return
+      if ('progress' in reply) {
+        waiter.progress(reply.progress)
+        return
+      }
       this.waiting.delete(reply.id)
       if (reply.ok) waiter.resolve(reply.value)
+      else if (reply.importCode) waiter.reject(new ImportError(reply.importCode, reply.message))
       else waiter.reject(new StoreError(reply.code, reply.message))
     }
     worker.onerror = (event) => this.drop(`the project store stopped: ${event.message}`)
@@ -56,20 +74,38 @@ export class StoreWorker {
     this.worker.terminate()
   }
 
-  request<T>(message: RequestBody, transfer: Transferable[] = []): Promise<T> {
+  /**
+   * Sends a request and waits for its answer. A call that reports progress (an import) keeps the
+   * Worker alive with each report: the deadline counts from the last sign of life, not from the
+   * start, so an hour-long import is not taken for a Worker that stopped. `signal` sends a cancel.
+   */
+  request<T>(message: RequestBody, transfer: Transferable[] = [], options: { onProgress?: (fraction: number) => void; signal?: AbortSignal } = {}): Promise<T> {
     if (this.dead) return Promise.reject(new StoreError('io', 'the project store stopped'))
+    // Cancelled before it was sent (it waited behind other work): never sent, so nothing to undo.
+    if (options.signal?.aborted) return Promise.reject(new ImportError('cancelled', 'cancelled before it started'))
     const id = this.next++
     return new Promise<T>((resolve, reject) => {
       // A Worker that never answers would hold the page's saves, new and open behind it for good.
-      const timer = setTimeout(() => this.drop('the project store did not answer'), STORE_TIMEOUT_MS)
+      let timer = setTimeout(() => this.drop('the project store did not answer'), STORE_TIMEOUT_MS)
+      const cancel = () => this.worker.postMessage({ op: 'cancel', target: id, id: this.next++ })
+      options.signal?.addEventListener('abort', cancel, { once: true })
+      const done = () => {
+        clearTimeout(timer)
+        options.signal?.removeEventListener('abort', cancel)
+      }
       this.waiting.set(id, {
         resolve: (value) => {
-          clearTimeout(timer)
+          done()
           resolve(value as T)
         },
         reject: (error) => {
-          clearTimeout(timer)
+          done()
           reject(error)
+        },
+        progress: (fraction) => {
+          clearTimeout(timer)
+          timer = setTimeout(() => this.drop('the project store did not answer'), STORE_TIMEOUT_MS)
+          options.onProgress?.(fraction)
         },
       })
       this.worker.postMessage({ ...message, id }, transfer)
@@ -133,6 +169,14 @@ export class WorkerStore implements ProjectStore {
     if (!(source instanceof WorkerStore)) throw new StoreError('io', 'the source of a blob copy is not a folder')
     const sourceKey: number = await source.ready()
     return this.call<void>('copyBlobsFrom', [sourceKey])
+  }
+  async importAudio(file: File, onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<ImportOutcome> {
+    const key = await this.ready()
+    return this.worker.request<ImportOutcome>({ op: 'import', key, file }, [], { onProgress, signal })
+  }
+  async ensureAudioCache(media: MediaRef[], onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<CacheReport> {
+    const key = await this.ready()
+    return this.worker.request<CacheReport>({ op: 'audioCache', key, media }, [], { onProgress: onProgress ?? (() => undefined), signal })
   }
   cleanUp() {
     return this.call<void>('cleanUp')

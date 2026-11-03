@@ -618,7 +618,11 @@ fn compile_event(
         | ProjectEvent::MidiInputSelected { .. }
         | ProjectEvent::HistoryChanged { .. }
         | ProjectEvent::RecordingChanged { .. }
-        | ProjectEvent::RecordSettingsChanged { .. } => {}
+        | ProjectEvent::RecordSettingsChanged { .. }
+        // A preset is the project's data (or the library's); the values a load sets come as
+        // `DeviceParamChanged`.
+        | ProjectEvent::PresetChanged { .. }
+        | ProjectEvent::DevicePresetChanged { .. } => {}
     }
 }
 

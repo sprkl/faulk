@@ -35,12 +35,27 @@ export class MemoryFile {
       this.bytes = bytes
       this.modified = clock++
     }
-    const chunks: Uint8Array[] = []
+    // The swap file: written at a cursor (or at a `position`, as `FileSystemWritableFileStream` takes it).
+    let swap = new Uint8Array(0)
+    let length = 0
+    let cursor = 0
     let finished = false
+    const put = (data: Uint8Array, at: number) => {
+      const end = at + data.length
+      if (end > swap.length) {
+        const grown = new Uint8Array(Math.max(end, swap.length * 2))
+        grown.set(swap.subarray(0, length))
+        swap = grown
+      }
+      swap.set(data, at)
+      length = Math.max(length, end)
+      cursor = end
+    }
     const stream = {
-      async write(data: Uint8Array) {
+      async write(data: Uint8Array | { type: 'write'; position?: number; data: Uint8Array }) {
         if (hooks?.failWrite?.(name)) throw new DOMException('disk full', 'QuotaExceededError')
-        chunks.push(new Uint8Array(data))
+        if (data instanceof Uint8Array) put(new Uint8Array(data), cursor)
+        else put(new Uint8Array(data.data), data.position ?? cursor)
       },
       async close() {
         if (finished) throw new DOMException('closed', 'InvalidStateError')
@@ -49,14 +64,7 @@ export class MemoryFile {
           throw new DOMException('the browser refused the file', 'AbortError')
         }
         finished = true
-        const total = chunks.reduce((n, c) => n + c.length, 0)
-        const bytes = new Uint8Array(total)
-        let at = 0
-        for (const chunk of chunks) {
-          bytes.set(chunk, at)
-          at += chunk.length
-        }
-        commit(bytes)
+        commit(swap.slice(0, length))
       },
       async abort() {
         finished = true

@@ -1,0 +1,156 @@
+// Importing audio files into an audio track from the page (AU-1): `clip.choose_audio` opens the file
+// dialog (from a click only), each chosen file goes through the store's pipeline (its bytes into
+// `blobs/`, its decoded audio checked and cached), the metadata decoding gave is staged in the core,
+// and `clip.import_audio` makes the clip: one history entry per file. What the Clips panel shows:
+// the file being imported and how far it is, the failure of the last one, a notice.
+import type { AudioMedia, Command } from '../../generated/protocol'
+import { StoreError } from '../../storage/types'
+import { ImportError } from './abi'
+import type { ImportedMedia } from './pipeline'
+
+/** The browser and the page's project, behind seams so the controller is tested without them. */
+export interface AudioImportDeps {
+  /** Whether a dialog may open now (the browser wants a click behind it). */
+  canAsk(): boolean
+  /** Opens the file dialog; the files chosen, none when it was closed. Call straight from a click. */
+  pick(): Promise<File[]>
+  /** The store's import (`ProjectStorage.importAudio`). */
+  importFile(file: File, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<ImportedMedia>
+  /** Stages the file's metadata in the core (`ProjectCore.stageMedia`); false when there is no core. */
+  stage(media: AudioMedia): boolean
+  /** Runs a command through the dispatcher. */
+  run(command: Command): boolean
+}
+
+export interface ImportProgress {
+  track: string
+  name: string
+  /** The file's place among those chosen together (from 1), and their count. */
+  index: number
+  count: number
+  /** From 0 to 1. */
+  fraction: number
+}
+
+/** Why the last import failed: an `ImportError` code (the file) or a `StoreError` code (the folder). */
+export interface ImportFailure {
+  track: string
+  name: string
+  code: string
+  message: string
+}
+
+/** The extensions the dialog offers (what the pipeline decodes; Opus is refused by name if chosen anyway). */
+export const AUDIO_ACCEPT = 'audio/*,.wav,.wave,.aif,.aiff,.aifc,.caf,.flac,.mp3,.mp2,.m4a,.mp4,.aac,.alac,.ogg,.oga'
+
+export const importCommand = (track: string, media: string): Command => ({ type: 'clip.import_audio', track, media, name: null })
+
+export class AudioImport {
+  /** The import under way, or `null`. */
+  running = $state.raw<ImportProgress | null>(null)
+  /** The failure of the last import, until dismissed or the next one starts. */
+  failure = $state.raw<ImportFailure | null>(null)
+  /** A dialog asked for without a click (an agent's `clip.choose_audio`). */
+  needsClick = $state(false)
+  private abort: AbortController | null = null
+  private queue: Promise<unknown> = Promise.resolve()
+
+  constructor(private readonly deps: AudioImportDeps) {}
+
+  /** `clip.choose_audio`: the dialog, then each file chosen. Call straight from the click (the command runs in it). */
+  choose(track: string) {
+    if (!this.deps.canAsk()) {
+      this.needsClick = true
+      return
+    }
+    this.needsClick = false
+    // Opened now, inside the click; the files are imported in turn, after any import still running.
+    const picking = this.deps.pick()
+    void this.enqueue(async () => this.runFiles(track, await picking))
+  }
+
+  /** Imports `files` into `track`, one after the other; returns the SHA-256 of each file imported. */
+  importFiles(track: string, files: File[]): Promise<string[]> {
+    return this.enqueue(() => this.runFiles(track, files))
+  }
+
+  /** Stops the import under way (the files after it are not imported either). */
+  cancel() {
+    this.abort?.abort()
+  }
+
+  dismiss() {
+    this.failure = null
+    this.needsClick = false
+  }
+
+  private enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(task, task)
+    this.queue = run.catch(() => undefined)
+    return run
+  }
+
+  private async runFiles(track: string, files: File[]): Promise<string[]> {
+    const imported: string[] = []
+    if (files.length === 0) return imported
+    this.failure = null
+    const abort = new AbortController()
+    this.abort = abort
+    try {
+      for (const [i, file] of files.entries()) {
+        if (abort.signal.aborted) break
+        this.running = { track, name: file.name, index: i + 1, count: files.length, fraction: 0 }
+        try {
+          const media = await this.deps.importFile(
+            file,
+            (fraction) => {
+              if (this.running?.name === file.name) this.running = { ...this.running, fraction }
+            },
+            abort.signal,
+          )
+          const staged: AudioMedia = { hash: media.hash, sample_rate: media.sample_rate, channels: media.channels, frames: media.frames, name: media.name }
+          if (!this.deps.stage(staged)) throw new ImportError('unavailable', 'the project is not ready yet')
+          if (!this.deps.run(importCommand(track, media.hash))) throw new ImportError('store', 'the clip could not be made')
+          imported.push(media.hash)
+        } catch (error) {
+          if (error instanceof ImportError && error.code === 'cancelled') break
+          const code = error instanceof ImportError || error instanceof StoreError ? error.code : 'io'
+          const message = error instanceof Error ? error.message : String(error)
+          if (!(error instanceof ImportError || error instanceof StoreError)) console.error(error)
+          this.failure = { track, name: file.name, code, message }
+          // The next files are still imported: one damaged file does not stop the others.
+        }
+      }
+    } finally {
+      this.running = null
+      if (this.abort === abort) this.abort = null
+    }
+    return imported
+  }
+}
+
+/** The file dialog: an `<input type="file">`, which every browser has and a check can drive. */
+export function browserAudioPicker(): Promise<File[]> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.multiple = true
+    input.accept = AUDIO_ACCEPT
+    input.style.display = 'none'
+    input.dataset.testid = 'audio-file-input'
+    const done = (files: File[]) => {
+      input.remove()
+      resolve(files)
+    }
+    input.addEventListener('change', () => done([...(input.files ?? [])]), { once: true })
+    input.addEventListener('cancel', () => done([]), { once: true })
+    document.body.append(input)
+    input.click()
+  })
+}
+
+/** Whether a dialog may open now: the page has a click behind it (`navigator.userActivation`). */
+export function browserCanAsk(): boolean {
+  const activation = (navigator as Navigator & { userActivation?: { isActive: boolean } }).userActivation
+  return activation ? activation.isActive : true
+}

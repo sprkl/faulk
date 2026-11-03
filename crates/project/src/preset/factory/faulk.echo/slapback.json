@@ -1,0 +1,15 @@
+{
+  "category": "Delay",
+  "device": "faulk.echo",
+  "format": 1,
+  "name": "Slapback",
+  "params": {
+    "division": 5.0,
+    "feedback": 0.1,
+    "mix": 0.35,
+    "mode": 0.0,
+    "time": 0.11,
+    "time_change": 0.0
+  },
+  "version": 1
+}

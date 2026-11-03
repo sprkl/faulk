@@ -47,6 +47,13 @@ pub const ERR_SERIALIZE: i32 = -3;
 /// [`pw_stage`]: the folder frame is malformed (see [`parse_folder`]): nothing staged.
 pub const ERR_BAD_FOLDER: i32 = -4;
 
+/// [`pw_preset_file`]: no such preset (deleted, or never there).
+pub const ERR_NO_PRESET: i32 = -5;
+/// [`pw_preset_file`]: a preset of the project.
+pub const LOCATION_PROJECT: u32 = 1;
+/// [`pw_preset_file`]: a preset of the user's library.
+pub const LOCATION_LIBRARY: u32 = 2;
+
 /// [`pw_new`]: an empty project.
 pub const KIND_EMPTY: u32 = 0;
 /// [`pw_new`]: the page's one-synth project (the ids the interface uses until PR-5).
@@ -304,6 +311,76 @@ impl Core {
     pub fn stage_stored(&mut self, json: &[u8]) -> Result<(), StoredJsonError> {
         let stored = serde_json::from_slice(json).map_err(|_| StoredJsonError)?;
         self.synced.ctx.stored = Some(stored);
+        Ok(())
+    }
+
+    /// Replaces the user's preset library the core holds with the files of `json` (a list of
+    /// [`commands::host::LibraryFile`]), as the page's storage reads them (#191). A file whose
+    /// id is not a preset id or whose text is not a preset is left out and named in the report;
+    /// so is any file past [`project::preset::MAX_LIBRARY_PRESETS`]. Not an edit: the history
+    /// is untouched. `Err` when the JSON is not such a list: nothing changes.
+    pub fn stage_library(
+        &mut self,
+        json: &[u8],
+    ) -> Result<commands::host::LibraryReport, StoredJsonError> {
+        use commands::host::{LibraryFile, LibraryReport, SkippedPreset};
+        use project::preset::{MAX_LIBRARY_PRESETS, Preset, PresetId};
+        let files: Vec<LibraryFile> = serde_json::from_slice(json).map_err(|_| StoredJsonError)?;
+        let mut library = std::collections::BTreeMap::new();
+        let mut report = LibraryReport::default();
+        for file in files {
+            let skip = |reason: String| SkippedPreset {
+                id: file.id.clone(),
+                reason,
+            };
+            let parsed = PresetId::parse(&file.id)
+                .map_err(|e| e.to_string())
+                .and_then(|id| {
+                    Preset::parse(file.text.as_bytes())
+                        .map(|p| (id, p))
+                        .map_err(|e| e.to_string())
+                });
+            match parsed {
+                Ok(_) if library.len() >= MAX_LIBRARY_PRESETS => report.skipped.push(skip(
+                    format!("the library holds at most {MAX_LIBRARY_PRESETS} presets"),
+                )),
+                Ok((id, preset)) => {
+                    if library.insert(id, preset).is_some() {
+                        report.skipped.push(skip("the same id twice".into()));
+                    }
+                }
+                Err(reason) => report.skipped.push(skip(reason)),
+            }
+        }
+        report.loaded = library.len() as u32;
+        self.synced.state.library = library;
+        Ok(report)
+    }
+
+    /// The file of a preset of the library or of the project (#191), in the common preset
+    /// format: what the page writes after a `preset_changed` event. `None` when there is no
+    /// such preset (it was deleted: the page removes its file), for the factory location and
+    /// for an id that is not a preset id.
+    pub fn preset_file(&self, location: u32, id: &[u8]) -> Option<Vec<u8>> {
+        use project::preset::PresetId;
+        let id = PresetId::parse(std::str::from_utf8(id).ok()?).ok()?;
+        let state = &self.synced.state;
+        let slots = match location {
+            LOCATION_PROJECT => &state.project.presets,
+            LOCATION_LIBRARY => &state.library,
+            _ => return None,
+        };
+        slots.get(&id)?.to_file().ok()
+    }
+
+    /// Stages an audio file the page imported (AU-1), as the JSON of a `project::AudioMedia`
+    /// (its SHA-256, rate, channels, frames and name, from decoding the file's bytes), for
+    /// `clip.import_audio` to make clips of. Kept for the session; a second staging of the same
+    /// file replaces the first. Nothing is staged when the JSON is not that.
+    pub fn stage_media(&mut self, json: &[u8]) -> Result<(), StoredJsonError> {
+        let media: project::AudioMedia =
+            serde_json::from_slice(json).map_err(|_| StoredJsonError)?;
+        self.synced.ctx.media.insert(media.hash, media);
         Ok(())
     }
 
@@ -797,6 +874,65 @@ pub unsafe extern "C" fn pw_stage_stored(core: *mut Core, len: u32) -> i32 {
     unsafe {
         with_core(core, |core| {
             match with_inbox(len, |json| core.stage_stored(json)) {
+                Ok(()) => 0,
+                Err(StoredJsonError) => ERR_BAD_INPUT,
+            }
+        })
+    }
+}
+
+/// [`Core::stage_library`] with the JSON in the first `len` bytes of the inbox: the
+/// `LibraryReport` at [`pw_out`], its length returned; [`ERR_BAD_INPUT`] (nothing changed).
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_stage_library(core: *mut Core, len: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe {
+        with_core(core, |core| {
+            match with_inbox(len, |json| core.stage_library(json)) {
+                Ok(report) => publish(&report, Vec::new()),
+                Err(StoredJsonError) => ERR_BAD_INPUT,
+            }
+        })
+    }
+}
+
+/// [`Core::preset_file`] for `location` ([`LOCATION_PROJECT`] or [`LOCATION_LIBRARY`]) and the
+/// id in the first `len` bytes of the inbox: the file's bytes at [`pw_out`], their length
+/// returned; [`ERR_NO_PRESET`] when there is no such preset.
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_preset_file(core: *mut Core, location: u32, len: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe {
+        with_core(core, |core| {
+            match with_inbox(len, |id| core.preset_file(location, id)) {
+                Some(bytes) => {
+                    let len = bytes.len() as i32;
+                    OUT.with_borrow_mut(|out| *out = bytes);
+                    len
+                }
+                None => ERR_NO_PRESET,
+            }
+        })
+    }
+}
+
+/// [`Core::stage_media`] with the first `len` bytes of the inbox: 0, or [`ERR_BAD_INPUT`]
+/// (nothing staged). The clips are made by running `clip.import_audio` ([`pw_run`]).
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_stage_media(core: *mut Core, len: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe {
+        with_core(core, |core| {
+            match with_inbox(len, |json| core.stage_media(json)) {
                 Ok(()) => 0,
                 Err(StoredJsonError) => ERR_BAD_INPUT,
             }

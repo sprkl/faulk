@@ -40,11 +40,13 @@ export const AREA = {
   tracks: ['tracks', 'track-order', 'lane-rows', 'discoverability'],
   keyboard: ['keyboard', 'keyboard-all-views', 'layout-4', 'live-input', 'typing-mode', 'track-state'],
   export: ['export-audio'],
-  storage: ['project-store', 'project-save', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability', 'open-url'],
+  storage: ['project-store', 'project-save', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability', 'open-url', 'audio-import'],
+  // Importing audio files (AU-1): the pipeline in the store's Worker, the Clips panel that starts it, the storage it writes.
+  audio: ['audio-import', 'clip-pool', 'browser-storage', 'project-store'],
   shortcuts: ['discoverability', 'keyboard-all-views'],
   shortcutsDialog: ['discoverability', 'keyboard-all-views', 'navigation'],
   bottomPanel: ['bottom-panel', 'layout-4', 'ux-quick-wins'],
-  topBar: ['helper', 'keyboard-all-views', 'layout-4', 'local-access', 'navigation', 'space-bar', 'track-state', 'discoverability'],
+  topBar: ['helper', 'keyboard-all-views', 'layout-4', 'local-access', 'navigation', 'space-bar', 'track-state', 'discoverability', 'top-bar'],
   midi: ['keyboard', 'live-input', 'recording'],
   keyboardPlayer: ['all-sound-off', 'continuous', 'devices', 'keyboard', 'keyboard-all-views', 'mixer-sound', 'page-dispatcher', 'space-bar', 'tracks', 'typing-mode', 'discoverability'],
   // The landing page's bar and footer are the Journey page's too.
@@ -103,13 +105,14 @@ export const RULES = [
   [/^web\/src\/lib\/engine\//, ALL],
   // Views.
   [/^web\/src\/views\/arrangement\//, AREA.arrangement],
+  [/^web\/src\/views\/clips\/ClipsView\.svelte$/, areas('clips', 'audio')], // it starts the audio import (AU-1)
   [/^web\/src\/views\/clips\//, AREA.clips],
   [/^web\/src\/views\/grid\//, AREA.grid],
   [/^web\/src\/views\/history\//, AREA.history],
   [/^web\/src\/views\/piano-roll\//, AREA.pianoRoll],
   [/^web\/src\/views\/mixer\//, AREA.mixer],
   [/^web\/src\/views\/devices\//, AREA.devices],
-  [/^web\/src\/views\/transport\//, AREA.transport],
+  [/^web\/src\/views\/transport\//, areas('transport', 'topBar')],
   [/^web\/src\/views\/tracks\//, AREA.tracks],
   [/^web\/src\/views\/keyboard\//, AREA.keyboard],
   [/^web\/src\/views\/shell\/ExportDialog\./, AREA.export],
@@ -127,7 +130,7 @@ export const RULES = [
   [/^web\/src\/lib\/components\/GainControl\.svelte$/, areas('mixer', 'tracks')],
   [/^web\/src\/lib\/components\/Knob\.svelte$/, areas('devices', 'valueEntry')],
   [/^web\/src\/lib\/components\/LevelMeter\.svelte$/, areas('arrangement', 'mixer', 'topBar')],
-  [/^web\/src\/lib\/components\/LinkMark\.svelte$/, areas('clips', 'grid')],
+  [/^web\/src\/lib\/components\/LinkMark\.svelte$/, areas('clips', 'grid', 'audio')],
   [/^web\/src\/lib\/components\/Monogram\.svelte$/, areas('landing', 'topBar')],
   [/^web\/src\/lib\/components\/PanControl\.svelte$/, areas('mixer', 'tracks')],
   [/^web\/src\/lib\/components\/ParamControl\.svelte$/, areas('devices', 'valueEntry')],
@@ -148,12 +151,12 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/journey\.ts$/, AREA.landing],
   [/^web\/src\/lib\/i18n\/arrangement\.ts$/, areas('arrangement', 'grid', 'shortcutsDialog')],
   [/^web\/src\/lib\/i18n\/automation\.ts$/, areas('arrangement', 'devices', 'mixer')],
-  [/^web\/src\/lib\/i18n\/clips\.ts$/, areas('clips')],
+  [/^web\/src\/lib\/i18n\/clips\.ts$/, areas('clips', 'audio')],
   [/^web\/src\/lib\/i18n\/(devices|synth|drums|echo|reverb|filter|compressor)\.ts$/, areas('devices')],
   [/^web\/src\/lib\/i18n\/controls\.ts$/, areas('mixer', 'tracks', 'devices', 'valueEntry', 'arrangement', 'pianoRoll')],
   [/^web\/src\/lib\/i18n\/engine\.ts$/, areas('arrangement', 'mixer', 'topBar')],
   [/^web\/src\/lib\/i18n\/export\.ts$/, areas('export', 'storage')],
-  [/^web\/src\/lib\/i18n\/grid\.ts$/, areas('grid', 'transport')],
+  [/^web\/src\/lib\/i18n\/grid\.ts$/, areas('grid', 'transport', 'topBar')],
   [/^web\/src\/lib\/i18n\/helper\.ts$/, areas('helper', 'topBar')],
   [/^web\/src\/lib\/i18n\/history\.ts$/, areas('history')],
   [/^web\/src\/lib\/i18n\/keys\.ts$/, areas('keyboard', 'keyboardPlayer', 'topBar', 'tracks')],
@@ -166,11 +169,12 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/shell\.ts$/, areas('landing', 'storage', 'topBar')],
   [/^web\/src\/lib\/i18n\/shortcuts\.ts$/, areas('arrangement', 'shortcuts', 'shortcutsDialog', 'topBar')],
   [/^web\/src\/lib\/i18n\/tracks\.ts$/, areas('arrangement', 'grid', 'mixer', 'tracks')],
-  [/^web\/src\/lib\/i18n\/transport\.ts$/, areas('transport')],
+  [/^web\/src\/lib\/i18n\/transport\.ts$/, areas('transport', 'topBar')],
   // Libraries with one clear audience.
   [/^web\/src\/lib\/shortcuts\.ts$/, AREA.shortcuts],
   [/^web\/src\/lib\/export\//, AREA.export],
   [/^web\/src\/lib\/storage\//, AREA.storage],
+  [/^web\/src\/lib\/audio\//, AREA.audio],
   [/^web\/src\/lib\/midi\//, AREA.midi],
   [/^web\/src\/lib\/(keyboard\.ts|stores\/keyboard-player)/, AREA.keyboardPlayer],
   [/^web\/src\/lib\/context-menu\.ts$/, ['context-menu']],
@@ -189,12 +193,14 @@ export const RULES = [
   [/^web\/src\/app\.d\.ts$/, CORE],
   [/^web\/static\//, CORE],
   // The crates the page is built from (select-core.mjs hands over only the files of a crate whose own
-  // change reaches engine-wasm, project-wasm or protocol). The contracts: everything.
+  // change reaches engine-wasm, project-wasm, protocol or audio-import-wasm). The contracts: everything.
   [/^crates\/(protocol|commands)\//, ALL],
   [/^crates\/engine\/src\/msg(\.rs$|\/)/, ALL], // the engine sync contract (CT-3)
   [/^crates\/engine-wasm\//, ALL], // the engine's C ABI, the other end of the sync
   [/^crates\/engine\//, AREA.engine],
   [/^crates\/(project|project-wasm)\//, AREA.project],
+  // The audio import pipeline (AU-1) and its WebAssembly build, run by the store's Worker.
+  [/^crates\/(audio-import|audio-import-wasm)\//, AREA.audio],
   // Crates the page never runs: their tests are the Rust job's.
   [/^crates\/(helper|test-support)\//, NONE],
   // Anything else under the web app or the crates, and the build inputs: the whole suite.

@@ -694,6 +694,56 @@ fn project_list_stored_answers_with_the_list_the_page_staged_once() {
 }
 
 #[test]
+fn an_imported_file_the_page_staged_becomes_a_clip_and_a_save_writes_its_metadata() {
+    let h = Handle::new(KIND_SINGLE_SYNTH);
+    h.call0(pw_setup);
+    let created = h.apply(json!({"type": "track.create", "kind": "audio"}));
+    let track = created["track"].as_str().unwrap().to_owned();
+    let hash = "9e".repeat(32);
+    let media = json!({"hash": hash, "sample_rate": 44100, "channels": 2, "frames": 22050, "name": "kick.wav"});
+    // Before staging, the file is unknown.
+    let (report, _) = h.run(json!({"type": "clip.import_audio", "track": track, "media": hash}));
+    assert_eq!(report["status"], "refused", "{report}");
+    let text = media.to_string();
+    write_inbox(&text);
+    // SAFETY: a live core.
+    assert_eq!(unsafe { pw_stage_media(h.0, text.len() as u32) }, 0);
+    let output = h.apply(json!({"type": "clip.import_audio", "track": track, "media": hash}));
+    let clip = output["clip"].as_str().unwrap();
+    let view = h.view();
+    let content = &view["project"]["tracks"][&track]["clips"][clip]["content"]["audio"];
+    assert_eq!(content["media"], media, "{view}");
+    assert_eq!(
+        view["project"]["tracks"][&track]["clips"][clip]["name"],
+        "kick"
+    );
+    // The clip's file is written with the media in clear; the blob itself is not in a save
+    // (the store wrote it at import).
+    // SAFETY: a live core.
+    let len = unsafe { pw_save(h.0, 2) };
+    // SAFETY: `pw_out` holds the `len` bytes of the last call.
+    let frame = unsafe { core::slice::from_raw_parts(pw_out(), len as usize) }.to_vec();
+    let text = String::from_utf8_lossy(&frame);
+    assert!(text.contains(&format!("tracks/{track}/clips/{clip}.json")));
+    assert!(text.contains("\"kick.wav\""));
+    assert!(!text.contains(&format!("blobs/{hash}")));
+    // Not media: refused, nothing staged.
+    for bad in ["{", r#"{"hash":"x"}"#, &json!({"hash": "1e".repeat(32), "sample_rate": 44100, "channels": 2, "frames": 1, "name": "a", "extra": 1}).to_string()] {
+        write_inbox(bad);
+        // SAFETY: a live core.
+        assert_eq!(unsafe { pw_stage_media(h.0, bad.len() as u32) }, ERR_BAD_INPUT, "{bad}");
+    }
+    let (report, _) =
+        h.run(json!({"type": "clip.import_audio", "track": track, "media": "1e".repeat(32)}));
+    assert_eq!(report["status"], "refused");
+    // SAFETY: null is allowed.
+    assert_eq!(
+        unsafe { pw_stage_media(core::ptr::null_mut(), 0) },
+        ERR_NO_CORE
+    );
+}
+
+#[test]
 fn a_call_that_produces_no_bytes_never_returns_the_previous_ones() {
     let h = Handle::new(KIND_SINGLE_SYNTH);
     h.call0(pw_setup);
@@ -1511,4 +1561,104 @@ fn a_new_core_takes_the_name_the_page_gives_it() {
     write_inbox(&"x".repeat(201));
     let long = Handle(pw_new(KIND_EMPTY, 1, 0.0, 1, 2, 6, 201));
     assert_eq!(long.view()["project"]["name"], "Sketch");
+}
+
+/// The file of a preset as `pw_preset_file` gives it: `None` for `ERR_NO_PRESET`.
+fn preset_file(h: &Handle, location: u32, id: &str) -> Option<String> {
+    write_inbox(id);
+    // SAFETY: a live core.
+    let len = unsafe { pw_preset_file(h.0, location, id.len() as u32) };
+    if len == ERR_NO_PRESET {
+        return None;
+    }
+    assert!(len > 0, "error code {len}");
+    // SAFETY: `pw_out` holds the `len` bytes of the last call.
+    let bytes = unsafe { core::slice::from_raw_parts(pw_out(), len as usize) };
+    Some(String::from_utf8(bytes.to_vec()).unwrap())
+}
+
+#[test]
+fn the_library_is_staged_written_by_file_and_never_marks_the_project_changed() {
+    let h = Handle::new(KIND_SINGLE_SYNTH);
+    h.call0(pw_setup);
+    let device = commands::engine_msgs::single_synth::DEVICE;
+    let kept = "01HZY00000000000000000AAAA";
+    let text = r#"{"format": 1, "device": "faulk.osc_synth", "version": 1, "name": "Kept", "params": {"attack": 0.5}}"#;
+    let files = json!([
+        {"id": kept, "text": text},
+        {"id": "not-an-id", "text": text},
+        {"id": "01HZY00000000000000000BBBB", "text": "{"},
+    ]);
+    let (report, _) = h.call(&files.to_string(), pw_stage_library);
+    assert_eq!(report["loaded"], 1);
+    let skipped: Vec<&str> = report["skipped"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(skipped, ["not-an-id", "01HZY00000000000000000BBBB"]);
+    // A bad JSON changes nothing.
+    write_inbox("[1]");
+    // SAFETY: a live core.
+    assert_eq!(unsafe { pw_stage_library(h.0, 3) }, ERR_BAD_INPUT);
+    let listed = h.apply(json!({"type": "preset.list", "kind": "faulk.osc_synth"}));
+    assert!(
+        listed["presets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["name"] == "Kept"),
+        "{listed}"
+    );
+    // The staged file comes back canonical.
+    let file = preset_file(&h, LOCATION_LIBRARY, kept).unwrap();
+    assert!(
+        file.starts_with("{\n  \"device\": \"faulk.osc_synth\",\n  \"format\": 1,"),
+        "{file}"
+    );
+
+    // Renaming and deleting in the library are not project changes: nothing to save.
+    h.save(1);
+    h.saved(true);
+    assert!(!h.dirty());
+    h.apply(json!({"type": "preset.rename", "preset": {"location": "library", "id": kept}, "name": "Renamed"}));
+    assert!(!h.dirty());
+    assert!(
+        preset_file(&h, LOCATION_LIBRARY, kept)
+            .unwrap()
+            .contains("\"Renamed\"")
+    );
+    h.apply(json!({"type": "preset.delete", "preset": {"location": "library", "id": kept}}));
+    assert!(!h.dirty());
+    assert_eq!(preset_file(&h, LOCATION_LIBRARY, kept), None);
+    assert_eq!(preset_file(&h, 0, kept), None);
+    assert_eq!(preset_file(&h, LOCATION_LIBRARY, "../x"), None);
+    // Its undo brings the file back.
+    h.apply(json!({"type": "history.undo"}));
+    assert!(preset_file(&h, LOCATION_LIBRARY, kept).is_some());
+
+    // A save of the device into the project is a project change, written in `presets/`.
+    let saved = h.apply(
+        json!({"type": "preset.save", "device": device, "name": "Mine", "location": "project"}),
+    );
+    assert!(h.dirty());
+    let id = saved["preset"]["id"].as_str().unwrap().to_owned();
+    let paths = h.paths(0);
+    assert!(paths.contains(&format!("presets/{id}.json")), "{paths:?}");
+    assert!(preset_file(&h, LOCATION_PROJECT, &id).is_some());
+    // The library outlives a new project.
+    h.saved(true);
+    h.apply(json!({"type": "project.new"}));
+    let listed = h.apply(json!({"type": "preset.list", "kind": "faulk.osc_synth"}));
+    let names: Vec<&str> = listed["presets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|e| e["name"].as_str().unwrap())
+        .collect();
+    assert!(
+        names.contains(&"Renamed") && !names.contains(&"Mine"),
+        "{names:?}"
+    );
 }
