@@ -49,7 +49,9 @@ const TEXTS = {
 } as const
 
 for (const lang of ['en', 'fr'] as const) {
-  test(`computer keyboard, ${lang}: oscillator and drums, track switch while held, armed track, no shortcut`, async ({ page }) => {
+  test(`computer keyboard, ${lang}: oscillator and drums, track switch while held, armed track, no shortcut${lang === 'fr' ? ' @full' : ''}`, async ({
+    page,
+  }) => {
     const x = TEXTS[lang]
     const { errors } = watch(page)
     await page.addInitScript((l) => localStorage.setItem('faulk.lang', l), lang)

@@ -18,7 +18,7 @@ const TEXTS = {
 } as const
 
 for (const lang of ['en', 'fr'] as const) {
-  test(`all sound off, ${lang}: a double-click on Stop silences an echo that rings on`, async ({ page }) => {
+  test(`all sound off, ${lang}: a double-click on Stop silences an echo that rings on${lang === 'fr' ? ' @full' : ''}`, async ({ page }) => {
     const x = TEXTS[lang]
     const { errors } = watch(page)
     await fakeWebMidi(page)

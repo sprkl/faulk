@@ -176,7 +176,7 @@ test('launch grid: scenes and clips by gestures, launch is heard, states follow 
 // 32 tracks x 64 scenes with a clip in every cell (2 048 clips), the worst case for the grid: the cost
 // of showing it, of a frame while scrolling it in both directions, and of the engine's states reaching
 // it while a scene plays. The page's dev hook (`__faulkRun`, `__faulkView`) builds the project.
-test('launch grid: stays fluid with 32 tracks and 64 scenes', async ({ page }) => {
+test('launch grid: stays fluid with 32 tracks and 64 scenes @full', async ({ page }) => {
   test.setTimeout(240_000)
   const seen = watch(page)
   await page.setViewportSize({ width: 1280, height: 800 })

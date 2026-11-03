@@ -42,7 +42,9 @@ async function expectOneRow(page: Page, what: string) {
 
 for (const size of SIZES) {
   for (const lang of ['en', 'fr'] as const) {
-    test(`the top bar is one row in every view at ${size.width}x${size.height}, ${lang}, with a long project name`, async ({ page }, info) => {
+    test(`the top bar is one row in every view at ${size.width}x${size.height}, ${lang}, with a long project name${size.width === 1280 ? '' : ' @full'}`, async ({
+      page,
+    }, info) => {
       const { errors } = watch(page)
       await page.setViewportSize(size)
       await page.addInitScript((l) => localStorage.setItem('faulk.lang', l), lang)

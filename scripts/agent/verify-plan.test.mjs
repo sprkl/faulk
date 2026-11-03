@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
+import { readdirSync } from 'node:fs'
 import { test } from 'node:test'
-import { planE2e } from '../ci/e2e-plan.mjs'
+import { fileURLToPath } from 'node:url'
+import { planE2e, specNames } from '../ci/e2e-plan.mjs'
 import { evidenceLine, planVerify, rootSteps } from './verify-plan.mjs'
 
 // A miniature of the real workspace (names, dependency edges, dev-only edges).
@@ -14,7 +16,8 @@ const WS = [
   { name: 'helper', dir: 'crates/helper', deps: ['engine', 'project', 'commands', 'protocol'], devDeps: [] },
   { name: 'test-support', dir: 'crates/test-support', deps: [], devDeps: ['engine', 'project', 'commands'] },
 ]
-const SPECS = ['transport', 'mixer', 'isolation', 'project-store', 'open-project', 'export-audio', 'automation', 'continuous', 'master-chain', 'master-pan', 'mixer-sound', 'track-state', 'layout-4']
+// The specs on disk: the core names several of them, and a core spec that is missing is a stale table (the whole suite).
+const SPECS = specNames(readdirSync(fileURLToPath(new URL('../../web/tests/e2e/', import.meta.url))))
 const plan = (files, extra = {}) => planVerify({ files, packages: () => WS, specs: () => SPECS, ...extra })
 const tested = (p) => p.decision.rustTest.split(' ').filter((x) => x !== '-p')
 
@@ -47,8 +50,12 @@ test('the web part is the e2e plan of the CI', () => {
   const files = ['web/src/views/mixer/MixerFader.svelte']
   const p = plan(files)
   assert.equal(p.decision.web, true)
-  assert.deepEqual(p.decision.e2eSpecs, planE2e(files, SPECS).specs)
+  const e = planE2e(files, SPECS)
+  assert.deepEqual([p.decision.e2eSpecs, p.decision.e2eCore, p.decision.e2eGrep, p.decision.e2eTier, p.decision.e2eWhy], [e.specs, e.core, e.grep, e.tier, e.why])
   assert.equal(p.decision.e2eAll, false)
+  // A shared page file: the core tests alone, as in CI.
+  const shared = plan(['web/src/lib/stores/dispatcher.ts']).decision
+  assert.deepEqual([shared.e2eTier, shared.e2eSpecs, shared.e2eAll], ['core', [], false])
   assert.deepEqual(plan(['docs/x.md']).decision.web, false)
 })
 

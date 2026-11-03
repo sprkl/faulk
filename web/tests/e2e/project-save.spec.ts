@@ -26,7 +26,7 @@ async function simulatePicker(page: Page, name: string) {
   }, name)
 }
 
-test('the automatic save of a medium project: its cost, and the page and the audio meanwhile', async ({ page }) => {
+test('the automatic save of a medium project: its cost, and the page and the audio meanwhile @full', async ({ page }) => {
   test.setTimeout(120_000)
   const { errors } = watch(page)
   await simulatePicker(page, 'song-medium')

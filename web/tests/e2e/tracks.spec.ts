@@ -67,7 +67,9 @@ async function addTrack(page: Page, item: string) {
 
 for (const lang of ['en', 'fr'] as const) {
   for (const width of [1280, 1920]) {
-    test(`tracks, ${lang}, ${width} px: create, rename, mute, solo, mix, select, delete and undo`, async ({ page }) => {
+    test(`tracks, ${lang}, ${width} px: create, rename, mute, solo, mix, select, delete and undo${(lang === 'en' && width === 1920) || (lang === 'fr' && width === 1280) ? ' @full' : ''}`, async ({
+      page,
+    }) => {
       const x = TEXTS[lang]
       const { errors } = watch(page)
       await page.setViewportSize({ width, height: 900 })

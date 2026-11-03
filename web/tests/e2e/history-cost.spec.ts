@@ -13,7 +13,7 @@ const SEEDED = 10_000
 const PAGE = 200
 const MEDIAN_FRAME_MS = 50
 
-test('history panel: a 10 000-entry history draws a page of rows and an edit stays within a few frames', async ({ page }) => {
+test('history panel: a 10 000-entry history draws a page of rows and an edit stays within a few frames @full', async ({ page }) => {
   test.setTimeout(180_000)
   const { errors } = watch(page)
   await page.setViewportSize({ width: 1400, height: 900 })

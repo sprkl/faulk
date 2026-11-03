@@ -192,7 +192,7 @@ test.describe('a draft before a folder is chosen', () => {
     await expect(page.getByTestId('storage-notice')).toContainText('is open')
   })
 
-  test('French: the state is in French', async ({ page }) => {
+  test('French: the state is in French @full', async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem('faulk.lang', 'fr'))
     await page.setViewportSize({ width: 1440, height: 900 })
     await simulatePicker(page, 'song-fr-draft')
