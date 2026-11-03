@@ -54,6 +54,36 @@
           "type"
         ],
         "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Where the helper's MIDI input plays its notes (#598): the engine slots of the tracks\nthe live input reaches now (`commands::live::input_targets`: the selected track and the\narmed MIDI tracks), in the engine `epoch` whose slots they are\n(`commands::host::LiveRouting`). The page sends it after each snapshot it sends and\nwhenever the table changes. The helper plays each note of its input on these tracks at\nonce, in this epoch, and its note off on the tracks the note went to; a table of\nanother epoch than its engine's is ignored, and so is one longer than the engine's\ntrack limit. Only on a session.",
+        "properties": {
+          "epoch": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tracks": {
+            "items": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "type": {
+            "const": "live.routing",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "epoch",
+          "tracks"
+        ],
+        "type": "object"
       }
     ],
     "title": "ClientMessage"
@@ -25423,6 +25453,34 @@
       "title": "HistoryView",
       "type": "object"
     },
+    "live_routing": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": false,
+      "description": "Where the live input plays now, as the engine knows the tracks (#598): the slots of the\ntracks `live::input_targets` names (the selected track and the armed MIDI tracks), in the\n`epoch` of the engine stream those slots belong to. In Boost the page sends it to the\nhelper (`live.routing`), which plays the notes of its own MIDI input with it, without a\nround trip through the page.",
+      "properties": {
+        "epoch": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tracks": {
+          "description": "Track slots, in the order of the tracks' ids; a target the engine holds no slot for\nis left out.",
+          "items": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "epoch",
+        "tracks"
+      ],
+      "title": "LiveRouting",
+      "type": "object"
+    },
     "project_view": {
       "$defs": {
         "AudioMedia": {
@@ -32570,7 +32628,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 23,
+  "protocol_version": 24,
   "server_message": {
     "$defs": {
       "Capabilities": {
@@ -32896,7 +32954,7 @@
       },
       {
         "additionalProperties": false,
-        "description": "A message of the selected MIDI input, as received (a channel message: note, control\nchange...): the page plays it as it plays a Web MIDI message.",
+        "description": "A message of the selected MIDI input, as received (a channel message: note, control\nchange...). The page runs it in its project as it runs a Web MIDI message (the keys\nshown, a recording, its held notes), and sends the engine bytes it encodes unless\n`played`.",
         "properties": {
           "data": {
             "items": {
@@ -32907,6 +32965,10 @@
             },
             "type": "array"
           },
+          "played": {
+            "description": "The helper already played this note on its engine, with the session's\n`live.routing` (#598): a note on on the table's tracks, a note off on the tracks its\nnote went to. `false` for anything else: a control change (120 and 123 included,\nwhich the page turns into `live.all_notes_off`), a note before any table or with a\ntable of another epoch than the engine's, a note off of a note the helper did not\nplay.",
+            "type": "boolean"
+          },
           "type": {
             "const": "midi.message",
             "type": "string"
@@ -32914,7 +32976,8 @@
         },
         "required": [
           "type",
-          "data"
+          "data",
+          "played"
         ],
         "type": "object"
       },

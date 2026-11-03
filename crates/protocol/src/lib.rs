@@ -14,13 +14,15 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 23;
+pub const PROTOCOL_VERSION: u32 = 24;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
 /// encodes (16 Mi notes at about 21 bytes each are 352 MB). The page never sends a longer
 /// one; the helper's other routes keep the WebSocket library's default limits.
 pub const MAX_STREAM_BYTES: usize = 1 << 30;
+
+// Version 24 (#598): the notes of the helper's MIDI input play on the helper's engine at once, without the page's main thread. The page sends `live.routing` (`epoch`, the slots of the tracks the live input reaches) after each snapshot and whenever it changes; the helper encodes each note on in that epoch for those tracks and each note off for the tracks its note went to, and ignores a table of another epoch than its engine's. `midi.message` still carries every message to the page and gains `played`: the page runs the message in its project and sends its engine bytes only when the helper did not play it (control changes, a note before any table). A page of version 23 would double the notes, and one of version 24 would leave them unplayed with a helper of version 23.
 
 // Version 23 (#102, BO-1): the helper holds no project. The page sends the engine's `ControlMsg` byte streams it encodes in binary frames (a snapshot newer than the epoch `hello` announces, then each change), the helper submits them unchanged and answers a stream its engine stops with `stream_refused` (code, offset, the engine's epoch), to which the page answers with a snapshot. `hello` gains `epoch` and `capabilities` (`midi`, `disk`). The `command` message is gone: the helper's own MIDI devices take `midi.list_inputs` and `midi.select_input`, and the selected input's messages go to the page as `midi.message` (raw bytes), which plays them through its project; `midi.activity` is gone.
 
@@ -118,6 +120,16 @@ pub enum ClientMessage {
     /// `midi.select_input` command. Only on a session.
     #[serde(rename = "midi.select_input")]
     MidiSelectInput { id: Option<String> },
+    /// Where the helper's MIDI input plays its notes (#598): the engine slots of the tracks
+    /// the live input reaches now (`commands::live::input_targets`: the selected track and the
+    /// armed MIDI tracks), in the engine `epoch` whose slots they are
+    /// (`commands::host::LiveRouting`). The page sends it after each snapshot it sends and
+    /// whenever the table changes. The helper plays each note of its input on these tracks at
+    /// once, in this epoch, and its note off on the tracks the note went to; a table of
+    /// another epoch than its engine's is ignored, and so is one longer than the engine's
+    /// track limit. Only on a session.
+    #[serde(rename = "live.routing")]
+    LiveRouting { epoch: u16, tracks: Vec<u32> },
 }
 
 /// What the helper can do, announced in `hello` (BO-1).
@@ -182,9 +194,20 @@ pub enum ServerMessage {
     #[serde(rename = "stream_refused")]
     StreamRefused { code: i32, at: u32, epoch: u16 },
     /// A message of the selected MIDI input, as received (a channel message: note, control
-    /// change...): the page plays it as it plays a Web MIDI message.
+    /// change...). The page runs it in its project as it runs a Web MIDI message (the keys
+    /// shown, a recording, its held notes), and sends the engine bytes it encodes unless
+    /// `played`.
     #[serde(rename = "midi.message")]
-    MidiMessage { data: Vec<u8> },
+    MidiMessage {
+        data: Vec<u8>,
+        /// The helper already played this note on its engine, with the session's
+        /// `live.routing` (#598): a note on on the table's tracks, a note off on the tracks its
+        /// note went to. `false` for anything else: a control change (120 and 123 included,
+        /// which the page turns into `live.all_notes_off`), a note before any table or with a
+        /// table of another epoch than the engine's, a note off of a note the helper did not
+        /// play.
+        played: bool,
+    },
     /// The MIDI inputs available, and the one selected.
     #[serde(rename = "midi.inputs")]
     MidiInputs {
@@ -283,6 +306,7 @@ pub fn schema_bundle() -> serde_json::Value {
             "project_view": schemars::schema_for!(commands::host::ProjectView),
             "export_report": schemars::schema_for!(commands::host::ExportReport),
             "history_view": schemars::schema_for!(commands::host::HistoryView),
+            "live_routing": schemars::schema_for!(commands::host::LiveRouting),
         },
         // The device contract (CT-5): the descriptor of every built-in device, from which
         // the UI generates the panels and agents learn the parameters, and its schema.

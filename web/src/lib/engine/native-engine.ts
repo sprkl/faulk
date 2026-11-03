@@ -1,4 +1,4 @@
-import { ERROR_CODES, MAX_STREAM_BYTES, PROTOCOL_VERSION, type Capabilities, type ClientMessage, type Command } from '../generated/protocol'
+import { ERROR_CODES, MAX_STREAM_BYTES, PROTOCOL_VERSION, type Capabilities, type ClientMessage, type Command, type LiveRouting } from '../generated/protocol'
 import type { Engine, EngineEvents, EngineStatus, HelperUpdateState } from './engine'
 import { decodeFeedback } from './feedback'
 import { HELPER_URL, parseServerMessage } from './helper-client'
@@ -95,7 +95,7 @@ export class NativeEngine implements Engine {
             events.onMidiInputs?.(message.inputs, message.selected ?? null)
             break
           case 'midi.message':
-            events.onMidiMessage?.(message.data)
+            events.onMidiMessage?.(message.data, message.played)
             break
           case 'stream_refused':
             events.onStreamRefused?.(message.code, message.at, message.epoch)
@@ -145,6 +145,21 @@ export class NativeEngine implements Engine {
     }
     // The core's bytes are a copy out of its own (unshared) memory (`ProjectCore.engine`).
     this.ws.send(bytes as Uint8Array<ArrayBuffer>)
+  }
+
+  /** The last table sent on this session, to send only a changed one. */
+  private routed: string | null = null
+
+  /**
+   * Tells the helper where its MIDI input plays (#598, `live.routing`): the slots of the tracks the live
+   * input reaches, in the epoch they belong to. Sent only when it differs from the last one sent on this
+   * session; the helper then plays the input's notes itself, without waiting for the page.
+   */
+  route(routing: LiveRouting) {
+    const key = `${routing.epoch}:${routing.tracks.join(',')}`
+    if (key === this.routed || this.ws.readyState !== WebSocket.OPEN) return
+    this.routed = key
+    this.message({ type: 'live.routing', epoch: routing.epoch, tracks: routing.tracks })
   }
 
   private message(message: ClientMessage) {

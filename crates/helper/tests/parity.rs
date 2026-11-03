@@ -12,7 +12,8 @@
 
 use futures_util::SinkExt;
 use helper::audio::{EngineSlot, Meter, audio_core};
-use helper::midi::MidiManager;
+use helper::live::LiveInput;
+use helper::midi::{MidiManager, MidiSink};
 use helper::security::Policy;
 use helper::server::{Shared, serve};
 use protocol::ServerMessage;
@@ -41,7 +42,10 @@ async fn render_through_the_helper(scenario: &Scenario) -> Render {
             token: TOKEN.into(),
         },
         engine.clone(),
-        MidiManager::new(midi_out),
+        MidiManager::new(MidiSink::new(
+            Arc::new(LiveInput::new(engine.clone())),
+            midi_out,
+        )),
         midi_in,
         meter,
         Box::new(|_| {}),

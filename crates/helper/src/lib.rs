@@ -2,6 +2,7 @@
 
 pub mod audio;
 pub mod instance;
+pub mod live;
 pub mod log;
 pub mod midi;
 pub mod output;

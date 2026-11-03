@@ -159,3 +159,145 @@ impl ViewSlots {
         }
     }
 }
+
+/// Where the live input plays now, as the engine knows the tracks (#598): the slots of the
+/// tracks `live::input_targets` names (the selected track and the armed MIDI tracks), in the
+/// `epoch` of the engine stream those slots belong to. In Boost the page sends it to the
+/// helper (`live.routing`), which plays the notes of its own MIDI input with it, without a
+/// round trip through the page.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LiveRouting {
+    pub epoch: u16,
+    /// Track slots, in the order of the tracks' ids; a target the engine holds no slot for
+    /// is left out.
+    pub tracks: Vec<u32>,
+}
+
+impl LiveRouting {
+    /// The routing of `state`'s live input with the slots of `engine`, in `epoch`.
+    pub fn of(state: &crate::State, engine: &EngineSlots, epoch: u16) -> Self {
+        Self {
+            epoch,
+            tracks: crate::live::input_targets(state)
+                .iter()
+                .filter_map(|track| engine.tracks.get(track))
+                .collect(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod live_routing_tests {
+    use super::LiveRouting;
+    use crate::Command;
+    use crate::engine_msgs::Synced;
+    use project::TrackId;
+
+    fn run(synced: &mut Synced, command: serde_json::Value) -> crate::Output {
+        let command: Command = serde_json::from_value(command).expect("a command");
+        synced.run(&command).expect("applies").0.output
+    }
+
+    fn routing(synced: &Synced) -> LiveRouting {
+        LiveRouting::of(&synced.state, &synced.ctx.engine, synced.epoch())
+    }
+
+    fn create(synced: &mut Synced, kind: &str) -> TrackId {
+        match run(
+            synced,
+            serde_json::json!({ "type": "track.create", "kind": kind }),
+        ) {
+            crate::Output::Track(crate::track::Output::Create { track, .. }) => track,
+            other => panic!("{other:?}"),
+        }
+    }
+
+    fn slot(synced: &Synced, track: &TrackId) -> u32 {
+        synced.ctx.engine.tracks.get(track).expect("a slot")
+    }
+
+    #[test]
+    fn the_selected_and_armed_midi_tracks_by_their_slots_in_the_streams_epoch() {
+        let mut synced = Synced::single_synth(7);
+        synced.setup().unwrap();
+        let first = TrackId::parse(crate::engine_msgs::single_synth::TRACK).unwrap();
+        assert_eq!(
+            routing(&synced),
+            LiveRouting {
+                epoch: 7,
+                tracks: vec![]
+            },
+            "nothing selected yet"
+        );
+        run(
+            &mut synced,
+            serde_json::json!({ "type": "view.select_track", "track": first }),
+        );
+        assert_eq!(
+            routing(&synced),
+            LiveRouting {
+                epoch: 7,
+                tracks: vec![slot(&synced, &first)]
+            }
+        );
+        let second = create(&mut synced, "midi");
+        let audio = create(&mut synced, "audio");
+        run(
+            &mut synced,
+            serde_json::json!({ "type": "view.select_track", "track": second }),
+        );
+        for track in [&first, &audio] {
+            run(
+                &mut synced,
+                serde_json::json!({ "type": "track.arm", "track": track, "armed": true }),
+            );
+        }
+        let mut expected = vec![
+            (first.clone(), slot(&synced, &first)),
+            (second.clone(), slot(&synced, &second)),
+        ];
+        expected.sort();
+        assert_eq!(
+            routing(&synced).tracks,
+            expected.into_iter().map(|(_, s)| s).collect::<Vec<_>>(),
+            "the selected and the armed MIDI tracks; the armed audio track is left out"
+        );
+        // Nothing selected, nothing armed: no track.
+        run(
+            &mut synced,
+            serde_json::json!({ "type": "view.select_track", "track": null }),
+        );
+        for track in [&first, &audio] {
+            run(
+                &mut synced,
+                serde_json::json!({ "type": "track.arm", "track": track, "armed": false }),
+            );
+        }
+        assert_eq!(routing(&synced).tracks, Vec::<u32>::new());
+        // A deleted track is no target.
+        run(
+            &mut synced,
+            serde_json::json!({ "type": "view.select_track", "track": second }),
+        );
+        run(
+            &mut synced,
+            serde_json::json!({ "type": "track.delete", "track": second }),
+        );
+        assert_eq!(routing(&synced).tracks, Vec::<u32>::new());
+        // A snapshot moves to a newer epoch: the table says so.
+        run(
+            &mut synced,
+            serde_json::json!({ "type": "view.select_track", "track": first }),
+        );
+        synced.resync().unwrap();
+        assert_ne!(synced.epoch(), 7);
+        assert_eq!(
+            routing(&synced),
+            LiveRouting {
+                epoch: synced.epoch(),
+                tracks: vec![slot(&synced, &first)]
+            }
+        );
+    }
+}
