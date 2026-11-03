@@ -1,0 +1,2 @@
+2026-11-03
+* **Update** (#492): the end-of-turn guard keeps the verifications and the delivery reviews of a checkout per state of the code (`verifications.json`, `reviews.json`, the last 64 of each) instead of one of each, so two branches stacked in one checkout no longer block each other; its message says why a review of a branch named outside `feat|fix|spike/<issue>-<slug>` is not carried over (`docs/agents/verification.md`, `docs/agents/judge-dredd.md`).

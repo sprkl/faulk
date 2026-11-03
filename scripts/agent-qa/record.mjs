@@ -1,10 +1,14 @@
 /**
  * Records, for the current state of the code, the verification
- * (`last-run.json`), Judge Dredd's delivery review (`review.json`) or the
- * deferral of one stop (`deferral.json`), with a history in `history.jsonl`,
+ * (`verifications.json`), Judge Dredd's delivery review (`reviews.json`) or
+ * the deferral of one stop (`deferral.json`), with a history in `history.jsonl`,
  * all in the records folder of the checkout (`faulk-qa` in its git
  * directory, `fingerprint.mjs` > qaDir). The verification clears the Stop hook until the next
- * change of the code; the review, for the whole task branch.
+ * change of the code; the review, for the whole task branch. Verifications and
+ * reviews are kept per state (`stop-core.mjs` > addRecord, bounded), so the
+ * branches stacked in one checkout keep theirs (#492); the last one alone is
+ * also written to `last-run.json` or `review.json`, for the guard of a branch
+ * that predates the lists.
  *
  * Usage:
  *   node scripts/agent-qa/record.mjs verified --rust "<...>" [--render "<...>"] [--commands "<...>"]
@@ -19,7 +23,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { answerIsComplete, briefHeader } from "../agent-review/brief-core.mjs";
@@ -32,12 +36,15 @@ import {
   historyPath,
   lastPromptPath,
   readRecord,
+  readRecords,
   reviewPath,
+  reviewsPath,
   scriptRoot,
   verificationPath,
+  verificationsPath,
 } from "./fingerprint.mjs";
 import { agentDefinition } from "../agent-review/headless.mjs";
-import { EVIDENCE_FLAGS, canDefer, missingEvidence, taskBranchIssue, verifiedCommand } from "./stop-core.mjs";
+import { EVIDENCE_FLAGS, addRecord, canDefer, missingEvidence, taskBranchIssue, verifiedCommand } from "./stop-core.mjs";
 
 const fail = (message) => {
   console.error(`[agent-qa] ${message}`);
@@ -174,6 +181,14 @@ const entry = {
 };
 const path = { verified: verificationPath, reviewed: reviewPath, deferred: deferralPath }[status](root);
 mkdirSync(dirname(path), { recursive: true });
+const listPath = { verified: verificationsPath, reviewed: reviewsPath }[status]?.(root);
+if (listPath) {
+  // The legacy single record is folded in, so a record made before the lists is kept.
+  // Written whole to a temporary file, then renamed: a reader never sees half a list.
+  const temporary = `${listPath}.${process.pid}.tmp`;
+  writeFileSync(temporary, `${JSON.stringify(addRecord(readRecords(listPath, path), entry), null, 2)}\n`);
+  renameSync(temporary, listPath);
+}
 writeFileSync(path, `${JSON.stringify(entry, null, 2)}\n`);
 appendFileSync(historyPath(root), `${JSON.stringify(entry)}\n`);
 console.log(`[agent-qa] ${status} recorded for fingerprint ${fingerprint} in ${root}.`);

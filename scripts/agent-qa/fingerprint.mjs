@@ -385,6 +385,18 @@ export function commonDir(cwd) {
 export function qaDir(cwd) {
   return join(gitDir(cwd), QA_DIR_NAME);
 }
+/**
+ * The verifications and the reviews of a checkout, one entry per state (a JSON
+ * array, oldest first, bounded by `stop-core.mjs` > RECORD_LIMIT): two branches
+ * of one checkout keep their own records (#492).
+ */
+export const verificationsPath = (cwd) => join(qaDir(cwd), "verifications.json");
+export const reviewsPath = (cwd) => join(qaDir(cwd), "reviews.json");
+/**
+ * The last verification and the last review alone, as before #492: still
+ * written, for the guard of a branch that predates the lists, and read as one
+ * more entry, for records made before them.
+ */
 export const verificationPath = (cwd) => join(qaDir(cwd), "last-run.json");
 export const reviewPath = (cwd) => join(qaDir(cwd), "review.json");
 /** A deferral is kept apart, so it never erases a verification. */
@@ -400,4 +412,24 @@ export function readRecord(path) {
   } catch {
     return null;
   }
+}
+
+/**
+ * The entries of a list of records (`verificationsPath`, `reviewsPath`), then
+ * the legacy single record (`legacy`) when the list does not hold it already.
+ * An absent or unreadable list, or one that is not an array, counts as empty;
+ * entries that are not objects are skipped.
+ */
+export function readRecords(path, legacy) {
+  const list = readRecord(path);
+  const records = Array.isArray(list) ? list.filter((entry) => entry !== null && typeof entry === "object") : [];
+  const single = legacy === undefined ? null : readRecord(legacy);
+  if (
+    single !== null &&
+    typeof single === "object" &&
+    !records.some((entry) => entry.at === single.at && entry.fingerprint === single.fingerprint)
+  ) {
+    records.push(single);
+  }
+  return records;
 }
