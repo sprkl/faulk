@@ -54,7 +54,10 @@ test('a view change writes the area tier: its specs, the core tests, one shard (
   assert.equal(outputs.e2e_tier, 'area')
   assert.match(outputs.e2e_why, /area of: web\/src\/views\/tracks\/TrackList\.svelte/)
   assert.equal(outputs.e2e_all, 'false')
-  assert.equal(outputs.e2e_specs, 'tests/e2e/discoverability.spec.ts tests/e2e/lane-rows.spec.ts tests/e2e/track-order.spec.ts tests/e2e/tracks.spec.ts')
+  assert.equal(
+    outputs.e2e_specs,
+    'tests/e2e/device-browser.spec.ts tests/e2e/discoverability.spec.ts tests/e2e/lane-rows.spec.ts tests/e2e/track-order.spec.ts tests/e2e/tracks.spec.ts',
+  )
   assert.ok(outputs.e2e_core.includes('tests/e2e/export-audio.spec.ts') && outputs.e2e_core_grep.includes('export-audio'))
   assert.equal(outputs.e2e_shards, '[1]')
   assert.equal(outputs.e2e_shard_total, '1')

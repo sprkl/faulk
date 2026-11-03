@@ -338,6 +338,18 @@ export function layoutShortcut(
 }
 
 /**
+ * The device browser (#190): Alt+B, by position. Alt alone (never a bare letter: B plays no note, but the rule is the
+ * same for every shortcut), no repeat, nothing from a text field except the browser's own search field, where the
+ * same key closes it. Playing ignores every Alt event (`ignoreKeyEvent`), so it plays nothing.
+ */
+const BROWSER_CODE = 'KeyB'
+export function browserShortcut(event: Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'repeat' | 'target'>): boolean {
+  if (event.code !== BROWSER_CODE || !event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat) return false
+  const target = event.target as HTMLElement | null
+  return !isTextTarget(target) || (typeof target?.closest === 'function' && target.closest('[data-browser-search]') !== null)
+}
+
+/**
  * Tap tempo (#195): Alt+T, by position. Alt alone (never a bare letter: T plays a note), no repeat (a held key is one tap),
  * nothing from a text field. Playing ignores every Alt event (`ignoreKeyEvent`), so it plays nothing.
  */

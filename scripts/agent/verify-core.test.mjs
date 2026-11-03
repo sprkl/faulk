@@ -29,7 +29,7 @@ test('a view maps to its specs', () => {
 })
 
 test('several files add up, a contract or a configuration widens to the whole suite, a shared page file does not', () => {
-  assert.deepEqual(pick(['web/src/views/grid/GridView.svelte', 'web/src/views/tracks/TrackList.svelte']).specs, ['clip-names', 'clip-pool', 'discoverability', 'grid', 'grid-clips', 'grid-to-arrangement', 'lane-rows', 'recording', 'track-order', 'tracks'])
+  assert.deepEqual(pick(['web/src/views/grid/GridView.svelte', 'web/src/views/tracks/TrackList.svelte']).specs, ['clip-names', 'clip-pool', 'device-browser', 'discoverability', 'grid', 'grid-clips', 'grid-to-arrangement', 'lane-rows', 'recording', 'track-order', 'tracks'])
   for (const whole of ['web/tests/e2e/support.ts', 'web/package.json', 'crates/engine/src/msg.rs', 'Cargo.lock', 'web/src/lib/engine/worklet.ts', 'web/src/lib/generated/protocol.ts']) {
     const r = pick(['web/src/views/mixer/MixerFader.svelte', whole])
     assert.equal(r.all, true, whole)
@@ -71,7 +71,7 @@ test('an unknown path, a deleted spec or a stale table never skips a test', () =
 })
 
 test('Windows separators are understood', () => {
-  assert.deepEqual(pick(['web\\src\\views\\tracks\\TrackList.svelte']).specs, ['discoverability', 'lane-rows', 'track-order', 'tracks'])
+  assert.deepEqual(pick(['web\\src\\views\\tracks\\TrackList.svelte']).specs, ['device-browser', 'discoverability', 'lane-rows', 'track-order', 'tracks'])
 })
 
 test('every spec name the table lists exists on disk', () => {

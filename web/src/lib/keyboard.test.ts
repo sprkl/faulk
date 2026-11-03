@@ -453,6 +453,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
         'Escape',
         'F2',
       ], // a section marker: F2 renames, Delete removes, Alt+arrows move it (#554), the name field takes Enter and Escape (#473); Shift+Enter on the free cursor puts the playhead there (#554)
+      'views/browser/BrowserPanel.svelte': ['ArrowDown', 'ArrowUp', 'Enter', 'Escape'], // the search field: the arrows move the highlighted row, Enter inserts it, Escape clears then closes; a text field keeps every other key
       'views/arrangement/LaneHeader.svelte': ['Enter', 'Enter', 'Escape'], // the rename field; the row's own keys are in lane-keys.ts (digits, signs, Enter, F2, the height handle's arrows): no letter
       'views/clips/ClipsView.svelte': ['Backspace', 'Delete', 'Enter'], // the pool row's handle: places (Enter) or deletes the clip; no letter
       'views/devices/PresetBar.svelte': ['Escape'], // the preset name field: Escape closes it; a text field keeps every other key

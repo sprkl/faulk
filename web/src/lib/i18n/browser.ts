@@ -1,0 +1,66 @@
+/**
+ * The device browser (#190): a column that lists the instruments, the audio effects, the MIDI effects and, under each
+ * device, its presets; a live search; and what a drop or an Enter says. Device names are not here: they come from the
+ * registry, one English name each (never translated), and so do the names of factory presets.
+ */
+
+import { defineFeature } from './feature'
+
+export const browser = defineFeature(
+  {
+    'browser.title': 'Browser',
+    'browser.toggle': 'Browser',
+    'browser.toggleHint': 'Devices and presets: search, drag onto a track, Enter to insert',
+    'browser.close': 'Close the browser',
+    'browser.search': 'Search devices and presets',
+    'browser.placeholder': 'Search…',
+    'browser.clear': 'Clear the search',
+    'browser.list': 'Devices and presets',
+    'browser.hint': 'Enter or double-click inserts into the selected track. Drag onto a track, its chain or the track list.',
+    'browser.group.instrument': 'Instruments',
+    'browser.group.effect': 'Audio effects',
+    'browser.group.midi_effect': 'MIDI effects',
+    'browser.presetOption': '{preset}, preset of {name}',
+    'browser.noResult': 'No device or preset matches "{q}".',
+    'browser.results': 'Results: {n}',
+    'browser.dropEmpty': 'Drop an instrument or a preset here to start a MIDI track.',
+    'browser.dropRelease': 'Release to create the track.',
+    'browser.dropChain': 'Drop here to add to the end of the chain.',
+    'browser.audioSoon': 'Importing audio files is not available yet.',
+    'browser.said.created': 'Track created with {device}.',
+    'browser.said.instrument': '{device} is now the instrument of {track}.',
+    'browser.said.inserted': '{device} inserted in {track}, position {n}.',
+    'browser.said.insertedMaster': '{device} inserted in the master, position {n}.',
+    'browser.said.presetLoaded': '{device} loaded on {track}.',
+    'browser.said.noInstrumentOnMaster': 'The master takes effects, not instruments.',
+    'browser.said.refused': '{device} could not be added.',
+  },
+  {
+    'browser.title': 'Navigateur',
+    'browser.toggle': 'Navigateur',
+    'browser.toggleHint': 'Devices et presets : chercher, glisser sur une piste, Entrée pour insérer',
+    'browser.close': 'Fermer le navigateur',
+    'browser.search': 'Chercher un device ou un preset',
+    'browser.placeholder': 'Chercher…',
+    'browser.clear': 'Effacer la recherche',
+    'browser.list': 'Devices et presets',
+    'browser.hint': 'Entrée ou double-clic insère dans la piste sélectionnée. Glisse sur une piste, sa chaîne ou la liste des pistes.',
+    'browser.group.instrument': 'Instruments',
+    'browser.group.effect': 'Effets audio',
+    'browser.group.midi_effect': 'Effets MIDI',
+    'browser.presetOption': '{preset}, preset de {name}',
+    'browser.noResult': 'Aucun device ni preset ne correspond à « {q} ».',
+    'browser.results': 'Résultats : {n}',
+    'browser.dropEmpty': 'Dépose un instrument ou un preset ici pour créer une piste MIDI.',
+    'browser.dropRelease': 'Relâche pour créer la piste.',
+    'browser.dropChain': 'Dépose ici pour ajouter à la fin de la chaîne.',
+    'browser.audioSoon': "L'import de fichiers audio n'est pas encore disponible.",
+    'browser.said.created': 'Piste créée avec {device}.',
+    'browser.said.instrument': '{device} est maintenant l’instrument de {track}.',
+    'browser.said.inserted': '{device} inséré dans {track}, position {n}.',
+    'browser.said.insertedMaster': '{device} inséré dans le master, position {n}.',
+    'browser.said.presetLoaded': '{device} chargé sur {track}.',
+    'browser.said.noInstrumentOnMaster': 'Le master accepte des effets, pas des instruments.',
+    'browser.said.refused': "{device} n'a pas pu être ajouté.",
+  },
+)
