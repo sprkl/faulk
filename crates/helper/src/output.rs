@@ -509,6 +509,74 @@ impl Backend for Cpal {
     }
 }
 
+/// An output that plays to nothing at 48 kHz, stereo, 10 ms per callback: what a debug build
+/// opens instead of the system's output when `FAULK_HELPER_TEST_SILENT_OUTPUT` is set, so that a
+/// machine without an audio device can run a Boost session end to end (an agent's call to the
+/// page, AG-1). Never in a release build (`main.rs` reads the variable in debug builds only).
+pub struct Silent;
+
+/// The callback thread of a [`Silent`] output; stopped and joined when dropped, which drops its
+/// [`Held`] core (given back, as cpal drops its callback).
+pub struct SilentStream {
+    stop: Arc<AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl Drop for SilentStream {
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+impl Backend for Silent {
+    type Stream = SilentStream;
+
+    fn devices(&mut self) -> String {
+        "silent".into()
+    }
+
+    fn open(
+        &mut self,
+        _failed: Arc<AtomicBool>,
+        core_for: CoreFor<'_>,
+    ) -> Result<Opened<SilentStream>, String> {
+        const RATE: f32 = 48_000.0;
+        const FRAMES: usize = 480;
+        let mut held = core_for(RATE)?;
+        let stop = Arc::new(AtomicBool::new(false));
+        let running = stop.clone();
+        let thread = std::thread::Builder::new()
+            .name("faulk-silent-output".into())
+            .spawn(move || {
+                let mut block = vec![0.0f32; FRAMES * 2];
+                let period = Duration::from_millis(10);
+                let mut next = Instant::now();
+                while !running.load(Ordering::Relaxed) {
+                    if let Some(core) = held.core() {
+                        #[cfg(debug_assertions)]
+                        assert_no_alloc::assert_no_alloc(|| core.process(&mut block, 2));
+                        #[cfg(not(debug_assertions))]
+                        core.process(&mut block, 2);
+                    }
+                    next += period;
+                    std::thread::sleep(next.saturating_duration_since(Instant::now()));
+                }
+            })
+            .map_err(|e| format!("cannot start the silent output: {e}"))?;
+        Ok(Opened {
+            stream: SilentStream {
+                stop,
+                thread: Some(thread),
+            },
+            sample_rate: RATE,
+            description: "silent test output · 48000 Hz, 2 channels".into(),
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

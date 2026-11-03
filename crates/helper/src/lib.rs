@@ -4,6 +4,8 @@ pub mod audio;
 pub mod instance;
 pub mod live;
 pub mod log;
+pub mod mcp;
+pub mod mcp_stdio;
 pub mod midi;
 pub mod output;
 pub mod security;

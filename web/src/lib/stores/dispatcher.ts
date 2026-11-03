@@ -6,7 +6,7 @@ import { NativeEngine, NoOutputError } from '../engine/native-engine'
 import { WebEngine } from '../engine/web-engine'
 import { withFrame } from '../engine/clock'
 import { decodeMidi } from '../midi/decode'
-import type { Command, HistoryView, ProjectEvent, RunReport } from '../generated/protocol'
+import type { AgentResult, Command, HistoryView, ProjectEvent, RunReport } from '../generated/protocol'
 import { WebMidiHost } from '../midi/web-midi'
 import { draftName } from '../project/draft-name'
 import { CoreError, coreModule, engineStep, ProjectCore, type EngineStep, type FolderEntry, type StoredProjects } from '../project/core'
@@ -23,6 +23,7 @@ import type { AudioExport, ExportHost } from '../export/audio-export.svelte'
 import type { ProjectHost, ProjectStorage } from '../storage/storage.svelte'
 import { releaseAllNotes, requestMidiInputs } from './housekeeping'
 import { takePairLink } from '../pair-link'
+import { answerAgentCall } from '../agents/agent-call'
 import { applyEffects } from './effects'
 import type { EngineStore, HelperState } from './engine.svelte'
 import { refusalNotice, type OpenOutcome, type OpenRefusal } from './open'
@@ -33,6 +34,13 @@ import { listPresets as listPresetsCommand } from '../preset-commands'
 import type { Recorder } from './recorder.svelte'
 import { refusalOf } from './refusal'
 import { storage, TOKEN_KEY } from './storage'
+
+/** How `run` runs a command: `quiet` shows no refusal, `author` is the history's (`user` by default). */
+type RunOptions = { quiet?: boolean; author?: string; playedByHelper?: boolean }
+
+/** What running a command did: an agent's answer, or `started` for a command the page answers later. */
+type Ran = AgentResult | { status: 'started' }
+const STARTED: Ran = { status: 'started' }
 
 /** The epoch of the first engine stream of the page's project core (newer than a fresh engine's 0). */
 const FIRST_EPOCH = 1
@@ -120,6 +128,15 @@ export class Dispatcher {
       },
       onHelperUpdate: (update) => {
         if (kind === 'native' && current()) this.state.helperUpdate = update
+      },
+      onAgentCall: (agent, command, answer) => {
+        // An agent's call runs only on the session the page plays: one that is not (yet) current, or no
+        // longer, answers at once rather than leaving the agent to wait (AG-1).
+        if (kind !== 'native' || !current()) {
+          answer({ status: 'unavailable', reason: 'the page is switching between its own engine and the helper: retry' })
+          return
+        }
+        void answerAgentCall(this, agent, command).then(answer)
       },
       onStreamRefused: (code, at, epoch) => {
         if (!current()) return
@@ -522,11 +539,43 @@ export class Dispatcher {
    * engine gets what it means for it; the project store gets the events; the page-local
    * effects (`effects.ts`) follow. A command the project refuses changes nothing.
    */
-  run(command: Command, options: { quiet?: boolean; author?: string; playedByHelper?: boolean } = {}): boolean {
+  run(command: Command, options: RunOptions = {}): boolean {
+    const ran = this.execute(command, options)
+    return ran.status === 'applied' || ran.status === 'started'
+  }
+
+  /**
+   * Runs an agent's command (AG-1) through the same path as a user's (`run`): the history records it as
+   * `author`, its refusals go back to the agent (no toast), its undo is the user's. The commands the page
+   * answers asynchronously are awaited: `project.list_stored` answers its lists, `project.new` its name once
+   * the storage made it (a refusal when the user cancelled).
+   */
+  async runForAgent(command: Command, author: string): Promise<AgentResult> {
+    if (isListStored(command)) {
+      const lists = await this.listStored()
+      return { status: 'applied', output: lists }
+    }
+    if (isNewProject(command)) {
+      const name = newProjectName(command)
+      const made = await (this.storage ? this.storage.newProject(name) : this.newProject(name))
+      if (!made) return { status: 'refused', error: { code: 'cancelled', message: 'the user kept the current project' } }
+      const view = this.core?.project()
+      return { status: 'applied', output: { name: view?.project.name ?? name ?? '' } }
+    }
+    // Without a core, `execute` would make one and run the command later: nothing an agent can be told.
+    if (!this.core) return { status: 'unavailable', reason: 'the page has no project yet: start audio in the page first' }
+    const ran = this.execute(command, { quiet: true, author })
+    // Only the commands answered above start without answering; none reaches here with a core.
+    if (ran.status === 'started') return { status: 'unavailable', reason: 'the page answers this command later' }
+    return ran
+  }
+
+  /** `run`, saying what happened: what an agent is answered (`runForAgent`). */
+  private execute(command: Command, options: RunOptions): Ran {
     // A query that waits for the storage: it answers asynchronously, with the lists it read.
     if (isListStored(command)) {
       void this.listStored().catch((error: unknown) => console.error(error))
-      return true
+      return STARTED
     }
     // Replaces the project: the storage asks before the core does, whoever sends it (a click or an agent).
     // The question is a dialog of the page and needs no click. Works before audio starts, like opening.
@@ -535,15 +584,17 @@ export class Dispatcher {
       // The name an agent gave, if any; else the page names the draft.
       const name = newProjectName(command)
       void (this.storage ? this.storage.newProject(name) : this.newProject(name)).catch((error: unknown) => console.error(error))
-      return true
+      return STARTED
     }
     // A command the recorder answers otherwise (an undo during a take drops the take, #470).
     const instead = this.recorder?.instead(command)
-    if (instead) return this.run(instead, options)
+    if (instead) return this.execute(instead, options)
     const refusal = this.recorder?.refusal(command)
     if (refusal) {
+      // Shown whoever asks, quiet runs and agents included (#513): the user sees why a take did not start;
+      // an agent gets the same reason as its answer.
       this.state.notice = refusal
-      return false
+      return { status: 'refused', error: { code: refusal } }
     }
     const core = this.core
     // The banner that offers the project of last time shows on a fresh page, before any core exists: the
@@ -553,18 +604,26 @@ export class Dispatcher {
         () => this.run(command, options),
         (error: unknown) => console.error(error),
       )
-      return true
+      return STARTED
     }
     // No engine (audio not started, or stopped after a refused stream): nothing to keep in step.
     // Saving needs none: it is about the folder.
-    if (!core || (!this.engine && !isSaveCommand(command))) return false
+    if (!core || (!this.engine && !isSaveCommand(command))) {
+      return {
+        status: 'unavailable',
+        reason: core ? 'the page plays no engine: start audio in the page' : 'the page has no project yet: start audio in the page',
+      }
+    }
     const step = engineStep(() => core.run(command, options.author))
     if ('refused' in step) {
       // The views do not send what a gesture rules out by itself (an occupied cell sends nothing),
       // so a refusal is the core's: the user is told, the developer message stays in the console.
       console.warn('the project refused a command', command, step.refused)
       if (!options.quiet) this.showRefusal(step.refused)
-      return false
+      const report = step.refused
+      return report.status === 'refused'
+        ? { status: 'refused', error: report.error }
+        : { status: 'invalid', message: report.status === 'invalid' ? report.message : 'not a command' }
     }
     this.mirror(step.events)
     this.recorder?.ran(command, 'output' in step ? step.output : undefined, step.events)
@@ -607,7 +666,8 @@ export class Dispatcher {
     })
     // Whatever the command did, the folder may now lack changes: the storage writes them soon.
     this.storage?.changed()
-    return true
+    // A command whose engine bytes did not encode applied all the same; its report may be lost.
+    return { status: 'applied', output: 'output' in step ? step.output : null }
   }
 
   // ---------------------------------------------------------------- presets (#191)
