@@ -205,3 +205,76 @@ test('the notes are named cells: arrows move between them, Alt+arrows move and t
   await page.screenshot({ path: `${SHOTS}/piano-roll-keyboard-focus.png` })
   expect(errors).toEqual([])
 })
+
+test('after Ctrl+D the copies are the selection and the focus; Shift+arrow from the original starts a new selection; Ctrl+D copies a focused clip outside the selection (#528)', async ({
+  page,
+}) => {
+  const { errors } = watch(page)
+  await start(page)
+  await page.getByTestId('arr-zoom-out').click()
+  await page.getByTestId('arr-zoom-out').click()
+  await clipAt(page, 0, 0)
+  await clipAt(page, 0, 1)
+  const arr = page.getByTestId('arrangement')
+  await expect(arr).toHaveAttribute('data-block-count', '2')
+  const cell = (id: string) => page.locator(`[data-testid=arr-item][data-block="${id}"]`)
+  const selection = async () => (JSON.parse((await arr.getAttribute('data-selection')) ?? '[]') as string[]).sort()
+  const [a, b] = (await blocks(page)).sort((x, y) => x.start - y.start)
+
+  // Two clips selected from the keyboard: the Duplicate button says how many before the copy.
+  await cell(a!.id).focus()
+  await page.keyboard.press('Shift+ArrowRight')
+  await expect(arr).toHaveAttribute('data-selected-count', '2')
+  await expect(page.getByTestId('arr-duplicate')).toContainText('(2)')
+  await page.keyboard.press('Control+d')
+  await expect(arr).toHaveAttribute('data-block-count', '4')
+  await expect(page.locator('[data-testid=arr-item]:focus')).toHaveCount(1)
+  await expect(page.locator('[data-testid=arr-item]:focus')).not.toHaveAttribute('data-block', a!.id)
+  const copies = await selection()
+  expect(copies).toHaveLength(2)
+  expect(copies).not.toContain(a!.id)
+  expect(copies).not.toContain(b!.id)
+
+  // The focus follows the copies: a second Ctrl+D copies them (two more clips, six in all), not the original.
+  await page.keyboard.press('Control+d')
+  await expect(arr).toHaveAttribute('data-block-count', '6')
+  const second = await selection()
+  expect(second).toHaveLength(2)
+  for (const id of [a!.id, b!.id, ...copies]) expect(second).not.toContain(id)
+
+  // From the original, Shift+arrow starts a new selection of two clips: the copies are not added to it.
+  await cell(a!.id).focus()
+  await page.keyboard.press('Shift+ArrowRight')
+  expect(await selection()).toEqual([a!.id, b!.id].sort())
+  await expect(arr).toHaveAttribute('data-selected-count', '2')
+
+  // With nothing selected (a click on an empty row clears it), Ctrl+D copies the keyboard-focused clip.
+  const stage = page.getByTestId('arr-stage')
+  const box = (await stage.boundingBox())!
+  const ppt = Number(await stage.getByTestId('timegrid').getAttribute('data-px-per-tick'))
+  await page.mouse.click(box.x + 100 * ppt, box.y + RULER + 2 * LANE + LANE / 2)
+  await expect(arr).toHaveAttribute('data-selected-count', '0')
+  await cell(a!.id).focus()
+  await page.keyboard.press('Control+d')
+  const after = await selection()
+  expect(after).toHaveLength(1)
+  expect(after).not.toContain(a!.id)
+  // The copy is of the focused clip: it sits one clip length after it (the clip is a bar long).
+  const copy = (await blocks(page)).find((x) => x.id === after[0])
+  expect(copy?.row).toBe(a!.row)
+  expect(copy?.start).toBe(a!.start + 3840)
+  // A pointer click on a clip moves the keyboard focus off the cell that held it: Ctrl+D then copies the clicked clip, not the cell.
+  await cell(a!.id).focus()
+  await page.mouse.click(box.x + (b!.start + 1920) * ppt, box.y + RULER + LANE / 2)
+  const clicked = await selection()
+  expect(clicked).toHaveLength(1)
+  expect(clicked).not.toContain(a!.id)
+  const target = (await blocks(page)).find((x) => x.id === clicked[0])!
+  await page.keyboard.press('Control+d')
+  const viaPointer = await selection()
+  expect(viaPointer).toHaveLength(1)
+  expect(viaPointer).not.toContain(clicked[0])
+  const fromPointer = (await blocks(page)).find((x) => x.id === viaPointer[0])
+  expect(fromPointer?.start).toBe(target.start + 3840)
+  expect(errors).toEqual([])
+})
