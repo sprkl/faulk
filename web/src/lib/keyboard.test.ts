@@ -2,6 +2,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   BARE_SHORTCUT_CODES,
+  QUANTIZE_CODE,
+  isQuantizeKey,
   clampOctave,
   defaultOctave,
   historyShortcut,
@@ -29,6 +31,7 @@ describe('computer keyboard', () => {
     expect(noteForKey('KeyK', 4)).toBe(72)
     expect(noteForKey('KeyA', 0)).toBe(12)
     expect(noteForKey('KeyQ', 4)).toBeNull()
+    expect(PLAYING_KEYS).not.toContain(QUANTIZE_CODE)
     expect(noteForKey('Semicolon', 9)).toBeNull() // above 127
   })
 
@@ -582,5 +585,30 @@ describe('layout shortcuts (#472)', () => {
     for (const code of ['Digit1', 'Digit2', 'Digit3', 'KeyM']) {
       expect(ignoreKeyEvent({ ...alt, code } as never), code).toBe(true)
     }
+  })
+})
+
+describe('the quantize key (#523)', () => {
+  const key = (init: Partial<Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'repeat'>>) => ({
+    code: 'KeyQ',
+    ctrlKey: false,
+    metaKey: false,
+    altKey: false,
+    shiftKey: false,
+    repeat: false,
+    ...init,
+  })
+  it('is Q by position, with no modifier and no repeat', () => {
+    expect(isQuantizeKey(key({}))).toBe(true)
+    expect(isQuantizeKey(key({ ctrlKey: true }))).toBe(false)
+    expect(isQuantizeKey(key({ metaKey: true }))).toBe(false)
+    expect(isQuantizeKey(key({ altKey: true }))).toBe(false)
+    expect(isQuantizeKey(key({ shiftKey: true }))).toBe(false)
+    expect(isQuantizeKey(key({ repeat: true }))).toBe(false)
+    expect(isQuantizeKey(key({ code: 'KeyA' }))).toBe(false)
+  })
+  it('plays nothing', () => {
+    expect(PLAYING_KEYS).not.toContain(QUANTIZE_CODE)
+    expect(noteForKey(QUANTIZE_CODE, 4)).toBeNull()
   })
 })
