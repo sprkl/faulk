@@ -175,11 +175,25 @@ pub fn check_refusal<C: Checked>(
     }
 }
 
-/// The context the examples run with, with [`OPENED_FOLDER`] staged.
+/// The context the examples run with, with [`OPENED_FOLDER`] staged and the audio file of
+/// [`imported_media`] imported.
 pub fn context() -> Context {
     let mut ctx = bare_context();
     ctx.folder = Some(opened_folder());
+    let media = imported_media();
+    ctx.media.insert(media.hash, media);
     ctx
+}
+
+/// An audio file the host imported (AU-1), as [`context`] stages it for `clip.import_audio`.
+pub fn imported_media() -> project::AudioMedia {
+    project::AudioMedia {
+        hash: project::Hash([0x9e; 32]),
+        sample_rate: project::SampleRate::HZ_48000,
+        channels: 2,
+        frames: project::Frame::new(96_000),
+        name: "Kick 01.wav".into(),
+    }
 }
 
 /// [`context`] with nothing staged.

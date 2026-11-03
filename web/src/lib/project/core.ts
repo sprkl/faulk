@@ -3,7 +3,7 @@
 // both modes (spec § 2.1): every command runs here and comes back as a report (output,
 // events) with the engine bytes it produced; TypeScript never maps a command to the engine.
 // The report types are generated from the Rust schema (`pnpm gen:protocol`).
-import type { Command, ExportReport, HistoryView, LiveRouting, ProjectEvent, ProjectView, RunReport, SnapshotReport } from '../generated/protocol'
+import type { AudioMedia, Command, ExportReport, HistoryView, LiveRouting, ProjectEvent, ProjectView, RunReport, SnapshotReport } from '../generated/protocol'
 import projectUrl from './wasm/project.wasm?url'
 
 interface CoreExports {
@@ -26,6 +26,7 @@ interface CoreExports {
   pw_export_job(core: number, len: number): number
   pw_stage(core: number, len: number): number
   pw_stage_stored(core: number, len: number): number
+  pw_stage_media(core: number, len: number): number
   pw_save(core: number, mode: number): number
   pw_saved(core: number, applied: number): number
   pw_dirty(core: number): number
@@ -395,6 +396,17 @@ export class ProjectCore {
     const len = this.input(JSON.stringify(list))
     const code = this.exports.pw_stage_stored(this.live(), len)
     if (code !== 0) throw new CoreError('stage_stored', code)
+  }
+
+  /**
+   * Stages an audio file the store imported (AU-1): its SHA-256 and the metadata decoding gave,
+   * for `clip.import_audio` to make clips of. Kept for the session (a project opened or made anew
+   * forgets them).
+   */
+  stageMedia(media: AudioMedia) {
+    const len = this.input(JSON.stringify(media))
+    const code = this.exports.pw_stage_media(this.live(), len)
+    if (code !== 0) throw new CoreError('stage_media', code)
   }
 
   /**

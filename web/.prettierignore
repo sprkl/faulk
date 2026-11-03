@@ -5,6 +5,7 @@ pnpm-lock.yaml
 src/lib/generated
 src/lib/engine/wasm
 src/lib/project/wasm
+src/lib/audio/import/wasm
 src/lib/engine/proto/build
 src/lib/engine/proto/crate/target
 test-results

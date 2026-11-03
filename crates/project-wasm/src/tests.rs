@@ -694,6 +694,56 @@ fn project_list_stored_answers_with_the_list_the_page_staged_once() {
 }
 
 #[test]
+fn an_imported_file_the_page_staged_becomes_a_clip_and_a_save_writes_its_metadata() {
+    let h = Handle::new(KIND_SINGLE_SYNTH);
+    h.call0(pw_setup);
+    let created = h.apply(json!({"type": "track.create", "kind": "audio"}));
+    let track = created["track"].as_str().unwrap().to_owned();
+    let hash = "9e".repeat(32);
+    let media = json!({"hash": hash, "sample_rate": 44100, "channels": 2, "frames": 22050, "name": "kick.wav"});
+    // Before staging, the file is unknown.
+    let (report, _) = h.run(json!({"type": "clip.import_audio", "track": track, "media": hash}));
+    assert_eq!(report["status"], "refused", "{report}");
+    let text = media.to_string();
+    write_inbox(&text);
+    // SAFETY: a live core.
+    assert_eq!(unsafe { pw_stage_media(h.0, text.len() as u32) }, 0);
+    let output = h.apply(json!({"type": "clip.import_audio", "track": track, "media": hash}));
+    let clip = output["clip"].as_str().unwrap();
+    let view = h.view();
+    let content = &view["project"]["tracks"][&track]["clips"][clip]["content"]["audio"];
+    assert_eq!(content["media"], media, "{view}");
+    assert_eq!(
+        view["project"]["tracks"][&track]["clips"][clip]["name"],
+        "kick"
+    );
+    // The clip's file is written with the media in clear; the blob itself is not in a save
+    // (the store wrote it at import).
+    // SAFETY: a live core.
+    let len = unsafe { pw_save(h.0, 2) };
+    // SAFETY: `pw_out` holds the `len` bytes of the last call.
+    let frame = unsafe { core::slice::from_raw_parts(pw_out(), len as usize) }.to_vec();
+    let text = String::from_utf8_lossy(&frame);
+    assert!(text.contains(&format!("tracks/{track}/clips/{clip}.json")));
+    assert!(text.contains("\"kick.wav\""));
+    assert!(!text.contains(&format!("blobs/{hash}")));
+    // Not media: refused, nothing staged.
+    for bad in ["{", r#"{"hash":"x"}"#, &json!({"hash": "1e".repeat(32), "sample_rate": 44100, "channels": 2, "frames": 1, "name": "a", "extra": 1}).to_string()] {
+        write_inbox(bad);
+        // SAFETY: a live core.
+        assert_eq!(unsafe { pw_stage_media(h.0, bad.len() as u32) }, ERR_BAD_INPUT, "{bad}");
+    }
+    let (report, _) =
+        h.run(json!({"type": "clip.import_audio", "track": track, "media": "1e".repeat(32)}));
+    assert_eq!(report["status"], "refused");
+    // SAFETY: null is allowed.
+    assert_eq!(
+        unsafe { pw_stage_media(core::ptr::null_mut(), 0) },
+        ERR_NO_CORE
+    );
+}
+
+#[test]
 fn a_call_that_produces_no_bytes_never_returns_the_previous_ones() {
     let h = Handle::new(KIND_SINGLE_SYNTH);
     h.call0(pw_setup);
