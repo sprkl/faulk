@@ -192,6 +192,20 @@ pub fn examples() -> Vec<(Command, State)> {
             linked: true,
             by: Some(Tick(7000)),
         }),
+        // Repeated end to end: whole copies over free ground, the last one shortened, and over
+        // what is there (C is carved, then covered).
+        on(arrangement::Command::Repeat {
+            placement: f.a.clone(),
+            until: Tick(3840 * 2),
+        }),
+        on(arrangement::Command::Repeat {
+            placement: f.b.clone(),
+            until: Tick(3840 + 1920 * 3 + 700),
+        }),
+        on(arrangement::Command::Repeat {
+            placement: f.a.clone(),
+            until: Tick(3840 * 6),
+        }),
     ];
     // To another MIDI track: one placement of a clip another one still uses (the clip
     // stays), both placements of it (the clip goes), over what the target holds, and with a
@@ -313,6 +327,10 @@ pub fn examples() -> Vec<(Command, State)> {
         },
         arrangement::Command::Delete {
             placements: vec![f.b.clone()],
+        },
+        arrangement::Command::Repeat {
+            placement: f.a.clone(),
+            until: Tick(3840 * 6),
         },
     ] {
         let (state, restore) = after(f.state.clone(), &a(command));

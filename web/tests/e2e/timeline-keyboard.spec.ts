@@ -16,7 +16,7 @@ const run = (page: Page, command: object) => page.evaluate((c) => (window as unk
 const hooks = (page: Page) => page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)
 /** How many entries the history holds (done, not undone): one key, one entry. */
 const done = (page: Page) => page.evaluate(() => (window as unknown as { __faulkHistory(): { undo: unknown[] } }).__faulkHistory().undo.length)
-const blocks = async (page: Page): Promise<{ id: string; row: number; start: number }[]> =>
+const blocks = async (page: Page): Promise<{ id: string; row: number; start: number; clip: string }[]> =>
   JSON.parse((await page.getByTestId('arrangement').getAttribute('data-blocks')) ?? '[]')
 
 async function start(page: Page) {
@@ -404,6 +404,78 @@ test('the free cursor reaches the ruler row with Up; Enter there and Shift+Enter
   await expect(position).toContainText('3.3')
   await page.keyboard.press('Control+e')
   await expect(arr).toHaveAttribute('data-block-count', '2')
+  expect(errors).toEqual([])
+})
+
+test('a clip of 8 bars is repeated up to bar 64 as linked placements, from the keyboard and the menu, one undo each (#555)', async ({ page }) => {
+  const { errors } = watch(page)
+  await start(page)
+  await page.getByTestId('arr-zoom-out').click()
+  await page.getByTestId('arr-zoom-out').click()
+  await clipAt(page, 0, 0)
+  const arr = page.getByTestId('arrangement')
+  await expect(arr).toHaveAttribute('data-block-count', '1')
+  const [only] = await blocks(page)
+  await run(page, { type: 'arrangement.resize', placement: only!.id, edge: 'end', to: 3840 * 8 })
+  const cell = page.locator(`[data-testid=arr-item][data-block="${only!.id}"]`)
+  const field = page.getByTestId('repeat-field')
+
+  // Ctrl+Shift+R on the focused clip: the field opens (the page does not reload), a bar before the clip's end is refused.
+  await clearSelection(page)
+  await cell.focus()
+  await page.keyboard.press('Control+Shift+r')
+  await expect(page.getByTestId('repeat-dialog')).toBeVisible()
+  await expect(field).toHaveValue('9')
+  // The chord is cancelled even with the field open and typed in (the browser would reload the page), and does not open a second one.
+  const cancelled = await page.evaluate(() => {
+    const event = new KeyboardEvent('keydown', { key: 'R', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true })
+    document.activeElement?.dispatchEvent(event)
+    return event.defaultPrevented
+  })
+  expect(cancelled).toBe(true)
+  await expect(page.getByTestId('repeat-dialog')).toBeVisible()
+  await field.fill('8')
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('repeat-error')).toBeVisible()
+  const entries = await done(page)
+  await field.fill('64')
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('repeat-dialog')).toBeHidden()
+  await expect(arr).toHaveAttribute('data-block-count', '8')
+  expect(new Set((await blocks(page)).map((b) => b.clip)).size).toBe(1)
+  expect(await done(page)).toBe(entries + 1)
+
+  // The Clips tab (of the clip's track, which a selection makes the selected track) shows one linked clip with its eight placements.
+  await cell.focus()
+  await page.keyboard.press('Shift+ArrowRight')
+  await page.getByTestId('panel-clips').click()
+  await expect(page.getByTestId('pool-clip')).toHaveCount(1)
+  await expect(page.getByTestId('pool-clip')).toContainText('8 in the arrangement')
+  await expect(page.getByTestId('pool-clip')).toContainText('Linked')
+
+  // One undo takes every copy away; with nothing selected or focused the shortcut says so, with one clip selected it opens the field.
+  await page.keyboard.press('Control+z')
+  await expect(arr).toHaveAttribute('data-block-count', '1')
+  await clearSelection(page)
+  await page.keyboard.press('Control+Shift+r')
+  await expect(page.getByTestId('arr-said')).toHaveText(/Select one clip/)
+  await expect(page.getByTestId('repeat-dialog')).toBeHidden()
+  await cell.focus()
+  await page.keyboard.press('Shift+ArrowRight')
+  await page.keyboard.press('Control+Shift+r')
+  await expect(page.getByTestId('repeat-dialog')).toBeVisible()
+  await field.fill('24')
+  await page.keyboard.press('Enter')
+  await expect(arr).toHaveAttribute('data-block-count', '3')
+
+  const stage = page.getByTestId('arr-stage')
+  const box = (await stage.boundingBox())!
+  const ppt = Number(await stage.getByTestId('timegrid').getAttribute('data-px-per-tick'))
+  await page.mouse.click(box.x + 3840 * 4 * ppt, box.y + RULER + LANE / 2, { button: 'right' })
+  await page.getByRole('menuitem', { name: /Repeat until/ }).click()
+  await field.fill('40')
+  await page.keyboard.press('Enter')
+  await expect(arr).toHaveAttribute('data-block-count', '5')
   expect(errors).toEqual([])
 })
 

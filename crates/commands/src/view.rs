@@ -19,7 +19,7 @@ domain! {
     SelectTrack {
         /// Required: `null` deselects, a missing field is an error.
         #[serde(deserialize_with = "Option::deserialize")]
-        #[schemars(required)]
+        #[schemars(required, transform = crate::contract::allow_null)]
         track: Option<TrackId>
     } => {
         /// The track selected before the command.

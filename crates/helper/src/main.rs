@@ -225,12 +225,14 @@ fn open_in_browser(url: &str) {
 
 /// Ends every note, then waits up to `limit` for the voices to finish their release.
 /// Returns whether they did: at once without an output (nothing sounds). A lock poisoned by a
-/// panic does not skip the note off.
+/// panic does not skip the note off. What waits for the engine is dropped first, so that the
+/// note off is not queued behind it.
 fn release_all_voices(engine: &EngineSlot, meter: &Meter, limit: Duration) -> bool {
-    if engine
-        .with(|sender| sender.send(&all_notes_off()))
-        .is_none()
-    {
+    let sent = engine.with(|sender| {
+        sender.drop_waiting();
+        sender.send(&all_notes_off());
+    });
+    if sent.is_none() {
         return true;
     }
     let deadline = Instant::now() + limit;

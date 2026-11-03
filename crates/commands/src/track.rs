@@ -110,7 +110,7 @@ domain! {
         track: TrackId,
         /// Required: `null` clears the colour, a missing field is an error.
         #[serde(deserialize_with = "Option::deserialize")]
-        #[schemars(required)]
+        #[schemars(required, transform = crate::contract::allow_null)]
         color: Option<Rgb>,
     } => {
         /// The colour before the command.

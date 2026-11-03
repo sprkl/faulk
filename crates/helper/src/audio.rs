@@ -5,7 +5,9 @@
 //! (`commands::engine_msgs`) and encoded into the same `ControlMsg` byte stream the page
 //! sends to its prepare Worker, then submitted to the prepare side ([`EventSender`], behind
 //! a mutex, non-real-time threads only); a control thread flushes it every few
-//! milliseconds ([`spawn_flusher`]). The rt messages and the live notes reach the audio
+//! milliseconds ([`spawn_flusher`]). A stream longer than the engine takes at once (a big
+//! project's snapshot) waits in the sender's queue and is sent in pieces as the engine
+//! consumes it (`engine::host::StreamQueue`, #245). The rt messages and the live notes reach the audio
 //! callback through the engine's lock-free rings.
 //!
 //! Everything in [`AudioCore::process`] runs on the audio thread: it never allocates,
@@ -16,8 +18,8 @@
 //! encoding to the page side of that link is BO-1's.
 
 use commands::Command;
-use commands::engine_msgs::Synced;
-use engine::host::{Host, Prepare};
+use commands::engine_msgs::{SyncError, Synced};
+use engine::host::{Host, StreamQueue};
 use engine::msg::MsgError;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -28,6 +30,9 @@ pub const CHUNK_FRAMES: usize = engine::msg::limits::MAX_BLOCK_FRAMES;
 
 /// How often the control thread pushes what waited and drops the garbage.
 pub const FLUSH_INTERVAL: Duration = Duration::from_millis(5);
+
+/// Flushes between two tries of a resync that could not be sent (about a second).
+const RESYNC_RETRY_FLUSHES: u32 = 200;
 
 /// The epoch of the helper's engine: newer than a fresh channel's 0, so the setup's
 /// `Reset` is taken.
@@ -102,43 +107,111 @@ impl Meter {
 /// The prepare side of the helper's engine and its stream encoder. Owned behind a mutex by
 /// non-real-time threads only.
 pub struct EventSender {
-    prepare: Prepare,
+    /// The prepare side behind its queue of streams (#245).
+    queue: StreamQueue,
     /// The one-synth project the commands run on, and the engine's stream (PR-3).
     stream: Synced,
+    /// A resync is due: flushes left before it is tried ([`RESYNC_RETRY_FLUSHES`]).
+    behind: Option<u32>,
+    /// Flushes since the last resync was tried: two resyncs are at least
+    /// [`RESYNC_RETRY_FLUSHES`] apart, so that a snapshot the engine keeps refusing does not
+    /// make the flusher encode the whole project again at every tick.
+    since_resync: u32,
 }
 
 impl EventSender {
     /// Runs a command on the project and sends its engine messages, encoded by the
-    /// command layer, as bytes: the web engine's path. A command the project refuses,
-    /// or a stream the engine stops (out of memory, engine busy), is logged.
+    /// command layer, as bytes: the web engine's path. A command the project refuses is
+    /// logged. Messages that did not encode, or a stream the engine stopped (out of memory,
+    /// a corrupt stream, too much waiting for an engine that does not consume), leave the
+    /// engine behind the project: logged, and the engine is resynced.
     pub fn send(&mut self, command: &Command) {
         let bytes = match self.stream.run(command) {
             Ok((_, bytes)) => bytes,
-            Err(error) => {
+            Err(SyncError::Refused(error)) => {
                 crate::log!("the command was refused: {error:?}");
                 return;
             }
+            Err(SyncError::Stream(error)) => {
+                crate::log!("the command's engine messages did not encode: {error:?}");
+                self.fall_behind();
+                return;
+            }
         };
-        if let Err(error) = self.submit(&bytes) {
+        self.submit(&bytes);
+    }
+
+    /// Sends a command's bytes: a stream the engine refuses is logged and the engine resynced.
+    fn submit(&mut self, bytes: &[u8]) {
+        if let Err(error) = self.queue.send(bytes) {
             crate::log!("the engine refused a command: {error:?}");
+            self.fall_behind();
         }
     }
 
-    fn submit(&mut self, bytes: &[u8]) -> Result<(), MsgError> {
-        if bytes.is_empty() {
-            return Ok(());
-        }
-        self.prepare.submit(bytes)
-    }
-
-    /// Pushes what waited on the rt ring and drops the garbage.
+    /// Pushes what waited on the rt ring, then the streams that waited for the engine, and
+    /// drops the garbage. A waiting stream stopped for another reason than a busy engine is
+    /// logged and the engine resynced; a resync that could not be sent is tried again.
     pub fn flush(&mut self) {
-        self.prepare.flush();
+        self.since_resync = self.since_resync.saturating_add(1);
+        if let Some(left) = self.behind {
+            if left == 0 {
+                self.resync();
+            } else {
+                self.behind = Some(left - 1);
+            }
+        }
+        if let Err(error) = self.queue.flush() {
+            crate::log!("the engine refused a stream: {error:?}");
+            self.fall_behind();
+        }
+    }
+
+    /// The engine is behind the project: resync it now, or once [`RESYNC_RETRY_FLUSHES`]
+    /// flushes have passed since the last resync.
+    fn fall_behind(&mut self) {
+        if self.since_resync >= RESYNC_RETRY_FLUSHES {
+            self.resync();
+        } else if self.behind.is_none() {
+            // Counted down by the flushes to come: the try falls on the one that ends the pause.
+            self.behind = Some((RESYNC_RETRY_FLUSHES - self.since_resync).saturating_sub(1));
+        }
+    }
+
+    /// The engine missed messages: what waits is dropped (the `Reset` would wipe it) and a
+    /// `Reset` with the project's snapshot goes in a new epoch, as the page does after a
+    /// stream its engine refused.
+    fn resync(&mut self) {
+        self.since_resync = 0;
+        self.queue.clear();
+        let sent = self
+            .stream
+            .resync()
+            .and_then(|bytes| self.queue.send(&bytes));
+        self.behind = match sent {
+            Ok(()) => None,
+            Err(error) => {
+                crate::log!("the engine could not be resynced: {error:?}");
+                Some(RESYNC_RETRY_FLUSHES)
+            }
+        };
+    }
+
+    /// Drops the streams that wait for the engine, so that what is sent next goes in at once:
+    /// the helper is quitting and only its note off matters.
+    pub fn drop_waiting(&mut self) {
+        self.queue.clear();
+        self.behind = None;
     }
 
     /// Messages the engine rejected so far.
     pub fn rejected(&self) -> u32 {
-        self.prepare.preparer().rejected()
+        self.queue.prepare().preparer().rejected()
+    }
+
+    /// Streams waiting for the engine to take them.
+    pub fn waiting(&self) -> usize {
+        self.queue.waiting()
     }
 }
 
@@ -216,17 +289,33 @@ pub fn audio_core(
     sample_rate: f32,
     meter: Arc<Meter>,
 ) -> Result<(AudioCore, EventSender), MsgError> {
-    let (prepare, host) = engine::host::channel(sample_rate)?;
     let mut stream = Synced::single_synth(EPOCH);
     // The helper holds only the one synth's track until BO-1, so its live input (MIDI)
     // has that track selected: the page's selection names tracks the helper does not have.
     stream.state.session.selected_track = Some(commands::engine_msgs::single_synth::track());
-    let mut sender = EventSender { prepare, stream };
+    audio_core_for(sample_rate, meter, stream)
+}
+
+/// [`audio_core`] for the project of `stream` (a big one in the tests: what BO-1 will send).
+/// Its setup goes through the sender's queue: what the engine does not take at once waits
+/// for the flusher.
+pub(crate) fn audio_core_for(
+    sample_rate: f32,
+    meter: Arc<Meter>,
+    stream: Synced,
+) -> Result<(AudioCore, EventSender), MsgError> {
+    let (prepare, host) = engine::host::channel(sample_rate)?;
+    let mut sender = EventSender {
+        queue: StreamQueue::new(prepare),
+        stream,
+        behind: None,
+        since_resync: RESYNC_RETRY_FLUSHES,
+    };
     if let Ok(mut report) = meter.report.lock() {
         *report = Some(host.feedback_shared());
     }
     let setup = sender.stream.setup()?;
-    sender.submit(&setup)?;
+    sender.queue.send(&setup)?;
     Ok((AudioCore { host, meter }, sender))
 }
 
@@ -471,6 +560,170 @@ mod tests {
         core.process(&mut out, 2);
         assert_eq!(meter.take(), (0.0, 0));
         assert_eq!(sender.rejected(), 0);
+    }
+
+    /// The helper set up with a big project (what BO-1 will send): `tracks * 128` clips,
+    /// the last track selected so that the live input plays it.
+    fn big_core(tracks: usize) -> (AudioCore, EventSender, Arc<Meter>) {
+        let big = test_support::big::big_project(tracks, 64, 64);
+        let mut stream = Synced::new(big.state, big.ctx, EPOCH);
+        stream.state.session.selected_track = big.tracks.last().cloned();
+        let meter = Arc::new(Meter::default());
+        let (core, sender) = audio_core_for(48_000.0, meter.clone(), stream).unwrap();
+        (core, sender, meter)
+    }
+
+    /// Callbacks of 256 frames, each followed by a flush of the control thread, until the
+    /// engine has applied everything (nothing waits, nothing is pending, a callback applies
+    /// nothing): how many.
+    fn until_applied(core: &mut AudioCore, sender: &mut EventSender) -> usize {
+        let mut out = vec![0.0; 256 * 2];
+        let mut callbacks = 0;
+        loop {
+            let before = core.host.engine().applied();
+            assert_no_alloc(|| core.process(&mut out, 2));
+            sender.flush();
+            if core.host.engine().applied() == before
+                && sender.waiting() == 0
+                && sender.queue.prepare().preparer().pending() == 0
+            {
+                return callbacks;
+            }
+            callbacks += 1;
+            assert!(callbacks < 10_000, "the setup does not drain");
+        }
+    }
+
+    #[test]
+    fn a_big_project_is_set_up_in_pieces_and_the_audio_thread_never_allocates() {
+        let (mut core, mut sender, meter) = big_core(48);
+        assert_eq!(sender.waiting(), 1, "the setup waits for the engine");
+        let callbacks = until_applied(&mut core, &mut sender);
+        assert!(callbacks > 1, "{callbacks} callbacks");
+        assert_eq!(sender.rejected(), 0);
+        assert_eq!(core.host.engine().skipped(), 0);
+        assert!(sender.behind.is_none());
+        // The live input plays the last track the setup created.
+        midi(&mut sender, &[0x90, 69, 100]);
+        let mut out = vec![0.0; 4_800 * 2];
+        assert_no_alloc(|| core.process(&mut out, 2));
+        assert!(out.iter().any(|s| s.abs() > 0.01), "the last track plays");
+        assert_eq!(meter.take().1, 1);
+    }
+
+    #[test]
+    fn a_note_played_while_the_setup_drains_sounds_once_it_is_applied() {
+        // In order, as on the web: the note waits behind the snapshot of its track.
+        let (mut core, mut sender, _) = big_core(48);
+        midi(&mut sender, &[0x90, 69, 100]);
+        assert_eq!(sender.waiting(), 2, "the note waits behind the setup");
+        let mut out = vec![0.0f32; 256 * 2];
+        let mut callbacks = 0;
+        while !out.iter().any(|s| s.abs() > 0.01) {
+            assert_no_alloc(|| core.process(&mut out, 2));
+            sender.flush();
+            callbacks += 1;
+            assert!(callbacks < 10_000, "the note never sounds");
+        }
+        assert_eq!(sender.rejected(), 0);
+        assert_eq!(core.host.engine().skipped(), 0);
+    }
+
+    #[test]
+    fn a_stream_the_engine_refuses_resyncs_it_to_the_project() {
+        let (mut core, mut sender, _) = big_core(48);
+        until_applied(&mut core, &mut sender);
+        let epoch = sender.stream.epoch();
+        // A corrupt stream (what a lost or damaged message gives): refused, then the
+        // engine is brought back to the project by a `Reset` and its snapshot.
+        sender.submit(&[1, 2, 3]);
+        assert_eq!(sender.stream.epoch(), epoch + 1);
+        assert!(sender.waiting() > 0, "the snapshot waits for the engine");
+        assert!(sender.behind.is_none());
+        until_applied(&mut core, &mut sender);
+        assert_eq!(core.host.engine().skipped(), 0);
+        assert_eq!(sender.rejected(), 0);
+        assert_eq!(
+            sender.queue.prepare().preparer().epoch(),
+            epoch + 1,
+            "the engine took the resync"
+        );
+    }
+
+    #[test]
+    fn a_waiting_stream_the_engine_refuses_at_a_flush_resyncs_it_too() {
+        let (mut core, mut sender, _) = big_core(48);
+        let epoch = sender.stream.epoch();
+        // Behind the setup that waits: kept, refused when its turn comes at a flush.
+        sender.queue.send(&[1, 2, 3]).unwrap();
+        assert_eq!(sender.waiting(), 2);
+        until_applied(&mut core, &mut sender);
+        assert_eq!(sender.stream.epoch(), epoch + 1, "resynced at the flush");
+        assert_eq!(sender.queue.prepare().preparer().epoch(), epoch + 1);
+        assert_eq!(core.host.engine().skipped(), 0);
+    }
+
+    #[test]
+    fn a_resync_that_could_not_be_sent_is_tried_again_after_a_pause() {
+        let (mut core, mut sender, _) = big_core(2);
+        until_applied(&mut core, &mut sender);
+        let epoch = sender.stream.epoch();
+        // As a failed send leaves it: two flushes to wait, then a try.
+        sender.behind = Some(2);
+        sender.flush();
+        sender.flush();
+        assert_eq!(sender.stream.epoch(), epoch, "not before its turn");
+        sender.flush();
+        assert_eq!(sender.stream.epoch(), epoch + 1, "tried again");
+        assert!(sender.behind.is_none());
+        until_applied(&mut core, &mut sender);
+        assert_eq!(sender.queue.prepare().preparer().epoch(), epoch + 1);
+        // Quitting forgets a pending try.
+        sender.behind = Some(0);
+        sender.drop_waiting();
+        sender.flush();
+        assert_eq!(sender.stream.epoch(), epoch + 1);
+    }
+
+    #[test]
+    fn two_refusals_in_a_row_resync_once_then_again_after_a_pause() {
+        let (mut core, mut sender, _) = big_core(2);
+        until_applied(&mut core, &mut sender);
+        let epoch = sender.stream.epoch();
+        sender.submit(&[1, 2, 3]);
+        assert_eq!(
+            sender.stream.epoch(),
+            epoch + 1,
+            "the first refusal resyncs at once"
+        );
+        // Refused again right after (a snapshot the engine keeps refusing): no new encoding
+        // of the whole project at this tick, one after the pause.
+        sender.submit(&[1, 2, 3]);
+        assert_eq!(sender.stream.epoch(), epoch + 1);
+        assert!(sender.behind.is_some());
+        for _ in 0..RESYNC_RETRY_FLUSHES {
+            sender.flush();
+        }
+        assert_eq!(sender.stream.epoch(), epoch + 2, "resynced after the pause");
+        assert!(sender.behind.is_none());
+        until_applied(&mut core, &mut sender);
+        assert_eq!(sender.queue.prepare().preparer().epoch(), epoch + 2);
+    }
+
+    #[test]
+    fn quitting_drops_what_waits_so_the_note_off_goes_in_at_once() {
+        let (mut core, mut sender, meter) = big_core(48);
+        until_applied(&mut core, &mut sender);
+        midi(&mut sender, &[0x90, 69, 100]);
+        let mut out = vec![0.0; 256 * 2];
+        core.process(&mut out, 2);
+        assert_eq!(meter.take().1, 1);
+        // A resync waits (a switch, say) when the helper quits.
+        sender.resync();
+        assert!(sender.waiting() > 0);
+        sender.drop_waiting();
+        sender.send(&Command::Live(live::Command::AllNotesOff {}));
+        assert_eq!(sender.waiting(), 0, "the note off went in at once");
     }
 
     #[test]

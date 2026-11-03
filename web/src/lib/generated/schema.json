@@ -229,6 +229,31 @@
           },
           {
             "additionalProperties": false,
+            "description": "Repeat one placement end to end up to the timeline tick `until` (#555): linked\ncopies, new placements of the same clip, each as long as the placement and with\nits offset, the first starting where the placement ends, the next where the last\nends; the one that would pass `until` is shortened to stop exactly there. To fill\nup to the end of bar N, give the tick where bar N ends. The copies win on overlap\n(`overwritten` counts the placements they carved). Refused when the placement is\nunknown or an audio one, when `until` is not after the end of the placement or\npasses 2^40, or when the copies would pass the limit of placements. One history\nentry; undo: `arrangement.restore`, which removes the copies and brings back what\nthey carved.",
+            "properties": {
+              "placement": {
+                "$ref": "#/$defs/PlacementId"
+              },
+              "type": {
+                "const": "arrangement.repeat",
+                "type": "string"
+              },
+              "until": {
+                "$ref": "#/$defs/Tick"
+              }
+            },
+            "required": [
+              "type",
+              "placement",
+              "until"
+            ],
+            "type": "object",
+            "x-destructive": false,
+            "x-kind": "edit",
+            "x-undo": "inverse"
+          },
+          {
+            "additionalProperties": false,
             "description": "Put a MIDI clip of the launch grid in the arrangement, on its own track, as a\nplacement at the timeline tick `start` that plays the whole clip once (offset 0,\nthe clip's length). By default the placement plays an independent copy: a new\nclip, a copy of the grid clip (same name, colour, length, loop and notes, not in\nthe launch grid), so editing one never changes the other (founder's decision 11).\nWith `linked: true` the placement references the grid clip itself: editing the\nclip in the grid changes what the arrangement plays. The placement wins on overlap\n(`overwritten` counts the placements it carved). Refused for a clip that is not in\nthe launch grid (use `arrangement.place` or `arrangement.duplicate`), for an audio\nclip, or when the clip would leave the timeline. Undo: `arrangement.restore`,\nwhich removes the placement and the copy.",
             "properties": {
               "clip": {
@@ -4726,9 +4751,16 @@
             "description": "Set the colour of a track, `#rrggbb`, or `null` for none (the page then shows the hue of the\ntrack's position, which moves with the order: prefer a colour). Undo: set the previous\ncolour back.",
             "properties": {
               "color": {
-                "description": "Required: `null` clears the colour, a missing field is an error.",
-                "pattern": "^#[0-9a-fA-F]{6}$",
-                "type": "string"
+                "anyOf": [
+                  {
+                    "pattern": "^#[0-9a-fA-F]{6}$",
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Required: `null` clears the colour, a missing field is an error."
               },
               "track": {
                 "$ref": "#/$defs/TrackId"
@@ -5411,7 +5443,14 @@
             "description": "Select a track, where live MIDI and the keyboard go; `null` deselects. Session\nstate: not undoable, not saved with the project. Refused with `not_found` when the\ntrack does not exist.",
             "properties": {
               "track": {
-                "$ref": "#/$defs/Id",
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Id"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
                 "description": "Required: `null` deselects, a missing field is an error."
               },
               "type": {
@@ -7471,9 +7510,16 @@
           "additionalProperties": false,
           "properties": {
             "color": {
-              "description": "Required: `null` clears the colour, a missing field is an error.",
-              "pattern": "^#[0-9a-fA-F]{6}$",
-              "type": "string"
+              "anyOf": [
+                {
+                  "pattern": "^#[0-9a-fA-F]{6}$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Required: `null` clears the colour, a missing field is an error."
             },
             "track": {
               "$ref": "#/$defs/TrackId"
@@ -13968,6 +14014,79 @@
         "undo": "inverse"
       },
       {
+        "description": "Repeat one placement end to end up to the timeline tick `until` (#555): linked\ncopies, new placements of the same clip, each as long as the placement and with\nits offset, the first starting where the placement ends, the next where the last\nends; the one that would pass `until` is shortened to stop exactly there. To fill\nup to the end of bar N, give the tick where bar N ends. The copies win on overlap\n(`overwritten` counts the placements they carved). Refused when the placement is\nunknown or an audio one, when `until` is not after the end of the placement or\npasses 2^40, or when the copies would pass the limit of placements. One history\nentry; undo: `arrangement.restore`, which removes the copies and brings back what\nthey carved.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            },
+            "PlacementId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a placement in a track's arrangement."
+            },
+            "Tick": {
+              "description": "A musical position or duration, in ticks ([`PPQ`] per quarter note).\n\nArithmetic saturates instead of overflowing. The inner value is public so that the\nproject and the UI read it as a plain integer.",
+              "format": "int64",
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "placement": {
+              "$ref": "#/$defs/PlacementId"
+            },
+            "until": {
+              "$ref": "#/$defs/Tick"
+            }
+          },
+          "required": [
+            "placement",
+            "until"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "arrangement.repeat",
+        "output_schema": {
+          "$defs": {
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            },
+            "PlacementId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a placement in a track's arrangement."
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "overwritten": {
+              "description": "How many other placements were carved.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "placements": {
+              "description": "The new placements, in time order.",
+              "items": {
+                "$ref": "#/$defs/PlacementId"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "placements",
+            "overwritten"
+          ],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
         "description": "Put a MIDI clip of the launch grid in the arrangement, on its own track, as a\nplacement at the timeline tick `start` that plays the whole clip once (offset 0,\nthe clip's length). By default the placement plays an independent copy: a new\nclip, a copy of the grid clip (same name, colour, length, loop and notes, not in\nthe launch grid), so editing one never changes the other (founder's decision 11).\nWith `linked: true` the placement references the grid clip itself: editing the\nclip in the grid changes what the arrangement plays. The placement wins on overlap\n(`overwritten` counts the placements it carved). Refused for a clip that is not in\nthe launch grid (use `arrangement.place` or `arrangement.duplicate`), for an audio\nclip, or when the clip would leave the timeline. Undo: `arrangement.restore`,\nwhich removes the placement and the copy.",
         "destructive": false,
         "input_schema": {
@@ -19040,7 +19159,14 @@
           "additionalProperties": false,
           "properties": {
             "track": {
-              "$ref": "#/$defs/Id",
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Id"
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "description": "Required: `null` deselects, a missing field is an error."
             }
           },
@@ -19305,6 +19431,31 @@
               "required": [
                 "type",
                 "placements"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Repeat one placement end to end up to the timeline tick `until` (#555): linked\ncopies, new placements of the same clip, each as long as the placement and with\nits offset, the first starting where the placement ends, the next where the last\nends; the one that would pass `until` is shortened to stop exactly there. To fill\nup to the end of bar N, give the tick where bar N ends. The copies win on overlap\n(`overwritten` counts the placements they carved). Refused when the placement is\nunknown or an audio one, when `until` is not after the end of the placement or\npasses 2^40, or when the copies would pass the limit of placements. One history\nentry; undo: `arrangement.restore`, which removes the copies and brings back what\nthey carved.",
+              "properties": {
+                "placement": {
+                  "$ref": "#/$defs/PlacementId"
+                },
+                "type": {
+                  "const": "arrangement.repeat",
+                  "type": "string"
+                },
+                "until": {
+                  "$ref": "#/$defs/Tick"
+                }
+              },
+              "required": [
+                "type",
+                "placement",
+                "until"
               ],
               "type": "object",
               "x-destructive": false,
@@ -23757,9 +23908,16 @@
               "description": "Set the colour of a track, `#rrggbb`, or `null` for none (the page then shows the hue of the\ntrack's position, which moves with the order: prefer a colour). Undo: set the previous\ncolour back.",
               "properties": {
                 "color": {
-                  "description": "Required: `null` clears the colour, a missing field is an error.",
-                  "pattern": "^#[0-9a-fA-F]{6}$",
-                  "type": "string"
+                  "anyOf": [
+                    {
+                      "pattern": "^#[0-9a-fA-F]{6}$",
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Required: `null` clears the colour, a missing field is an error."
                 },
                 "track": {
                   "$ref": "#/$defs/TrackId"
@@ -24442,7 +24600,14 @@
               "description": "Select a track, where live MIDI and the keyboard go; `null` deselects. Session\nstate: not undoable, not saved with the project. Refused with `not_found` when the\ntrack does not exist.",
               "properties": {
                 "track": {
-                  "$ref": "#/$defs/Id",
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Id"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
                   "description": "Required: `null` deselects, a missing field is an error."
                 },
                 "type": {
@@ -24684,6 +24849,34 @@
                 "type",
                 "placements",
                 "clips",
+                "overwritten"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "overwritten": {
+                  "description": "How many other placements were carved.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "placements": {
+                  "description": "The new placements, in time order.",
+                  "items": {
+                    "$ref": "#/$defs/PlacementId"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "arrangement.repeat",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "placements",
                 "overwritten"
               ],
               "type": "object"
@@ -32121,6 +32314,34 @@
                 "type",
                 "placements",
                 "clips",
+                "overwritten"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "overwritten": {
+                  "description": "How many other placements were carved.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "placements": {
+                  "description": "The new placements, in time order.",
+                  "items": {
+                    "$ref": "#/$defs/PlacementId"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "arrangement.repeat",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "placements",
                 "overwritten"
               ],
               "type": "object"

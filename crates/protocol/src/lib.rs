@@ -13,6 +13,8 @@ pub const PROTOCOL_VERSION: u32 = 22;
 
 // Version 22 (#525): the helper starts without an audio output. The probe answers `audio_output` (an output is open now), and a session opened without an output gets `error` `audio.no_output` and is closed, without `hello`. A page of an earlier version would take that refusal for a revoked token, so the versions refuse each other.
 
+// Version 21 (#555): the new command `arrangement.repeat` (linked copies of a placement, end to end, up to a tick); a helper of version 20 would refuse it.
+
 // Version 20 (#490): a track keeps the height of its row in the arrangement. The commands gain `track.set_height`, the track summary and the project's tracks an optional `height` (not written when unset), the event `track_changed` a part `height`. The project file format is 3 (was 2): `track.json` gets an optional `height`; format 2 folders migrate by the number alone, and a build of format 2 reports a format 3 folder as made by a newer build.
 
 // Version 19 (#491): the new command `arrangement.move_to_track` (placements to other MIDI tracks); a helper of version 18 would refuse it.
