@@ -140,7 +140,12 @@ export function heavyGeneratedFiles({ base, git, sizeOnDisk }) {
       continue;
     }
     const status = before === null ? "added" : after === null ? "deleted" : "modified";
-    const hunks = diffHunks(git(["diff", "--no-ext-diff", "--no-renames", "-U0", base, "--", `:(literal)${path}`]));
+    let hunks = [];
+    try {
+      hunks = diffHunks(git(["diff", "--no-ext-diff", "--no-renames", "-U0", base, "--", `:(literal)${path}`]));
+    } catch {
+      // The diff of a huge rewrite can overflow the output buffer: the sizes and line counts stay, the sections go.
+    }
     // A binary file has "-" for both counts.
     entries.push({ path, status, before, after, added: Number(added) || 0, removed: Number(removed) || 0, hunks });
   }

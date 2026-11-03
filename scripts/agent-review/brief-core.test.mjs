@@ -233,6 +233,21 @@ describe("heavy generated files", () => {
     }
   });
 
+  it("keeps the sizes and drops the sections when the diff overflows its buffer", () => {
+    const big = "web/src/lib/generated/schema.json";
+    const git = (args) => {
+      if (args.includes("-U0")) {
+        throw new Error("ENOBUFS");
+      }
+      if (args.includes("--numstat")) {
+        return `5\t3\t${big}\0`;
+      }
+      return "1000000"; // cat-file -s
+    };
+    const found = heavyGeneratedFiles({ base: "abc", git, sizeOnDisk: () => 2_000_000 });
+    assert.deepEqual(found, [{ path: big, status: "modified", before: 1_000_000, after: 2_000_000, added: 5, removed: 3, hunks: [] }]);
+  });
+
   it("knows generated paths", () => {
     assert.equal(isGeneratedPath("web/src/lib/generated/schema.json"), true);
     assert.equal(isGeneratedPath("web/src/lib/other/schema.json"), false);

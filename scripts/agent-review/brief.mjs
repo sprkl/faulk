@@ -120,7 +120,7 @@ if (checkpoint !== "plan") {
   brief.diff = run("git", ["diff", "--no-ext-diff", base, "--", ".", ...lockfiles.exclude, ...heavyExcludes]);
   // No "." here: it would select every changed file, not only the lockfiles.
   const changedLockfiles = run("git", ["diff", "--name-only", base, "--", ...lockfiles.only]).split("\n").filter(Boolean);
-  const untracked = run("git", ["ls-files", "--others", "--exclude-standard"]).split("\n").filter(Boolean);
+  const untracked = run("git", ["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean);
   for (const file of untracked) {
     const path = join(root, file);
     // Never follow a link: its target may be outside the repository.
@@ -131,7 +131,8 @@ if (checkpoint !== "plan") {
     }
     brief.files += `A\t${file} (untracked)\n`;
     if (isGeneratedPath(file) && stat.isFile() && stat.size > HEAVY_FILE_BYTES) {
-      const lines = readFileSync(path, "utf8").split("\n").length - 1;
+      const text = readFileSync(path, "utf8");
+      const lines = text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
       heavy.push({ path: file, status: "added, untracked", before: null, after: stat.size, added: lines, removed: 0, hunks: [] });
       continue;
     }
