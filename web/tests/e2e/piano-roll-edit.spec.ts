@@ -263,3 +263,104 @@ test('piano roll: Auto draws on a sixteenth at least, duplicate goes whole bars 
   expect(seen.errors).toEqual([])
   expect(warnings).toEqual([])
 })
+
+test('piano roll: Q quantizes the selection or the whole clip, says how many notes moved, one history entry each, and the button and the menu show the key', async ({
+  page,
+}) => {
+  test.setTimeout(120_000)
+  const { seen, warnings } = await openRoll(page)
+  await page.getByTestId('roll-snap').selectOption('off')
+  await page.getByTestId('roll-quantize-grid').selectOption('quarter')
+  const g = await spot(page)
+  await page.mouse.click(g.x(130), g.y(60))
+  await page.mouse.click(g.x(1100), g.y(62))
+  await page.mouse.click(g.x(2100), g.y(64))
+  const drawn = (await starts(page)).slice().sort((a, b) => a - b)
+  expect(drawn).toHaveLength(3)
+
+  // The key is on the button's tooltip.
+  await expect(page.getByTestId('roll-quantize')).toHaveAttribute('title', /\(Q\)/)
+
+  // Partial selection: only the chosen note moves, one entry, and the count is shown.
+  await focusGrid(page)
+  await page.keyboard.press('Escape')
+  await page.mouse.click(g.x(1100 + 10), g.y(62))
+  await expect(roll(page)).toHaveAttribute('data-selected-count', '1')
+  await focusGrid(page)
+  await page.keyboard.press('KeyQ')
+  await expect.poll(async () => (await starts(page)).slice().sort((a, b) => a - b)).not.toEqual(drawn)
+  await expect(page.getByTestId('roll-quantize-said')).toContainText(/1/)
+  const after = (await starts(page)).slice().sort((a, b) => a - b)
+  expect(after.filter((s) => s % 960 === 0)).toHaveLength(1)
+  expect(after).toContain(130)
+  expect(after).toContain(2100)
+
+  // Again: the note is on the grid already, nothing is sent, and it says so.
+  await page.keyboard.press('KeyQ')
+  await expect(page.getByTestId('roll-quantize-said')).toContainText(/Already on the grid|Déjà sur la grille/)
+  expect((await starts(page)).slice().sort((a, b) => a - b)).toEqual(after)
+
+  // Undo takes it back whole: one entry.
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await starts(page)).slice().sort((a, b) => a - b)).toEqual(drawn)
+
+  // No selection: every note, and one undo takes all three back (one history entry).
+  await page.keyboard.press('Escape')
+  await expect(roll(page)).toHaveAttribute('data-selected-count', '0')
+  await page.keyboard.press('KeyQ')
+  await expect.poll(async () => (await starts(page)).every((s) => s % 960 === 0)).toBe(true)
+  await expect(page.getByTestId('roll-quantize-said')).toContainText(/3/)
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await starts(page)).slice().sort((a, b) => a - b)).toEqual(drawn)
+  await page.keyboard.press('Control+Shift+z')
+  await expect.poll(async () => (await starts(page)).every((s) => s % 960 === 0)).toBe(true)
+
+  // The menu: the entry shows the key.
+  await page.mouse.click(g.x(2500), g.y(64), { button: 'right' })
+  await expect(page.getByTestId('ctx-quantize')).toContainText('Q')
+  await page.keyboard.press('Escape')
+
+  // Q with the focus in a field types, it does not quantize: undo first so that notes are off the grid, then press Q in the field.
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await starts(page)).slice().sort((a, b) => a - b)).toEqual(drawn)
+  await page.getByTestId('roll-quantize-strength').focus()
+  await page.keyboard.press('KeyQ')
+  await page.waitForTimeout(300)
+  expect((await starts(page)).slice().sort((a, b) => a - b)).toEqual(drawn)
+  await expect(page.getByTestId('roll-quantize-said')).toHaveCount(0)
+
+  expect(seen.errors).toEqual([])
+  expect(warnings).toEqual([])
+})
+
+test('piano roll: on an AZERTY layout the quantize key is labelled with the character on it, in the tooltip, the menu and the shortcut list, and it still works by position', async ({
+  page,
+}) => {
+  test.setTimeout(120_000)
+  await page.addInitScript(() => {
+    const layout = new Map([['KeyQ', 'a']])
+    Object.defineProperty(navigator, 'keyboard', {
+      configurable: true,
+      value: { getLayoutMap: () => Promise.resolve(layout), addEventListener: () => {}, removeEventListener: () => {} },
+    })
+  })
+  const { seen } = await openRoll(page)
+  await page.getByTestId('roll-snap').selectOption('off')
+  await page.getByTestId('roll-quantize-grid').selectOption('quarter')
+  const g = await spot(page)
+  await page.mouse.click(g.x(130), g.y(60))
+  await expect(page.getByTestId('roll-quantize')).toHaveAttribute('title', /\(A\)$/)
+  await expect(page.getByTestId('roll-quantize')).toHaveAttribute('aria-keyshortcuts', 'A')
+  await page.mouse.click(g.x(150), g.y(60), { button: 'right' })
+  await expect(page.getByTestId('ctx-quantize')).toContainText('A')
+  await page.keyboard.press('Escape')
+  // The key by position still quantizes.
+  await focusGrid(page)
+  await page.keyboard.press('KeyQ')
+  await expect.poll(async () => starts(page)).toEqual([0])
+  // The shortcut list writes it the same way.
+  await page.keyboard.press('?')
+  const line = page.getByRole('dialog').locator('li', { hasText: /Quantize|Quantifier/ })
+  await expect(line.locator('kbd')).toHaveText('A')
+  expect(seen.errors).toEqual([])
+})

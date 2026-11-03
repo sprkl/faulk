@@ -4,6 +4,7 @@ import { COLLAPSED_KEY, HEIGHTS_KEY, parseHeights } from '../../views/shell/pane
 import { clampClipRow } from '../../views/arrangement/automation/layout'
 import { storage } from './storage'
 import { readLayout, writeLayout, type Layout } from './layout'
+import type { KeyLayout } from '../shortcuts'
 import { keepsBrowserMenu, type MenuItem, type OpenMenu } from '../context-menu'
 
 /** A preference of the page; a browser that refuses storage (private window, quota) just forgets it. */
@@ -77,6 +78,8 @@ export class UiStore {
   panelFocus = $state(0)
   /** The engine dialog (audio, helper, MIDI, keyboard) is open. Page state, not project state. */
   engineOpen = $state(false)
+  /** What the keyboard layout calls the keys by position (`readKeyLayout`), null until known or where the browser cannot say. */
+  keyLayout = $state.raw<KeyLayout | null>(null)
   /** The shortcut list is open (#474). Page state, not project state. */
   helpOpen = $state(false)
   /** The context menu that is open (#524): one at a time, drawn by the shell. Page state, not project state. */

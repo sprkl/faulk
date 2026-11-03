@@ -11,7 +11,7 @@
   import { historyShortcut, isTextTarget, layoutShortcut, saveShortcut } from '../../lib/keyboard'
   import { takeOpenLink } from '../../lib/open-link'
   import { isPairHash } from '../../lib/pair-link'
-  import { helpShortcut } from '../../lib/shortcuts'
+  import { helpShortcut, readKeyLayout } from '../../lib/shortcuts'
   import { save as saveCommand, saveAs as saveAsCommand } from '../../lib/project-commands'
   import { runHistory } from '../../lib/history-said'
   import { createStores, provideStores, type Stores } from '../../lib/stores'
@@ -115,6 +115,15 @@
     // browser's own echo of a Shift+F10 must not close the menu that key just opened.
     if (unhandledContextMenu(event) === 'cancel') event.preventDefault()
   }
+
+  // The keyboard layout names the keys that work by position (Q quantizes: the key marked A on AZERTY); read again when it changes.
+  onMount(() => {
+    const read = () => void readKeyLayout().then((layout) => (ui.keyLayout = layout))
+    read()
+    const keyboard = (navigator as Navigator & { keyboard?: EventTarget }).keyboard
+    keyboard?.addEventListener?.('layoutchange', read)
+    return () => keyboard?.removeEventListener?.('layoutchange', read)
+  })
 
   onMount(() => {
     // A press of the pointer ends the key's window: a right click right after the key is a click, not its echo.

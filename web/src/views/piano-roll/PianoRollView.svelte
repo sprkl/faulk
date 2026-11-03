@@ -26,7 +26,7 @@
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
   import ValueMenu from '../../lib/components/ValueMenu.svelte'
   import type { MenuItem } from '../../lib/context-menu'
-  import { chordText } from '../../lib/shortcuts'
+  import { chordText, positionKey, withShortcut } from '../../lib/shortcuts'
   import {
     DEFAULT_PX_PER_TICK,
     SNAP_SETTINGS,
@@ -39,7 +39,7 @@
     type View,
   } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
-  import { isTextTarget } from '../../lib/keyboard'
+  import { isQuantizeKey, isTextTarget, QUANTIZE_CODE } from '../../lib/keyboard'
   import { instrumentNamedKeys, isMidi, trackColor as colorOfTrack } from '../../lib/project/tracks'
   import { beginGroup, endGroup } from '../../lib/track-commands'
   import { useStores } from '../../lib/stores'
@@ -91,6 +91,7 @@
     fromBoard,
     lengthFor,
     quantizeChanges,
+    quantizeSaid,
     toBoard,
     transposeChanges,
     type QuantizeGrid,
@@ -537,6 +538,11 @@
    * Shared by the stage and the window, so that they work with the focus on the toolbar too.
    */
   function editShortcut(event: KeyboardEvent): boolean {
+    // Q quantizes (#523): the one bare letter that is no note.
+    if (isQuantizeKey(event)) {
+      quantizeNow()
+      return true
+    }
     if (!(event.ctrlKey || event.metaKey) || event.altKey) return false
     const key = event.key.toLowerCase()
     if (key === 'a') picked = new Set(notes.map(noteKey))
@@ -948,7 +954,7 @@
     const items: MenuItem[] = []
     const some = key !== null || chosenNotes.length > 0
     const mod = (letter: string) => chordText(['Mod', letter])
-    if (notes.length > 0) items.push({ id: 'quantize', label: t('pianoRoll.quantize'), run: quantizeNow })
+    if (notes.length > 0) items.push({ id: 'quantize', label: t('pianoRoll.quantize'), shortcut: quantizeLabel, run: quantizeNow })
     if (some) {
       items.push(
         { id: 'duplicate', label: t('pianoRoll.duplicate'), shortcut: mod('D'), run: duplicateChosen },
@@ -1050,13 +1056,27 @@
 
   /** Quantizes the chosen notes, or every note when none is chosen. Nothing is sent when no start would move. */
   function quantizeNow() {
-    if (!edited) return
+    // Not in the middle of a drag: the drag commits positions computed before the quantize.
+    if (!edited || gesture) return
     const chosen = chosenNotes.length > 0
     const changes = quantizeChanges(chosen ? chosenNotes : notes, gridTicks, quantizeStrength, clipLength).filter((c) => noteKey(c.from) !== noteKey(c.to))
-    if (changes.length === 0) return
-    run(quantizeNotes(edited.id, chosen ? [...chosenNotes] : null, gridTicks, quantizeStrength))
-    if (chosen) picked = afterChanges(picked, changes)
+    const said = quantizeSaid(changes.length, chosen ? chosenNotes.length : notes.length)
+    if (changes.length > 0) {
+      run(quantizeNotes(edited.id, chosen ? [...chosenNotes] : null, gridTicks, quantizeStrength))
+      if (chosen) picked = afterChanges(picked, changes)
+    }
+    // The result, in words, next to the button and in the live region: a quantize that moves nothing says so.
+    const text = t(said.key, { n: said.n })
+    quantizeNote = text
+    announce(text)
+    clearTimeout(quantizeTimer)
+    quantizeTimer = setTimeout(() => (quantizeNote = null), 3000)
   }
+  /** The key as written on the person's keyboard: the quantize works by position (`KeyQ`), so it is "A" on an AZERTY keyboard. */
+  const quantizeLabel = $derived(positionKey(QUANTIZE_CODE, ui.keyLayout))
+  let quantizeNote = $state<string | null>(null)
+  let quantizeTimer: ReturnType<typeof setTimeout> | undefined
+  onDestroy(() => clearTimeout(quantizeTimer))
   function onStrengthChange(event: Event & { currentTarget: HTMLInputElement }) {
     const input = event.currentTarget
     const value = input.value.trim() === '' ? Number.NaN : Number(input.value)
@@ -1268,9 +1288,14 @@
           onchange={onStrengthChange}
         />
         <span>%</span>
-        <button title={t('pianoRoll.quantizeHint')} disabled={notes.length === 0} data-testid="roll-quantize" onclick={quantizeNow}
-          >{t('pianoRoll.quantize')}</button
+        <button
+          title={withShortcut(t('pianoRoll.quantizeHint'), [quantizeLabel])}
+          aria-keyshortcuts={quantizeLabel}
+          disabled={notes.length === 0}
+          data-testid="roll-quantize"
+          onclick={quantizeNow}>{t('pianoRoll.quantize')}</button
         >
+        {#if quantizeNote}<span class="said" data-testid="roll-quantize-said">{quantizeNote}</span>{/if}
       </div>
       <span class="count" data-testid="roll-count" title={chosenNotes.length > 0 ? t('pianoRoll.selected', { n: chosenNotes.length }) : undefined}
         >{t('pianoRoll.count', { n: notes.length })}</span
@@ -1511,6 +1536,10 @@
     width: 52px;
     padding: 0 var(--fk-space-1);
     text-align: center;
+  }
+  .said {
+    color: var(--fk-text-muted);
+    white-space: nowrap;
   }
   .count {
     margin-left: auto;

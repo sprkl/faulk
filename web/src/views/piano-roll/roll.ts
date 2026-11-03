@@ -380,6 +380,15 @@ export function quantizeChanges(selected: readonly Note[], grid: number, strengt
   return selected.map((from) => ({ from, to: { ...from, start: quantizedStart(from.start, grid, strength, from.length, clipLength) } }))
 }
 
+/** What the quantize says: how many notes moved, or that they were all on the grid already, or that there is nothing to quantize. */
+export function quantizeSaid(
+  moved: number,
+  total: number,
+): { key: 'pianoRoll.quantizeMoved' | 'pianoRoll.quantizeOnGrid' | 'pianoRoll.quantizeNone'; n: number } {
+  if (total === 0) return { key: 'pianoRoll.quantizeNone', n: 0 }
+  return moved === 0 ? { key: 'pianoRoll.quantizeOnGrid', n: 0 } : { key: 'pianoRoll.quantizeMoved', n: moved }
+}
+
 /** Transposes notes by `semitones`; `null` when one would leave the keyboard (the command refuses the whole batch). */
 export function transposeChanges(selected: readonly Note[], semitones: number): Change[] | null {
   const shift = Math.round(finite(semitones, 0))
