@@ -139,9 +139,13 @@ domain! {
 
     /// Bring back the project that was open last time, the one the page offers after a reload
     /// (a folder, which asks the browser for its permission again and so needs a click by the
-    /// user, or a draft kept in the browser). Nothing happens, with a notice, when the page
-    /// offers nothing. The current project is replaced; the page asks first when it has
-    /// changes that are kept nowhere. Not undoable: it replaces the history.
+    /// user, or a draft kept in the browser), or the one that the page tried to reopen by itself
+    /// and could not (locked by another tab, unreadable): the notice then offers this command
+    /// as its retry. A folder still needs the user's click when the browser withdrew its
+    /// permission: an agent that is not driven by one gets a notice in the page. Nothing
+    /// happens, with a notice, when the page offers nothing. The current project is replaced;
+    /// the page asks first when it has changes that are kept nowhere. Not undoable: it replaces
+    /// the history.
     "project.reopen_last" (kind = "live", undo = "none", destructive = false)
     ReopenLast {} => {};
 

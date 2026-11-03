@@ -354,3 +354,152 @@ test.describe('a full storage', () => {
     expect(errors.filter((e) => !/QuotaExceeded|quota/i.test(e))).toEqual([])
   })
 })
+
+// #504: the page reopens the project of last time by itself after a reload. When that fails, the notice
+// offers what the user can do, each through the same command as the menu: retry, and another project or a file.
+test.describe('the project of last time would not reopen (#504)', () => {
+  /** Holds the Web Lock `name` in `page` until the returned function is called. */
+  async function holdLock(page: Page, name: string) {
+    await page.evaluate((lockName) => {
+      const w = window as unknown as { __release?: () => void }
+      return new Promise<void>((held) => {
+        void navigator.locks.request(lockName, () => {
+          held()
+          return new Promise<void>((release) => (w.__release = release))
+        })
+      })
+    }, name)
+    return () => page.evaluate(() => (window as unknown as { __release?: () => void }).__release?.())
+  }
+
+  test('locked by another tab: the notice offers Retry and Import a file, and Retry opens the project once the other tab let go', async ({ page, context }) => {
+    const { errors } = watch(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await simulatePicker(page, 'song-locked')
+    await page.goto('/app')
+    await start(page)
+    await addTrack(page, 'Drums')
+    await expect(state(page)).toHaveText(/^Draft saved at/, { timeout: 20_000 })
+    const [dir] = await browserDirs(page)
+    const id = await page.evaluate(async (name) => {
+      const root = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('faulk')).getDirectoryHandle('browser')
+      const file = await (await (await root.getDirectoryHandle(name)).getFileHandle('project.json')).getFile()
+      return (JSON.parse(await file.text()) as { id: string }).id
+    }, dir!)
+    await page.close()
+
+    // Another tab holds the project (the landing page: it holds the lock without opening the draft itself).
+    const other = await context.newPage()
+    await other.goto('/')
+    const release = await holdLock(other, `faulk.project.${id}`)
+
+    const reloaded = await context.newPage()
+    const reloadedErrors = watch(reloaded).errors
+    await reloaded.goto('/app')
+    const notice = reloaded.getByTestId('storage-notice')
+    await expect(notice).toContainText('open in another tab')
+    await expect(tracks(reloaded)).toHaveCount(0)
+    await expect(reloaded.getByTestId('notice-retry')).toHaveText('Retry')
+    await expect(reloaded.getByTestId('notice-import')).toHaveText('Import a file…')
+    await expect(reloaded.getByTestId('notice-open-other')).toHaveCount(0)
+
+    // Retry while the other tab still holds it: the same notice, the same actions.
+    await reloaded.getByTestId('notice-retry').click()
+    await expect(notice).toContainText('open in another tab')
+    await expect(reloaded.getByTestId('notice-retry')).toBeVisible()
+
+    // Import a file… is the project menu's command: it opens the file chooser.
+    const chooser = reloaded.waitForEvent('filechooser')
+    await reloaded.getByTestId('notice-import').click()
+    await chooser
+
+    await release()
+    await other.close()
+    await reloaded.getByTestId('notice-retry').click()
+    await expect(tracks(reloaded)).toHaveCount(2)
+    await expect(notice).toHaveCount(0)
+    expect([...errors, ...reloadedErrors]).toEqual([])
+  })
+
+  /** The project store's Worker, in the dev server and in the build (the other Workers of the page are left alone). */
+  const STORE_WORKER = /\/(src\/lib\/storage\/worker\.ts|_app\/immutable\/workers\/worker-[^/]*\.js)(\?|$)/
+
+  for (const action of ['notice-retry', 'notice-open-other'] as const) {
+    test(`unreadable folder: the notice offers Retry and Open another project, and ${action === 'notice-retry' ? 'Retry' : 'Open another project'} opens a project once the folder can be read`, async ({
+      page,
+      context,
+    }) => {
+      const { errors } = watch(page)
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await simulatePicker(page, 'song-unreadable')
+      await page.goto('/app')
+      await start(page)
+      await addTrack(page, 'Drums')
+      await saveAs(page)
+      await expect(state(page)).toHaveText(/^Saved at/)
+      await page.close()
+
+      // The project store's Worker does not load: the folder is there but cannot be read.
+      const reloaded = await context.newPage()
+      const reloadedErrors = watch(reloaded).errors
+      await reloaded.route(STORE_WORKER, (route) => route.abort())
+      await simulatePicker(reloaded, 'song-unreadable')
+      await reloaded.goto('/app')
+      const notice = reloaded.getByTestId('storage-notice')
+      await expect(notice).toContainText('could not be read')
+      await expect(tracks(reloaded)).toHaveCount(0)
+      await expect(reloaded.getByTestId('notice-retry')).toHaveText('Retry')
+      await expect(reloaded.getByTestId('notice-open-other')).toHaveText('Open another project…')
+      await expect(reloaded.getByTestId('notice-import')).toHaveCount(0)
+
+      // Retry with the Worker still refused: the same notice, the same actions.
+      await reloaded.getByTestId('notice-retry').click()
+      await expect(notice).toContainText('could not be read')
+      await expect(reloaded.getByTestId('notice-retry')).toBeVisible()
+
+      // Both go through the project menu's commands: Retry is project.reopen_last, Open another project… is project.open_folder (the simulated picker hands back the folder).
+      await reloaded.unroute(STORE_WORKER)
+      await reloaded.getByTestId(action).click()
+      await expect(tracks(reloaded)).toHaveCount(2)
+      await expect(notice).toHaveCount(0)
+      // The refused Worker is the only error the page logs.
+      expect(errors).toEqual([])
+      expect(reloadedErrors.filter((e) => !/ERR_FAILED|Failed to load resource/i.test(e))).toEqual([])
+    })
+  }
+
+  test('a folder open in another tab: the notice offers Retry and Open another project, and Retry opens it once that tab is closed', async ({
+    page,
+    context,
+  }) => {
+    const { errors } = watch(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await simulatePicker(page, 'song-folder-locked')
+    await page.goto('/app')
+    await start(page)
+    await addTrack(page, 'Drums')
+    await saveAs(page)
+    await expect(state(page)).toHaveText(/^Saved at/)
+
+    // A second tab, while the first still has the folder open: it cannot take the project back.
+    const reloaded = await context.newPage()
+    const reloadedErrors = watch(reloaded).errors
+    await simulatePicker(reloaded, 'song-folder-locked')
+    await reloaded.goto('/app')
+    const notice = reloaded.getByTestId('storage-notice')
+    await expect(notice).toContainText('open in another tab')
+    await expect(tracks(reloaded)).toHaveCount(0)
+    await expect(reloaded.getByTestId('notice-retry')).toHaveText('Retry')
+    await expect(reloaded.getByTestId('notice-open-other')).toHaveText('Open another project…')
+    await expect(reloaded.getByTestId('notice-import')).toHaveCount(0)
+
+    await reloaded.getByTestId('notice-retry').click()
+    await expect(notice).toContainText('open in another tab')
+
+    await page.close()
+    await reloaded.getByTestId('notice-retry').click()
+    await expect(tracks(reloaded)).toHaveCount(2)
+    await expect(notice).toHaveCount(0)
+    expect([...errors, ...reloadedErrors]).toEqual([])
+  })
+})
