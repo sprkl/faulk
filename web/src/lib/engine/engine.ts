@@ -1,7 +1,16 @@
-import type { Command, MidiInput } from '../generated/protocol'
+import type { Command, HelperUpdate, MidiInput } from '../generated/protocol'
 import type { FeedbackReport } from './feedback'
 
 export type EngineKind = 'web' | 'native'
+
+/** The helper's self-update as its last `update.status` told it (#515). */
+export interface HelperUpdateState {
+  /** The installed version; `null` when the helper is not installed (run from `cargo`). */
+  current: string | null
+  /** End of the helper's last check, in seconds since the Unix epoch; `null` before the first. */
+  checkedAt: number | null
+  status: HelperUpdate
+}
 
 export interface EngineStatus {
   kind: EngineKind
@@ -18,6 +27,8 @@ export interface EngineEvents {
   /** Native engine only: its MIDI inputs (the page owns MIDI in Web mode). */
   onMidiInputs?(inputs: MidiInput[], selected: string | null): void
   onMidiActivity?(note: number, velocity: number): void
+  /** Native engine only: the helper's self-update (`update.status`), at session start and on change. */
+  onHelperUpdate?(update: HelperUpdateState): void
   onError(code: string): void
   /**
    * The engine stopped taking the message stream (`MsgError::code`: out of memory, engine busy,

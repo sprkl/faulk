@@ -1,7 +1,8 @@
 use commands::{Command, live};
 use project::{DeviceId, TrackId};
 use protocol::{
-    ClientMessage, MidiInput, PROTOCOL_VERSION, ServerMessage, schema_bundle, single_synth,
+    ClientMessage, HelperUpdate, MidiInput, PROTOCOL_VERSION, ServerMessage, schema_bundle,
+    single_synth,
 };
 
 #[test]
@@ -55,6 +56,32 @@ fn messages_round_trip_through_json() {
             message: "x".into(),
         },
     ];
+    let updates = [
+        HelperUpdate::Disabled { reason: "r".into() },
+        HelperUpdate::Idle,
+        HelperUpdate::Checking,
+        HelperUpdate::UpToDate {
+            version: "0.1.11".into(),
+        },
+        HelperUpdate::Downloading {
+            version: "0.1.12".into(),
+            percent: 40,
+        },
+        HelperUpdate::Ready {
+            version: "0.1.12".into(),
+        },
+        HelperUpdate::Failed { error: "e".into() },
+    ];
+    let server =
+        server.into_iter().chain(
+            updates
+                .into_iter()
+                .map(|status| ServerMessage::UpdateStatus {
+                    current: Some("0.1.11".into()),
+                    checked_at: Some(1),
+                    status,
+                }),
+        );
     for m in server {
         let json = serde_json::to_string(&m).unwrap();
         assert_eq!(
@@ -71,7 +98,7 @@ fn every_server_message_is_in_the_round_trip_test() {
     let variants = bundle["server_message"]["oneOf"].as_array().unwrap();
     assert_eq!(
         variants.len(),
-        7,
+        8,
         "add the new message to messages_round_trip_through_json"
     );
     let clients = bundle["client_message"]["oneOf"].as_array().unwrap();

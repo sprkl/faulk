@@ -2214,9 +2214,44 @@ note: number
 type: "midi.activity"
 velocity: number
 } | {
+/**
+ * End of the last check, in seconds since the Unix epoch; `None` before the first.
+ */
+checked_at?: (number | null)
+/**
+ * The installed version; `None` when the helper is not installed (run from `cargo`).
+ */
+current?: (string | null)
+status: HelperUpdate
+type: "update.status"
+} | {
 code: string
 message: string
 type: "error"
+})
+/**
+ * What the helper's updater is doing.
+ */
+export type HelperUpdate = ({
+reason: string
+state: "disabled"
+} | {
+state: "idle"
+} | {
+state: "checking"
+} | {
+state: "up_to_date"
+version: string
+} | {
+percent: number
+state: "downloading"
+version: string
+} | {
+state: "ready"
+version: string
+} | {
+error: string
+state: "failed"
 })
 /**
  * What preparing an export (`project.export_audio`, #297) gave: the render's plan, with the
