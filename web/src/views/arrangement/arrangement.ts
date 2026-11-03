@@ -48,7 +48,6 @@ const ticksOf = (placement: Placement): { length: number; offset: number } | nul
 
 /** How many times each clip of a track is used: its placements, plus one for a launch-grid slot. */
 export function usesOf(entry: TrackEntry): Map<string, number> {
-  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- a plain lookup built per call
   const uses = new Map<string, number>()
   for (const placement of Object.values(entry.track.placements as Record<string, Placement | undefined>)) {
     if (placement) uses.set(placement.clip, (uses.get(placement.clip) ?? 0) + 1)
