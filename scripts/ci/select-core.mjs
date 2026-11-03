@@ -4,12 +4,13 @@
 //  - push (develop, main): nothing heavy, the code was tested in its pull request;
 //  - pull request against `main` (release, hotfix): the full suite, once;
 //  - pull request against another branch: only what the changed files can affect;
-//  - the browser tests of a pull request against another branch are the specs its web files touch
-//    plus a smoke set, from the one table shared with scripts/agent/verify.mjs (e2e-plan.mjs, #377);
+//  - the browser tests of a pull request against another branch follow the tiers of the one table
+//    shared with scripts/agent/verify.mjs (e2e-plan.mjs, #377, #533): area specs plus the core tests,
+//    the core tests alone for a shared page file, the whole suite for a contract or a configuration;
 //  - fail safe: a file this module cannot classify, an unknown event or a failure to list the
 //    changed files runs everything.
 
-import { MAX_SHARDS, planE2e } from './e2e-plan.mjs'
+import { MAX_SHARDS, explain, planE2e } from './e2e-plan.mjs'
 
 const NONE = Object.freeze({
   mode: 'none',
@@ -21,10 +22,12 @@ const NONE = Object.freeze({
   helperWindows: false,
   web: false,
   e2e: '', // '', 'dev' or 'dev,preview' (the Playwright projects)
+  e2eTier: 'none', // 'none', 'core' (the core tests alone), 'area' (area specs plus the core tests) or 'all'
+  e2eWhy: '', // one line: which files chose the tier
   e2eAll: false, // the whole suite (every spec of the projects), not a list
   e2eSpecs: [], // spec names run whole (targeted only)
-  e2eSmoke: [], // specs of which only the smoke tests run (targeted only)
-  e2eGrep: '', // the --grep that selects those smoke tests
+  e2eCore: [], // specs of which only the core tests run (targeted only), on the first machine
+  e2eGrep: '', // the --grep that selects those core tests
   e2eShards: 0, // machines to run them on; 0: no end-to-end job
   agentScripts: false,
   packages: [],
@@ -46,11 +49,11 @@ const IGNORED = [
 ]
 
 /** Everything runs. Needs no workspace, so it also serves when the workspace cannot be read. */
-export function fullDecision(workspace = []) {
-  return full(workspace)
+export function fullDecision(workspace = [], why = 'everything runs') {
+  return full(workspace, why)
 }
 
-function full(workspace) {
+function full(workspace, why) {
   return {
     mode: 'full',
     rustChecks: true,
@@ -61,9 +64,11 @@ function full(workspace) {
     helperWindows: true,
     web: true,
     e2e: 'dev,preview',
+    e2eTier: 'all',
+    e2eWhy: explain({ forced: [why] }),
     e2eAll: true,
     e2eSpecs: [],
-    e2eSmoke: [],
+    e2eCore: [],
     e2eGrep: '',
     e2eShards: MAX_SHARDS,
     agentScripts: true,
@@ -107,13 +112,15 @@ export function affectedPackages(packages, changed) {
  */
 export function select({ event, base, files, packages, specs }) {
   if (event === 'push') return { ...NONE }
-  if (event !== 'pull_request' || base === 'main' || !Array.isArray(files)) return full(packages())
+  if (event !== 'pull_request') return full(packages(), `event ${event || 'unknown'}`)
+  if (base === 'main') return full(packages(), 'pull request against main (release or hotfix)')
+  if (!Array.isArray(files)) return full(packages(), 'changed files unknown')
 
   const out = { ...NONE, mode: 'targeted' }
   const changedDirs = new Set()
   let web = false
-  let webE2eAll = false // something forces the whole suite (the workflow, the build inputs, a crate the page is built from)
-  const webFiles = []
+  const e2eFiles = [] // what the e2e table judges: web files, ci.yml, build inputs, the files of crates the page is built from
+  const crateFiles = new Map() // crate dir -> its changed files
   let rustAll = false
   let helperInputs = false
   let workspace = null
@@ -128,8 +135,8 @@ export function select({ event, base, files, packages, specs }) {
     if (IGNORED.some((re) => re.test(f))) continue
 
     // The selection rules themselves: a mistake there would skip tests anywhere.
-    if (f.startsWith('scripts/ci/')) return full(members())
-    if (f === '.github/workflows/ci.yml') { web = webE2eAll = true; continue }
+    if (f.startsWith('scripts/ci/')) return full(members(), `the selection changed: ${f}`)
+    if (f === '.github/workflows/ci.yml') { web = true; e2eFiles.push(f); continue }
     if (f === '.github/workflows/rust.yml') { rustAll = out.rustProto = true; continue }
     if (f === '.github/workflows/agent-scripts.yml') { out.agentScripts = true; continue }
     // It has its own trial build; the scripts tests check its macOS rule (#452).
@@ -137,20 +144,24 @@ export function select({ event, base, files, packages, specs }) {
 
     // Workspace-wide Rust inputs, and the future Faust / Rust modules.
     if (/^(Cargo\.toml|Cargo\.lock|rust-toolchain\.toml)$/.test(f) || f.startsWith('.cargo/') || f.startsWith('modules/')) {
-      rustAll = out.rustProto = web = webE2eAll = true
+      rustAll = out.rustProto = web = true
+      e2eFiles.push(f)
       continue
     }
     const crate = /^crates\/([^/]+)\/./.exec(f)
     if (crate) {
-      if (!members().some((p) => p.dir === `crates/${crate[1]}`)) return full(members()) // a crate cargo does not list
-      changedDirs.add(`crates/${crate[1]}`)
+      const dir = `crates/${crate[1]}`
+      if (!members().some((p) => p.dir === dir)) return full(members(), `a crate cargo does not list: ${f}`)
+      changedDirs.add(dir)
+      if (!crateFiles.has(dir)) crateFiles.set(dir, [])
+      crateFiles.get(dir).push(f)
       continue
     }
-    if (f.startsWith('crates/')) return full(members())
+    if (f.startsWith('crates/')) return full(members(), `unknown path: ${f}`)
 
     if (f.startsWith('web/')) {
       web = true
-      webFiles.push(f)
+      e2eFiles.push(f)
       if (f.startsWith('web/src/lib/engine/proto/crate/')) out.rustProto = true
       // Read by the helper's updater tests (and, for vercel.json, by the release script tests).
       if (f === 'web/vercel.json' || f === 'web/src/lib/i18n/helper.ts') helperInputs = true
@@ -160,7 +171,7 @@ export function select({ event, base, files, packages, specs }) {
       continue
     }
     if (f.startsWith('scripts/') || f.startsWith('.claude/')) { out.agentScripts = true; continue }
-    return full(members()) // unknown: never skip on a guess
+    return full(members(), `unknown path: ${f}`) // never skip on a guess
   }
 
   if (changedDirs.size || rustAll || helperInputs) {
@@ -177,23 +188,31 @@ export function select({ event, base, files, packages, specs }) {
     out.rustWasmProject = built.has('project-wasm')
     out.helperWindows = tested.has(HELPER)
     if (PROTO_DEPS.some((n) => built.has(n))) out.rustProto = true
-    if (WEB_CRATES.some((n) => built.has(n))) web = webE2eAll = true
+    if (WEB_CRATES.some((n) => built.has(n))) web = true
+    // A crate whose own change reaches the page hands its files to the e2e table, which tells the
+    // contracts (protocol, commands, engine sync: the whole suite) from the rest (an area plus the core).
+    // A crate that does not reach the page (helper, test-support) adds no browser test.
+    for (const p of all) {
+      if (changedDirs.has(p.dir) && WEB_CRATES.some((n) => affectedPackages(all, [p.name]).built.has(n))) e2eFiles.push(...crateFiles.get(p.dir))
+    }
   }
   out.web = web
-  if (webE2eAll || webFiles.length) {
-    // The table decides per web file; anything it cannot place, or specs it cannot read, is the whole suite.
+  if (e2eFiles.length) {
+    // The table decides per file; anything it cannot place, or specs it cannot read, is the whole suite.
     let existing = []
     try {
       existing = specs?.() ?? []
     } catch {
       /* unreadable: the whole suite */
     }
-    const plan = planE2e(webFiles, existing, { all: webE2eAll })
+    const plan = planE2e(e2eFiles, existing)
+    out.e2eTier = plan.tier
+    out.e2eWhy = plan.why
     if (plan.run) {
       out.e2e = 'dev'
       out.e2eAll = plan.all
       out.e2eSpecs = plan.all ? [] : plan.specs
-      out.e2eSmoke = plan.smoke
+      out.e2eCore = plan.core
       out.e2eGrep = plan.grep
       out.e2eShards = plan.shards
     }
@@ -216,6 +235,17 @@ export function packagesFromMetadata(metadata) {
     })
 }
 
+/** One line on the end-to-end tier of a decision and why: the CI step summary and verify.mjs print it. */
+export function e2eSummary(r) {
+  const what = {
+    none: 'no browser test',
+    core: `the core tests alone (${r.e2eCore.length} specs)`,
+    area: `${r.e2eSpecs.length} area specs whole, plus the core tests of ${r.e2eCore.length} other specs`,
+    all: 'the whole suite',
+  }[r.e2eTier]
+  return `e2e tier: ${r.e2eTier}, ${what}${r.e2eWhy ? ` (${r.e2eWhy})` : ''}`
+}
+
 /** Key / value pairs for $GITHUB_OUTPUT. */
 export function toOutputs(r) {
   return {
@@ -228,10 +258,12 @@ export function toOutputs(r) {
     helper_windows: String(r.helperWindows),
     web: String(r.web),
     e2e: r.e2e,
+    e2e_tier: r.e2eTier,
+    e2e_why: r.e2eWhy.replace(/[\r\n]+/g, ' '), // one line for $GITHUB_OUTPUT
     e2e_all: String(r.e2eAll),
     e2e_specs: r.e2eSpecs.map((n) => `tests/e2e/${n}.spec.ts`).join(' '), // names are [a-z0-9-]: safe to split
-    e2e_smoke: r.e2eSmoke.map((n) => `tests/e2e/${n}.spec.ts`).join(' '),
-    e2e_smoke_grep: r.e2eGrep,
+    e2e_core: r.e2eCore.map((n) => `tests/e2e/${n}.spec.ts`).join(' '),
+    e2e_core_grep: r.e2eGrep,
     e2e_shards: JSON.stringify(Array.from({ length: Math.max(r.e2eShards, 1) }, (_, i) => i + 1)), // the matrix; the job's `if` guards the empty case
     e2e_shard_total: String(Math.max(r.e2eShards, 1)),
     agent_scripts: String(r.agentScripts),

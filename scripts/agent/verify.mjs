@@ -4,8 +4,9 @@
 // (scripts/ci/select-core.mjs). --full (alias --all) runs everything; so does an unreadable base or workspace.
 //   node scripts/agent/verify.mjs [--base origin/develop] [--full|--all] [--no-e2e] [--dry-run]
 //                                 [--ports dev,preview,helper] [--keep-going] [--verbose] [--clean] [--prune-cache] [--fix]
-// It runs, from the web app: formatting (Prettier, as the CI does), typecheck, lint, vitest, then the end-to-end specs the diff against the
-// base touches plus the smoke tests (one table with the CI, scripts/ci/e2e-plan.mjs; the whole suite when a shared file changed). It picks free
+// It runs, from the web app: formatting (Prettier, as the CI does), typecheck, lint, vitest, then the end-to-end tier of the CI decision (#533,
+// scripts/ci/e2e-plan.mjs): the area specs plus the core tests, the core tests alone for a shared page file, the whole suite for a contract
+// or a configuration; the summary names the tier and why. It picks free
 // ports for the servers, so two checkouts never collide, and ends with a short summary. --fix rewrites the formatting (pnpm format) and
 // applies the auto-fixable lint (eslint --fix) instead of only checking them, then goes on. Works in Git
 // Bash, PowerShell and on Linux. Exit code 0 when everything passed.
@@ -18,8 +19,8 @@ import { existsSync, readdirSync, rmSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { packagesFromMetadata } from '../ci/select-core.mjs'
-import { dirSizeUpTo, freePorts, parsePorts, planE2e, portIsFree, sharedTargetDir, specFile, specNames, summary } from './verify-core.mjs'
+import { e2eSummary, packagesFromMetadata } from '../ci/select-core.mjs'
+import { dirSizeUpTo, freePorts, parsePorts, portIsFree, sharedTargetDir, specFile, specNames, summary } from './verify-core.mjs'
 import { evidenceLine, planVerify, rootSteps } from './verify-plan.mjs'
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..')
@@ -156,18 +157,19 @@ async function main() {
   // parity only when the page or the engine embeds the change, and the e2e plan below. --full (or --all): everything.
   const plan = planVerify({ files: listed, full: flag('--full') || flag('--all'), packages: workspacePackages, specs: () => existing })
   const decision = plan.decision
-  const webFiles = files.filter((f) => f.replaceAll('\\', '/').startsWith('web/'))
-  const selection = planE2e(webFiles, existing, { all: plan.mode === 'full' || decision.e2eAll })
+  // The end-to-end plan is the decision's own (#533): the one CI computes for the same files, tier and reasons included.
   const wantWeb = plan.mode === 'full' || decision.web
-  if (selection.run && selection.all && !selection.specs.length) throw new Error('no end-to-end spec found in web/tests/e2e')
-  const noE2e = flag('--no-e2e') || !wantWeb || !selection.run
-  const specs = noE2e ? [] : selection.specs
-  const smoke = noE2e ? [] : selection.smoke
+  const e2eAll = decision.e2eAll
+  if (e2eAll && !existing.length) throw new Error('no end-to-end spec found in web/tests/e2e')
+  const noE2e = flag('--no-e2e') || !wantWeb || decision.e2e === ''
+  const specs = noE2e ? [] : e2eAll ? existing : decision.e2eSpecs
+  const core = noE2e ? [] : decision.e2eCore
+  const tierLine = noE2e && decision.e2e !== '' ? `${e2eSummary(decision)} [skipped: --no-e2e]` : e2eSummary(decision)
 
   if (flag('--dry-run')) {
     console.log(`mode ${plan.mode} (${plan.why})\nrust: ${rootSteps(decision).map((s) => s.name).join(', ') || 'none'}\n${evidenceLine({ mode: plan.mode, base, decision })}`)
-    console.log(`base ${base}\nfiles:\n${files.map((f) => `  ${f}`).join('\n')}\nweb checks: ${wantWeb}\nspecs (${specs.length}${selection.all ? ', whole suite' : ''}): ${specs.join(', ')}\nsmoke only (${smoke.length}): ${smoke.join(', ')}`)
-    for (const [why, list] of Object.entries(selection.reasons)) console.log(`  ${why}: ${list.join(', ')}`)
+    console.log(`base ${base}\nfiles:\n${files.map((f) => `  ${f}`).join('\n')}\nweb checks: ${wantWeb}\n${tierLine}\nspecs (${specs.length}${e2eAll ? ', whole suite' : ''}): ${specs.join(', ')}\ncore tests only (${core.length}): ${core.join(', ')}`)
+    if (decision.e2eGrep) console.log(`core grep: ${decision.e2eGrep}`)
     return 0
   }
 
@@ -205,7 +207,7 @@ async function main() {
     if (proceed && !flag('--fix')) proceed = await go('lint', 'pnpm', ['lint'])
     // `pnpm test` also builds the two WASM modules the dev server serves.
     if (proceed) proceed = await go('vitest', 'pnpm', ['test'])
-    if (proceed && (specs.length || smoke.length)) {
+    if (proceed && (specs.length || core.length)) {
       const ports = forcedPorts ?? (await freePorts(3))
       const e2eEnv = {
         ...env,
@@ -215,13 +217,13 @@ async function main() {
         FAULK_E2E_HELPER_PORT: String(ports[2]),
       }
       const playwright = ['exec', 'playwright', 'test']
-      // CI runs these two commands too (.github/workflows/ci.yml): the whole specs, then the smoke tests of the others.
+      // CI runs these two commands too (.github/workflows/ci.yml): the whole specs, then the core tests of the others.
       const runs = []
-      if (specs.length) runs.push(await run(`e2e (${specs.length})`, 'pnpm', [...playwright, ...specs.map(specFile)], e2eEnv))
-      if (smoke.length && (runs.every((r) => r.ok) || flag('--keep-going'))) {
-        // The pattern holds `|` and `.*`: quoted for the shell the Windows branch of run() goes through.
-        const grep = process.platform === 'win32' ? `"${selection.grep}"` : selection.grep
-        runs.push(await run(`smoke (${smoke.length})`, 'pnpm', [...playwright, ...smoke.map(specFile), '--grep', grep], e2eEnv))
+      if (specs.length) runs.push(await run(`e2e (${specs.length})`, 'pnpm', [...playwright, ...(e2eAll ? [] : specs.map(specFile))], e2eEnv))
+      if (core.length && (runs.every((r) => r.ok) || flag('--keep-going'))) {
+        // The pattern holds `|`, `^` and `.*`: quoted for the shell the Windows branch of run() goes through.
+        const grep = process.platform === 'win32' ? `"${decision.e2eGrep}"` : decision.e2eGrep
+        runs.push(await run(`core (${core.length})`, 'pnpm', [...playwright, ...core.map(specFile), '--grep', grep], e2eEnv))
       }
       const busy = []
       for (const p of ports) if (!(await portIsFree(p))) busy.push(p)
@@ -230,7 +232,7 @@ async function main() {
     }
   }
 
-  console.log(`\n${summary(steps, { base, files, specs, smoke, all: selection.all })}`)
+  console.log(`\n${summary(steps, { base, files, specs, core, all: e2eAll, tier: tierLine })}`)
   console.log(`mode: ${plan.mode} (${plan.why})\nfor record.mjs --rust: ${evidenceLine({ mode: plan.mode, base, decision })}`)
   if (cacheWarning) console.log(cacheWarning)
   console.log(`total ${((Date.now() - started) / 1000).toFixed(0)} s wall`)

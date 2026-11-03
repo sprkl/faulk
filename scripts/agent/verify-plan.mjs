@@ -17,7 +17,7 @@ export function planVerify({ files, full = false, packages, specs }) {
     } catch {
       /* the full decision needs no workspace */
     }
-    return { mode: 'full', why, decision: fullDecision(ws) }
+    return { mode: 'full', why, decision: fullDecision(ws, `verify.mjs full: ${why}`) }
   }
   if (full) return fullPlan('requested')
   if (!Array.isArray(files)) return fullPlan('changed files unknown')

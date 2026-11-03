@@ -6,7 +6,7 @@
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, readFileSync, readdirSync } from 'node:fs'
 import { specNames } from './e2e-plan.mjs'
-import { fullDecision, packagesFromMetadata, select, toOutputs } from './select-core.mjs'
+import { e2eSummary, fullDecision, packagesFromMetadata, select, toOutputs } from './select-core.mjs'
 
 const args = process.argv.slice(2)
 const opt = (name) => {
@@ -52,10 +52,12 @@ try {
 } catch (e) {
   // An unreadable workspace must never skip a test.
   console.error(`cannot read the cargo workspace (${e.message}): running everything`)
-  result = fullDecision()
+  result = fullDecision([], `cargo workspace unreadable: ${e.message}`)
 }
 const outputs = toOutputs(result)
 console.log(args.includes('--json') ? JSON.stringify(result, null, 2) : outputs)
 if (process.env.GITHUB_OUTPUT) {
   appendFileSync(process.env.GITHUB_OUTPUT, Object.entries(outputs).map(([k, v]) => `${k}=${v}\n`).join(''))
 }
+// The tier of the end-to-end tests and why, on the run's summary page (#533).
+if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${e2eSummary(result)}\n`)

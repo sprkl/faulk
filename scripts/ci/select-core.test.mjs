@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { readdirSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { SMOKE, specNames } from './e2e-plan.mjs'
-import { affectedPackages, fullDecision, packagesFromMetadata, select, toOutputs } from './select-core.mjs'
+import { CORE_TESTS, coreBySpec, specNames } from './e2e-plan.mjs'
+import { affectedPackages, e2eSummary, fullDecision, packagesFromMetadata, select, toOutputs } from './select-core.mjs'
 
 // The workspace graph of the repository (dev-dependencies included), as `cargo metadata` reports it.
 const WORKSPACE = [
@@ -233,31 +233,68 @@ test('packagesFromMetadata keeps members and path dependencies only', () => {
   ])
 })
 
-// Targeted end-to-end selection (#377).
+// Targeted end-to-end selection (#377), in tiers (#533).
 const names = (r) => [...r.e2eSpecs].sort()
+const CORE_SPECS = Object.keys(coreBySpec()).sort()
 
-test('a view change runs its specs whole and the smoke tests of the others, on one machine', () => {
+test('tier area: a view change runs its specs whole and the core tests of the others, on one machine', () => {
   const r = pr(['web/src/views/tracks/TrackList.svelte'])
   assert.equal(r.e2e, 'dev')
+  assert.equal(r.e2eTier, 'area')
   assert.equal(r.e2eAll, false)
   assert.deepEqual(names(r), ['discoverability', 'lane-rows', 'track-order', 'tracks'])
-  assert.deepEqual(r.e2eSmoke, ['export-audio', 'isolation', 'open-project', 'project-store', 'transport'])
+  assert.deepEqual(r.e2eCore, CORE_SPECS)
   assert.equal(r.e2eShards, 1)
   const out = toOutputs(r)
+  assert.equal(out.e2e_tier, 'area')
+  assert.match(out.e2e_why, /area of: web\/src\/views\/tracks\/TrackList\.svelte/)
   assert.equal(out.e2e_all, 'false')
   assert.equal(out.e2e_specs, 'tests/e2e/discoverability.spec.ts tests/e2e/lane-rows.spec.ts tests/e2e/track-order.spec.ts tests/e2e/tracks.spec.ts')
-  assert.equal(out.e2e_smoke.split(' ').length, 5)
+  assert.equal(out.e2e_core.split(' ').length, CORE_SPECS.length)
   assert.equal(out.e2e_shards, '[1]')
+  assert.match(e2eSummary(r), /^e2e tier: area, 4 area specs whole, plus the core tests of \d+ other specs \(area of: /)
 })
 
-test('a spec that is also a smoke spec runs whole, not twice', () => {
+test('a spec that is also a core spec runs whole, not twice', () => {
   const r = pr(['web/src/views/shell/ExportDialog.svelte'])
   assert.deepEqual(r.e2eSpecs, ['export-audio'])
-  assert.ok(!r.e2eSmoke.includes('export-audio'))
+  assert.ok(!r.e2eCore.includes('export-audio'))
 })
 
-test('a longer list gets more machines, never more than three', () => {
-  assert.equal(pr(['web/src/views/arrangement/A.svelte']).e2eShards, 3) // 12 specs + the smoke tests
+test('tier core: a shared page file runs the core tests alone, on one machine', () => {
+  for (const f of ['web/src/lib/stores/dispatcher.ts', 'web/src/views/shell/Shell.svelte', 'web/src/lib/i18n/app.ts', 'web/src/lib/styles/app.css']) {
+    const r = pr([f])
+    assert.deepEqual([r.e2e, r.e2eTier, r.e2eAll, r.e2eSpecs, r.e2eCore, r.e2eShards], ['dev', 'core', false, [], CORE_SPECS, 1], f)
+    const out = toOutputs(r)
+    assert.equal(out.e2e_specs, '', f)
+    assert.ok(out.e2e_core_grep.length > 0, f)
+    assert.match(e2eSummary(r), /^e2e tier: core, the core tests alone .*shared page file/, f)
+  }
+})
+
+test('tier for crates: the contracts run all, the engine and the project an area, helper and test-support nothing', () => {
+  for (const f of ['crates/protocol/src/lib.rs', 'crates/commands/src/track.rs', 'crates/engine/src/msg.rs', 'crates/engine/src/msg/codec.rs', 'crates/engine-wasm/src/lib.rs']) {
+    const r = pr([f])
+    assert.deepEqual([r.e2e, r.e2eTier, r.e2eAll, r.e2eShards], ['dev', 'all', true, 3], f)
+    assert.match(r.e2eWhy, new RegExp(f.replaceAll('.', '\\.')), f)
+  }
+  const engine = pr(['crates/engine/src/devices/reverb.rs'])
+  assert.equal(engine.e2eTier, 'area')
+  for (const n of ['engine-channel', 'engine-mo2', 'mixer-sound', 'devices']) assert.ok(engine.e2eSpecs.includes(n), n)
+  const project = pr(['crates/project-wasm/src/save.rs'])
+  assert.equal(project.e2eTier, 'area')
+  assert.ok(project.e2eSpecs.includes('project-store'))
+  for (const f of ['crates/helper/src/tray.rs', 'crates/test-support/src/signal.rs']) assert.deepEqual([pr([f]).e2e, pr([f]).e2eTier], ['', 'none'], f)
+  // helper with the engine: the engine's files decide, helper adds nothing.
+  const both = pr(['crates/helper/src/tray.rs', 'crates/engine/src/devices/reverb.rs'])
+  assert.deepEqual(names(both), names(engine))
+  // A workspace-wide input or modules/: the whole suite.
+  for (const f of ['Cargo.lock', 'modules/x/a.dsp']) assert.equal(pr([f]).e2eTier, 'all', f)
+})
+
+test('a longer list gets more machines, never more than three; the core tests do not add one', () => {
+  assert.equal(pr(['web/src/views/arrangement/A.svelte']).e2eShards, 3) // 22 specs
+  assert.equal(pr(['web/src/views/mixer/M.svelte']).e2eShards, 2) // 8 specs
   const many = pr(['web/src/views/arrangement/A.svelte', 'web/src/views/grid/G.svelte', 'web/src/views/mixer/M.svelte', 'web/src/views/shell/ProjectMenu.svelte'])
   assert.equal(many.e2eShards, 3)
   assert.ok(toOutputs(many).e2e_shards === '[1,2,3]')
@@ -268,13 +305,15 @@ test('no browser test to run: no end-to-end job, no shard', () => {
     const r = pr(files)
     assert.equal(r.e2e, '', files.join())
     assert.equal(r.e2eShards, 0, files.join())
-    assert.deepEqual([r.e2eSpecs, r.e2eSmoke], [[], []], files.join())
+    assert.deepEqual([r.e2eSpecs, r.e2eCore], [[], []], files.join())
+    assert.match(e2eSummary(r), /^e2e tier: none/)
   }
 })
 
-test('shared files, unknown paths, a stale table and an unreadable spec list run the whole suite', () => {
-  for (const f of ['web/src/lib/stores/dispatcher.ts', 'web/src/views/shell/AppShell.svelte', 'web/src/lib/engine/worklet.ts', 'web/src/lib/generated/commands.ts', 'web/tests/e2e/support.ts', 'web/package.json', 'web/playwright.config.ts', '.github/workflows/ci.yml', 'Cargo.lock', 'crates/engine/src/lib.rs', 'crates/protocol/src/lib.rs', 'modules/x/a.dsp']) {
+test('tier all: contracts, configuration, unknown paths, a stale table and an unreadable spec list', () => {
+  for (const f of ['web/src/lib/engine/worklet.ts', 'web/src/lib/generated/commands.ts', 'web/tests/e2e/support.ts', 'web/package.json', 'web/playwright.config.ts', '.github/workflows/ci.yml', 'Cargo.lock', 'crates/protocol/src/lib.rs', 'modules/x/a.dsp']) {
     const r = pr(['web/src/views/tracks/TrackList.svelte', f])
+    assert.equal(r.e2eTier, 'all', f)
     assert.equal(r.e2eAll, true, f)
     assert.equal(r.e2eShards, 3, f)
     assert.equal(toOutputs(r).e2e_specs, '', f)
@@ -286,14 +325,18 @@ test('shared files, unknown paths, a stale table and an unreadable spec list run
   assert.equal(pr(['web/src/views/tracks/T.svelte', 'web/brand-new-folder/x.ts']).e2eAll, true)
 })
 
-test('the release pull request and the fallbacks keep the full suite on three machines', () => {
-  for (const r of [pr(['docs/a.md'], 'main'), pr(['web/src/views/tracks/T.svelte'], 'main'), fullDecision()]) {
+test('the release pull request and the fallbacks keep the full suite on three machines, and say why', () => {
+  for (const r of [pr(['docs/a.md'], 'main'), pr(['web/src/views/tracks/T.svelte'], 'main'), fullDecision(), pr(['scripts/ci/x.mjs']), pr(['something-new/x'])]) {
     assert.equal(r.e2e, 'dev,preview')
+    assert.equal(r.e2eTier, 'all')
     assert.equal(r.e2eAll, true)
     assert.equal(r.e2eShards, 3)
+    assert.ok(r.e2eWhy.length > 0)
     const out = toOutputs(r)
-    assert.deepEqual([out.e2e_specs, out.e2e_smoke, out.e2e_smoke_grep, out.e2e_shards], ['', '', '', '[1,2,3]'])
+    assert.deepEqual([out.e2e_specs, out.e2e_core, out.e2e_core_grep, out.e2e_shards], ['', '', '', '[1,2,3]'])
   }
+  assert.match(pr(['docs/a.md'], 'main').e2eWhy, /pull request against main/)
+  assert.match(pr(['something-new/x']).e2eWhy, /unknown path: something-new\/x/)
   assert.equal(pr(['web/src/views/tracks/T.svelte'], 'develop').e2e, 'dev') // only the release runs the production build
 })
 
@@ -303,7 +346,22 @@ test('adding or deleting a spec runs the agent scripts, where the table is teste
   assert.equal(pr(['web/src/views/mixer/M.svelte']).agentScripts, false)
 })
 
-test('the smoke grep names every smoke test of the others and nothing else', () => {
+test('the core grep names every core entry of the others and nothing else', () => {
   const r = pr(['web/src/views/tracks/T.svelte'])
-  assert.equal(r.e2eGrep.split('|').length, SMOKE.filter((s) => r.e2eSmoke.includes(s.spec)).length)
+  const entries = CORE_TESTS.filter((s) => r.e2eCore.includes(s.spec))
+  // A whole-spec entry is one alternative, and makes the titles of its spec unnecessary.
+  const whole = new Set(entries.filter((e) => e.title === undefined).map((e) => e.spec))
+  const expected = whole.size + entries.filter((e) => e.title !== undefined && !whole.has(e.spec)).length
+  // Split on the alternatives, not on the `(^|[ /])` anchor inside each one.
+  assert.equal(r.e2eGrep.split(/\|(?!\[)/).length, expected)
+})
+
+test('every output the workflow reads is one select writes, and none of the old smoke names is left', () => {
+  const yml = readFileSync(fileURLToPath(new URL('../../.github/workflows/ci.yml', import.meta.url)), 'utf8')
+  const outputs = Object.keys(toOutputs(pr(['web/src/views/tracks/T.svelte'])))
+  const read = [...yml.matchAll(/steps\.changes\.outputs\.([a-z_0-9]+)/g)].map((m) => m[1])
+  for (const k of read) assert.ok(outputs.includes(k), `ci.yml reads ${k}, which select does not write`)
+  for (const k of ['e2e_tier', 'e2e_why', 'e2e_core', 'e2e_core_grep', 'e2e_specs', 'e2e_all']) assert.ok(yml.includes(`needs.select.outputs.${k}`), `the e2e job does not use ${k}`)
+  assert.ok(!/smoke/i.test(yml), 'ci.yml still names the smoke set')
+  assert.match(yml, /\$E2E_CORE --grep "\$E2E_CORE_GREP"/)
 })

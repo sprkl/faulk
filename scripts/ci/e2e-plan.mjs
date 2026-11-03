@@ -1,21 +1,69 @@
 // Which end-to-end specs a change needs: the ONE table "changed file -> specs", shared by the CI
 // selection (scripts/ci/select-core.mjs, issue #377) and the local check (scripts/agent/verify.mjs,
-// issue #372). Pure: no I/O, so the rules are testable. No process is started here.
+// issue #372), which both take the plan from `select`. Pure: no I/O, so the rules are testable.
 //
-// Policy:
-//  - a file the table does not know, a shared file (app shell, stores, engine, protocol, generated
-//    types, config), a table that names a spec that no longer exists, or a list of specs that could
-//    not be read: the whole suite. A guess never skips a test;
-//  - otherwise the specs of the touched areas, plus a small "smoke" set that always runs with them;
-//  - nothing a browser test can see: no end-to-end run at all.
+// Three tiers (#533):
+//  - area: the specs of the touched areas, whole, plus the core tests of the other specs;
+//  - core: the core tests alone (CORE below), for the shared files of the page (stores, app shell,
+//    shared i18n, styles…): they replace the whole suite there;
+//  - all: the whole suite, for the release pull request, the contracts (protocol, commands, engine
+//    sync, generated types), the Playwright and CI configuration, the build inputs, an unknown path,
+//    a stale table or an unreadable spec list. A guess never skips a test;
+//  - none: nothing a browser test can see.
+// A regression outside the area and the core is caught at the latest by the daily release, which runs all.
 
 export const ALL = 'all'
 export const NONE = 'none'
+export const CORE = 'core'
+
+/** Named areas: the specs that exercise one part of the page. Rules below are unions of them. */
+export const AREA = {
+  arrangement: ['arrangement', 'arrangement-time', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard', 'discoverability', 'keyboard-create', 'recording', 'piano-roll-follow', 'clip-pool', 'context-menu'],
+  clips: ['clip-pool'],
+  grid: ['clip-names', 'clip-pool', 'grid', 'grid-clips', 'grid-to-arrangement', 'recording'],
+  history: ['history', 'history-cost', 'history-names', 'keyboard-create'],
+  pianoRoll: ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard', 'keyboard-create', 'recording', 'piano-roll-follow', 'context-menu'],
+  mixer: ['automation', 'continuous', 'layout-4', 'mixer', 'mixer-sound', 'master-chain', 'master-pan', 'track-state'],
+  devices: ['automation', 'continuous', 'devices', 'layout-4', 'master-chain', 'master-pan', 'track-state', 'context-menu'],
+  transport: ['all-sound-off', 'transport', 'playhead', 'space-bar', 'track-state', 'discoverability', 'recording', 'stop-to-marker'],
+  tracks: ['tracks', 'track-order', 'lane-rows', 'discoverability'],
+  keyboard: ['keyboard', 'keyboard-all-views', 'layout-4', 'live-input', 'typing-mode', 'track-state'],
+  export: ['export-audio'],
+  storage: ['project-store', 'project-save', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability', 'open-url'],
+  shortcuts: ['discoverability', 'keyboard-all-views'],
+  shortcutsDialog: ['discoverability', 'keyboard-all-views', 'navigation'],
+  bottomPanel: ['bottom-panel', 'layout-4', 'ux-quick-wins'],
+  topBar: ['helper', 'keyboard-all-views', 'layout-4', 'local-access', 'navigation', 'space-bar', 'track-state', 'discoverability'],
+  midi: ['keyboard', 'live-input', 'recording'],
+  keyboardPlayer: ['all-sound-off', 'continuous', 'devices', 'keyboard', 'keyboard-all-views', 'mixer-sound', 'page-dispatcher', 'space-bar', 'tracks', 'typing-mode', 'discoverability'],
+  // The landing page's bar and footer are the Journey page's too.
+  landing: ['navigation', 'isolation', 'journey'],
+  journey: ['journey'],
+  // The shared time grid is drawn by the arrangement and the piano roll: both areas.
+  timegrid: ['arrangement', 'arrangement-time', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'timegrid', 'lane-rows'],
+  helper: ['helper', 'local-access'],
+  // Typed values in the continuous controls.
+  valueEntry: ['value-entry'],
+  refusal: ['refused-commands'],
+  // What the engine's sound and timing reach: devices, mixer, master, automation, transport, the
+  // shipped worklet's cost (engine-mo2), its reports (engine-mo5), the CT-3 prototype that builds
+  // crates/engine itself (engine-channel), the export render.
+  engine: ['all-sound-off', 'automation', 'continuous', 'devices', 'engine-channel', 'engine-mo2', 'engine-mo5', 'export-audio', 'keyboard', 'master-chain', 'master-pan', 'mixer-sound', 'recording', 'stop-to-marker'],
+  // What the project core (project, project-wasm) reaches beyond the core tests: storage, history, refusals.
+  project: ['project-store', 'project-save', 'open-project', 'browser-storage', 'storage-commands', 'open-url', 'history', 'history-names', 'refused-commands'],
+}
+
+/** The union of named areas, sorted, without duplicates. */
+export const areas = (...names) => {
+  for (const n of names) if (!AREA[n]) throw new Error(`no area "${n}"`)
+  return [...new Set(names.flatMap((n) => AREA[n]))].sort()
+}
 
 /**
  * Explicit table "changed file -> end-to-end specs" (spec names without `.spec.ts`). The first rule
- * that matches a file decides. A file no rule knows, or a rule that says `ALL`, runs the whole suite:
- * an unknown path never skips a test. `NONE` is for files no browser test can see.
+ * that matches a file decides: `ALL` (whole suite), `CORE` (shared page file: the core tests only),
+ * `NONE` (no browser test sees it), or a list of specs (the area: those specs whole, plus the core
+ * tests). A file no rule knows runs the whole suite: an unknown path never skips a test.
  * The `dev` project is what a pull request against develop and `verify.mjs` run; `preview` (the
  * production build) stays with the release pull request (docs/agents/verification.md > CI).
  */
@@ -29,134 +77,257 @@ export const RULES = [
   [/^web\/(?!tests\/e2e\/).*\.test\.ts$/, NONE],
   [/^web\/.*\.md$/, NONE],
   // The formatter and lint settings: they change no byte of what the browser runs (the `checks` job runs them).
-  [/^web\/(\.prettierrc\.json|\.prettierignore|eslint\.config\.js)$/, NONE],
-  // The e2e tests themselves: a spec is its own selection, the shared helpers run everything.
+  [/^web\/(\.prettierrc\.json|\.prettierignore|eslint\.config\.js|\.gitignore|\.vscode\/)/, NONE],
+  // The benchmarks have their own Playwright configuration, outside the e2e suite.
+  [/^web\/(tests\/bench\/|playwright\.bench\.config\.ts$)/, NONE],
+  // The e2e tests themselves: a spec is its own selection, the shared helpers and the configuration run everything.
   [/^web\/tests\/e2e\/support\.ts$/, ALL],
   [/^web\/tests\/e2e\/fixtures\//, ALL],
   [/^web\/tests\/e2e\/([^/]+)\.spec\.ts$/, (m) => [m[1]]],
+  [/^web\/(playwright\.config\.ts|package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml|vite\.config\.ts|svelte\.config\.js|tsconfig\.json|vercel\.json)$/, ALL],
+  [/^web\/scripts\//, ALL], // WASM and protocol builds, the production headers
+  [/^web\/src\/(app\.html|hooks\.server\.ts)$/, ALL],
+  // Contracts: the generated protocol types, the engine sync of the page (worklet, prepare Worker,
+  // rings, ABI, reports, the web engine that wires them, and its interface).
+  [/^web\/src\/lib\/generated\//, ALL],
+  [/^web\/src\/lib\/engine\/(helper-client|helper-copy|native-engine|local-access)\./, AREA.helper],
+  // The CT-3 prototype (TypeScript and its crate): its own spec builds and runs it.
+  [/^web\/src\/lib\/engine\/proto\//, ['engine-channel']],
+  [/^web\/src\/lib\/engine\//, ALL],
   // Views.
-  [/^web\/src\/views\/arrangement\//, ['arrangement', 'arrangement-time', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard', 'discoverability', 'keyboard-create', 'recording', 'piano-roll-follow', 'clip-pool', 'context-menu']],
-  [/^web\/src\/views\/clips\//, ['clip-pool']],
-  [/^web\/src\/views\/grid\//, ['clip-names', 'clip-pool', 'grid', 'grid-clips', 'grid-to-arrangement', 'recording']],
-  [/^web\/src\/views\/history\//, ['history', 'history-cost', 'history-names', 'keyboard-create']],
-  [/^web\/src\/views\/piano-roll\//, ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard', 'keyboard-create', 'recording', 'piano-roll-follow', 'context-menu']],
-  [/^web\/src\/views\/mixer\//, ['automation', 'continuous', 'layout-4', 'mixer', 'mixer-sound', 'master-chain', 'master-pan', 'track-state']],
-  [/^web\/src\/views\/devices\//, ['automation', 'continuous', 'devices', 'layout-4', 'master-chain', 'master-pan', 'track-state', 'context-menu']],
-  [/^web\/src\/views\/transport\//, ['all-sound-off', 'transport', 'playhead', 'space-bar', 'track-state', 'discoverability', 'recording']],
-  [/^web\/src\/views\/tracks\//, ['tracks', 'track-order', 'lane-rows', 'discoverability']],
-  [/^web\/src\/views\/keyboard\//, ['keyboard', 'keyboard-all-views', 'layout-4', 'live-input', 'typing-mode', 'track-state']],
-  [/^web\/src\/views\/shell\/ExportDialog\./, ['export-audio']],
-  [/^web\/src\/views\/shell\/(ProjectMenu|StorageBanners)\./, ['project-store', 'project-save', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability', 'open-url']],
-  [/^web\/src\/views\/shell\/ShortcutsDialog\./, ['discoverability', 'keyboard-all-views', 'navigation']],
-  [/^web\/src\/lib\/(shortcuts\.ts|i18n\/shortcuts\.ts)/, ['discoverability', 'keyboard-all-views']],
-  [/^web\/src\/views\/shell\/(BottomPanel\.|panel-size\.)/, ['bottom-panel', 'layout-4', 'ux-quick-wins']],
-  [/^web\/src\/views\/shell\/(TopBar|EngineDialog)\./, ['helper', 'keyboard-all-views', 'layout-4', 'local-access', 'navigation', 'space-bar', 'track-state', 'discoverability']],
+  [/^web\/src\/views\/arrangement\//, AREA.arrangement],
+  [/^web\/src\/views\/clips\//, AREA.clips],
+  [/^web\/src\/views\/grid\//, AREA.grid],
+  [/^web\/src\/views\/history\//, AREA.history],
+  [/^web\/src\/views\/piano-roll\//, AREA.pianoRoll],
+  [/^web\/src\/views\/mixer\//, AREA.mixer],
+  [/^web\/src\/views\/devices\//, AREA.devices],
+  [/^web\/src\/views\/transport\//, AREA.transport],
+  [/^web\/src\/views\/tracks\//, AREA.tracks],
+  [/^web\/src\/views\/keyboard\//, AREA.keyboard],
+  [/^web\/src\/views\/shell\/ExportDialog\./, AREA.export],
+  [/^web\/src\/views\/shell\/(ProjectMenu|StorageBanners)\./, AREA.storage],
+  [/^web\/src\/views\/shell\/ShortcutsDialog\./, AREA.shortcutsDialog],
+  [/^web\/src\/views\/shell\/(BottomPanel\.|panel-size\.)/, AREA.bottomPanel],
+  [/^web\/src\/views\/shell\/(TopBar|EngineDialog)\./, AREA.topBar],
+  // The app shell and the view registry: every view hangs from them.
+  [/^web\/src\/views\/(shell\/|registry\.ts$)/, CORE],
+  // The shared components: the areas of the files that mount them, transitively (checked against
+  // the import graph by e2e-plan.test.mjs).
+  [/^web\/src\/lib\/components\/timegrid\//, areas('timegrid', 'arrangement', 'pianoRoll')],
+  [/^web\/src\/lib\/components\/ColorPicker\.svelte$/, areas('tracks')],
+  [/^web\/src\/lib\/components\/ContextMenu\.svelte$/, areas('mixer', 'tracks', 'devices', 'valueEntry', 'arrangement', 'pianoRoll')],
+  [/^web\/src\/lib\/components\/GainControl\.svelte$/, areas('mixer', 'tracks')],
+  [/^web\/src\/lib\/components\/Knob\.svelte$/, areas('devices', 'valueEntry')],
+  [/^web\/src\/lib\/components\/LevelMeter\.svelte$/, areas('arrangement', 'mixer', 'topBar')],
+  [/^web\/src\/lib\/components\/LinkMark\.svelte$/, areas('clips', 'grid')],
+  [/^web\/src\/lib\/components\/Monogram\.svelte$/, areas('landing', 'topBar')],
+  [/^web\/src\/lib\/components\/PanControl\.svelte$/, areas('mixer', 'tracks')],
+  [/^web\/src\/lib\/components\/ParamControl\.svelte$/, areas('devices', 'valueEntry')],
+  [/^web\/src\/lib\/components\/PianoStrip\.svelte$/, areas('keyboard')],
+  [/^web\/src\/lib\/components\/ReductionMeter\.svelte$/, areas('devices')],
+  [/^web\/src\/lib\/components\/Slider\.svelte$/, areas('mixer', 'tracks', 'devices', 'valueEntry')],
+  [/^web\/src\/lib\/components\/ValueField\.svelte$/, areas('mixer', 'tracks', 'devices', 'valueEntry', 'arrangement')],
+  [/^web\/src\/lib\/components\/ValueMenu\.svelte$/, areas('mixer', 'tracks', 'devices', 'valueEntry', 'pianoRoll')],
+  // A component the table does not name yet (new, or deleted): the core. The pull request that mounts a
+  // new one also changes the view that mounts it (its area), and the import-graph test fails until the
+  // component gets its own rule.
+  [/^web\/src\/lib\/components\//, CORE],
+  // The DAW's texts, one file per feature: the areas of the views that show its keys (literal uses
+  // checked against the sources by e2e-plan.test.mjs; the device files are read through the device
+  // descriptors, by computed keys, so they are placed by hand on the devices area).
+  [/^web\/src\/lib\/i18n\/(app|index|lang|feature)\.ts$/, CORE], // the catalogue, the language and its helpers
+  [/^web\/src\/lib\/i18n\/(landing)\.ts$/, AREA.landing],
+  [/^web\/src\/lib\/i18n\/journey\.ts$/, AREA.landing],
+  [/^web\/src\/lib\/i18n\/arrangement\.ts$/, areas('arrangement', 'grid', 'shortcutsDialog')],
+  [/^web\/src\/lib\/i18n\/automation\.ts$/, areas('arrangement', 'devices', 'mixer')],
+  [/^web\/src\/lib\/i18n\/clips\.ts$/, areas('clips')],
+  [/^web\/src\/lib\/i18n\/(devices|synth|drums|echo|reverb|filter|compressor)\.ts$/, areas('devices')],
+  [/^web\/src\/lib\/i18n\/controls\.ts$/, areas('mixer', 'tracks', 'devices', 'valueEntry', 'arrangement', 'pianoRoll')],
+  [/^web\/src\/lib\/i18n\/engine\.ts$/, areas('arrangement', 'mixer', 'topBar')],
+  [/^web\/src\/lib\/i18n\/export\.ts$/, areas('export', 'storage')],
+  [/^web\/src\/lib\/i18n\/grid\.ts$/, areas('grid', 'transport')],
+  [/^web\/src\/lib\/i18n\/helper\.ts$/, areas('helper', 'topBar')],
+  [/^web\/src\/lib\/i18n\/history\.ts$/, areas('history')],
+  [/^web\/src\/lib\/i18n\/keys\.ts$/, areas('keyboard', 'keyboardPlayer', 'topBar', 'tracks')],
+  [/^web\/src\/lib\/i18n\/layout\.ts$/, areas('bottomPanel', 'topBar')],
+  [/^web\/src\/lib\/i18n\/midi\.ts$/, areas('midi', 'topBar')],
+  [/^web\/src\/lib\/i18n\/mixer\.ts$/, areas('arrangement', 'devices', 'mixer', 'topBar')],
+  [/^web\/src\/lib\/i18n\/piano-roll\.ts$/, areas('arrangement', 'grid', 'pianoRoll')],
+  [/^web\/src\/lib\/i18n\/project\.ts$/, areas('storage')],
+  [/^web\/src\/lib\/i18n\/refusal\.ts$/, areas('refusal')],
+  [/^web\/src\/lib\/i18n\/shell\.ts$/, areas('landing', 'storage', 'topBar')],
+  [/^web\/src\/lib\/i18n\/shortcuts\.ts$/, areas('arrangement', 'shortcuts', 'shortcutsDialog', 'topBar')],
+  [/^web\/src\/lib\/i18n\/tracks\.ts$/, areas('arrangement', 'grid', 'mixer', 'tracks')],
+  [/^web\/src\/lib\/i18n\/transport\.ts$/, areas('transport')],
   // Libraries with one clear audience.
-  [/^web\/src\/lib\/export\//, ['export-audio']],
-  [/^web\/src\/lib\/storage\//, ['project-store', 'project-save', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability', 'open-url']],
-  [/^web\/src\/lib\/midi\//, ['keyboard', 'live-input', 'recording']],
-  [/^web\/src\/lib\/(keyboard\.ts|stores\/keyboard-player)/, ['all-sound-off', 'continuous', 'devices', 'keyboard', 'keyboard-all-views', 'mixer-sound', 'page-dispatcher', 'space-bar', 'tracks', 'typing-mode', 'discoverability']],
-  // The landing page's bar and footer are the Journey page's too.
-  [/^web\/src\/lib\/(landing\/|i18n\/landing\.ts)/, ['navigation', 'isolation', 'journey']],
-  [/^web\/src\/routes\/\[lang=lang\]\/journey\//, ['journey']],
+  [/^web\/src\/lib\/shortcuts\.ts$/, AREA.shortcuts],
+  [/^web\/src\/lib\/export\//, AREA.export],
+  [/^web\/src\/lib\/storage\//, AREA.storage],
+  [/^web\/src\/lib\/midi\//, AREA.midi],
+  [/^web\/src\/lib\/(keyboard\.ts|stores\/keyboard-player)/, AREA.keyboardPlayer],
+  [/^web\/src\/lib\/context-menu\.ts$/, ['context-menu']],
+  [/^web\/src\/lib\/value-entry\.ts$/, AREA.valueEntry],
+  [/^web\/src\/lib\/landing\//, AREA.landing],
+  [/^web\/src\/routes\/\[lang=lang\]\/journey\//, AREA.journey],
   [/^web\/src\/routes\/\[lang=lang\]\//, ['navigation', 'isolation']],
-  [/^web\/src\/(lib\/journey\/|lib\/i18n\/journey\.ts|routes\/journey\/)/, ['journey']],
+  [/^web\/src\/(lib\/journey\/|routes\/journey\/)/, AREA.journey],
   [/^web\/src\/routes\/dev\//, ['timegrid']],
-  // The shared time grid is drawn by the arrangement and the piano roll: both areas.
-  [/^web\/src\/lib\/components\/timegrid\//, ['arrangement', 'arrangement-time', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'timegrid', 'lane-rows']],
-  [/^web\/src\/lib\/engine\/(helper-client|helper-copy|native-engine|local-access)\./, ['helper', 'local-access']],
-  // Anything else under the web app (stores, engine, i18n, components, styles, generated types,
-  // routes, config, lockfile), the Rust crates and the build inputs: the whole suite.
+  // The landing page at `/`, the layout every page shares, the language parameter of its routes.
+  [/^web\/src\/(routes\/\+(layout|page)\.|params\.ts$)/, AREA.landing],
+  // Shared files of the page: the core tests (boot, audio, transport, save, export, keyboard, Boost).
+  [/^web\/src\/routes\/app\//, CORE],
+  [/^web\/src\/lib\/(stores|app|project|meters|styles)\//, CORE],
+  [/^web\/src\/lib\/[^/]+\.ts$/, CORE], // the command helpers and small shared modules of lib/
+  [/^web\/src\/app\.d\.ts$/, CORE],
+  [/^web\/static\//, CORE],
+  // The crates the page is built from (select-core.mjs hands over only the files of a crate whose own
+  // change reaches engine-wasm, project-wasm or protocol). The contracts: everything.
+  [/^crates\/(protocol|commands)\//, ALL],
+  [/^crates\/engine\/src\/msg(\.rs$|\/)/, ALL], // the engine sync contract (CT-3)
+  [/^crates\/engine-wasm\//, ALL], // the engine's C ABI, the other end of the sync
+  [/^crates\/engine\//, AREA.engine],
+  [/^crates\/(project|project-wasm)\//, AREA.project],
+  // Crates the page never runs: their tests are the Rust job's.
+  [/^crates\/(helper|test-support)\//, NONE],
+  // Anything else under the web app or the crates, and the build inputs: the whole suite.
   [/^(web|crates|modules|\.cargo)\//, ALL],
   [/^(Cargo\.toml|Cargo\.lock|rust-toolchain\.toml)$/, ALL],
 ]
 
 /**
- * The smoke set: a few tests of the app's backbone that run with every targeted selection, because
- * a change in one area breaks another through the shared parts the table cannot see (#377: the
- * piano roll's view height once broke the audio export). One entry per test: the spec and a
- * fragment of the test's title (a plain string, matched against the title Playwright prints).
- * Together they cost well under 2 minutes; `e2e-plan.test.mjs` keeps every entry honest (the spec
- * exists, the fragment matches exactly one test of it).
+ * The core: the app's backbone, run with every change the page can see (alone for a shared file, with
+ * the area's specs otherwise), because a change in one place breaks another through the shared parts
+ * the table cannot see (#377: the piano roll's view height once broke the audio export). One entry per
+ * whole spec (`{spec}`) or per test (`{spec, title}`: a fragment of the test's title, or of its
+ * `describe`, as Playwright prints it; it must appear once in the spec source). About 70 s of tests on
+ * one machine (release runs of 2026-11-02); `e2e-plan.test.mjs` keeps every entry honest.
  */
-export const SMOKE = [
-  // The audio starts: the engine runs in a worklet, under isolation, and plays MIDI.
-  { spec: 'isolation', title: 'plays the web engine from simulated Web MIDI under isolation' },
-  // The transport plays and stops.
+export const CORE_TESTS = [
+  // Boot and audio start: cross-origin isolation, shared memory, the AudioWorklet and a Worker, the web engine plays simulated MIDI.
+  { spec: 'isolation', title: 'the DAW (/app)' },
+  // The engine reports back: meters and play position follow the sound and the transport.
+  { spec: 'engine-mo5' },
+  // The transport: play, stop, tempo, signature, loop, metronome; a reload during playback.
   { spec: 'transport', title: 'transport, en, 1280 px: play, stop, tempo, signature, loop, metronome' },
-  // Save, reload, reopen.
+  { spec: 'transport', title: 'double clicks and a reload during playback leave the bar consistent' },
+  // Save and reopen: into a folder, into the browser (the default, a draft), opening a folder.
   { spec: 'project-store', title: 'edit, save as, edit, reload: the project is found again, and the state tells the truth' },
-  { spec: 'open-project', title: 'opening a project folder stops the old project' },
+  { spec: 'browser-storage', title: 'a changed project is kept in the browser, the tab can go, and the draft comes back by itself after a reload' },
+  { spec: 'open-project' },
   // The audio export.
   { spec: 'export-audio', title: 'exports the song as a 24-bit WAV file while the song plays' },
+  // Keyboard and MIDI dispatch: a key makes sound through the commands, Web MIDI the same way, a refused stream.
+  { spec: 'page-dispatcher' },
+  { spec: 'keyboard-all-views', title: 'a text field, a keyboard-focused control and a modifier keep their keys' },
+  { spec: 'space-bar', title: 'after a mouse click on an arrangement track header, Space plays and pauses' },
+  // Every view and panel tab mounts: a shared component or store that breaks one view fails here.
+  { spec: 'navigation', title: 'navigation, en, 1280 px: every view, every panel tab, no overflow' },
+  // Web <-> Boost: probe, pair and play through the stand-in helper.
+  { spec: 'helper' },
 ]
 
-/** Smoke tests per spec: `{spec: [title, ...]}`. */
-export const smokeBySpec = () => {
+/** Core entries per spec: `{spec: [title, ...]}`, an empty list meaning the whole spec. */
+export const coreBySpec = () => {
   const out = {}
-  for (const { spec, title } of SMOKE) (out[spec] ??= []).push(title)
+  for (const { spec, title } of CORE_TESTS) {
+    out[spec] ??= []
+    if (title === undefined) out[spec] = null // whole spec: wins over any title
+    else if (out[spec]) out[spec].push(title)
+  }
+  for (const k of Object.keys(out)) out[k] ??= []
   return out
 }
+
+/** Where a file falls: the first rule that matches, or `undefined` (unknown). */
+export const ruleFor = (raw) => RULES.find(([re]) => re.test(raw.replaceAll('\\', '/')))
 
 /**
  * @param {string[]} files changed files, repo-relative
  * @param {string[]} existing the spec names present on disk (without `.spec.ts`)
- * @returns {{specs: string[], all: boolean, reasons: Record<string, string[]>}}
+ * @returns {{specs: string[], all: boolean, shared: boolean, reasons: Record<string, string[]>}}
+ *   `reasons`: per kind (`area`, `shared`, `all`, `unknown`, `missing`), the files and why.
  */
 export function selectSpecs(files, existing) {
   const known = new Set(existing)
   const picked = new Set()
   const reasons = {}
   let all = false
+  let shared = false
+  const why = (kind, text) => (reasons[kind] ??= []).push(text)
   for (const raw of files) {
     const f = raw.replaceAll('\\', '/')
-    const rule = RULES.find(([re]) => re.test(f))
+    const rule = ruleFor(f)
     // A file no rule knows is a repository file outside the table: run everything.
     if (!rule) {
       all = true
-      ;(reasons.unknown ??= []).push(f)
+      why('unknown', f)
       continue
     }
     const [re, what] = rule
     if (what === NONE) continue
     if (what === ALL) {
       all = true
-      ;(reasons.shared ??= []).push(f)
+      why('all', f)
+      continue
+    }
+    if (what === CORE) {
+      shared = true
+      why('shared', f)
       continue
     }
     const names = typeof what === 'function' ? what(re.exec(f)) : what
+    let ok = true
     for (const n of names) {
       if (known.has(n)) picked.add(n)
       else {
         // A stale table, or a deleted spec: never skip a test on a guess.
         all = true
-        ;(reasons.missing ??= []).push(`${f} -> ${n}`)
+        ok = false
+        why('missing', `${f} -> ${n}`)
       }
     }
+    if (ok) why('area', f)
   }
   const specs = all ? [...known].sort() : [...picked].sort()
-  return { specs, all, reasons }
+  return { specs, all, shared, reasons }
 }
 
 export const specFile = (name) => `tests/e2e/${name}.spec.ts`
 
 /** The spec names of a directory listing (`x.spec.ts` gives `x`). */
-export const specNames = (entries) => entries.filter((e) => e.endsWith('.spec.ts')).map((e) => e.slice(0, -'.spec.ts'.length)).sort()
+export const specNames = (entries) =>
+  entries
+    .filter((e) => e.endsWith('.spec.ts'))
+    .map((e) => e.slice(0, -'.spec.ts'.length))
+    .sort()
 
 /** True unless every changed file is one no browser test can see: a file the table does not know counts (fail safe). */
 export function needsWeb(files) {
   return files.some((raw) => {
-    const rule = RULES.find(([re]) => re.test(raw.replaceAll('\\', '/')))
+    const rule = ruleFor(raw)
     return !rule || rule[1] !== NONE
   })
 }
 
 const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 
-/** The `--grep` that selects exactly the smoke tests of `specs` (a regular expression over the printed title). */
-export function smokeGrep(specs) {
-  const by = smokeBySpec()
-  return specs.flatMap((s) => (by[s] ?? []).map((t) => `${escapeRegExp(`${s}.spec.ts`)}.*${escapeRegExp(t)}`)).join('|')
+/**
+ * The `--grep` that selects exactly the core tests of `specs`: a regular expression over the title
+ * Playwright matches (project, file name relative to the test folder, describes and title, joined by
+ * spaces). The file name is anchored on a space or a slash, so `arrangement.spec.ts` never matches
+ * `grid-to-arrangement.spec.ts`; a whole-spec entry is its file name alone.
+ */
+export function coreGrep(specs) {
+  const by = coreBySpec()
+  return specs
+    .flatMap((s) => {
+      const file = `(^|[ /])${escapeRegExp(`${s}.spec.ts`)}`
+      const titles = by[s]
+      if (!titles) return []
+      return titles.length ? titles.map((t) => `${file} .*${escapeRegExp(t)}`) : [`${file} `]
+    })
+    .join('|')
 }
 
 /** Specs per shard: a machine costs about 2.5 minutes of set-up, a spec about 15 seconds of tests. */
@@ -166,19 +337,41 @@ export const MAX_SHARDS = 3
 /** How many machines a run of `units` spec files deserves: 1 for a short list, up to 3 for the whole suite. */
 export const shardCount = (units) => Math.min(MAX_SHARDS, Math.max(1, Math.ceil(units / SPECS_PER_SHARD)))
 
+/** One line saying why a plan was chosen (for the CI summary and verify.mjs). Lists at most `max` files per kind. */
+export function explain(reasons, max = 4) {
+  const label = { forced: 'whole suite', unreadable: 'specs unreadable', unknown: 'unknown path', missing: 'stale table', all: 'whole suite for', shared: 'shared page file', area: 'area of' }
+  // What decided the tier comes first: the reasons for the whole suite, then the shared files, then the areas.
+  const rank = (k) => (k in label ? Object.keys(label).indexOf(k) : -1)
+  return Object.entries(reasons)
+    .sort(([a], [b]) => rank(a) - rank(b))
+    .map(([kind, list]) => `${label[kind] ?? kind}: ${list.slice(0, max).join(', ')}${list.length > max ? ` (+${list.length - max})` : ''}`)
+    .join('; ')
+}
+
 /**
  * What the end-to-end tests have to run for a change.
- * @param {string[]} files changed files, repo-relative
+ * @param {string[]} files changed files, repo-relative (web files, and the crate and build files the caller hands over)
  * @param {string[]} existing the spec names present on disk; empty means unreadable: the whole suite
- * @param {{all?: boolean}} [options] `all`: something outside the table (CI file, crate, build input) forces the whole suite
- * @returns {{run: boolean, all: boolean, specs: string[], smoke: string[], grep: string, shards: number, reasons: Record<string, string[]>}}
- *   `specs` run whole; `smoke` are other specs of which only the smoke tests run (`grep`); `run: false`: no browser test.
+ * @param {{all?: string}} [options] `all`: the reason the caller forces the whole suite (release, --full)
+ * @returns {{run: boolean, tier: 'none'|'area'|'core'|'all', all: boolean, specs: string[], core: string[], grep: string, shards: number, reasons: Record<string, string[]>, why: string}}
+ *   `specs` run whole; `core` are other specs of which only the core tests run (`grep`), on the first
+ *   machine, unsharded; `run: false`: no browser test.
  */
 export function planE2e(files, existing, options = {}) {
-  if (!existing.length) return { run: true, all: true, specs: [], smoke: [], grep: '', shards: MAX_SHARDS, reasons: { unreadable: ['tests/e2e'] } }
-  const sel = options.all ? { all: true, specs: existing, reasons: { forced: ['outside the table'] } } : selectSpecs(files, existing)
-  if (sel.all) return { run: true, all: true, specs: sel.specs, smoke: [], grep: '', shards: MAX_SHARDS, reasons: sel.reasons }
-  if (!sel.specs.length) return { run: false, all: false, specs: [], smoke: [], grep: '', shards: 0, reasons: sel.reasons }
-  const smoke = [...new Set(SMOKE.map((s) => s.spec))].filter((s) => existing.includes(s) && !sel.specs.includes(s)).sort()
-  return { run: true, all: false, specs: sel.specs, smoke, grep: smokeGrep(smoke), shards: shardCount(sel.specs.length + (smoke.length ? 1 : 0)), reasons: sel.reasons }
+  const done = (p) => ({ ...p, why: explain(p.reasons) })
+  const whole = (reasons) => done({ run: true, tier: 'all', all: true, specs: existing, core: [], grep: '', shards: MAX_SHARDS, reasons })
+  if (!existing.length) return done({ run: true, tier: 'all', all: true, specs: [], core: [], grep: '', shards: MAX_SHARDS, reasons: { unreadable: ['web/tests/e2e'] } })
+  if (options.all) return whole({ forced: [options.all] })
+  const sel = selectSpecs(files, existing)
+  if (sel.all) return whole(sel.reasons)
+  if (!sel.specs.length && !sel.shared) return done({ run: false, tier: 'none', all: false, specs: [], core: [], grep: '', shards: 0, reasons: sel.reasons })
+  // A core entry whose spec is gone is a stale table too: the whole suite, never a silent hole in the core.
+  const gone = Object.keys(coreBySpec()).filter((s) => !existing.includes(s))
+  if (gone.length) return whole({ ...sel.reasons, missing: gone.map((s) => `CORE_TESTS -> ${s}`) })
+  const core = Object.keys(coreBySpec())
+    .filter((s) => !sel.specs.includes(s))
+    .sort()
+  // The core run goes on the first machine, whole; the area specs are dealt out between the machines.
+  const shards = sel.specs.length ? shardCount(sel.specs.length) : 1
+  return done({ run: true, tier: sel.specs.length ? 'area' : 'core', all: false, specs: sel.specs, core, grep: coreGrep(core), shards, reasons: sel.reasons })
 }

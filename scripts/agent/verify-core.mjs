@@ -5,7 +5,7 @@ import { readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import net from 'node:net'
 
-export { ALL, NONE, RULES, SMOKE, needsWeb, planE2e, selectSpecs, smokeGrep, specFile, specNames } from '../ci/e2e-plan.mjs'
+export { ALL, CORE, CORE_TESTS, NONE, RULES, coreGrep, needsWeb, planE2e, selectSpecs, specFile, specNames } from '../ci/e2e-plan.mjs'
 
 /** `n` distinct free TCP ports on the loopback: the OS hands them out, all held until every one is known. */
 export async function freePorts(n, host = '127.0.0.1') {
@@ -92,14 +92,15 @@ export function duration(ms) {
  * The short summary the script ends with.
  * @param {{name: string, ok: boolean, skipped?: boolean, ms: number, note?: string}[]} steps
  */
-export function summary(steps, { base, files, specs, smoke = [], all }) {
+export function summary(steps, { base, files, specs, core = [], all, tier = '' }) {
   const lines = [`verify against ${base}: ${files.length} changed file(s)`]
   for (const s of steps) {
     const state = s.skipped ? 'skip' : s.ok ? 'ok  ' : 'FAIL'
     lines.push(`  ${state} ${s.name.padEnd(10)} ${s.skipped ? '' : duration(s.ms)}${s.note ? `  ${s.note}` : ''}`.trimEnd())
   }
-  lines.push(specs.length ? `  e2e specs${all ? ' (whole suite)' : ''}: ${specs.length > 12 ? `${specs.length} specs` : specs.join(', ')}` : smoke.length ? '  e2e specs: smoke only' : '  e2e specs: none needed')
-  if (specs.length && smoke.length) lines.push(`  smoke tests of: ${smoke.join(', ')}`)
+  if (tier) lines.push(`  ${tier}`)
+  lines.push(specs.length ? `  e2e specs${all ? ' (whole suite)' : ''}: ${specs.length > 12 ? `${specs.length} specs` : specs.join(', ')}` : core.length ? '  e2e specs: core tests only' : '  e2e specs: none needed')
+  if (core.length) lines.push(`  core tests of: ${core.join(', ')}`)
   const failed = steps.filter((s) => !s.ok && !s.skipped)
   lines.push(failed.length ? `RESULT: FAIL (${failed.map((s) => s.name).join(', ')})` : `RESULT: OK in ${duration(steps.reduce((t, s) => t + (s.ms || 0), 0))}`)
   return lines.join('\n')
