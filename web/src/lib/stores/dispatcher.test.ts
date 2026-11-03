@@ -1,18 +1,18 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
-import { NativeEngine } from '../engine/native-engine'
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
+import { NativeEngine, NoOutputError } from '../engine/native-engine'
 import type { EngineEvents } from '../engine/engine'
 import { SINGLE_SYNTH, type Command } from '../generated/protocol'
 import { DEFAULT_PARAMS } from '../params'
 import { CoreError, ProjectCore, type FolderEntry } from '../project/core'
 import { readFolder, SONG_FOLDER } from '../project/reference-folder'
-import { REFUSAL_TOAST_MS } from './dispatcher'
+import { OUTPUT_POLL_MS, REFUSAL_TOAST_MS } from './dispatcher'
 import { TOKEN_KEY } from './storage'
 import { inputNoteOff, inputNoteOn } from '../synth-commands'
 
 const pairHelper = vi.fn()
-type Probe = { status: 'absent' } | { status: 'available' }
-const probeHelper = vi.fn<() => Promise<Probe>>(() => Promise.resolve({ status: 'available' }))
+type Probe = { status: 'absent' } | { status: 'available'; audioOutput: boolean }
+const probeHelper = vi.fn<() => Promise<Probe>>(() => Promise.resolve({ status: 'available', audioOutput: true }))
 vi.mock('../engine/helper-client', () => ({
   pairHelper: (code: string) => pairHelper(code),
   probeHelper: () => probeHelper(),
@@ -57,6 +57,7 @@ vi.mock('../project/core', async (original) => ({
 let nativeEvents: EngineEvents | null = null
 let nativeEngine: { kind: 'native'; status: object; update?: object | null; send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> } | null = null
 vi.mock('../engine/native-engine', () => ({
+  NoOutputError: class NoOutputError extends Error {},
   NativeEngine: {
     connect: (_token: string, events: EngineEvents) => {
       nativeEvents = events
@@ -163,7 +164,7 @@ describe('pairing link in the session', () => {
 describe('probing again once the browser allows local access', () => {
   beforeEach(() => {
     probeHelper.mockReset()
-    probeHelper.mockResolvedValue({ status: 'available' })
+    probeHelper.mockResolvedValue({ status: 'available', audioOutput: true })
   })
 
   it('probes again when the last probe found nothing', async () => {
@@ -196,7 +197,7 @@ describe('probing again once the browser allows local access', () => {
     probeHelper.mockReturnValueOnce(new Promise<Probe>(() => {}))
     const older = session.dispatcher.checkHelper()
     void session.dispatcher.onLocalAccessGranted()
-    answer({ status: 'available' })
+    answer({ status: 'available', audioOutput: true })
     expect(await older).toBe('available')
     expect(session.engine.helper).toBe('checking')
   })
@@ -213,7 +214,7 @@ describe('probing again once the browser allows local access', () => {
 describe('a pairing link that could not reach the helper behind the prompt', () => {
   beforeEach(() => {
     probeHelper.mockReset()
-    probeHelper.mockResolvedValue({ status: 'available' })
+    probeHelper.mockResolvedValue({ status: 'available', audioOutput: true })
     pairHelper.mockReset()
     localStorage.clear()
   })
@@ -781,6 +782,194 @@ describe('running commands through the project core', () => {
       nativeEvents!.onError?.('audio.stream')
       expect(session.engine.mode).toBe('web')
       expect(webs[0].push.mock.calls.length).toBe(pushes + 1)
+      // It then waits for the helper's output (below): ended here, so no probe outlives the test.
+      await vi.waitFor(() => expect(session.engine.awaitingOutput).toBe(true))
+      session.dispatcher.stayInWeb()
+    })
+  })
+
+  describe('a helper without an audio output (#525)', () => {
+    const boostEngine = () =>
+      (nativeEngine = {
+        kind: 'native',
+        status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+        send: vi.fn(),
+        close: vi.fn(() => Promise.resolve()),
+      })
+
+    /** A started, paired page whose next connection is refused for want of an output; fake timers from here on. */
+    async function refusedForWantOfOutput() {
+      boostEngine()
+      localStorage.setItem(TOKEN_KEY, 'x')
+      const session = newSession()
+      await session.dispatcher.start()
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      const connect = vi.spyOn(NativeEngine, 'connect')
+      connect.mockImplementationOnce(() => Promise.reject(new NoOutputError()))
+      probeHelper.mockResolvedValue({ status: 'available', audioOutput: false })
+      await session.dispatcher.enterBoost()
+      return { session, connect }
+    }
+
+    afterEach(() => {
+      vi.useRealTimers()
+      vi.restoreAllMocks()
+      probeHelper.mockReset()
+      probeHelper.mockResolvedValue({ status: 'available', audioOutput: true })
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => false })
+    })
+
+    it('keeps the pairing and the Web engine, waits without touching the helper state, then switches by itself', async () => {
+      const { session, connect } = await refusedForWantOfOutput()
+      expect(session.engine.mode).toBe('web')
+      expect(session.engine.awaitingOutput).toBe(true)
+      expect(session.engine.helper).toBe('available')
+      expect(localStorage.getItem(TOKEN_KEY)).toBe('x')
+      expect(session.engine.paired).toBe(true)
+      expect(webs[0].suspend).not.toHaveBeenCalled()
+      // Probes while there is no output: still waiting, and the helper state never flickers to "checking".
+      const states: string[] = []
+      for (let i = 0; i < 3; i++) {
+        await vi.advanceTimersByTimeAsync(OUTPUT_POLL_MS)
+        states.push(session.engine.helper)
+      }
+      expect(states).toEqual(['available', 'available', 'available'])
+      expect(probeHelper).toHaveBeenCalledTimes(3)
+      expect(connect).toHaveBeenCalledTimes(1)
+      // The output appears: the next probe enters Boost, once.
+      probeHelper.mockResolvedValue({ status: 'available', audioOutput: true })
+      await vi.advanceTimersByTimeAsync(OUTPUT_POLL_MS)
+      await vi.waitFor(() => expect(session.engine.mode).toBe('native'))
+      expect(connect).toHaveBeenCalledTimes(2)
+      expect(session.engine.awaitingOutput).toBe(false)
+      // No probe left behind.
+      await vi.advanceTimersByTimeAsync(OUTPUT_POLL_MS * 5)
+      expect(probeHelper).toHaveBeenCalledTimes(4)
+    })
+
+    it('starts the wait again when the output is gone by the time it connects', async () => {
+      const { session, connect } = await refusedForWantOfOutput()
+      probeHelper.mockResolvedValue({ status: 'available', audioOutput: true })
+      connect.mockImplementationOnce(() => Promise.reject(new NoOutputError()))
+      await vi.advanceTimersByTimeAsync(OUTPUT_POLL_MS)
+      await vi.waitFor(() => expect(connect).toHaveBeenCalledTimes(2))
+      expect(session.engine.mode).toBe('web')
+      expect(session.engine.awaitingOutput).toBe(true)
+      await vi.advanceTimersByTimeAsync(OUTPUT_POLL_MS)
+      await vi.waitFor(() => expect(session.engine.mode).toBe('native'))
+    })
+
+    it('"Stay in Web" ends the wait', async () => {
+      const { session, connect } = await refusedForWantOfOutput()
+      session.dispatcher.stayInWeb()
+      expect(session.engine.awaitingOutput).toBe(false)
+      probeHelper.mockResolvedValue({ status: 'available', audioOutput: true })
+      await vi.advanceTimersByTimeAsync(OUTPUT_POLL_MS * 5)
+      expect(probeHelper).not.toHaveBeenCalled()
+      expect(connect).toHaveBeenCalledTimes(1)
+      expect(session.engine.mode).toBe('web')
+    })
+
+    it('"Stay in Web" during a probe in flight still ends the wait', async () => {
+      const { session, connect } = await refusedForWantOfOutput()
+      let answer: (probe: Probe) => void = () => {}
+      probeHelper.mockReturnValueOnce(new Promise<Probe>((resolve) => (answer = resolve)))
+      await vi.advanceTimersByTimeAsync(OUTPUT_POLL_MS)
+      session.dispatcher.stayInWeb()
+      answer({ status: 'available', audioOutput: true })
+      await vi.advanceTimersByTimeAsync(OUTPUT_POLL_MS * 3)
+      expect(connect).toHaveBeenCalledTimes(1)
+      expect(session.engine.mode).toBe('web')
+      expect(session.engine.awaitingOutput).toBe(false)
+    })
+
+    it('a helper that went away ends the wait', async () => {
+      const { session, connect } = await refusedForWantOfOutput()
+      probeHelper.mockResolvedValue({ status: 'absent' })
+      await vi.advanceTimersByTimeAsync(OUTPUT_POLL_MS)
+      await vi.waitFor(() => expect(session.engine.helper).toBe('absent'))
+      expect(session.engine.awaitingOutput).toBe(false)
+      expect(localStorage.getItem(TOKEN_KEY)).toBe('x')
+      await vi.advanceTimersByTimeAsync(OUTPUT_POLL_MS * 5)
+      expect(connect).toHaveBeenCalledTimes(1)
+    })
+
+    it('a hidden page waits until it is shown, so a background tab never takes the helper', async () => {
+      const { session } = await refusedForWantOfOutput()
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true })
+      probeHelper.mockResolvedValue({ status: 'available', audioOutput: true })
+      await vi.advanceTimersByTimeAsync(OUTPUT_POLL_MS * 3)
+      expect(session.engine.mode).toBe('web')
+      expect(session.engine.awaitingOutput).toBe(true)
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => false })
+      await vi.advanceTimersByTimeAsync(OUTPUT_POLL_MS)
+      await vi.waitFor(() => expect(session.engine.mode).toBe('native'))
+    })
+
+    it('"Stay in Web" during the switch that follows a lost output keeps the page from waiting', async () => {
+      boostEngine()
+      localStorage.setItem(TOKEN_KEY, 'x')
+      const session = newSession()
+      await session.dispatcher.start()
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      probeHelper.mockResolvedValue({ status: 'available', audioOutput: true })
+      await session.dispatcher.enterBoost()
+      let resume: () => void = () => {}
+      webs[0].resume.mockImplementationOnce(() => new Promise<void>((r) => (resume = r)))
+      nativeEvents!.onError?.('audio.stream')
+      session.dispatcher.stayInWeb()
+      resume()
+      await vi.advanceTimersByTimeAsync(OUTPUT_POLL_MS * 3)
+      expect(session.engine.awaitingOutput).toBe(false)
+      expect(session.engine.mode).toBe('web')
+    })
+
+    it('waits for the output even when the switch back to Web failed', async () => {
+      boostEngine()
+      localStorage.setItem(TOKEN_KEY, 'x')
+      const session = newSession()
+      await session.dispatcher.start()
+      vi.spyOn(console, 'error').mockImplementation(() => {})
+      probeHelper.mockResolvedValue({ status: 'available', audioOutput: false })
+      await session.dispatcher.enterBoost()
+      webs[0].resume.mockImplementationOnce(() => Promise.reject(new Error('resume failed')))
+      nativeEvents!.onError?.('audio.stream')
+      await vi.waitFor(() => expect(session.engine.awaitingOutput).toBe(true))
+      session.dispatcher.stayInWeb()
+    })
+
+    it('goes back to Boost after the output failed, and waits longer after each quick failure', async () => {
+      boostEngine()
+      localStorage.setItem(TOKEN_KEY, 'x')
+      const session = newSession()
+      await session.dispatcher.start()
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      probeHelper.mockResolvedValue({ status: 'available', audioOutput: true })
+      await session.dispatcher.enterBoost()
+      expect(session.engine.mode).toBe('native')
+
+      /** The output fails at once; returns how long the page took to go back to Boost, in polls. */
+      const flap = async () => {
+        nativeEvents!.onError?.('audio.stream')
+        await vi.waitFor(() => expect(session.engine.awaitingOutput).toBe(true))
+        expect(session.engine.mode).toBe('web')
+        expect(session.engine.notice).toBe('audio.error')
+        let polls = 0
+        while (session.engine.mode !== 'native') {
+          await vi.advanceTimersByTimeAsync(OUTPUT_POLL_MS)
+          polls++
+          expect(polls).toBeLessThan(100)
+        }
+        return polls
+      }
+      // A failure right after Boost began: the output must stay 2 polls, seen on a third.
+      expect(await flap()).toBe(3)
+      // Again at once: twice as long.
+      expect(await flap()).toBe(5)
+      expect(await flap()).toBe(9)
+      // A Boost that lasted a while: the next failure goes back at the first probe that sees an output.
+      await vi.advanceTimersByTimeAsync(61_000)
+      expect(await flap()).toBe(1)
     })
   })
 

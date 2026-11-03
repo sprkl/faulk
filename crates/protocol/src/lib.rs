@@ -9,7 +9,9 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 20;
+pub const PROTOCOL_VERSION: u32 = 22;
+
+// Version 22 (#525): the helper starts without an audio output. The probe answers `audio_output` (an output is open now), and a session opened without an output gets `error` `audio.no_output` and is closed, without `hello`. A page of an earlier version would take that refusal for a revoked token, so the versions refuse each other.
 
 // Version 20 (#490): a track keeps the height of its row in the arrangement. The commands gain `track.set_height`, the track summary and the project's tracks an optional `height` (not written when unset), the event `track_changed` a part `height`. The project file format is 3 (was 2): `track.json` gets an optional `height`; format 2 folders migrate by the number alone, and a build of format 2 reports a format 3 folder as made by a newer build.
 
@@ -54,6 +56,16 @@ pub const PROTOCOL_VERSION: u32 = 20;
 // type, version `engine::msg::FEEDBACK_VERSION`), the same bytes the web build's engine
 // writes into its shared memory. Every other message is a JSON text frame. The JSON
 // `meter` message of version 2 is gone.
+
+/// Stable `code`s of [`ServerMessage::Error`] the page acts on.
+pub mod errors {
+    /// A session opened while the helper has no audio output (#525): sent instead of `hello`,
+    /// then the session is closed. The page keeps playing itself and its pairing.
+    pub const NO_OUTPUT: &str = "audio.no_output";
+    /// The audio output failed and its engine is gone: the page plays itself again. Before
+    /// `hello`, the page takes it as [`NO_OUTPUT`].
+    pub const AUDIO_STREAM: &str = "audio.stream";
+}
 
 /// Name the helper announces in its probe answer.
 pub const HELPER_NAME: &str = "faulk-helper";
@@ -105,14 +117,21 @@ pub struct MidiInput {
 pub enum ServerMessage {
     /// Answer to a probe: a Faulk helper listens here.
     #[serde(rename = "probe")]
-    Probe { helper: String, protocol: u32 },
+    Probe {
+        helper: String,
+        protocol: u32,
+        /// Whether the helper has an audio output open now (#525). Without one it serves
+        /// anyway, and answers a session with `error` `audio.no_output` instead of `hello`.
+        audio_output: bool,
+    },
     /// Pairing accepted: keep this token and pass it as `?token=` to `/session`.
     #[serde(rename = "paired")]
     Paired { token: String },
     /// Pairing refused (wrong or expired code). At 0 attempts left the helper shows a new code.
     #[serde(rename = "pairing_refused")]
     PairingRefused { attempts_left: u32 },
-    /// First message of a session.
+    /// First message of a session; a helper without an audio output sends `error`
+    /// `audio.no_output` instead and closes the session.
     #[serde(rename = "hello")]
     Hello {
         protocol: u32,
@@ -196,6 +215,7 @@ pub fn schema_bundle() -> serde_json::Value {
     serde_json::json!({
         "protocol_version": PROTOCOL_VERSION,
         "param_ids": param_ids,
+        "error_codes": { "no_output": errors::NO_OUTPUT, "audio_stream": errors::AUDIO_STREAM },
         "param_defaults": param_defaults,
         // The fader's law (#389): `[position, dB]` points, from the bottom (silence) to the top.
         // The page's fader, the axis of a volume lane and the engine's reading of a lane all
