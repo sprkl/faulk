@@ -21,13 +21,16 @@ use crate::security::{Handshake, PairResult, Pairing, Policy, Route};
 use crate::updater::UpdateWatch;
 use futures_util::{SinkExt, StreamExt};
 use protocol::{
-    Capabilities, ClientMessage, HELPER_NAME, MAX_STREAM_BYTES, PROTOCOL_VERSION, ServerMessage,
+    AgentResult, Capabilities, ClientMessage, HELPER_NAME, MAX_STREAM_BYTES, PROTOCOL_VERSION,
+    ServerMessage,
 };
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc;
+use tokio::sync::oneshot;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tokio_tungstenite::tungstenite::http::StatusCode;
@@ -85,6 +88,69 @@ pub struct Shared {
     updates: Option<UpdateWatch>,
     session: Mutex<Option<Session>>,
     next_id: AtomicU64,
+    /// The agents' calls waiting for the page's answer (AG-1), by call id.
+    calls: Mutex<HashMap<u64, PendingCall>>,
+    next_call: AtomicU64,
+    /// How long an agent's call waits for the page's answer.
+    agent_timeout: Duration,
+    /// The MCP server, made once `serve` holds the `Arc` (its handler keeps a weak one).
+    mcp: OnceLock<crate::mcp::McpHttp>,
+}
+
+/// An agent's call sent to a session, waiting for its `agent.result`.
+struct PendingCall {
+    /// The session the call went to: only it may answer.
+    session: u64,
+    answer: oneshot::Sender<AgentResult>,
+}
+
+/// Why an agent's call got no answer from the page (AG-1). `code` is stable for agents.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RelayError {
+    /// No page is connected (or it has not been greeted yet).
+    Absent,
+    /// The page's session ended, or another page replaced it, before it answered.
+    Gone,
+    /// The page did not answer within the helper's timeout.
+    Timeout,
+}
+
+impl RelayError {
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::Absent => "page.absent",
+            Self::Gone => "page.gone",
+            Self::Timeout => "page.timeout",
+        }
+    }
+
+    pub fn message(self) -> &'static str {
+        match self {
+            Self::Absent => {
+                "no Faulk page is connected to the helper: open Faulk in the browser and switch it to Boost"
+            }
+            Self::Gone => "the Faulk page closed or was replaced before it answered",
+            Self::Timeout => "the Faulk page did not answer in time",
+        }
+    }
+}
+
+/// How long an agent's call waits for the page by default.
+pub const AGENT_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Removes an agent's call from the waiting ones when its wait ends, whichever way (answered,
+/// timed out, or abandoned by an MCP client that went away).
+struct CallGuard<'a> {
+    calls: &'a Mutex<HashMap<u64, PendingCall>>,
+    id: u64,
+}
+
+impl Drop for CallGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut calls) = self.calls.lock() {
+            calls.remove(&self.id);
+        }
+    }
 }
 
 impl Shared {
@@ -113,6 +179,85 @@ impl Shared {
             updates: None,
             session: Mutex::new(None),
             next_id: AtomicU64::new(1),
+            calls: Mutex::new(HashMap::new()),
+            next_call: AtomicU64::new(1),
+            agent_timeout: AGENT_TIMEOUT,
+            mcp: OnceLock::new(),
+        }
+    }
+
+    /// How long an agent's call waits for the page (tests shorten it).
+    pub fn with_agent_timeout(mut self, timeout: Duration) -> Self {
+        self.agent_timeout = timeout;
+        self
+    }
+
+    /// Relays an agent's command to the page (AG-1): sent to the current session as
+    /// `agent.call`, answered by the page's `agent.result` of the same id. `Absent` at once
+    /// without a greeted session; `Gone` when the session ends or is replaced first; `Timeout`
+    /// after the helper's timeout.
+    pub async fn agent_call(
+        &self,
+        agent: &str,
+        command: serde_json::Value,
+    ) -> Result<AgentResult, RelayError> {
+        let id = self.next_call.fetch_add(1, Ordering::Relaxed);
+        let (answer, answered) = oneshot::channel();
+        let _guard = {
+            // Under the session lock, as the session's end: a call is never registered for a
+            // session whose calls were already dropped.
+            let current = self.session.lock().expect("session lock");
+            let Some(session) = current.as_ref().filter(|s| s.engine.is_some()) else {
+                return Err(RelayError::Absent);
+            };
+            self.calls.lock().expect("calls lock").insert(
+                id,
+                PendingCall {
+                    session: session.id,
+                    answer,
+                },
+            );
+            let guard = CallGuard {
+                calls: &self.calls,
+                id,
+            };
+            let call = ServerMessage::AgentCall {
+                id,
+                agent: agent.to_owned(),
+                command,
+            };
+            if session.tx.send(Out::Msg(call)).is_err() {
+                return Err(RelayError::Gone);
+            }
+            guard
+        };
+        match tokio::time::timeout(self.agent_timeout, answered).await {
+            Ok(Ok(result)) => Ok(result),
+            // The sender was dropped: the session ended or was replaced.
+            Ok(Err(_)) => Err(RelayError::Gone),
+            Err(_) => Err(RelayError::Timeout),
+        }
+    }
+
+    /// Drops the waiting calls of session `id`: their agents get `Gone`.
+    fn drop_calls(&self, id: u64) {
+        if let Ok(mut calls) = self.calls.lock() {
+            calls.retain(|_, call| call.session != id);
+        }
+    }
+
+    /// The page's answer to call `call`, from session `session`: taken only when that session
+    /// is the one the call went to.
+    fn answer_call(&self, session: u64, call: u64, result: AgentResult) {
+        let mut calls = self.calls.lock().expect("calls lock");
+        match calls.get(&call) {
+            Some(pending) if pending.session == session => {
+                if let Some(pending) = calls.remove(&call) {
+                    let _ = pending.answer.send(result);
+                }
+            }
+            Some(_) => crate::log!("ignored an agent result from another session (call {call})"),
+            None => crate::log!("ignored an agent result for no waiting call (call {call})"),
         }
     }
 
@@ -269,9 +414,13 @@ impl Shared {
                 }
                 out
             }
+            Ok(ClientMessage::AgentResult { id: call, result }) => {
+                self.answer_call(id, call, result);
+                Vec::new()
+            }
             Ok(ClientMessage::Pair { .. }) | Err(_) => vec![ServerMessage::Error {
                 code: "protocol.invalid".into(),
-                message: "expected a MIDI input message (the engine's streams are binary)".into(),
+                message: "expected a session message (the engine's streams are binary)".into(),
             }],
         }
     }
@@ -288,6 +437,7 @@ fn refused(refusal: Refusal) -> ServerMessage {
 
 /// Accepts connections until the listener fails.
 pub async fn serve(listener: TcpListener, shared: Arc<Shared>) {
+    let _ = shared.mcp.set(crate::mcp::McpHttp::new(&shared));
     tokio::spawn(ticker(shared.clone()));
     let midi_in = shared.midi_in.lock().expect("MIDI lock").take();
     if let Some(mut midi_in) = midi_in {
@@ -369,17 +519,28 @@ fn session_config() -> WebSocketConfig {
 /// How long the request line of a connection may take to arrive before its route is guessed.
 const REQUEST_LINE_WAIT: Duration = Duration::from_secs(2);
 
-/// Whether the request a connection starts with asks for the session's path, read without
-/// consuming it (the handshake reads it again and checks it): the session's limits are chosen
-/// before the handshake, where the route is only known after. `false` when the request line
-/// does not arrive in time or names another path: the handshake then decides as usual.
-async fn is_session(stream: &TcpStream) -> bool {
+/// What the request a connection starts with asks for, read without consuming it (the
+/// handshake, or the MCP server, reads it again and checks it).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Peeked {
+    /// The page's session: its limits are chosen before the handshake, where the route is
+    /// only known after.
+    Session,
+    /// The MCP server (AG-1): plain HTTP, not a WebSocket.
+    Mcp,
+    /// Anything else, or a request line that did not arrive in time: the WebSocket handshake
+    /// decides as usual.
+    Other,
+}
+
+async fn peek_route(stream: &TcpStream) -> Peeked {
     let mut buf = [0u8; 64];
     let read = tokio::time::timeout(REQUEST_LINE_WAIT, async {
         loop {
             let n = stream.peek(&mut buf).await.unwrap_or(0);
-            // Enough to tell (`GET `, the path and the byte after it), or the peer is done.
-            if n == 0 || n > 4 + SESSION_PATH_LEN {
+            // Enough to tell (the longest method, the path and the byte after it), or the
+            // peer is done.
+            if n == 0 || n > PEEK_ENOUGH {
                 return n;
             }
             tokio::time::sleep(Duration::from_millis(1)).await;
@@ -387,21 +548,31 @@ async fn is_session(stream: &TcpStream) -> bool {
     })
     .await
     .unwrap_or(0);
-    requests_session(&buf[..read])
+    route_of(&buf[..read])
 }
 
-const SESSION_PATH_LEN: usize = protocol::paths::SESSION.len();
+/// Bytes enough to tell the route: `GET /session?` and `DELETE /mcp?` are shorter.
+const PEEK_ENOUGH: usize = 4 + protocol::paths::SESSION.len();
 
-/// Whether the start of an HTTP request asks for the session's path (`GET /session?...` or
-/// `GET /session `).
-fn requests_session(start: &[u8]) -> bool {
-    let Some(rest) = start.strip_prefix(b"GET ") else {
-        return false;
+/// The route the start of an HTTP request asks for: `GET /session?...` or `GET /session ` is the
+/// session; `/mcp` with any method is the MCP server.
+fn route_of(start: &[u8]) -> Peeked {
+    let names = |path: &[u8], method_end: usize| {
+        let after = start
+            .get(method_end + 1..)
+            .and_then(|rest| rest.strip_prefix(path));
+        matches!(after.and_then(|a| a.first()), Some(b'?' | b' '))
     };
-    let Some(after) = rest.strip_prefix(protocol::paths::SESSION.as_bytes()) else {
-        return false;
+    let Some(method_end) = start.iter().position(|b| *b == b' ') else {
+        return Peeked::Other;
     };
-    matches!(after.first(), Some(b'?' | b' '))
+    if names(crate::mcp::PATH.as_bytes(), method_end) {
+        return Peeked::Mcp;
+    }
+    if &start[..method_end] == b"GET" && names(protocol::paths::SESSION.as_bytes(), method_end) {
+        return Peeked::Session;
+    }
+    Peeked::Other
 }
 
 /// Header of every refused handshake, valued [`HELPER_NAME`].
@@ -410,6 +581,13 @@ pub const HELPER_HEADER: &str = "x-faulk-helper";
 // The error type of the handshake callback is fixed by tungstenite (an HTTP response).
 #[allow(clippy::result_large_err)]
 async fn connection(stream: TcpStream, shared: Arc<Shared>) {
+    let peeked = peek_route(&stream).await;
+    if peeked == Peeked::Mcp {
+        if let Some(mcp) = shared.mcp.get() {
+            crate::mcp::serve_connection(stream, shared.clone(), mcp).await;
+        }
+        return;
+    }
     let route: Mutex<Option<Route>> = Mutex::new(None);
     let callback = |req: &Request, response: Response| -> Result<Response, ErrorResponse> {
         let header = |name: &str| req.headers().get(name).and_then(|v| v.to_str().ok());
@@ -440,7 +618,7 @@ async fn connection(stream: TcpStream, shared: Arc<Shared>) {
     };
     // A session carries the page's engine streams, a big project's snapshot among them: only
     // it reads messages up to `MAX_STREAM_BYTES`; the token-free routes keep the defaults.
-    let config = is_session(&stream).await.then(session_config);
+    let config = (peeked == Peeked::Session).then(session_config);
     let Ok(ws) = tokio_tungstenite::accept_hdr_async_with_config(stream, callback, config).await
     else {
         return;
@@ -549,6 +727,8 @@ async fn session(mut ws: Ws, shared: &Arc<Shared>) {
             // ends it, or not played by the helper at all (#598).
             shared.live.clear();
             shared.engine.release_all();
+            // Its agents' calls end unanswered: the new page never answers them.
+            shared.drop_calls(previous.id);
         }
         *current = Some(Session {
             id,
@@ -631,6 +811,7 @@ async fn session(mut ws: Ws, shared: &Arc<Shared>) {
         // struck meanwhile is played after the release (#598).
         shared.live.clear();
         shared.engine.release_all();
+        shared.drop_calls(id);
         if let Ok(mut midi) = shared.midi.lock() {
             midi.disconnect();
         }
@@ -665,18 +846,36 @@ mod tests {
 
     #[test]
     fn only_the_sessions_request_gets_the_sessions_limits() {
-        assert!(requests_session(b"GET /session?token=abc HTTP/1.1\r\n"));
-        assert!(requests_session(b"GET /session HTTP/1.1\r\n"));
+        assert_eq!(
+            route_of(b"GET /session?token=abc HTTP/1.1\r\n"),
+            Peeked::Session
+        );
+        assert_eq!(route_of(b"GET /session HTTP/1.1\r\n"), Peeked::Session);
         for start in [
             &b"GET /pair HTTP/1.1\r\n"[..],
             b"GET /probe HTTP/1.1\r\n",
             b"GET /sessions HTTP/1.1\r\n",
             b"GET /session",
             b"POST /session?token=a HTTP/1.1\r\n",
+            b"GET /mcpx HTTP/1.1\r\n",
+            b"GET",
             b"",
         ] {
-            assert!(!requests_session(start), "{start:?}");
+            assert_eq!(route_of(start), Peeked::Other, "{start:?}");
         }
+    }
+
+    #[test]
+    fn the_mcp_path_goes_to_the_mcp_server_whatever_the_method() {
+        for start in [
+            &b"POST /mcp HTTP/1.1\r\n"[..],
+            b"GET /mcp HTTP/1.1\r\n",
+            b"DELETE /mcp HTTP/1.1\r\n",
+            b"POST /mcp?x=1 HTTP/1.1\r\n",
+        ] {
+            assert_eq!(route_of(start), Peeked::Mcp, "{start:?}");
+        }
+        assert!(b"DELETE /mcp?".len() <= PEEK_ENOUGH);
     }
 
     #[test]

@@ -41,6 +41,7 @@ fn faulk_helper(allowed: &str, delay: Duration) -> u16 {
                     port,
                     allowed_origins: vec![allowed],
                     token: "0123456789abcdef0123456789abcdef".into(),
+                    mcp_token: helper::security::McpToken::Fixed(String::new()),
                 },
                 engine,
                 midi,

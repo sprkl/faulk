@@ -1,4 +1,13 @@
-import { ERROR_CODES, MAX_STREAM_BYTES, PROTOCOL_VERSION, type Capabilities, type ClientMessage, type Command, type LiveRouting } from '../generated/protocol'
+import {
+  ERROR_CODES,
+  MAX_STREAM_BYTES,
+  PROTOCOL_VERSION,
+  type AgentResult,
+  type Capabilities,
+  type ClientMessage,
+  type Command,
+  type LiveRouting,
+} from '../generated/protocol'
 import type { Engine, EngineEvents, EngineStatus, HelperUpdateState } from './engine'
 import { decodeFeedback } from './feedback'
 import { HELPER_URL, parseServerMessage } from './helper-client'
@@ -100,6 +109,19 @@ export class NativeEngine implements Engine {
           case 'stream_refused':
             events.onStreamRefused?.(message.code, message.at, message.epoch)
             break
+          case 'agent.call': {
+            // Answered once, on this session: the helper takes an answer only from the session it asked.
+            let answered = false
+            const id = message.id
+            const answer = (result: AgentResult) => {
+              if (answered) return
+              answered = true
+              engine.message({ type: 'agent.result', id, result })
+            }
+            if (events.onAgentCall) events.onAgentCall(message.agent, message.command, answer)
+            else answer({ status: 'unavailable', reason: 'this page does not take agent calls' })
+            break
+          }
           case 'update.status':
             engine.update = { current: message.current ?? null, checkedAt: message.checked_at ?? null, status: message.status }
             events.onHelperUpdate?.(engine.update)
