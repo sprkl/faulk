@@ -1,0 +1,2 @@
+2026-11-03
+* **Update** (#577): in Boost, an output that fails and is replaced within 2 s keeps the engine; at another rate its devices are rebuilt first (`set_sample_rate`), and the playhead and the session are kept (`architecture/04-distribution-helper.md` > Sans sortie audio). On the web the change does not apply: an `AudioContext` keeps its rate and the browser resamples (`specs/02-decoupage-mvp.md`, MO-1, sample rate change).

@@ -177,6 +177,13 @@ impl StreamQueue {
         &self.prepare
     }
 
+    /// Changes the sample rate ([`Prepare::set_sample_rate`], #236): the devices are built
+    /// again for `rate` and go in before the streams that wait here, which the prepare side
+    /// then builds at `rate` too. Nothing changes on an error.
+    pub fn set_sample_rate(&mut self, rate: SampleRate) -> Result<(), MsgError> {
+        self.prepare.set_sample_rate(rate)
+    }
+
     /// Streams waiting for the engine.
     pub fn waiting(&self) -> usize {
         self.waiting.len()
