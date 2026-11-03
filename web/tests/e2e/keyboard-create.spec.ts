@@ -105,8 +105,8 @@ test('the piano roll: a note from the cursor of an empty clip, its velocity by P
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Enter')
   await expect(roll).toHaveAttribute('data-note-count', '2')
-  // The velocity of a new note is the last one set.
-  expect((await rollNotes(page)).map((n) => n.velocity)).toEqual([127, 127])
+  // The velocity of a new note is the draw velocity (#527), not the last one set on a note.
+  expect((await rollNotes(page)).map((n) => n.velocity)).toEqual([100, 127])
   // Delete the last notes from the keyboard: the focus falls back on the cursor, never on nothing.
   await page.keyboard.press('Delete')
   await page.getByTestId('roll-item').first().focus()
