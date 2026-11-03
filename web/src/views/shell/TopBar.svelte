@@ -63,18 +63,18 @@
         type="button"
         aria-haspopup="dialog"
         aria-label={`${engine.mode === 'native' ? t('engine.boost') : t('engine.web')}, ${latency}${loadPeak ? `, ${loadPeak}` : ''}${waiting ? `, ${waiting}` : ''}. ${t('engine.settings')}`}
-        title={`${t('engine.settings')}: ${latency}${loadPeak ? `, ${loadPeak}` : ''}${waiting ? `. ${waiting}` : ''}`}
+        title={`${t('engine.settings')}: ${engine.mode === 'native' ? t('engine.boost') : t('engine.web')}, ${latency}${loadPeak ? `, ${loadPeak}` : ''}${waiting ? `. ${waiting}` : ''}`}
         data-testid="engine-mode"
         onclick={() => (ui.engineOpen = true)}
       >
         {#if engine.mode === 'native'}
           <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true"><path d="M9 1 L3 9 H8 L7 15 L13 7 H8 Z" fill="currentColor" /></svg>
-          {t('engine.boost')}
+          <span class="mode-name">{t('engine.boost')}</span>
         {:else}
           <svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"
             ><circle cx="8" cy="8" r="6.5" /><path d="M1.5 8 H14.5 M8 1.5 C 5 5, 5 11, 8 14.5 M8 1.5 C 11 5, 11 11, 8 14.5" /></svg
           >
-          {t('engine.web')}
+          <span class="mode-name">{t('engine.web')}</span>
         {/if}
         <span class="value" data-testid="latency">{latencyShort}</span>
         {#if load}<span class="value load" data-testid="engine-load">{load}</span>{/if}
@@ -191,6 +191,16 @@
     display: flex;
     align-items: center;
     gap: var(--fk-space-2);
+  }
+  /* Below 1440 px the bar is full (#486): the pill yields first, before the project name. The mode's word goes
+     (its icon stays, the word is in the tooltip and the accessible name) and the pill's gaps tighten. */
+  @media (max-width: 1439px) {
+    .mode-name {
+      display: none;
+    }
+    .top .mode {
+      gap: var(--fk-space-1);
+    }
   }
   .mode {
     display: inline-flex;

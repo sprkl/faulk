@@ -193,8 +193,8 @@
     align-items: center;
     gap: var(--fk-space-2);
     height: 22px;
-    /* It gives way when the bar is full: the name ellipsizes instead of running over the views. */
-    min-width: 0;
+    /* It gives way when the bar is full, down to a readable start of the name with an ellipsis, never to nothing. */
+    min-width: 4.5rem;
     max-width: min(130px, 100%);
     padding: 0 var(--fk-space-3);
     border: 1px solid var(--fk-line);
