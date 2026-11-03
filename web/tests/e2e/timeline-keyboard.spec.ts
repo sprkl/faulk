@@ -257,5 +257,9 @@ test('after Ctrl+D the copies are the selection and the focus; Shift+arrow from 
   expect(after).toHaveLength(1)
   expect(after).not.toContain(lone[0])
   expect(after).not.toContain(a!.id)
+  // The copy is of the focused clip: it sits one clip length after it (the clip is a bar long), not after the lone selection.
+  const copy = (await blocks(page)).find((x) => x.id === after[0])
+  expect(copy?.row).toBe(a!.row)
+  expect(copy?.start).toBe(a!.start + 3840)
   expect(errors).toEqual([])
 })
