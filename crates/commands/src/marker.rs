@@ -22,7 +22,9 @@ use project::limits::{MAX_MARKERS, MAX_NAME_CHARS, MAX_TICK};
 use project::{Marker, MarkerId, Tick};
 
 /// A section marker as `arrangement.marker.list` answers it.
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[derive(
+    Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+)]
 #[serde(deny_unknown_fields)]
 pub struct MarkerInfo {
     pub marker: MarkerId,

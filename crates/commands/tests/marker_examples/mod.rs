@@ -1,5 +1,7 @@
 //! The section markers (#473): a fixture with two markers, and one example of each command.
 
+#![allow(dead_code)]
+
 use ::project::{Marker, MarkerId, Tick};
 use commands::testing::fixture;
 use commands::{Command, State, arrangement};
@@ -62,7 +64,6 @@ pub fn examples() -> Vec<(Command, State)> {
             marker: f.chorus.clone(),
             tick: Tick(3840 * 12),
         }),
-        on(arrangement::Command::ListMarkers {}),
         on(arrangement::Command::DeleteMarker {
             marker: f.verse.clone(),
         }),

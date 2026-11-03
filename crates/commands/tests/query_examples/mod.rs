@@ -6,8 +6,11 @@
 
 use crate::automation_examples;
 use crate::clip_examples;
+use crate::marker_examples;
 use crate::transport_examples;
-use commands::{Command, State, automation, clip, device, project, scene, track, transport};
+use commands::{
+    Command, State, arrangement, automation, clip, device, project, scene, track, transport,
+};
 
 pub fn examples() -> Vec<(Command, State)> {
     let lanes = automation_examples::fx();
@@ -113,5 +116,10 @@ pub fn examples() -> Vec<(Command, State)> {
             transport_examples::looping(),
         ),
         on_clips(Command::Transport(transport::Command::Get {})),
+        (
+            Command::Arrangement(arrangement::Command::ListMarkers {}),
+            marker_examples::fx().state,
+        ),
+        on_clips(Command::Arrangement(arrangement::Command::ListMarkers {})),
     ]
 }

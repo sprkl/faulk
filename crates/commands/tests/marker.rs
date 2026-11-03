@@ -213,7 +213,12 @@ fn time_edits_move_the_markers_and_undo_puts_them_back() {
 fn the_list_answers_in_timeline_order() {
     let f = fx();
     let mut s = f.state.clone();
-    let out = run(&m(arrangement::Command::ListMarkers {}), &mut s, &mut context()).unwrap();
+    let out = run(
+        &m(arrangement::Command::ListMarkers {}),
+        &mut s,
+        &mut context(),
+    )
+    .unwrap();
     let Output::Arrangement(arrangement::Output::ListMarkers { markers }) = out.output else {
         panic!()
     };
