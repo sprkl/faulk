@@ -248,6 +248,9 @@ fn a_take_is_one_entry_that_counts_its_notes_in_its_tracks() {
     let entries = s.history.undo.len();
     run(
         &Command::Record(R::CommitTake {
+            replace: None,
+            quantize_on_input: None,
+            quantize_strength: None,
             take: None,
             target: RecordTarget::Arrangement {},
             shift_ms: 0.0,
