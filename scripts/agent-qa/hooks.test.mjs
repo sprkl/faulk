@@ -1206,8 +1206,10 @@ describe("settings.json", () => {
 
   it("runs every hook command through bash as Claude Code does, and each script exists", (t) => {
     const commands = Object.values(settings.hooks).flatMap((groups) => groups.flatMap((g) => g.hooks.map((h) => h.command)));
-    if (spawnSync("bash", ["-c", "true"]).error) {
-      t.skip("bash is not installed");
+    const probe = spawnSync("bash", ["-c", "true"]);
+    if (probe.error || probe.status !== 0) {
+      // On Windows `bash` can be WSL's launcher, which exits non-zero when no distribution is installed (#539).
+      t.skip("bash is not installed, or does not run (WSL without a distribution)");
       return;
     }
     // A copy of the scripts in a throwaway project, so the hooks write nothing in this checkout.

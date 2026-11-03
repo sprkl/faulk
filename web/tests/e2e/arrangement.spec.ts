@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // AR-2 (#78): the engine plays the arrangement. A clip drawn in the piano roll sits in the arrangement
 // (a placement from tick 0): pressing Play in the transport bar makes it sound through the real worklet
@@ -35,7 +35,7 @@ test('arrangement: a clip drawn in the piano roll sounds on Play, is silent on S
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/app')
   await startAudio(page)
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await page.getByTestId('panel-piano-roll').click()
   await page.getByTestId('roll-create-clip').click()
   await expect(page.getByTestId('piano-roll')).toHaveAttribute('data-note-count', '0')
@@ -86,7 +86,7 @@ test('arrangement: a note drawn in bar 2 after lengthening the clip sounds when 
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/app')
   await startAudio(page)
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await page.getByTestId('panel-piano-roll').click()
   await page.getByTestId('roll-create-clip').click()
   await expect(page.getByTestId('piano-roll')).toHaveAttribute('data-note-count', '0')

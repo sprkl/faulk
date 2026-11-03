@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #396: insert and delete bars across all tracks, in a real browser, in English and in French. "Insert bars"
 // opens empty bars at the play position's bar (or at a time selection), a Shift+drag on the ruler selects time,
@@ -36,7 +36,9 @@ for (const [locale, insertLabel, deleteLabel] of [
   ['en-US', 'Insert bars', 'Delete selected bars'],
   ['fr-FR', 'Insérer des mesures', 'Supprimer les mesures sélectionnées'],
 ] as const) {
-  test(`arrangement view (${locale}): insert bars, select time with Shift+drag, delete the selected bars, each one undo`, async ({ browser }, info) => {
+  test(`arrangement view (${locale}): insert bars, select time with Shift+drag, delete the selected bars, each one undo${locale === 'fr-FR' ? ' @full' : ''}`, async ({
+    browser,
+  }, info) => {
     test.setTimeout(120_000)
     const context = await browser.newContext({ locale, baseURL: info.project.use.baseURL })
     const page = await context.newPage()
@@ -44,7 +46,7 @@ for (const [locale, insertLabel, deleteLabel] of [
     await page.setViewportSize({ width: 1800, height: 900 })
     await page.goto('/app')
     await startAudio(page)
-    await expect(page.getByTestId('engine-mode')).toBeVisible()
+    await engineUp(page)
 
     await page.getByTestId('panel-piano-roll').click()
     await page.getByTestId('roll-create-clip').click()

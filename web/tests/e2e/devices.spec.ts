@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // DV-9 (#70): the device panel in a real browser. Real worklet, engine and project core: every
 // action goes through the dispatcher as a DV-8 command. Echo (DV-3) is the first effect: the
@@ -40,7 +40,7 @@ for (const lang of ['en', 'fr'] as const) {
     await page.goto('/app')
     await expect(page.getByTestId('devices-empty')).toBeVisible()
     await page.getByTestId('engine-state').getByRole('button').click()
-    await expect(page.getByTestId('engine-mode')).toBeVisible()
+    await engineUp(page)
 
     // The Oscillator track: one card, a control per parameter of its descriptor.
     const panel = page.getByTestId('bottom-panel')

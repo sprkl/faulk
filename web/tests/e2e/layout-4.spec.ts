@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #472: layout by screen and phase. The top bar stays on one row from 1280 px in every view and both languages, the engine
 // pill is a button that opens the engine dialog, the keyboard is a tab of the bottom panel, the mixer takes the whole height
@@ -15,7 +15,7 @@ const SIZES = [
 async function start(page: Page) {
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   // The selected track's inspector (#471: the left column shows the selected track only).
   await expect(page.getByTestId('track-inspector')).toBeVisible()
 }
@@ -42,7 +42,9 @@ async function expectOneRow(page: Page, what: string) {
 
 for (const size of SIZES) {
   for (const lang of ['en', 'fr'] as const) {
-    test(`the top bar is one row in every view at ${size.width}x${size.height}, ${lang}, with a long project name`, async ({ page }, info) => {
+    test(`the top bar is one row in every view at ${size.width}x${size.height}, ${lang}, with a long project name${size.width === 1280 ? '' : ' @full'}`, async ({
+      page,
+    }, info) => {
       const { errors } = watch(page)
       await page.setViewportSize(size)
       await page.addInitScript((l) => localStorage.setItem('faulk.lang', l), lang)
