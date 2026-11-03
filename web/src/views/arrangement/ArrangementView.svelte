@@ -661,6 +661,8 @@
 
   function onPointerDown(event: PointerEvent) {
     if (event.button !== 0 || gesture || !stage) return
+    // A pointer gesture takes the keyboard focus off a clip cell: the selection it makes is then what Ctrl+D copies (#528).
+    if ((document.activeElement as HTMLElement | null)?.dataset?.block !== undefined) focusGrid()
     const { x, y } = local(event)
     stage.setPointerCapture(event.pointerId)
     if (y < RULER_HEIGHT) {
@@ -1025,12 +1027,20 @@
   /** Copies the given clips (the selection by default), one bar group right after them. */
   function duplicate(linked: boolean, from: readonly Block[] = selection) {
     const by = copyShift(from)
-    if (by !== null)
-      copyAndSelect(
-        from.map((b) => b.id),
-        linked,
-        by,
-      )
+    if (by === null) return
+    const keyboard = (document.activeElement as HTMLElement | null)?.dataset?.block !== undefined
+    copyAndSelect(
+      from.map((b) => b.id),
+      linked,
+      by,
+    )
+    // From the keyboard the focus follows the copies, which are the selection: a repeated Ctrl+D copies them again and
+    // Shift+arrow starts from them, never from the original left behind (#528).
+    const first = [...picked]
+      .map((id) => blocks.find((b) => b.id === id))
+      .filter((b): b is Block => !!b)
+      .sort((x, y) => x.start - y.start)[0]
+    if (keyboard && first) void focusItem(first.id)
   }
 
   function removeSelected() {
@@ -1341,7 +1351,7 @@
     const block = blocks.find((b) => b.id === target.id)!
     // Shift+arrow extends the selection the focused clip is in; from a clip outside it (after a copy, a click elsewhere) it
     // starts a new one from that clip, so the old selection is never added to (#528).
-    if (key.kind === 'extend') picked = new Set(selectedIds.has(current.id) ? [...picked, target.id] : [current.id, target.id])
+    if (key.kind === 'extend') picked = new Set(selectedIds.has(current.id) ? [...selectedIds, target.id] : [current.id, target.id])
     else picked = new Set([target.id])
     select(block.track)
     ui.editClip(block.clip, block.id)
