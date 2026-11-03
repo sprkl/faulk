@@ -1577,9 +1577,13 @@
         data-testid="arr-zoom-in"
         onclick={() => zoomBy(ZOOM_STEP)}>+</button
       >
+      <button title={t('arrangement.fitSongHint')} aria-label={t('arrangement.fitSong')} data-testid="arr-fit-song" onclick={fitSong}
+        >{t('arrangement.fitSongShort')}</button
+      >
     </span>
-    <button title={t('arrangement.fitSongHint')} data-testid="arr-fit-song" onclick={fitSong}>{t('arrangement.fitSong')}</button>
-    <button title={t('arrangement.addMarkerHint')} data-testid="arr-add-marker" onclick={addMarkerHere}>{t('arrangement.addMarker')}</button>
+    <button title={t('arrangement.addMarkerHint')} aria-label={t('arrangement.addMarker')} data-testid="arr-add-marker" onclick={addMarkerHere}
+      >{t('arrangement.addMarkerShort')}</button
+    >
     <button class="follow" title={t('arrangement.followHint')} aria-pressed={follow} data-testid="arr-follow" onclick={followAgain}
       >{t('arrangement.follow')}</button
     >
