@@ -90,9 +90,9 @@ pub struct ToolSpec {
     pub undo: UndoKind,
     pub destructive: bool,
     /// The command's fields without `type` (the tool's name carries it); `$defs`
-    /// holds the referenced types.
+    /// holds the types they reference, directly or not, and only those (absent if none).
     pub input_schema: Value,
-    /// The output's fields without `type`; `$defs` holds the referenced types.
+    /// The output's fields without `type`; `$defs` as in `input_schema`.
     pub output_schema: Value,
 }
 
@@ -156,7 +156,10 @@ fn variant_name(variant: &Value) -> &str {
         .unwrap_or_default()
 }
 
-/// A variant schema as a standalone tool schema: no `type` field, the root `$defs`.
+/// A variant schema as a standalone tool schema: no `type` field, and the definitions of the
+/// root `$defs` that its fields reach, directly or through other definitions. Copying the
+/// whole root `$defs` into every tool made the catalog grow with the square of the number
+/// of commands (#559): 55 MB for 136 tools.
 fn tool_schema(variant: &Value, root: &Value) -> Value {
     let mut properties = variant["properties"].clone();
     if let Some(map) = properties.as_object_mut() {
@@ -174,8 +177,125 @@ fn tool_schema(variant: &Value, root: &Value) -> Value {
         "required": required,
         "additionalProperties": false,
     });
-    if let Some(defs) = root.get("$defs") {
-        out["$defs"] = defs.clone();
+    if let Some(defs) = root.get("$defs").and_then(Value::as_object) {
+        let reached = reachable_defs(&out, defs);
+        if !reached.is_empty() {
+            out["$defs"] = Value::Object(reached);
+        }
     }
     out
+}
+
+/// The definitions of `defs` that `schema` references through `#/$defs/<name>`, and those
+/// they reference in turn, each copied unchanged. A reference to a name `defs` lacks is left
+/// dangling, as it was in the root.
+fn reachable_defs(
+    schema: &Value,
+    defs: &serde_json::Map<String, Value>,
+) -> serde_json::Map<String, Value> {
+    let mut reached = std::collections::HashSet::new();
+    let mut pending = Vec::new();
+    def_refs(schema, &mut pending);
+    while let Some(name) = pending.pop() {
+        if let Some(def) = defs.get(&name)
+            && reached.insert(name)
+        {
+            def_refs(def, &mut pending);
+        }
+    }
+    // Same order as the root, so that the output does not depend on the walk.
+    defs.iter()
+        .filter(|(name, _)| reached.contains(*name))
+        .map(|(name, def)| (name.clone(), def.clone()))
+        .collect()
+}
+
+/// Pushes the name of every `#/$defs/<name>` reference found in `value`, at any depth.
+fn def_refs(value: &Value, out: &mut Vec<String>) {
+    match value {
+        Value::Object(map) => {
+            for (key, v) in map {
+                match (key.as_str(), v) {
+                    ("$ref", Value::String(r)) => {
+                        // `#/$defs/A/properties/b` needs the whole of `A`.
+                        if let Some(path) = r.strip_prefix("#/$defs/") {
+                            let name = path.split('/').next().unwrap_or(path);
+                            out.push(name.replace("~1", "/").replace("~0", "~"));
+                        }
+                    }
+                    _ => def_refs(v, out),
+                }
+            }
+        }
+        Value::Array(items) => items.iter().for_each(|v| def_refs(v, out)),
+        _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn defs() -> serde_json::Map<String, Value> {
+        json!({
+            "A": { "type": "object", "properties": { "b": { "$ref": "#/$defs/B" } } },
+            "B": { "anyOf": [{ "$ref": "#/$defs/A" }, { "type": "null" }] },
+            "C": { "items": [{ "$ref": "#/$defs/D" }] },
+            "D": { "type": "string" },
+            "E/F": { "type": "integer" },
+            "Unused": { "type": "boolean" }
+        })
+        .as_object()
+        .unwrap()
+        .clone()
+    }
+
+    fn reached(schema: Value) -> Vec<String> {
+        reachable_defs(&schema, &defs()).keys().cloned().collect()
+    }
+
+    #[test]
+    fn keeps_what_the_fields_reach_through_cycles_arrays_and_deep_pointers() {
+        assert_eq!(reached(json!({ "$ref": "#/$defs/B" })), ["A", "B"]);
+        assert_eq!(
+            reached(json!({ "items": [{ "$ref": "#/$defs/C" }] })),
+            ["C", "D"]
+        );
+        // A pointer into a definition needs the whole definition.
+        assert_eq!(
+            reached(json!({ "$ref": "#/$defs/A/properties/b" })),
+            ["A", "B"]
+        );
+        assert_eq!(reached(json!({ "$ref": "#/$defs/E~1F" })), ["E/F"]);
+        // `$ref` as a property name is a field, not a reference.
+        assert_eq!(
+            reached(json!({ "properties": { "$ref": { "$ref": "#/$defs/D" } } })),
+            ["D"]
+        );
+    }
+
+    #[test]
+    fn keeps_nothing_for_no_reference_or_an_unknown_one() {
+        assert!(reached(json!({ "type": "object" })).is_empty());
+        assert!(reached(json!({ "$ref": "#/$defs/Missing" })).is_empty());
+        assert!(reached(json!({ "$ref": "https://example.com/A" })).is_empty());
+    }
+
+    #[test]
+    fn a_tool_schema_omits_an_empty_defs_and_keeps_the_root_order() {
+        let root = json!({ "$defs": defs() });
+        let plain = json!({ "properties": { "type": { "const": "x.y" }, "n": { "type": "integer" } }, "required": ["type", "n"] });
+        let tool = tool_schema(&plain, &root);
+        assert!(tool.get("$defs").is_none(), "{tool}");
+        assert_eq!(tool["required"], json!(["n"]));
+        let with_refs =
+            json!({ "properties": { "d": { "$ref": "#/$defs/D" }, "b": { "$ref": "#/$defs/B" } } });
+        let keys: Vec<_> = tool_schema(&with_refs, &root)["$defs"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
+        assert_eq!(keys, ["A", "B", "D"]);
+    }
 }

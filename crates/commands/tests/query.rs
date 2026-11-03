@@ -506,11 +506,9 @@ fn every_field_of_every_query_answer_is_documented() {
 /// schema names): every field of each is documented, nested ones included.
 #[test]
 fn every_field_of_the_types_of_the_answers_is_documented() {
-    let defs = &catalog()
-        .into_iter()
-        .find(|t| t.name == "track.get")
-        .unwrap()
-        .output_schema["$defs"];
+    // The root's definitions: a tool's schema only holds the types it references (#559).
+    let output = commands::output_schema();
+    let defs = &output["$defs"];
     let mut checked = 0;
     for name in [
         "PageInfo",
