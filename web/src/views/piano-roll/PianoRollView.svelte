@@ -577,7 +577,8 @@
       else picked = new Set()
     } else if (editShortcut(event)) {
       // Handled by editShortcut; the key is consumed below.
-    } else if (!event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+    } else if (!event.ctrlKey && !event.metaKey && event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      // Alt+Up and Alt+Down (#529): the selection by a semitone, Alt+Shift by an octave; as from a note's cell or the free cursor.
       transposeChosen((event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 12 : 1))
     } else if (!event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'PageUp' || event.key === 'PageDown') && chosenNotes.length > 0) {
       // The selection's velocity (#494), as on a note's cell.
@@ -747,6 +748,14 @@
     event.stopPropagation()
     const at = cursorPos
     if (action.kind === 'velocity') return changeVelocity(chosenNotes, action.delta, null)
+    if (action.kind === 'move') {
+      // Alt+Up and Alt+Down transpose the selection from the free cursor too (#529); Alt+Left and Alt+Right need a note.
+      if (action.direction === 'up' || action.direction === 'down') {
+        if (chosenNotes.length === 0) return announce(t('pianoRoll.saidNoSelection'))
+        transposeChosen((action.direction === 'up' ? 1 : -1) * (event.shiftKey ? 12 : 1))
+      }
+      return
+    }
     if (action.kind === 'focus' || action.kind === 'extend') {
       const big = action.kind === 'extend'
       const next = moveCursor(
@@ -1092,7 +1101,11 @@
   function transposeChosen(semitones: number) {
     if (!edited) return
     const changes = transposeChanges(chosenNotes, semitones)
-    if (!changes || changes.length === 0) return
+    if (!changes || changes.length === 0) {
+      // Past the top or the bottom of the keyboard: said, as on a note's cell (nothing to say with no selection).
+      if (chosenNotes.length > 0) announce(t('pianoRoll.saidCannotMove'))
+      return
+    }
     run(transposeNotes(edited.id, [...chosenNotes], semitones))
     picked = afterChanges(picked, changes)
     sound(changes[0]!.to.pitch, changes[0]!.to.velocity)
