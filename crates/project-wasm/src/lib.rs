@@ -18,7 +18,7 @@ use std::cell::RefCell;
 
 use commands::contract::Folder;
 use commands::engine_msgs::Synced;
-use commands::host::{ExportReport, ProjectView, RunReport, SnapshotReport};
+use commands::host::{ExportReport, LiveRouting, ProjectView, RunReport, SnapshotReport};
 use commands::{Author, Context, State};
 use project::file::{DirEntry, FileSystem, FsError, MemFs};
 
@@ -258,6 +258,16 @@ impl Core {
             session: self.synced.state.session.clone(),
             slots: commands::host::ViewSlots::of(&self.synced.ctx.engine, self.synced.epoch()),
         }
+    }
+
+    /// Where the live input plays now, by engine slot, in the stream's epoch: what the page
+    /// tells the helper in Boost (`live.routing`, #598).
+    pub fn live_routing(&self) -> LiveRouting {
+        LiveRouting::of(
+            &self.synced.state,
+            &self.synced.ctx.engine,
+            self.synced.epoch(),
+        )
     }
 
     /// The undo history as the history panel shows it.
@@ -695,6 +705,16 @@ pub unsafe extern "C" fn pw_export_job(core: *mut Core, len: u32) -> i32 {
 pub unsafe extern "C" fn pw_project(core: *mut Core) -> i32 {
     // SAFETY: forwarded from this function's contract.
     unsafe { with_core(core, |core| publish(&core.view(), Vec::new())) }
+}
+
+/// [`Core::live_routing`]: a `LiveRouting`.
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_live_routing(core: *mut Core) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { with_core(core, |core| publish(&core.live_routing(), Vec::new())) }
 }
 
 /// [`Core::history`]: a `HistoryView`.

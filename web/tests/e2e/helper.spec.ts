@@ -8,8 +8,9 @@ import { engineUp, HELPER_HOST, HELPER_PORT, watch } from './support'
 // speaks the protocol on the helper's real address. The real helper is checked by hand (see the PR).
 //
 // Since BO-1 the page sends the helper its engine streams in binary frames (a snapshot newer than the
-// epoch of the hello, then each change), and plays the messages of the helper's MIDI input through its
-// project. The stand-in reads the message headers of each stream (`engine::msg`: tag at byte 2, epoch at
+// epoch of the hello, then each change; the table of the helper's MIDI input as a message, #598), and runs
+// the messages of the helper's MIDI input in its project, sending bytes only for those the helper did not
+// play. The stand-in reads the message headers of each stream (`engine::msg`: tag at byte 2, epoch at
 // byte 4, payload length at byte 8, each frame padded to 8 bytes).
 
 const CODE = '12345678'
@@ -170,8 +171,23 @@ test('probes, pairs and plays through the helper from the isolated page', async 
       .every((h) => h.epoch === HELLO_EPOCH + 1),
   ).toBe(true)
 
-  // A key of the helper's MIDI input plays through the page's project and comes back as engine bytes.
-  // The page's leg of that round trip, measured: `midi.message` out to the engine stream back.
+  // The table of the helper's MIDI input (#598): sent right behind the snapshot, in its epoch.
+  type Routing = { type: 'live.routing'; epoch: number; tracks: number[] }
+  const routings = () => messages.filter((m): m is Routing => (m as { type?: string }).type === 'live.routing')
+  await expect.poll(() => routings().length).toBeGreaterThan(0)
+  expect(routings().every((r) => r.epoch === HELLO_EPOCH + 1 && Array.isArray(r.tracks))).toBe(true)
+
+  // A key the helper played with that table runs in the page's project (the key shown) and sends no engine bytes.
+  const quiet = streams.length
+  sessionSocket!.send(JSON.stringify({ type: 'midi.message', data: [0x90, 67, 100], played: true }))
+  sessionSocket!.send(JSON.stringify({ type: 'midi.message', data: [0x80, 67, 0], played: true }))
+  // A control change after them is the page's: its bytes are the first stream since, so the notes sent none.
+  sessionSocket!.send(JSON.stringify({ type: 'midi.message', data: [0xb0, 123, 0], played: false }))
+  await expect.poll(() => streams.length).toBeGreaterThan(quiet)
+  expect(sent(NOTE_ON, quiet) || sent(NOTE_OFF, quiet)).toBe(false)
+
+  // A key the helper did not play (no table yet, another epoch) plays through the page's project and comes
+  // back as engine bytes. That fallback's page leg, measured: `midi.message` out to the engine stream back.
   const legs: number[] = []
   for (let i = 0; i < 40; i++) {
     for (const [status, tag] of [
@@ -180,7 +196,7 @@ test('probes, pairs and plays through the helper from the isolated page', async 
     ]) {
       const back = nextStreamWith(tag)
       const start = performance.now()
-      sessionSocket!.send(JSON.stringify({ type: 'midi.message', data: [status, 64, 100] }))
+      sessionSocket!.send(JSON.stringify({ type: 'midi.message', data: [status, 64, 100], played: false }))
       legs.push((await back) - start)
     }
   }

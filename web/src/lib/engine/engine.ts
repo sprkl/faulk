@@ -28,9 +28,10 @@ export interface EngineEvents {
   onMidiInputs?(inputs: MidiInput[], selected: string | null): void
   /**
    * Native engine only: a message of the helper's selected MIDI input, as received (BO-1). The page
-   * plays it as a Web MIDI message: the helper holds no project and routes no note.
+   * runs it as a Web MIDI message; `played` says the helper already played that note on its engine
+   * with the page's `live.routing` (#598), so the page sends no engine bytes for it.
    */
-  onMidiMessage?(data: number[]): void
+  onMidiMessage?(data: number[], played: boolean): void
   /** Native engine only: the helper's self-update (`update.status`), at session start and on change. */
   onHelperUpdate?(update: HelperUpdateState): void
   onError(code: string): void
