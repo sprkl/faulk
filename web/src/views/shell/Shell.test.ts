@@ -81,16 +81,23 @@ describe('the shell', () => {
     expect(body).toContain('data-testid="engine-dialog"')
   })
 
-  it('shows the engine pill as a button with the mode, the latency and the load when the engine reports it', () => {
+  it('shows the engine pill as a button with the mode, the latency and the load and its peak when the engine measures them', () => {
     const stores = createStores('arrangement', DEFAULT_PANEL)
     stores.engine.started = true
     let pill = render(Shell, { props: { stores } }).body
     expect(pill).toMatch(/<button[^>]*aria-haspopup="dialog"[^>]*data-testid="engine-mode"/)
     expect(pill).not.toContain('data-testid="engine-load"')
-    stores.engine.feedback = { cpuLoad: 0.42, tracks: [], seq: 1, transport: 'stopped', playheadTick: 0 } as never
+    expect(pill).toContain('Not measured by this engine yet')
+    stores.engine.load = { smoothed: 0.42, peak: 0.6 }
     pill = render(Shell, { props: { stores } }).body
     expect(pill).toContain('data-testid="engine-load"')
     expect(pill).toContain('CPU 42 %')
+    expect(pill).toContain('CPU load 42 %, peak 60 %')
+    expect(pill).toContain('42 % (peak 60 % over the last 3 s)')
+    stores.ui.lang = 'fr'
+    pill = render(Shell, { props: { stores } }).body
+    expect(pill).toContain('Charge CPU 42 %, crête 60 %')
+    expect(pill).toContain('42 % (crête 60 % sur les 3 dernières s)')
   })
 
   it('folds the bottom panel in the mixer and gives it back on leaving, without touching the stored fold', () => {

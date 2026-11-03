@@ -227,7 +227,28 @@ fn run_native(steps: &[Step]) -> (Vec<f32>, Vec<u8>, usize) {
 /// [`run_native`] with a host clock (#499): the host frame of the engine's first sample, told
 /// to the engine before each block (`Host::set_host_frame`), as the worklet does.
 fn run_native_at(steps: &[Step], origin: Option<u64>) -> (Vec<f32>, Vec<u8>, usize) {
+    run_native_with(steps, origin, None)
+}
+
+/// A caller's clock for the CPU load (#486): its step in seconds and the time each block
+/// (by its index) took, the same for both builds.
+#[derive(Clone, Copy)]
+struct Timing {
+    resolution: f64,
+    block: fn(u64) -> f64,
+}
+
+/// [`run_native_at`] with each block timed by `timing` (`Host::add_render_time`).
+fn run_native_with(
+    steps: &[Step],
+    origin: Option<u64>,
+    timing: Option<Timing>,
+) -> (Vec<f32>, Vec<u8>, usize) {
     let (mut prepare, mut host) = engine::host::channel(SAMPLE_RATE).unwrap();
+    if let Some(timing) = timing {
+        host.set_clock_resolution(timing.resolution as f32);
+    }
+    let mut block = 0u64;
     let mut out = Vec::new();
     let mut rendered = 0u64;
     for step in steps {
@@ -239,6 +260,10 @@ fn run_native_at(steps: &[Step], origin: Option<u64>) -> (Vec<f32>, Vec<u8>, usi
                         host.set_host_frame(origin + rendered);
                     }
                     let n = host.render(QUANTUM as usize);
+                    if let Some(timing) = timing {
+                        host.add_render_time((timing.block)(block) as f32, n as u32);
+                    }
+                    block += 1;
                     rendered += n as u64;
                     out.extend_from_slice(&host.left()[..n]);
                     out.extend_from_slice(&host.right()[..n]);
@@ -283,6 +308,15 @@ fn run_wasm(steps: &[Step]) -> (Vec<f32>, Vec<u8>) {
 
 /// [`run_wasm`] with a host clock, through `fk_render_at` (#499).
 fn run_wasm_at(steps: &[Step], origin: Option<u64>) -> (Vec<f32>, Vec<u8>) {
+    run_wasm_with(steps, origin, None)
+}
+
+/// [`run_wasm_at`] with each block timed by `timing`, through `fk_add_render_time` (#486).
+fn run_wasm_with(
+    steps: &[Step],
+    origin: Option<u64>,
+    timing: Option<Timing>,
+) -> (Vec<f32>, Vec<u8>) {
     let bytes = std::fs::read(build_wasm()).expect("the wasm module exists");
     let engine = Engine::default();
     let module = Module::new(&engine, &bytes[..]).expect("valid module");
@@ -307,12 +341,20 @@ fn run_wasm_at(steps: &[Step], origin: Option<u64>) -> (Vec<f32>, Vec<u8>) {
     let left_ptr = func::<i32, i32>(&instance, &store, "fk_left");
     let right_ptr = func::<i32, i32>(&instance, &store, "fk_right");
     let prepare_counter = func::<(i32, i32), i32>(&instance, &store, "fk_prepare_counter");
+    let add_render_time = func::<(i32, f64, i32), ()>(&instance, &store, "fk_add_render_time");
+    let set_resolution = func::<(i32, f64), ()>(&instance, &store, "fk_set_clock_resolution");
     let memory = instance
         .get_memory(&store, "memory")
         .expect("exported memory");
 
     let ch = new.call(&mut store, SAMPLE_RATE).unwrap();
     assert_ne!(ch, 0);
+    if let Some(timing) = timing {
+        set_resolution
+            .call(&mut store, (ch, timing.resolution))
+            .unwrap();
+    }
+    let mut block = 0u64;
     let read = |store: &Store<()>, at: usize, frames: usize, out: &mut Vec<f32>| {
         let mut bytes = vec![0u8; frames * 4];
         memory.read(store, at, &mut bytes).unwrap();
@@ -343,6 +385,12 @@ fn run_wasm_at(steps: &[Step], origin: Option<u64>) -> (Vec<f32>, Vec<u8>) {
                             .unwrap(),
                         None => render.call(&mut store, (ch, QUANTUM as i32)).unwrap(),
                     } as usize;
+                    if let Some(timing) = timing {
+                        add_render_time
+                            .call(&mut store, (ch, (timing.block)(block), frames as i32))
+                            .unwrap();
+                    }
+                    block += 1;
                     rendered += frames as u64;
                     let left = left_ptr.call(&mut store, ch).unwrap() as usize;
                     let right = right_ptr.call(&mut store, ch).unwrap() as usize;
@@ -502,6 +550,8 @@ fn null_channel_is_ignored() {
         assert!(engine_wasm::fk_left(null).is_null());
         assert!(engine_wasm::fk_feedback(null).is_null());
         assert_eq!(engine_wasm::fk_host_counter(null, 0), u32::MAX);
+        engine_wasm::fk_add_render_time(null, 0.001, 128);
+        engine_wasm::fk_set_clock_resolution(null, 0.001);
     }
 }
 
@@ -814,4 +864,123 @@ fn native_and_wasm_record_stamped_notes_on_their_beats() {
         ]
     );
     assert_eq!(native_out.len(), wasm_out.len());
+}
+
+/// [`report_session`] under load: eight more notes held on each of the four tracks, the clock
+/// running, 40 blocks (three report periods).
+fn loaded_session() -> Vec<Step> {
+    use engine::msg::{ControlMsg as M, encode_stream};
+    let mut steps = report_session();
+    steps.pop();
+    let notes: Vec<M> = (0..4u32)
+        .flat_map(|t| {
+            (0..8u8).map(move |i| M::NoteOn {
+                track: TrackSlot(t),
+                pitch: 40 + i * 5 + t as u8,
+                velocity: 90,
+                at: None,
+            })
+        })
+        .collect();
+    // The two pushes of `report_session` used the sequence numbers 0 to 17.
+    steps.push(Step::Push(encode_stream(1, 18, &notes).unwrap()));
+    steps.push(Step::Render(40));
+    steps
+}
+
+/// The duration of one block, in seconds.
+fn block_secs() -> f64 {
+    f64::from(QUANTUM) / f64::from(SAMPLE_RATE)
+}
+
+/// Block times with a spike: the blocks at 10 to 40 % of their 2.67 ms, block 33 at 95 %.
+fn spiky(block: u64) -> f64 {
+    if block == 33 {
+        0.95 * block_secs()
+    } else {
+        (0.1 + 0.1 * (block % 4) as f64) * block_secs()
+    }
+}
+
+/// The same block times read by a clock of 1 ms steps (the worklet's `Date.now()`).
+fn spiky_coarse(block: u64) -> f64 {
+    let start = block as f64 * block_secs();
+    ((start + spiky(block)) * 1000.0).floor() / 1000.0 - (start * 1000.0).floor() / 1000.0
+}
+
+/// Web/Boost parity of the CPU load (#486) on a loaded render: the same timed blocks give the
+/// same load and peak through the native host (the helper's) and the WASM build (the
+/// worklet's), with a fine clock and with the worklet's 1 ms one. The real clocks cannot be
+/// compared here (the WASM build runs in an interpreter): `a_real_clock_measures_the_loaded_render`
+/// and the helper's and the page's tests time the real renders.
+#[test]
+fn native_and_wasm_report_the_same_cpu_load_on_a_loaded_render() {
+    use engine::host::decode_feedback;
+    let steps = loaded_session();
+    for (timing, fine) in [
+        (
+            Timing {
+                resolution: 0.0,
+                block: spiky,
+            },
+            true,
+        ),
+        (
+            Timing {
+                resolution: 0.001,
+                block: spiky_coarse,
+            },
+            false,
+        ),
+    ] {
+        let (native_out, native, _) = run_native_with(&steps, None, Some(timing));
+        let (wasm_out, wasm) = run_wasm_with(&steps, None, Some(timing));
+        let n = decode_feedback(&native).expect("a native report");
+        let w = decode_feedback(&wasm).expect("a wasm report");
+        assert!(n.voices >= 32, "a loaded render: {} voices", n.voices);
+        assert_eq!(n.voices, w.voices);
+        assert!(native_out.iter().any(|s| s.abs() > 0.01), "it sounds");
+        assert_eq!(native_out.len(), wasm_out.len());
+        assert_eq!(n.seq, w.seq);
+        assert_eq!(n.cpu_load.to_bits(), w.cpu_load.to_bits(), "{n:?} {w:?}");
+        assert_eq!(n.cpu_peak.to_bits(), w.cpu_peak.to_bits());
+        assert!((0.1..0.5).contains(&n.cpu_load), "{}", n.cpu_load);
+        if fine {
+            // Block 33 is in the last report's period: a fine clock shows it whole.
+            assert!((n.cpu_peak - 0.95).abs() < 1e-3, "{}", n.cpu_peak);
+        } else {
+            // A 1 ms clock takes its peak over a window of about 100 ms.
+            assert!((0.1..0.5).contains(&n.cpu_peak), "{}", n.cpu_peak);
+        }
+    }
+}
+
+/// The helper's way with a real clock, on the same loaded render natively: each block timed
+/// with `Instant`, the load is measured (more than 0, at most 1).
+#[test]
+fn a_real_clock_measures_the_loaded_render() {
+    use engine::host::decode_feedback;
+    let steps = loaded_session();
+    let (mut prepare, mut host) = engine::host::channel(SAMPLE_RATE).unwrap();
+    for step in &steps {
+        match step {
+            Step::Push(bytes) => prepare.submit(bytes).unwrap(),
+            Step::Render(blocks) => {
+                for _ in 0..*blocks {
+                    let start = std::time::Instant::now();
+                    let n = host.render(QUANTUM as usize);
+                    host.add_render_time(start.elapsed().as_secs_f32(), n as u32);
+                }
+            }
+        }
+    }
+    let report: Vec<u8> = host
+        .feedback()
+        .iter()
+        .flat_map(|w| w.load(std::sync::atomic::Ordering::Relaxed).to_ne_bytes())
+        .collect();
+    let r = decode_feedback(&report).unwrap();
+    assert!(r.voices >= 32);
+    assert!(r.cpu_load > 0.0 && r.cpu_load <= 1.0, "{}", r.cpu_load);
+    assert!(r.cpu_peak >= r.cpu_load && r.cpu_peak <= 1.0);
 }

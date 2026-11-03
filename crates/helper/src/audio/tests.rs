@@ -140,6 +140,34 @@ fn latency_estimate_adds_the_driver_delay_to_one_buffer() {
     assert_eq!(meter.estimated_latency_ms(48_000.0), Some(22.5));
 }
 
+/// The load and peak of the last report, after `callbacks` callbacks of 480 frames.
+fn load_after(core: &mut AudioCore, callbacks: usize) -> (f32, f32) {
+    let mut out = vec![0.0; 480 * 2];
+    for _ in 0..callbacks {
+        core.process(&mut out, 2);
+    }
+    let report = engine::host::read_feedback(core.host.feedback()).unwrap();
+    (report.cpu_load, report.cpu_peak)
+}
+
+#[test]
+fn the_callback_times_its_render_and_more_voices_weigh_more() {
+    let (mut core, mut sender, _, mut page) = with_page();
+    let (idle, idle_peak) = load_after(&mut core, 20);
+    assert!((0.0..=1.0).contains(&idle), "{idle}");
+    assert!(idle_peak >= idle && idle_peak <= 1.0, "{idle_peak}");
+    for note in 0..16 {
+        sender.submit(&page.note_on(40 + note * 3, 100)).unwrap();
+    }
+    let (busy, busy_peak) = load_after(&mut core, 20);
+    assert!(busy > 0.0, "a measured load: {busy}");
+    assert!(busy_peak >= busy && busy_peak <= 1.0, "{busy_peak}");
+    assert!(
+        busy > idle,
+        "16 voices weigh more than none: {busy} against {idle}"
+    );
+}
+
 #[test]
 fn full_live_queue_releases_every_note() {
     let (mut core, mut sender, _, mut page) = with_page();

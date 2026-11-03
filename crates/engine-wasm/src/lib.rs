@@ -335,6 +335,34 @@ pub unsafe extern "C" fn fk_render_at(ch: *mut Channel, frames: u32, host_frame:
 /// The largest frame a JavaScript number holds exactly (`2^53`).
 const MAX_SAFE_FRAME: f64 = 9_007_199_254_740_992.0;
 
+/// One timed block (render instance, #486, `Host::add_render_time`): the worklet timed the
+/// render of `frames` with its clock and it took `seconds`; the report's CPU load and peak
+/// follow. A time that is not finite or not positive counts as 0 with its frames.
+///
+/// # Safety
+/// `ch` as in [`host`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_add_render_time(ch: *mut Channel, seconds: f64, frames: u32) {
+    // SAFETY: forwarded from this function's contract.
+    if let Some(h) = unsafe { host(ch) } {
+        h.add_render_time(seconds as f32, frames);
+    }
+}
+
+/// The step of the worklet's clock in seconds (render instance, #486,
+/// `Host::set_clock_resolution`): `Date.now()` steps by 1 ms, which sets the length of the
+/// peak windows. Not finite or negative: a fine clock.
+///
+/// # Safety
+/// `ch` as in [`host`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_set_clock_resolution(ch: *mut Channel, seconds: f64) {
+    // SAFETY: forwarded from this function's contract.
+    if let Some(h) = unsafe { host(ch) } {
+        h.set_clock_resolution(seconds as f32);
+    }
+}
+
 /// Warms the apply path (#355): runs every message of the engine once on a throwaway channel
 /// of its own at `sample_rate`, so that V8, which compiles a WebAssembly function at its first
 /// call, does it here and not in the first pump that applies messages. Call it once from the

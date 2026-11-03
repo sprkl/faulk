@@ -186,8 +186,33 @@ describe('the shipped engine module, two instances on one shared memory', () => 
     expect(report!.tracks).toHaveLength(1)
     expect(peakOf(report!.tracks[0])).toBeGreaterThan(0.05)
     expect(peakOf(report!.master)).toBeGreaterThan(0.05)
-    expect(report!.cpuLoad).toBeNull() // the worklet has no clock
+    expect(report!.cpuLoad).toBeNull() // no block was timed (`fk_add_render_time`): not measured
+    expect(report!.cpuPeak).toBeNull()
     expect(report!.transport).toBe('stopped')
+  })
+
+  it('reports the CPU load the shipped worklet times on each block (#486)', async () => {
+    const memory = sharedMemory()
+    const prepare = instantiate(module, memory)
+    const setup = createChannel(prepare, 48_000)
+    const ch = setup.channel
+    const processor = await shippedProcessor()
+    processor.port.onmessage!({ data: { type: 'init', bytes: bytes.slice(0), memory, setup } } as MessageEvent)
+    expect(processor.port.sent).toEqual([{ type: 'ready' }])
+    for (const step of steps('session.stream')) {
+      if (!('push' in step)) break
+      expect(push(prepare, memory, ch, step.push)).toBe(0)
+    }
+    const left = new Float32Array(QUANTUM)
+    const right = new Float32Array(QUANTUM)
+    for (let b = 0; b < 40; b++) processor.process([], [[left, right]])
+    const report = readFeedback(memory.buffer, prepare.fk_feedback(ch), prepare.fk_feedback_len(ch))
+    expect(report!.voices).toBe(1)
+    // Node has `performance.now()`: a fine clock, the render of a voice takes some time.
+    expect(report!.cpuLoad).toBeGreaterThan(0)
+    expect(report!.cpuLoad).toBeLessThanOrEqual(1)
+    expect(report!.cpuPeak).toBeGreaterThanOrEqual(report!.cpuLoad!)
+    expect(report!.cpuPeak).toBeLessThanOrEqual(1)
   })
 
   it('grows the shared memory from the prepare thread while the shipped worklet plays', async () => {
