@@ -15,7 +15,9 @@
   import { barStart, placeFromSlot, placeScene } from '../../lib/arrangement-commands'
   import { barTicks } from '../transport/time'
   import { deleteClip, duplicateClip, moveClip, renameClip, setClipLoop } from '../../lib/clip-commands'
+  import type { MenuItem } from '../../lib/context-menu'
   import { trackColor, trackLabel } from '../../lib/project/tracks'
+  import { chordText } from '../../lib/shortcuts'
   import { createClipInCell, createScene, deleteScene, launchClip, launchScene, moveScene, renameScene, stopAll, stopTrack } from '../../lib/scene-commands'
   import { useStores } from '../../lib/stores'
   import { beginGroup, endGroup, selectTrack } from '../../lib/track-commands'
@@ -338,6 +340,45 @@
     void tick().then(() => board?.querySelector<HTMLElement>(`[data-cell][data-clip="${id}"]`)?.focus())
   }
 
+  /**
+   * The right click on a cell (#524): a clip's actions, or on an empty cell of a MIDI track creating a clip there (and
+   * pasting the copied one). An empty cell of an audio track has none, and opens nothing.
+   */
+  function onBoardContext(event: MouseEvent) {
+    if (event.defaultPrevented) return
+    const cell = (event.target as Element | null)?.closest?.<HTMLElement>('[data-cell]')
+    if (!cell) return
+    const { track, scene, clip, launchable } = cell.dataset
+    const ti = Number(cell.dataset.ti)
+    const si = Number(cell.dataset.si)
+    const items: MenuItem[] = []
+    if (clip) {
+      if (launchable === 'true') {
+        items.push(
+          { id: 'open', label: t('grid.editClip', { clip: nameOf(homes.get(clip)?.cell.clip ?? { name: '' }) }), run: () => open(track!, clip, true) },
+          { id: 'rename', label: t('grid.rename'), shortcut: chordText(['F2']), run: () => void startClipRename(clip) },
+          { id: 'copy', label: t('grid.copy'), shortcut: chordText(['Mod', 'C']), run: () => (copied = clip) },
+          { id: 'duplicate', label: t('grid.duplicate'), disabled: freeBelow(track!, si) === null, run: () => duplicateFromMenu(clip) },
+        )
+      }
+      items.push(
+        { id: 'send', label: t('grid.send'), separator: true, run: () => sendToArrangement(clip, false) },
+        { id: 'send-linked', label: t('grid.sendLinked'), run: () => sendToArrangement(clip, true) },
+        {
+          id: 'delete',
+          label: t('grid.delete'),
+          shortcut: launchable === 'true' ? chordText(['Delete']) : undefined,
+          separator: true,
+          run: () => removeClip(clip, ti, si),
+        },
+      )
+    } else if (cell.dataset.midi === 'true') {
+      items.push({ id: 'create', label: t('pianoRoll.createClip'), run: () => create(track!, scene!) })
+      if (copied && homes.has(copied)) items.push({ id: 'paste', label: t('grid.paste'), shortcut: chordText(['Mod', 'V']), run: () => paste(cell) })
+    }
+    ui.openMenu(event, items, t('grid.menu'))
+  }
+
   // --- a clip dropped from the Clips panel (#473) ----------------------------------------------------------------
   /** The empty cell a clip of the pool is dragged over. */
   let poolOver = $state<string | null>(null)
@@ -654,6 +695,7 @@
       ondblclick={onBoardDoubleClick}
       onpointerdown={onBoardPointerDown}
       onkeydown={onBoardKey}
+      oncontextmenu={onBoardContext}
       onfocusin={onFocusIn}
     >
       <div class="row" role="row">

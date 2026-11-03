@@ -13,6 +13,7 @@
   import { cardActions, type ChainEntry } from '../../lib/project/chain'
   import { deviceText, labelKey, shownParams } from '../../lib/devices'
   import { MASTER_METER, useStores } from '../../lib/stores'
+  import type { MenuItem } from '../../lib/context-menu'
 
   let { entry, chain, master = false, track }: { entry: ChainEntry; chain: readonly ChainEntry[]; master?: boolean; track?: string } = $props()
 
@@ -31,6 +32,33 @@
   // A knob drag is one history group: one undo takes it back whole.
   const gesture = createGesture((command) => dispatcher.run(command))
   onDestroy(() => gesture.end())
+
+  /** The right click on the card (#524): bypass, and for an effect its place in the chain and its removal. A control inside answers for itself. */
+  function onContextMenu(event: MouseEvent) {
+    if (event.defaultPrevented) return
+    const items: MenuItem[] = [
+      { id: 'bypass', label: t('devices.bypass', { name }), detail: bypassed ? '✓' : undefined, run: () => dispatcher.run(actions.bypass) },
+    ]
+    if (isEffect) {
+      items.push(
+        {
+          id: 'move-left',
+          label: t('devices.moveLeft', { name }),
+          disabled: actions.moveLeft === null,
+          separator: true,
+          run: () => actions.moveLeft && dispatcher.run(actions.moveLeft),
+        },
+        {
+          id: 'move-right',
+          label: t('devices.moveRight', { name }),
+          disabled: actions.moveRight === null,
+          run: () => actions.moveRight && dispatcher.run(actions.moveRight),
+        },
+        { id: 'remove', label: t('devices.remove', { name }), separator: true, run: () => dispatcher.run(actions.remove) },
+      )
+    }
+    ui.openMenu(event, items, name)
+  }
 
   /** Whether the owner (the master, or the track) already has a lane on a device parameter (the Automate button is then a navigate-only action). */
   function hasDeviceLane(paramKey: string): boolean {
@@ -53,7 +81,15 @@
   }
 </script>
 
-<article class="card" class:bypassed data-testid="device-card" data-kind={entry.kind} data-role={isEffect ? 'effect' : 'instrument'} data-bypassed={bypassed}>
+<article
+  class="card"
+  class:bypassed
+  oncontextmenu={onContextMenu}
+  data-testid="device-card"
+  data-kind={entry.kind}
+  data-role={isEffect ? 'effect' : 'instrument'}
+  data-bypassed={bypassed}
+>
   <header>
     <h3 title={name}>{name}</h3>
     <div class="actions">
