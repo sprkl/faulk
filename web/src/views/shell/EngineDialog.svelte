@@ -11,6 +11,7 @@
   import { absentHelperMessages } from '../../lib/engine/local-access'
   import { MASTER_METER, useStores } from '../../lib/stores'
   import { allNotesOff } from '../../lib/synth-commands'
+  import { QUANTIZE_GRIDS, DEFAULT_QUANTIZE_STRENGTH } from '../piano-roll/roll'
 
   const { engine, ui, dispatcher, meters, project } = useStores()
   const t = ui.t
@@ -42,6 +43,18 @@
     if (offsetDraft.trim() !== '' && Number.isFinite(value) && value !== offset)
       dispatcher.run({ type: 'record.set_settings', offset_ms: Math.max(-500, Math.min(500, value)) })
     offsetDraft = String(offset)
+  }
+
+  /** Replace mode and quantization on input (#500): session state too, `record.set_settings`. */
+  const replace = $derived(project.view?.session.record?.replace ?? false)
+  const inputGrid = $derived(project.view?.session.record?.quantize_on_input ?? 'none')
+  const strength = $derived(project.view?.session.record?.quantize_strength ?? DEFAULT_QUANTIZE_STRENGTH)
+  function onStrength(event: Event) {
+    const input = event.currentTarget as HTMLInputElement
+    const value = Math.round(Number(input.value))
+    if (input.value.trim() !== '' && Number.isFinite(value) && value !== strength)
+      dispatcher.run({ type: 'record.set_settings', quantize_strength: Math.max(0, Math.min(100, value)) })
+    input.value = String(strength)
   }
 
   /** A click on the backdrop (the dialog element itself, outside its box) closes it. */
@@ -107,6 +120,47 @@
             }}
           />
           <span class="unit">ms</span>
+        </dd>
+        <dt><label for="engine-record-replace">{t('engine.recordReplace')}</label></dt>
+        <dd>
+          <input
+            id="engine-record-replace"
+            type="checkbox"
+            checked={replace}
+            title={t('engine.recordReplaceHint')}
+            data-testid="engine-record-replace"
+            onchange={(event) => dispatcher.run({ type: 'record.set_settings', replace: event.currentTarget.checked })}
+          />
+        </dd>
+        <dt><label for="engine-record-quantize">{t('engine.recordQuantize')}</label></dt>
+        <dd>
+          <select
+            id="engine-record-quantize"
+            title={t('engine.recordQuantizeHint')}
+            data-testid="engine-record-quantize"
+            value={inputGrid}
+            onchange={(event) =>
+              dispatcher.run({ type: 'record.set_settings', quantize_on_input: event.currentTarget.value as (typeof QUANTIZE_GRIDS)[number]['id'] | 'none' })}
+          >
+            <option value="none">{t('engine.recordQuantizeNone')}</option>
+            {#each QUANTIZE_GRIDS as grid (grid.id)}
+              <option value={grid.id}>{t(`pianoRoll.qgrid.${grid.id}`)}</option>
+            {/each}
+          </select>
+          <input
+            class="offset"
+            type="number"
+            min="0"
+            max="100"
+            step="1"
+            value={strength}
+            disabled={inputGrid === 'none'}
+            aria-label={t('engine.recordQuantizeStrength')}
+            title={t('engine.recordQuantizeStrength')}
+            data-testid="engine-record-quantize-strength"
+            onchange={onStrength}
+          />
+          <span class="unit">%</span>
         </dd>
         <dt>{t('engine.loadLabel')}</dt>
         <dd data-testid="engine-dialog-load">{load ?? t('engine.loadNone')}</dd>
