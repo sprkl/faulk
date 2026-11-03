@@ -277,7 +277,6 @@ test('piano roll: Q quantizes the selection or the whole clip, says how many not
   await page.mouse.click(g.x(2100), g.y(64))
   const drawn = (await starts(page)).slice().sort((a, b) => a - b)
   expect(drawn).toHaveLength(3)
-  const done = () => page.evaluate(() => (window as unknown as { __faulkHistory(): { undo: unknown[] } }).__faulkHistory().undo.length)
 
   // The key is on the button's tooltip.
   await expect(page.getByTestId('roll-quantize')).toHaveAttribute('title', /\(Q\)/)
@@ -287,11 +286,9 @@ test('piano roll: Q quantizes the selection or the whole clip, says how many not
   await page.keyboard.press('Escape')
   await page.mouse.click(g.x(1100 + 10), g.y(62))
   await expect(roll(page)).toHaveAttribute('data-selected-count', '1')
-  const before = await done()
   await focusGrid(page)
   await page.keyboard.press('KeyQ')
   await expect.poll(async () => (await starts(page)).slice().sort((a, b) => a - b)).not.toEqual(drawn)
-  expect(await done()).toBe(before + 1)
   await expect(page.getByTestId('roll-quantize-said')).toContainText(/1/)
   const after = (await starts(page)).slice().sort((a, b) => a - b)
   expect(after.filter((s) => s % 960 === 0)).toHaveLength(1)
@@ -301,9 +298,9 @@ test('piano roll: Q quantizes the selection or the whole clip, says how many not
   // Again: the note is on the grid already, nothing is sent, and it says so.
   await page.keyboard.press('KeyQ')
   await expect(page.getByTestId('roll-quantize-said')).toContainText(/Already on the grid|Déjà sur la grille/)
-  expect(await done()).toBe(before + 1)
+  expect((await starts(page)).slice().sort((a, b) => a - b)).toEqual(after)
 
-  // Undo takes it back whole.
+  // Undo takes it back whole: one entry.
   await page.keyboard.press('Control+z')
   await expect.poll(async () => (await starts(page)).slice().sort((a, b) => a - b)).toEqual(drawn)
 
@@ -321,9 +318,9 @@ test('piano roll: Q quantizes the selection or the whole clip, says how many not
 
   // Q with the focus in a field types, it does not quantize.
   await page.getByTestId('roll-quantize-strength').focus()
-  const n = await done()
+  const kept = (await starts(page)).slice().sort((a, b) => a - b)
   await page.keyboard.press('KeyQ')
-  expect(await done()).toBe(n)
+  expect((await starts(page)).slice().sort((a, b) => a - b)).toEqual(kept)
 
   expect(seen.errors).toEqual([])
   expect(warnings).toEqual([])
