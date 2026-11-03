@@ -78,6 +78,8 @@ Then `python scripts/sheet_tool.py render <sheet>.md --out <title>.mid` and name
 
 If commands or tools can drive a DAW (an MCP server that creates tracks, clips and notes, a project file format you can write), **build the sheet in it**: one track per role, the seed and the variations as clips, the arrangement as the timeline, then play it. The sheet stays the source of truth and is still delivered: a project nobody can read is a project nobody can change. Sounds in the DAW follow the same order as everywhere else: a preset in the right family while the notes are written, then bend it.
 
+In Faulk, build through the interface only, with the clicks, drags and key presses a person has: never through Faulk's commands, MCP tools, page scripts or written project files. Building there is how Faulk learns whether a person can make the track; a step the interface cannot do is reported as a gap, not worked around.
+
 ## Before reporting
 
 Go through this list against the actual files, not from memory:
