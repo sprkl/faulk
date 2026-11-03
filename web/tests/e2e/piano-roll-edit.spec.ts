@@ -416,7 +416,7 @@ test('piano roll: Alt+Up and Alt+Down transpose the selection (Alt+Shift: an oct
   await expect(transpose.locator('kbd')).toHaveText(['Alt', '↑', 'Alt', '↓', 'Alt', 'Shift', '↑', 'Alt', 'Shift', '↓'])
   const step = dialog.locator('li', { hasText: /previous or next note in time/ })
   await expect(step.locator('kbd')).toHaveText(['←', '→', '↑', '↓', 'Shift', '←', 'Shift', '→', 'Shift', '↑', 'Shift', '↓'])
-  await expect(dialog.locator('li', { hasText: /On a note: move the selected notes/ }).locator('kbd')).toHaveText(['Alt', '←', 'Alt', '→'])
+  await expect(dialog.locator('li', { hasText: /Move the selected notes by the drawing step/ }).locator('kbd')).toHaveText(['Alt', '←', 'Alt', '→'])
   expect(seen.errors).toEqual([])
 })
 
@@ -449,5 +449,51 @@ test('piano roll: a drawn note takes the draw velocity, not the velocity of the 
   await draw.fill('500')
   await draw.blur()
   await expect(draw).toHaveValue('127')
+  expect(seen.errors).toEqual([])
+})
+
+// #550: Alt+Left and Alt+Right move the selection from the grid and the free cursor, a refused transposition is said,
+// and the draw velocity survives closing the roll.
+test('piano roll: Alt+arrows move from the grid and the cursor, an edge refusal is said, the draw velocity is kept', async ({ page }) => {
+  test.setTimeout(120_000)
+  const { seen } = await openRoll(page)
+  const g = await spot(page)
+  await page.mouse.click(g.x(1000), g.y(60))
+  await focusGrid(page)
+  await page.keyboard.press('Control+a')
+  await expect(roll(page)).toHaveAttribute('data-selected-count', '1')
+  const before = await starts(page)
+
+  // From the grid: right then left, one entry each.
+  await page.keyboard.press('Alt+ArrowRight')
+  await expect.poll(async () => (await starts(page))[0]! - before[0]!).toBeGreaterThan(0)
+  await page.keyboard.press('Alt+ArrowLeft')
+  await expect.poll(() => starts(page)).toEqual(before)
+  // From the free cursor.
+  await page.getByTestId('roll-item').first().focus()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('roll-cursor')).toBeFocused()
+  await page.keyboard.press('Alt+ArrowRight')
+  await expect.poll(async () => (await starts(page))[0]! - before[0]!).toBeGreaterThan(0)
+  await page.keyboard.press('Alt+ArrowLeft')
+  await expect.poll(() => starts(page)).toEqual(before)
+
+  // Up to the keyboard's edge by octaves (60 to 120): the next octave would leave it, so it is refused and said.
+  for (let i = 0; i < 5; i++) await page.keyboard.press('Alt+Shift+ArrowUp')
+  await expect.poll(() => pitches(page)).toEqual([120])
+  const said = page.getByTestId('roll-said')
+  const n = Number(await said.getAttribute('data-n'))
+  await page.keyboard.press('Alt+Shift+ArrowUp')
+  await expect(said).toHaveText(/Cannot move further/)
+  expect(Number(await said.getAttribute('data-n'))).toBeGreaterThan(n)
+  expect(await pitches(page)).toEqual([120])
+
+  // The draw velocity comes back when the roll is closed and opened again.
+  const draw = page.getByTestId('roll-draw-velocity')
+  await draw.fill('64')
+  await draw.blur()
+  await page.getByTestId('panel-devices').click()
+  await page.getByTestId('panel-piano-roll').click()
+  await expect(page.getByTestId('roll-draw-velocity')).toHaveValue('64')
   expect(seen.errors).toEqual([])
 })
