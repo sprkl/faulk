@@ -122,7 +122,7 @@ test('without an audio output the helper keeps the page in Web mode, says so, an
 
   // Paired, but no output: the page plays itself, the dialog says why and the pill shows the wait.
   const message = page.getByTestId('helper-no-output')
-  await expect(message).toContainText('The helper has no audio output.')
+  await expect(message).toContainText('The helper has no audio output it can use.')
   await expect(page.getByRole('button', { name: 'Stay in Web' })).toBeVisible()
   await expect(page.getByTestId('engine-dialog-mode')).toHaveText('Web (in the browser)')
   await expect(page.getByTestId('engine-waiting')).toBeVisible()
@@ -151,7 +151,7 @@ test('the French page says the helper has no audio output', async ({ page }) => 
   await page.getByTestId('engine-mode').click()
   await page.getByRole('textbox', { name: /code/i }).fill('1234 5678')
   await page.getByRole('button', { name: 'Appairer', exact: true }).click()
-  await expect(page.getByTestId('helper-no-output')).toContainText('Le helper n’a pas de sortie audio.')
+  await expect(page.getByTestId('helper-no-output')).toContainText('Le helper n’a pas de sortie audio utilisable.')
   await page.getByRole('button', { name: 'Rester en Web' }).click()
   await expect(page.getByTestId('helper-no-output')).toHaveCount(0)
   await expect(page.getByTestId('engine-waiting')).toHaveCount(0)

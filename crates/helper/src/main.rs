@@ -296,8 +296,9 @@ fn main() {
     *CLAIMED.lock().unwrap_or_else(|p| p.into_inner()) = Some(std_listener);
 
     // Updates of the installed helper, on their own thread; disabled when run from cargo.
-    // Started before anything that can stop the start (token, audio output, runtime, tray):
-    // a helper that cannot start still checks, and `fatal` lets that check end (#515).
+    // Started before anything that can stop the start (token, runtime, tray) and before the
+    // audio output, which no longer stops it (#525): a helper that cannot start still checks,
+    // and `fatal` lets that check end (#515).
     let updates = Updater::start(Config::from_env());
     if let UpdateStatus::Disabled { reason } = updates.status() {
         log!("update: disabled ({reason})");

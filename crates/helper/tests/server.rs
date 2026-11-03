@@ -401,6 +401,46 @@ async fn reports_an_audio_error() {
     wait_events(&h, &[HelperEvent::AudioError]).await;
 }
 
+/// A session opened on an output that has not called back yet waits for its first callback,
+/// so its hello carries the buffer size and the latency (#525).
+#[tokio::test]
+async fn the_hello_of_a_new_output_waits_for_its_first_callback() {
+    let mut h = start().await;
+    let path = format!("/session?token={TOKEN}");
+    let mut ws = connect(h.port, &path, Some(ORIGIN)).await.unwrap();
+    // The output calls back 50 ms after the page connected.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    play(&mut h.core, 10);
+    match next(&mut ws).await {
+        ServerMessage::Hello {
+            buffer_frames,
+            estimated_latency_ms,
+            ..
+        } => {
+            assert!(buffer_frames.is_some(), "the buffer size is known");
+            assert!(estimated_latency_ms.is_some(), "the latency is known");
+        }
+        other => panic!("expected hello, got {other:?}"),
+    }
+}
+
+/// An output that goes away while a session waits for its first callback: the page gets
+/// `audio.stream` instead of a hello, and takes it as no output (#525).
+#[tokio::test]
+async fn an_output_lost_before_the_hello_is_said_instead_of_it() {
+    let h = start().await;
+    let path = format!("/session?token={TOKEN}");
+    let mut ws = connect(h.port, &path, Some(ORIGIN)).await.unwrap();
+    // No callback yet: the session waits; the output goes away meanwhile (no `output_lost`,
+    // as if the supervisor had not told the server yet).
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    h.engine.remove();
+    match next(&mut ws).await {
+        ServerMessage::Error { code, .. } => assert_eq!(code, "audio.stream"),
+        other => panic!("expected audio.stream instead of hello, got {other:?}"),
+    }
+}
+
 /// The page in Boost hears of a lost output at once; a page that connects to the next output
 /// gets its hello and never the news of the old one (#525).
 #[tokio::test]

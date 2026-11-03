@@ -25,7 +25,7 @@ export const helper = defineFeature(
     'helper.replaced': 'Another page took over the helper: back to Web mode.',
     'helper.recheck': 'Check again',
     'helper.noOutput':
-      'The helper has no audio output. Plug in speakers or headphones, or pick an output in your system’s sound settings. Faulk plays in the browser meanwhile and switches to Boost by itself once the output is there.',
+      'The helper has no audio output it can use. Plug in speakers or headphones, or pick another output in your system’s sound settings. Faulk plays in the browser meanwhile and switches to Boost by itself once the output is there.',
     'helper.stayWeb': 'Stay in Web',
   },
   {
@@ -51,7 +51,7 @@ export const helper = defineFeature(
     'helper.replaced': 'Une autre page a pris le helper : retour en mode Web.',
     'helper.recheck': 'Chercher à nouveau',
     'helper.noOutput':
-      'Le helper n’a pas de sortie audio. Branche des enceintes ou un casque, ou choisis une sortie dans les réglages son du système. En attendant, Faulk joue dans le navigateur et passe en Boost tout seul dès que la sortie est là.',
+      'Le helper n’a pas de sortie audio utilisable. Branche des enceintes ou un casque, ou choisis une autre sortie dans les réglages son du système. En attendant, Faulk joue dans le navigateur et passe en Boost tout seul dès que la sortie est là.',
     'helper.stayWeb': 'Rester en Web',
   },
 )

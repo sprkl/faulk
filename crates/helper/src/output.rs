@@ -54,6 +54,10 @@ pub struct Timing {
     pub retry: Duration,
     /// Shortest time between two attempts, so a device that fails at once does not spin.
     pub min_gap: Duration,
+    /// A stream that failed sooner than this after it opened is a quick failure: each one in a
+    /// row doubles the gap before the next attempt (up to `retry`), so a device that keeps
+    /// dropping does not fill the journal and flip the tray every second.
+    pub stable: Duration,
 }
 
 impl Default for Timing {
@@ -63,6 +67,7 @@ impl Default for Timing {
             devices: Duration::from_secs(2),
             retry: Duration::from_secs(30),
             min_gap: Duration::from_secs(1),
+            stable: Duration::from_secs(10),
         }
     }
 }
@@ -136,6 +141,8 @@ fn supervise<B: Backend>(mut backend: B, links: &Links, stop: &mpsc::Receiver<()
         }
     };
     let mut last_reason: Option<String> = None;
+    // Quick stream failures in a row (`Timing::stable`).
+    let mut quick: u32 = 0;
     loop {
         let failed = Arc::new(AtomicBool::new(false));
         let attempt = Instant::now();
@@ -160,12 +167,21 @@ fn supervise<B: Backend>(mut backend: B, links: &Links, stop: &mpsc::Receiver<()
                 if quit {
                     return;
                 }
+                quick = if attempt.elapsed() < timing.stable {
+                    quick + 1
+                } else {
+                    0
+                };
                 crate::log!("the audio output failed: looking for an output");
                 report(false);
                 (links.lost)();
-                // Try again at once (the default output may have changed), but not faster
-                // than `min_gap`.
-                if stopped(stop, timing.min_gap.saturating_sub(attempt.elapsed())) {
+                // Try again at once (the default output may have changed), but not faster than
+                // `min_gap`, doubled for each quick failure in a row after the first.
+                let gap = timing
+                    .min_gap
+                    .saturating_mul(1 << quick.saturating_sub(1).min(16))
+                    .min(timing.retry.max(timing.min_gap));
+                if stopped(stop, gap.saturating_sub(attempt.elapsed())) {
                     return;
                 }
             }
@@ -308,6 +324,8 @@ mod tests {
         available: bool,
         /// Every `open` call, in order.
         opens: u32,
+        /// When each `open` was called.
+        opened_at: Vec<Instant>,
         /// The `failed` flag of the last stream opened, to make it fail.
         last_failed: Option<Arc<AtomicBool>>,
         /// The audio core of the last stream opened, which the test renders as its callback.
@@ -340,6 +358,7 @@ mod tests {
         ) -> Result<Opened<FakeStream>, String> {
             let mut world = self.0.lock().unwrap();
             world.opens += 1;
+            world.opened_at.push(Instant::now());
             if !world.available {
                 return Err("no audio output device".into());
             }
@@ -370,6 +389,7 @@ mod tests {
         devices: Duration::from_millis(5),
         retry: Duration::from_secs(3600),
         min_gap: Duration::from_millis(20),
+        stable: Duration::from_secs(3600),
     };
 
     fn rig(world: World, timing: Timing) -> Rig {
@@ -522,28 +542,80 @@ mod tests {
         r.supervisor.stop();
     }
 
-    #[test]
-    fn a_device_that_fails_at_once_is_not_retried_faster_than_the_gap() {
+    /// Opens a stream that fails `after` its open, `count` times, and returns the times between
+    /// one attempt and the next.
+    fn gaps_of_failing_streams(timing: Timing, after: Duration, count: usize) -> Vec<Duration> {
         let r = rig(
             World {
                 available: true,
                 ..World::default()
             },
-            Timing {
-                min_gap: Duration::from_millis(200),
-                ..FAST
-            },
+            timing,
         );
         let start = Instant::now();
-        while start.elapsed() < Duration::from_millis(700) {
-            if let Some(failed) = r.world.lock().unwrap().last_failed.clone() {
+        loop {
+            let (opens, last, failed) = {
+                let world = r.world.lock().unwrap();
+                (
+                    world.opens as usize,
+                    world.opened_at.last().copied(),
+                    world.last_failed.clone(),
+                )
+            };
+            if opens > count {
+                break;
+            }
+            if let (Some(last), Some(failed)) = (last, failed)
+                && last.elapsed() >= after
+            {
                 failed.store(true, Ordering::Relaxed);
             }
-            std::thread::sleep(Duration::from_millis(2));
+            assert!(start.elapsed() < Duration::from_secs(20), "too slow");
+            std::thread::sleep(Duration::from_millis(1));
         }
-        let opens = r.world.lock().unwrap().opens;
-        assert!((2..=5).contains(&opens), "{opens} attempts in 700 ms");
+        let at = r.world.lock().unwrap().opened_at.clone();
         r.supervisor.stop();
+        at.windows(2).map(|w| w[1] - w[0]).take(count).collect()
+    }
+
+    #[test]
+    fn a_device_that_keeps_failing_at_once_is_retried_less_and_less_often() {
+        let min_gap = Duration::from_millis(100);
+        let gaps = gaps_of_failing_streams(
+            Timing {
+                min_gap,
+                retry: Duration::from_millis(1000),
+                ..FAST
+            },
+            Duration::ZERO,
+            4,
+        );
+        // 100 ms, then 200, 400, 800 (each under the 1 s cap).
+        for (gap, factor) in gaps.iter().zip([1u32, 2, 4, 8]) {
+            assert!(*gap >= min_gap * factor, "{gaps:?}");
+            assert!(
+                *gap < min_gap * factor + Duration::from_millis(150),
+                "{gaps:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_stream_that_played_a_while_is_reopened_after_the_shortest_gap() {
+        let min_gap = Duration::from_millis(100);
+        let gaps = gaps_of_failing_streams(
+            Timing {
+                min_gap,
+                stable: Duration::from_millis(40),
+                ..FAST
+            },
+            Duration::from_millis(60),
+            4,
+        );
+        // Each stream lasted longer than `stable`: no doubling.
+        for gap in &gaps {
+            assert!(*gap < min_gap + Duration::from_millis(80), "{gaps:?}");
+        }
     }
 
     #[test]
