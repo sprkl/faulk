@@ -169,6 +169,8 @@
   })
   /** All entries for the layout: the real tracks, then the master row pinned at the bottom. */
   const allEntries = $derived([...entries, masterEntry])
+  const entryById = $derived(new Map(allEntries.map((e) => [e.id, e])))
+  const trackHeightOf = (id: string) => (entryById.get(id)?.track as { height?: number | null } | undefined)?.height
   // The tracks the launch grid holds: their timeline is silent until they are given back.
   const detached = $derived(engine.started ? offTimeline(engine.feedback, project.view?.slots) : new Set<string>())
   const blocks = $derived(blocksOf(entries))
@@ -231,11 +233,6 @@
   let open = $state.raw<ReadonlySet<string>>(
     new Set((Array.isArray(left?.open) ? left.open : []).filter((id) => typeof id === 'string' && untrack(() => allEntries.some((e) => e.id === id)))),
   )
-  // Lane heights of deleted tracks are forgotten.
-  $effect(() => {
-    const ids = new Set(entries.map((e) => e.id))
-    untrack(() => ui.forgetLaneHeights(ids))
-  })
   /** The selected points: one lane's, by tick (kept to the points the lane still has). */
   let autoPick = $state.raw<{ lane: string; ticks: ReadonlySet<number> } | null>(null)
   /** The point under the pointer, for its readout. */
@@ -256,7 +253,7 @@
   const shownLanes = $derived(new Map(allEntries.map((e) => [e.id, open.has(e.id) ? lanesOf(e.track, labels) : ([] as LaneInfo[])])))
   /** The master row's height: the `row` token (28 px), the lowest a track's row goes. */
   const MASTER_ROW = CLIP_ROW_MIN
-  // The rows' height: the `lane` token of the stylesheet (44 px, 28 px in the compact density), else each track's own (#471).
+  // The rows' height: the `lane` token of the stylesheet (44 px, 28 px in the compact density), else each track's own, kept in the project (#471, #490).
   let laneBase = $state(CLIP_ROW)
   const layout = $derived(
     layoutOf(
@@ -264,7 +261,7 @@
       open,
       (id) => (shownLanes.get(id) ?? []).map((l) => l.id),
       // The master holds no clips: its row stays at the control line's height, so that 16 tracks and the master fit at 1080p.
-      (id) => (id === MASTER ? MASTER_ROW : ui.laneHeights[id]),
+      (id) => (id === MASTER ? MASTER_ROW : ui.laneHeightPreview?.track === id ? ui.laneHeightPreview.height : (trackHeightOf(id) ?? undefined)),
       laneBase,
     ),
   )
@@ -1903,7 +1900,6 @@
               <LaneHeader
                 entry={trackEntry}
                 height={row.height}
-                base={laneBase}
                 selected={project.selected?.id === trackEntry.id}
                 soloed={project.soloed.includes(trackEntry.id)}
                 armed={project.armed.includes(trackEntry.id)}

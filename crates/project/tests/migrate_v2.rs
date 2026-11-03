@@ -73,7 +73,7 @@ fn v1_folder() -> (MemFs, TrackId, [PlacementId; 4], Project) {
     let text = String::from_utf8(fs.read("project.json").unwrap()).unwrap();
     fs.insert(
         "project.json",
-        text.replacen("\"format\": 2", "\"format\": 1", 1),
+        text.replacen(&format!("\"format\": {FORMAT_VERSION}"), "\"format\": 1", 1),
     );
     (fs, tid, p, project)
 }
@@ -141,7 +141,7 @@ fn a_current_song_keeps_its_stretched_clips() {
     let text = String::from_utf8(fs.read("project.json").unwrap()).unwrap();
     fs.insert(
         "project.json",
-        text.replacen("\"format\": 1", "\"format\": 2", 1),
+        text.replacen("\"format\": 1", &format!("\"format\": {FORMAT_VERSION}"), 1),
     );
     let opened = open(&fs, &OpenOptions::default()).unwrap();
     assert_eq!(opened.report.migrated_from, None);

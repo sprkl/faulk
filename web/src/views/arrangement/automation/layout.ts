@@ -46,7 +46,7 @@ export interface Layout {
 
 /**
  * The rows of the tracks, in order. `lanes` gives the ids of the lanes a track shows, in the order they are drawn; only
- * the tracks in `open` use it. `heightOf` gives the height of a track's row of clips (the user's, kept by the page), else
+ * the tracks in `open` use it. `heightOf` gives the height of a track's row of clips (the track's own, kept in the project, or the one being dragged), else
  * `base` (the `lane` token); either is clamped to the bounds.
  */
 export function layoutOf(

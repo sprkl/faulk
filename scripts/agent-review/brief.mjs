@@ -19,7 +19,7 @@ import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { changeFingerprint, scriptRoot } from "../agent-qa/fingerprint.mjs";
-import { CHECKPOINTS, renderBrief } from "./brief-core.mjs";
+import { CHECKPOINTS, HEAVY_FILE_BYTES, heavyFilesNote, heavyGeneratedFiles, isGeneratedPath, lockfilePathspecs, renderBrief } from "./brief-core.mjs";
 import { BRIEF_DIR } from "./guard-core.mjs";
 
 const fail = (message) => {
@@ -51,6 +51,9 @@ if (checkpoint === "replies" && !values.pr) {
 const root = scriptRoot();
 const run = (cmd, args) => execFileSync(cmd, args, { cwd: root, encoding: "utf8", maxBuffer: 128 * 1024 * 1024 });
 const gh = (...args) => JSON.parse(run("gh", args));
+// Git's complaints (a path absent from the base commit) are expected here, not worth printing.
+const quietGit = (args) =>
+  execFileSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 128 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] });
 
 function loadIssue() {
   if (values["issue-file"]) {
@@ -97,20 +100,27 @@ if (checkpoint !== "plan") {
   // Lockfiles are listed with the changed files but their content is left
   // out of the diff (thousands of generated lines); the brief says so, and the
   // manifests that drive them (Cargo.toml, package.json) are in the diff.
-  const lockfiles = [":(exclude)Cargo.lock", ":(exclude,glob)**/pnpm-lock.yaml", ":(exclude,glob)**/package-lock.json"];
+  // Heavy generated files are summarised the same way (#566).
+  const lockfiles = lockfilePathspecs();
   brief.base = base.slice(0, 12);
   brief.head = "working tree";
   brief.fingerprint = changeFingerprint(root) ?? "none";
   brief.commits = run("git", ["log", "--format=%h %s%n%n%b", `${base}..HEAD`]);
   brief.files = run("git", ["diff", "--name-status", base, "--", "."]);
-  brief.diff = run("git", ["diff", "--no-ext-diff", base, "--", ".", ...lockfiles]);
-  const changedLockfiles = run("git", ["diff", "--name-only", base, "--", ".", ":(glob)**/Cargo.lock", ":(glob)**/pnpm-lock.yaml", ":(glob)**/package-lock.json"])
-    .split("\n")
-    .filter(Boolean);
-  if (changedLockfiles.length > 0) {
-    brief.diffNote = `The content of these lockfiles is left out of the diff: ${changedLockfiles.join(", ")}. Check the dependency changes in the manifests and run git diff ${base.slice(0, 12)} -- <lockfile> if needed.`;
-  }
-  const untracked = run("git", ["ls-files", "--others", "--exclude-standard"]).split("\n").filter(Boolean);
+  const sizeOnDisk = (path) => {
+    try {
+      const stat = lstatSync(join(root, path));
+      return stat.isFile() ? stat.size : null;
+    } catch {
+      return null; // Deleted in the working tree.
+    }
+  };
+  const heavy = heavyGeneratedFiles({ base, git: quietGit, sizeOnDisk });
+  const heavyExcludes = heavy.map((e) => `:(exclude,literal)${e.path}`);
+  brief.diff = run("git", ["diff", "--no-ext-diff", base, "--", ".", ...lockfiles.exclude, ...heavyExcludes]);
+  // No "." here: it would select every changed file, not only the lockfiles.
+  const changedLockfiles = run("git", ["diff", "--name-only", base, "--", ...lockfiles.only]).split("\n").filter(Boolean);
+  const untracked = run("git", ["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean);
   for (const file of untracked) {
     const path = join(root, file);
     // Never follow a link: its target may be outside the repository.
@@ -120,9 +130,27 @@ if (checkpoint !== "plan") {
       continue;
     }
     brief.files += `A\t${file} (untracked)\n`;
+    if (isGeneratedPath(file) && stat.isFile() && stat.size > HEAVY_FILE_BYTES) {
+      const text = readFileSync(path, "utf8");
+      const lines = text.split("\n").length - (text.endsWith("\n") ? 1 : 0);
+      heavy.push({ path: file, status: "added, untracked", before: null, after: stat.size, added: lines, removed: 0, hunks: [] });
+      continue;
+    }
     const content = !stat.isFile() || stat.size > 1024 * 1024 ? null : readFileSync(path);
     const text = content && !content.includes(0) ? content.toString("utf8") : "(binary or larger than 1 MB: not shown)";
     brief.diff += `\n--- /dev/null\n+++ b/${file} (untracked)\n${text}`;
+  }
+  const notes = [];
+  if (changedLockfiles.length > 0) {
+    notes.push(
+      `The content of these lockfiles is left out of the diff: ${changedLockfiles.join(", ")}. Check the dependency changes in the manifests and run git diff ${base.slice(0, 12)} -- <lockfile> if needed.`,
+    );
+  }
+  if (heavy.length > 0) {
+    notes.push(heavyFilesNote(heavy, base.slice(0, 12)));
+  }
+  if (notes.length > 0) {
+    brief.diffNote = notes.join("\n\n");
   }
 }
 

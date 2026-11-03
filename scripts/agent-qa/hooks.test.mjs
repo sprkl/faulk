@@ -1110,6 +1110,34 @@ describe("brief.mjs and run.mjs", () => {
     assert.doesNotMatch(text, /# lock v2/);
   });
 
+  it("lists only the lockfiles in its note, and summarises heavy generated files instead of copying them (#566)", () => {
+    const root = makeRepo();
+    const gen = join(root, "web", "src", "lib", "generated");
+    mkdirSync(gen, { recursive: true });
+    const lines = (n, tag) => Array.from({ length: n }, (_, i) => `row ${i} ${tag}`).join("\n") + "\n";
+    writeFileSync(join(gen, "schema.json"), lines(40_000, "old"));
+    git(root, "add", "-A");
+    git(root, "commit", "-q", "-m", "generated");
+    writeFileSync(join(root, "Cargo.lock"), "# lock v2\n");
+    writeFileSync(join(gen, "schema.json"), lines(40_000, "new"));
+    writeFileSync(join(gen, "extra.json"), lines(40_000, "fresh"));
+    writeCode(root);
+    mkdirSync(join(root, ".scratch", "judge-dredd"), { recursive: true });
+    writeFileSync(join(root, ".scratch", "judge-dredd", "6-delivery.proposal.md"), "Claims.\n");
+    const issueFile = join(root, ".scratch", "issue.json");
+    writeFileSync(issueFile, JSON.stringify({ number: 6, title: "t", body: "b", comments: [] }));
+    git(root, "add", "Cargo.lock");
+    assert.equal(script("agent-review/brief.mjs", root, "6", "delivery", "--issue-file", issueFile).status, 0);
+    const text = readFileSync(join(root, BRIEF), "utf8");
+    assert.match(text, /content of these lockfiles is left out of the diff: Cargo\.lock\./);
+    assert.match(text, /web\/src\/lib\/generated\/schema\.json \(added\)/);
+    assert.match(text, /web\/src\/lib\/generated\/extra\.json \(added, untracked\)/);
+    assert.match(text, /\+pub fn gain\(\) -> f32 \{ 0\.5 \}/, "the ordinary diff is still copied");
+    assert.doesNotMatch(text, /row 5 new/);
+    assert.doesNotMatch(text, /row 5 fresh/);
+    assert.ok(text.length < 100_000, `the brief stays small (${text.length} bytes)`);
+  });
+
   it("does not follow an untracked symbolic link", (t) => {
     const root = makeRepo();
     const secret = join(mkdtempSync(join(tmpdir(), "faulk-secret-")), "secret.txt");

@@ -74,6 +74,8 @@ pub enum ViolationKind {
     /// A track, master or metronome gain, or a gain automation point, finite but outside
     /// [`MIN_GAIN_DB`], [`MAX_GAIN_DB`] (silence is `null` on a gain, never a value below it).
     GainOutOfRange,
+    /// A track height outside [`MIN_TRACK_HEIGHT`], [`MAX_TRACK_HEIGHT`] (#490).
+    HeightOutOfRange,
     /// A pan outside `[-1, 1]`, on a mixer or on a pan automation point.
     PanOutOfRange,
     /// More than one instrument in a chain.
@@ -340,6 +342,13 @@ impl Project {
     ) {
         c.name(&track.name, path, false);
         c.mixer(&track.mixer, path);
+        if let Some(height) = track.height {
+            c.check(
+                (MIN_TRACK_HEIGHT..=MAX_TRACK_HEIGHT).contains(&height),
+                path,
+                ViolationKind::HeightOutOfRange,
+            );
+        }
 
         // The chain.
         c.count(track.devices.len(), c.limits.devices_per_track, path);
