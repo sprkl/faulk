@@ -410,7 +410,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'lib/components/Slider.svelte': ['Enter'], // opens the value field (#365)
       'lib/journey/live/index.ts': [], // the Journey page's seek slider (not the DAW): arrows, Page keys, Home and End through seekByKey (live/time.ts), no letter
       'lib/components/ValueField.svelte': ['Enter', 'Escape'],
-      'lib/components/ValueMenu.svelte': ['Escape', 'Tab'],
+      'lib/components/ContextMenu.svelte': ['ArrowDown', 'ArrowUp', 'End', 'Escape', 'Home', 'Tab'], // the shared menu (#524): arrows, Home, End, Escape and Tab; no letter
       'lib/continuous.ts': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'Backspace', 'Delete', 'End', 'Home', 'PageDown', 'PageUp'],
       'lib/components/timegrid/TimeGrid.svelte': ['+', '-', '=', 'ArrowLeft', 'ArrowRight', 'Home', '_'],
       'views/arrangement/ArrangementView.svelte': ['Backspace', 'Delete', 'Escape'],

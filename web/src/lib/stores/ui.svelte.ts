@@ -4,6 +4,7 @@ import { COLLAPSED_KEY, HEIGHTS_KEY, parseHeights } from '../../views/shell/pane
 import { clampClipRow } from '../../views/arrangement/automation/layout'
 import { storage } from './storage'
 import { readLayout, writeLayout, type Layout } from './layout'
+import { keepsBrowserMenu, type MenuItem, type OpenMenu } from '../context-menu'
 
 /** A preference of the page; a browser that refuses storage (private window, quota) just forgets it. */
 function read(key: string): string | null {
@@ -78,6 +79,28 @@ export class UiStore {
   engineOpen = $state(false)
   /** The shortcut list is open (#474). Page state, not project state. */
   helpOpen = $state(false)
+  /** The context menu that is open (#524): one at a time, drawn by the shell. Page state, not project state. */
+  contextMenu = $state.raw<OpenMenu | null>(null)
+
+  /**
+   * Opens the menu of a right click (or Shift+F10, the Menu key) on a target, at the pointer. The event is taken: the
+   * browser's menu does not open and no other handler sees it. With no entry it opens nothing, and still cancels the
+   * browser's menu, so a target without action stays silent.
+   */
+  openMenu(event: Pick<MouseEvent, 'clientX' | 'clientY' | 'target' | 'preventDefault' | 'stopPropagation'>, items: readonly MenuItem[], label?: string) {
+    // A field where text is typed keeps the browser's menu (copy, paste, spelling), whatever the area around it does.
+    if (keepsBrowserMenu(event.target)) return
+    event.preventDefault()
+    event.stopPropagation()
+    this.openMenuAt(event.clientX, event.clientY, items, label)
+  }
+  /** Opens a menu at a point, in place of the one that is open (a menu whose entry leads to a second list). */
+  openMenuAt(x: number, y: number, items: readonly MenuItem[], label?: string) {
+    this.contextMenu = items.length === 0 ? null : { x, y, items, label }
+  }
+  closeMenu() {
+    this.contextMenu = null
+  }
 
   /**
    * Where a take of MIDI recording goes (#470, spec § 4.1): the last of the grid and the arrangement the user showed.
