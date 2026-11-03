@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #332: Space plays and pauses from everywhere. A control the mouse clicked keeps the focus but not Space;
 // a control the keyboard focused, and every text field, keep it. Real worklet and engine.
@@ -11,7 +11,7 @@ const transport = (page: Page, state: 'playing' | 'stopped') => expect(feedback(
 async function start(page: Page) {
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
 }
 
 /** Space plays, Space pauses where it is, Space resumes from there. */

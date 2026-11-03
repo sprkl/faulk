@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // AR-5 (#81): a clip or a scene of the launch grid goes to the arrangement from its menu, at the bar of the play
 // position. The copy is independent of the grid clip (editing one leaves the other alone), the linked one plays the
@@ -43,7 +43,7 @@ test('grid to arrangement: a clip copy is independent, a linked one follows the 
   await page.setViewportSize({ width: 1600, height: 900 })
   await page.goto('/app')
   await startAudio(page)
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   test.skip(
     (await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function',
     'the dispatcher hook exists in the dev server only',

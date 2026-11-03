@@ -8,7 +8,32 @@ import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { test } from 'node:test'
+import { test as nodeTest } from 'node:test'
+
+/**
+ * A `bash` that runs scripts. On Windows, `bash` on PATH may be WSL's launcher, which fails without a distribution:
+ * probe it, then fall back to Git's own bash (next to `git`). Null when none works.
+ */
+function findBash() {
+  const works = (cmd) => {
+    const r = spawnSync(cmd, ['-c', 'echo faulk-ok'], { encoding: 'utf8', timeout: 20000 })
+    return r.status === 0 && r.stdout.includes('faulk-ok')
+  }
+  if (works('bash')) return 'bash'
+  if (process.platform === 'win32') {
+    const where = spawnSync('where', ['git'], { encoding: 'utf8' })
+    for (const line of (where.stdout ?? '').split(/\r?\n/).filter(Boolean)) {
+      for (const rel of [['..', 'bin', 'bash.exe'], ['..', '..', 'bin', 'bash.exe']]) {
+        const candidate = join(dirname(line), ...rel)
+        if (existsSync(candidate) && works(candidate)) return candidate
+      }
+    }
+  }
+  return null
+}
+const BASH = findBash()
+const SKIP = BASH ? false : "no usable bash: `bash` is missing or resolves to WSL without a distribution, and Git's bash was not found"
+const test = (name, fn) => nodeTest(name, { skip: SKIP }, fn)
 
 const tools = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '.claude', 'tools')
 const GEN = 'web/src/lib/generated'
@@ -80,7 +105,8 @@ function world() {
   const inherited = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('FAULK_')))
   const env = {
     ...inherited,
-    PATH: stubs + delimiter + process.env.PATH,
+    // Git's bash first, so the stubs' `#!/usr/bin/env bash` does not resolve to WSL either.
+    PATH: [...(BASH && BASH !== 'bash' ? [dirname(BASH)] : []), stubs, process.env.PATH].join(delimiter),
     MQ_LOG: log,
     MQ_STATE: 'MERGEABLE BEHIND',
     MQ_HEAD: 'pr',
@@ -100,7 +126,7 @@ function world() {
     git(work, 'commit', '-q', '-m', `${branch}: ${file}`)
     if (push) git(work, 'push', '-q', 'origin', branch)
   }
-  const run = (script, ...args) => spawnSync('bash', [join(work, '.claude', 'tools', script), ...args], { cwd: work, env, encoding: 'utf8', timeout: 60000 })
+  const run = (script, ...args) => spawnSync(BASH ?? 'bash', [join(work, '.claude', 'tools', script), ...args], { cwd: work, env, encoding: 'utf8', timeout: 60000 })
   return { dir, origin, work, env, log, commit, run, logText: () => readFileSync(log, 'utf8'), done: () => rmSync(dir, { recursive: true, force: true }) }
 }
 

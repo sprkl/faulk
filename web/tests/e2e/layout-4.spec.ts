@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #472: layout by screen and phase. The top bar stays on one row from 1280 px in every view and both languages, the engine
 // pill is a button that opens the engine dialog, the keyboard is a tab of the bottom panel, the mixer takes the whole height
@@ -15,7 +15,7 @@ const SIZES = [
 async function start(page: Page) {
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   // The selected track's inspector (#471: the left column shows the selected track only).
   await expect(page.getByTestId('track-inspector')).toBeVisible()
 }

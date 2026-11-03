@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #471: one row per track in the arrangement (the `lane` token, a height per track), the inspector of the
 // selected track in the left column, the volume typed on the selected row, the zoom on Ctrl, and the skip link.
@@ -13,7 +13,7 @@ const SHOTS = '../.qa/design-review-2026-11-01/after-471'
 async function start(page: Page, tracks = 1) {
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
-  await expect(page.getByTestId('engine-mode')).toContainText('Web')
+  await engineUp(page, 'Web')
   await page.getByTestId('nav-arrangement').click()
   await expect(page.getByTestId('track-header')).toHaveCount(1)
   for (let i = 1; i < tracks; i++) {

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { chooseMidiInput, fakeWebMidi, watch } from './support'
+import { chooseMidiInput, engineUp, fakeWebMidi, watch } from './support'
 
 // #470: MIDI recording. The armed tracks record what the computer keyboard or a MIDI input plays, the engine stamps the
 // notes, and the take becomes clips through one command, one history entry, which one undo removes. Real worklet,
@@ -38,7 +38,7 @@ async function start(page: Page, lang: 'en' | 'fr' = 'en') {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   test.skip((await hooks(page)) !== 'function', 'the project is read through the hooks of the dev server')
   // No count-in: the takes start at once (the count-in is the engine's, tested in crates/engine/tests/recorder.rs).
   await run(page, { type: 'transport.set_metronome', count_in_bars: 0 })

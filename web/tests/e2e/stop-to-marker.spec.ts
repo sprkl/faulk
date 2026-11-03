@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #360: Stop brings the playhead back to where playback started (the marker: the last position laid on the ruler,
 // 1.1.000 at first), and a second Stop to 1.1.000, so the position shown is always where Play restarts. Space stays
@@ -18,7 +18,7 @@ async function start(page: Page) {
   await page.setViewportSize({ width: 1600, height: 900 })
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await page.getByTestId('nav-arrangement').click()
 }
 
