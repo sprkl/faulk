@@ -21,8 +21,14 @@
 //! is not held (pressed before the capture) is ignored. A second press of a held key closes
 //! the first one: a key is held once, so a lost note off never fills the table. The length is measured in samples since
 //! the note on, converted at the current tempo, so a note held across a loop wrap keeps the
-//! length it was played with (the tempo is constant in the MVP: a tempo change during a
-//! held note converts the whole length at the new tempo). An all-notes-off, a live-queue overflow (the release of every
+//! length it was played with. A change of the tempo or of the sample rate during a held note
+//! (the project allows both during a take, #513) is followed: when the block's samples per
+//! tick change, the samples the held notes have run so far are scaled to the new value
+//! ([`Recorder::block`]), so a note keeps the ticks it had run, and runs on from there at
+//! the new pace. The change is taken at the start of the block that applies it, so a stamped
+//! event (below) older than that block, delivered after the change, is off by its lag times
+//! the difference of the two paces (`lag x |1/old - 1/new|` ticks): the stamp's earlier
+//! samples run at the new pace. An all-notes-off, a live-queue overflow (the release of every
 //! live note) and the end of the capture close the held notes at the start of their block:
 //! the notes still held when a take ends are cut there (spec § 11, question 7).
 //!
@@ -90,8 +96,10 @@ struct Held {
     velocity: u8,
     /// The transport tick of its start.
     start: i64,
-    /// The absolute sample of its start (the clock's sample counter).
-    from: u64,
+    /// The absolute sample of its start (the clock's sample counter), moved when the samples
+    /// per tick change so that `sample - from` is always counted at the current pace; signed
+    /// because that move can put it before sample 0.
+    from: i64,
 }
 
 impl Default for RecordedNote {
@@ -150,6 +158,8 @@ pub struct Recorder {
     take_from: u64,
     /// Stamped events of the take whose stamp could not be used (module doc).
     unplaced: u32,
+    /// The samples per tick of the last block (0 before the first), to see a tempo or rate change.
+    last_samples_per_tick: f64,
 }
 
 impl Recorder {
@@ -165,6 +175,7 @@ impl Recorder {
             count_in_to: None,
             take_from: 0,
             unplaced: 0,
+            last_samples_per_tick: 0.0,
         })
     }
 
@@ -227,6 +238,7 @@ impl Recorder {
         live: &[LiveEvent],
         release_all: bool,
     ) {
+        self.follow_pace(clock);
         let wanted = clock.running && clock.recording;
         if let Some(to) = self.count_in_to
             && (!wanted || clock.end() > to as f64)
@@ -278,6 +290,26 @@ impl Recorder {
         }
     }
 
+    /// A change of the samples per tick since the last block (a tempo change, a new sample rate):
+    /// the held notes keep the ticks they have run. Their elapsed samples, counted at the old
+    /// pace up to the start of this block, become the same ticks at the new pace.
+    fn follow_pace(&mut self, clock: RecordClock) {
+        let old = self.last_samples_per_tick;
+        let new = clock.samples_per_tick;
+        self.last_samples_per_tick = new;
+        if !(old > 0.0 && new > 0.0 && new.is_finite() && old != new) {
+            return;
+        }
+        let ratio = new / old;
+        let now = i64::try_from(clock.sample).unwrap_or(i64::MAX);
+        for held in self.held.as_mut_slice() {
+            if held.used {
+                let elapsed = now.saturating_sub(held.from).max(0) as f64;
+                held.from = now.saturating_sub((elapsed * ratio).round() as i64);
+            }
+        }
+    }
+
     /// The sample a live event counts from (module doc, "The sample a note was played at"):
     /// its stamp when it is usable, `None` (the start of the block) otherwise.
     pub fn sample_of(&self, at: Option<u64>, clock: RecordClock) -> Option<u64> {
@@ -324,7 +356,7 @@ impl Recorder {
                     pitch,
                     velocity,
                     start,
-                    from: at.unwrap_or(clock.sample),
+                    from: i64::try_from(at.unwrap_or(clock.sample)).unwrap_or(i64::MAX),
                 };
             }
             None => self.dropped = self.dropped.saturating_add(1),
@@ -360,7 +392,10 @@ impl Recorder {
         };
         let h = *held;
         held.used = false;
-        let samples = at.saturating_sub(h.from) as f64;
+        let samples = i64::try_from(at)
+            .unwrap_or(i64::MAX)
+            .saturating_sub(h.from)
+            .max(0) as f64;
         let ticks = if clock.samples_per_tick > 0.0 {
             (samples / clock.samples_per_tick).round()
         } else {
