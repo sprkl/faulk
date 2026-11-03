@@ -77,6 +77,35 @@ describe('the Boost engine reads the helper', () => {
     expect(events.onError).not.toHaveBeenCalled()
   })
 
+  it('hands an agent call to onAgentCall and answers it once, with its id (AG-1)', async () => {
+    vi.stubGlobal('WebSocket', FakeSocket)
+    const onAgentCall = vi.fn()
+    const events = { onStatus: vi.fn(), onFeedback: vi.fn(), onError: vi.fn(), onClosed: vi.fn(), onAgentCall } satisfies EngineEvents
+    const connected = NativeEngine.connect('t', events)
+    const socket = FakeSocket.last
+    socket.onmessage!({ data: JSON.stringify({ type: 'hello', protocol: PROTOCOL_VERSION, sample_rate: 48000 }) })
+    await connected
+    socket.onmessage!({ data: JSON.stringify({ type: 'agent.call', id: 7, agent: 'claude-code', command: { type: 'history.undo' } }) })
+    expect(onAgentCall).toHaveBeenCalledWith('claude-code', { type: 'history.undo' }, expect.any(Function))
+    const answer = onAgentCall.mock.calls[0][2]
+    answer({ status: 'applied', output: { type: 'history.undo' } })
+    answer({ status: 'invalid', message: 'twice' })
+    const results = socket.sent.filter((m): m is string => typeof m === 'string').map((m) => JSON.parse(m))
+    expect(results).toEqual([{ type: 'agent.result', id: 7, result: { status: 'applied', output: { type: 'history.undo' } } }])
+  })
+
+  it('answers an agent call unavailable when the page takes none, never leaving the agent waiting', async () => {
+    vi.stubGlobal('WebSocket', FakeSocket)
+    const events = { onStatus: vi.fn(), onFeedback: vi.fn(), onError: vi.fn(), onClosed: vi.fn() } satisfies EngineEvents
+    const connected = NativeEngine.connect('t', events)
+    const socket = FakeSocket.last
+    socket.onmessage!({ data: JSON.stringify({ type: 'hello', protocol: PROTOCOL_VERSION, sample_rate: 48000 }) })
+    await connected
+    socket.onmessage!({ data: JSON.stringify({ type: 'agent.call', id: 3, agent: 'a', command: { type: 'history.undo' } }) })
+    const sent = JSON.parse(socket.sent.at(-1) as string)
+    expect(sent).toMatchObject({ type: 'agent.result', id: 3, result: { status: 'unavailable' } })
+  })
+
   it('takes a later hello as the status of the output the helper reopened (#577)', async () => {
     vi.stubGlobal('WebSocket', FakeSocket)
     const events = { onStatus: vi.fn(), onFeedback: vi.fn(), onError: vi.fn(), onClosed: vi.fn() } satisfies EngineEvents
