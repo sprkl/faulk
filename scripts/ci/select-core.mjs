@@ -111,8 +111,9 @@ export function affectedPackages(packages, changed) {
  *   read lazily: a change without Rust never asks for them
  * @param {() => string[]} [input.specs] the end-to-end spec names on disk, read lazily; absent, empty
  *   or throwing: the whole suite
- * @param {() => {base: string, head: string}} [input.table] the e2e table file before and after the
- *   change, read lazily when it is the only file of scripts/ci/ that changed; absent or throwing: everything
+ * @param {() => {base: string, head: string, files: string[]}} [input.table] the e2e table file before and
+ *   after the change and the repository's files, read lazily when it is the only file of scripts/ci/ that
+ *   changed; absent or throwing: everything
  */
 export function select({ event, base, files, packages, specs, table }) {
   if (event === 'push') return { ...NONE }
@@ -187,8 +188,8 @@ export function select({ event, base, files, packages, specs, table }) {
   if (tableChanged) {
     let check
     try {
-      const { base: before, head: after } = table()
-      check = tableOnlyChange(before, after)
+      const { base: before, head: after, files: repoFiles } = table()
+      check = tableOnlyChange(before, after, repoFiles)
     } catch (e) {
       check = { ok: false, why: `the table file cannot be compared (${e.message})` }
     }

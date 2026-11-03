@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, posix } from 'node:path'
 import { test } from 'node:test'
@@ -164,26 +165,51 @@ test('the @full tests are the ones the lead chose: performance ceilings, second 
 
 const HEAD = readFileSync(join(ROOT, 'scripts/ci/e2e-plan.mjs'), 'utf8')
 const lineOf = (text, start) => text.split('\n').find((l) => l.trimStart().startsWith(start))
+// The repository's tracked files: what the CI and verify.mjs hand to the check.
+const REPO_FILES = execFileSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).split('\n').filter(Boolean)
+const only = (base, head) => tableOnlyChange(base, head, REPO_FILES)
 
 test('table only: an added spec name in an area is a table edit, and names that spec', () => {
-  const before = HEAD.replace("clips: ['clip-pool'],", "clips: [],")
-  const r = tableOnlyChange(before, HEAD)
-  assert.deepEqual(r, { ok: true, specs: ['clip-pool'] })
+  const before = HEAD.replace("clips: ['clip-pool'],", 'clips: [],')
+  assert.deepEqual(only(before, HEAD), { ok: true, specs: ['clip-pool'] })
   // The same file: a table edit with nothing newly named.
-  assert.deepEqual(tableOnlyChange(HEAD, HEAD), { ok: true, specs: [] })
+  assert.deepEqual(only(HEAD, HEAD), { ok: true, specs: [] })
   // Windows line ends on one side change nothing.
-  assert.deepEqual(tableOnlyChange(HEAD.replaceAll('\n', '\r\n'), HEAD), { ok: true, specs: [] })
+  assert.deepEqual(only(HEAD.replaceAll('\n', '\r\n'), HEAD), { ok: true, specs: [] })
+  // A new line comment, a new one-line block comment.
+  assert.deepEqual(only(HEAD, HEAD.replace("  clips: ['clip-pool'],", "  // the pool\n  /** the pool */\n  clips: ['clip-pool'],")), { ok: true, specs: [] })
 })
 
-test('table only: a new rule names the specs of its areas; a rule narrowed names nothing new', () => {
-  const rule = lineOf(HEAD, "[/^web\\/src\\/lib\\/components\\/PianoStrip")
+test('table only: a new rule names the specs of its areas; a widened rule names what it adds', () => {
+  const rule = lineOf(HEAD, '[/^web\\/src\\/lib\\/components\\/PianoStrip')
   const added = HEAD.replace(rule, `${rule}\n  [/^web\\/src\\/lib\\/new-thing\\.ts$/, areas('export', 'midi')],`)
-  assert.deepEqual(tableOnlyChange(HEAD, added), { ok: true, specs: [...new Set([...AREA.export, ...AREA.midi])].sort() })
-  const narrowed = HEAD.replace(rule, "  [/^web\\/src\\/lib\\/components\\/PianoStrip\\.svelte$/, CORE],")
-  assert.deepEqual(tableOnlyChange(HEAD, narrowed), { ok: true, specs: [] })
-  const listed = HEAD.replace(rule, "  [/^web\\/src\\/lib\\/components\\/PianoStrip\\.svelte$/, ['keyboard', 'grid']],")
-  // The removed line named the keyboard area (which holds the spec "keyboard"): only "grid" is new.
-  assert.deepEqual(tableOnlyChange(HEAD, listed), { ok: true, specs: ['grid'] })
+  assert.deepEqual(only(HEAD, added), { ok: true, specs: [...new Set([...AREA.export, ...AREA.midi])].sort() })
+  // The removed line named the keyboard area: only "grid" is new.
+  const widened = HEAD.replace(rule, `  [/^web\\/src\\/lib\\/components\\/PianoStrip\\.svelte$/, [${[...AREA.keyboard, 'grid'].map((s) => `'${s}'`).join(', ')}]],`)
+  assert.deepEqual(only(HEAD, widened), { ok: true, specs: ['grid'] })
+})
+
+test('table only, strict: an edit that gives a file a weaker selection is not a table edit (the order counts)', () => {
+  const rule = lineOf(HEAD, '[/^web\\/src\\/lib\\/components\\/PianoStrip')
+  const shell = lineOf(HEAD, '[/^web\\/src\\/views\\/(shell')
+  const cases = {
+    // A rule narrowed: its file loses its area.
+    narrowed: HEAD.replace(rule, "  [/^web\\/src\\/lib\\/components\\/PianoStrip\\.svelte$/, CORE],"),
+    // Two lines swapped: the CORE rule of the shell now shadows the dialogs' areas. Same lines, other order.
+    reordered: HEAD.replace(`${lineOf(HEAD, '[/^web\\/src\\/views\\/shell\\/ExportDialog')}\n`, '').replace(shell, `${shell}\n${lineOf(HEAD, '[/^web\\/src\\/views\\/shell\\/ExportDialog')}`),
+    // A rule inserted above others that it shadows.
+    shadowing: HEAD.replace(lineOf(HEAD, '[/^web\\/src\\/views\\/arrangement\\//'), `  [/^web\\/src\\/views\\//, CORE],\n${lineOf(HEAD, '[/^web\\/src\\/views\\/arrangement\\//')}`),
+    // A contract turned into an area.
+    contract: HEAD.replace('[/^web\\/src\\/lib\\/generated\\//, ALL],', "[/^web\\/src\\/lib\\/generated\\//, ['helper']],"),
+  }
+  for (const [what, head] of Object.entries(cases)) {
+    assert.notEqual(head, HEAD, `${what}: the case changes the file`)
+    const r = only(HEAD, head)
+    assert.equal(r.ok, false, what)
+    assert.match(r.why, /narrows the selection of /, what)
+  }
+  // The same order check holds against a multiset trick: the swapped file has the same lines.
+  assert.deepEqual([...cases.reordered.split('\n')].sort(), [...HEAD.split('\n')].sort())
 })
 
 test('table only, strict: any other change of the file is not a table edit', () => {
@@ -192,20 +218,26 @@ test('table only, strict: any other change of the file is not a table edit', () 
     'the core': HEAD.replace("{ spec: 'helper' },", "{ spec: 'helper' },\n  { spec: 'grid' },"),
     'a function rule': HEAD.replace("[/^web\\/tests\\/e2e\\/([^/]+)\\.spec\\.ts$/, (m) => [m[1]]],", "[/^web\\/tests\\/e2e\\/([^/]+)\\.spec\\.ts$/, (m) => []],"),
     'code in a rule': HEAD.replace("clips: ['clip-pool'],", "clips: ['clip-pool'].concat(globalThis.x ?? []),"),
-    'code hidden next to a regular expression': HEAD.replace("[/^web\\/src\\/views\\/clips\\//, AREA.clips],", "[/^web\\/src\\/views\\/clips\\// ? evil() : /x/, AREA.clips],"),
-    'a rule split over lines': HEAD.replace("[/^web\\/src\\/views\\/clips\\//, AREA.clips],", "[/^web\\/src\\/views\\/clips\\//,\n    AREA.clips],"),
+    'code hidden next to a regular expression': HEAD.replace('[/^web\\/src\\/views\\/clips\\//, AREA.clips],', '[/^web\\/src\\/views\\/clips\\// ? evil() : /x/, AREA.clips],'),
+    'code after a comment opener': HEAD.replace("  clips: ['clip-pool'],", "  /** note */ (RULES.length = 0, 0),\n  clips: ['clip-pool'],"),
+    'the middle of a block comment': HEAD.replace("  clips: ['clip-pool'],", "  * 2,\n  clips: ['clip-pool'],"),
+    'a nested quantifier': HEAD.replace('[/^web\\/src\\/views\\/clips\\//, AREA.clips],', '[/^web\\/src\\/views\\/(clips\\/)+/, AREA.clips],'),
+    'a rule split over lines': HEAD.replace('[/^web\\/src\\/views\\/clips\\//, AREA.clips],', '[/^web\\/src\\/views\\/clips\\//,\n    AREA.clips],'),
     'markers removed': HEAD.replace('// e2e-table:end', ''),
     'markers repeated': HEAD.replace('// e2e-table:end', '// e2e-table:end\n// e2e-table:begin'),
   }
   for (const [what, head] of Object.entries(cases)) {
     assert.notEqual(head, HEAD, `${what}: the case changes the file`)
-    const r = tableOnlyChange(HEAD, head)
+    const r = only(HEAD, head)
     assert.equal(r.ok, false, what)
     assert.ok(r.why.length > 0, what)
   }
   // A base without the markers (before this change existed): not provable, everything runs.
-  assert.equal(tableOnlyChange(HEAD.replace('// e2e-table:begin\n', ''), HEAD).ok, false)
+  assert.equal(only(HEAD.replace('// e2e-table:begin\n', ''), HEAD).ok, false)
+  // No list of files to check against: refused.
+  for (const files of [undefined, []]) assert.equal(tableOnlyChange(HEAD, HEAD, files).ok, false)
 })
+
 
 test('table only: the plan runs the core tests and the newly named specs, and says why', () => {
   const p = plan([], { table: { specs: ['clip-pool'] } })

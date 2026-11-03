@@ -70,7 +70,8 @@ function changedFiles(base) {
 function tableTexts(base) {
   const mergeBase = git('merge-base', base, 'HEAD')[0]
   const before = execFileSync('git', ['show', `${mergeBase}:${TABLE_FILE}`], { cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 })
-  return { base: before, head: readFileSync(join(root, TABLE_FILE), 'utf8') }
+  const files = [...git('ls-files'), ...git('ls-files', '--others', '--exclude-standard')]
+  return { base: before, head: readFileSync(join(root, TABLE_FILE), 'utf8'), files }
 }
 
 /** How many tests of `specs` carry the @full tag (a `--list` of Playwright); null when it cannot be counted. */

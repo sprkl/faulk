@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -373,7 +374,8 @@ test('every output the workflow reads is one select writes, and none of the old 
 
 test('an edit of the e2e table alone: its tests, the core and the specs it newly names; anything else in scripts/ci/ runs everything', () => {
   const head = readFileSync(fileURLToPath(new URL('./e2e-plan.mjs', import.meta.url)), 'utf8')
-  const table = (base) => () => ({ base, head })
+  const repoFiles = execFileSync('git', ['ls-files'], { cwd: fileURLToPath(new URL('../../', import.meta.url)), encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).split('\n').filter(Boolean)
+  const table = (base) => () => ({ base, head, files: repoFiles })
   const withTable = (files, base) => select({ event: 'pull_request', base: 'develop', files, packages: ws, specs, table: table(base) })
   const added = withTable(['scripts/ci/e2e-plan.mjs'], head.replace("clips: ['clip-pool'],", 'clips: [],'))
   assert.deepEqual([added.mode, added.agentScripts, added.web, added.e2e, added.e2eTier, added.e2eAll, added.e2eSpecs], ['targeted', true, true, 'dev', 'area', false, ['clip-pool']])

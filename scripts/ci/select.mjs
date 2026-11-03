@@ -53,6 +53,8 @@ try {
   const table = () => ({
     base: execFileSync('git', ['show', `${opt('--table-base') ?? 'HEAD^1'}:${TABLE_FILE}`], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }),
     head: readFileSync(new URL('./e2e-plan.mjs', import.meta.url), 'utf8'),
+    // Every tracked file: no file may get a weaker selection from the new table.
+    files: execFileSync('git', ['ls-files'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).split('\n').filter(Boolean),
   })
   result = select({ event, base, files, packages: workspacePackages, specs, table })
 } catch (e) {

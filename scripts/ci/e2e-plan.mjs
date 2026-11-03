@@ -414,29 +414,73 @@ export const TABLE_FILE = 'scripts/ci/e2e-plan.mjs'
 const BEGIN = '// e2e-table:begin'
 const END = '// e2e-table:end'
 
-// The shapes a changed line of the table may take: a comment, an area entry (a list of spec names), or
-// a rule whose verdict is a constant, an area, a union of areas or a list of spec names. Anything else
-// (a function, an import, a line that spans several) is not a table edit.
+// The shapes a changed line of the table may take: a line comment or a whole one-line block comment,
+// an area entry (a list of spec names), or a rule whose verdict is a constant, an area, a union of areas
+// or a list of spec names. Anything else (a function, an import, a line that spans several, the middle
+// of a block comment, code after a comment opener) is not a table edit.
 const TABLE_LINE = [
   /^$/,
-  /^(\/\/|\/\*\*|\*\/|\*( |$))/,
+  /^\/\/.*$/,
+  /^\/\*\*(?:(?!\*\/).)*\*\/$/,
   /^[a-zA-Z]+: \[('[a-z0-9-]+'(, )?)*\],?$/,
   // A regular-expression literal (its body: escapes, character classes, which may hold a slash, and any
   // other character but a slash), then the verdict.
   /^\[\/(?:\\.|\[(?:\\.|[^\]\\])*\]|[^/\\[])+\/[a-z]*, (ALL|NONE|CORE|AREA\.[a-zA-Z]+|areas\(('[a-zA-Z]+'(, )?)+\)|\[('[a-z0-9-]+'(, )?)*\])\],?( \/\/.*)?$/,
 ]
+// A quantified group in a rule's regular expression could backtrack without end on a long path: not a table edit.
+const NESTED_QUANTIFIER = /\)[+*{]/
+
+/**
+ * The AREA and RULES of a version of this file, from the text between its markers. Only called on a
+ * text whose changed lines all have the table's shapes; the rest is the base's own code or code this
+ * run already loaded (the head is the running module).
+ */
+function evalTable(inside) {
+  const body = inside.map((l) => l.replace(/^export const /, 'const ')).join('\n')
+  const build = new Function(
+    'ALL',
+    'NONE',
+    'CORE',
+    // An older table may have no AREA (its lists inline): `typeof` reads an undeclared name safely.
+    `const areas = (...names) => { for (const n of names) if (!AREA[n]) throw new Error('no area ' + n); return [...new Set(names.flatMap((n) => AREA[n]))].sort() }\n${body}\nreturn { AREA: typeof AREA === 'undefined' ? {} : AREA, RULES }`,
+  )
+  return build(ALL, NONE, CORE)
+}
+
+/** What a table gives a file: 'all', 'none', 'core' or the list of its specs. */
+function verdictOf(rules, file) {
+  const rule = rules.find(([re]) => re.test(file))
+  if (!rule) return ALL
+  const [re, what] = rule
+  if (what === ALL || what === NONE || what === CORE) return what
+  return typeof what === 'function' ? what(re.exec(file)) : what
+}
+
+/** True when `after` selects less for a file than `before` did (the core always rides with a list). */
+function weaker(before, after) {
+  if (after === ALL || before === NONE) return false
+  if (before === ALL) return true
+  if (after === NONE) return true
+  if (before === CORE) return false // core, or a list (which brings the core along)
+  if (after === CORE) return true
+  return before.some((s) => !after.includes(s))
+}
 
 /**
  * Whether a change of the e2e table file is an edit of the table alone, and which specs it newly names.
  * Strict: the text outside the two marker lines must be identical, each marker must appear once in
- * both versions, and every line added or removed between them must have one of the table's shapes.
+ * both versions, every line added or removed between them must have one of the table's shapes, and no
+ * file of the repository may get a weaker selection from the new table than from the old one (rules
+ * are ordered, the first match wins: a reordered or inserted rule that shadows another is caught here).
  * @param {string} base the file before the change
  * @param {string} head the file after the change
+ * @param {string[]} files the repository's files (at least those under web/ and crates/); empty: refused
  * @param {Record<string, string[]>} area the areas of the head (to expand `AREA.x` and `areas('x')`)
  * @returns {{ok: true, specs: string[]} | {ok: false, why: string}} `specs`: the spec names that the
  *   added lines name and the removed lines did not (a superset of the newly named specs)
  */
-export function tableOnlyChange(base, head, area = AREA) {
+export function tableOnlyChange(base, head, files, area = AREA) {
+  if (!Array.isArray(files) || !files.length) return { ok: false, why: 'no list of repository files to check the table against' }
   const split = (text) => {
     const lines = String(text).replaceAll('\r\n', '\n').split('\n')
     const b = lines.indexOf(BEGIN)
@@ -456,7 +500,21 @@ export function tableOnlyChange(base, head, area = AREA) {
   const added = diff(a, b)
   const removed = diff(b, a)
   for (const line of [...added, ...removed]) {
-    if (!TABLE_LINE.some((re) => re.test(line.trim()))) return { ok: false, why: `not a table line: ${line.trim().slice(0, 80)}` }
+    const t = line.trim()
+    if (!TABLE_LINE.some((re) => re.test(t)) || (t.startsWith('[/') && NESTED_QUANTIFIER.test(t))) return { ok: false, why: `not a table line: ${t.slice(0, 80)}` }
+  }
+  // The order matters: compare what both tables give every file of the repository.
+  let old
+  let now
+  try {
+    old = evalTable(before.inside)
+    now = evalTable(after.inside)
+  } catch (e) {
+    return { ok: false, why: `the table does not evaluate (${e.message})` }
+  }
+  for (const raw of files) {
+    const f = raw.replaceAll('\\', '/')
+    if (weaker(verdictOf(old.RULES, f), verdictOf(now.RULES, f))) return { ok: false, why: `the edit narrows the selection of ${f}` }
   }
   // The specs a line names: its quoted names, and the areas it refers to.
   const named = (lines) => {
