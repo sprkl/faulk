@@ -796,7 +796,12 @@ fn the_session_is_lenient_and_forgets_missing_tracks() {
         midi_input: Some("Keys".into()),
         armed: [t.clone()].into(),
         monitor: [gone].into(),
-        record: project::RecordSettings { offset_ms: -12 },
+        record: project::RecordSettings {
+            offset_ms: -12,
+            replace: true,
+            quantize_on_input: project::InputGrid::EighthTriplet,
+            quantize_strength: 60,
+        },
     };
     assert!(save_session(&mut fs, &session).unwrap());
     assert!(

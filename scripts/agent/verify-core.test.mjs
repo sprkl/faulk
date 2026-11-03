@@ -28,13 +28,25 @@ test('a view maps to its specs', () => {
   assert.equal(r.all, false)
 })
 
-test('several files add up, a shared file widens to the whole suite', () => {
+test('several files add up, a contract or a configuration widens to the whole suite, a shared page file does not', () => {
   assert.deepEqual(pick(['web/src/views/grid/GridView.svelte', 'web/src/views/tracks/TrackList.svelte']).specs, ['clip-names', 'clip-pool', 'discoverability', 'grid', 'grid-clips', 'grid-to-arrangement', 'lane-rows', 'recording', 'track-order', 'tracks'])
-  for (const shared of ['web/src/lib/stores/dispatcher.ts', 'web/src/lib/i18n/app.ts', 'web/tests/e2e/support.ts', 'web/package.json', 'crates/engine/src/lib.rs', 'Cargo.lock', 'web/src/lib/engine/worklet.ts']) {
-    const r = pick(['web/src/views/mixer/MixerFader.svelte', shared])
-    assert.equal(r.all, true, shared)
-    assert.deepEqual(r.specs, EXISTING, shared)
+  for (const whole of ['web/tests/e2e/support.ts', 'web/package.json', 'crates/engine/src/msg.rs', 'Cargo.lock', 'web/src/lib/engine/worklet.ts', 'web/src/lib/generated/protocol.ts']) {
+    const r = pick(['web/src/views/mixer/MixerFader.svelte', whole])
+    assert.equal(r.all, true, whole)
+    assert.deepEqual(r.specs, EXISTING, whole)
   }
+  for (const shared of ['web/src/lib/stores/dispatcher.ts', 'web/src/lib/i18n/app.ts']) {
+    const r = pick(['web/src/views/mixer/MixerFader.svelte', shared])
+    assert.deepEqual([r.all, r.shared], [false, true], shared)
+    assert.deepEqual(r.specs, pick(['web/src/views/mixer/MixerFader.svelte']).specs, shared)
+  }
+})
+
+test('the summary names the tier and why, and the core tests', () => {
+  const s = summary([{ name: 'vitest', ok: true, ms: 1000 }], { base: 'origin/develop', files: ['a'], specs: [], core: ['helper', 'transport'], all: false, tier: 'e2e tier: core, the core tests alone (2 specs) (shared page file: a)' })
+  assert.match(s, /e2e tier: core, the core tests alone/)
+  assert.match(s, /e2e specs: core tests only/)
+  assert.match(s, /core tests of: helper, transport/)
 })
 
 test('docs, scripts, unit tests and notes need no browser test', () => {

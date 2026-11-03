@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // PN-2 (#83): advanced editing of the piano roll in a real browser: quantize with a strength,
 // transpose, duplicate, copy, cut and paste, by the toolbar and by the keyboard. Each action is one
@@ -39,7 +39,7 @@ async function openRoll(page: Page, lang?: 'fr') {
   await page.setViewportSize({ width: 1400, height: 900 })
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await page.getByTestId('panel-piano-roll').click()
   await page.getByTestId('roll-create-clip').click()
   await expect(roll(page)).toHaveAttribute('data-note-count', '0')

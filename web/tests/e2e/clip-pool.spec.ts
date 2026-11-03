@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #473: one clip pool per track. A clip no longer dies with its last placement (the PO's case of 2026-11-02): it stays
 // in the Clips panel, from where it goes back to the arrangement or into the grid, by a drag or a button. A stretched
@@ -23,7 +23,7 @@ const view = (page: Page) => page.evaluate(() => (window as unknown as { __faulk
 async function start(page: Page) {
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
 }
 
 test('a clip outlives its last placement, comes back from the pool, and repeats when stretched', async ({ page }) => {

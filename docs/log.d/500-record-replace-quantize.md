@@ -1,0 +1,2 @@
+2026-11-03
+* **Update** (#500): MIDI recording gets replace mode and quantization on input. `record.set_settings` takes `replace`, `quantize_on_input` and `quantize_strength` besides `offset_ms` (all optional, session state); `record.commit_take` applies them (or its own overrides) and reports `replaced`; protocol 18; controls in the engine dialog (EN and FR). The spec's section 9 follows the code and lists what is not done (replacement lap by lap).

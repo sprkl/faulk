@@ -5,8 +5,8 @@
 // Options: --json prints the full decision, --files-from <file|-> reads one path per line.
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, readFileSync, readdirSync } from 'node:fs'
-import { specNames } from './e2e-plan.mjs'
-import { fullDecision, packagesFromMetadata, select, toOutputs } from './select-core.mjs'
+import { TABLE_FILE, specNames } from './e2e-plan.mjs'
+import { e2eSummary, fullDecision, packagesFromMetadata, select, toOutputs } from './select-core.mjs'
 
 const args = process.argv.slice(2)
 const opt = (name) => {
@@ -48,14 +48,24 @@ let result
 try {
   // The spec names on disk (an unreadable directory counts as no specs: the whole suite).
   const specs = () => specNames(readdirSync(new URL('../../web/tests/e2e/', import.meta.url)))
-  result = select({ event, base, files, packages: workspacePackages, specs })
+  // The e2e table before and after the change (the checkout is the merge commit, its first parent the
+  // base tip; --table-base names another ref for a dry run). Read only when the table alone changed.
+  const table = () => ({
+    base: execFileSync('git', ['show', `${opt('--table-base') ?? 'HEAD^1'}:${TABLE_FILE}`], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 }),
+    head: readFileSync(new URL('./e2e-plan.mjs', import.meta.url), 'utf8'),
+    // Every tracked file: no file may get a weaker selection from the new table.
+    files: execFileSync('git', ['ls-files'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }).split('\n').filter(Boolean),
+  })
+  result = select({ event, base, files, packages: workspacePackages, specs, table })
 } catch (e) {
   // An unreadable workspace must never skip a test.
   console.error(`cannot read the cargo workspace (${e.message}): running everything`)
-  result = fullDecision()
+  result = fullDecision([], `cargo workspace unreadable: ${e.message}`)
 }
 const outputs = toOutputs(result)
 console.log(args.includes('--json') ? JSON.stringify(result, null, 2) : outputs)
 if (process.env.GITHUB_OUTPUT) {
   appendFileSync(process.env.GITHUB_OUTPUT, Object.entries(outputs).map(([k, v]) => `${k}=${v}\n`).join(''))
 }
+// The tier of the end-to-end tests and why, on the run's summary page (#533).
+if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${e2eSummary(result)}\n`)

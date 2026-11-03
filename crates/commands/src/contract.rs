@@ -443,7 +443,12 @@ pub enum ProjectEvent {
     /// `transport.pause` during a take). Session state: the project does not change.
     RecordingChanged { take: u64, state: TakeState },
     /// The settings of MIDI recording changed (session state).
-    RecordSettingsChanged { offset_ms: i32 },
+    RecordSettingsChanged {
+        offset_ms: i32,
+        replace: bool,
+        quantize_on_input: project::InputGrid,
+        quantize_strength: u8,
+    },
 }
 
 /// Where a take of MIDI recording stands ([`ProjectEvent::RecordingChanged`]).

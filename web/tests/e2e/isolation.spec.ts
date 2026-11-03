@@ -1,5 +1,5 @@
 import { expect, test, type Page, type Response } from '@playwright/test'
-import { chooseMidiInput, fakeWebMidi, foreignRequests, watch } from './support'
+import { chooseMidiInput, engineUp, fakeWebMidi, foreignRequests, watch } from './support'
 
 // AU-0: the whole site is cross-origin isolated (COOP same-origin + COEP require-corp from
 // vercel.json), so that the DAW has SharedArrayBuffer and shared wasm memory for the engine channel
@@ -59,7 +59,7 @@ test.describe('the DAW (/app)', () => {
     await page.goto('/app')
     // A click gives the page the user activation an AudioContext needs to run its render thread.
     await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
-    await expect(page.getByTestId('engine-mode')).toBeVisible()
+    await engineUp(page)
     const value = await page.evaluate(async () => {
       const processor = `registerProcessor('e2e-shared', class extends AudioWorkletProcessor {
         constructor() {
@@ -152,7 +152,7 @@ test.describe('the DAW (/app)', () => {
     await page.goto('/app')
     expect(await page.evaluate(() => crossOriginIsolated)).toBe(true)
     await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
-    await expect(page.getByTestId('engine-mode')).toContainText('Web')
+    await engineUp(page, 'Web')
     await chooseMidiInput(page, 'E2E Keys')
     const send = (bytes: number[]) => page.evaluate((b) => (window as unknown as { __fakeMidi: { send(b: number[]): void } }).__fakeMidi.send(b), bytes)
     await send([0x90, 60, 100])

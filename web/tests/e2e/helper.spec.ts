@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { WebSocketServer, type RawData, type WebSocket } from 'ws'
 import { PROTOCOL_VERSION } from '../../src/lib/generated/protocol'
-import { HELPER_HOST, HELPER_PORT, watch } from './support'
+import { engineUp, HELPER_HOST, HELPER_PORT, watch } from './support'
 
 // The page reaches the helper by WebSocket only. COEP does not govern WebSockets; this checks that
 // probe, pairing and the session still work from the isolated page, against a stand-in helper that
@@ -74,7 +74,7 @@ test('probes, pairs and plays through the helper from the isolated page', async 
   await expect(page.getByText('Wrong code. 2 attempts left.')).toBeVisible()
   await code.fill('1234 5678')
   await page.getByRole('button', { name: 'Pair', exact: true }).click()
-  await expect(page.getByTestId('engine-mode')).toContainText('Boost')
+  await engineUp(page, 'Boost')
   await expect(page.getByTestId('latency')).toContainText('5')
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('engine-dialog')).toBeHidden()
@@ -91,7 +91,7 @@ test('probes, pairs and plays through the helper from the isolated page', async 
   await page.getByRole('button', { name: 'Back to Web' }).click()
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('engine-dialog')).toBeHidden()
-  await expect(page.getByTestId('engine-mode')).toContainText('Web')
+  await engineUp(page, 'Web')
   // The Web engine caught up by snapshot: a key sounds again.
   await page.keyboard.down('KeyA')
   await expect.poll(async () => Number(await page.getByTestId('top-meter').getAttribute('aria-valuenow')), { timeout: 10_000 }).toBeGreaterThan(-60)

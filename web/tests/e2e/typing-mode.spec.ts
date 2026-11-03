@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #470: musical typing. The indicator is always shown, one key (the one left of 1) toggles it, and with it
 // off the bare letters play nothing. The piano roll opens on the notes of its clip. Real worklet and engine.
@@ -14,7 +14,7 @@ async function start(page: Page) {
   // The indicator shows before the audio starts.
   await expect(mode(page)).toHaveText(/Typing: notes|Saisie : notes/)
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await expect(page.getByTestId('track-inspector')).toBeVisible()
 }
 

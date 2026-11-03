@@ -35,14 +35,73 @@ pub struct SessionState {
 }
 
 /// The settings of MIDI recording, in the session.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RecordSettings {
     /// A manual latency offset, in milliseconds, -500 to 500: every recorded note is moved
     /// this much earlier, on top of the output latency the host estimates (a negative
     /// value moves them later). For an audio interface whose driver reports its latency
     /// wrong.
+    #[serde(default)]
     pub offset_ms: i32,
+    /// Replace mode (#500): a take removes the notes the clip already holds in the range
+    /// it recorded, instead of adding to them (overdub, the default).
+    #[serde(default)]
+    pub replace: bool,
+    /// The grid the notes of a take are quantized to when the take is written (#500);
+    /// [`InputGrid::None`] (the default) keeps them as played.
+    #[serde(default)]
+    pub quantize_on_input: InputGrid,
+    /// How far the quantization moves a note toward the grid, 0 to 100 percent.
+    #[serde(default = "full_strength")]
+    pub quantize_strength: u8,
+}
+
+fn full_strength() -> u8 {
+    100
+}
+
+impl Default for RecordSettings {
+    fn default() -> Self {
+        RecordSettings {
+            offset_ms: 0,
+            replace: false,
+            quantize_on_input: InputGrid::None,
+            quantize_strength: full_strength(),
+        }
+    }
+}
+
+/// The grids a take can be quantized to on input: the ones of the piano roll's quantize
+/// field (`clip.notes.quantize`), plus none.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "kebab-case")]
+pub enum InputGrid {
+    /// The notes stay as played.
+    #[default]
+    None,
+    Quarter,
+    Eighth,
+    Sixteenth,
+    ThirtySecond,
+    EighthTriplet,
+    SixteenthTriplet,
+}
+
+impl InputGrid {
+    /// The grid step in ticks; `None` for [`InputGrid::None`].
+    pub fn ticks(self) -> Option<i64> {
+        let ppq = crate::PPQ;
+        match self {
+            InputGrid::None => None,
+            InputGrid::Quarter => Some(ppq),
+            InputGrid::Eighth => Some(ppq / 2),
+            InputGrid::Sixteenth => Some(ppq / 4),
+            InputGrid::ThirtySecond => Some(ppq / 8),
+            InputGrid::EighthTriplet => Some(ppq / 3),
+            InputGrid::SixteenthTriplet => Some(ppq / 6),
+        }
+    }
 }
 
 impl SessionState {
@@ -64,5 +123,27 @@ impl SessionState {
             changed = true;
         }
         changed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_session_saved_before_the_replace_and_quantize_settings_loads_with_their_defaults() {
+        let old: RecordSettings = serde_json::from_str(r#"{"offset_ms": -12}"#).unwrap();
+        assert_eq!(
+            old,
+            RecordSettings {
+                offset_ms: -12,
+                ..RecordSettings::default()
+            }
+        );
+        assert!(!old.replace);
+        assert_eq!(old.quantize_on_input, InputGrid::None);
+        assert_eq!(old.quantize_strength, 100);
+        let none: RecordSettings = serde_json::from_str("{}").unwrap();
+        assert_eq!(none, RecordSettings::default());
     }
 }

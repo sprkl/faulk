@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #295: delete, duplicate, move and rename a clip from its cell, in a real browser with the real
 // engine and project core. The project is built through the page's dev hook (dev server only); every
@@ -44,7 +44,7 @@ test('grid: delete, rename, duplicate, copy and move a clip from its cell', asyn
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/app')
   await startAudio(page)
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   test.skip(
     (await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function',
     'the dispatcher hook exists in the dev server only',

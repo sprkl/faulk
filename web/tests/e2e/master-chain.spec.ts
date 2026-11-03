@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { chooseMidiInput, fakeWebMidi, watch } from './support'
+import { chooseMidiInput, engineUp, fakeWebMidi, watch } from './support'
 
 // #364: the master's chain of effects in a real browser. Real worklet, engine and project core:
 // the Master strip of the mixer shows "Devices (n)", the bottom panel edits the master's chain
@@ -21,7 +21,7 @@ for (const lang of ['en', 'fr'] as const) {
     await fakeWebMidi(page)
     await page.goto('/app')
     await page.getByTestId('engine-state').getByRole('button').click()
-    await expect(page.getByTestId('engine-mode')).toBeVisible()
+    await engineUp(page)
     await chooseMidiInput(page, 'E2E Keys')
     await page.getByTestId('nav-mixer').click()
     const master = page.getByTestId('mixer-master')

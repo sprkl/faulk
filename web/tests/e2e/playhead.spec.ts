@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #293: the play position in the piano roll, in a real browser with the real worklet and engine. A clip of the
 // arrangement and a clip launched from the grid each get a vertical bar that advances with the transport (the grid
@@ -82,7 +82,7 @@ test('piano roll: the bar of an arrangement clip advances with the transport and
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/app')
   await startAudio(page)
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await page.getByTestId('panel-piano-roll').click()
   await page.getByTestId('roll-create-clip').click()
   await expect(page.getByTestId('piano-roll')).toHaveAttribute('data-note-count', '0')
@@ -147,7 +147,7 @@ test('piano roll: the bar of a clip launched from the grid advances, wraps on th
   await page.setViewportSize({ width: 1280, height: 900 })
   await page.goto('/app')
   await startAudio(page)
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await page.getByTestId('nav-grid').click()
   await expect(page.getByTestId('grid')).toBeVisible()
   await page.getByTestId('add-scene').click()

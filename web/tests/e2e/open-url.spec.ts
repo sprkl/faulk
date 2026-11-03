@@ -2,7 +2,7 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { readFileSync } from 'node:fs'
 import { expect, test, type Browser, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #497: a `.faulkpack` hosted somewhere opens by its link, `/app?open=<link>`. The page asks first and
 // names the host, the parameter leaves the address, the pack opens as a new project in the browser's
@@ -17,7 +17,7 @@ const tracks = (page: Page) => page.getByTestId('track-header')
 
 async function start(page: Page) {
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
 }
 
 async function addTrack(page: Page, item: string) {

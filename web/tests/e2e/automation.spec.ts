@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { STRICT_TIMING, chooseMidiInput, fakeWebMidi, watch } from './support'
+import { chooseMidiInput, engineUp, fakeWebMidi, STRICT_TIMING, watch } from './support'
 
 // AM-4 (#121): the automation lanes in the arrangement timeline, in a real browser with the real worklet, engine and
 // project core. Every gesture is a command (a refused command would be a console warning, which the tests forbid), a
@@ -55,7 +55,7 @@ async function open(page: Page, width = 1600, midi = false, lang = 'en') {
   if (lang !== 'en') await page.addInitScript((l) => localStorage.setItem('faulk.lang', l), lang)
   await page.goto('/app')
   await startAudio(page)
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   if (midi) await chooseMidiInput(page, 'E2E Keys')
   await page.getByTestId('nav-arrangement').click()
   await expect(arr(page)).toBeVisible()
@@ -411,7 +411,7 @@ test('automation: changing the instrument takes its lanes with it, says so, and 
   expect(seen.errors).toEqual([])
 })
 
-test('automation: stays fluid with 10 000 points in sight', async ({ page }) => {
+test('automation: stays fluid with 10 000 points in sight @full', async ({ page }) => {
   test.setTimeout(240_000)
   const seen = watch(page)
   await open(page, 1800)

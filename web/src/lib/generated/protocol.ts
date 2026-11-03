@@ -980,7 +980,10 @@ type: "mixer.set_solo"
  * The commands of this domain, tagged by `type`.
  */
 export type RecordCommand = ({
-offset_ms: number
+offset_ms?: (number | null)
+quantize_on_input?: (InputGrid | null)
+quantize_strength?: (number | null)
+replace?: (boolean | null)
 type: "record.set_settings"
 } | {
 latency_ms?: (number | null)
@@ -991,6 +994,18 @@ type: "record.stop"
 } | {
 type: "record.discard_take"
 } | {
+/**
+ * The input grid for this take; leave it out for the session's setting.
+ */
+quantize_on_input?: (InputGrid | null)
+/**
+ * The quantize strength (0 to 100) for this take; leave it out for the session's.
+ */
+quantize_strength?: (number | null)
+/**
+ * Replace mode for this take; leave it out for the session's setting.
+ */
+replace?: (boolean | null)
 shift_ms?: number
 /**
  * The take of `record.start` these notes are, when they are one: it is then
@@ -1004,6 +1019,11 @@ type: "record.commit_take"
 clips: ClipRestore[]
 type: "record.restore"
 })
+/**
+ * The grids a take can be quantized to on input: the ones of the piano roll's quantize
+ * field (`clip.notes.quantize`), plus none.
+ */
+export type InputGrid = (("quarter" | "eighth" | "sixteenth" | "thirty-second" | "eighth-triplet" | "sixteenth-triplet") | "none")
 /**
  * Where a take goes.
  */
@@ -2046,6 +2066,19 @@ export type RecordOutput = ({
  * The offset before the command.
  */
 previous_offset_ms: number
+/**
+ * The grids a take can be quantized to on input: the ones of the piano roll's quantize
+ * field (`clip.notes.quantize`), plus none.
+ */
+previous_quantize_on_input: (("quarter" | "eighth" | "sixteenth" | "thirty-second" | "eighth-triplet" | "sixteenth-triplet") | "none")
+/**
+ * The quantize strength before the command.
+ */
+previous_quantize_strength: number
+/**
+ * Replace mode before the command.
+ */
+previous_replace: boolean
 type: "record.set_settings"
 } | {
 /**
@@ -2087,6 +2120,10 @@ clips: TakeClip[]
  * Notes left out: before tick 0, before their clip, or outside a clip without a loop.
  */
 dropped: number
+/**
+ * Notes of the clips removed by replace mode.
+ */
+replaced: number
 type: "record.commit_take"
 } | {
 type: "record.restore"
@@ -2579,6 +2616,9 @@ take: number
 type: "recording_changed"
 } | {
 offset_ms: number
+quantize_on_input: InputGrid
+quantize_strength: number
+replace: boolean
 type: "record_settings_changed"
 })
 /**
@@ -4238,7 +4278,21 @@ export interface RecordSettings {
  * value moves them later). For an audio interface whose driver reports its latency
  * wrong.
  */
-offset_ms: number
+offset_ms?: number
+/**
+ * The grids a take can be quantized to on input: the ones of the piano roll's quantize
+ * field (`clip.notes.quantize`), plus none.
+ */
+quantize_on_input?: (("quarter" | "eighth" | "sixteenth" | "thirty-second" | "eighth-triplet" | "sixteenth-triplet") | "none")
+/**
+ * How far the quantization moves a note toward the grid, 0 to 100 percent.
+ */
+quantize_strength?: number
+/**
+ * Replace mode (#500): a take removes the notes the clip already holds in the range
+ * it recorded, instead of adding to them (overdub, the default).
+ */
+replace?: boolean
 }
 /**
  * Where the engine holds the tracks and the scenes: the key of the engine's feedback.

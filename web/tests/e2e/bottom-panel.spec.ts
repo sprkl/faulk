@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #317: the bottom panel resizes (drag and keyboard), folds, and remembers its height per view in the
 // page's preferences. Real browser, 1536 x 770 (a common laptop screen); the navigation test covers 1280 and 1920.
@@ -148,7 +148,7 @@ test('at its smallest the piano roll still shows an octave, and the mixer folds 
   const { errors } = watch(page)
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await page.getByTestId('panel-piano-roll').click()
   await handle(page).focus()
   await page.keyboard.press('Home')
@@ -185,7 +185,7 @@ test('a mixer strip is whole at 770 px', async ({ page }) => {
   const { errors } = watch(page)
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await page.getByTestId('nav-mixer').click()
   await expect(page.getByTestId('mixer-strip').first()).toBeVisible()
   const v = (await page.getByTestId('view').boundingBox())!

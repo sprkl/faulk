@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { watch } from './support'
+import { engineUp, watch } from './support'
 
 // #475 (epic #468): the quick wins of the design review, in a real browser at 1920x1080: the app opens
 // on the arrangement (then on the view used last), a view keeps its zoom and scroll across a switch, and a
@@ -19,7 +19,7 @@ test('opens on the arrangement, then on the view used last; the arrangement keep
   await page.setViewportSize({ width: 1920, height: 1080 })
   await page.goto('/app')
   await startAudio(page)
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await expect(page.getByTestId('view')).toHaveAttribute('data-view', 'arrangement')
 
   const grid = page.getByTestId('arr-stage').getByTestId('timegrid')
@@ -45,7 +45,7 @@ test('the colour of a track is chosen from the palette, with the keyboard or the
   await page.setViewportSize({ width: 1920, height: 1080 })
   await page.goto('/app')
   await startAudio(page)
-  await expect(page.getByTestId('engine-mode')).toBeVisible()
+  await engineUp(page)
   await page.getByTestId('add-track').click()
   await page.getByRole('menuitem', { name: 'Oscillator', exact: true }).click()
   await page.getByTestId('add-track').click()
