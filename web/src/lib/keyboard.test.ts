@@ -13,6 +13,7 @@ import {
   PLAYING_KEYS,
   playsNote,
   gotoShortcut,
+  repeatShortcut,
   saveShortcut,
   spaceTogglesTransport,
   trackFocusOrigin,
@@ -642,6 +643,15 @@ describe('arrangementShortcut (#473)', () => {
     expect(arrangementShortcut(key('KeyZ', { ctrlKey: true }))).toBeNull()
     expect(arrangementShortcut(key('KeyZ', { shiftKey: true }))).toBeNull()
     expect(arrangementShortcut(key('KeyK', { target: { closest: () => ({}) } }))).toBeNull()
+  })
+})
+
+describe('repeatShortcut (#555)', () => {
+  const press = (over: object = {}) => ({ key: 'R', ctrlKey: true, metaKey: false, altKey: false, shiftKey: true, ...over })
+  it('is Ctrl or Cmd + Shift + R, nothing else', () => {
+    expect(repeatShortcut(press())).toBe(true)
+    expect(repeatShortcut(press({ ctrlKey: false, metaKey: true, key: 'r' }))).toBe(true)
+    for (const over of [{ ctrlKey: false }, { shiftKey: false }, { altKey: true }, { key: 'd' }]) expect(repeatShortcut(press(over))).toBe(false)
   })
 })
 

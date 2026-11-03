@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { barStart, moveToTrack, placeFromSlot, placeScene } from './arrangement-commands'
+import { barStart, moveToTrack, placeFromSlot, placeScene, repeatPlacement } from './arrangement-commands'
 
 describe('sending the grid to the arrangement', () => {
   it('puts a clip on the bar the play position is in', () => {
@@ -14,6 +14,12 @@ describe('sending the grid to the arrangement', () => {
   it('builds the two commands', () => {
     expect(placeFromSlot('c', 3840, false)).toEqual({ type: 'arrangement.place_from_slot', clip: 'c', start: 3840, linked: false })
     expect(placeScene('s', 0, true)).toEqual({ type: 'arrangement.place_scene', scene: 's', start: 0, linked: true })
+  })
+})
+
+describe('repeating a placement', () => {
+  it('names the placement and the tick it is repeated up to', () => {
+    expect(repeatPlacement('p', 245760)).toEqual({ type: 'arrangement.repeat', placement: 'p', until: 245760 })
   })
 })
 
