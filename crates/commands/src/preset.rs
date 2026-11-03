@@ -550,20 +550,7 @@ fn load(
         .project
         .device_mut(device_id)
         .ok_or_else(|| not_found("device", device_id))?;
-    let mut previous = BTreeMap::new();
-    let mut events = Vec::new();
-    for (key, value) in resolved.params {
-        let slot = target.params.entry(key.clone()).or_insert(value);
-        if *slot != value {
-            previous.insert(key.clone(), *slot);
-            *slot = value;
-            events.push(ProjectEvent::DeviceParamChanged {
-                device: device_id.clone(),
-                param: key,
-                value,
-            });
-        }
-    }
+    let (previous, mut events) = set_values(descriptor, target, device_id, resolved.params);
     let previous_preset = target.preset.clone();
     if previous_preset.as_deref() != Some(&shown) {
         target.preset = Some(Box::new(shown));
@@ -584,6 +571,43 @@ fn load(
         events,
         control: vec![],
     })
+}
+
+/// Sets `values` on a built-in device: the values that differ from what the device plays (what
+/// it holds, or the default of a parameter it does not hold, as the engine does), each with its
+/// `DeviceParamChanged`, and the values before, for the inverse. A parameter the device does not
+/// hold (a device written by an older Faulk) and that keeps its default is left out; one that
+/// changes is written, and its undo writes the default back: the sound is restored exactly, the
+/// device then holds the key.
+fn set_values(
+    descriptor: &DeviceDescriptor,
+    target: &mut Device,
+    device_id: &DeviceId,
+    values: BTreeMap<String, f64>,
+) -> (BTreeMap<String, f64>, Vec<ProjectEvent>) {
+    let mut previous = BTreeMap::new();
+    let mut events = Vec::new();
+    for (key, value) in values {
+        let default = descriptor
+            .params
+            .iter()
+            .find(|p| p.key == key)
+            .map(|p| p.default);
+        let Some(now) = target.params.get(&key).copied().or(default) else {
+            continue;
+        };
+        if now == value {
+            continue;
+        }
+        previous.insert(key.clone(), now);
+        target.params.insert(key.clone(), value);
+        events.push(ProjectEvent::DeviceParamChanged {
+            device: device_id.clone(),
+            param: key,
+            value,
+        });
+    }
+    (previous, events)
 }
 
 fn delete(state: &mut State, reference: &PresetRef) -> Result<Out, CommandError> {
@@ -758,9 +782,15 @@ fn list(
             .iter()
             .find(|e| e.preset.location == c.location && e.preset.id == c.id && !e.newer)
             .map(|e| {
-                e.params
-                    .iter()
-                    .any(|(k, v)| d.params.get(k).is_some_and(|now| now != v))
+                // A parameter the device does not hold plays at its default.
+                let held = |k: &str| {
+                    d.params.get(k).copied().or_else(|| {
+                        descriptor(&e.kind)
+                            .and_then(|desc| desc.params.iter().find(|p| p.key == k))
+                            .map(|p| p.default)
+                    })
+                };
+                e.params.iter().any(|(k, v)| held(k) != Some(*v))
             }),
         _ => None,
     };
@@ -874,20 +904,7 @@ fn restore_device(
         .project
         .device_mut(device_id)
         .ok_or_else(|| not_found("device", device_id))?;
-    let mut previous = BTreeMap::new();
-    let mut events = Vec::new();
-    for (key, value) in values {
-        let slot = target.params.entry(key.clone()).or_insert(value);
-        if *slot != value {
-            previous.insert(key.clone(), *slot);
-            *slot = value;
-            events.push(ProjectEvent::DeviceParamChanged {
-                device: device_id.clone(),
-                param: key,
-                value,
-            });
-        }
-    }
+    let (previous, mut events) = set_values(descriptor, target, device_id, values);
     let previous_preset = std::mem::replace(&mut target.preset, preset.cloned().map(Box::new));
     if previous_preset.as_deref() != preset {
         events.push(ProjectEvent::DevicePresetChanged {

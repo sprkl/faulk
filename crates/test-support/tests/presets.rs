@@ -113,7 +113,8 @@ fn session(kind: &str, preset: Option<&str>) -> (Session, Vec<u8>) {
 fn checked(render: &Render, id: &str) {
     render.assert_finite();
     render.assert_no_denormals();
-    render.assert_audible(0.0..1.0, 1e-3);
+    // Heard after the load (at 0.2 s), not only before it with the defaults.
+    render.assert_audible(0.3..1.0, 1e-3);
     assert!(render.peak() <= 1.0, "{id}: peak {}", render.peak());
 }
 

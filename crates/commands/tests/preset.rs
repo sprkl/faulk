@@ -689,3 +689,147 @@ fn a_copy_goes_into_the_library_without_touching_the_devices_and_names_stay_uniq
         }),
     );
 }
+
+#[test]
+fn a_load_into_a_device_that_lacks_parameters_tells_the_engine_and_undoes_to_what_it_played() {
+    // A filter as an older Faulk wrote it: only its cutoff (the engine plays the others at their
+    // defaults: low-pass, resonance 0.2, mix 1).
+    let f = fx();
+    let mut state = f.state.clone();
+    let filter = DeviceId::parse("01HZY00000000000000000F1TR").unwrap();
+    let track = state.project.tracks.get_mut(&f.track).unwrap();
+    track.devices.insert(
+        filter.clone(),
+        ::project::Device {
+            order: ::project::OrderKey::between(Some(&::project::OrderKey::first()), None).unwrap(),
+            role: ::project::DeviceRole::Effect,
+            enabled: true,
+            source: DeviceSource::Builtin {
+                id: "faulk.filter".into(),
+                version: 1,
+            },
+            params: BTreeMap::from([("cutoff".into(), 800.0)]),
+            state: None,
+            preset: None,
+        },
+    );
+    state.project.validate().unwrap();
+    let out = ran(
+        &mut state,
+        &load(&filter, factory("faulk.filter/thin-highpass")),
+    );
+    let mut told: Vec<&str> = out
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            ProjectEvent::DeviceParamChanged { param, .. } => Some(param.as_str()),
+            _ => None,
+        })
+        .collect();
+    told.sort_unstable();
+    // `mix` keeps its default (1): nothing to tell, nothing written.
+    assert_eq!(told, ["cutoff", "mode", "resonance"]);
+    let params = &state.project.device(&filter).unwrap().params;
+    assert_eq!(params.get("mix"), None);
+    assert_eq!(params["mode"], 1.0);
+    let preset::Output::List { modified, .. } = list(&mut state, &filter) else {
+        panic!()
+    };
+    assert_eq!(modified, Some(false));
+    // The undo gives back what the engine played: the cutoff, and the defaults of the others.
+    let undone = ran(&mut state, &undo());
+    let params = &state.project.device(&filter).unwrap().params;
+    assert_eq!(params["cutoff"], 800.0);
+    assert_eq!(params["mode"], 0.0);
+    assert_eq!(params["resonance"], 0.2);
+    assert_eq!(
+        undone
+            .events
+            .iter()
+            .filter(|e| matches!(e, ProjectEvent::DeviceParamChanged { .. }))
+            .count(),
+        3
+    );
+}
+
+#[test]
+fn the_other_refusals_of_rename_restore_and_restore_device() {
+    let f = fx();
+    let mut state = f.state.clone();
+    // Rename to a name another preset of the synth uses in that location.
+    let other = PresetId::parse("01HZY00000000000000000XTRA").unwrap();
+    state
+        .project
+        .presets
+        .insert(other.clone(), synth_preset("Other", 0.1));
+    assert_eq!(
+        invalid_field(
+            &p(preset::Command::Rename {
+                preset: reference(PresetLocation::Project, &other),
+                name: "warm".into(),
+            }),
+            &state
+        ),
+        "name"
+    );
+    // Restore into a full project, and into a full library.
+    let mut ids = ::project::IdGenerator::new(1_620_000_000_000, 11);
+    let mut full = state.clone();
+    while full.project.presets.len() < ::project::preset::MAX_PROJECT_PRESETS {
+        full.project
+            .presets
+            .insert(PresetId::generate(&mut ids), synth_preset("P", 0.1));
+    }
+    while full.library.len() < ::project::preset::MAX_LIBRARY_PRESETS {
+        full.library
+            .insert(PresetId::generate(&mut ids), synth_preset("L", 0.1));
+    }
+    let fresh = PresetId::parse("01HZY00000000000000000NEW1").unwrap();
+    for location in [PresetLocation::Project, PresetLocation::Library] {
+        let restore = p(preset::Command::Restore {
+            preset: reference(location, &fresh),
+            snapshot: Some(synth_preset("Back", 0.1)),
+            device: None,
+        });
+        assert_eq!(refused(&restore, &full).code(), "limit", "{location:?}");
+    }
+    // Restore a device's values on a device without presets: the clip player.
+    let mut audio = state.clone();
+    let player = DeviceId::parse("01HZY00000000000000000PXA2").unwrap();
+    let mut track = ::project::Track::new(
+        ::project::TrackKind::Audio,
+        "Audio",
+        ::project::OrderKey::between(Some(&::project::OrderKey::first()), None).unwrap(),
+    );
+    track.color = Some(::project::colors::palette_hue(1));
+    track.devices.insert(
+        player.clone(),
+        ::project::Device {
+            order: ::project::OrderKey::first(),
+            role: ::project::DeviceRole::Instrument,
+            enabled: true,
+            source: DeviceSource::Builtin {
+                id: ::project::CLIP_PLAYER.into(),
+                version: 1,
+            },
+            params: BTreeMap::new(),
+            state: None,
+            preset: None,
+        },
+    );
+    audio.project.tracks.insert(
+        ::project::TrackId::parse("01HZY00000000000000000TRK2").unwrap(),
+        track,
+    );
+    assert_eq!(
+        invalid_field(
+            &p(preset::Command::RestoreDevice {
+                device: player,
+                params: BTreeMap::new(),
+                preset: None,
+            }),
+            &audio
+        ),
+        "device"
+    );
+}
