@@ -28,6 +28,21 @@ pub struct SessionState {
     /// audio input; a MIDI track's instrument always sounds what is played.
     #[serde(default)]
     pub monitor: BTreeSet<TrackId>,
+    /// The settings of MIDI recording (RE-2): they belong to the machine (its latency), not
+    /// to the music. A session saved before recording existed has the defaults.
+    #[serde(default)]
+    pub record: RecordSettings,
+}
+
+/// The settings of MIDI recording, in the session.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RecordSettings {
+    /// A manual latency offset, in milliseconds, -500 to 500: every recorded note is moved
+    /// this much earlier, on top of the output latency the host estimates (a negative
+    /// value moves them later). For an audio interface whose driver reports its latency
+    /// wrong.
+    pub offset_ms: i32,
 }
 
 impl SessionState {

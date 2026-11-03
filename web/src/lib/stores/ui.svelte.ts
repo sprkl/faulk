@@ -78,9 +78,19 @@ export class UiStore {
   /** The shortcut list is open (#474). Page state, not project state. */
   helpOpen = $state(false)
 
+  /**
+   * Where a take of MIDI recording goes (#470, spec § 4.1): the last of the grid and the arrangement the user showed.
+   * The grid records into the scene of its last focused cell (`recordScene`, else the first scene), the arrangement
+   * at the play position. View state, not project data.
+   */
+  recordView = $state<'grid' | 'arrangement'>('arrangement')
+  /** The scene of the grid cell the user last focused or clicked: the grid's target for recording. */
+  recordScene = $state<string | null>(null)
+
   constructor(view: MainViewId, panel: PanelViewId) {
     this.view = $state(view)
     this.panel = $state(panel)
+    if (view === 'grid' || view === 'arrangement') this.recordView = view
   }
 
   t = (key: MessageKey, vars?: Record<string, string | number>) => translate(this.lang, key, vars)
@@ -93,6 +103,7 @@ export class UiStore {
   show(view: MainViewId) {
     if (view !== this.view) this.panelRevealed = false
     this.view = view
+    if (view === 'grid' || view === 'arrangement') this.recordView = view
     write(VIEW_KEY, view)
   }
 
@@ -173,6 +184,7 @@ export class UiStore {
     this.openLanes = owner
     this.panelRevealed = false
     this.view = 'arrangement'
+    this.recordView = 'arrangement'
   }
 
   /** The master's lanes (`showLanes` for the master). */

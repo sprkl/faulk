@@ -11,7 +11,9 @@ use serde::{Deserialize, Serialize};
 /// Version of this protocol. Bump it on any incompatible change.
 pub const PROTOCOL_VERSION: u32 = 15;
 
-// Version 15 (#473, clip pool): the arrangement commands' outputs lose `clips_removed` (a clip that loses its last placement stays in its track), `clip.move` takes a clip out of the grid into the pool, and a placement longer than a clip without a loop repeats the whole clip. 13 and 14 are #509 (MIDI recording) and #512 (history and names), merged before.
+// Version 15 (#473, clip pool): the arrangement commands' outputs lose `clips_removed` (a clip that loses its last placement stays in its track), `clip.move` takes a clip out of the grid into the pool, and a placement longer than a clip without a loop repeats the whole clip. 14 is #473's first pull request (history and names).
+
+// Version 13 (#470): MIDI recording. The commands gain `record.set_settings`, `record.start`, `record.stop`, `record.discard_take`, `record.commit_take` and `record.restore`; the events gain `recording_changed` and `record_settings_changed`; the session gains `record` (the manual latency offset). The feedback layout is version 5: a 72-byte header with the take's number, its count of notes, the notes lost and whether the engine captures, then the take's last notes (at most 256) after the active clips. A page and a helper of different versions refuse each other.
 
 // Version 12 (#469): the feedback layout is version 4: each meter carries the largest gain reduction, in decibels, of the devices of its strip (the Compressor), 20 bytes instead of 16. A page and a helper of different versions refuse each other.
 

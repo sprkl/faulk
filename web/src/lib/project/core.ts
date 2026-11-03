@@ -216,8 +216,8 @@ export type ExportJob =
 
 /** What running a command means for the engine. */
 export type EngineStep =
-  /** Bytes to push (possibly empty). */
-  | { push: Uint8Array; events: ProjectEvent[] }
+  /** Bytes to push (possibly empty), with the command's output. */
+  | { push: Uint8Array; events: ProjectEvent[]; output: unknown }
   /**
    * The command may have changed the project but the engine did not get it: behind until a
    * snapshot. `events` is empty when the report itself was lost (a `CoreError`): refresh the
@@ -239,7 +239,7 @@ export function engineStep(run: () => WithEngine<RunReport>): EngineStep {
   const { report, engine } = result
   if (report.status !== 'applied') return { refused: report }
   if (typeof report.stream_error === 'number') return { streamError: report.stream_error, events: report.events }
-  return { push: engine, events: report.events }
+  return { push: engine, events: report.events, output: report.output }
 }
 
 /**

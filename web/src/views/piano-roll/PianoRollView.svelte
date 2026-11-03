@@ -100,7 +100,7 @@
   import Surface from './Surface.svelte'
   import { boardNotes, setBoard } from './clipboard'
 
-  const { project, engine, ui, dispatcher } = useStores()
+  const { project, engine, ui, dispatcher, recorder } = useStores()
   const t = ui.t
   const run = (command: Command) => dispatcher.run(command)
 
@@ -303,15 +303,50 @@
   const onTimeline = $derived(edited?.clip.slot == null)
   const playhead = $derived(running || onTimeline ? live : lastSeen && lastSeen.clip === edited?.id ? lastSeen.at : null)
 
+  /** The notes of a take being recorded on this track (#470), where this clip plays them: shown live, written at the end of the take. */
+  const taking = $derived.by<Note[]>(() => {
+    const played = track ? recorder.notes[track.id] : undefined
+    if (!played?.length || !report || !track || !edited || !project.view) return []
+    const out: Note[] = []
+    for (const n of played) {
+      const start = playheadIn({
+        report,
+        slots: project.view.slots,
+        trackId: track.id,
+        track: track.track,
+        clipId: edited.id,
+        clip: edited.clip,
+        length: edited.length,
+        looping: edited.looping,
+        tick: n.start,
+      })
+      if (start !== null) out.push({ start, length: Math.max(1, Math.min(n.length, edited.length - start)), pitch: n.pitch, velocity: n.velocity })
+    }
+    return out
+  })
+
   let grid: ReturnType<typeof TimeGrid> | undefined = $state()
   let stage: HTMLDivElement | undefined = $state()
 
   const body = (ctx: CanvasRenderingContext2D, frame: BodyFrame) =>
-    drawRoll(ctx, frame, { layout, notes, hidden, selected: chosenKeys, ghosts, band, clipLength, loop: loopShown, names: keyNames, trackColor, others })
+    drawRoll(ctx, frame, {
+      layout,
+      notes,
+      hidden,
+      selected: chosenKeys,
+      ghosts,
+      band,
+      clipLength,
+      loop: loopShown,
+      names: keyNames,
+      trackColor,
+      others,
+      taking,
+    })
 
   // The grid draws in its own frame and cannot see this state: tell it when something it draws changed.
   $effect(() => {
-    void [notes, chosenKeys, ghosts, hidden, band, layout, clipLength, loopShown, keyNames, trackColor, others]
+    void [notes, chosenKeys, ghosts, hidden, band, layout, clipLength, loopShown, keyNames, trackColor, others, taking]
     grid?.invalidate()
   })
 
@@ -1061,6 +1096,7 @@
     data-testid="piano-roll"
     data-clip={edited.id}
     data-note-count={notes.length}
+    data-taking={taking.length}
     data-selected-count={chosenNotes.length}
     data-clip-length={clipLength}
     data-key-names={keyNames ? JSON.stringify(Object.fromEntries(keyNames)) : ''}
@@ -1315,7 +1351,7 @@
       >
         <Surface
           label={t('pianoRoll.velocity')}
-          draw={(ctx, w, h, colors) => drawLane(ctx, w, h, shown, notes, chosenKeys, ghosts, hidden, clipLength, colors, hoverKey)}
+          draw={(ctx, w, h, colors) => drawLane(ctx, w, h, shown, notes, chosenKeys, ghosts, hidden, clipLength, colors, hoverKey, trackColor)}
         />
       </div>
     </div>

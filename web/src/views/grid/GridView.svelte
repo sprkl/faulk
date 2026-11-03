@@ -133,6 +133,8 @@
     if (!cell) return
     focusTrack = cell.dataset.track ?? null
     focusScene = cell.dataset.scene ?? null
+    // The grid's target for recording (#470): the scene of the cell the user is on.
+    ui.recordScene = focusScene
   }
 
   /**

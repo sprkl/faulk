@@ -606,3 +606,89 @@ fn native_and_wasm_write_the_same_report() {
     );
     assert!(a.peak_l > 0.05);
 }
+
+/// A take on two tracks, one armed (RE-2): notes held across report periods, one still held
+/// when the recording stops (cut there), in pushes between renders.
+fn record_session() -> Vec<Step> {
+    use engine::msg::{ControlMsg as M, encode_stream};
+    use engine::time::Tick;
+    let mut seq = 0;
+    let mut push = |msgs: &[M]| {
+        let bytes = encode_stream(1, seq, msgs).unwrap();
+        seq += msgs.len() as u32;
+        Step::Push(bytes)
+    };
+    let mut setup = vec![
+        M::Reset { epoch: 1 },
+        M::SetMetronome {
+            enabled: false,
+            volume: 1.0,
+            count_in_bars: 0,
+        },
+    ];
+    for t in 0..2u32 {
+        setup.push(M::TrackCreate {
+            track: TrackSlot(t),
+            kind: TrackKind::Midi,
+        });
+    }
+    setup.push(M::TrackArm {
+        track: TrackSlot(1),
+        armed: true,
+    });
+    setup.push(M::SetRecording { recording: true });
+    setup.push(M::Play { from: Tick(480) });
+    let on = |t: u32, pitch: u8| M::NoteOn {
+        track: TrackSlot(t),
+        pitch,
+        velocity: 80 + pitch % 20,
+    };
+    let off = |t: u32, pitch: u8| M::NoteOff {
+        track: TrackSlot(t),
+        pitch,
+    };
+    vec![
+        push(&setup),
+        Step::Render(3),
+        push(&[on(0, 60), on(1, 60), on(1, 64)]),
+        Step::Render(17),
+        push(&[off(1, 60), on(1, 67)]),
+        Step::Render(9),
+        push(&[off(0, 60), off(1, 64)]),
+        Step::Render(5),
+        push(&[M::SetRecording { recording: false }]),
+        Step::Render(30),
+    ]
+}
+
+#[test]
+fn native_and_wasm_record_the_same_take() {
+    use engine::host::decode_feedback;
+    let steps = record_session();
+    let (_, native, _) = run_native(&steps);
+    let (_, wasm) = run_wasm(&steps);
+    let n = decode_feedback(&native).expect("a native report");
+    let w = decode_feedback(&wasm).expect("a wasm report");
+    assert_eq!(n.record_take, 1);
+    assert!(!n.record_capturing);
+    assert_eq!(
+        n.record_total, 3,
+        "the armed track's three notes, the last one cut"
+    );
+    assert!(n.recorded.iter().all(|r| r.track == TrackSlot(1)));
+    assert_eq!(
+        (
+            n.record_take,
+            n.record_total,
+            n.record_dropped,
+            n.record_capturing
+        ),
+        (
+            w.record_take,
+            w.record_total,
+            w.record_dropped,
+            w.record_capturing
+        )
+    );
+    assert_eq!(n.recorded, w.recorded);
+}
