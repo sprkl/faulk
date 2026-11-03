@@ -1710,8 +1710,10 @@ pub const FEEDBACK_HEADER_BYTES: usize = 76;
 ///             table was full; version 5)
 ///     68    4 record_flags (u32, bit 0: the recorder captures; once it is 0 with this
 ///             record_take, the take's notes are all in the report; version 5)
-///     72    4 cpu_peak (f32, 0..1: the largest load of one peak window of the period, at
-///             least cpu_load; -1 like cpu_load; version 6, #486)
+///     72    4 cpu_peak (f32, 0..1: the largest load of one peak window closed in the period;
+///             with none closed (a coarse clock's window outlasts a period), the last window
+///             closed, which can be under cpu_load; before any, cpu_load; -1 like cpu_load;
+///             version 6, #486)
 ///     76      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
 ///             largest gain reduction in decibels of the strip's devices over the period, version 4):
 ///             one per track slot below `tracks` (zeros for an empty slot; peak and RMS after the
@@ -1730,8 +1732,9 @@ pub struct Feedback {
     pub playhead_tick: Tick,
     pub playhead_frame: Frame,
     pub cpu_load: f32,
-    /// The largest load of one peak window of the period (`crate::host`), at least
-    /// `cpu_load`; -1 like it.
+    /// The largest load of one peak window closed in the period (`crate::host`); with a
+    /// coarse clock a period may close none and carry the last window, which can be under
+    /// `cpu_load`. -1 like it.
     pub cpu_peak: f32,
     pub live_overflows: u32,
     pub rejected: u32,
