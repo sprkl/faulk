@@ -10,13 +10,14 @@
 export const SCHEMA_MAX_BYTES = 5 * 1024 * 1024
 
 /**
- * The size of each top-level section of the bundle, as written (two-space indentation), largest first.
+ * The bytes each top-level section of the bundle takes in the file, key and indentation included, largest first:
+ * the text between the braces of `{ key: value }` written as the generator writes the bundle (two spaces).
  * @param {Record<string, unknown>} bundle
  * @returns {[string, number][]}
  */
 export const sectionSizes = (bundle) =>
   Object.entries(bundle)
-    .map(([key, value]) => /** @type {[string, number]} */ ([key, Buffer.byteLength(JSON.stringify(value, null, 2) ?? '')]))
+    .map(([key, value]) => /** @type {[string, number]} */ ([key, Buffer.byteLength(JSON.stringify({ [key]: value }, null, 2)) - '{\n\n}'.length]))
     .sort((a, b) => b[1] - a[1])
 
 /**
@@ -28,7 +29,7 @@ export const sectionSizes = (bundle) =>
 export function checkSchemaSize(text, bundle, max = SCHEMA_MAX_BYTES) {
   const size = Buffer.byteLength(text)
   if (size <= max) return size
-  const mb = (/** @type {number} */ n) => `${(n / 1024 / 1024).toFixed(2)} MB`
+  const mb = (/** @type {number} */ n) => `${(n / 1024 / 1024).toFixed(2)} MiB`
   const sections = sectionSizes(bundle)
     .map(([key, bytes]) => `  ${key}: ${mb(bytes)}`)
     .join('\n')

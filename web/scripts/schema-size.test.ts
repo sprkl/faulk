@@ -23,8 +23,17 @@ describe('the size cap of schema.json (#559)', () => {
         return String(e)
       }
     })()
-    expect(error).toMatch(/large: [\d.]+ MB\n\s+small: [\d.]+ MB/)
+    expect(error).toMatch(/large: [\d.]+ MiB\n\s+small: [\d.]+ MiB/)
     expect(sectionSizes(bundle).map(([key]) => key)).toEqual(['large', 'small'])
+  })
+
+  it('measures each section as written in the file, so that they add up to it', () => {
+    const nested = { a: { b: { c: [1, 2, { d: 'é' }] } }, e: 'x', f: [] }
+    const text = JSON.stringify(nested, null, 2)
+    const sections = sectionSizes(nested)
+    // The braces, plus one ",\n" between two sections.
+    const frame = '{\n\n}'.length + 2 * (sections.length - 1)
+    expect(sections.reduce((sum, [, bytes]) => sum + bytes, 0) + frame).toBe(Buffer.byteLength(text))
   })
 
   it('holds the committed file under the cap', () => {
