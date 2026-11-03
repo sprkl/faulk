@@ -4,7 +4,8 @@ import { PROTOCOL_VERSION, type ClientMessage, type ServerMessage } from '../gen
 export const HELPER_PORT = Number(import.meta.env.VITE_FAULK_HELPER_PORT) || 47800
 export const HELPER_URL = `ws://127.0.0.1:${HELPER_PORT}`
 
-export type ProbeResult = { status: 'absent' } | { status: 'available' } | { status: 'incompatible'; protocol: number }
+/** `audioOutput`: the helper has an audio output open now (#525); without one it serves anyway and refuses a session with `audio.no_output`. */
+export type ProbeResult = { status: 'absent' } | { status: 'available'; audioOutput: boolean } | { status: 'incompatible'; protocol: number }
 
 /**
  * The message for a helper that speaks another protocol: an older helper needs its update,
@@ -42,7 +43,12 @@ export function probeHelper(timeoutMs = 1500): Promise<ProbeResult> {
     ws.onmessage = (event) => {
       const message = parseServerMessage(event.data)
       if (message?.type !== 'probe') return done({ status: 'absent' })
-      done(message.protocol === PROTOCOL_VERSION ? { status: 'available' } : { status: 'incompatible', protocol: message.protocol })
+      done(
+        message.protocol === PROTOCOL_VERSION
+          ? // Read loosely: only an explicit `false` means no output.
+            { status: 'available', audioOutput: message.audio_output !== false }
+          : { status: 'incompatible', protocol: message.protocol },
+      )
     }
     ws.onerror = () => done({ status: 'absent' })
     ws.onclose = () => done({ status: 'absent' })

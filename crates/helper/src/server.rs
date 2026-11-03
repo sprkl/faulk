@@ -2,8 +2,12 @@
 //!
 //! One session at a time: a new session replaces the previous one (its page is told).
 //! When a session ends, every note is released so nothing keeps sounding.
+//!
+//! Without an audio output (#525) the helper still serves: the probe says so
+//! (`audio_output: false`) and a session is answered `error audio.no_output` and closed, so the
+//! page keeps playing itself until an output opens.
 
-use crate::audio::{EventSender, Meter};
+use crate::audio::{EngineSlot, Meter};
 use crate::midi::MidiManager;
 use crate::midi::all_notes_off;
 use crate::security::{Handshake, PairResult, Pairing, Policy, Route};
@@ -27,9 +31,14 @@ pub enum HelperEvent {
     Code(String),
     /// A page opened a session (`true`) or the last session ended (`false`).
     Session(bool),
-    /// The audio output stream reported an error.
+    /// The audio output stream reported an error (the output is gone).
     AudioError,
+    /// An audio output opened (`true`) or there is none (`false`), from the output supervisor.
+    Output(bool),
 }
+
+/// The error code of a session opened while the helper has no audio output.
+pub use protocol::errors::NO_OUTPUT;
 
 /// What the session's writer sends: a JSON message, or the bytes of an engine report (a
 /// binary frame, `protocol` module doc).
@@ -49,12 +58,11 @@ struct Session {
 pub struct Shared {
     pub policy: Policy,
     pub pairing: Mutex<Pairing>,
-    pub sender: Arc<Mutex<EventSender>>,
+    /// The engine of the open audio output; empty while there is none.
+    pub engine: Arc<EngineSlot>,
     pub midi: Mutex<MidiManager>,
     pub activity: Mutex<std_mpsc::Receiver<(u8, u8)>>,
     pub meter: Arc<Meter>,
-    pub sample_rate: f32,
-    pub audio_error: Arc<AtomicBool>,
     /// Told about new pairing codes, sessions and audio errors.
     pub notify: Box<dyn Fn(HelperEvent) + Send + Sync>,
     /// The helper's updater, reported to the session (`update.status`); `None` in tests.
@@ -67,12 +75,10 @@ impl Shared {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         policy: Policy,
-        sender: Arc<Mutex<EventSender>>,
+        engine: Arc<EngineSlot>,
         midi: MidiManager,
         activity: std_mpsc::Receiver<(u8, u8)>,
         meter: Arc<Meter>,
-        sample_rate: f32,
-        audio_error: Arc<AtomicBool>,
         notify: Box<dyn Fn(HelperEvent) + Send + Sync>,
     ) -> Self {
         let pairing = Pairing::new(Instant::now());
@@ -80,16 +86,30 @@ impl Shared {
         Self {
             policy,
             pairing: Mutex::new(pairing),
-            sender,
+            engine,
             midi: Mutex::new(midi),
             activity: Mutex::new(activity),
             meter,
-            sample_rate,
-            audio_error,
             notify,
             updates: None,
             session: Mutex::new(None),
             next_id: AtomicU64::new(1),
+        }
+    }
+
+    /// The open output failed and its engine is gone (the output supervisor calls this once it
+    /// emptied the slot): the page is told at once, before any new output can open, so the news
+    /// never reaches a session opened on the next output.
+    pub fn output_lost(&self) {
+        (self.notify)(HelperEvent::AudioError);
+        self.to_session(audio_stream_error());
+    }
+
+    /// An output opened with the engine of the one that failed (#577): the session plays on, and
+    /// a new `hello` tells the page the output's rate, buffer and latency.
+    pub fn output_reopened(&self) {
+        if let Some(hello) = self.hello() {
+            self.to_session(hello);
         }
     }
 
@@ -109,9 +129,7 @@ impl Shared {
     }
 
     fn send_command(&self, command: &commands::Command) {
-        if let Ok(mut sender) = self.sender.lock() {
-            sender.send(command);
-        }
+        self.engine.send(command);
     }
 
     fn to_session(&self, message: ServerMessage) {
@@ -140,13 +158,15 @@ impl Shared {
         }
     }
 
-    fn hello(&self) -> ServerMessage {
-        ServerMessage::Hello {
+    /// The session's first message, at the rate of the open output; `None` without one.
+    fn hello(&self) -> Option<ServerMessage> {
+        let sample_rate = self.engine.sample_rate()?;
+        Some(ServerMessage::Hello {
             protocol: PROTOCOL_VERSION,
-            sample_rate: self.sample_rate,
+            sample_rate,
             buffer_frames: self.meter.callback_frames(),
-            estimated_latency_ms: self.meter.estimated_latency_ms(self.sample_rate),
-        }
+            estimated_latency_ms: self.meter.estimated_latency_ms(sample_rate),
+        })
     }
 
     /// Runs a command from the session. Returns the messages to send back.
@@ -188,7 +208,7 @@ pub async fn serve(listener: TcpListener, shared: Arc<Shared>) {
     }
 }
 
-/// Periodic work: meter, MIDI activity, hot-plug polling, update status, audio errors.
+/// Periodic work: meter, MIDI activity, hot-plug polling, update status.
 async fn ticker(shared: Arc<Shared>) {
     let mut interval = tokio::time::interval(Duration::from_millis(33));
     let mut ticks: u64 = 0;
@@ -236,13 +256,14 @@ async fn ticker(shared: Arc<Shared>) {
                 last_update = update;
             }
         }
-        if shared.audio_error.swap(false, Ordering::Relaxed) {
-            (shared.notify)(HelperEvent::AudioError);
-            shared.to_session(ServerMessage::Error {
-                code: "audio.stream".into(),
-                message: "the audio output stream reported an error".into(),
-            });
-        }
+    }
+}
+
+/// The output stream failed and the engine is gone: the page plays itself again.
+fn audio_stream_error() -> ServerMessage {
+    ServerMessage::Error {
+        code: protocol::errors::AUDIO_STREAM.into(),
+        message: "the audio output stream reported an error".into(),
     }
 }
 
@@ -285,7 +306,7 @@ async fn connection(stream: TcpStream, shared: Arc<Shared>) {
     };
     let route = route.lock().expect("route lock").take();
     match route {
-        Some(Route::Probe) => probe(ws).await,
+        Some(Route::Probe) => probe(ws, &shared).await,
         Some(Route::Pair) => pair(ws, &shared).await,
         Some(Route::Session) => session(ws, &shared).await,
         None => {}
@@ -298,10 +319,11 @@ fn text(message: &ServerMessage) -> Message {
     Message::text(serde_json::to_string(message).expect("messages always serialize"))
 }
 
-async fn probe(mut ws: Ws) {
+async fn probe(mut ws: Ws, shared: &Shared) {
     let answer = ServerMessage::Probe {
         helper: HELPER_NAME.into(),
         protocol: PROTOCOL_VERSION,
+        audio_output: shared.engine.is_open(),
     };
     let _ = ws.send(text(&answer)).await;
     let _ = ws.close(None).await;
@@ -352,7 +374,22 @@ async fn pair(mut ws: Ws, shared: &Shared) {
     let _ = ws.close(None).await;
 }
 
-async fn session(ws: Ws, shared: &Arc<Shared>) {
+/// How long a session waits for a new output's first callback before its `hello`.
+const FIRST_CALLBACK_TRIES: u32 = 25;
+const FIRST_CALLBACK_STEP: Duration = Duration::from_millis(10);
+
+async fn session(mut ws: Ws, shared: &Arc<Shared>) {
+    // Without an output there is no engine to play: the page is told and keeps its own (#525).
+    // Checked before the session is counted, so a refused page never replaces the current one.
+    if !shared.engine.is_open() {
+        let refusal = ServerMessage::Error {
+            code: protocol::errors::NO_OUTPUT.into(),
+            message: "the helper has no audio output".into(),
+        };
+        let _ = ws.send(text(&refusal)).await;
+        let _ = ws.close(None).await;
+        return;
+    };
     let (mut sink, mut stream) = ws.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<Out>();
     let pending = Arc::new(ReportGate::default());
@@ -374,9 +411,27 @@ async fn session(ws: Ws, shared: &Arc<Shared>) {
         // Under the lock, so it can never be overtaken by an older session's end.
         (shared.notify)(HelperEvent::Session(true));
     }
+    // An output that has just opened has not called back yet: wait for its first callback (a
+    // moment), so that `hello` carries its buffer size and latency.
+    for _ in 0..FIRST_CALLBACK_TRIES {
+        if !shared.engine.is_open() || shared.meter.callback_frames().is_some() {
+            break;
+        }
+        tokio::time::sleep(FIRST_CALLBACK_STEP).await;
+    }
     // A new session starts from silence.
     shared.send_command(&all_notes_off());
-    let _ = tx.send(Out::Msg(shared.hello()));
+    // Read now, at the rate of the output open now. An output lost since the check above was
+    // told to this session already (`output_lost`, before the hello): the page takes it as no
+    // output. One lost and not replaced is said again here.
+    match shared.hello() {
+        Some(hello) => {
+            let _ = tx.send(Out::Msg(hello));
+        }
+        None => {
+            let _ = tx.send(Out::Msg(audio_stream_error()));
+        }
+    }
     shared.midi.lock().expect("MIDI lock poisoned").refresh();
     let _ = tx.send(Out::Msg(shared.midi_inputs()));
     // A page that just connected may be waiting on a release: look for it now (rate-limited).

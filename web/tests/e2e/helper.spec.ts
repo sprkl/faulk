@@ -21,6 +21,8 @@ const text = (data: RawData) => (Array.isArray(data) ? Buffer.concat(data) : dat
 let server: WebSocketServer
 const connections: Connection[] = []
 const commands: unknown[] = []
+/** Whether the stand-in has an audio output (#525): without one its probe says so and it refuses sessions with `audio.no_output`. */
+let hasOutput = true
 
 test.beforeAll(async () => {
   server = new WebSocketServer({ host: HELPER_HOST, port: HELPER_PORT })
@@ -32,13 +34,16 @@ test.beforeAll(async () => {
     const url = new URL(req.url ?? '/', `http://${HELPER_HOST}`)
     connections.push({ path: url.pathname, origin: req.headers.origin })
     const send = (message: object) => ws.send(JSON.stringify(message))
-    if (url.pathname === '/probe') send({ type: 'probe', protocol: PROTOCOL_VERSION })
+    if (url.pathname === '/probe') send({ type: 'probe', helper: 'faulk-helper', protocol: PROTOCOL_VERSION, audio_output: hasOutput })
     else if (url.pathname === '/pair') {
       ws.on('message', (data) => {
         const message = JSON.parse(text(data))
         if (message.type === 'pair' && message.code === CODE) send({ type: 'paired', token: TOKEN })
         else send({ type: 'pairing_refused', attempts_left: 2 })
       })
+    } else if (url.pathname === '/session' && url.searchParams.get('token') === TOKEN && !hasOutput) {
+      send({ type: 'error', code: 'audio.no_output', message: 'the helper has no audio output' })
+      ws.close()
     } else if (url.pathname === '/session' && url.searchParams.get('token') === TOKEN) {
       send({ type: 'hello', protocol: PROTOCOL_VERSION, sample_rate: 48000, estimated_latency_ms: 5 })
       send({ type: 'midi.inputs', inputs: [], selected: null })
@@ -55,6 +60,7 @@ test.afterAll(async () => {
 test.beforeEach(() => {
   connections.length = 0
   commands.length = 0
+  hasOutput = true
 })
 
 test('probes, pairs and plays through the helper from the isolated page', async ({ page, baseURL }) => {
@@ -103,4 +109,55 @@ test('probes, pairs and plays through the helper from the isolated page', async 
   const own = connections.filter((c) => c.origin === origin).map((c) => c.path)
   expect(own).toEqual(expect.arrayContaining(['/probe', '/pair', '/session']))
   expect(errors).toEqual([])
+})
+
+test('without an audio output the helper keeps the page in Web mode, says so, and Boost starts once the output is there (#525)', async ({ page }) => {
+  const { errors } = watch(page)
+  hasOutput = false
+  await page.goto('/app')
+  await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
+  await page.getByTestId('engine-mode').click()
+  await page.getByRole('textbox', { name: /code/i }).fill('1234 5678')
+  await page.getByRole('button', { name: 'Pair', exact: true }).click()
+
+  // Paired, but no output: the page plays itself, the dialog says why and the pill shows the wait.
+  const message = page.getByTestId('helper-no-output')
+  await expect(message).toContainText('The helper has no audio output it can use.')
+  await expect(page.getByRole('button', { name: 'Stay in Web' })).toBeVisible()
+  await expect(page.getByTestId('engine-dialog-mode')).toHaveText('Web (in the browser)')
+  await expect(page.getByTestId('engine-waiting')).toBeVisible()
+  await expect(page.getByTestId('engine-mode')).toHaveAttribute('aria-label', /Boost waits for an audio output/)
+  await page.keyboard.press('Escape')
+  // The dialog is gone and the pill has the focus back before a key is played: a key pressed
+  // while the dialog still closes is the dialog's, and a held key is not pressed again.
+  await expect(page.getByTestId('engine-dialog')).toBeHidden()
+  await expect(page.locator('[aria-modal="true"]')).toHaveCount(0)
+  await expect(page.getByTestId('engine-mode')).toBeFocused()
+  // The Web engine plays meanwhile.
+  await page.keyboard.down('KeyA')
+  await expect.poll(async () => Number(await page.getByTestId('top-meter').getAttribute('aria-valuenow')), { timeout: 10_000 }).toBeGreaterThan(-60)
+  await page.keyboard.up('KeyA')
+
+  // The output appears: the page switches to Boost by itself, without a click.
+  hasOutput = true
+  await engineUp(page, 'Boost')
+  await expect(page.getByTestId('engine-waiting')).toHaveCount(0)
+  await page.keyboard.down('KeyA')
+  await page.keyboard.up('KeyA')
+  await expect.poll(() => commands.some((c) => (c as { command?: { type?: string } }).command?.type === 'live.input_note_on')).toBe(true)
+  expect(errors).toEqual([])
+})
+
+test('the French page says the helper has no audio output', async ({ page }) => {
+  hasOutput = false
+  await page.addInitScript(() => localStorage.setItem('faulk.lang', 'fr'))
+  await page.goto('/app')
+  await page.getByTestId('engine-state').getByRole('button', { name: 'Démarrer l’audio' }).click()
+  await page.getByTestId('engine-mode').click()
+  await page.getByRole('textbox', { name: /code/i }).fill('1234 5678')
+  await page.getByRole('button', { name: 'Appairer', exact: true }).click()
+  await expect(page.getByTestId('helper-no-output')).toContainText('Le helper n’a pas de sortie audio utilisable.')
+  await page.getByRole('button', { name: 'Rester en Web' }).click()
+  await expect(page.getByTestId('helper-no-output')).toHaveCount(0)
+  await expect(page.getByTestId('engine-waiting')).toHaveCount(0)
 })

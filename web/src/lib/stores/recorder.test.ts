@@ -235,4 +235,49 @@ describe('Recorder', () => {
     expect(r.recorder.phase).toBe('idle')
     expect(r.ran).toEqual([])
   })
+
+  it('never holds a take for ever when the engine reports another epoch: it waits, then drops it, in the project too (#513)', () => {
+    const r = rig()
+    start(r)
+    r.recorder.feedback(report({ recordTake: 1, recordCapturing: true, recordTotal: 1, recorded: [note(0, 0, 10)] }))
+    r.at(10)
+    r.recorder.ran({ type: 'record.stop' }, { take: 1 }, [changed(1, 'stopped')])
+    // Reports of another epoch: nothing is gathered, nothing is written, the take waits for a matching one...
+    r.at(10 + SETTLE_MS)
+    r.recorder.feedback(report({ epoch: 2, recordTake: 1, recordTotal: 2, recorded: [note(1, 0, 20)] }))
+    r.at(10 + GIVE_UP_MS - 1)
+    r.recorder.feedback(report({ epoch: 2, recordTake: 1 }))
+    expect(r.recorder.phase).toBe('closing')
+    expect(r.ran).toEqual([])
+    // ... a matching one ends it, and the note of the other epoch is not in the take.
+    r.recorder.feedback(report({ recordTake: 1, recordTotal: 1 }))
+    expect(r.ran.map((c) => c.type)).toEqual(['record.commit_take'])
+    expect(JSON.stringify(r.ran[0])).not.toContain('"start":20')
+    expect(r.recorder.phase).toBe('idle')
+
+    // No matching report ever comes: past the give-up the take is dropped and said, not held.
+    const stuck = rig()
+    start(stuck)
+    stuck.recorder.ran({ type: 'record.stop' }, { take: 1 }, [changed(1, 'stopped')])
+    stuck.at(GIVE_UP_MS - 1)
+    stuck.recorder.feedback(report({ epoch: 2 }))
+    expect(stuck.recorder.phase).toBe('closing')
+    stuck.at(GIVE_UP_MS)
+    stuck.recorder.feedback(report({ epoch: 2 }))
+    expect(stuck.recorder.phase).toBe('idle')
+    expect(stuck.recorder.dropped).toBe('engine')
+    expect(stuck.ran).toEqual([{ type: 'record.discard_take' }])
+
+    // A take still recording is left alone by a report of another epoch, however late.
+    const live = rig()
+    start(live)
+    live.at(10 * GIVE_UP_MS)
+    live.recorder.feedback(report({ epoch: 2 }))
+    expect(live.recorder.phase).toBe('recording')
+    expect(live.ran).toEqual([])
+    // And a new engine frees a take waiting to be written at once.
+    live.recorder.ran({ type: 'record.stop' }, { take: 1 }, [changed(1, 'stopped')])
+    live.recorder.engineReplaced()
+    expect(live.recorder.phase).toBe('idle')
+  })
 })

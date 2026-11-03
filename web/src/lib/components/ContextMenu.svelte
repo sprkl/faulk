@@ -138,7 +138,7 @@
       data-testid={item.testid ?? `ctx-${item.id}`}
       onclick={() => pick(item)}
     >
-      <span class="label"
+      <span class="entry-label"
         >{#if item.swatch}<span class="swatch" style:background={item.swatch} aria-hidden="true"></span>{/if}{item.label}</span
       >
       {#if item.detail}<span class="detail">{item.detail}</span>{:else if item.shortcut}<kbd>{item.shortcut}</kbd>{/if}
@@ -176,7 +176,8 @@
   button:disabled {
     opacity: 0.45;
   }
-  .label {
+  /* Not `.label`: that name is the global section-label style (uppercase, 11px) of app.css (#583). */
+  .entry-label {
     display: inline-flex;
     align-items: center;
     gap: var(--fk-space-2);

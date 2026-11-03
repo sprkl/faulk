@@ -30102,6 +30102,10 @@
       "version": 1
     }
   ],
+  "error_codes": {
+    "audio_stream": "audio.stream",
+    "no_output": "audio.no_output"
+  },
   "fader_taper": [
     [
       0,
@@ -38019,7 +38023,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 21,
+  "protocol_version": 22,
   "server_message": {
     "$defs": {
       "HelperUpdate": {
@@ -38175,6 +38179,10 @@
         "additionalProperties": false,
         "description": "Answer to a probe: a Faulk helper listens here.",
         "properties": {
+          "audio_output": {
+            "description": "Whether the helper has an audio output open now (#525). Without one it serves\nanyway, and answers a session with `error` `audio.no_output` instead of `hello`.",
+            "type": "boolean"
+          },
           "helper": {
             "type": "string"
           },
@@ -38191,7 +38199,8 @@
         "required": [
           "type",
           "helper",
-          "protocol"
+          "protocol",
+          "audio_output"
         ],
         "type": "object"
       },
@@ -38235,7 +38244,7 @@
       },
       {
         "additionalProperties": false,
-        "description": "First message of a session.",
+        "description": "First message of a session; a helper without an audio output sends `error`\n`audio.no_output` instead and closes the session. Sent again when the output was\nreplaced and the session plays on (#577): the new output's rate, buffer and latency.",
         "properties": {
           "buffer_frames": {
             "description": "Frames per audio callback, once the device reported it.",
