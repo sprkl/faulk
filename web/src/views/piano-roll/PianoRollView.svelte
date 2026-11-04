@@ -24,6 +24,8 @@
   } from '../../lib/clip-commands'
   import { createDrag, DRAG_SLOP_PX, fineKey, type Drag } from '../../lib/continuous'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
+  import GestureLabel from '../../lib/components/GestureLabel.svelte'
+  import { lengthText as gestureLength, positionText, snapText } from '../../lib/gesture-label'
   import type { MenuItem } from '../../lib/context-menu'
   import { chordText, positionKey, withShortcut } from '../../lib/shortcuts'
   import {
@@ -216,6 +218,10 @@
   let picked = $state.raw<ReadonlySet<string>>(new Set())
   let gesture = $state.raw<Gesture | null>(null)
   let cursor = $state<'draw' | 'move' | 'resize'>('draw')
+  /** The note under the pointer (no gesture) and whether it is on its resizable end, for the handle (#612). */
+  let noteHover = $state.raw<{ key: string; end: boolean } | null>(null)
+  /** The pointer during a move or a resize, with whether the key that frees the snap was held at the last move (#612). */
+  let pointer = $state.raw<{ x: number; y: number; free: boolean } | null>(null)
   let activePitches = $state.raw<ReadonlySet<number>>(new Set())
 
   const shown = $derived(clampView(view, stageW, totalBars * bar))
@@ -332,6 +338,35 @@
   let grid: ReturnType<typeof TimeGrid> | undefined = $state()
   let stage: HTMLDivElement | undefined = $state()
 
+  /** The note whose resize handle is drawn: the hovered one, or the one being resized (as it would be). */
+  const handleNow = $derived.by(() => {
+    const g = gesture
+    if (g) {
+      if (g.kind !== 'resize') return null
+      const to = g.changes.find((c) => noteKey(c.from) === g.key)?.to
+      return { note: to ?? g.grabbed, strong: true }
+    }
+    const over = noteHover ? notes.find((n) => noteKey(n) === noteHover!.key) : undefined
+    return over && noteHover ? { note: over, strong: noteHover.end } : null
+  })
+  /** The label near the pointer during a move or a resize of notes (#612). */
+  const gestureLines = $derived.by<string[] | null>(() => {
+    const g = gesture
+    if (!g || !pointer || (g.kind !== 'move' && g.kind !== 'resize') || g.changes.length === 0) return null
+    const note = g.changes.find((c) => noteKey(c.from) === g.key)?.to
+    if (!note) return null
+    const names = {
+      bar: t('pianoRoll.snap.bar'),
+      beat: t('pianoRoll.snap.beat'),
+    }
+    const lines = [
+      g.kind === 'resize' ? gestureLength(t, signature, note.length) : positionText(t, signature, note.start),
+      snapText(t, signature, pointer.free ? null : step, names),
+    ]
+    if (!pointer.free) lines.push(t('gesture.ctrlFree', { key: chordText(['Mod']) }))
+    return lines
+  })
+
   const body = (ctx: CanvasRenderingContext2D, frame: BodyFrame) =>
     drawRoll(ctx, frame, {
       layout,
@@ -346,11 +381,12 @@
       trackColor,
       others,
       taking,
+      handle: handleNow,
     })
 
   // The grid draws in its own frame and cannot see this state: tell it when something it draws changed.
   $effect(() => {
-    void [notes, chosenKeys, ghosts, hidden, band, layout, clipLength, loopShown, keyNames, trackColor, others, taking]
+    void [notes, chosenKeys, ghosts, hidden, band, layout, clipLength, loopShown, keyNames, trackColor, others, taking, handleNow]
     grid?.invalidate()
   })
 
@@ -420,6 +456,7 @@
   /** Drops the gesture and the note it sounds, sending nothing. */
   function cancel() {
     gesture = null
+    pointer = null
     sound(null)
   }
 
@@ -465,6 +502,9 @@
     if (!g) {
       const hit = y >= RULER_HEIGHT ? hitNote(notes, x, y, shown, layout) : null
       cursor = hit ? (hit.zone === 'end' ? 'resize' : 'move') : 'draw'
+      const over = hit ? notes[hit.index] : undefined
+      const next = over ? { key: noteKey(over), end: hit!.zone === 'end' } : null
+      if (next?.key !== noteHover?.key || next?.end !== noteHover?.end) noteHover = next
       return
     }
     if (!edited || edited.id !== g.clip) return cancel()
@@ -482,11 +522,15 @@
       // The notes are read again at each move: a change of the clip under the drag (undo, an agent) ends it.
       if (!chosenKeys.has(g.key)) return cancel()
       let changes: Change[]
+      // Ctrl (Cmd on a Mac) puts the snap aside while it is held (#612), as in the arrangement.
+      const free = fineKey(event)
+      const stepNow = free ? null : step
+      pointer = { x, y, free }
       if (g.kind === 'move') {
-        const dTick = snapTick(g.grabbed.start + (x - g.startX) / shown.pxPerTick, step) - g.grabbed.start
+        const dTick = snapTick(g.grabbed.start + (x - g.startX) / shown.pxPerTick, stepNow) - g.grabbed.start
         changes = moveNotes(chosenNotes, dTick, pitchAt(y, layout) - pitchAt(g.startY, layout), clipLength)
       } else {
-        const end = snapTick(xToTick(x, shown), step)
+        const end = snapTick(xToTick(x, shown), stepNow)
         changes = resizeNotes(chosenNotes, end - g.grabbed.start - g.grabbed.length, clipLength)
       }
       gesture = { ...g, changes }
@@ -503,6 +547,8 @@
   function finish(commit: boolean) {
     const g = gesture
     gesture = null
+    pointer = null
+    noteHover = null
     release()
     if (!g || !commit || !edited || edited.id !== g.clip) return
     if (g.kind === 'draw') {
@@ -579,9 +625,11 @@
     } else if (!event.ctrlKey && !event.metaKey && event.altKey && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
       // Alt+Up and Alt+Down (#529): the selection by a semitone, Alt+Shift by an octave; as from a note's cell or the free cursor.
       transposeChosen((event.key === 'ArrowUp' ? 1 : -1) * (event.shiftKey ? 12 : 1))
-    } else if (!event.ctrlKey && !event.metaKey && event.altKey && !event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
-      // Alt+Left and Alt+Right (#550): the selection by the drawing step, from the grid as from a note's cell.
-      nudgeChosen(event.key === 'ArrowLeft' ? -1 : 1)
+    } else if (!event.ctrlKey && !event.metaKey && event.altKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+      // Alt+Left and Alt+Right (#550): the selection by the drawing step, from the grid as from a note's cell; with Shift (#612), its end.
+      const direction = event.key === 'ArrowLeft' ? -1 : 1
+      if (event.shiftKey) resizeChosen(direction)
+      else nudgeChosen(direction)
     } else if (!event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'PageUp' || event.key === 'PageDown') && chosenNotes.length > 0) {
       // The selection's velocity (#494), as on a note's cell.
       const key = rovingKey(event)
@@ -755,7 +803,8 @@
       if (action.direction === 'up' || action.direction === 'down') {
         if (chosenNotes.length === 0) return announce(t('pianoRoll.saidNoSelection'))
         transposeChosen((action.direction === 'up' ? 1 : -1) * (event.shiftKey ? 12 : 1))
-      } else if (!event.shiftKey) nudgeChosen(action.direction === 'left' ? -1 : 1)
+      } else if (event.shiftKey) resizeChosen(action.direction === 'left' ? -1 : 1)
+      else nudgeChosen(action.direction === 'left' ? -1 : 1)
       return
     }
     if (action.kind === 'focus' || action.kind === 'extend') {
@@ -1116,6 +1165,19 @@
     release()
   }
 
+  /** Moves the end of the chosen notes by the drawing step (`direction` -1 or 1): Alt+Shift+Left and Right (#612). Said, with the new length. */
+  function resizeChosen(direction: -1 | 1) {
+    if (!edited) return
+    if (chosenNotes.length === 0) return announce(t('pianoRoll.saidNoSelection'))
+    const changes = resizeNotes(chosenNotes, direction * (drawing ?? SIXTEENTH), clipLength)
+    const ok = changes ? acceptable(notes, changes) : null
+    if (!ok || ok.length === 0 || ok.every((c) => c.from.length === c.to.length)) return announce(t('pianoRoll.saidCannotResize'))
+    const chosen = chosenNotes
+    run(updateNotes(edited.id, ok))
+    picked = afterChanges(new Set(chosen.map(noteKey)), ok)
+    announce(gestureLength(t, signature, ok[0]!.to.length))
+  }
+
   /** Moves the chosen notes by semitones, heard once; nothing when one would leave the keyboard. */
   function transposeChosen(semitones: number) {
     if (!edited) return
@@ -1378,11 +1440,17 @@
         onpointermove={onPointerMove}
         onpointerup={onPointerUp}
         onpointercancel={() => finish(false)}
+        onpointerleave={() => {
+          if (!gesture) noteHover = null
+        }}
         onlostpointercapture={() => gesture && finish(false)}
         oncontextmenu={stageContext}
         onkeydown={onKeyDown}
       >
         <TimeGrid bind:this={grid} {signature} {totalBars} bind:view {snap} {playhead} drawBody={body} label={t('pianoRoll.grid', { name: clipName })} />
+        {#if gestureLines && pointer}
+          <GestureLabel x={pointer.x} y={pointer.y} width={stageW} height={stageH} lines={gestureLines} />
+        {/if}
         <!-- The notes as named cells over the canvas (#471): the keyboard's and the screen reader's way to them. The pointer goes through. -->
         <!-- The cells are the focusable parts of the grid (roving tabindex), as in the launch grid; the grid only listens for their keys. -->
         <!-- svelte-ignore a11y_interactive_supports_focus -->

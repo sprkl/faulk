@@ -21,7 +21,7 @@ export const DEFAULT_VELOCITY = 100
 /** The length of a note drawn with the snap off, before any has been drawn or resized: a sixteenth. */
 export const SIXTEENTH = PPQ / 4
 /** The grab zone at the right edge of a note, in pixels: a pointer in it resizes. */
-export const EDGE_PX = 6
+export const EDGE_PX = 8
 /** The least width of a note on screen, so that a very short note stays visible and hittable. */
 export const MIN_NOTE_PX = 3
 
