@@ -429,6 +429,86 @@ pub const TAKE_REPORTS: u32 = 90;
 /// Reports per second (the page reads the region at about this rate).
 pub const REPORTS_PER_SECOND: f32 = 30.0;
 
+/// The level of a strip over a stretch of render, linear amplitude: the largest sample of
+/// each channel and the root mean square of each channel over all the frames. Non-finite
+/// samples are left out of both, as in the live meters.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Level {
+    pub peak_l: f32,
+    pub peak_r: f32,
+    pub rms_l: f32,
+    pub rms_r: f32,
+}
+
+/// What [`Host::levels`] measured: the frames it covers, the level of every track slot up
+/// to the last one that was occupied at a report, and the output's.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Levels {
+    /// Frames rendered since the tally started, up to the last report.
+    pub frames: u64,
+    /// By track slot.
+    pub tracks: Vec<Level>,
+    /// The output, after the master and before the output protection.
+    pub master: Level,
+}
+
+/// The sums behind [`Levels`]: one `(peak, sum of squares)` pair per channel, per slot and
+/// for the output (last).
+#[derive(Debug)]
+struct Tally {
+    frames: u64,
+    /// Slots up to the last one a report carried.
+    used: usize,
+    peak: Box<[[f32; 2]]>,
+    squares: Box<[[f64; 2]]>,
+}
+
+impl Tally {
+    fn new() -> Result<Box<Tally>, MsgError> {
+        let n = limits::MAX_TRACKS as usize + 1;
+        Ok(Box::new(Tally {
+            frames: 0,
+            used: 0,
+            peak: try_slice(n, [0.0; 2])?,
+            squares: try_slice(n, [0.0; 2])?,
+        }))
+    }
+
+    /// Folds one report's meters, taken over `frames` frames. A meter's RMS is the root of
+    /// its mean square over its period, so the squares are put back with the period's length.
+    fn add(&mut self, frames: u32, tracks: &[TrackMeter], master: TrackMeter) {
+        let master_at = self.peak.len() - 1;
+        let n = f64::from(frames.max(1));
+        let mut fold = |at: usize, m: &TrackMeter| {
+            self.peak[at][0] = self.peak[at][0].max(m.peak_l);
+            self.peak[at][1] = self.peak[at][1].max(m.peak_r);
+            self.squares[at][0] += f64::from(m.rms_l) * f64::from(m.rms_l) * n;
+            self.squares[at][1] += f64::from(m.rms_r) * f64::from(m.rms_r) * n;
+        };
+        for (at, m) in tracks.iter().enumerate().take(master_at) {
+            fold(at, m);
+        }
+        fold(master_at, &master);
+        self.used = self.used.max(tracks.len().min(master_at));
+        self.frames += u64::from(frames);
+    }
+
+    fn levels(&self) -> Levels {
+        let n = self.frames.max(1) as f64;
+        let level = |at: usize| Level {
+            peak_l: self.peak[at][0],
+            peak_r: self.peak[at][1],
+            rms_l: (self.squares[at][0] / n).sqrt() as f32,
+            rms_r: (self.squares[at][1] / n).sqrt() as f32,
+        };
+        Levels {
+            frames: self.frames,
+            tracks: (0..self.used).map(level).collect(),
+            master: level(self.peak.len() - 1),
+        }
+    }
+}
+
 /// The audio side (module doc).
 pub struct Host {
     engine: Engine,
@@ -442,6 +522,9 @@ pub struct Host {
     load: Load,
     /// Where the engine puts the track meters of a report.
     meters: Box<[TrackMeter]>,
+    /// The meters of every report folded together, when a caller asked for them
+    /// ([`Host::tally_levels`]); `None` on the real-time hosts.
+    tally: Option<Box<Tally>>,
     /// Scalar fields of the report the engine fills (`Engine::report_transport`); its
     /// vectors stay empty.
     scratch: Feedback,
@@ -511,6 +594,7 @@ pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
         meter_frames: 0,
         load: Load::new(),
         meters: try_slice(limits::MAX_TRACKS as usize, TrackMeter::default())?,
+        tally: None,
         scratch: Feedback::default(),
         voices: 0,
         period_voices: 0,
@@ -756,6 +840,22 @@ impl Host {
         Arc::clone(&self.feedback)
     }
 
+    /// Starts folding the meters of every report into one set of levels over all the frames
+    /// rendered from now on ([`Host::levels`]), for a caller that measures a whole render (the
+    /// offline render). Allocates, so it is called before rendering, never on the audio
+    /// thread. A second call starts again from zero. `Err` when the memory is refused.
+    pub fn tally_levels(&mut self) -> Result<(), MsgError> {
+        self.tally = Some(Tally::new()?);
+        Ok(())
+    }
+
+    /// The levels folded since [`Host::tally_levels`] up to the last report written
+    /// ([`Host::write_feedback`] writes the one that closes the period now); `None` when
+    /// the tally was not started.
+    pub fn levels(&self) -> Option<Levels> {
+        self.tally.as_deref().map(Tally::levels)
+    }
+
     /// Writes the report now and starts a new metering period (the render calls it about
     /// [`REPORTS_PER_SECOND`] times per second). The `seq` word is odd while the body is
     /// written: a reader takes an even `seq`, the body, then the same `seq` again.
@@ -779,6 +879,9 @@ impl Host {
 
         let frames = self.meter_frames;
         let (tracks, master) = self.engine.take_meters(frames, &mut self.meters);
+        if let Some(tally) = self.tally.as_deref_mut() {
+            tally.add(frames, &self.meters[..tracks], master);
+        }
         self.engine.report_transport(&mut self.scratch);
         let (load, peak) = self.load.take(self.sample_rate);
 
@@ -1032,4 +1135,44 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
         record_dropped: u32_at(64)?,
         record_capturing: u32_at(68)? & 1 == 1,
     })
+}
+
+#[cfg(test)]
+mod tally_tests {
+    use super::*;
+
+    fn meter(peak: f32, rms: f32) -> TrackMeter {
+        TrackMeter {
+            peak_l: peak,
+            peak_r: peak / 2.0,
+            rms_l: rms,
+            rms_r: rms,
+            gain_reduction_db: 0.0,
+        }
+    }
+
+    #[test]
+    fn periods_fold_into_the_largest_peak_and_a_root_mean_square_weighted_by_frames() {
+        let mut tally = Tally::new().unwrap();
+        // 100 frames at RMS 1, then 300 frames of silence: the mean square is 100/400.
+        tally.add(100, &[meter(0.5, 1.0)], meter(0.9, 1.0));
+        tally.add(300, &[meter(0.25, 0.0)], meter(0.1, 0.0));
+        let levels = tally.levels();
+        assert_eq!(levels.frames, 400);
+        assert_eq!(levels.tracks.len(), 1);
+        let t = levels.tracks[0];
+        assert_eq!((t.peak_l, t.peak_r), (0.5, 0.25));
+        assert!((t.rms_l - 0.5).abs() < 1e-6, "{}", t.rms_l);
+        assert!((levels.master.peak_l - 0.9).abs() < 1e-6);
+        assert!((levels.master.rms_r - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_period_without_frames_weighs_nothing() {
+        let mut tally = Tally::new().unwrap();
+        tally.add(0, &[meter(0.0, 0.0)], meter(0.0, 0.0));
+        let levels = tally.levels();
+        assert_eq!(levels.frames, 0);
+        assert!(levels.master.rms_l == 0.0 && levels.master.peak_l == 0.0);
+    }
 }

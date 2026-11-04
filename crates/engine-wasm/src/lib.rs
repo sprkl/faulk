@@ -830,6 +830,8 @@ pub mod stream_exports {
 pub struct Export {
     offline: engine::offline::Offline,
     header: Vec<u8>,
+    /// The levels of the content as [`fk_export_levels`] lays them out.
+    levels: Vec<f32>,
     /// The last jobs taken, as `engine::audio_source::JOB_WIRE_BYTES` each.
     jobs: Vec<u8>,
     disk_inbox: Vec<u8>,
@@ -878,6 +880,7 @@ pub extern "C" fn fk_export_new(
         Ok(offline) => Box::into_raw(Box::new(Export {
             offline,
             header: Vec::new(),
+            levels: Vec::new(),
             jobs: Vec::new(),
             disk_inbox: Vec::new(),
             missing: Vec::new(),
@@ -1026,12 +1029,51 @@ pub unsafe extern "C" fn fk_export_header_len(ex: *mut Export) -> u32 {
     unsafe { export(ex) }.map_or(0, |e| e.header.len() as u32)
 }
 
+/// The levels the content measured, as `f32` values: four per strip (peak left, peak right,
+/// RMS left, RMS right, linear), one strip per track slot up to the last occupied one, then
+/// the output's. Returns the address (valid until the next call) and sets nothing else:
+/// [`fk_export_levels_len`] is the number of strips. Null until the content is rendered.
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_levels(ex: *mut Export) -> *const f32 {
+    // SAFETY: forwarded from this function's contract.
+    let Some(e) = (unsafe { export(ex) }) else {
+        return core::ptr::null();
+    };
+    let Some(m) = e.offline.measure() else {
+        return core::ptr::null();
+    };
+    e.levels.clear();
+    for l in m.tracks.iter().chain([&m.master]) {
+        e.levels
+            .extend_from_slice(&[l.peak_l, l.peak_r, l.rms_l, l.rms_r]);
+    }
+    e.levels.as_ptr()
+}
+
+/// The number of strips [`fk_export_levels`] laid out (the tracks, then the output), 0 until
+/// the content is rendered.
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_levels_len(ex: *mut Export) -> u32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { export(ex) }
+        .and_then(|e| e.offline.measure())
+        .map_or(0, |m| m.tracks.len() as u32 + 1)
+}
+
 /// A figure of the export, by number: 0 frames rendered, 1 frames written, 2 frames of
 /// content, 3 the peak (linear), 4 samples clipped, 5 the tail was cut (0 or 1), 6 the
 /// header's length, 7 the output protection's peak gain reduction (linear, 0 = never
 /// engaged; #402), 8 the count of frames the protection silenced for a non-finite sample (0 on
 /// a clean render; #402), 9 the render waits for disk reads (0 or 1; #647), 10 the blocks in
-/// which an audio clip lacked frames (#647), 11 the steps that stopped to wait for the disk.
+/// which an audio clip lacked frames (#647), 11 the steps that stopped to wait for the disk,
+/// 12 the frames the content measured, 13 the frames silenced and 14 the peak gain reduction
+/// over the content only (-1 until the content is rendered; #665).
 /// -1 for a null export or an unknown number.
 ///
 /// # Safety
@@ -1056,6 +1098,10 @@ pub unsafe extern "C" fn fk_export_stat(ex: *mut Export, which: u32) -> f64 {
         9 => f64::from(u8::from(o.waiting())),
         10 => f64::from(o.underruns()),
         11 => o.disk_waits() as f64,
+        // What the content measured ([`fk_export_levels`]), -1 until the content is rendered.
+        12 => o.measure().map_or(-1.0, |m| m.frames as f64),
+        13 => o.measure().map_or(-1.0, |m| m.silenced as f64),
+        14 => o.measure().map_or(-1.0, |m| f64::from(m.reduction)),
         _ => -1.0,
     }
 }

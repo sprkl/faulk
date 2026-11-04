@@ -16,6 +16,9 @@
 //!   disk Worker of AU-3 reads its samples from the blob. Any other file gets the **PCM
 //!   cache** ([`cache`]), `.faulk/cache/pcm/<sha256>.pcm`: regenerable, never versioned.
 //!
+//! - its waveform peaks ([`peaks`], AU-2): min and max per block of 256 frames and three
+//!   coarser levels, `.faulk/cache/peaks/<sha256>.peaks`, what the page draws a waveform from.
+//!
 //! The rate is the file's own: resampling happens at playback (AU-4), never here.
 //!
 //! **Formats** (decided by AU-1): WAV (PCM 8 to 32-bit, float 32 and 64, A-law, µ-law,
@@ -34,6 +37,7 @@ mod decode;
 mod error;
 mod hash;
 mod mp4;
+pub mod peaks;
 
 pub use decode::{BLOCK_FRAMES, Decoding, MediaInfo, Source};
 pub use engine::audio_source::layout::{self, PcmLayout, SampleEncoding};
@@ -49,6 +53,8 @@ pub struct Imported {
     pub info: MediaInfo,
     /// `Some` when the blob can be read directly by ranges (no PCM cache needed).
     pub layout: Option<PcmLayout>,
+    /// The waveform peaks file ([`peaks`]); `None` only when memory was refused.
+    pub peaks: Option<Vec<u8>>,
 }
 
 /// The whole pipeline on a source that can be read twice (a file on disk, natively): hash,
@@ -79,13 +85,24 @@ pub fn import<S: Read + Seek + Send + Sync + 'static>(
     source.seek(SeekFrom::Start(0)).map_err(ImportError::io)?;
     let mut decoding = Decoding::open(Box::new(Plain(source, len)), hint)?;
     let mut block = Vec::new();
+    // Made at the first block: some headers give no channel count, the first block does.
+    let mut peaks: Option<peaks::PeakBuilder> = None;
     while decoding.next(&mut block)? {
+        peaks
+            .get_or_insert_with(|| peaks::PeakBuilder::new(decoding.channels()))
+            .push(&block);
         sink(&block);
     }
     let info = decoding.finish()?;
+    let peaks = peaks.and_then(|p| p.finish(&info));
     let layout = PcmLayout::parse(&head, len)
         .filter(|l| l.matches(info.sample_rate, info.channels, info.frames));
-    Ok(Imported { hash, info, layout })
+    Ok(Imported {
+        hash,
+        info,
+        layout,
+        peaks,
+    })
 }
 
 fn read_up_to(source: &mut impl Read, buffer: &mut [u8]) -> Result<usize, ImportError> {

@@ -14,8 +14,9 @@ import { engineUp, HELPER_PORT, watch } from './support'
 // and the page runs it through its dispatcher as `agent:<client name>`. The agent starts a new project (the user allows
 // it in the page, AG-4), makes three MIDI tracks (a synth with a filter, drums, a synth with an echo) and an audio
 // track, two scenes with a clip of each track in both, a lane on the filter's cutoff, launches a scene, then places
-// the second scene and the audio clip in the arrangement and plays it. The page meters each track (the mixer's peak
-// readouts, by track id) in both passes, and the user exports the song: the file is not silent and the engine's output
+// the second scene and the audio clip in the arrangement and plays it. The agent listens with its own tools in both
+// passes (`mixer.levels`, the peak of each track by id), measures the arrangement without playing it
+// (`project.analyze_render`), and the user exports the song: the file is not silent and the engine's output
 // protection silenced no frame for a non-finite sample (no NaN or infinity reached the master).
 //
 // What an agent cannot do alone, the test does as the user: allow `project.new`, and choose the audio file. A file
@@ -181,29 +182,29 @@ class Mcp {
 
 const startAudio = (page: Page) => page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
 
-/** Each track's peak readout in the mixer, by track id, in dB (`-Infinity` for none). */
-async function peaks(page: Page, tracks: string[]): Promise<Record<string, number>> {
-  const out: Record<string, number> = {}
-  for (const id of tracks) {
-    const text = (await page.locator(`[data-testid=mixer-strip][data-track="${id}"] [data-testid=mixer-meter-peak]`).textContent())!.trim()
-    out[id] = text === '−∞' ? -Infinity : Number(text.replace('−', '-').replace('+', ''))
-  }
-  return out
-}
+type Level = { track: string; peak_db: number | null; rms_db: number | null }
 
-/** A track's readout above this level sounds: the quietest of the four (the echoed synth) reads about -20 dB. */
+/** A track above this level sounds: the quietest of the four (the echoed synth) reads about -20 dB. */
 const AUDIBLE_DB = -40
 
-/** Waits until every track's peak readout is above `AUDIBLE_DB`, and prints them. */
-async function everyTrackSounds(page: Page, tracks: string[], what: string) {
-  await expect.poll(async () => Object.values(await peaks(page, tracks)).every((db) => db > AUDIBLE_DB), { timeout: 20_000 }).toBe(true)
-  const read = await peaks(page, tracks)
-  console.log(`peak per track, ${what}: ${tracks.map((id) => `${read[id]!.toFixed(1)} dB`).join(', ')} (Lead, Drums, Echoes, Audio)`)
-}
+const db = (level: number | null) => (level === null ? -Infinity : level)
 
-/** Clears every track's peak readout (a click on it, as the user would). */
-async function resetPeaks(page: Page, tracks: string[]) {
-  for (const id of tracks) await page.locator(`[data-testid=mixer-strip][data-track="${id}"] [data-testid=mixer-meter-peak]`).click()
+/** Waits until every track's peak, as `mixer.levels` (the agent's ears) reads it, is above `AUDIBLE_DB`, and prints them. */
+async function everyTrackSounds(mcp: Mcp, tracks: string[], what: string) {
+  let read: Level[] = []
+  await expect
+    .poll(
+      async () => {
+        const answer = await mcp.call<{ playing: boolean; tracks: Level[] }>('mixer_levels')
+        // The peaks are held since the previous call: the best of the polls so far counts.
+        const best = new Map(read.map((l) => [l.track, l.peak_db]))
+        read = answer.tracks.map((l) => ({ ...l, peak_db: Math.max(db(best.get(l.track) ?? null), db(l.peak_db)) }))
+        return read.length === tracks.length && read.every((l) => l.peak_db! > AUDIBLE_DB)
+      },
+      { timeout: 20_000 },
+    )
+    .toBe(true)
+  console.log(`mixer.levels per track, ${what}: ${read.map((l) => `${l.peak_db!.toFixed(1)} dB`).join(', ')} (Lead, Drums, Echoes, Audio)`)
 }
 
 /** Reads a WAV of the OPFS: its frame count and peak (24 bits). */
@@ -321,7 +322,7 @@ test('an agent builds a song over MCP: tracks, scenes, clips, a filter lane, a l
     await page.getByTestId('nav-mixer').click()
     await expect(page.getByTestId('mixer-strip')).toHaveCount(4)
     await mcp.call('launch_scene', { scene: scenes[0] })
-    await everyTrackSounds(page, tracks, 'the first scene, launched')
+    await everyTrackSounds(mcp, tracks, 'the first scene, launched')
     await mcp.call('launch_stop_all')
     await mcp.call('transport_stop')
 
@@ -330,14 +331,23 @@ test('an agent builds a song over MCP: tracks, scenes, clips, a filter lane, a l
     await mcp.call('clip_import_audio', { track: audio, media, at: { at: 'arrangement', start: 0 }, name: 'Sine' })
     await mcp.call('launch_back_to_arrangement')
     await mcp.call('transport_seek', { tick: 0 })
-    // The scene's sound (and the echo's tail) dies out, then the readouts are cleared: what they show next is the arrangement's.
-    const master = async () => Number(await page.getByTestId('feedback').getAttribute('data-master-peak'))
-    await expect.poll(master, { timeout: 15_000 }).toBeLessThan(0.0005)
-    await resetPeaks(page, tracks)
-    expect(Object.values(await peaks(page, tracks)).every((db) => db === -Infinity)).toBe(true)
+    // Clears what the meters held, so that what they show next is the arrangement's.
+    await mcp.call('mixer_levels')
     await mcp.call('transport_play')
-    await everyTrackSounds(page, tracks, 'the arrangement')
+    await everyTrackSounds(mcp, tracks, 'the arrangement')
     await mcp.call('transport_stop')
+
+    // The agent measures its song without playing it: every track sounds, nothing was silenced, the master has headroom.
+    const analysis = await mcp.call<{ tracks: Level[]; master: Level; silenced_frames: number; limiter_reduction_db: number; duration_secs: number }>(
+      'project_analyze_render',
+    )
+    console.log(
+      `project.analyze_render: ${analysis.duration_secs.toFixed(2)} s, tracks ${analysis.tracks.map((t) => `${db(t.peak_db).toFixed(1)}`).join(', ')} dB, master ${db(analysis.master.peak_db).toFixed(1)} dB, silenced ${analysis.silenced_frames}, limiter ${analysis.limiter_reduction_db.toFixed(1)} dB`,
+    )
+    expect(analysis.tracks.map((t) => t.track)).toEqual(tracks)
+    for (const t of analysis.tracks) expect(db(t.peak_db)).toBeGreaterThan(AUDIBLE_DB)
+    expect(analysis.silenced_frames).toBe(0)
+    expect(db(analysis.master.peak_db)).toBeGreaterThan(-40)
 
     // What the agent made, read back through its own tools.
     const listing = (await mcp.call<{ tracks: { id: string; kind: string; clip_count: number }[] }>('track_list')).tracks

@@ -14,7 +14,8 @@
 //! `agent.call` (a command, with an `id`); the page runs it through its own dispatcher, as a
 //! user's action, and answers `agent.result` with the same `id`. Since version 29 (#608) a
 //! paired page also holds a control link (`/control`) that carries only these two messages,
-//! `agent.left` and `control.front`, in Web mode as in Boost, with or without an audio output.
+//! `agent.left`, `control.front` and, since version 33 (#658), the helper's opening
+//! `control.hello`, in Web mode as in Boost, with or without an audio output.
 //! Since version 32 (#641) the helper says when an agent left (`agent.left`), so that the page
 //! closes the history group that agent left open.
 
@@ -22,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 32;
+pub const PROTOCOL_VERSION: u32 = 33;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -42,6 +43,11 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 33 (#658): the control link (`/control`, #608) opens with `control.hello` (the helper's
+// protocol), as the session opens with `hello`. The page refuses a helper of another version on
+// that link too, with the message of the probe. A page of version 32 would take the link for
+// open at once and ignore the message.
 
 // Version 32 (#641): the helper tells the page that an agent left (`agent.left`, its name): its
 // last MCP session ended (the client closed it, the stdio bridge's input ended, or it stayed idle
@@ -269,6 +275,10 @@ pub enum ServerMessage {
         epoch: u16,
         capabilities: Capabilities,
     },
+    /// First message of a control link (#658): the helper's protocol, as `hello` carries it for
+    /// a session. The page closes the link when it differs from its own.
+    #[serde(rename = "control.hello")]
+    ControlHello { protocol: u32 },
     /// A stream of the page that the helper's engine stopped (corrupt, out of memory, past
     /// the waiting bound) or refused whole (not of the engine's epoch): `code` is
     /// `engine::msg::MsgError::code`, `at` the byte of the message that stopped it in the piece the engine was given (for a stream sent in pieces, from the start of the rest it was retrying; informative only), `epoch`

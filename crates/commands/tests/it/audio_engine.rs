@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::clip_examples::{ClipFx, c, fx, with_audio_placement};
-use ::project::{Frame, FrameLoop, Hash};
+use ::project::{Frame, FrameLoop, Hash, Tick};
 use commands::clip::{self, ClipTarget};
 use commands::engine_msgs::{Synced, snapshot};
 use commands::testing::{context, imported_media};
@@ -230,9 +230,16 @@ fn every_audio_edit_and_its_undo_leave_the_engine_as_a_snapshot_would() {
             clip: f.audio_clip.clone(),
             gain_db: Some(-6.0),
         }),
-        // The placement goes (the clip and its source stay), then the clip with it.
+        // The placement goes (the clip and its source stay).
         Command::Arrangement(commands::arrangement::Command::Delete {
             placements: vec![placement],
+        }),
+        // The pool clip comes back to the arrangement (#666).
+        Command::Arrangement(commands::arrangement::Command::Place {
+            clip: f.audio_clip.clone(),
+            start: Tick(3840),
+            length: None,
+            offset: None,
         }),
         c(clip::Command::AudioSetGain {
             clip: f.audio_clip.clone(),

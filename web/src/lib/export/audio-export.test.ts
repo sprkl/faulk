@@ -27,7 +27,7 @@ const PLAN = {
 } as const
 
 function ready(plan: Record<string, unknown> = {}): ExportJob {
-  return { status: 'ready', plan: { ...PLAN, ...plan } as never, setup: Uint8Array.of(1, 2, 3), start: Uint8Array.of(5), stop: Uint8Array.of(4) }
+  return { status: 'ready', plan: { ...PLAN, ...plan } as never, tracks: [], setup: Uint8Array.of(1, 2, 3), start: Uint8Array.of(5), stop: Uint8Array.of(4) }
 }
 
 class FakeSink implements ExportSink {
@@ -79,6 +79,7 @@ function setup(
     module?: Promise<ArrayBuffer>
     refuse?: boolean
     canChoose?: boolean
+    analysing?: boolean
   } = {},
 ) {
   const sink = new FakeSink()
@@ -99,6 +100,7 @@ function setup(
     songBars: () => 4,
     folder: async () => null,
     mediaFolder: () => null,
+    analysisRunning: () => overrides.analysing ?? false,
     mediaNames: (hashes) => hashes.map((hash) => (hash === 'ab12' ? 'drums.wav' : hash)),
   }
   const deps: ExportDeps = {
@@ -134,6 +136,15 @@ const done = (over: Partial<Extract<FromExport, { type: 'done' }>> = {}): FromEx
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('the export dialog', () => {
+  it("does not start while an agent's analysis renders (#665)", () => {
+    const { exporter, host, worker } = setup({ analysing: true })
+    exporter.show()
+    exporter.start()
+    expect(exporter.phase).toBe('failed')
+    expect(host.run).not.toHaveBeenCalled()
+    expect(worker.started).toBeNull()
+  })
+
   it('opens with the defaults, or with what a command asked for', () => {
     const { exporter } = setup({ hasLoop: true })
     exporter.show()

@@ -153,6 +153,11 @@ describe('a track hue drawn as a line (#687)', () => {
     expect(trackInk('#ffffff', { text: '#ffffff', trackShade: 0.5 })).toBe('#ffffff')
   })
 
+  it('mixes a computed colour too, as the waveform reads it from its style (#687)', () => {
+    expect(trackInk('rgb(255, 255, 255)', { text: '#000000', trackShade: 0.4 })).toBe('#999999')
+    expect(trackInk('rgba(255, 255, 255, 0.5)', { text: 'rgb(0, 0, 0)', trackShade: 0.5 })).toBe('#808080')
+  })
+
   it('keeps a colour it cannot mix', () => {
     expect(trackInk('', { text: '#000000', trackShade: 0.4 })).toBe('')
     expect(trackInk('#fff', { text: '#000000', trackShade: 0.4 })).toBe('#fff')

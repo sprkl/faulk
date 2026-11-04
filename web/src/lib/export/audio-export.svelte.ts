@@ -90,6 +90,8 @@ export interface ExportHost {
   folder(): Promise<FolderHandle | null>
   /** The folder the engine reads the audio clips' files from (the same as the live engine's; #647), or none. */
   mediaFolder(): FileSystemDirectoryHandle | null
+  /** Whether an agent's analysis (`project.analyze_render`) renders now: two renders at once would double the memory. */
+  analysisRunning(): boolean
   /** The names of these media (blob hashes) as the project calls them; a hash it does not know stays as it is. */
   mediaNames(hashes: string[]): string[]
 }
@@ -290,6 +292,10 @@ export class AudioExport {
    */
   start() {
     if (this.busy) return
+    if (this.host.analysisRunning()) {
+      this.fail('export.failed', 'an analysis is rendering: try again when it is done')
+      return
+    }
     this.confirming = true
     this.host.run(exportAudio(this.request_()))
     // The project refused it: nothing came back. Why, the core says again.

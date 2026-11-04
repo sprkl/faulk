@@ -259,8 +259,17 @@ test('a whole-spec core entry wins over a title of the same spec', () => {
 
 // ---- the tiers ----
 
+test('crates/helper gets the helper area, the scenario included, never the whole suite (#668)', () => {
+  assert.deepEqual(ruleFor('crates/helper/src/mcp/server.rs')[1], AREA.helper)
+  assert.ok(AREA.helper.includes('agent-scenario'))
+  const p = plan(['crates/helper/src/tray.rs'])
+  assert.deepEqual([p.tier, p.all, p.run], ['area', false, true])
+  assert.ok(p.specs.includes('agent-scenario'))
+  assert.equal(plan(['crates/test-support/src/lib.rs']).tier, 'none')
+})
+
 test('tier none: nothing a browser sees, and a crate the page never runs', () => {
-  for (const f of ['docs/a.md', 'scripts/agent/verify.mjs', 'web/src/lib/a.test.ts', 'web/README.md', 'web/.prettierrc.json', 'web/.prettierignore', 'web/eslint.config.js', 'web/tests/bench/engine-swap.bench.ts', 'web/playwright.bench.config.ts', 'CLAUDE.md', '.claude/settings.json', '.github/ISSUE_TEMPLATE/x.yml', 'crates/helper/src/main.rs', 'crates/test-support/src/lib.rs']) {
+  for (const f of ['docs/a.md', 'scripts/agent/verify.mjs', 'web/src/lib/a.test.ts', 'web/README.md', 'web/.prettierrc.json', 'web/.prettierignore', 'web/eslint.config.js', 'web/tests/bench/engine-swap.bench.ts', 'web/playwright.bench.config.ts', 'CLAUDE.md', '.claude/settings.json', '.github/ISSUE_TEMPLATE/x.yml', 'crates/test-support/src/lib.rs']) {
     const p = plan([f])
     assert.deepEqual([p.tier, p.run, p.specs, p.core, p.shards], ['none', false, [], [], 0], f)
   }

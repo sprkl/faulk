@@ -73,6 +73,16 @@ export function readColors(element: Element): Colors {
 }
 
 const HEX = /^#([0-9a-f]{6})$/i
+// A computed style's colour (`getComputedStyle(…).color`): three channels, maybe an alpha after them.
+const COMPUTED = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/
+
+/** The red, green and blue of `#rrggbb` or of a computed colour, `null` for anything else. */
+function channels(color: string): number[] | null {
+  const hex = HEX.exec(color)
+  if (hex) return [0, 2, 4].map((i) => parseInt(hex[1]!.slice(i, i + 2), 16))
+  const computed = COMPUTED.exec(color)
+  return computed ? [computed[1], computed[2], computed[3]].map(Number) : null
+}
 // The mixes of the current theme, by hue: emptied when the theme's text colour or shade changes, so a frame
 // builds no key and a switch serves no stale mix.
 const inks = new Map<string, string>()
@@ -81,7 +91,8 @@ let inksOf = { text: '', shade: 0 }
 /**
  * A track hue as a line or a note is drawn on the background (#687): the hue mixed with the theme's text colour by
  * `trackShade` (none in the dark theme; enough ink in the light one to read at 3:1 on paper and on a clip's tint).
- * The hue itself stays the track's colour for fills. A colour that is not `#rrggbb` is kept as it is.
+ * The hue itself stays the track's colour for fills. A colour that is neither `#rrggbb` nor a computed `rgb(…)` is
+ * kept as it is.
  */
 export function trackInk(color: string, colors: Pick<Colors, 'text' | 'trackShade'>): string {
   const shade = colors.trackShade
@@ -92,15 +103,14 @@ export function trackInk(color: string, colors: Pick<Colors, 'text' | 'trackShad
   }
   const known = inks.get(color)
   if (known) return known
-  const a = HEX.exec(color)
-  const b = HEX.exec(colors.text)
+  const a = channels(color)
+  const b = channels(colors.text)
   if (!a || !b) return color
-  const channel = (hex: string, i: number) => parseInt(hex.slice(i, i + 2), 16)
   let out = '#'
-  for (const i of [0, 2, 4]) {
-    const v = Math.round(channel(a[1]!, i) * (1 - shade) + channel(b[1]!, i) * shade)
-    out += v.toString(16).padStart(2, '0')
-  }
+  for (const i of [0, 1, 2])
+    out += Math.round(a[i]! * (1 - shade) + b[i]! * shade)
+      .toString(16)
+      .padStart(2, '0')
   // A track's colour can be any `#rrggbb` (`track.set_color`): the cache never grows past a few hundred.
   if (inks.size >= 256) inks.clear()
   inks.set(color, out)
