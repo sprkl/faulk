@@ -62,6 +62,7 @@ fn examples() -> Vec<(Command, State)> {
         on(Command::Project(project::Command::Save {})),
         on(Command::Project(project::Command::SaveAs {})),
         on(Command::Project(project::Command::ExportPack {})),
+        on(Command::Project(project::Command::CancelExportPack {})),
         on(Command::Project(project::Command::ImportPack {})),
         on(Command::Project(project::Command::OpenUrl {
             url: "https://cdn.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/2026-11-02-neon-sur-la-rocade/project.faulkpack".into(),

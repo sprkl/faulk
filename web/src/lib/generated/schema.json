@@ -469,6 +469,25 @@
         "undo": "none"
       },
       {
+        "description": "Stop the `.faulkpack` export under way, from the moment it was asked for: nothing is handed\nover (a download is not started; a file the user chose is left empty). Nothing happens when\nno export is running. Changes nothing in the project, so\nit never enters the history.",
+        "destructive": false,
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "kind": "live",
+        "name": "project.cancel_export_pack",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "undo": "none"
+      },
+      {
         "description": "Open a `.faulkpack` the user chooses: its project replaces the current one and is kept\nin the browser as a new project of its own (an import never overwrites a project that\nis already there). A file is chosen by the user (a browser needs a click for it), so\nan agent that is not driven by one gets a notice in the page instead. A file that is\nnot a valid pack is refused with the reason and nothing changes. The history of the\nreplaced project is gone; the page asks first when that project has changes that are\nnot kept anywhere.",
         "destructive": false,
         "input_schema": {
@@ -6698,7 +6717,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Set the range of the file an audio clip plays: the frames `[start, start + frames)`\nof its file (frames of the file, at its own sample rate). Refused when the range is\nempty or leaves the file, when the clip's loop would end past the new length (clear\nor move the loop first with `clip.audio.set_loop`: nothing is cut silently), and when\na placement of the clip starts inside it at or past the new length. Every placement\nthat plays the clip whole (offset 0, length equal to its old length in frames) takes\nthe new length in the same command; a growing placement stops at the start of the\nnext placement of its track; a placement that plays only part of the clip is left\nalone. Refused for a MIDI clip. Undo: set the range back, with the lengths of the\nplacements.",
+        "description": "Set the range of the file an audio clip plays: the frames `[start, start + frames)`\nof its file (frames of the file, at its own sample rate). Refused when the range is\nempty or leaves the file, when the clip's loop would end past the new length (clear\nor move the loop first with `clip.audio.set_loop`: nothing is cut silently), and when\na placement of the clip starts inside it at or past the new length. Every placement\nthat plays the clip whole (offset 0, length equal to its old length in frames) takes\nthe new length in the same command; a growing placement stops at the start of the\nnext placement of its track; a placement that plays only part of the clip is left\nalone, and the command is refused when that would leave one ending past the new\nlength (an audio placement always ends inside its clip) or overlapping another\nplacement of the track: move or resize it first. Refused for a MIDI clip. Undo: set\nthe range back, with the lengths of the placements.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -6924,7 +6943,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Bring back an audio clip with its identifier, as `clip.delete` removed it: the\ninverse of deleting an audio clip. Its placements give their length and offset in\nframes of the file. Refused when the track is not an audio track, when the clip's\nidentifier or a placement's already exists in the project, when the slot is taken\nor its scene is gone, or when the snapshot breaks a rule of the project (a range\noutside the file, a loop outside the range, a gain that is not a number). Undo:\n`clip.delete`.",
+        "description": "Bring back an audio clip with its identifier, as `clip.delete` removed it: the\ninverse of deleting an audio clip. Its placements give their length and offset in\nframes of the file. Refused when the track is not an audio track, when the clip's\nidentifier or a placement's already exists in the project, when the slot is taken\nor its scene is gone, or when the snapshot breaks a rule of the project (a range\noutside the file, a loop outside the range, a gain that is not a number, a\nplacement ending past the clip: `offset + length` at most the clip's frames, or\noverlapping another placement of the track or of the snapshot). Undo:\n`clip.delete`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -11788,7 +11807,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Write the placements of one or more tracks exactly as given, without the overlap\nrule: the inverse of every arrangement command, which brings back what it carved,\nwith the identifiers. Per track: `put` creates or replaces placements by\nidentifier, `remove` removes placements, `clips` brings back MIDI clips (new\nidentifiers, a snapshot as `clip.restore` takes) and `remove_clips` removes clips.\nRefused when a placement is outside the timeline or its offset outside its clip,\nwhen a placement is left on a removed clip or names an unknown clip, when an\nidentifier to create is in use, or when a rule of the clip commands is broken (a\nnote outside the length, a limit). In an audio track only `put` and `remove` of\naudio placements (a record with `frames`) are taken, never `clips` or `remove_clips`.\nUndo: the restore of what it changed.",
+        "description": "Write the placements of one or more tracks exactly as given, without the overlap\nrule: the inverse of every arrangement command, which brings back what it carved,\nwith the identifiers. Per track: `put` creates or replaces placements by\nidentifier, `remove` removes placements, `clips` brings back MIDI clips (new\nidentifiers, a snapshot as `clip.restore` takes) and `remove_clips` removes clips.\nRefused when a placement is outside the timeline or its offset outside its clip,\nwhen a placement is left on a removed clip or names an unknown clip, when an\nidentifier to create is in use, or when a rule of the clip commands is broken (a\nnote outside the length, a limit). In an audio track only `put` and `remove` of\naudio placements (a record with `frames`) are taken, never `clips` or `remove_clips`;\nan audio placement must end inside its clip (`offset + length` at most the clip's\nframes) and never overlap another placement of the track.\nUndo: the restore of what it changed.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -13820,7 +13839,7 @@
         "undo": "none"
       },
       {
-        "description": "Set the project's tempo in BPM, from 20 to 999. A value outside the range or not\na number is refused, and so is a tempo at which an audio placement (whose length is\nin frames of its file, so its end in ticks follows the tempo) would end past 2^40.\nA faster tempo lengthens audio placements in ticks, so one may then reach into the\nnext placement of its track: the project allows it, and the later one plays from its\nstart. Undo: set the previous tempo back.",
+        "description": "Set the project's tempo in BPM, from 20 to 999. A value outside the range or not\na number is refused, and so is a tempo at which an audio placement (whose length is\nin frames of its file, so its end in ticks follows the tempo) would end past 2^40.\nA faster tempo lengthens audio placements in ticks, so one may then reach into the\nnext placement of its track: an audio placement never overlaps another, so a tempo\nthat would make two placements of a track overlap is refused, naming them (move or\nshorten one first). Undo: set the previous tempo back.",
         "destructive": false,
         "input_schema": {
           "additionalProperties": false,
@@ -14650,7 +14669,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Read how loud the project sounds now, per track and for the master, from the\nmeters of the playing engine: how an agent without ears learns whether a song\nsounds. Call it while the transport plays (`transport.play`): the meters keep the\nlargest peak and the loudest RMS since the previous call (at most the last 10\nseconds), so a call right after a passage covers it. That RMS is the loudest of\nthe engine's short windows (about 30 ms), so it reads higher than the RMS of a\nwhole passage, which is what `project.analyze_render` gives. Levels are in dBFS (0 is\nfull scale; the master is measured before the output protection, so it can read\nabove 0), `null` is silence; a peak is the larger of the two channels, an RMS the\npower mean of both. `playing` says whether the transport ran: when it did not (or\nthe audio is not started, or the engine has stopped reporting), every level is\n`null`. Tracks come in display order, after their fader and mute. To measure a\nstretch without playing it, use `project.analyze_render`. A query: changes nothing\nand never enters the history.",
+        "description": "Read how loud the project sounds now, per track and for the master, from the\nmeters of the playing engine: how an agent without ears learns whether a song\nsounds. Call it while the transport plays (`transport.play`): the meters keep the\nlargest peak and the loudest RMS since the previous call (at most the last 10\nseconds), so a call right after a passage covers it. That RMS is the loudest of\nthe engine's short windows (about 30 ms), so it reads higher than the RMS of a\nwhole passage, which is what `project.analyze_render` gives. Levels are in dBFS (0 is\nfull scale; the master is measured before the output protection, so it can read\nabove 0), `null` is silence; a peak is the larger of the two channels, an RMS the\npower mean of both. `playing` says whether the transport ran: when it did not (or\nthe audio is not started, or the engine has stopped reporting), every level is\n`null`. Tracks come in display order, after their fader and mute. To measure a\nstretch without playing it, use `project.analyze_render`. `silenced_frames` above 0\nsays the output protection silenced an invalid (non-finite) signal since the page's\naudio started, which the levels cannot show. A query: changes nothing\nand never enters the history.",
         "destructive": false,
         "input_schema": {
           "additionalProperties": false,
@@ -14744,6 +14763,12 @@
               "description": "Whether the transport was playing or recording at the last reading.",
               "type": "boolean"
             },
+            "silenced_frames": {
+              "description": "Frames the output protection turned to silence because a sample was not a number\n(NaN or infinite), since the engine that plays started for this page (in Boost, since\nthe page's session with the helper began): above 0, a device produced an\ninvalid signal, which the levels above do not show. Counted whether or not the\ntransport runs.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
             "tracks": {
               "description": "The level of each track, in display order.",
               "items": {
@@ -14755,7 +14780,8 @@
           "required": [
             "playing",
             "tracks",
-            "master"
+            "master",
+            "silenced_frames"
           ],
           "type": "object"
         },
@@ -16682,7 +16708,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Write the placements of one or more tracks exactly as given, without the overlap\nrule: the inverse of every arrangement command, which brings back what it carved,\nwith the identifiers. Per track: `put` creates or replaces placements by\nidentifier, `remove` removes placements, `clips` brings back MIDI clips (new\nidentifiers, a snapshot as `clip.restore` takes) and `remove_clips` removes clips.\nRefused when a placement is outside the timeline or its offset outside its clip,\nwhen a placement is left on a removed clip or names an unknown clip, when an\nidentifier to create is in use, or when a rule of the clip commands is broken (a\nnote outside the length, a limit). In an audio track only `put` and `remove` of\naudio placements (a record with `frames`) are taken, never `clips` or `remove_clips`.\nUndo: the restore of what it changed.",
+              "description": "Write the placements of one or more tracks exactly as given, without the overlap\nrule: the inverse of every arrangement command, which brings back what it carved,\nwith the identifiers. Per track: `put` creates or replaces placements by\nidentifier, `remove` removes placements, `clips` brings back MIDI clips (new\nidentifiers, a snapshot as `clip.restore` takes) and `remove_clips` removes clips.\nRefused when a placement is outside the timeline or its offset outside its clip,\nwhen a placement is left on a removed clip or names an unknown clip, when an\nidentifier to create is in use, or when a rule of the clip commands is broken (a\nnote outside the length, a limit). In an audio track only `put` and `remove` of\naudio placements (a record with `frames`) are taken, never `clips` or `remove_clips`;\nan audio placement must end inside its clip (`offset + length` at most the clip's\nframes) and never overlap another placement of the track.\nUndo: the restore of what it changed.",
               "properties": {
                 "edits": {
                   "items": {
@@ -17625,7 +17651,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Set the range of the file an audio clip plays: the frames `[start, start + frames)`\nof its file (frames of the file, at its own sample rate). Refused when the range is\nempty or leaves the file, when the clip's loop would end past the new length (clear\nor move the loop first with `clip.audio.set_loop`: nothing is cut silently), and when\na placement of the clip starts inside it at or past the new length. Every placement\nthat plays the clip whole (offset 0, length equal to its old length in frames) takes\nthe new length in the same command; a growing placement stops at the start of the\nnext placement of its track; a placement that plays only part of the clip is left\nalone. Refused for a MIDI clip. Undo: set the range back, with the lengths of the\nplacements.",
+              "description": "Set the range of the file an audio clip plays: the frames `[start, start + frames)`\nof its file (frames of the file, at its own sample rate). Refused when the range is\nempty or leaves the file, when the clip's loop would end past the new length (clear\nor move the loop first with `clip.audio.set_loop`: nothing is cut silently), and when\na placement of the clip starts inside it at or past the new length. Every placement\nthat plays the clip whole (offset 0, length equal to its old length in frames) takes\nthe new length in the same command; a growing placement stops at the start of the\nnext placement of its track; a placement that plays only part of the clip is left\nalone, and the command is refused when that would leave one ending past the new\nlength (an audio placement always ends inside its clip) or overlapping another\nplacement of the track: move or resize it first. Refused for a MIDI clip. Undo: set\nthe range back, with the lengths of the placements.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
@@ -17723,7 +17749,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Bring back an audio clip with its identifier, as `clip.delete` removed it: the\ninverse of deleting an audio clip. Its placements give their length and offset in\nframes of the file. Refused when the track is not an audio track, when the clip's\nidentifier or a placement's already exists in the project, when the slot is taken\nor its scene is gone, or when the snapshot breaks a rule of the project (a range\noutside the file, a loop outside the range, a gain that is not a number). Undo:\n`clip.delete`.",
+              "description": "Bring back an audio clip with its identifier, as `clip.delete` removed it: the\ninverse of deleting an audio clip. Its placements give their length and offset in\nframes of the file. Refused when the track is not an audio track, when the clip's\nidentifier or a placement's already exists in the project, when the slot is taken\nor its scene is gone, or when the snapshot breaks a rule of the project (a range\noutside the file, a loop outside the range, a gain that is not a number, a\nplacement ending past the clip: `offset + length` at most the clip's frames, or\noverlapping another placement of the track or of the snapshot). Undo:\n`clip.delete`.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
@@ -19812,7 +19838,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Read how loud the project sounds now, per track and for the master, from the\nmeters of the playing engine: how an agent without ears learns whether a song\nsounds. Call it while the transport plays (`transport.play`): the meters keep the\nlargest peak and the loudest RMS since the previous call (at most the last 10\nseconds), so a call right after a passage covers it. That RMS is the loudest of\nthe engine's short windows (about 30 ms), so it reads higher than the RMS of a\nwhole passage, which is what `project.analyze_render` gives. Levels are in dBFS (0 is\nfull scale; the master is measured before the output protection, so it can read\nabove 0), `null` is silence; a peak is the larger of the two channels, an RMS the\npower mean of both. `playing` says whether the transport ran: when it did not (or\nthe audio is not started, or the engine has stopped reporting), every level is\n`null`. Tracks come in display order, after their fader and mute. To measure a\nstretch without playing it, use `project.analyze_render`. A query: changes nothing\nand never enters the history.",
+              "description": "Read how loud the project sounds now, per track and for the master, from the\nmeters of the playing engine: how an agent without ears learns whether a song\nsounds. Call it while the transport plays (`transport.play`): the meters keep the\nlargest peak and the loudest RMS since the previous call (at most the last 10\nseconds), so a call right after a passage covers it. That RMS is the loudest of\nthe engine's short windows (about 30 ms), so it reads higher than the RMS of a\nwhole passage, which is what `project.analyze_render` gives. Levels are in dBFS (0 is\nfull scale; the master is measured before the output protection, so it can read\nabove 0), `null` is silence; a peak is the larger of the two channels, an RMS the\npower mean of both. `playing` says whether the transport ran: when it did not (or\nthe audio is not started, or the engine has stopped reporting), every level is\n`null`. Tracks come in display order, after their fader and mute. To measure a\nstretch without playing it, use `project.analyze_render`. `silenced_frames` above 0\nsays the output protection silenced an invalid (non-finite) signal since the page's\naudio started, which the levels cannot show. A query: changes nothing\nand never enters the history.",
               "properties": {
                 "type": {
                   "const": "mixer.levels",
@@ -20532,6 +20558,23 @@
               "properties": {
                 "type": {
                   "const": "project.export_pack",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "live",
+              "x-undo": "none"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Stop the `.faulkpack` export under way, from the moment it was asked for: nothing is handed\nover (a download is not started; a file the user chose is left empty). Nothing happens when\nno export is running. Changes nothing in the project, so\nit never enters the history.",
+              "properties": {
+                "type": {
+                  "const": "project.cancel_export_pack",
                   "type": "string"
                 }
               },
@@ -22336,7 +22379,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Set the project's tempo in BPM, from 20 to 999. A value outside the range or not\na number is refused, and so is a tempo at which an audio placement (whose length is\nin frames of its file, so its end in ticks follows the tempo) would end past 2^40.\nA faster tempo lengthens audio placements in ticks, so one may then reach into the\nnext placement of its track: the project allows it, and the later one plays from its\nstart. Undo: set the previous tempo back.",
+              "description": "Set the project's tempo in BPM, from 20 to 999. A value outside the range or not\na number is refused, and so is a tempo at which an audio placement (whose length is\nin frames of its file, so its end in ticks follows the tempo) would end past 2^40.\nA faster tempo lengthens audio placements in ticks, so one may then reach into the\nnext placement of its track: an audio placement never overlaps another, so a tempo\nthat would make two placements of a track overlap is refused, naming them (move or\nshorten one first). Undo: set the previous tempo back.",
               "properties": {
                 "bpm": {
                   "format": "double",
@@ -25218,6 +25261,12 @@
                   "description": "Whether the transport was playing or recording at the last reading.",
                   "type": "boolean"
                 },
+                "silenced_frames": {
+                  "description": "Frames the output protection turned to silence because a sample was not a number\n(NaN or infinite), since the engine that plays started for this page (in Boost, since\nthe page's session with the helper began): above 0, a device produced an\ninvalid signal, which the levels above do not show. Counted whether or not the\ntransport runs.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
                 "tracks": {
                   "description": "The level of each track, in display order.",
                   "items": {
@@ -25234,7 +25283,8 @@
                 "type",
                 "playing",
                 "tracks",
-                "master"
+                "master",
+                "silenced_frames"
               ],
               "type": "object"
             }
@@ -25924,6 +25974,19 @@
               "properties": {
                 "type": {
                   "const": "project.export_pack",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "project.cancel_export_pack",
                   "type": "string"
                 }
               },
@@ -33992,6 +34055,12 @@
                   "description": "Whether the transport was playing or recording at the last reading.",
                   "type": "boolean"
                 },
+                "silenced_frames": {
+                  "description": "Frames the output protection turned to silence because a sample was not a number\n(NaN or infinite), since the engine that plays started for this page (in Boost, since\nthe page's session with the helper began): above 0, a device produced an\ninvalid signal, which the levels above do not show. Counted whether or not the\ntransport runs.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
                 "tracks": {
                   "description": "The level of each track, in display order.",
                   "items": {
@@ -34008,7 +34077,8 @@
                 "type",
                 "playing",
                 "tracks",
-                "master"
+                "master",
+                "silenced_frames"
               ],
               "type": "object"
             }
@@ -35600,6 +35670,19 @@
               "properties": {
                 "type": {
                   "const": "project.export_pack",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "project.cancel_export_pack",
                   "type": "string"
                 }
               },

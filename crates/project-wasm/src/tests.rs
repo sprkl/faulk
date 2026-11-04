@@ -1213,13 +1213,89 @@ fn pack_call(input: &[u8], f: extern "C" fn(u32) -> i32) -> Vec<u8> {
     unsafe { core::slice::from_raw_parts(pw_out(), len as usize) }.to_vec()
 }
 
+/// The folder frame of `fs` the way the page gives it to an export: the blobs by size, except
+/// the ones opening reads (dense automation lanes).
+fn listed_frame_of(name: &str, fs: &MemFs) -> Vec<u8> {
+    let mut frame = Vec::new();
+    frame.extend((name.len() as u32).to_le_bytes());
+    frame.extend(name.as_bytes());
+    for (path, bytes) in fs.files() {
+        let listed = path.starts_with("blobs/") && !bytes.starts_with(b"FKAUTO01");
+        frame.extend((path.len() as u32).to_le_bytes());
+        frame.extend(path.as_bytes());
+        frame.push(if listed { ENTRY_LISTED } else { ENTRY_FILE });
+        frame.extend((bytes.len() as u64).to_le_bytes());
+        if !listed {
+            frame.extend(bytes);
+        }
+    }
+    frame
+}
+
+/// A call of the export that takes no inbox, or the bytes of a chunk; the bytes it answers.
+fn pack_step(f: impl FnOnce() -> i32) -> Vec<u8> {
+    let len = f();
+    assert!(len > 0, "error code {len}");
+    // SAFETY: `pw_out` holds the `len` bytes of the last call.
+    unsafe { core::slice::from_raw_parts(pw_out(), len as usize) }.to_vec()
+}
+
+fn pack_next() -> Vec<u8> {
+    let len = pw_pack_next();
+    assert!(len > 0, "error code {len}");
+    // SAFETY: `pw_out` holds the `len` bytes of the last call.
+    unsafe { core::slice::from_raw_parts(pw_out(), len as usize) }.to_vec()
+}
+
+fn put_inbox(bytes: &[u8]) {
+    let ptr = pw_inbox(bytes.len() as u32);
+    assert!(!ptr.is_null());
+    // SAFETY: the inbox holds at least `bytes.len()` bytes.
+    unsafe { core::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, bytes.len()) };
+}
+
+/// Runs an export of `fs` the way the page does, reading each listed blob in pieces of `chunk`
+/// bytes: the answer of the last step, the files in it, the blobs missing, the zip.
+fn export_chunked(fs: &MemFs, chunk: usize) -> Result<(u32, u32, Vec<u8>), String> {
+    let frame = listed_frame_of("pack", fs);
+    put_inbox(&frame);
+    let begun = pack_step(|| pw_pack_begin(frame.len() as u32));
+    if begun[0] != 0 {
+        return Err(String::from_utf8_lossy(&begun[1..]).into_owned());
+    }
+    let files = u32::from_le_bytes(begun[1..5].try_into().unwrap());
+    let missing = u32::from_le_bytes(begun[5..9].try_into().unwrap());
+    let mut zip = Vec::new();
+    loop {
+        let out = pack_next();
+        match out[0] {
+            3 => {
+                zip.extend_from_slice(&out[1..]);
+                return Ok((files, missing, zip));
+            }
+            2 => {
+                let n = u32::from_le_bytes(out[1..5].try_into().unwrap()) as usize;
+                let path = std::str::from_utf8(&out[5..5 + n]).unwrap();
+                zip.extend_from_slice(&out[5 + n..]);
+                let bytes = fs
+                    .files()
+                    .get(path)
+                    .expect("a listed blob is in the folder");
+                for piece in bytes.chunks(chunk.max(1)) {
+                    put_inbox(piece);
+                    let fed = pack_step(|| pw_pack_feed(piece.len() as u32));
+                    assert_eq!(fed[0], 0, "{}", String::from_utf8_lossy(&fed[1..]));
+                    zip.extend_from_slice(&fed[1..]);
+                }
+            }
+            _ => return Err(String::from_utf8_lossy(&out[1..]).into_owned()),
+        }
+    }
+}
+
 /// The pack of `fs`: the files in it, the blobs missing, the zip.
 fn export_of(fs: &MemFs) -> (u32, u32, Vec<u8>) {
-    let out = pack_call(&frame_of("pack", fs), pw_pack_export);
-    assert_eq!(out[0], 0, "{}", String::from_utf8_lossy(&out[1..]));
-    let files = u32::from_le_bytes(out[1..5].try_into().unwrap());
-    let missing = u32::from_le_bytes(out[5..9].try_into().unwrap());
-    (files, missing, out[9..].to_vec())
+    export_chunked(fs, 1 << 20).expect("an export")
 }
 
 /// The files an import answers, or its message.
@@ -1370,16 +1446,113 @@ fn a_save_that_renames_and_removes_cut_short_at_any_file_still_opens() {
 }
 
 #[test]
-fn a_project_the_page_would_not_import_again_is_not_exported() {
-    // One byte over what an import accepts in total: refused up front, with a message, before
-    // anything is parsed or zipped.
-    let limit = pack::MAX_EXPORT_FRAME as usize;
-    assert!(pack::export_fits(limit));
-    assert!(!pack::export_fits(limit + 1));
-    // Under every limit of the import, and under the biggest file the page reads (192 MiB).
-    assert!(pack::MAX_EXPORT_FRAME <= pack::import_limits().max_blob);
-    assert!(pack::MAX_EXPORT_FRAME <= pack::import_limits().max_total);
-    const { assert!(pack::MAX_EXPORT_FRAME + (1 << 20) <= 192 << 20) };
+fn the_pack_holds_the_same_files_whatever_the_size_of_the_pieces() {
+    // The compressor may cut its blocks where the pieces end, so the bytes of the zip can differ
+    // (the page always cuts at the same place, so its packs are the same each time); the files in
+    // it are the same.
+    let contents = |zip: &[u8]| {
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(zip)).unwrap();
+        (0..zip.len())
+            .map(|i| {
+                let mut file = zip.by_index(i).unwrap();
+                let mut bytes = Vec::new();
+                std::io::Read::read_to_end(&mut file, &mut bytes).unwrap();
+                (file.name().unwrap().into_owned(), bytes)
+            })
+            .collect::<std::collections::BTreeMap<_, _>>()
+    };
+    let fs = reference_song();
+    let whole = export_chunked(&fs, usize::MAX >> 1).unwrap();
+    assert_eq!(export_chunked(&fs, usize::MAX >> 1).unwrap(), whole);
+    for chunk in [1, 3, 7, 4096] {
+        let pieces = export_chunked(&fs, chunk).unwrap();
+        assert_eq!((pieces.0, pieces.1), (whole.0, whole.1));
+        assert_eq!(contents(&pieces.2), contents(&whole.2), "pieces of {chunk}");
+    }
+}
+
+#[test]
+fn a_listed_blob_that_does_not_add_up_ends_the_export() {
+    // The song names an audio blob: give its folder one.
+    let mut fs = reference_song();
+    let path = format!("blobs/{}", "ab".repeat(32));
+    fs.insert(path.as_str(), vec![7u8; 1000]);
+    let frame = listed_frame_of("pack", &fs);
+    let size = fs.files()[&path].len();
+    let start = |fed: usize, more: bool| {
+        put_inbox(&frame);
+        assert_eq!(pack_step(|| pw_pack_begin(frame.len() as u32))[0], 0);
+        loop {
+            let out = pack_next();
+            assert_eq!(out[0], 2, "the blob is asked for");
+            let n = u32::from_le_bytes(out[1..5].try_into().unwrap()) as usize;
+            if std::str::from_utf8(&out[5..5 + n]).unwrap() == path {
+                break;
+            }
+            // Another blob: give it whole.
+            let other = fs.files()[std::str::from_utf8(&out[5..5 + n]).unwrap()].clone();
+            put_inbox(&other);
+            assert_eq!(pack_step(|| pw_pack_feed(other.len() as u32))[0], 0);
+        }
+        let given = vec![0u8; fed];
+        put_inbox(&given);
+        let fed_out = pack_step(|| pw_pack_feed(fed as u32));
+        assert_eq!(fed_out[0], 0);
+        if more {
+            return pack_next();
+        }
+        fed_out
+    };
+    // Short: the next call says the file changed. Long: the feed itself is refused.
+    let short = start(size - 1, true);
+    assert_eq!(short[0], 1, "{}", String::from_utf8_lossy(&short[1..]));
+    assert_eq!(pack_next()[0], 1, "the session is over");
+    put_inbox(&[0; 1]);
+    let long = {
+        let _ = start(size, false);
+        put_inbox(&[0]);
+        pack_step(|| pw_pack_feed(1))
+    };
+    assert_eq!(long[0], 1);
+    // And a cancel leaves nothing behind.
+    let _ = start(0, false);
+    pw_pack_cancel();
+    assert_eq!(pack_next()[0], 1);
+    assert!(export_of(&fs).0 > 0, "the next export works");
+}
+
+#[test]
+fn an_export_refuses_what_the_format_does_not_take_and_calls_out_of_order() {
+    // A blob over the format's limit is refused when its turn comes, and the session is over.
+    let mut fs = reference_song();
+    let path = format!("blobs/{}", "ab".repeat(32));
+    fs.insert(path.as_str(), vec![7u8; 10]);
+    let mut frame = listed_frame_of("pack", &fs);
+    // The same folder with the blob's listed size changed: its entry is the last 8 bytes of the frame.
+    let at = frame
+        .windows(path.len())
+        .position(|w| w == path.as_bytes())
+        .expect("the blob is in the frame")
+        + path.len();
+    assert_eq!(frame[at], 1, "listed");
+    frame[at + 1..at + 9].copy_from_slice(&(3u64 << 30).to_le_bytes());
+    put_inbox(&frame);
+    assert_eq!(pack_step(|| pw_pack_begin(frame.len() as u32))[0], 0);
+    let refused = loop {
+        let out = pack_next();
+        match out[0] {
+            2 => panic!("a blob over the limit was asked for"),
+            1 => break String::from_utf8_lossy(&out[1..]).into_owned(),
+            _ => {}
+        }
+    };
+    assert!(refused.contains("bigger than"), "{refused}");
+    assert_eq!(pack_next()[0], 1, "the session is over");
+    // Out of order: bytes with no export, a step after the end.
+    put_inbox(&[1]);
+    assert_eq!(pack_step(|| pw_pack_feed(1))[0], 1);
+    let (_, _, _) = export_chunked(&fs, 4).expect("an export");
+    assert_eq!(pack_next()[0], 1, "after the end there is no session");
 }
 
 #[test]
@@ -1409,11 +1582,10 @@ fn a_bad_pack_or_folder_is_a_message_not_a_trap() {
     // A folder that is no project does not export.
     let mut empty = MemFs::new();
     empty.insert("README.md", b"hello".to_vec());
-    let out = pack_call(&frame_of("pack", &empty), pw_pack_export);
-    assert_eq!(out[0], 1);
+    assert!(export_chunked(&empty, 1 << 20).is_err());
     // A malformed folder frame does not export.
-    let out = pack_call(&[1, 2, 3], pw_pack_export);
-    assert_eq!(out[0], 1);
+    put_inbox(&[1, 2, 3]);
+    assert_eq!(pack_step(|| pw_pack_begin(3))[0], 1);
     // The calls leave the module able to answer the next one.
     assert!(import_of(&zip).is_ok());
 }
@@ -1433,9 +1605,8 @@ fn a_folder_that_does_not_open_does_not_export() {
     for path in &blobs {
         fs.remove(path).unwrap();
     }
-    let out = pack_call(&frame_of("pack", &fs), pw_pack_export);
-    assert_eq!(out[0], 1);
-    assert!(!out[1..].is_empty(), "the message says why");
+    let message = export_chunked(&fs, 1 << 20).expect_err("refused");
+    assert!(!message.is_empty(), "the message says why");
 }
 
 // ---------------------------------------------------------------- the export (#297)

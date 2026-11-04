@@ -210,15 +210,16 @@ describe('FolderBackend blobs and swap files', () => {
   })
 })
 
-describe('FolderBackend.readBlobs', () => {
-  it('reads every blob whole, and nothing else; no blobs is an empty list', async () => {
+describe('FolderBackend.listBlobs', () => {
+  it('lists every blob by size, and nothing else; the blobs of automation lanes come whole; no blobs is an empty list', async () => {
     const { dir, store } = folder()
-    expect(await store.readBlobs()).toEqual([])
-    dir.put('blobs/aa', 'one').put('blobs/bb', 'two').put('blobs/cc.crswap', 'half').put('project.json', '{}')
-    const blobs = await store.readBlobs()
-    expect(blobs.map((b) => [b.path, new TextDecoder().decode(b.bytes)]).sort()).toEqual([
-      ['blobs/aa', 'one'],
-      ['blobs/bb', 'two'],
+    expect(await store.listBlobs()).toEqual([])
+    dir.put('blobs/aa', 'one').put('blobs/bb', 'two!').put('blobs/cc.crswap', 'half').put('project.json', '{}').put('blobs/dd', 'FKAUTO01lane')
+    const blobs = await store.listBlobs()
+    expect(blobs.map((b) => [b.path, 'bytes' in b ? new TextDecoder().decode(b.bytes) : b.size] as const).sort((a, b) => a[0].localeCompare(b[0]))).toEqual([
+      ['blobs/aa', 3],
+      ['blobs/bb', 4],
+      ['blobs/dd', 'FKAUTO01lane'],
     ])
   })
 
@@ -226,7 +227,7 @@ describe('FolderBackend.readBlobs', () => {
     const { dir, store } = folder()
     dir.put('blobs/aa', 'one')
     dir.hooks.failEntries = () => new DOMException('no', 'NotAllowedError')
-    await expect(store.readBlobs()).rejects.toMatchObject({ code: 'permission' })
+    await expect(store.listBlobs()).rejects.toMatchObject({ code: 'permission' })
   })
 })
 

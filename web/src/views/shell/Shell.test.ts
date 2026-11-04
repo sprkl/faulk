@@ -100,6 +100,27 @@ describe('the shell', () => {
     expect(pill).toContain('42 % (crête 60 % sur les 3 dernières s)')
   })
 
+  it('marks the engine pill once the output protection silenced a non-finite signal, and the dialog says how much (#667)', () => {
+    const stores = createStores('arrangement', DEFAULT_PANEL)
+    stores.engine.started = true
+    stores.engine.status = { kind: 'web', sampleRate: 48_000, estimatedLatencyMs: null }
+    let body = render(Shell, { props: { stores } }).body
+    expect(body).not.toContain('data-testid="engine-silenced"')
+    expect(body).not.toContain('Invalid signal silenced')
+    expect(body).toMatch(/data-testid="engine-dialog-silenced"[^>]*>Nothing silenced</)
+    stores.engine.silencedFrames = 4_800
+    body = render(Shell, { props: { stores } }).body
+    expect(body).toContain('data-testid="engine-silenced"')
+    expect(body).toMatch(/aria-label="[^"]*Invalid signal silenced to protect your ears\. Audio engine and MIDI"/)
+    expect(body).toMatch(/title="Audio engine and MIDI: [^"]*\. Invalid signal silenced to protect your ears"/)
+    expect(body).toContain('100 ms of invalid signal silenced since the audio started')
+    stores.engine.silencedFrames = 3
+    stores.ui.lang = 'fr'
+    body = render(Shell, { props: { stores } }).body
+    expect(body).toContain('Signal invalide coupé pour protéger tes oreilles')
+    expect(body).toContain('moins d’1 ms de signal invalide coupé depuis le démarrage de l’audio')
+  })
+
   it('folds the bottom panel in the mixer and gives it back on leaving, without touching the stored fold', () => {
     const stores = createStores('arrangement', DEFAULT_PANEL)
     const ui = stores.ui

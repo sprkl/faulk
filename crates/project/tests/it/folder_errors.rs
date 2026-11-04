@@ -651,6 +651,57 @@ fn a_pack_round_trips_and_leaves_out_what_the_project_does_not_use() {
 }
 
 #[test]
+fn a_pack_written_in_pieces_is_the_pack_of_the_whole_files() {
+    let fs = song_fs();
+    let plan = plan_pack(&fs).unwrap();
+    let mut pack = PackWriter::new(Vec::new());
+    for path in &plan.paths {
+        let bytes = fs.read(path).unwrap();
+        pack.start(path, bytes.len() as u64).unwrap();
+        for piece in bytes.chunks(3) {
+            pack.write(piece).unwrap();
+        }
+    }
+    // The compressor may cut its blocks where the pieces end, so the bytes can differ; the files do not.
+    let contents = |bytes: Vec<u8>| {
+        let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+        (0..zip.len())
+            .map(|i| {
+                let mut file = zip.by_index(i).unwrap();
+                let mut body = Vec::new();
+                std::io::Read::read_to_end(&mut file, &mut body).unwrap();
+                (file.name().unwrap().into_owned(), body)
+            })
+            .collect::<std::collections::BTreeMap<_, _>>()
+    };
+    assert_eq!(
+        contents(pack.finish().unwrap()),
+        contents(pack_bytes(&fs).0)
+    );
+}
+
+#[test]
+fn a_file_of_a_gibibyte_or_more_gets_the_64_bit_fields_and_the_pack_reads_back() {
+    // The size announced is what decides the fields; the bytes given can be few.
+    let mut pack = PackWriter::new(Vec::new());
+    pack.start("project.json", 10).unwrap();
+    pack.write(b"{}").unwrap();
+    pack.start("blobs/big", 3 << 30).unwrap();
+    pack.write(b"audio").unwrap();
+    pack.start("tracks/after", 4).unwrap();
+    pack.write(b"next").unwrap();
+    let bytes = pack.finish().unwrap();
+    let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+    assert_eq!(zip.len(), 3);
+    let mut big = String::new();
+    std::io::Read::read_to_string(&mut zip.by_name("blobs/big").unwrap(), &mut big).unwrap();
+    assert_eq!(big, "audio");
+    let mut after = String::new();
+    std::io::Read::read_to_string(&mut zip.by_name("tracks/after").unwrap(), &mut after).unwrap();
+    assert_eq!(after, "next");
+}
+
+#[test]
 fn an_invalid_project_is_not_exported() {
     let mut fs = song_fs();
     fs.remove(&bass("track.json")).unwrap();

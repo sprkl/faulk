@@ -142,6 +142,10 @@
   )
   // The helper runs without an audio output (#525): the page plays in Web mode until it has one.
   const waiting = $derived(engine.mode === 'web' && engine.awaitingOutput ? t('engine.boostWaiting') : null)
+  // The output protection silenced a non-finite signal (#667): a red dot in the pill and the words in its tooltip and
+  // accessible name, for as long as this engine plays; the dialog says how much.
+  const silenced = $derived(engine.silencedFrames > 0 ? t('engine.silenced') : null)
+  const notes = $derived([loadPeak, waiting, silenced].filter((n): n is string => n !== null))
 </script>
 
 <header class="top" bind:this={bar} data-fit={fit} style:--fk-project-max={fit >= 2 ? '128px' : '160px'}>
@@ -188,8 +192,14 @@
         class:boost={engine.mode === 'native'}
         type="button"
         aria-haspopup="dialog"
-        aria-label={`${engine.mode === 'native' ? t('engine.boost') : t('engine.web')}, ${latency}${loadPeak ? `, ${loadPeak}` : ''}${waiting ? `, ${waiting}` : ''}. ${t('engine.settings')}`}
-        title={`${t('engine.settings')}: ${engine.mode === 'native' ? t('engine.boost') : t('engine.web')}, ${latency}${loadPeak ? `, ${loadPeak}` : ''}${waiting ? `. ${waiting}` : ''}`}
+        aria-label={`${[engine.mode === 'native' ? t('engine.boost') : t('engine.web'), latency, ...notes].join(', ')}. ${t('engine.settings')}`}
+        title={`${t('engine.settings')}: ${[engine.mode === 'native' ? t('engine.boost') : t('engine.web'), latency, loadPeak].filter(Boolean).join(', ')}${[
+          waiting,
+          silenced,
+        ]
+          .filter(Boolean)
+          .map((n) => `. ${n}`)
+          .join('')}`}
         data-testid="engine-mode"
         onclick={() => (ui.engineOpen = true)}
       >
@@ -205,6 +215,7 @@
         <span class="value" data-testid="latency">{latencyShort}</span>
         {#if load}<span class="value load" data-testid="engine-load">{load}</span>{/if}
         {#if waiting}<span class="waiting" aria-hidden="true" data-testid="engine-waiting"></span>{/if}
+        {#if silenced}<span class="silenced" aria-hidden="true" data-testid="engine-silenced"></span>{/if}
       </button>
       <!-- The master's level, in every view: the output is what the listener hears, whatever the view shows. -->
       <div class="master-meter" class:short={fit >= 1} class:shortest={fit >= 5}>
@@ -365,6 +376,15 @@
     height: 7px;
     border-radius: 50%;
     background: var(--fk-solo);
+  }
+  /* The output protection silenced a non-finite signal (#667): red, apart from the yellow wait; ringed so that it
+     reads on the Boost pill's accent too. */
+  .silenced {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--fk-rec);
+    box-shadow: 0 0 0 1px var(--fk-surface-2);
   }
   .help {
     flex: none;

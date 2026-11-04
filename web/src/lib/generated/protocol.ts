@@ -51,6 +51,8 @@ type: "project.save_as"
 } | {
 type: "project.export_pack"
 } | {
+type: "project.cancel_export_pack"
+} | {
 type: "project.import_pack"
 } | {
 type: "project.open_url"
@@ -1341,6 +1343,8 @@ type: "project.save_as"
 } | {
 type: "project.export_pack"
 } | {
+type: "project.cancel_export_pack"
+} | {
 type: "project.import_pack"
 } | {
 type: "project.open_url"
@@ -2422,6 +2426,14 @@ master: Level1
  * Whether the transport was playing or recording at the last reading.
  */
 playing: boolean
+/**
+ * Frames the output protection turned to silence because a sample was not a number
+ * (NaN or infinite), since the engine that plays started for this page (in Boost, since
+ * the page's session with the helper began): above 0, a device produced an
+ * invalid signal, which the levels above do not show. Counted whether or not the
+ * transport runs.
+ */
+silenced_frames: number
 /**
  * The level of each track, in display order.
  */

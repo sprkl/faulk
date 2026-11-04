@@ -50,6 +50,15 @@ pub const AGENT_CONFIRM_MS: u32 = 45_000;
 // 5). The helper's MCP tools come from the command catalogue (AG-1), so a helper of an earlier version
 // would not offer the command.
 
+// Version 35 (#617; 33 is #670's and 34 is #676's): the commands gain `project.cancel_export_pack` (stops the `.faulkpack` export under way); the helper generates its MCP tools from the commands, so a helper of version 34 would not offer it to an agent. No message changes.
+
+// Version 34 (#667, 33 is #658's): the report is `Feedback` version 8: the header grows from 88
+// to 92 bytes with `silenced_frames` at offset 88 (the stereo frames the output protection
+// silenced because a sample was non-finite, cumulative since the engine was built), so that a
+// NaN during playback shows in the page in both modes. `mixer.levels` answers that count too
+// (`silenced_frames`), so that an agent sees it. A page and a helper of different versions
+// refuse each other.
+
 // Version 33 (#658): the control link (`/control`, #608) opens with `control.hello` (the helper's
 // protocol), as the session opens with `hello`. The page refuses a helper of another version on
 // that link too, with the message of the probe. A page of version 32 would take the link for

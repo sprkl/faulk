@@ -37,18 +37,21 @@ fn levels_name_the_tracks_through_the_engine_slots_and_serve_one_answer() {
         playing: true,
         tracks,
         master: reading(1.0, 0.5),
+        silenced_frames: 0,
     });
     let before = state.clone();
     let Output::Mixer(mixer::Output::Levels {
         playing,
         tracks,
         master,
+        silenced_frames,
     }) = levels(&mut state, &mut ctx)
     else {
         panic!()
     };
     assert_eq!(state, before, "a query changes nothing");
     assert!(playing);
+    assert_eq!(silenced_frames, 0);
     let mine = tracks.iter().find(|t| t.track == f.track).unwrap();
     assert!((mine.peak_db.unwrap() - 20.0 * 0.5f64.log10()).abs() < 1e-9);
     assert!((mine.rms_db.unwrap() - 20.0 * 0.25f64.log10()).abs() < 1e-9);
@@ -189,11 +192,13 @@ fn levels_read_while_the_transport_did_not_run_are_all_silent() {
         playing: false,
         tracks: vec![reading(0.5, 0.25); 4],
         master: reading(1.0, 0.5),
+        silenced_frames: 131,
     });
     let Output::Mixer(mixer::Output::Levels {
         playing,
         tracks,
         master,
+        silenced_frames,
     }) = levels(&mut state, &mut ctx)
     else {
         panic!()
@@ -205,4 +210,14 @@ fn levels_read_while_the_transport_did_not_run_are_all_silent() {
             .all(|t| t.peak_db.is_none() && t.rms_db.is_none())
     );
     assert_eq!(master.peak_db, None);
+    // The protection's count (#667) holds while the transport is stopped too.
+    assert_eq!(silenced_frames, 131);
+    // Taken with the reading: nothing staged answers 0.
+    let Output::Mixer(mixer::Output::Levels {
+        silenced_frames, ..
+    }) = levels(&mut state, &mut ctx)
+    else {
+        panic!()
+    };
+    assert_eq!(silenced_frames, 0);
 }
