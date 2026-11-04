@@ -60,6 +60,8 @@ export const AREA = {
   // Typed values in the continuous controls.
   valueEntry: ['value-entry'],
   refusal: ['refused-commands'],
+  // The light and dark theme (#687): the setting, its command, the canvases that redraw, the contrasts of the states.
+  theme: ['theme', 'track-state'],
   // What the engine's sound and timing reach: devices, mixer, master, automation, transport, the
   // shipped worklet's cost (engine-mo2), its reports (engine-mo5), the CT-3 prototype that builds
   // crates/engine itself (engine-channel), the export render.
@@ -198,6 +200,7 @@ export const RULES = [
   // Shared files of the page: the core tests (boot, audio, transport, save, export, keyboard, Boost).
   [/^web\/src\/routes\/app\//, CORE],
   [/^web\/src\/lib\/(stores|app|project|meters|styles)\//, CORE],
+  [/^web\/src\/lib\/theme(\.svelte)?\.ts$/, AREA.theme],
   [/^web\/src\/lib\/[^/]+\.ts$/, CORE], // the command helpers and small shared modules of lib/
   [/^web\/src\/app\.d\.ts$/, CORE],
   [/^web\/static\//, CORE],
