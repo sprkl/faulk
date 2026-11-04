@@ -324,6 +324,7 @@ fn an_entry_that_fails_halfway_leaves_the_state_and_history_untouched() {
         others: 0,
         author: Author::User,
         group: Some(GroupId(99)),
+        edits: 2,
         commands: vec![set(&missing, "attack", 0.1), rename("Half")],
     });
     let err = check_refusal(&h(history::Command::Undo {}), &s, &context()).unwrap();
@@ -432,6 +433,7 @@ fn a_redo_that_fails_halfway_leaves_the_entry_on_the_redo_stack() {
         others: 0,
         author: Author::User,
         group: Some(GroupId(99)),
+        edits: 2,
         commands: vec![set(&missing, "attack", 0.1), rename("Half")],
     });
     let err = check_refusal(&h(history::Command::Redo {}), &s, &context()).unwrap();

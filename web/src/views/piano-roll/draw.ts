@@ -7,9 +7,10 @@
 
 import { RULER_HEIGHT, type BodyFrame, type Colors } from '../../lib/components/timegrid/render'
 import { tickToX, type View } from '../../lib/components/timegrid/grid'
+import { drawHandles } from '../../lib/components/timegrid/handles'
 import type { Note, TickLoop } from '../../lib/generated/protocol'
 import type { GhostNote } from './clips'
-import { MAX_PITCH, MAX_VELOCITY, MIN_NOTE_PX, MIN_PITCH, isBlackKey, noteKey, pitchName, pitchTop, type Layout, type Rect } from './roll'
+import { EDGE_PX, MAX_PITCH, MAX_VELOCITY, MIN_NOTE_PX, MIN_PITCH, isBlackKey, noteKey, pitchName, pitchTop, type Layout, type Rect } from './roll'
 
 /** What the roll draws besides the grid. */
 export interface RollFrame {
@@ -33,6 +34,8 @@ export interface RollFrame {
   others: readonly GhostNote[]
   /** The notes of the take being recorded into this clip (#470), where the clip played them: drawn like the notes, not yet in the project. */
   taking?: readonly Note[]
+  /** The note whose end is drawn as a resize handle (#612): the hovered or the resized one; `strong` when the pointer is on the end itself. */
+  handle?: { note: Note; strong: boolean } | null
 }
 
 /** Under this row height only the Cs are named. */
@@ -203,6 +206,22 @@ function drawNotes(ctx: CanvasRenderingContext2D, roll: RollFrame, frame: BodyFr
   }
   ctx.stroke()
   ctx.globalAlpha = 1
+  if (roll.handle) {
+    const { note, strong } = roll.handle
+    const x0 = tickToX(note.start, view)
+    const w = Math.max(MIN_NOTE_PX, note.length * view.pxPerTick - 1)
+    // A note too short to keep a body has no handle: its whole width would be one (`hitNote`).
+    if (w >= EDGE_PX * 2)
+      drawHandles(ctx, colors.accent, {
+        x0,
+        x1: x0 + w,
+        y: pitchTop(note.pitch, layout) + 1,
+        height: rows - 1,
+        zone: EDGE_PX,
+        strong: strong ? 'end' : null,
+        sides: ['end'],
+      })
+  }
 }
 
 /** The notes of the other tracks: an outline in a neutral colour, no fill, under the notes of the clip. */

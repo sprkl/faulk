@@ -173,6 +173,16 @@ class FakeHost implements ProjectHost {
   projectName() {
     return this.name
   }
+  /** The names Save as gave the project (`project.rename`). */
+  renames: string[] = []
+  /** The project does not take a new name (the engine is stopped, the command is refused). */
+  refuseRename = false
+  renameProject(name: string) {
+    if (this.refuseRename) return false
+    this.renames.push(name)
+    this.name = name
+    return true
+  }
   /** What the core answers to a pack export, and to an import. */
   exports: { path: string; bytes: Uint8Array }[][] = []
   exportFails: string | null = null
@@ -2609,5 +2619,167 @@ describe('importing an audio file (AU-1)', () => {
     abort.abort()
     await expect(w.storage.importAudio(wav(), undefined, abort.signal)).rejects.toMatchObject({ code: 'cancelled' })
     expect(store.imports).toEqual([])
+  })
+})
+
+describe('Save as names the project (#627)', () => {
+  /** A picked folder that holds `existing` folders, and records the folders made and removed in it. */
+  function parentOf(existing: Record<string, FolderHandle> = {}, failWith?: string) {
+    const made: string[] = []
+    const removed: string[] = []
+    const children = new Map(Object.entries(existing))
+    const handle = {
+      name: 'Music',
+      isSameEntry: async (other: unknown) => other === handle,
+      getDirectoryHandle: async (name: string, options?: { create?: boolean }) => {
+        if (failWith) throw new DOMException('no', failWith)
+        const found = children.get(name)
+        if (found) return found
+        if (!options?.create) throw new DOMException('gone', 'NotFoundError')
+        made.push(name)
+        const child = handleOf(name)
+        children.set(name, child)
+        return child
+      },
+      removeEntry: async (name: string) => void removed.push(name),
+    } as unknown as FolderHandle
+    return { handle, made, removed, children }
+  }
+
+  /** A world whose Save as asks `answers` in turn (what the user types), and records what it was offered. */
+  function asking(...answers: (string | null)[]) {
+    const w = world()
+    const offered: string[] = []
+    w.deps.askName = async (initial) => {
+      offered.push(initial)
+      return answers.shift() ?? null
+    }
+    return { w, offered, renames: w.host.renames }
+  }
+
+  it('offers the current name, then writes the project into a folder of that name inside the folder picked', async () => {
+    const { w, offered, renames } = asking('Night Drive')
+    const parent = parentOf()
+    w.picks.push({ status: 'chosen', handle: parent.handle })
+    w.edit()
+    expect(await w.storage.saveAs()).toBe(true)
+    expect(offered).toEqual(['Song'])
+    expect(parent.made).toEqual(['Night Drive'])
+    expect(w.stores.get(parent.children.get('Night Drive')!)!.files.has('project.json')).toBe(true)
+    expect(w.storage.folder).toEqual({ name: 'Night Drive' })
+    // The project takes the name through the command path, before the files are computed.
+    expect(renames).toEqual(['Night Drive'])
+  })
+
+  it('does not rename a project whose name was kept', async () => {
+    const { w, renames } = asking('Song')
+    w.picks.push({ status: 'chosen', handle: parentOf().handle })
+    w.edit()
+    expect(await w.storage.saveAs()).toBe(true)
+    expect(renames).toEqual([])
+  })
+
+  it('makes the folder name safe for a file system, and keeps the project name as typed', async () => {
+    const { w, renames } = asking('  a/b: c?  ')
+    const parent = parentOf()
+    w.picks.push({ status: 'chosen', handle: parent.handle })
+    w.edit()
+    expect(await w.storage.saveAs()).toBe(true)
+    expect(parent.made).toEqual(['a-b- c-'])
+    expect(renames).toEqual(['a/b: c?'])
+  })
+
+  it('writes into an existing empty folder of that name', async () => {
+    const { w } = asking('Song')
+    const existing = handleOf('Song')
+    const parent = parentOf({ Song: existing })
+    w.picks.push({ status: 'chosen', handle: parent.handle })
+    w.edit()
+    expect(await w.storage.saveAs()).toBe(true)
+    expect(parent.made).toEqual([])
+    expect(w.stores.get(existing)!.files.has('project.json')).toBe(true)
+  })
+
+  it('refuses a folder of that name that holds files, says which, and renames nothing', async () => {
+    const { w, renames } = asking('Song')
+    const full = handleOf('Song')
+    w.stores.set(full, Object.assign(new FakeStore('Song'), { files: new Map([['notes.txt', 'hi']]) }))
+    const parent = parentOf({ Song: full })
+    w.picks.push({ status: 'chosen', handle: parent.handle })
+    w.edit()
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(w.storage.notice).toBe('storage.nameTaken')
+    expect(w.storage.noticeVars).toEqual({ name: 'Song' })
+    expect(renames).toEqual([])
+    expect(w.host.saves).toEqual([])
+    // Nothing was made here, so nothing is removed: the user's folder stays.
+    expect(parent.removed).toEqual([])
+  })
+
+  it('gives the old name back when the write fails after the rename', async () => {
+    const { w, renames } = asking('Night Drive')
+    w.picks.push({ status: 'chosen', handle: parentOf().handle })
+    w.edit()
+    w.host.frameFails = true
+    expect(await w.storage.saveAs()).toBe(false)
+    // Renamed to write the frame, renamed back when it failed: the project is as it was.
+    expect(renames).toEqual(['Night Drive', 'Song'])
+    expect(w.host.name).toBe('Song')
+  })
+
+  it('writes nothing when the project does not take the new name', async () => {
+    const { w } = asking('Night Drive')
+    const parent = parentOf()
+    w.picks.push({ status: 'chosen', handle: parent.handle })
+    w.edit()
+    w.host.refuseRename = true
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(w.storage.notice).toBe('storage.saveFailed')
+    expect(w.host.saves).toEqual([])
+    expect(w.host.name).toBe('Song')
+    expect(parent.removed).toEqual(['Night Drive'])
+  })
+
+  it('removes the empty folder it made when the write fails', async () => {
+    const { w } = asking('Song')
+    const parent = parentOf()
+    w.picks.push({ status: 'chosen', handle: parent.handle })
+    w.edit()
+    w.host.frameFails = true
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(w.storage.notice).toBe('storage.saveFailed')
+    expect(parent.removed).toEqual(['Song'])
+  })
+
+  it('does nothing when the name is cancelled or empty, and does not open the folder dialog', async () => {
+    const { w } = asking(null, '   ')
+    w.picks.push({ status: 'chosen', handle: parentOf().handle })
+    w.edit()
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(w.picks).toHaveLength(1)
+    expect(w.storage.notice).toBeNull()
+    expect(w.host.saves).toEqual([])
+  })
+
+  it('does nothing when the folder dialog is cancelled after the name', async () => {
+    const { w, renames } = asking('Song 2')
+    w.edit()
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(renames).toEqual([])
+    expect(w.storage.folder).toBeNull()
+  })
+
+  it('says so when the browser will not make the folder', async () => {
+    const { w } = asking('Song')
+    w.picks.push({ status: 'chosen', handle: parentOf({}, 'NotAllowedError').handle })
+    w.edit()
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(w.storage.notice).toBe('storage.refused')
+    const other = asking('Song')
+    other.w.picks.push({ status: 'chosen', handle: parentOf({}, 'TypeMismatchError').handle })
+    other.w.edit()
+    expect(await other.w.storage.saveAs()).toBe(false)
+    expect(other.w.storage.notice).toBe('storage.saveFailed')
   })
 })

@@ -26,6 +26,8 @@
   import { chordText } from '../../lib/shortcuts'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
   import ValueField from '../../lib/components/ValueField.svelte'
+  import GestureLabel from '../../lib/components/GestureLabel.svelte'
+  import { lengthText, positionText, snapText } from '../../lib/gesture-label'
   import { deviceText, labelKey } from '../../lib/devices'
   import {
     DEFAULT_PX_PER_TICK,
@@ -80,6 +82,8 @@
     laneHeight,
     laneTop,
     BLOCK_INSET,
+    blocksInBox,
+    drawnSpan,
     rowAt,
     splittable,
     type Block,
@@ -157,6 +161,28 @@
         moved: boolean
         add: boolean
       }
+    | {
+        // A press on the free ground of a MIDI track in Draw mode (#615): a drag draws a clip, rightwards or leftwards.
+        kind: 'draw'
+        trackId: string
+        row: number
+        pressTick: number
+        /** The pointer's tick at the last move, and whether the snap was set aside by the key then. */
+        to: number
+        free: boolean
+        moved: boolean
+        startX: number
+      }
+    | {
+        // A press on the free ground in Select mode (#615): a drag draws a box, the clips it touches are selected.
+        kind: 'clipbox'
+        startX: number
+        startY: number
+        x: number
+        y: number
+        moved: boolean
+        add: boolean
+      }
 
   const entries = $derived(project.tracks)
   /** The master as a pseudo-entry at the bottom of the layout, with the sentinel id `MASTER`. */
@@ -204,12 +230,15 @@
   // Zoom, scroll and the open lanes come back as the view was left (it is torn down when another view is shown),
   // and with the project's layout when it is opened again (#473).
   const layoutRev = ui.layoutRev
-  const left = ui.recall<{ view?: View; scrollY?: number; open?: string[] }>('arrangement')
+  const left = ui.recall<{ view?: View; scrollY?: number; open?: string[]; mode?: Mode }>('arrangement')
+  /** The tool (#615), as the piano roll has: Draw makes a drag on the free ground of a MIDI track draw a clip, Select makes it draw a box. Grabbing a clip and a double click work the same in both. */
+  type Mode = 'draw' | 'select'
+  let mode = $state<Mode>(left?.mode === 'draw' ? 'draw' : 'select')
   let view = $state<View>(validView(left?.view) ?? { pxPerTick: DEFAULT_PX_PER_TICK, scrollTick: 0 })
   /** No remembered view: the arrangement opens on 16 to 32 bars as soon as it knows its width (#473). */
   let openToFit = !validView(left?.view)
   let scrollY = $state(typeof left?.scrollY === 'number' && Number.isFinite(left.scrollY) ? left.scrollY : 0)
-  const keep = () => ui.remember('arrangement', { view, scrollY, open: [...open] }, layoutRev)
+  const keep = () => ui.remember('arrangement', { view, scrollY, open: [...open], mode }, layoutRev)
   onDestroy(keep)
   $effect(keep)
 
@@ -222,6 +251,10 @@
   let picked = $state.raw<ReadonlySet<string>>(new Set())
   let gesture = $state.raw<Gesture | null>(null)
   let cursor = $state<'default' | 'move' | 'resize' | 'add'>('default')
+  /** The clip under the pointer (no gesture) and the part of it, for its resize handles (#612); `null` zone: on the body. */
+  let edgeHover = $state.raw<{ id: string; zone: 'start' | 'end' | null } | null>(null)
+  /** The pointer during a move or a resize, with whether the snap was set aside by the key at the last move (#612). */
+  let pointer = $state.raw<{ x: number; y: number; free: boolean } | null>(null)
   /** Whether the view follows the play position while the transport runs. A hand scroll ends it; Follow or the next Play restores it. */
   let follow = $state(true)
 
@@ -340,10 +373,38 @@
     }
   })
 
+  /** The clip a Draw drag would create now (#615): the span on the step in force, as a block for the preview. */
+  const drawnNow = $derived.by<{ span: { start: number; length: number }; ghost: Block } | null>(() => {
+    const g = gesture
+    if (g?.kind !== 'draw' || !g.moved) return null
+    const span = drawnSpan(blocks, g.row, g.pressTick, g.to, g.free ? null : step)
+    const entry = entries[g.row]
+    if (!span || !entry) return null
+    const ghost: Block = {
+      id: '~draw',
+      track: g.trackId,
+      row: g.row,
+      clip: '',
+      start: span.start,
+      length: span.length,
+      offset: 0,
+      end: span.start + span.length,
+      name: '',
+      color: trackColor(entry.track.color, entry.index),
+      clipLength: span.length,
+      looping: null,
+      notes: [],
+      uses: 1,
+    }
+    return { span, ghost }
+  })
+  const drawn = $derived(drawnNow?.ghost ?? null)
+
   const ghosts = $derived.by<Block[]>(() => {
     const g = gesture
     if (!g || !g.moved) return []
     if (g.kind === 'resize') return g.to === null ? [] : [resized(g.grabbed, g.edge, g.to)]
+    if (g.kind === 'draw') return drawn ? [drawn] : []
     if (g.kind !== 'move' && g.kind !== 'copy') return []
     return moved(
       blocks.filter((b) => g.ids.includes(b.id)),
@@ -357,6 +418,29 @@
     if (g.kind === 'move') return new Set(g.ids)
     if (g.kind === 'resize' && g.to !== null) return new Set([g.grabbed.id])
     return new Set()
+  })
+  /** The label near the pointer during a move or a resize (#612): the position or the length, the snap, the key that frees it. */
+  const gestureLines = $derived.by<string[] | null>(() => {
+    const g = gesture
+    const names = {
+      bar: t('pianoRoll.snap.bar'),
+      beat: t('pianoRoll.snap.beat'),
+    }
+    // A clip being drawn (#615): its length, the snap, the key that frees it.
+    if (g?.kind === 'draw' && g.moved && pointer && drawnNow) {
+      const lines = [lengthText(t, signature, drawnNow.span.length), snapText(t, signature, g.free ? null : step, names)]
+      if (!g.free) lines.push(t('gesture.ctrlFree', { key: chordText(['Mod']) }))
+      return lines
+    }
+    if (!g || !g.moved || !pointer || (g.kind !== 'resize' && g.kind !== 'move' && g.kind !== 'copy')) return null
+    const first = g.kind === 'resize' ? ghosts[0] : ghosts.find((b) => b.id === g.grabbed.id)
+    if (!first) return null
+    const lines = [
+      g.kind === 'resize' ? lengthText(t, signature, first.end - first.start) : positionText(t, signature, first.start),
+      snapText(t, signature, pointer.free ? null : step, names),
+    ]
+    if (!pointer.free) lines.push(t('gesture.ctrlFree', { key: chordText(['Mod']) }))
+    return lines
   })
   const loopNow = $derived.by(() => {
     const g = gesture
@@ -655,6 +739,17 @@
   const geoOf = (row: Row) => ({ top: RULER_HEIGHT + row.top - y0, height: row.height })
   const NO_TICKS: ReadonlySet<number> = new Set()
 
+  /** The block whose resize handles are drawn: the hovered one, or the one being resized (as it would be), with the end that is in use. */
+  const handlesNow = $derived.by(() => {
+    const g = gesture
+    if (g) {
+      if (g.kind !== 'resize') return null
+      return { block: ghosts[0] ?? g.grabbed, strong: g.edge }
+    }
+    const over = edgeHover ? blocks.find((b) => b.id === edgeHover!.id) : undefined
+    return over && edgeHover ? { block: over, strong: edgeHover.zone } : null
+  })
+
   const body = (ctx: CanvasRenderingContext2D, frame: BodyFrame) => {
     drawArrangement(ctx, frame, {
       layout,
@@ -669,6 +764,7 @@
       fallbackName: t('arrangement.clipDefault'),
       silent,
       markers,
+      handles: handlesNow,
     })
     const lanes: LaneScene[] = []
     for (const row of rowsBetween(layout, y0, y0 + frame.height)) {
@@ -688,7 +784,7 @@
     }
     const g = gesture
     const box =
-      g?.kind === 'box' && g.moved
+      (g?.kind === 'box' || g?.kind === 'clipbox') && g.moved
         ? { x0: Math.min(g.startX, g.x), y0: Math.min(g.startY, g.y), x1: Math.max(g.startX, g.x), y1: Math.max(g.startY, g.y) }
         : null
     const stats = drawAutomation(ctx, frame, { lanes, box })
@@ -701,7 +797,7 @@
 
   // The grid draws in its own frame and cannot see this state: tell it when something it draws changed.
   $effect(() => {
-    void [blocks, silent, selectedIds, ghosts, hidden, loopNow, loopOn, timeNow, y0, layout, laneRefs, autoPick, hover, pointPreview, gesture]
+    void [blocks, silent, selectedIds, ghosts, hidden, loopNow, loopOn, timeNow, y0, layout, laneRefs, autoPick, hover, pointPreview, gesture, handlesNow]
     grid?.invalidate()
   })
 
@@ -722,7 +818,10 @@
     run(endGroup())
   }
 
-  const cancel = () => (gesture = null)
+  const cancel = () => {
+    gesture = null
+    pointer = null
+  }
 
   /** The blocks of the project that the id names, as they are now. */
   const current = (id: string) => blocks.find((b) => b.id === id)
@@ -759,6 +858,14 @@
     if (!hit) {
       if (where && where.trackId !== MASTER) select(where.trackId)
       if (!event.shiftKey) picked = new Set()
+      const entry = where?.kind === 'track' ? entries[where.track] : undefined
+      if (mode === 'draw') {
+        // The free ground of a MIDI track: a drag draws a clip (#615); elsewhere (an audio track, the master) nothing is drawn.
+        if (entry && isMidi(entry.track) && where) {
+          const tick = xToTick(x, shown)
+          gesture = { kind: 'draw', trackId: entry.id, row: where.track, pressTick: tick, to: tick, free: fineKey(event), moved: false, startX: x }
+        }
+      } else gesture = { kind: 'clipbox', startX: x, startY: y, x, y, moved: false, add: event.shiftKey }
       return
     }
     const { block, zone } = hit
@@ -807,12 +914,24 @@
       }
       if (hover) hover = null
       const hit = y >= RULER_HEIGHT ? hitBlock(blocks, layout, x, y, shown, y0) : null
-      cursor = hit ? (hit.zone === 'body' ? 'move' : 'resize') : 'default'
+      const free = !hit && mode === 'draw' && where?.kind === 'track' && entries[where.track] && isMidi(entries[where.track]!.track)
+      cursor = hit ? (hit.zone === 'body' ? 'move' : 'resize') : free ? 'add' : 'default'
+      const next = hit ? { id: hit.block.id, zone: hit.zone === 'body' ? null : hit.zone } : null
+      if (next?.id !== edgeHover?.id || next?.zone !== edgeHover?.zone) edgeHover = next
       return
     }
     if (g.kind === 'ruler') {
       const to = snapTick(xToTick(x, shown), stepOf(event))
       gesture = { ...g, to, moved: g.moved || Math.abs(x - g.startX) >= DRAG_SLOP_PX }
+      return
+    }
+    if (g.kind === 'draw') {
+      pointer = { x, y, free: fineKey(event) }
+      gesture = { ...g, to: xToTick(x, shown), free: fineKey(event), moved: g.moved || Math.abs(x - g.startX) >= DRAG_SLOP_PX }
+      return
+    }
+    if (g.kind === 'clipbox') {
+      gesture = { ...g, x, y, moved: g.moved || Math.abs(x - g.startX) >= DRAG_SLOP_PX || Math.abs(y - g.startY) >= DRAG_SLOP_PX }
       return
     }
     if (g.kind === 'box') {
@@ -832,6 +951,7 @@
       return
     }
     // The blocks are read again at each move: a change of the arrangement under the drag (undo, an agent) ends it.
+    pointer = { x, y, free: fineKey(event) }
     if (!unchanged(g.grabbed) || (g.kind !== 'resize' && !g.snapshot.every(unchanged))) return cancel()
     const dragged = g.moved || Math.abs(x - g.startX) >= DRAG_SLOP_PX || (g.kind !== 'resize' && Math.abs(y - g.startY) >= DRAG_SLOP_PX)
     if (!dragged) return
@@ -854,6 +974,8 @@
   function finish(commit: boolean, event?: Pick<MouseEvent, 'ctrlKey' | 'metaKey'>) {
     const g = gesture
     gesture = null
+    pointer = null
+    edgeHover = null
     if (!g || !commit) return
     if (g.kind === 'ruler') {
       if (g.select) {
@@ -868,6 +990,8 @@
       inGroup(loopOn ? [setLoopRegion(start, end)] : [setLoopRegion(start, end), toggleLoop()])
       return
     }
+    if (g.kind === 'draw') return finishDraw(g)
+    if (g.kind === 'clipbox') return finishClipBox(g)
     if (g.kind === 'box') return finishBox(g, event ? stepOf(event) : step)
     if (g.kind === 'point') return finishPoint(g)
     if (!g.moved || !unchanged(g.grabbed)) return
@@ -890,6 +1014,29 @@
       const moved = blocks.find((b) => b.id === g.grabbed.id)
       if (moved) announce(t('arrangement.saidMoved', { n: ids.length, bar: barsOf(moved).from }))
     } else copyAndSelect(ids, g.linked, g.delta)
+  }
+
+  /** The end of a Draw drag (#615): one `clip.create` of the previewed span, so one undo; the new clip becomes the selection. */
+  function finishDraw(g: Extract<Gesture, { kind: 'draw' }>) {
+    if (!g.moved) return
+    const span = drawnSpan(blocks, g.row, g.pressTick, g.to, g.free ? null : step)
+    if (!span || !entries[g.row] || entries[g.row]!.id !== g.trackId) return
+    const before = new Set(blocks.map((b) => b.id))
+    select(g.trackId)
+    run(createClipAt(g.trackId, span.start, span.length))
+    const made = blocks.find((b) => !before.has(b.id) && b.row === g.row)
+    if (!made) return
+    picked = new Set([made.id])
+    ui.editClip(made.clip, made.id)
+    announce(t('arrangement.saidDrawn', { bar: barsOf(made).from }))
+  }
+
+  /** The end of a box in Select mode (#615): the clips it touches become the selection (Shift adds them to it). */
+  function finishClipBox(g: Extract<Gesture, { kind: 'clipbox' }>) {
+    if (!g.moved) return
+    const found = blocksInBox(blocks, layout, shown, y0, { x0: g.startX, y0: g.startY, x1: g.x, y1: g.y })
+    picked = new Set([...(g.add ? picked : []), ...found.map((b) => b.id)])
+    if (found.length === 1) ui.editClip(found[0]!.clip, found[0]!.id)
   }
 
   /** The tracks a clip may move to, in track order: a MIDI clip only goes to a MIDI track. */
@@ -1567,6 +1714,21 @@
         return
       }
       const sign = key.direction === 'left' ? -1 : 1
+      // Alt+Shift+Left and Right (#612): the end of the clips, earlier or later, to the next step of the snap (a bar with the snap off).
+      if (event.shiftKey) {
+        const ends = chosen.flatMap((b) => {
+          const wanted = sign > 0 ? (Math.floor(b.end / nudge) + 1) * nudge : (Math.ceil(b.end / nudge) - 1) * nudge
+          const to = resizeTo(b, 'end', wanted, null)
+          return to === null ? [] : [{ id: b.id, to }]
+        })
+        if (ends.length === 0) return announce(t('arrangement.saidCannotResize'))
+        inGroup(ends.map((e) => resizePlacement(e.id, 'end', e.to)))
+        // The length of the focused clip when it moved, else of the first that did.
+        const said = blocks.find((b) => b.id === (ends.some((e) => e.id === current.id) ? current.id : ends[0]!.id))
+        if (said) announce(lengthText(t, signature, said.length))
+        void focusItem(current.id)
+        return
+      }
       const delta = moveDelta(chosen, current, current.start + sign * nudge, current.start, null)
       if (delta === 0) return announce(t('arrangement.saidCannotMove'))
       // A move over other clips carves them (`arrangement.move`): what it did to them is said too.
@@ -1879,8 +2041,17 @@
   data-loop-on={loopOn}
   data-position={position ?? ''}
   data-follow={follow}
+  data-mode={mode}
 >
   <div class="toolbar" role="toolbar" aria-label={t('arrangement.tools')}>
+    <div class="group" role="radiogroup" aria-label={t('pianoRoll.tools')}>
+      <button role="radio" aria-checked={mode === 'draw'} title={t('arrangement.drawHint')} data-testid="arr-tool-draw" onclick={() => (mode = 'draw')}
+        >{t('pianoRoll.draw')}</button
+      >
+      <button role="radio" aria-checked={mode === 'select'} title={t('arrangement.selectHint')} data-testid="arr-tool-select" onclick={() => (mode = 'select')}
+        >{t('pianoRoll.select')}</button
+      >
+    </div>
     <label class="field">
       <span>{t('pianoRoll.snap')}</span>
       <select aria-label={t('pianoRoll.snap')} data-testid="arr-snap" bind:value={snap}>
@@ -2078,11 +2249,15 @@
       id="arr-stage-grid"
       data-scroll-y={y0}
       data-cursor={gesture ? undefined : cursor}
+      data-handle={handlesNow ? (handlesNow.strong ?? 'body') : undefined}
       data-gesture={gesture ? gesture.kind + (gesture.moved ? ' moved' : '') : undefined}
       onpointerdown={onPointerDown}
       onpointermove={onPointerMove}
       onpointerup={onPointerUp}
       onpointercancel={() => finish(false)}
+      onpointerleave={() => {
+        if (!gesture) edgeHover = null
+      }}
       onlostpointercapture={() => gesture && finish(false)}
       ondblclick={onDoubleClick}
       ondragover={onDragOver}
@@ -2093,6 +2268,9 @@
       onwheelcapture={handScroll}
     >
       <TimeGrid bind:this={grid} {signature} {totalBars} bind:view {snap} playhead={position} drawBody={body} label={t('arrangement.grid')} />
+      {#if gestureLines && pointer}
+        <GestureLabel x={pointer.x} y={pointer.y} width={stageW} height={stageH} lines={gestureLines} />
+      {/if}
       <!-- The section markers on the ruler (#473): named buttons; a click puts the playhead there. -->
       <div class="markers" role="group" aria-label={t('arrangement.markers')} data-testid="arr-markers">
         {#each markers as marker (marker.id)}
@@ -2363,6 +2541,10 @@
     border-bottom: 1px solid var(--fk-line);
     font-size: 12px;
   }
+  .group {
+    display: flex;
+    gap: 2px;
+  }
   .field {
     display: flex;
     align-items: center;
@@ -2385,6 +2567,12 @@
   button:disabled {
     opacity: 0.45;
     cursor: default;
+  }
+  /* On: a fill in the text colour, as the piano roll's tool. */
+  button[aria-checked='true'] {
+    background: var(--fk-text);
+    border-color: var(--fk-text);
+    color: var(--fk-bg);
   }
   .count {
     min-width: 0;

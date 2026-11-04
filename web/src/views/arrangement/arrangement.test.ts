@@ -8,6 +8,8 @@ import {
   blocksOf,
   clampScrollY,
   copyShift,
+  blocksInBox,
+  drawnSpan,
   hitBlock,
   isFree,
   laneTop,
@@ -114,6 +116,32 @@ describe('hit test', () => {
     expect(hitBlock(blocks, plain(3), 200, y, view, 0)).toMatchObject({ zone: 'body', block: { id: 'p1' } })
     expect(hitBlock(blocks, plain(3), 2, y, view, 0)?.zone).toBe('start')
     expect(hitBlock(blocks, plain(3), 383, y, view, 0)?.zone).toBe('end')
+  })
+
+  it('gives a short clip a comfortable grab zone at each end, and keeps its middle for moving (#612)', () => {
+    // A 40 px clip (x 400..440 at 0.1 px/tick): 10 px zones, and the middle 20 px still moves.
+    const short = [{ ...blocks[0]!, id: 's1', start: 4000, end: 4400, length: 400 }]
+    const zoneAt = (x: number) => hitBlock(short, plain(3), x, y, view, 0)?.zone
+    expect(zoneAt(401)).toBe('start')
+    expect(zoneAt(409)).toBe('start')
+    expect(zoneAt(420)).toBe('body')
+    expect(zoneAt(431)).toBe('end')
+    expect(zoneAt(439)).toBe('end')
+    // Outside the clip is not the clip: a double-click there makes a new one.
+    expect(zoneAt(397)).toBeUndefined()
+    expect(zoneAt(443)).toBeUndefined()
+    // A narrow clip keeps at least 6 px at each end, and a middle while it has room for one.
+    const narrow = [{ ...blocks[0]!, id: 't1', start: 4000, end: 4150, length: 150 }]
+    const narrowAt = (x: number) => hitBlock(narrow, plain(3), x, y, view, 0)?.zone
+    expect(narrowAt(405)).toBe('start')
+    expect(narrowAt(406)).toBe('start')
+    expect(narrowAt(407)).toBe('body')
+    expect(narrowAt(408)).toBe('body')
+    expect(narrowAt(409)).toBe('end')
+    // Under 12 px a clip is all edges.
+    const tiny = [{ ...blocks[0]!, id: 't2', start: 4000, end: 4100, length: 100 }]
+    expect(hitBlock(tiny, plain(3), 404, y, view, 0)?.zone).toBe('start')
+    expect(hitBlock(tiny, plain(3), 407, y, view, 0)?.zone).toBe('end')
   })
 
   it('finds a block in the second lane and nothing between blocks, on the ruler or in the inset', () => {
@@ -372,5 +400,40 @@ describe('sections and zoom (#473)', () => {
     expect(bars(wholeSongView(bar * 40, bar, 1000))).toBe(41)
     expect(bars(wholeSongView(bar * 3, bar, 1000))).toBe(17)
     expect(wholeSongView(bar * 40, bar, Number.NaN)).toBeNull()
+  })
+})
+
+describe('drawing a clip (#615)', () => {
+  // Lane 0 holds p1 (0..3840), p2 (3840..7680) and p3 (8000..8960); lane 1 holds q1 (960..2880); lane 2 is empty.
+  it('draws rightwards and leftwards from the press, on the step', () => {
+    expect(drawnSpan(blocks, 2, 1000, 3000, 480)).toEqual({ start: 960, length: 1920 })
+    expect(drawnSpan(blocks, 2, 3000, 1000, 480)).toEqual({ start: 960, length: 1920 })
+    // Free: the ticks as they are.
+    expect(drawnSpan(blocks, 2, 1000, 1500, null)).toEqual({ start: 1000, length: 500 })
+    // A span of one tick is a clip (`clip.create` takes 1 to 2^40 ticks).
+    expect(drawnSpan(blocks, 2, 1000, 1001, null)).toEqual({ start: 1000, length: 1 })
+  })
+
+  it('draws nothing for a click or a span under the step', () => {
+    expect(drawnSpan(blocks, 2, 1000, 1000, 480)).toBeNull()
+    expect(drawnSpan(blocks, 2, 1000, 1100, 480)).toBeNull()
+  })
+
+  it('stops at the neighbouring clips and at the first tick', () => {
+    expect(drawnSpan(blocks, 0, 7800, 12000, 480)).toEqual({ start: 7680, length: 320 })
+    expect(drawnSpan(blocks, 0, 7800, 0, 480)).toBeNull()
+    expect(drawnSpan(blocks, 1, 100, 100000, null)).toEqual({ start: 100, length: 860 })
+    expect(drawnSpan(blocks, 1, 3000, -500, null)).toEqual({ start: 2880, length: 120 })
+    expect(drawnSpan(blocks, 2, 500, -500, null)).toEqual({ start: 0, length: 500 })
+  })
+
+  it('finds the clips a box touches, whichever corner it starts from', () => {
+    const view = { pxPerTick: 0.1, scrollTick: 0 }
+    const y = RULER_HEIGHT + LANE_HEIGHT / 2
+    const box = { x0: 500, y0: y + LANE_HEIGHT, x1: 20, y1: y - 5 }
+    // x 20..500 is ticks 200..5000: p1 and p2 of lane 0, q1 of lane 1.
+    expect(blocksInBox(blocks, plain(3), view, 0, box).map((b) => b.id)).toEqual(['p1', 'p2', 'q1'])
+    expect(blocksInBox(blocks, plain(3), view, 0, { x0: 20, y0: y, x1: 30, y1: y + 1 }).map((b) => b.id)).toEqual(['p1'])
+    expect(blocksInBox(blocks, plain(3), view, 0, { x0: 900, y0: y, x1: 990, y1: y + 1 })).toEqual([])
   })
 })

@@ -10,6 +10,7 @@ import { clips } from './clips'
 import { audioExport } from './export'
 import { engine } from './engine'
 import type { FeatureMessages } from './feature'
+import { gesture } from './gesture'
 import { grid } from './grid'
 import { helper } from './helper'
 import { history } from './history'
@@ -26,6 +27,7 @@ import { fill, type Lang } from './lang'
 import { midi } from './midi'
 import { mixer } from './mixer'
 import { pianoRoll } from './piano-roll'
+import { presets } from './presets'
 import { project } from './project'
 import { refusal } from './refusal'
 import { shell } from './shell'
@@ -53,9 +55,11 @@ export const features = {
   filter,
   compressor,
   devices,
+  presets,
   keys,
   pianoRoll,
   grid,
+  gesture,
   project,
   mixer,
   controls,

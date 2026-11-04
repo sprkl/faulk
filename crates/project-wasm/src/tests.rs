@@ -1544,19 +1544,18 @@ fn the_history_lists_entries_with_author_and_time_and_a_bad_author_changes_nothi
         .collect();
     assert_eq!(
         authors,
-        [
-            json!("user"),
-            json!("agent:claude"),
-            json!("agent:claude"),
-            json!("user")
-        ]
+        [json!("user"), json!("agent:claude"), json!("user")],
+        "the agent's two renames are one turn (AG-3)"
     );
     assert_eq!(view["undo"][1]["name"], "project.rename");
+    assert_eq!(view["undo"][1]["edits"], 2);
+    assert!(view["undo"][1]["group"].is_u64());
+    assert_eq!(view["undo"][2]["edits"], 1);
     assert_eq!(view["undo"][0]["at"], 1234);
     assert_eq!(view["redo"], json!([]));
     h.apply(json!({"type": "history.undo"}));
     let view = h.call0(pw_history).0;
-    assert_eq!(view["undo"].as_array().unwrap().len(), 3);
+    assert_eq!(view["undo"].as_array().unwrap().len(), 2);
     assert_eq!(view["redo"][0]["name"], "project.rename");
     assert_eq!(view["redo"][0]["at"], 1234);
 }

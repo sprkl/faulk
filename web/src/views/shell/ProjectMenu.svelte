@@ -4,6 +4,7 @@
    * and, always in sight, whether it is saved: "Saved at 14:32", "Saving…", "Unsaved changes", "Not saved"
    * (no folder yet). A musician reads it to know whether the tab can be closed.
    */
+  import { tick } from 'svelte'
   import {
     deleteBrowserProject,
     exportPack,
@@ -12,6 +13,7 @@
     openBrowserProject,
     openFolder,
     openRecent,
+    renameProject,
     save,
     saveAs,
   } from '../../lib/project-commands'
@@ -46,6 +48,46 @@
         : t('save.noFolder'),
   )
 
+  // --- rename: the menu, a double click or F2 on the name (#627); the field replaces the name, Enter commits, Escape cancels ---
+  let renaming = $state(false)
+  let draft = $state('')
+  let field = $state<HTMLInputElement | null>(null)
+  let trigger = $state<HTMLButtonElement | null>(null)
+  /** The project the field was opened on: a field left open while another project replaces it renames nothing. */
+  let renamingId: string | null = null
+
+  async function startRename() {
+    if (!ready) return
+    open = false
+    draft = name
+    renamingId = project.view?.project.id ?? null
+    renaming = true
+    await tick()
+    field?.focus()
+    field?.select()
+  }
+
+  function finishRename(commit: boolean) {
+    if (!renaming) return
+    renaming = false
+    const next = draft.trim()
+    if (commit && next !== '' && next !== name && renamingId === (project.view?.project.id ?? null)) dispatcher.run(renameProject(next))
+  }
+
+  function onRenameKey(event: KeyboardEvent) {
+    event.stopPropagation()
+    if (event.key !== 'Enter' && event.key !== 'Escape') return
+    event.preventDefault()
+    finishRename(event.key === 'Enter')
+    void tick().then(() => trigger?.focus())
+  }
+
+  function onTriggerKey(event: KeyboardEvent) {
+    if (event.key !== 'F2' || event.repeat || !ready) return
+    event.preventDefault()
+    void startRename()
+  }
+
   function choose(action: () => unknown) {
     open = false
     void action()
@@ -71,24 +113,41 @@
 <svelte:window onpointerdown={onPointerDown} />
 
 <div class="project" bind:this={root} onkeydown={onKeyDown} role="presentation">
-  <button
-    class="trigger"
-    aria-haspopup="menu"
-    aria-expanded={open}
-    aria-label={t('project.menu')}
-    title={ready ? `${name}: ${status}. ${where}` : name}
-    data-testid="project-menu"
-    onclick={toggle}
-  >
-    <svg class="doc" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3"
-      ><path d="M2.5 1.5 H7 L9.5 4 V10.5 H2.5 Z M7 1.5 V4 H9.5" /></svg
+  {#if renaming}
+    <input
+      class="rename"
+      type="text"
+      maxlength="200"
+      bind:this={field}
+      bind:value={draft}
+      aria-label={t('project.rename')}
+      data-testid="project-rename"
+      onkeydown={onRenameKey}
+      onblur={() => finishRename(true)}
+    />
+  {:else}
+    <button
+      class="trigger"
+      bind:this={trigger}
+      ondblclick={startRename}
+      onkeydown={onTriggerKey}
+      aria-haspopup="menu"
+      aria-expanded={open}
+      aria-label={t('project.menu')}
+      title={ready ? `${name}: ${status}. ${where}. ${t('project.renameHint')}` : name}
+      data-testid="project-menu"
+      onclick={toggle}
     >
-    <span class="name" data-testid="project-name">{name}</span>
-    <svg class="chevron" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"
-      ><path d="M2 3.5 L5 6.5 L8 3.5" /></svg
-    >
-    {#if ready}<span class="dot" data-state={storage.status} aria-hidden="true"></span>{/if}
-  </button>
+      <svg class="doc" width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.3"
+        ><path d="M2.5 1.5 H7 L9.5 4 V10.5 H2.5 Z M7 1.5 V4 H9.5" /></svg
+      >
+      <span class="name" data-testid="project-name">{name}</span>
+      <svg class="chevron" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4"
+        ><path d="M2 3.5 L5 6.5 L8 3.5" /></svg
+      >
+      {#if ready}<span class="dot" data-state={storage.status} aria-hidden="true"></span>{/if}
+    </button>
+  {/if}
   {#if ready}
     <span class="state" data-state={storage.status} data-testid="save-state" role="status" title={`${status}. ${where}`}>{status}</span>
   {/if}
@@ -103,6 +162,7 @@
         >{t('project.menu.open')}</button
       >
       <hr />
+      <button role="menuitem" disabled={!ready} data-testid="menu-rename" onclick={() => choose(startRename)}>{t('project.menu.rename')}</button>
       <button role="menuitem" disabled={!ready} data-testid="menu-save" onclick={() => choose(() => dispatcher.run(save()))}>
         {t('project.menu.save')}<kbd>{chordText(['Mod', 'S'])}</kbd>
       </button>
@@ -181,7 +241,7 @@
 
 <style>
   /* The project name is the one thing of the bar that shrinks (#604): from its natural width, capped by the bar's `--fk-project-max`,
-     down to a minimum that still reads (about ten characters); the bar folds other things before it goes below. */
+     down to a minimum that still reads (about twelve characters, 70 px of name); the bar folds other things before it goes below. */
   .project {
     position: relative;
     display: inline-flex;
@@ -189,7 +249,7 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 2px;
-    min-width: 112px;
+    min-width: 124px;
     max-width: var(--fk-project-max, 160px);
   }
   .trigger {
@@ -210,6 +270,19 @@
   }
   .trigger:hover {
     background: var(--fk-surface-2);
+  }
+  .rename {
+    box-sizing: border-box;
+    height: 22px;
+    width: 100%;
+    padding: 0 var(--fk-space-3);
+    border: 1px solid var(--fk-accent-fg);
+    border-radius: var(--fk-radius-pill);
+    background: var(--fk-bg);
+    color: var(--fk-text);
+    font: inherit;
+    font-weight: 600;
+    font-size: 12px;
   }
   .name {
     overflow: hidden;

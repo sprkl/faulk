@@ -15,8 +15,16 @@ import { CLIP_ROW, rowAtY, type Layout, type Row } from './automation/layout'
 export const LANE_HEIGHT = CLIP_ROW
 /** The inset of a block inside its lane. */
 export const BLOCK_INSET = 4
-/** The width of the grab zone at each end of a block, in CSS pixels. */
-export const EDGE_PX = 7
+/** The width of the grab zone at each end of a block, in CSS pixels (#612: wide enough to catch without aiming). */
+export const EDGE_PX = 10
+/** The least grab zone at each end of a block, in CSS pixels, however short the block is (#612). */
+export const EDGE_MIN_PX = 6
+
+/**
+ * The grab zone at each end of a block `width` pixels wide: a third of it, between `EDGE_MIN_PX` and `EDGE_PX`, and never more than
+ * what leaves a pixel for the middle (a block under about 12 px is all edges, as no zone could keep both).
+ */
+export const edgeZone = (width: number): number => Math.max(0, Math.min(Math.min(EDGE_PX, Math.max(EDGE_MIN_PX, width / 3)), (width - 1) / 2))
 /** The last tick of the timeline (`project::limits::MAX_TICK`, 2^40). */
 export const MAX_TICK = 2 ** 40
 
@@ -136,7 +144,7 @@ export function hitBlock(blocks: readonly Block[], layout: Layout, x: number, y:
     const left = tickToX(block.start, view)
     const right = tickToX(block.end, view)
     if (x < left || x > right) continue
-    const edge = Math.min(EDGE_PX, (right - left) / 3)
+    const edge = edgeZone(right - left)
     return { block, zone: x - left <= edge ? 'start' : right - x <= edge ? 'end' : 'body' }
   }
   return null
@@ -335,4 +343,48 @@ export function copyShift(selection: readonly Block[]): number | null {
   const first = selection.reduce((low, b) => Math.min(low, b.start), Infinity)
   const last = selection.reduce((high, b) => Math.max(high, b.end), 0)
   return last + (last - first) <= MAX_TICK ? last - first : null
+}
+
+// --- drawing a clip and the box (#615) ------------------------------------------------------------
+
+/**
+ * The span a drag on an empty part of a lane draws: from where it was pressed (`pressTick`, which sits in free ground) to the
+ * pointer (`tick`), rightwards or leftwards, each end on the snap `step` (`null`: free). It stops at the neighbouring clips and
+ * at tick 0, so the clip it asks `clip.create` for never overlaps one. `null` when nothing is left (a click, or a span under
+ * a tick once snapped).
+ */
+export function drawnSpan(
+  blocks: readonly Block[],
+  row: number,
+  pressTick: number,
+  tick: number,
+  step: number | null,
+): { start: number; length: number } | null {
+  const lane = blocks.filter((b) => b.row === row)
+  const floor = lane.reduce((low, b) => (b.end <= pressTick ? Math.max(low, b.end) : low), 0)
+  const ceiling = lane.reduce((high, b) => (b.start >= pressTick ? Math.min(high, b.start) : high), MAX_TICK)
+  const a = snapTick(pressTick, step)
+  const b = snapTick(tick, step)
+  const start = Math.round(Math.max(floor, Math.min(a, b)))
+  const end = Math.round(Math.min(ceiling, Math.max(a, b)))
+  return end > start ? { start, length: end - start } : null
+}
+
+/** The blocks that a box (stage coordinates, any corner order) touches. */
+export function blocksInBox(
+  blocks: readonly Block[],
+  layout: Layout,
+  view: View,
+  scrollY: number,
+  box: { x0: number; y0: number; x1: number; y1: number },
+): Block[] {
+  const left = Math.min(box.x0, box.x1)
+  const right = Math.max(box.x0, box.x1)
+  const top = Math.min(box.y0, box.y1)
+  const bottom = Math.max(box.y0, box.y1)
+  return blocks.filter((b) => {
+    const rowTop = laneTop(layout, b.row, scrollY) + BLOCK_INSET
+    const rowBottom = rowTop + laneHeight(layout, b.row) - 2 * BLOCK_INSET
+    return tickToX(b.end, view) >= left && tickToX(b.start, view) <= right && rowBottom >= top && rowTop <= bottom
+  })
 }

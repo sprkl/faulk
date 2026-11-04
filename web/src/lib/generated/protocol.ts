@@ -4655,7 +4655,12 @@ at: number
  */
 author: string
 /**
- * The history group it belongs to, if any.
+ * How many commands it holds: "3 edits in one turn" (AG-3).
+ */
+edits: number
+/**
+ * The history group it belongs to, if any: an agent's entry with a group is a turn
+ * of that agent (AG-3).
  */
 group?: (GroupId | null)
 /**
