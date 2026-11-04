@@ -6,8 +6,8 @@
 
 use ::project::{
     AudioMedia, CLIP_PLAYER, Clip, ClipContent, ClipId, Device, DeviceId, DeviceRole, DeviceSource,
-    Frame, Hash, IdGenerator, Note, OrderKey, Placement, PlacementId, SampleRate, Scene, SceneId,
-    Span, Tick, TickLoop, Track, TrackId, TrackKind,
+    Frame, FrameLoop, Hash, IdGenerator, Note, OrderKey, Placement, PlacementId, SampleRate, Scene,
+    SceneId, Span, Tick, TickLoop, Track, TrackId, TrackKind,
 };
 use commands::clip::{self, ClipTarget, NoteChange};
 use commands::testing::fixture;
@@ -440,11 +440,13 @@ fn audio_examples(f: &ClipFx) -> Vec<(Command, State)> {
             track: f.audio_track.clone(),
             media: commands::testing::imported_media().hash,
             name: None,
+            at: None,
         }),
         on(clip::Command::ImportAudio {
             track: f.audio_track.clone(),
             media: Hash([7; 32]),
             name: Some("  Second loop  ".into()),
+            at: None,
         }),
         on(clip::Command::Delete {
             clip: f.audio_clip.clone(),
@@ -466,5 +468,106 @@ fn audio_examples(f: &ClipFx) -> Vec<(Command, State)> {
         );
         all.push((restore, state));
     }
+    all.extend(audio_edit_examples(f));
     all
+}
+
+/// The audio clip commands of AU-5: an import into a slot and into the arrangement, the
+/// range, gain and loop of a clip, and a move of an audio clip in the grid.
+fn audio_edit_examples(f: &ClipFx) -> Vec<(Command, State)> {
+    let on = |command: clip::Command| (c(command), f.state.clone());
+    let clip = || f.audio_clip.clone();
+    let (placed, _) = with_audio_placement(f);
+    let mut whole = placed.clone();
+    for p in whole
+        .project
+        .tracks
+        .get_mut(&f.audio_track)
+        .unwrap()
+        .placements
+        .values_mut()
+    {
+        p.span = Span::Frames {
+            length: Frame::new(44_100),
+            offset: Frame::new(0),
+        };
+    }
+    let (looped, _) = after(
+        f.state.clone(),
+        &c(clip::Command::AudioSetLoop {
+            clip: clip(),
+            looping: Some(FrameLoop {
+                start: Frame::new(0),
+                end: Frame::new(22_050),
+            }),
+        }),
+    );
+    vec![
+        on(clip::Command::ImportAudio {
+            track: f.audio_track.clone(),
+            media: commands::testing::imported_media().hash,
+            name: None,
+            at: Some(ClipTarget::Slot {
+                scene: f.scene_free.clone(),
+            }),
+        }),
+        on(clip::Command::ImportAudio {
+            track: f.audio_track.clone(),
+            media: commands::testing::imported_media().hash,
+            name: None,
+            at: Some(ClipTarget::Arrangement { start: Tick(1920) }),
+        }),
+        on(clip::Command::AudioSetRange {
+            clip: clip(),
+            start: Frame::new(22_050),
+            frames: Frame::new(66_150),
+            placements: None,
+        }),
+        (
+            c(clip::Command::AudioSetRange {
+                clip: clip(),
+                start: Frame::new(0),
+                frames: Frame::new(30_000),
+                placements: None,
+            }),
+            placed,
+        ),
+        // A placement that plays the clip whole follows it; undo gives its length back.
+        (
+            c(clip::Command::AudioSetRange {
+                clip: clip(),
+                start: Frame::new(0),
+                frames: Frame::new(60_000),
+                placements: None,
+            }),
+            whole,
+        ),
+        on(clip::Command::AudioSetGain {
+            clip: clip(),
+            gain_db: Some(-6.5),
+        }),
+        on(clip::Command::AudioSetGain {
+            clip: clip(),
+            gain_db: None,
+        }),
+        on(clip::Command::AudioSetLoop {
+            clip: clip(),
+            looping: Some(FrameLoop {
+                start: Frame::new(100),
+                end: Frame::new(44_100),
+            }),
+        }),
+        (
+            c(clip::Command::AudioSetLoop {
+                clip: clip(),
+                looping: None,
+            }),
+            looped,
+        ),
+        on(clip::Command::Move {
+            clip: clip(),
+            track: None,
+            slot: Some(f.scene_free.clone()),
+        }),
+    ]
 }

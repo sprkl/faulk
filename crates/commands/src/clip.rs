@@ -8,9 +8,12 @@
 //! - A clip lives in a track and is addressed by its `ClipId`; only `clip.create`,
 //!   `clip.restore`, `clip.import_audio` and `clip.restore_audio` name the track. A MIDI clip
 //!   lives in a MIDI track; an audio clip lives in an audio track and comes from an imported
-//!   file (`clip.import_audio`, AU-1): the commands that read or write notes, lengths or
-//!   loops in ticks, and `clip.duplicate`, refuse it; `clip.rename` and `clip.delete` take
-//!   both (the undo of deleting an audio clip is `clip.restore_audio`).
+//!   file (`clip.import_audio`, AU-1, into the pool, a slot or the arrangement since AU-5):
+//!   the commands that read or write notes, lengths or loops in ticks, and
+//!   `clip.duplicate`, refuse it; its range, gain and loop in frames are the
+//!   `clip.audio.*` commands (AU-5), which refuse a MIDI clip; `clip.rename`, `clip.move`
+//!   and `clip.delete` take both (the undo of deleting an audio clip is
+//!   `clip.restore_audio`).
 //! - One command is one history entry, whatever the size of its batch, and it is atomic:
 //!   everything is checked before anything changes, so a refusal leaves the project as
 //!   it was.
@@ -35,7 +38,8 @@ use project::limits::{
 };
 use project::{
     AudioMedia, Clip, ClipContent, ClipId, Frame, FrameLoop, Hash, Note, Placement, PlacementId,
-    Project, Quantize, Rgb, SceneId, Span, Tick, TickLoop, Track, TrackId, TrackKind,
+    Project, Quantize, Rgb, SampleRate, SceneId, Span, Tempo, Tick, TickLoop, Track, TrackId,
+    TrackKind,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -67,6 +71,15 @@ pub struct NoteChange {
 pub struct PlacementLength {
     pub placement: PlacementId,
     pub length: Tick,
+}
+
+/// The length of one placement of an audio clip, in frames of its file.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PlacementFrames {
+    pub placement: PlacementId,
+    #[schemars(with = "u64")]
+    pub length: Frame,
 }
 
 /// A placement of a MIDI clip, with its identifier, as `clip.restore` brings it back. It
@@ -200,20 +213,90 @@ domain! {
     /// stores its bytes in the project's `blobs/` and stages its metadata before running
     /// this command), or a file an audio clip of the project already uses (`clip.get` shows
     /// its `media.hash`), so another clip of the same file needs no new import. The clip
-    /// plays the whole file, at 0 dB, without a loop, and sits in the track's pool (no
-    /// launch-grid slot, no placement). `name` is optional (trimmed, at most 200
-    /// characters): without one the clip takes the file's name without its extension.
-    /// Refused when the track is not an audio track or the media is unknown. Undo:
-    /// `clip.delete` of the clip; the file stays in the project's `blobs/` (blobs are removed
-    /// on request only).
+    /// plays the whole file, at 0 dB, without a loop. `at` is optional: without it (or
+    /// `null`) the clip sits in the track's pool (no launch-grid slot, no placement); with
+    /// `{"at": "slot", "scene": <scene id>}` it sits in that launch-grid slot (the scene must
+    /// exist and the slot be free in the track); with `{"at": "arrangement", "start": <tick>}`
+    /// it is also placed whole in the arrangement from that tick (its end is computed from
+    /// the file's duration at the project's tempo), refused when that placement would
+    /// overlap another placement of the track or end past 2^40. `name` is optional (trimmed,
+    /// at most 200 characters): without one the clip takes the file's name without its
+    /// extension. Refused when the track is not an audio track or the media is unknown.
+    /// Undo: `clip.delete` of the clip (and of its placement); the file stays in the
+    /// project's `blobs/` (blobs are removed on request only).
     "clip.import_audio" (kind = "edit", undo = "inverse", destructive = false)
     ImportAudio {
         track: TrackId,
         media: Hash,
         name: Option<String>,
+        #[serde(default)]
+        at: Option<ClipTarget>,
     } => {
         /// The clip created.
         clip: ClipId,
+        /// Its placement, when it was imported into the arrangement.
+        placement: Option<PlacementId>,
+    };
+
+    /// Set the range of the file an audio clip plays: the frames `[start, start + frames)`
+    /// of its file (frames of the file, at its own sample rate). Refused when the range is
+    /// empty or leaves the file, when the clip's loop would end past the new length (clear
+    /// or move the loop first with `clip.audio.set_loop`: nothing is cut silently), and when
+    /// a placement of the clip starts inside it at or past the new length. Every placement
+    /// that plays the clip whole (offset 0, length equal to its old length in frames) takes
+    /// the new length in the same command; a growing placement stops at the start of the
+    /// next placement of its track; a placement that plays only part of the clip is left
+    /// alone. Refused for a MIDI clip. Undo: set the range back, with the lengths of the
+    /// placements.
+    "clip.audio.set_range" (kind = "edit", undo = "inverse", destructive = false)
+    AudioSetRange {
+        clip: ClipId,
+        /// First frame of the file played.
+        #[schemars(with = "u64")]
+        start: Frame,
+        /// How many frames are played, at least 1.
+        #[schemars(with = "u64")]
+        frames: Frame,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        // Internal: the exact placement lengths an undo gives back, not in the schema.
+        #[schemars(skip)]
+        placements: Option<Vec<PlacementFrames>>,
+    } => {
+        /// The first frame before the command.
+        #[schemars(with = "u64")]
+        previous_start: Frame,
+        /// The length in frames before the command.
+        #[schemars(with = "u64")]
+        previous_frames: Frame,
+    };
+
+    /// Set an audio clip's gain in dB, from -96 to +6; `null` is silence. A value outside
+    /// the range or not a number is refused, and so is a MIDI clip. Undo: set the previous
+    /// gain back.
+    "clip.audio.set_gain" (kind = "edit", undo = "inverse", destructive = false)
+    AudioSetGain {
+        clip: ClipId,
+        /// Required: `null` is silence, a missing field is an error.
+        #[serde(deserialize_with = "Option::deserialize")]
+        #[schemars(required, schema_with = "crate::mixer::nullable_gain")]
+        gain_db: Option<f64>,
+    } => {
+        /// The gain before the command, in dB; `null` was silence.
+        #[schemars(required, schema_with = "crate::mixer::nullable_number")]
+        previous: Option<f64>,
+    };
+
+    /// Set an audio clip's loop: `{"start": <frame>, "end": <frame>}` in frames from the
+    /// clip's start (not from the file's), with `0 <= start < end <= frames` (the clip's
+    /// length in frames), or `null` for no loop. Refused for a MIDI clip (`clip.set_loop`
+    /// sets its loop in ticks). Undo: set the previous loop back.
+    "clip.audio.set_loop" (kind = "edit", undo = "inverse", destructive = false)
+    AudioSetLoop {
+        clip: ClipId,
+        looping: Option<FrameLoop>,
+    } => {
+        /// The loop before the command.
+        previous: Option<FrameLoop>,
     };
 
     /// Bring back an audio clip with its identifier, as `clip.delete` removed it: the
@@ -267,8 +350,9 @@ domain! {
         clip: ClipId,
     };
 
-    /// Move a MIDI clip to another launch-grid slot, of the same track or of `track`
-    /// (another MIDI track), keeping its identifier, its name and its content. `slot`
+    /// Move a clip to another launch-grid slot, of the same track or of `track` (another
+    /// track of its kind: a MIDI clip to a MIDI track, an audio clip to an audio track),
+    /// keeping its identifier, its name and its content. `slot`
     /// is the scene of the target slot, which must be free; `null` takes the clip out of
     /// the grid (with no placement, it stays in its track's pool, #473). A clip
     /// that has placements stays in its track: moving it to another track is refused.
@@ -977,17 +1061,33 @@ fn check_span(
     }
 }
 
-fn taken_spans(track: &Track) -> Vec<(i64, i64)> {
+fn taken_spans(tempo: Tempo, track: &Track) -> Vec<(i64, i64)> {
     track
         .placements
         .values()
-        .filter_map(|p| match p.span {
-            Span::Ticks { length, .. } => {
-                Some((p.start.get(), p.start.get().saturating_add(length.get())))
-            }
-            Span::Frames { .. } => None,
-        })
+        .filter_map(|p| placement_ticks(tempo, track, p))
         .collect()
+}
+
+/// The ticks `[start, end)` a placement covers: its length for a MIDI placement; for an
+/// audio one, its frames at the rate of its clip's file converted at `tempo` (no tick
+/// length is stored), at least one tick. `None` when the clip is not in the track.
+pub(crate) fn placement_ticks(tempo: Tempo, track: &Track, p: &Placement) -> Option<(i64, i64)> {
+    match p.span {
+        Span::Ticks { length, .. } => {
+            Some((p.start.get(), p.start.get().saturating_add(length.get())))
+        }
+        Span::Frames { length, .. } => {
+            let ClipContent::Audio { media, .. } = &track.clips.get(&p.clip)?.content else {
+                return None;
+            };
+            let ticks = tempo
+                .frames_to_ticks(length, media.sample_rate)
+                .get()
+                .max(1);
+            Some((p.start.get(), p.start.get().saturating_add(ticks)))
+        }
+    }
 }
 
 /// The snapshot `clip.restore` needs to bring a MIDI clip back.
@@ -1012,7 +1112,8 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             offset,
             limit,
         } => {
-            let d = crate::query::clip_get(&state.project, clip, *offset, *limit)?;
+            let d =
+                crate::query::clip_get(&state.project, &ctx.missing_media, clip, *offset, *limit)?;
             Ok(crate::query::answer(Output::Get {
                 track: d.track,
                 summary: d.summary,
@@ -1043,9 +1144,20 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             snapshot,
             placements,
         } => restore(state, track, clip, snapshot, placements),
-        Command::ImportAudio { track, media, name } => {
-            import_audio(state, ctx, track, media, name.as_deref())
-        }
+        Command::ImportAudio {
+            track,
+            media,
+            name,
+            at,
+        } => import_audio(state, ctx, track, media, name.as_deref(), at.as_ref()),
+        Command::AudioSetRange {
+            clip,
+            start,
+            frames,
+            placements,
+        } => audio_set_range(state, clip, *start, *frames, placements.as_deref()),
+        Command::AudioSetGain { clip, gain_db } => audio_set_gain(state, clip, *gain_db),
+        Command::AudioSetLoop { clip, looping } => audio_set_loop(state, clip, *looping),
         Command::RestoreAudio {
             track,
             clip,
@@ -1130,7 +1242,12 @@ fn create(
         }
         ClipTarget::Arrangement { start } => {
             check_placements(project, track, 1)?;
-            check_span(*start, length, &mut taken_spans(track), "at.start")?;
+            check_span(
+                *start,
+                length,
+                &mut taken_spans(project.tempo(), track),
+                "at.start",
+            )?;
             (None, Some(*start))
         }
     };
@@ -1313,6 +1430,8 @@ fn check_audio(snap: &AudioClipSnapshot, field: &str) -> Result<(), CommandError
             "the range [start, start + frames) is inside the file and not empty",
         ));
     }
+    // Any number, as `validate` takes: a restore brings back what a delete took, even a
+    // gain beyond what `clip.audio.set_gain` sets.
     if !(snap.gain_db.is_finite() || snap.gain_db == f64::NEG_INFINITY) {
         return Err(invalid(
             format!("{field}.gain_db"),
@@ -1336,6 +1455,7 @@ fn import_audio(
     track_id: &TrackId,
     hash: &Hash,
     name: Option<&str>,
+    at: Option<&ClipTarget>,
 ) -> Result<Out, CommandError> {
     let project = &state.project;
     let track = audio_track(project, track_id)?;
@@ -1354,22 +1474,55 @@ fn import_audio(
         name.to_owned()
     };
     check_clips(project, track)?;
+    let (slot, start) = match at {
+        None => (None, None),
+        Some(ClipTarget::Slot { scene }) => {
+            check_slot(project, track, scene, "at.scene")?;
+            (Some(scene.clone()), None)
+        }
+        Some(ClipTarget::Arrangement { start }) => {
+            check_placements(project, track, 1)?;
+            let tempo = project.tempo();
+            let ticks = tempo
+                .frames_to_ticks(media.frames, media.sample_rate)
+                .get()
+                .max(1);
+            check_span(
+                *start,
+                Tick(ticks),
+                &mut taken_spans(tempo, track),
+                "at.start",
+            )?;
+            (None, Some(*start))
+        }
+    };
     let snap = AudioClipSnapshot {
         name,
         color: None,
-        slot: None,
+        slot,
         launch_quantize: None,
         frames: media.frames,
-        media,
         start: Frame(0),
         gain_db: 0.0,
         looping: None,
+        media,
     };
     let clip_id = ClipId::generate(&mut ctx.ids);
-    insert_audio(state, track_id, &clip_id, &snap, &[])?;
+    let placements: Vec<AudioPlacementSnapshot> = start
+        .map(|start| AudioPlacementSnapshot {
+            id: PlacementId::generate(&mut ctx.ids),
+            start,
+            length: snap.frames,
+            offset: Frame(0),
+        })
+        .into_iter()
+        .collect();
+    insert_audio(state, track_id, &clip_id, &snap, &placements)?;
+    let placement = placements.first().map(|p| p.id.clone());
     Ok(edited(
         Output::ImportAudio {
             clip: clip_id.clone(),
+            placement: placement.clone(),
         },
         Command::Delete {
             clip: clip_id.clone(),
@@ -1377,8 +1530,325 @@ fn import_audio(
         vec![ProjectEvent::ClipCreated {
             track: track_id.clone(),
             clip: clip_id,
-            placements: vec![],
+            placements: placement.into_iter().collect(),
         }],
+    ))
+}
+
+/// The track of an audio clip, mutably; refuses a MIDI clip and an unknown one.
+fn audio_mut<'a>(
+    project: &'a mut Project,
+    clip_id: &ClipId,
+) -> Result<&'a mut Track, CommandError> {
+    let track_id = locate(project, clip_id)?;
+    let track = project
+        .tracks
+        .get_mut(&track_id)
+        .ok_or_else(|| not_found("track", &track_id))?;
+    match track.clips.get(clip_id).map(|c| &c.content) {
+        Some(ClipContent::Audio { .. }) => Ok(track),
+        Some(ClipContent::Midi { .. }) => Err(invalid(
+            "clip",
+            "a MIDI clip has no range, gain or loop in frames (`clip.set_length`, `clip.set_loop`)",
+        )),
+        None => Err(not_found("clip", clip_id)),
+    }
+}
+
+/// What an audio clip holds, read from its track.
+struct AudioParts {
+    start: Frame,
+    frames: Frame,
+    gain_db: f64,
+    looping: Option<FrameLoop>,
+    file_frames: Frame,
+    rate: SampleRate,
+}
+
+fn audio_parts(track: &Track, clip_id: &ClipId) -> Result<AudioParts, CommandError> {
+    match track.clips.get(clip_id).map(|c| &c.content) {
+        Some(ClipContent::Audio {
+            media,
+            start,
+            frames,
+            gain_db,
+            looping,
+        }) => Ok(AudioParts {
+            start: *start,
+            frames: *frames,
+            gain_db: *gain_db,
+            looping: *looping,
+            file_frames: media.frames,
+            rate: media.sample_rate,
+        }),
+        _ => Err(not_found("clip", clip_id)),
+    }
+}
+
+/// The audio content of a clip, mutably.
+fn audio_content<'a>(
+    track: &'a mut Track,
+    clip_id: &ClipId,
+) -> Result<
+    (
+        &'a mut Frame,
+        &'a mut Frame,
+        &'a mut f64,
+        &'a mut Option<FrameLoop>,
+    ),
+    CommandError,
+> {
+    match track.clips.get_mut(clip_id).map(|c| &mut c.content) {
+        Some(ClipContent::Audio {
+            start,
+            frames,
+            gain_db,
+            looping,
+            ..
+        }) => Ok((start, frames, gain_db, looping)),
+        _ => Err(not_found("clip", clip_id)),
+    }
+}
+
+fn audio_set_range(
+    state: &mut State,
+    clip_id: &ClipId,
+    start: Frame,
+    frames: Frame,
+    explicit: Option<&[PlacementFrames]>,
+) -> Result<Out, CommandError> {
+    let tempo = state.project.tempo();
+    let track = audio_mut(&mut state.project, clip_id)?;
+    let old = audio_parts(track, clip_id)?;
+    let end = start.get().checked_add(frames.get());
+    if frames.get() == 0 || end.is_none_or(|end| end > old.file_frames.get()) {
+        return Err(invalid(
+            "frames",
+            format!(
+                "the range [start, start + frames) is inside the file ({} frames) and not empty",
+                old.file_frames.get()
+            ),
+        ));
+    }
+    if old.looping.is_some_and(|l| l.end > frames) {
+        return Err(invalid(
+            "frames",
+            "the clip's loop ends past that length; clear or move it first (`clip.audio.set_loop`)",
+        ));
+    }
+    if let Some((id, _)) = track.placements.iter().find(|(_, p)| {
+        p.clip == *clip_id && matches!(p.span, Span::Frames { offset, .. } if offset >= frames)
+    }) {
+        return Err(invalid(
+            "frames",
+            format!(
+                "placement {id} has its offset at or past that length; move or resize the \
+                 placement first"
+            ),
+        ));
+    }
+    let follow = match explicit {
+        Some(list) => explicit_frames(tempo, old.rate, track, clip_id, list)?,
+        None => following_frames(tempo, old.rate, track, clip_id, old.frames, frames),
+    };
+    let output = Output::AudioSetRange {
+        previous_start: old.start,
+        previous_frames: old.frames,
+    };
+    if old.start == start && old.frames == frames && follow.is_empty() {
+        return Ok(unchanged(output));
+    }
+    let inverse = Command::AudioSetRange {
+        clip: clip_id.clone(),
+        start: old.start,
+        frames: old.frames,
+        placements: Some(
+            follow
+                .iter()
+                .map(|(id, before, _)| PlacementFrames {
+                    placement: id.clone(),
+                    length: *before,
+                })
+                .collect(),
+        ),
+    };
+    for (id, _, new) in &follow {
+        if let Some(Span::Frames { length, .. }) = track.placements.get_mut(id).map(|p| &mut p.span)
+        {
+            *length = *new;
+        }
+    }
+    let (s, f, _, _) = audio_content(track, clip_id)?;
+    *s = start;
+    *f = frames;
+    Ok(edited(output, inverse, changed(clip_id, ClipPart::Length)))
+}
+
+/// The placements of an audio clip that play it whole (offset 0, length `old` frames),
+/// with their new length: `new`, a growing one stopping at the start of the next placement
+/// of the track (the gap converted at `tempo` and the file's `rate`, rounded down) and
+/// never ending past 2^40 ticks; one already blocked there is left as it is.
+fn following_frames(
+    tempo: Tempo,
+    rate: SampleRate,
+    track: &Track,
+    clip_id: &ClipId,
+    old: Frame,
+    new: Frame,
+) -> Vec<(PlacementId, Frame, Frame)> {
+    let mut out = Vec::new();
+    if old == new {
+        return out;
+    }
+    let mut starts: Vec<i64> = track.placements.values().map(|q| q.start.get()).collect();
+    starts.sort_unstable();
+    // The most frames whose ticks fit in `ticks` at the tempo (frames_to_ticks rounds to
+    // the nearest tick, so a frame count is checked by the same conversion).
+    let fit = |ticks: i64| -> u64 {
+        let samples = tempo.tick_to_sample(Tick(ticks), rate);
+        if !(samples.is_finite() && samples > 0.0) {
+            return 0;
+        }
+        let mut n = samples.floor().min(MAX_FRAME as f64) as u64;
+        while n > 0 && tempo.frames_to_ticks(Frame(n), rate).get() > ticks {
+            n -= 1;
+        }
+        n
+    };
+    for (id, p) in &track.placements {
+        let Span::Frames { length, offset } = p.span else {
+            continue;
+        };
+        if p.clip != *clip_id || offset.get() != 0 || length != old {
+            continue;
+        }
+        let start = p.start.get();
+        let mut target = new.get().min(fit(MAX_TICK.saturating_sub(start)));
+        if new > old {
+            let after = starts.partition_point(|s| *s <= start);
+            if let Some(next) = starts.get(after) {
+                target = target.min(fit(next - start));
+            }
+            if target <= length.get() {
+                // Already blocked (or overlapping) there: it does not shrink on a grow.
+                continue;
+            }
+        }
+        if target >= 1 && target != length.get() {
+            out.push((id.clone(), length, Frame(target)));
+        }
+    }
+    out
+}
+
+/// The exact lengths of `list`, for undo: placements of the clip, each listed once, 1 to
+/// 2^40 frames, ending by tick 2^40 at the project's tempo (what `validate` asks). No
+/// overlap check: they are lengths a state of the project already held.
+fn explicit_frames(
+    tempo: Tempo,
+    rate: SampleRate,
+    track: &Track,
+    clip_id: &ClipId,
+    list: &[PlacementFrames],
+) -> Result<Vec<(PlacementId, Frame, Frame)>, CommandError> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for item in list {
+        if !seen.insert(&item.placement) {
+            return Err(invalid("placements", "a placement is listed twice"));
+        }
+        let p = track
+            .placements
+            .get(&item.placement)
+            .filter(|p| p.clip == *clip_id)
+            .ok_or_else(|| not_found("placement", &item.placement))?;
+        let Span::Frames { length, .. } = p.span else {
+            return Err(invalid("placements", "a MIDI placement has no frames"));
+        };
+        let end = p
+            .start
+            .get()
+            .saturating_add(tempo.frames_to_ticks(item.length, rate).get());
+        if item.length.get() == 0 || item.length.get() > MAX_FRAME || end > MAX_TICK {
+            return Err(invalid(
+                "placements",
+                format!("a placement plays 1 to 2^40 frames and ends by tick {MAX_TICK}"),
+            ));
+        }
+        if length != item.length {
+            out.push((item.placement.clone(), length, item.length));
+        }
+    }
+    Ok(out)
+}
+
+fn audio_set_gain(
+    state: &mut State,
+    clip_id: &ClipId,
+    gain: Option<f64>,
+) -> Result<Out, CommandError> {
+    let db = crate::mixer::to_db(gain)?;
+    let track = audio_mut(&mut state.project, clip_id)?;
+    let previous = audio_parts(track, clip_id)?.gain_db;
+    let before = crate::mixer::from_db(previous);
+    let output = Output::AudioSetGain { previous: before };
+    if previous == db {
+        return Ok(unchanged(output));
+    }
+    if !(previous == f64::NEG_INFINITY
+        || (project::MIN_GAIN_DB..=project::MAX_GAIN_DB).contains(&previous))
+    {
+        // A file may hold such a gain (validation only asks for a number): this command
+        // could not set it back on undo, so it does not change it.
+        return Err(invalid(
+            "clip",
+            format!(
+                "the clip's gain is {previous} dB, outside -96 to +6 dB: its undo could not                  set it back"
+            ),
+        ));
+    }
+    *audio_content(track, clip_id)?.2 = db;
+    Ok(edited(
+        output,
+        Command::AudioSetGain {
+            clip: clip_id.clone(),
+            gain_db: before,
+        },
+        changed(clip_id, ClipPart::Gain),
+    ))
+}
+
+fn audio_set_loop(
+    state: &mut State,
+    clip_id: &ClipId,
+    new: Option<FrameLoop>,
+) -> Result<Out, CommandError> {
+    let track = audio_mut(&mut state.project, clip_id)?;
+    let parts = audio_parts(track, clip_id)?;
+    if let Some(l) = new
+        && !(l.start < l.end && l.end <= parts.frames)
+    {
+        return Err(invalid(
+            "looping",
+            format!(
+                "0 <= start < end <= {} (the clip's length in frames)",
+                parts.frames.get()
+            ),
+        ));
+    }
+    let previous = parts.looping;
+    let output = Output::AudioSetLoop { previous };
+    if previous == new {
+        return Ok(unchanged(output));
+    }
+    *audio_content(track, clip_id)?.3 = new;
+    Ok(edited(
+        output,
+        Command::AudioSetLoop {
+            clip: clip_id.clone(),
+            looping: previous,
+        },
+        changed(clip_id, ClipPart::Loop),
     ))
 }
 
@@ -1722,13 +2192,20 @@ fn move_clip(
     let from_id = locate(&state.project, clip_id)?;
     let to_id = to.cloned().unwrap_or_else(|| from_id.clone());
     let project = &state.project;
-    let from = midi_track(project, &from_id)?;
-    let target = midi_track(project, &to_id)?;
+    let from = project
+        .tracks
+        .get(&from_id)
+        .ok_or_else(|| not_found("track", &from_id))?;
     let clip = from
         .clips
         .get(clip_id)
         .ok_or_else(|| not_found("clip", clip_id))?;
-    midi_ref(clip)?;
+    // A MIDI clip goes to a MIDI track, an audio clip to an audio track.
+    let target = if clip.content.is_midi() {
+        midi_track(project, &to_id)?
+    } else {
+        audio_track(project, &to_id)?
+    };
     let previous_slot = clip.slot.clone();
     let placed = from.placements.values().any(|p| p.clip == *clip_id);
     let output = Output::Move {

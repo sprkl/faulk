@@ -20,7 +20,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 29;
+pub const PROTOCOL_VERSION: u32 = 30;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -32,6 +32,12 @@ pub const MAX_STREAM_BYTES: usize = 1 << 30;
 /// out (#608, more than its limit of links open): the page does not try it again on its own,
 /// so that many pages never push each other out in a loop.
 pub const CONTROL_PUSHED_OUT: u16 = 4001;
+
+// Version 30 (#114, 29 is #619's): audio clip commands (AU-5). `clip.import_audio` takes an
+// optional target `at` and answers its `placement`; new `clip.audio.set_range`,
+// `clip.audio.set_gain`, `clip.audio.set_loop`; `clip.move` takes audio clips; clip summaries
+// gain `media_missing`; the clip event part `gain`. A helper of version 29 would not offer the
+// new tools.
 
 // Version 29 (#608; 28 is #191's): agents reach a paired page in Web mode and with a helper that has no audio output. A new token route, `/control`, is the page's control link: it carries only `agent.call`, `agent.result` and `control.front` (the page came to the front), never takes the audio role, never replaces the session and opens whatever the output. The helper sends an agent's call to the greeted session (Boost) first, else to the front control link (the newest, or the last that sent `control.front`); `page.absent` only when neither exists. At most 8 links: a newer one closes the oldest with close code `CONTROL_PUSHED_OUT` (4001). A page and a helper of different versions refuse each other.
 

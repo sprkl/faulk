@@ -384,8 +384,10 @@ domain! {
     /// signature hold one point at tick 0 and do not move; the playhead and the launch grid
     /// do not move. Refused with `invalid` when `at` is not in [0, 2^40], `length` is less
     /// than 1 or the cut would pass 2^40, or when a placement or a point would pass 2^40,
-    /// and with `limit` when the splits pass the placement limits. Changes nothing (no
-    /// history entry) when nothing lies at or after `at`. Undo: `arrangement.restore_time`.
+    /// and with `limit` when the splits pass the placement limits. Refused too, for the
+    /// whole project, while any track holds an audio placement (`clip.import_audio` into
+    /// the arrangement makes one): audio placements do not move in time yet. Changes nothing
+    /// (no history entry) when nothing lies at or after `at`. Undo: `arrangement.restore_time`.
     "arrangement.insert_time" (kind = "edit", undo = "inverse", destructive = false)
     InsertTime { at: Tick, length: Tick } => {
         /// How many placements were split at `at`.
@@ -412,8 +414,10 @@ domain! {
     /// a loop left empty is cleared and switched off). Tempo and time signature hold one
     /// point at tick 0 and do not move; the playhead and the launch grid do not move.
     /// Refused with `invalid` when `from` is not in [0, 2^40], `to` is not after `from` or
-    /// passes 2^40, and with `limit` when the cuts pass the placement limits.
-    /// Changes nothing (no history entry) when nothing lies at or after `from`. Undo:
+    /// passes 2^40, and with `limit` when the cuts pass the placement limits. Refused too, for
+    /// the whole project, while any track holds an audio placement (audio placements do not
+    /// move in time yet). Changes nothing (no history entry) when nothing lies at or after
+    /// `from`. Undo:
     /// `arrangement.restore_time`.
     "arrangement.delete_time" (kind = "edit", undo = "inverse", destructive = false)
     DeleteTime { from: Tick, to: Tick } => {

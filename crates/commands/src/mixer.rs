@@ -287,7 +287,7 @@ fn track_mut<'a>(
 
 /// The document's gain (`-inf` for silence) for a command's (`null` for silence), after
 /// checking the range.
-fn to_db(gain: Option<f64>) -> Result<f64, CommandError> {
+pub(crate) fn to_db(gain: Option<f64>) -> Result<f64, CommandError> {
     match gain {
         None => Ok(f64::NEG_INFINITY),
         Some(g) if g.is_finite() && (MIN_GAIN_DB..=MAX_GAIN_DB).contains(&g) => Ok(g),
@@ -301,7 +301,7 @@ fn to_db(gain: Option<f64>) -> Result<f64, CommandError> {
 }
 
 /// A command's gain for the document's one.
-fn from_db(db: f64) -> Option<f64> {
+pub(crate) fn from_db(db: f64) -> Option<f64> {
     (db != f64::NEG_INFINITY).then_some(db)
 }
 
@@ -388,7 +388,7 @@ fn check_current(mixer: &Mixer) -> Result<(), CommandError> {
 
 /// The schema of a gain: a number from [`MIN_GAIN_DB`] to [`MAX_GAIN_DB`], or `null` for
 /// silence (the derived schema of an optional field drops the `null`).
-fn nullable_gain(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+pub(crate) fn nullable_gain(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
     schemars::json_schema!({
         "type": ["number", "null"],
         "format": "double",
@@ -399,7 +399,7 @@ fn nullable_gain(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
 }
 
 /// The schema of a previous gain: a number, or `null` when it was silence.
-fn nullable_number(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+pub(crate) fn nullable_number(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
     schemars::json_schema!({
         "type": ["number", "null"],
         "format": "double",

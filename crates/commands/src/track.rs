@@ -300,7 +300,7 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             offset,
             limit,
         } => {
-            let d = crate::query::track_get(state, track, *offset, *limit)?;
+            let d = crate::query::track_get(state, &ctx.missing_media, track, *offset, *limit)?;
             Ok(crate::query::answer(Output::Get {
                 track: d.track,
                 devices: d.devices,

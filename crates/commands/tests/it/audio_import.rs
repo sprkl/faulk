@@ -13,6 +13,7 @@ fn import(f: &ClipFx, media: Hash, name: Option<&str>) -> Command {
         track: f.audio_track.clone(),
         media,
         name: name.map(str::to_owned),
+        at: None,
     })
 }
 
@@ -30,7 +31,7 @@ fn an_imported_file_becomes_a_whole_clip_in_the_pool_and_undo_keeps_the_file() {
     let mut ctx = context();
     let media = imported_media();
     let outcome = run(&import(&f, media.hash, None), &mut state, &mut ctx).unwrap();
-    let Output::Clip(clip::Output::ImportAudio { clip }) = &outcome.output else {
+    let Output::Clip(clip::Output::ImportAudio { clip, .. }) = &outcome.output else {
         panic!("{:?}", outcome.output)
     };
     let track = state.project.tracks[&f.audio_track].clone();
@@ -82,7 +83,7 @@ fn a_file_the_project_already_uses_needs_no_new_import() {
         &mut bare_context(),
     )
     .unwrap();
-    let Output::Clip(clip::Output::ImportAudio { clip }) = out.output else {
+    let Output::Clip(clip::Output::ImportAudio { clip, .. }) = out.output else {
         panic!()
     };
     let made = &state.project.tracks[&f.audio_track].clips[&clip];
@@ -116,7 +117,7 @@ fn the_staged_metadata_wins_over_a_clips_record_of_the_same_file() {
     ctx.media.insert(staged.hash, staged.clone());
     let mut state = f.state.clone();
     let out = run(&import(&f, staged.hash, None), &mut state, &mut ctx).unwrap();
-    let Output::Clip(clip::Output::ImportAudio { clip }) = out.output else {
+    let Output::Clip(clip::Output::ImportAudio { clip, .. }) = out.output else {
         panic!()
     };
     let ClipContent::Audio { media, .. } =
@@ -136,6 +137,7 @@ fn every_refusal_of_an_import_leaves_the_state_as_it_was() {
         track: f.track.clone(),
         media: imported_media().hash,
         name: None,
+        at: None,
     });
     assert_eq!(refused(&midi), "invalid");
     let mut ids = ::project::IdGenerator::new(9, 9);
@@ -143,6 +145,7 @@ fn every_refusal_of_an_import_leaves_the_state_as_it_was() {
         track: ::project::TrackId::generate(&mut ids),
         media: imported_media().hash,
         name: None,
+        at: None,
     });
     assert_eq!(refused(&ghost), "not_found");
     // A file nobody imported.
@@ -195,7 +198,7 @@ fn a_default_name_comes_from_the_files_name() {
             assert!(out.is_err(), "{file:?}");
             continue;
         }
-        let Output::Clip(clip::Output::ImportAudio { clip }) = out.unwrap().output else {
+        let Output::Clip(clip::Output::ImportAudio { clip, .. }) = out.unwrap().output else {
             panic!()
         };
         assert_eq!(
@@ -217,7 +220,7 @@ fn a_default_name_comes_from_the_files_name() {
         &mut ctx,
     )
     .unwrap();
-    let Output::Clip(clip::Output::ImportAudio { clip }) = out.output else {
+    let Output::Clip(clip::Output::ImportAudio { clip, .. }) = out.output else {
         panic!()
     };
     assert_eq!(
