@@ -91,21 +91,14 @@ for (const lang of ['en', 'fr'] as const) {
     await field.fill('In Song 2')
     await page.getByTestId('preset-form').getByRole('button', { name: x.renameAction, exact: true }).click()
     await expect(bar.getByTestId('preset-name')).toHaveText('In Song 2')
-    expect(
-      await page.evaluate(() =>
-        Object.values(
-          (window as unknown as { __faulkView: () => { project: { presets?: Record<string, { name: string }> } } }).__faulkView().project.presets ?? {},
-        ).map((p) => p.name),
-      ),
-    ).toEqual(['In Song 2'])
     await bar.getByRole('button', { name: x.menu }).click()
     await page.getByRole('menuitem', { name: x.remove }).click()
-    expect(
-      await page.evaluate(
-        () => Object.keys((window as unknown as { __faulkView: () => { project: { presets?: object } } }).__faulkView().project.presets ?? {}).length,
-      ),
-    ).toBe(0)
+    // The device keeps the name it knew, and the preset is gone: nothing to rename or delete any more.
     await expect(bar.getByTestId('preset-name')).toHaveText('In Song')
+    await bar.getByRole('button', { name: x.menu }).click()
+    await expect(page.getByRole('menuitem', { name: x.rename })).toBeDisabled()
+    await expect(page.getByRole('menuitem', { name: x.remove })).toBeDisabled()
+    await page.keyboard.press('Escape')
 
     // The library file is in the browser's storage, in the preset format.
     await expect
@@ -125,12 +118,16 @@ for (const lang of ['en', 'fr'] as const) {
     await page.reload()
     await page.getByTestId('engine-state').getByRole('button').click()
     await engineUp(page)
-    const list = await page.evaluate(() =>
-      (window as unknown as { __faulkPresets: (kind: string) => { presets: { name: string; preset: { location: string } }[] } | null }).__faulkPresets(
-        'faulk.osc_synth',
-      ),
-    )
-    expect(list?.presets.some((p) => p.name === 'My Pluck' && p.preset.location === 'library')).toBe(true)
+    // Through the panel alone (no page hook: the same in the production build): stepping through the
+    // synth's presets meets it, in the library.
+    const after = page.getByTestId('preset-bar').first()
+    const seen: string[] = []
+    for (let i = 0; i < 12 && !seen.includes('My Pluck'); i++) {
+      await after.getByRole('button', { name: x.next }).click()
+      seen.push((await after.getByTestId('preset-name').textContent()) ?? '')
+    }
+    expect(seen).toContain('My Pluck')
+    await expect(after.getByTestId('preset-name')).toHaveAttribute('data-location', 'library')
     expect(errors).toEqual([])
   })
 }

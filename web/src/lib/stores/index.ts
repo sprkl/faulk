@@ -103,8 +103,6 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
       __faulkHistory: () => dispatcher.history(),
       // The answer of `project.list_stored` (`storage-commands.spec.ts`).
       __faulkStored: () => dispatcher.listStored(),
-      // The presets of a device kind, as `preset.list` answers (`presets.spec.ts`).
-      __faulkPresets: (kind: string) => dispatcher.listPresetsOfKind(kind),
       // The storage's notice, whether or not a banner shows it: a banner of higher priority (the permission's) hides it (`storage-commands.spec.ts`).
       __faulkNotice: () => storage.notice,
       // What the last write of the project cost (`project-save.spec.ts`).
