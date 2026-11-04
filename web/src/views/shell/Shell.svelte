@@ -8,7 +8,7 @@
   import { onMount } from 'svelte'
   import { watchLocalAccess } from '../../lib/engine/local-access'
   import { isMenuKey, menuPointOf, unhandledContextMenu } from '../../lib/context-menu'
-  import { gotoShortcut, historyShortcut, isTextTarget, layoutShortcut, saveShortcut } from '../../lib/keyboard'
+  import { browserShortcut, gotoShortcut, historyShortcut, isTextTarget, layoutShortcut, saveShortcut } from '../../lib/keyboard'
   import { takeOpenLink } from '../../lib/open-link'
   import { isPairHash } from '../../lib/pair-link'
   import { helpShortcut, readKeyLayout } from '../../lib/shortcuts'
@@ -18,6 +18,7 @@
   import { DEFAULT_PANEL, DEFAULT_VIEW, startView, viewById, viewsIn, type MainViewId } from '../registry'
   import ContextMenu from '../../lib/components/ContextMenu.svelte'
   import BottomPanel from './BottomPanel.svelte'
+  import BrowserPanel from '../browser/BrowserPanel.svelte'
   import { clampHeight, panelMax } from './panel-size'
   import EngineDialog from './EngineDialog.svelte'
   import ExportDialog from './ExportDialog.svelte'
@@ -146,6 +147,12 @@
     }
   })
 
+  /** Closes the device browser; the focus goes back to its button in the track list. */
+  function closeBrowser() {
+    ui.hideBrowser()
+    queueMicrotask(() => document.querySelector<HTMLElement>('[data-testid="browser-toggle"]')?.focus())
+  }
+
   function onKeyDown(event: KeyboardEvent) {
     if (isMenuKey(event)) return askMenu(event)
     const save = saveShortcut(event)
@@ -165,6 +172,18 @@
         const view = viewsIn('main')[layout.view]
         if (view) ui.show(view.id)
       }
+      return
+    }
+    // Alt+B opens the device browser (its search field takes the focus), and closes it when the focus is in it (#190).
+    if (
+      browserShortcut(event) &&
+      !ui.helpOpen &&
+      !document.querySelector('[aria-modal="true"]') &&
+      !(event.target as Element | null)?.closest?.('[role="menu"]')
+    ) {
+      event.preventDefault()
+      if (ui.browserOpen && (event.target as Element | null)?.closest?.('[data-testid="browser-panel"]')) closeBrowser()
+      else ui.showBrowser()
       return
     }
     // `?` opens the shortcut list, and closes it again; no other dialog or menu has to be open (#474).
@@ -243,6 +262,7 @@
   oncontextmenu={onContextMenu}
   onkeydown={onKeyDown}
   onkeyup={(event) => keys.keyUp(event)}
+  ondragend={() => (ui.dragged = null)}
   onbeforeunload={onBeforeUnload}
   onfocus={() => void storage.wake()}
 />
@@ -279,8 +299,9 @@
     {@const text = ui.t(engine.refusal.key, { ...engine.refusal.vars, what: engine.refusal.whatKey ? ui.t(engine.refusal.whatKey) : '' })}
     <p class="toast" role="status" data-testid="refusal-toast">{engine.refusal.count > 1 ? ui.t('refusal.count', { text, n: engine.refusal.count }) : text}</p>
   {/if}
-  <div class="body" data-panel={ui.panel} bind:clientHeight={bodyHeight} style:--panel-row={panelRow}>
+  <div class="body" data-panel={ui.panel} data-browser={ui.browserOpen ? '' : undefined} bind:clientHeight={bodyHeight} style:--panel-row={panelRow}>
     <TrackList />
+    {#if ui.browserOpen}<BrowserPanel onclose={closeBrowser} />{/if}
     <main class="main" id="fk-main" tabindex="-1" bind:this={mainArea} aria-label={ui.t(current.label)} data-testid="view" data-view={current.id}>
       {#key ui.layoutRev}<current.component />{/key}
     </main>
@@ -357,6 +378,13 @@
     /* In fr, not %: a percentage track resolves to its content height here and pushes the roll's lane off the screen. */
     grid-template-rows: minmax(0, 1fr) var(--panel-row, minmax(392px, 1.2fr));
   }
+  /* The device browser (#190) is a column of its own between the track list and the views, over both rows. */
+  .body[data-browser] {
+    grid-template-columns: 272px 296px minmax(0, 1fr);
+    grid-template-areas:
+      'tracks browser main'
+      'tracks browser panel';
+  }
   .main {
     grid-area: main;
     min-width: 0;
@@ -373,6 +401,10 @@
       grid-template-columns: minmax(0, 1fr);
       grid-template-rows: auto auto auto;
       grid-template-areas: 'main' 'panel' 'tracks';
+    }
+    .body[data-browser] {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: 'main' 'panel' 'browser' 'tracks';
     }
     .main {
       overflow: visible;
