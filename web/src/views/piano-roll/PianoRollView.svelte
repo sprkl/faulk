@@ -42,7 +42,7 @@
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
   import { isQuantizeKey, isTextTarget, QUANTIZE_CODE } from '../../lib/keyboard'
   import { instrumentNamedKeys, isMidi, trackColor as colorOfTrack } from '../../lib/project/tracks'
-  import { beginGroup, endGroup } from '../../lib/track-commands'
+  import { inGroup } from '../../lib/history-group'
   import { useStores } from '../../lib/stores'
   import { barTicks, PPQ } from '../transport/time'
   import { itemAt, moveCursor, rovingKey, step as stepItem, zoomKey, type RovingKey } from '../../lib/roving'
@@ -108,6 +108,7 @@
   const { project, engine, ui, dispatcher, recorder } = useStores()
   const t = ui.t
   const run = (command: Command) => dispatcher.run(command)
+  const group = <T,>(body: () => T) => inGroup((command, options) => dispatcher.run(command, options), body)
 
   /** How long an audition sounds at least, so that a click is heard. */
   const MIN_AUDITION_MS = 150
@@ -1088,9 +1089,9 @@
     if (length === clipLength) return
     const commands = lengthCommands(edited, length)
     if (commands.length === 1) return run(commands[0]!)
-    run(beginGroup())
-    for (const command of commands) run(command)
-    run(endGroup())
+    group(() => {
+      for (const command of commands) run(command)
+    })
   }
 
   /** The commands that give a clip another length: a loop over the whole clip stays over the whole clip when the clip grows (a shorter clip trims it itself). */
@@ -1205,13 +1206,14 @@
       send()
       return true
     }
-    run(beginGroup())
-    for (const command of lengthCommands(edited, length)) run(command)
-    // The project may have refused the new length (a placement next to the clip): then there is no room, and nothing is added.
-    const grown = clipLength >= length
-    if (grown) send()
-    run(endGroup())
-    return grown
+    const clip = edited
+    return group(() => {
+      for (const command of lengthCommands(clip, length)) run(command)
+      // The project may have refused the new length (a placement next to the clip): then there is no room, and nothing is added.
+      const grown = clipLength >= length
+      if (grown) send()
+      return grown
+    })
   }
 
   /** Copies of the chosen notes right after the selection, which they become. */

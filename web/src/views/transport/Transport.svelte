@@ -10,7 +10,7 @@
   import { ignoreKeyEvent, isTapChord, spaceTogglesTransport, tapShortcut, trackFocusOrigin } from '../../lib/keyboard'
   import type { MessageKey } from '../../lib/i18n/index'
   import { useStores } from '../../lib/stores'
-  import { beginGroup, endGroup } from '../../lib/track-commands'
+  import { inGroup } from '../../lib/history-group'
   import { offTimeline } from '../../lib/off-timeline'
   import { backToArrangement } from '../../lib/scene-commands'
   import { pause, play, seek, setLaunchQuantize, setLoopRegion, setMetronome, setTempo, setTimeSignature, stop, toggleLoop } from '../../lib/transport-commands'
@@ -266,10 +266,10 @@
       run(toggleLoop())
       return
     }
-    run(beginGroup())
-    run(setLoopRegion(0, DEFAULT_LOOP_BARS * barTicks(signature)))
-    run(toggleLoop())
-    run(endGroup())
+    inGroup(run, () => {
+      run(setLoopRegion(0, DEFAULT_LOOP_BARS * barTicks(signature)))
+      run(toggleLoop())
+    })
   }
 
   /**

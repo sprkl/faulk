@@ -37,7 +37,7 @@ afterEach(() => {
 })
 
 function events() {
-  return { onAgentCall: vi.fn(), onClosed: vi.fn() } satisfies ControlEvents
+  return { onAgentCall: vi.fn(), onAgentLeft: vi.fn(), onClosed: vi.fn() } satisfies ControlEvents
 }
 
 describe("the page's control link (#608)", () => {
@@ -83,6 +83,18 @@ describe("the page's control link (#608)", () => {
     answer({ status: 'applied', output: null })
     answer({ status: 'invalid', message: 'twice' })
     expect(socket.sent.map((s) => JSON.parse(s))).toEqual([{ type: 'agent.result', id: 7, result: { status: 'applied', output: null } }])
+  })
+
+  it('tells that an agent left (#641)', async () => {
+    vi.stubGlobal('WebSocket', FakeSocket)
+    const told = events()
+    const opening = ControlLink.open('t', told)
+    const socket = FakeSocket.last
+    socket.open()
+    await opening
+    socket.onmessage!({ data: JSON.stringify({ type: 'agent.left', agent: 'claude-code' }) })
+    expect(told.onAgentLeft).toHaveBeenCalledExactlyOnceWith('claude-code')
+    expect(told.onAgentCall).not.toHaveBeenCalled()
   })
 
   it('says it came to the front, tells a loss, and not its own close', async () => {

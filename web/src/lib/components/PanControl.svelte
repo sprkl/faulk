@@ -17,7 +17,7 @@
   const { dispatcher, ui } = useStores()
   /** The command that sets the pan: a track's, or the master's when `track` is null. */
   const panCommand = (pan: number) => (track === null ? setMasterPan(pan) : setPan(track, pan))
-  const gesture = createGesture((command) => dispatcher.run(command))
+  const gesture = createGesture((command, options) => dispatcher.run(command, options))
   onDestroy(() => gesture.end())
 
   function onposition(position: number) {

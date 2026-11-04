@@ -290,6 +290,25 @@ impl Core {
         Ok(())
     }
 
+    /// The agent `author` (`agent:<name>`) went away (#641, the helper's `agent.left`): the
+    /// group it left open is closed and its turn ends (`History::agent_left`). Whether
+    /// anything changed; a string that is no agent's author changes nothing.
+    pub fn agent_left(&mut self, author: &[u8]) -> Result<bool, AuthorError> {
+        let text = core::str::from_utf8(author).map_err(|_| AuthorError)?;
+        let author = Author::try_from(text.to_owned()).map_err(|_| AuthorError)?;
+        if author == Author::User {
+            return Err(AuthorError);
+        }
+        Ok(self.synced.state.history.agent_left(&author))
+    }
+
+    /// The page lost every link to the helper (#641): no agent can reach it nor be heard
+    /// leaving, so an agent's open group is closed and any agent's turn ends
+    /// (`History::agents_gone`). Whether anything changed.
+    pub fn agents_gone(&mut self) -> bool {
+        self.synced.state.history.agents_gone()
+    }
+
     /// The host's clock for the commands run next, in milliseconds since the Unix epoch:
     /// the history stamps it on the entries it records.
     pub fn set_clock(&mut self, now_ms: u64) {
@@ -840,6 +859,33 @@ pub unsafe extern "C" fn pw_set_author(core: *mut Core, len: u32) -> i32 {
             Err(AuthorError) => ERR_BAD_INPUT,
         })
     }
+}
+
+/// [`Core::agent_left`] with the agent's author (`agent:<name>`) in the first `len` bytes of
+/// the inbox: 1 when its group or its turn ended, 0 when it had neither, or
+/// [`ERR_BAD_INPUT`] (not an agent's author; nothing changed).
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_agent_left(core: *mut Core, len: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe {
+        with_core(core, |core| match with_inbox(len, |a| core.agent_left(a)) {
+            Ok(changed) => i32::from(changed),
+            Err(AuthorError) => ERR_BAD_INPUT,
+        })
+    }
+}
+
+/// [`Core::agents_gone`]: 1 when an agent's group or turn ended, else 0.
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_agents_gone(core: *mut Core) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { with_core(core, |core| i32::from(core.agents_gone())) }
 }
 
 /// [`Core::stage`] with the folder frame in the first `len` bytes of the inbox: 0, or
