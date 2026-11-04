@@ -1,0 +1,2 @@
+2026-11-04
+* **Update**: `docs/agents/verification.md` > Web UI gains the dev-hook guard of the end-to-end specs: `web/scripts/e2e-dev-hooks.test.ts` fails, without a browser, a test that uses a dev-server hook (`__faulkRun`, `__faulkView`, ...) with no skip for the `preview` project before its first use, and names the file and line; `skipWithoutDevHooks(page)` in `tests/e2e/support.ts` is the shared skip (#626).
