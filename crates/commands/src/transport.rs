@@ -66,7 +66,9 @@ domain! {
     /// Set the project's tempo in BPM, from 20 to 999. A value outside the range or not
     /// a number is refused, and so is a tempo at which an audio placement (whose length is
     /// in frames of its file, so its end in ticks follows the tempo) would end past 2^40.
-    /// Undo: set the previous tempo back.
+    /// A faster tempo lengthens audio placements in ticks, so one may then reach into the
+    /// next placement of its track: the project allows it, and the later one plays from its
+    /// start. Undo: set the previous tempo back.
     "transport.set_tempo" (kind = "edit", undo = "inverse", destructive = false)
     SetTempo {
         #[schemars(range(min = 20.0, max = 999.0))]

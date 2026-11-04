@@ -478,6 +478,20 @@ fn audio_edit_examples(f: &ClipFx) -> Vec<(Command, State)> {
     let on = |command: clip::Command| (c(command), f.state.clone());
     let clip = || f.audio_clip.clone();
     let (placed, _) = with_audio_placement(f);
+    let mut whole = placed.clone();
+    for p in whole
+        .project
+        .tracks
+        .get_mut(&f.audio_track)
+        .unwrap()
+        .placements
+        .values_mut()
+    {
+        p.span = Span::Frames {
+            length: Frame::new(44_100),
+            offset: Frame::new(0),
+        };
+    }
     let (looped, _) = after(
         f.state.clone(),
         &c(clip::Command::AudioSetLoop {
@@ -517,6 +531,16 @@ fn audio_edit_examples(f: &ClipFx) -> Vec<(Command, State)> {
                 placements: None,
             }),
             placed,
+        ),
+        // A placement that plays the clip whole follows it; undo gives its length back.
+        (
+            c(clip::Command::AudioSetRange {
+                clip: clip(),
+                start: Frame::new(0),
+                frames: Frame::new(60_000),
+                placements: None,
+            }),
+            whole,
         ),
         on(clip::Command::AudioSetGain {
             clip: clip(),

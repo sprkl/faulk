@@ -1430,16 +1430,12 @@ fn check_audio(snap: &AudioClipSnapshot, field: &str) -> Result<(), CommandError
             "the range [start, start + frames) is inside the file and not empty",
         ));
     }
-    if !(snap.gain_db == f64::NEG_INFINITY
-        || (project::MIN_GAIN_DB..=project::MAX_GAIN_DB).contains(&snap.gain_db))
-    {
+    // Any number, as `validate` takes: a restore brings back what a delete took, even a
+    // gain beyond what `clip.audio.set_gain` sets.
+    if !(snap.gain_db.is_finite() || snap.gain_db == f64::NEG_INFINITY) {
         return Err(invalid(
             format!("{field}.gain_db"),
-            format!(
-                "a gain from {} to {} dB, or null for silence",
-                project::MIN_GAIN_DB,
-                project::MAX_GAIN_DB
-            ),
+            "a number of dB, or null",
         ));
     }
     if let Some(l) = snap.looping
@@ -1652,7 +1648,7 @@ fn audio_set_range(
         ));
     }
     let follow = match explicit {
-        Some(list) => explicit_frames(track, clip_id, list)?,
+        Some(list) => explicit_frames(tempo, old.rate, track, clip_id, list)?,
         None => following_frames(tempo, old.rate, track, clip_id, old.frames, frames),
     };
     let output = Output::AudioSetRange {
@@ -1746,8 +1742,11 @@ fn following_frames(
 }
 
 /// The exact lengths of `list`, for undo: placements of the clip, each listed once, 1 to
-/// 2^40 frames. No overlap check: they are lengths a state of the project already held.
+/// 2^40 frames, ending by tick 2^40 at the project's tempo (what `validate` asks). No
+/// overlap check: they are lengths a state of the project already held.
 fn explicit_frames(
+    tempo: Tempo,
+    rate: SampleRate,
     track: &Track,
     clip_id: &ClipId,
     list: &[PlacementFrames],
@@ -1766,8 +1765,15 @@ fn explicit_frames(
         let Span::Frames { length, .. } = p.span else {
             return Err(invalid("placements", "a MIDI placement has no frames"));
         };
-        if item.length.get() == 0 || item.length.get() > MAX_FRAME {
-            return Err(invalid("placements", "a placement plays 1 to 2^40 frames"));
+        let end = p
+            .start
+            .get()
+            .saturating_add(tempo.frames_to_ticks(item.length, rate).get());
+        if item.length.get() == 0 || item.length.get() > MAX_FRAME || end > MAX_TICK {
+            return Err(invalid(
+                "placements",
+                format!("a placement plays 1 to 2^40 frames and ends by tick {MAX_TICK}"),
+            ));
         }
         if length != item.length {
             out.push((item.placement.clone(), length, item.length));
@@ -1792,11 +1798,13 @@ fn audio_set_gain(
     if !(previous == f64::NEG_INFINITY
         || (project::MIN_GAIN_DB..=project::MAX_GAIN_DB).contains(&previous))
     {
-        // Validation refuses such a gain when a project is read: the edit could not be
-        // undone exactly from a state built in memory.
+        // A file may hold such a gain (validation only asks for a number): this command
+        // could not set it back on undo, so it does not change it.
         return Err(invalid(
             "clip",
-            "the clip's gain is outside -96 to +6 dB; the project is not valid",
+            format!(
+                "the clip's gain is {previous} dB, outside -96 to +6 dB: its undo could not                  set it back"
+            ),
         ));
     }
     *audio_content(track, clip_id)?.2 = db;

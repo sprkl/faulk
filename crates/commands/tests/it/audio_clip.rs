@@ -579,3 +579,117 @@ fn same_audio(f: &ClipFx, a: &State, b: &State) {
     );
     assert_eq!((&a.clips, &a.placements), (&b.clips, &b.placements));
 }
+
+#[test]
+fn the_undo_lengths_of_a_range_change_are_checked_like_any_placement() {
+    let f = fx();
+    // One second (1 920 ticks) of audio 3 000 ticks before the end of the timeline.
+    let (state, whole) = with_whole(&f, f.state.clone(), ::project::limits::MAX_TICK - 3_000, 6);
+    let (partial_state, partial) = with_audio_placement(&f);
+    let with = |placements: Vec<clip::PlacementFrames>| {
+        c(clip::Command::AudioSetRange {
+            clip: f.audio_clip.clone(),
+            start: Frame::new(0),
+            frames: Frame::new(44_100),
+            placements: Some(placements),
+        })
+    };
+    let item = |id: &PlacementId, n: u64| clip::PlacementFrames {
+        placement: id.clone(),
+        length: Frame::new(n),
+    };
+    // An end past 2^40 ticks at the tempo, no frame, more than 2^40 frames, listed twice.
+    let past = ::project::limits::MAX_FRAME;
+    // Two seconds are 3 840 ticks: past the end.
+    assert_eq!(code(&with(vec![item(&whole, 88_200)]), &state), "invalid");
+    assert_eq!(code(&with(vec![item(&whole, 0)]), &state), "invalid");
+    assert_eq!(code(&with(vec![item(&whole, past + 1)]), &state), "invalid");
+    assert_eq!(
+        code(&with(vec![item(&whole, 10), item(&whole, 20)]), &state),
+        "invalid"
+    );
+    // A placement of no clip of this one.
+    assert_eq!(code(&with(vec![item(&partial, 10)]), &state), "not_found");
+    // A length that fits is taken as is.
+    let mut taken = partial_state.clone();
+    run(&with(vec![item(&partial, 7)]), &mut taken, &mut context()).unwrap();
+    assert_eq!(
+        span_of(&taken, &f, &partial),
+        Span::Frames {
+            length: Frame::new(7),
+            offset: Frame::new(11_025)
+        }
+    );
+}
+
+#[test]
+fn a_gain_beyond_the_range_stays_restorable_but_is_not_edited() {
+    let f = fx();
+    // A file may hold +12 dB: validation only asks for a number.
+    let mut state = f.state.clone();
+    if let ClipContent::Audio { gain_db, .. } = &mut state
+        .project
+        .tracks
+        .get_mut(&f.audio_track)
+        .unwrap()
+        .clips
+        .get_mut(&f.audio_clip)
+        .unwrap()
+        .content
+    {
+        *gain_db = 12.0;
+    }
+    state.project.validate().unwrap();
+    let gain = c(clip::Command::AudioSetGain {
+        clip: f.audio_clip.clone(),
+        gain_db: Some(0.0),
+    });
+    assert_eq!(code(&gain, &state), "invalid");
+    // Deleting the clip and undoing brings it back with its gain.
+    let before = state.clone();
+    let out = run(
+        &c(clip::Command::Delete {
+            clip: f.audio_clip.clone(),
+        }),
+        &mut state,
+        &mut context(),
+    )
+    .unwrap();
+    let Undo::Inverse(undo) = out.undo else {
+        panic!()
+    };
+    run(&undo, &mut state, &mut context()).unwrap();
+    assert_eq!(state.project, before.project);
+}
+
+#[test]
+fn every_audio_command_refuses_a_midi_clip_and_an_unknown_clip() {
+    let f = fx();
+    let mut ids = ::project::IdGenerator::new(9, 9);
+    let ghost = ::project::ClipId::generate(&mut ids);
+    for clip in [f.clip.clone(), ghost.clone()] {
+        let expected = if clip == ghost {
+            "not_found"
+        } else {
+            "invalid"
+        };
+        for command in [
+            clip::Command::AudioSetRange {
+                clip: clip.clone(),
+                start: Frame::new(0),
+                frames: Frame::new(1),
+                placements: None,
+            },
+            clip::Command::AudioSetGain {
+                clip: clip.clone(),
+                gain_db: Some(0.0),
+            },
+            clip::Command::AudioSetLoop {
+                clip: clip.clone(),
+                looping: None,
+            },
+        ] {
+            assert_eq!(code(&c(command), &f.state), expected);
+        }
+    }
+}
