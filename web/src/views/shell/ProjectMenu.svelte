@@ -53,11 +53,14 @@
   let draft = $state('')
   let field = $state<HTMLInputElement | null>(null)
   let trigger = $state<HTMLButtonElement | null>(null)
+  /** The project the field was opened on: a field left open while another project replaces it renames nothing. */
+  let renamingId: string | null = null
 
   async function startRename() {
     if (!ready) return
     open = false
     draft = name
+    renamingId = project.view?.project.id ?? null
     renaming = true
     await tick()
     field?.focus()
@@ -68,7 +71,7 @@
     if (!renaming) return
     renaming = false
     const next = draft.trim()
-    if (commit && next !== '' && next !== name) dispatcher.run(renameProject(next))
+    if (commit && next !== '' && next !== name && renamingId === (project.view?.project.id ?? null)) dispatcher.run(renameProject(next))
   }
 
   function onRenameKey(event: KeyboardEvent) {

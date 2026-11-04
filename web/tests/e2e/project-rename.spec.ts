@@ -61,6 +61,8 @@ test('a double click on the name opens the field; Escape cancels, an empty name 
   await page.getByTestId('project-rename').fill('Kept')
   await page.getByTestId('nav-arrangement').click()
   await expect(name(page)).toHaveText('Kept')
+  await page.keyboard.press('Control+z')
+  await expect(name(page)).toHaveText(before)
   expect(seen.errors).toEqual([])
 })
 
@@ -75,5 +77,9 @@ test('F2 on the name in the top bar renames the project', async ({ page }) => {
   await field.press('Enter')
   await expect(name(page)).toHaveText('Demo')
   await expect(page.getByTestId('project-menu')).toHaveAttribute('title', /Demo/)
+  await page.keyboard.press('Control+z')
+  await expect(name(page)).not.toHaveText('Demo')
+  await page.keyboard.press('Control+Shift+z')
+  await expect(name(page)).toHaveText('Demo')
   expect(seen.errors).toEqual([])
 })
