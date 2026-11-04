@@ -36456,7 +36456,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 32,
+  "protocol_version": 33,
   "server_message": {
     "$defs": {
       "Capabilities": {
@@ -36745,6 +36745,26 @@
           "sample_rate",
           "epoch",
           "capabilities"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "First message of a control link (#658): the helper's protocol, as `hello` carries it for\na session. The page closes the link when it differs from its own.",
+        "properties": {
+          "protocol": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "control.hello",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "protocol"
         ],
         "type": "object"
       },

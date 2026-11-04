@@ -93,6 +93,9 @@ fn messages_round_trip_through_json() {
             agent: "claude-code".into(),
             command: serde_json::json!({ "type": "track.create", "kind": "midi" }),
         },
+        ServerMessage::ControlHello {
+            protocol: PROTOCOL_VERSION,
+        },
         ServerMessage::AgentLeft {
             agent: "claude-code".into(),
         },
