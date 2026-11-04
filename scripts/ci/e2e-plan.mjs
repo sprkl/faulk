@@ -43,7 +43,7 @@ export const AREA = {
   export: ['export-audio'],
   storage: ['project-store', 'project-save', 'project-rename', 'project-save-as-name', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability', 'open-url', 'audio-import'],
   // Importing audio files (AU-1): the pipeline in the store's Worker, the Clips panel that starts it, the storage it writes.
-  audio: ['audio-import', 'clip-pool', 'browser-storage', 'project-store'],
+  audio: ['audio-import', 'audio-play', 'clip-pool', 'browser-storage', 'project-store'],
   shortcuts: ['discoverability', 'keyboard-all-views'],
   shortcutsDialog: ['discoverability', 'keyboard-all-views', 'navigation'],
   bottomPanel: ['bottom-panel', 'layout-4', 'ux-quick-wins'],

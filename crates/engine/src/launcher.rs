@@ -30,7 +30,7 @@
 //!
 //! - the clip the track plays: [`ClipState::Playing`], or [`ClipState::Stopping`] when the
 //!   order waiting for the track will leave it silent (a stop, a launch of an empty cell,
-//!   of an audio clip, whose start is AU-4's, or of a clip another track plays);
+//!   of an audio clip on a MIDI track, or of a clip another track plays);
 //! - the clip a launch waits to start: [`ClipState::Queued`] while the transport runs,
 //!   [`ClipState::Armed`] while it is stopped (the order waits for the transport itself).
 //!
@@ -45,7 +45,7 @@
 //! Nothing here allocates or fails.
 
 use crate::engine::{ClipContent, LaunchRequest, State, Track};
-use crate::msg::{ActiveClip, ClipState, HELD_SCENE, SceneSlot, TrackSlot};
+use crate::msg::{ActiveClip, ClipState, HELD_SCENE, SceneSlot, TrackKind, TrackSlot};
 use crate::time::Tick;
 
 /// Whether a track takes part in a stop: it plays, waits for a launch or has one.
@@ -96,7 +96,7 @@ pub fn back_track(track: &mut Track) {
 }
 
 /// Whether `order` starts a clip on track `slot` (what the player's `start` accepts): the
-/// cell holds a MIDI clip that no other track plays.
+/// cell holds a clip the track can play ([`plays_on`]) that no other track plays.
 fn starts_a_clip(state: &State, slot: TrackSlot, track: &Track, scene: SceneSlot) -> bool {
     let Some(clip) = track
         .scenes
@@ -108,7 +108,17 @@ fn starts_a_clip(state: &State, slot: TrackSlot, track: &Track, scene: SceneSlot
     else {
         return false;
     };
-    matches!(clip.content, ClipContent::Notes(_)) && clip.on_track.is_none_or(|t| t == slot)
+    plays_on(track.kind, &clip.content) && clip.on_track.is_none_or(|t| t == slot)
+}
+
+/// Whether a track of `kind` plays a clip of `content` from the grid: a MIDI clip on any track
+/// (an audio track's notes reach no instrument), an audio clip on an audio track only (its
+/// player is the audio track's instrument stage, AU-4).
+pub fn plays_on(kind: TrackKind, content: &ClipContent) -> bool {
+    match content {
+        ClipContent::Notes(_) => true,
+        ClipContent::Audio(_) => kind == TrackKind::Audio,
+    }
 }
 
 /// The cells that are not idle (module doc), in track order, playing clip first. `running`

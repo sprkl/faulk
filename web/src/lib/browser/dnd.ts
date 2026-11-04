@@ -26,7 +26,7 @@ export const endDrag = (ui: UiStore) => {
   ui.dragged = null
 }
 
-/** Whether a drag carries files from the desktop (an audio file onto the track list: not handled yet, see `audio-drop.ts`). */
+/** Whether a drag carries files from the desktop (audio files onto the track list start an audio track: `audio-drop.ts`). */
 export const dragsFiles = (event: DragEvent): boolean => Array.from(event.dataTransfer?.types ?? []).includes('Files')
 
 export interface DropOptions {

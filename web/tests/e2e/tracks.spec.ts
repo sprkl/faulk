@@ -17,6 +17,7 @@ const TEXTS = {
     rename: 'Track name',
     midi: 'MIDI',
     audio: 'Audio',
+    audioTrack: 'Audio track',
   },
   fr: {
     track: (n: number) => `Piste ${n}`,
@@ -28,6 +29,7 @@ const TEXTS = {
     rename: 'Nom de la piste',
     midi: 'MIDI',
     audio: 'Audio',
+    audioTrack: 'Piste audio',
   },
 } as const
 
@@ -186,9 +188,9 @@ for (const lang of ['en', 'fr'] as const) {
       await expect(page.getByTestId('voices')).toContainText(/\b1\b/)
       await page.keyboard.up('KeyA')
 
-      // Audio tracks are not offered until audio can be imported (AU-1): the menu lists the instruments only.
+      // The menu lists the instruments, then an audio track (AU-4: audio clips play).
       await page.getByTestId('add-track').click()
-      await expect(page.getByRole('menuitem')).toHaveText(['Oscillator', 'Drums'])
+      await expect(page.getByRole('menuitem')).toHaveText(['Oscillator', 'Drums', x.audioTrack])
       await page.keyboard.press('Escape')
 
       expect(await horizontalOverflow(page)).toEqual([])
