@@ -225,6 +225,19 @@ export class ProjectStorage {
     this.failedReopen = null
     this.noticeVars = null
     this.noticeOpen = null
+    if (key !== null) for (const watcher of this.noticeWatchers) watcher(key)
+  }
+  /** Not state: nothing shows them. */
+  private noticeWatchers: ((key: MessageKey) => void)[] = []
+  /**
+   * Calls `watcher` with each notice raised until the returned function is called: what an agent is told when a
+   * storage action it started was not done (AG-4). A hint only: a notice of another task in the meantime is counted too.
+   */
+  watchNotices(watcher: (key: MessageKey) => void): () => void {
+    this.noticeWatchers = [...this.noticeWatchers, watcher]
+    return () => {
+      this.noticeWatchers = this.noticeWatchers.filter((w) => w !== watcher)
+    }
   }
   /** A question the interface is asking (New or Open on a project whose changes cannot be kept). */
   confirm = $state.raw<{ action: Discard; name: string | null } | null>(null)
@@ -755,8 +768,11 @@ export class ProjectStorage {
     return this.enqueue(() => this.openHandle(picked.handle))
   }
 
-  /** Open a recent project. Call straight from a click: the browser may ask for the permission again. */
-  async openRecent(id: string): Promise<boolean> {
+  /**
+   * Open a recent project. Call straight from a click: the browser may ask for the permission again. `allowed`: the
+   * user already allowed an agent to replace the project (AG-4), so the question about unsaved changes is not asked again.
+   */
+  async openRecent(id: string, allowed = false): Promise<boolean> {
     // A list read before another tab forgot or added a folder: look again before saying it is unknown.
     let entry = this.recent.find((recent) => recent.id === id)
     if (!entry) {
@@ -778,19 +794,22 @@ export class ProjectStorage {
       return false
     }
     this.reopen = null
-    return this.enqueue(() => this.openHandle(entry.handle, { forgetIfGone: id }))
+    return this.enqueue(() => this.openHandle(entry.handle, { forgetIfGone: id, allowed }))
   }
 
   /** A reopen under way: a second click on Retry meanwhile joins it instead of finding nothing to reopen. */
   private reopening: Promise<boolean> | null = null
 
-  /** The banner after a reload: the project that was open comes back with the user's click. */
-  reopenLast(): Promise<boolean> {
-    this.reopening ??= this.runReopenLast().finally(() => (this.reopening = null))
+  /**
+   * The banner after a reload: the project that was open comes back with the user's click. `allowed`: as for
+   * `openRecent`; a call that joins a reopen under way takes that reopen's answer.
+   */
+  reopenLast(allowed = false): Promise<boolean> {
+    this.reopening ??= this.runReopenLast(allowed).finally(() => (this.reopening = null))
     return this.reopening
   }
 
-  private async runReopenLast(): Promise<boolean> {
+  private async runReopenLast(allowed: boolean): Promise<boolean> {
     // The project that would not open comes second: its notice offers to try it again (#504).
     const last = this.reopen ?? this.failedReopen
     if (!last) {
@@ -805,7 +824,7 @@ export class ProjectStorage {
     this.notice = null
     let opened: boolean
     try {
-      opened = await (last.kind === 'browser' ? this.openBrowserProject(last.id) : this.openRecent(last.id))
+      opened = await (last.kind === 'browser' ? this.openBrowserProject(last.id, allowed) : this.openRecent(last.id, allowed))
     } catch (error) {
       // The attempt itself broke (a stale handle): the notice and its actions stay, and the error goes on.
       this.restoreNotice(before)
@@ -843,9 +862,9 @@ export class ProjectStorage {
 
   /**
    * Open a project kept in the browser's storage (a draft, or a project of a browser with no folder). Only one the
-   * browser lists: a name that is not in its list is never handed to the storage.
+   * browser lists: a name that is not in its list is never handed to the storage. `allowed`: as for `openRecent`.
    */
-  openBrowserProject(dir: string): Promise<boolean> {
+  openBrowserProject(dir: string, allowed = false): Promise<boolean> {
     return this.enqueue(async () => {
       await this.refreshBrowserProjects()
       if (!this.browserProjects.some((project) => project.dir === dir)) {
@@ -860,18 +879,21 @@ export class ProjectStorage {
         await this.refreshBrowserProjects()
         return false
       }
-      const opened = await this.openHandle(handle, { kind: 'browser', dir })
+      const opened = await this.openHandle(handle, { kind: 'browser', dir, allowed })
       if (opened) this.persistOnce()
       return opened
     })
   }
 
-  private async openHandle(handle: FolderHandle, options: { forgetIfGone?: string; kind?: 'folder' | 'browser'; dir?: string } = {}): Promise<boolean> {
+  private async openHandle(
+    handle: FolderHandle,
+    options: { forgetIfGone?: string; kind?: 'folder' | 'browser'; dir?: string; allowed?: boolean } = {},
+  ): Promise<boolean> {
     const kind = options.kind ?? 'folder'
     const dir = options.dir ?? null
     // The project that is open already: nothing to open, and its own lock must not refuse it.
     if (this.current && (kind === 'browser' ? this.current.dir === dir : await this.current.handle.isSameEntry?.(handle)?.catch(() => false))) return true
-    if (!(await this.makeRoom('open'))) return false
+    if (!(await this.makeRoom('open', options.allowed))) return false
     let store: ProjectStore | null = null
     let release: (() => void) | null = null
     let releaseDir: (() => void) | null = null
@@ -920,10 +942,13 @@ export class ProjectStorage {
     return true
   }
 
-  /** New project, named `name` (else the page's draft name): asks first when changes would be lost. */
-  newProject(name?: string): Promise<boolean> {
+  /**
+   * New project, named `name` (else the page's draft name): asks first when changes would be lost, unless the user
+   * already `allowed` an agent to replace the project (AG-4: one question, never two).
+   */
+  newProject(name?: string, allowed = false): Promise<boolean> {
     return this.enqueue(async () => {
-      if (!(await this.makeRoom('new'))) return false
+      if (!(await this.makeRoom('new', allowed))) return false
       if (!(await this.host.newProject(name))) return false
       await this.detach()
       this.reset()
@@ -934,18 +959,21 @@ export class ProjectStorage {
   /**
    * The project is about to be replaced. With a folder, the changes are written first and the
    * user is asked only if they could not be. Without one, the user is asked whenever the
-   * project was changed. True when it may go ahead.
+   * project was changed. True when it may go ahead. `allowed`: the user already said yes to an agent
+   * doing it (its question warned that changes that cannot be kept are lost), so nothing is asked.
    */
-  private async makeRoom(action: Discard): Promise<boolean> {
+  private async makeRoom(action: Discard, allowed = false): Promise<boolean> {
     if (this.current && (this.host.dirty() ?? false)) await this.write('changed')
     // A change still waiting for its first write into the browser's storage is kept there now, not discarded.
     else if (!this.current && this.worthKeeping() && this.deps.browser.available) await this.startBrowserProject()
     this.dirty = this.worthKeeping()
     if (!this.dirty) return true
-    return this.ask(action)
+    return this.ask(action, undefined, allowed)
   }
 
-  private ask(action: Discard, name: string | null = this.folder?.name ?? null): Promise<boolean> {
+  /** Asks the user (`confirm`); `allowed` answers yes at once: the user already allowed the agent that asks (AG-4). */
+  private ask(action: Discard, name: string | null = this.folder?.name ?? null, allowed = false): Promise<boolean> {
+    if (allowed) return Promise.resolve(true)
     return new Promise((resolve) => {
       this.answer = resolve
       this.confirm = { action, name }
@@ -1258,28 +1286,37 @@ export class ProjectStorage {
     }
   }
 
-  /** The conflict banner: keep the project as it is; the next write replaces the folder's files. */
-  keepMine(): Promise<boolean> {
-    return this.enqueue(() => this.resolveConflict('keepMine'))
+  /**
+   * The conflict banner: keep the project as it is; the next write replaces the folder's files. `allowed`: the user
+   * already allowed the agent that asks (AG-4).
+   */
+  keepMine(allowed = false): Promise<boolean> {
+    return this.enqueue(() => this.resolveConflict('keepMine', allowed))
   }
 
-  /** The conflict banner: take the folder's version and drop the changes made since the last write. */
-  loadDisk(): Promise<boolean> {
-    return this.enqueue(() => this.resolveConflict('loadFolder'))
+  /** The conflict banner: take the folder's version and drop the changes made since the last write. `allowed`: as for `keepMine`. */
+  loadDisk(allowed = false): Promise<boolean> {
+    return this.enqueue(() => this.resolveConflict('loadFolder', allowed))
+  }
+
+  /** Whether the folder is in conflict now (`external`): only then does a way out of it do anything. */
+  get inConflict(): boolean {
+    return this.current !== null && this.block === 'external'
   }
 
   /**
    * One way out of a conflict. Each loses something (the folder's outside edits, or the project's changes
-   * since the last write), so the user is always asked, whoever started it, and only while the folder is in
-   * conflict: a command sent with no conflict (or one the user settled meanwhile) changes nothing.
+   * since the last write), so the user is always asked, whoever started it (an agent's question, AG-4, or this
+   * one), and only while the folder is in conflict: a command sent with no conflict (or one the user settled
+   * meanwhile) changes nothing.
    */
-  private async resolveConflict(choice: 'keepMine' | 'loadFolder'): Promise<boolean> {
+  private async resolveConflict(choice: 'keepMine' | 'loadFolder', allowed: boolean): Promise<boolean> {
     const current = this.current
     if (!current || this.block !== 'external') {
       this.notice = 'storage.noConflict'
       return false
     }
-    if (!(await this.ask(choice, current.handle.name))) return false
+    if (!(await this.ask(choice, current.handle.name, allowed))) return false
     // The question was open for a while: the same folder must still be in the same conflict.
     if (this.current !== current || this.block !== 'external') {
       this.notice = 'storage.noConflict'
@@ -1416,8 +1453,11 @@ export class ProjectStorage {
 
   // ------------------------------------------------------------------ the browser's projects
 
-  /** Deletes a project kept in the browser's storage, after asking; never the one that is open. */
-  deleteBrowserProject(dir: string): Promise<boolean> {
+  /**
+   * Deletes a project kept in the browser's storage, after asking; never the one that is open. `allowed`: the user
+   * already allowed the agent that asks (AG-4), so the question is not asked twice.
+   */
+  deleteBrowserProject(dir: string, allowed = false): Promise<boolean> {
     return this.enqueue(async () => {
       if (this.current?.dir === dir) {
         this.notice = 'storage.deleteOpen'
@@ -1438,7 +1478,7 @@ export class ProjectStorage {
       }
       try {
         const name = (this.browserProjects.find((p) => p.dir === dir) ?? this.reopen)?.name ?? null
-        if (!(await this.ask('delete', name))) return false
+        if (!(await this.ask('delete', name, allowed))) return false
         await this.deps.browser.remove(dir)
         if (this.reopen?.kind === 'browser' && this.reopen.id === dir) this.reopen = null
         return true
@@ -1526,15 +1566,15 @@ export class ProjectStorage {
    * downloads it without credentials and with the size guard, then it goes the way of an imported file. A pack
    * whose project the browser keeps already opens that copy instead of a second one (the same link clicked
    * twice). The current project is never touched before the pack is whole and valid. Downloads run one after
-   * the other, outside the storage's queue; the import itself joins the queue.
+   * the other, outside the storage's queue; the import itself joins the queue. `allowed`: as for `openRecent`.
    */
-  openUrl(url: string): Promise<boolean> {
-    const run = this.downloads.then(() => this.fetchAndOpen(url))
+  openUrl(url: string, allowed = false): Promise<boolean> {
+    const run = this.downloads.then(() => this.fetchAndOpen(url, allowed))
     this.downloads = run.catch(() => undefined)
     return run
   }
 
-  private async fetchAndOpen(raw: string): Promise<boolean> {
+  private async fetchAndOpen(raw: string, allowed: boolean): Promise<boolean> {
     const checked = checkOpenUrl(raw, this.deps.pageHostname())
     if (checked.status !== 'ok') {
       this.notice = 'openUrl.refused'
@@ -1558,11 +1598,12 @@ export class ProjectStorage {
       return false
     }
     const bytes = download.bytes
-    return this.enqueue(() => this.importBytes(bytes, packNameOf(checked.url), { reuseKept: true }))
+    return this.enqueue(() => this.importBytes(bytes, packNameOf(checked.url), { reuseKept: true, allowed }))
   }
 
   /** The pack's bytes, checked by the core, kept in a new directory of the browser's storage and opened. */
-  private async importBytes(bytes: Uint8Array, name: string, options: { reuseKept?: boolean } = {}): Promise<boolean> {
+  private async importBytes(bytes: Uint8Array, name: string, options: { reuseKept?: boolean; allowed?: boolean } = {}): Promise<boolean> {
+    const allowed = options.allowed ?? false
     // Read and checked before anything is touched: a file that is no pack changes nothing.
     let unpacked: PackImport
     try {
@@ -1587,7 +1628,7 @@ export class ProjectStorage {
         this.notice = 'openUrl.alreadyOpen'
         return true
       }
-      if (options.reuseKept && kept) return this.openKept(kept.dir)
+      if (options.reuseKept && kept) return this.openKept(kept.dir, allowed)
       if (kept || this.host.projectId() === id) {
         // Names the project and, when it is kept in the browser and not the one open, offers to open it.
         const open = this.host.projectId() === id ? null : (kept?.dir ?? null)
@@ -1597,7 +1638,7 @@ export class ProjectStorage {
         return false
       }
     }
-    if (!this.deps.browser.available) return this.openImported(name, files)
+    if (!this.deps.browser.available) return this.openImported(name, files, allowed)
     // Into a directory of the browser's storage first, as a pack is written into an empty folder: the
     // page's own project is untouched until the pack is whole there, `project.json` last.
     const dir = crypto.randomUUID()
@@ -1621,7 +1662,7 @@ export class ProjectStorage {
       return false
     }
     releaseDir?.()
-    const opened = await this.openHandle(handle, { kind: 'browser', dir })
+    const opened = await this.openHandle(handle, { kind: 'browser', dir, allowed })
     // Declined (the question before replacing a project) or refused: the copy made for it goes.
     if (!opened) await this.deps.browser.remove(dir).catch(() => undefined)
     else this.persistOnce()
@@ -1630,21 +1671,21 @@ export class ProjectStorage {
   }
 
   /** A link opened again: the copy the browser keeps (with whatever was changed in it since) opens, and the page says so. */
-  private async openKept(dir: string): Promise<boolean> {
+  private async openKept(dir: string, allowed: boolean): Promise<boolean> {
     const handle = await this.deps.browser.open(dir)
     if (!handle) {
       this.notice = 'storage.browserGone'
       return false
     }
-    const opened = await this.openHandle(handle, { kind: 'browser', dir })
+    const opened = await this.openHandle(handle, { kind: 'browser', dir, allowed })
     if (opened) this.notice = 'openUrl.keptCopy'
     await this.refreshBrowserProjects()
     return opened
   }
 
   /** Where the browser keeps nothing: the pack's project opens in the tab alone. */
-  private async openImported(name: string, files: { path: string; bytes: Uint8Array }[]): Promise<boolean> {
-    if (!(await this.makeRoom('open'))) return false
+  private async openImported(name: string, files: { path: string; bytes: Uint8Array }[], allowed: boolean): Promise<boolean> {
+    if (!(await this.makeRoom('open', allowed))) return false
     const entries: FolderEntry[] = files.map((f) =>
       f.path.startsWith('blobs/') && !needsBytes(f.path, f.bytes.subarray(0, 8)) ? { path: f.path, size: f.bytes.length } : { path: f.path, bytes: f.bytes },
     )

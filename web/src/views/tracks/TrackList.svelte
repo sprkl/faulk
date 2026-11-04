@@ -5,14 +5,20 @@
    * the selected track. The tracks themselves are listed once, as the arrangement's rows. Every action is a command
    * through the dispatcher.
    */
-  import { INSTRUMENTS, OFFER_AUDIO_TRACK } from '../../lib/project/tracks'
+  import { INSTRUMENTS } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
   import { createTrack, selectTrack } from '../../lib/track-commands'
   import { runHistory } from '../../lib/history-said'
   import { withShortcut } from '../../lib/shortcuts'
   import TrackInspector from './TrackInspector.svelte'
+  import { dropAudioFiles, type AudioDropHost } from '../../lib/browser/audio-drop'
+  import { dropTarget } from '../../lib/browser/dnd'
+  import { createsTrack } from '../../lib/browser/drop'
+  import { putItem } from '../../lib/browser/put'
+  import type { MessageKey } from '../../lib/i18n'
 
-  const { project, engine, ui, dispatcher, keys } = useStores()
+  const stores = useStores()
+  const { project, engine, ui, dispatcher, keys } = stores
   const t = ui.t
 
   // A project that opens with no selected track selects its first, once: the computer keyboard plays the
@@ -36,6 +42,26 @@
     const created = project.tracks.find((entry) => !before.has(entry.id))
     if (created) dispatcher.run(selectTrack(created.id))
     addButton?.focus()
+  }
+
+  // The empty area (#190): an instrument or a preset dropped here starts a MIDI track with it; audio files start an audio
+  // track and are imported into it (AU-4, `audio-drop.ts`).
+  let over = $state(false)
+  let dropNote = $state<MessageKey | null>(null)
+  const showDrop = $derived(ui.browserOpen || ui.dragged !== null)
+
+  /** The page's side of an audio drop: the track made and selected, its Clips panel shown, the files imported. */
+  const audioDrop: AudioDropHost = {
+    createAudioTrack: () => {
+      const before = new Set(project.tracks.map((entry) => entry.id))
+      if (!dispatcher.run(createTrack('audio', null))) return null
+      const created = project.tracks.find((entry) => !before.has(entry.id))
+      if (!created) return null
+      dispatcher.run(selectTrack(created.id))
+      ui.showPanel('clips')
+      return created.id
+    },
+    importFiles: (track, files) => stores.audioImport.importFiles(track, files),
   }
 
   function onMenuKey(event: KeyboardEvent) {
@@ -70,14 +96,24 @@
     >
   </div>
   <!-- Musical typing (#470): always shown, with the key that toggles it in its hint. -->
-  <button
-    class="ghost typing"
-    type="button"
-    data-testid="typing-mode"
-    data-mode={ui.typing}
-    title={t(ui.typing === 'notes' ? 'keys.typingHintNotes' : 'keys.typingHintShortcuts')}
-    onclick={() => keys.toggleTyping()}>{t(ui.typing === 'notes' ? 'keys.typingNotes' : 'keys.typingShortcuts')}</button
-  >
+  <div class="tools">
+    <button
+      class="ghost typing"
+      type="button"
+      data-testid="typing-mode"
+      data-mode={ui.typing}
+      title={t(ui.typing === 'notes' ? 'keys.typingHintNotes' : 'keys.typingHintShortcuts')}
+      onclick={() => keys.toggleTyping()}>{t(ui.typing === 'notes' ? 'keys.typingNotes' : 'keys.typingShortcuts')}</button
+    >
+    <button
+      class="ghost"
+      type="button"
+      aria-pressed={ui.browserOpen}
+      data-testid="browser-toggle"
+      title={withShortcut(t('browser.toggleHint'), ['Alt', 'B'])}
+      onclick={() => (ui.browserOpen ? ui.hideBrowser() : ui.showBrowser())}>{t('browser.toggle')}</button
+    >
+  </div>
 
   {#if !engine.started && !project.view}
     <p class="empty" data-testid="tracks-waiting">{t('tracks.waiting')}</p>
@@ -100,10 +136,8 @@
           {#each INSTRUMENTS as instrument (instrument.kind)}
             <button role="menuitem" type="button" onclick={() => add('midi', instrument.kind)}>{instrument.name}</button>
           {/each}
-          {#if OFFER_AUDIO_TRACK}
-            <hr />
-            <button role="menuitem" type="button" onclick={() => add('audio', null)}>{t('tracks.addAudio')}</button>
-          {/if}
+          <hr />
+          <button role="menuitem" type="button" onclick={() => add('audio', null)}>{t('tracks.addAudio')}</button>
         </div>
       {/if}
     </div>
@@ -116,6 +150,26 @@
       {/key}
     {:else}
       <p class="empty" data-testid="inspector-empty">{t('tracks.noSelection')}</p>
+    {/if}
+    {#if showDrop}
+      <div
+        class="drop"
+        class:over
+        data-testid="track-drop"
+        use:dropTarget={{
+          ui,
+          accepts: createsTrack,
+          over: (value) => {
+            over = value
+            if (value) dropNote = null
+          },
+          drop: (item) => putItem(stores, item, { type: 'new-track' }),
+          files: (files) => (dropNote = dropAudioFiles(audioDrop, files)),
+        }}
+      >
+        <p>{over ? t('browser.dropRelease') : t('browser.dropEmpty')}</p>
+        {#if dropNote}<p class="note" role="status" data-testid="track-drop-note">{t(dropNote)}</p>{/if}
+      </div>
     {/if}
   {/if}
 </aside>
@@ -138,8 +192,37 @@
     align-items: center;
     gap: var(--fk-space-2);
   }
-  .typing {
+  .tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--fk-space-2);
+  }
+  .tools .typing {
     align-self: flex-start;
+  }
+  /* The empty area (#190): where an instrument or a preset starts a track. */
+  .drop {
+    flex: 1;
+    min-height: 88px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--fk-space-2);
+    padding: var(--fk-space-3);
+    border: 1px dashed var(--fk-line);
+    border-radius: var(--fk-radius-panel);
+    color: var(--fk-text-muted);
+    text-align: center;
+  }
+  .drop.over {
+    border-style: solid;
+    border-color: var(--fk-accent);
+    background: var(--fk-accent-tint);
+    color: var(--fk-accent-fg);
+  }
+  .drop .note {
+    color: var(--fk-text);
   }
   /* Typing notes: the button is filled in the text colour (the words say it too), never a hue. */
   .typing[data-mode='notes'] {

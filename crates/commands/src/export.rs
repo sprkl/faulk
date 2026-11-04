@@ -12,8 +12,9 @@
 //!   matter: the region is what the user marked, and a render is never looped.
 //! - **What is not played.** The metronome (a click is not the song) and the loop. The
 //!   session is kept: a solo left on is heard, as it is when playing.
-//! - **Not yet**: audio clips are not streamed to the engine (AU-3), so they do not sound
-//!   in the render, though a placement of one counts for the song's length.
+//! - **Not yet**: audio clips play in the live engine since AU-4, but the offline render's
+//!   engine has no disk host to read their files (#647): they do not sound in the render,
+//!   though a placement of one counts for the song's length.
 
 use engine::msg::{ControlMsg, MsgError};
 use engine::offline::{self, MAX_BODY_SECS, SampleFormat};

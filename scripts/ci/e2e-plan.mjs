@@ -29,20 +29,21 @@ export const areas = (...names) => {
 // e2e-table:begin
 /** Named areas: the specs that exercise one part of the page. Rules below are unions of them. */
 export const AREA = {
-  arrangement: ['arrangement', 'arrangement-time', 'arrangement-handles', 'arrangement-view', 'arrangement-draw', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard', 'discoverability', 'keyboard-create', 'recording', 'piano-roll-follow', 'clip-pool', 'markers', 'context-menu', 'toolbar-overflow'],
+  arrangement: ['arrangement', 'arrangement-time', 'arrangement-handles', 'arrangement-view', 'arrangement-draw', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard', 'discoverability', 'keyboard-create', 'recording', 'piano-roll-follow', 'clip-pool', 'markers', 'context-menu', 'toolbar-overflow', 'device-browser'],
   clips: ['clip-pool'],
   grid: ['clip-names', 'clip-pool', 'grid', 'grid-clips', 'grid-to-arrangement', 'recording'],
   history: ['history', 'history-cost', 'history-names', 'keyboard-create'],
   pianoRoll: ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard', 'keyboard-create', 'recording', 'piano-roll-follow', 'context-menu'],
   mixer: ['automation', 'continuous', 'layout-4', 'mixer', 'mixer-sound', 'master-chain', 'master-pan', 'track-state'],
-  devices: ['automation', 'continuous', 'devices', 'presets', 'layout-4', 'master-chain', 'master-pan', 'track-state', 'context-menu'],
+  devices: ['automation', 'continuous', 'device-browser', 'devices', 'presets', 'layout-4', 'master-chain', 'master-pan', 'track-state', 'context-menu'],
   transport: ['all-sound-off', 'transport', 'playhead', 'space-bar', 'track-state', 'discoverability', 'recording', 'stop-to-marker', 'tap-tempo'],
-  tracks: ['tracks', 'track-order', 'lane-rows', 'discoverability'],
+  tracks: ['tracks', 'track-order', 'lane-rows', 'discoverability', 'device-browser'],
+  deviceBrowser: ['device-browser', 'devices', 'tracks', 'lane-rows', 'discoverability', 'keyboard-all-views'],
   keyboard: ['keyboard', 'keyboard-all-views', 'layout-4', 'live-input', 'typing-mode', 'track-state'],
   export: ['export-audio'],
   storage: ['project-store', 'project-save', 'project-rename', 'project-save-as-name', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability', 'open-url', 'audio-import'],
   // Importing audio files (AU-1): the pipeline in the store's Worker, the Clips panel that starts it, the storage it writes.
-  audio: ['audio-import', 'clip-pool', 'browser-storage', 'project-store'],
+  audio: ['audio-import', 'audio-play', 'clip-pool', 'browser-storage', 'project-store'],
   shortcuts: ['discoverability', 'keyboard-all-views'],
   shortcutsDialog: ['discoverability', 'keyboard-all-views', 'navigation'],
   bottomPanel: ['bottom-panel', 'layout-4', 'ux-quick-wins'],
@@ -107,11 +108,13 @@ export const RULES = [
   [/^web\/src\/views\/arrangement\//, AREA.arrangement],
   [/^web\/src\/views\/clips\/ClipsView\.svelte$/, areas('clips', 'audio')], // it starts the audio import (AU-1)
   [/^web\/src\/views\/clips\//, AREA.clips],
+  [/^web\/src\/views\/confirm\//, AREA.helper], // an agent's question before a destructive call (AG-4), asked over the helper link
   [/^web\/src\/views\/grid\//, AREA.grid],
   [/^web\/src\/views\/history\//, AREA.history],
   [/^web\/src\/views\/piano-roll\//, AREA.pianoRoll],
   [/^web\/src\/views\/mixer\//, AREA.mixer],
   [/^web\/src\/views\/devices\//, AREA.devices],
+  [/^web\/src\/views\/browser\//, AREA.deviceBrowser],
   [/^web\/src\/views\/transport\//, areas('transport', 'topBar')],
   [/^web\/src\/views\/tracks\//, AREA.tracks],
   [/^web\/src\/views\/keyboard\//, AREA.keyboard],
@@ -152,7 +155,9 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/journey\.ts$/, AREA.landing],
   [/^web\/src\/lib\/i18n\/arrangement\.ts$/, areas('arrangement', 'grid', 'shortcutsDialog')],
   [/^web\/src\/lib\/i18n\/automation\.ts$/, areas('arrangement', 'devices', 'mixer')],
+  [/^web\/src\/lib\/i18n\/browser\.ts$/, areas('deviceBrowser', 'tracks')],
   [/^web\/src\/lib\/i18n\/clips\.ts$/, areas('clips', 'audio')],
+  [/^web\/src\/lib\/i18n\/confirm\.ts$/, areas('helper', 'history')], // shown by the agents' question (lib/agents/, views/confirm/)
   [/^web\/src\/lib\/i18n\/(devices|presets|synth|drums|echo|reverb|filter|compressor)\.ts$/, areas('devices')],
   [/^web\/src\/lib\/i18n\/controls\.ts$/, areas('mixer', 'tracks', 'devices', 'valueEntry', 'arrangement', 'pianoRoll')],
   [/^web\/src\/lib\/i18n\/engine\.ts$/, areas('arrangement', 'mixer', 'topBar')],
@@ -175,6 +180,7 @@ export const RULES = [
   // Libraries with one clear audience.
   [/^web\/src\/lib\/shortcuts\.ts$/, AREA.shortcuts],
   [/^web\/src\/lib\/export\//, AREA.export],
+  [/^web\/src\/lib\/browser\//, AREA.deviceBrowser],
   [/^web\/src\/lib\/storage\//, AREA.storage],
   [/^web\/src\/lib\/audio\//, AREA.audio],
   [/^web\/src\/lib\/midi\//, AREA.midi],

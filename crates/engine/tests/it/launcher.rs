@@ -866,7 +866,7 @@ fn the_grid_states_follow_a_clip_from_armed_to_idle() {
 }
 
 /// The launches that leave the track silent are reported as a stop, never as a clip that
-/// starts: an empty cell, an audio clip (its start is AU-4's) and a clip another track plays.
+/// starts: an empty cell, an audio clip on a MIDI track and a clip another track plays.
 #[test]
 fn a_launch_that_leaves_the_track_silent_is_reported_as_stopping() {
     let mut r = Rig::new(48_000, 2, Quantize::Bar);

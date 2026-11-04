@@ -13,8 +13,10 @@ function host(result: AgentResult | Error = { status: 'applied', output: { type:
 describe('answerAgentCall', () => {
   it('runs the command as the agent and answers what the page did', async () => {
     const h = host({ status: 'refused', error: { code: 'not_found', entity: 'track', id: 'x' } })
-    const result = await answerAgentCall(h, 'claude-code', { type: 'track.delete', track: 'x' })
-    expect(h.runForAgent).toHaveBeenCalledWith({ type: 'track.delete', track: 'x' }, 'agent:claude-code')
+    const link = new AbortController()
+    const result = await answerAgentCall(h, 'claude-code', { type: 'track.delete', track: 'x' }, link.signal)
+    // The link's signal goes with it: a question the call waits on is withdrawn when the link closes (AG-4).
+    expect(h.runForAgent).toHaveBeenCalledWith({ type: 'track.delete', track: 'x' }, 'agent:claude-code', link.signal)
     expect(result).toEqual({ status: 'refused', error: { code: 'not_found', entity: 'track', id: 'x' } })
   })
 

@@ -9,7 +9,6 @@
   import LinkMark from '../../lib/components/LinkMark.svelte'
   import { barStart } from '../../lib/arrangement-commands'
   import { CLIP_DRAG_TYPE, clipTrackType, freeScene, gridCommand, placeCommand, poolNames, poolOf, type PoolClip } from '../../lib/clip-pool'
-  import { AUDIO_IMPORT_UI } from '../../lib/features'
   import { cancelAudioImport, chooseAudio, deleteClip } from '../../lib/clip-commands'
   import type { ImportFailure } from '../../lib/audio/import/audio-import.svelte'
   import type { MessageKey } from '../../lib/i18n'
@@ -108,7 +107,7 @@
 </script>
 
 <div class="clips" data-testid="clips-panel">
-  {#if AUDIO_IMPORT_UI && track && trackId && track.kind === 'audio'}
+  {#if track && trackId && track.kind === 'audio'}
     <div class="import" data-testid="audio-import">
       <button
         class="ghost"
@@ -133,6 +132,9 @@
       {:else if audioImport.needsClick}
         <span class="failure" role="status" data-testid="audio-import-needs-click">{t('clips.importNeedsClick')}</span>
         <button class="ghost" type="button" onclick={() => audioImport.dismiss()}>{t('clips.dismiss')}</button>
+      {:else if engine.mode === 'native'}
+        <!-- The helper reads no project folder yet (AU-7): its engine keeps audio clips silent. -->
+        <span class="note" role="status" data-testid="audio-boost-silent">{t('clips.boostSilent')}</span>
       {/if}
     </div>
   {/if}
@@ -180,7 +182,7 @@
             <button
               class="ghost"
               type="button"
-              disabled={!entry.midi || !free}
+              disabled={!free || (!entry.midi && entry.uses > 0)}
               title={free ? t('clips.toGridHint') : t('clips.noFreeSlot')}
               data-testid="pool-grid"
               onclick={(event) => toGrid(entry, event.altKey)}>{t('clips.toGrid')}</button

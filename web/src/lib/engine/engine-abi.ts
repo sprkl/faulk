@@ -43,11 +43,6 @@ export interface EngineExports {
   fk_disk_done(channel: number, id: number, len: number, fileLen: number): number
   fk_disk_failed(channel: number, id: number, code: number): void
   fk_disk_set_budget(channel: number, bytes: number): void
-  /** The test voice (AU-3, render instance), until AU-4's clip player: 1 when it started. */
-  fk_probe_start(channel: number, track: number, port: number, source: number, start: number, end: number, loopStart: number, loopEnd: number): number
-  fk_probe_read(channel: number, frames: number): number
-  fk_probe_out(channel: number): number
-  fk_probe_channels(channel: number): number
 }
 
 /**

@@ -111,6 +111,31 @@ describe("the page's control link (#608)", () => {
     expect(quiet.onClosed).not.toHaveBeenCalled()
   })
 
+  it("aborts its calls' signal when it closes, whoever closes it: their questions are withdrawn (AG-4)", async () => {
+    vi.stubGlobal('WebSocket', FakeSocket)
+    const told = events()
+    const opening = ControlLink.open('t', told)
+    const socket = FakeSocket.last
+    socket.open()
+    await opening
+    socket.onmessage!({ data: JSON.stringify({ type: 'agent.call', id: 7, agent: 'a', command: { type: 'project.new' } }) })
+    const signal = told.onAgentCall.mock.calls[0][3] as AbortSignal
+    expect(signal.aborted).toBe(false)
+    socket.drop()
+    expect(signal.aborted).toBe(true)
+
+    const mine = events()
+    const second = ControlLink.open('t', mine)
+    const other = FakeSocket.last
+    other.open()
+    const link = await second
+    other.onmessage!({ data: JSON.stringify({ type: 'agent.call', id: 8, agent: 'a', command: { type: 'project.new' } }) })
+    const own = mine.onAgentCall.mock.calls[0][3] as AbortSignal
+    link.close()
+    other.drop()
+    expect(own.aborted).toBe(true)
+  })
+
   it('says when the helper pushed the link out for newer ones', async () => {
     vi.stubGlobal('WebSocket', FakeSocket)
     const told = events()

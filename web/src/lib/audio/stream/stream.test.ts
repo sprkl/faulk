@@ -1,10 +1,10 @@
 // The disk side of the Web engine (AU-3): the executor's job table, paths and failures against a
 // fake folder, then the shipped engine module under Node, two instances on one shared memory as
 // the prepare Worker and the AudioWorklet run it: the prepare instance plans the reads and the
-// executor serves them from a folder in memory, the render instance's test voice reads the rings
-// and the resident segments (the consumer until AU-4's clip player). The control stream is the
-// Rust scenario's (`crates/engine-wasm/tests/fixtures/stream.stream`), its sources made here
-// with the same formulas as `engine::audio_source::scenario`.
+// executor serves them from a folder in memory, the render instance's audio clip player (AU-4)
+// plays clips from the resident segments and the rings. The control streams are the Rust
+// scenario's (`crates/engine-wasm/tests/fixtures/stream.stream` and `player*.stream`), its
+// sources made here with the same formulas as `engine::audio_source::scenario`.
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { becomeRenderInstance, createChannel, instantiate, ROLE_RENDER } from '../../engine/engine-abi'
@@ -153,34 +153,47 @@ describe('the disk executor', () => {
 
 const bytes = new Uint8Array(readFileSync(new URL('../../engine/wasm/engine.wasm', import.meta.url))).buffer
 const module = new WebAssembly.Module(bytes)
-const fixture = new Uint8Array(readFileSync(new URL('../../../../../crates/engine-wasm/tests/fixtures/stream.stream', import.meta.url)))
+const fixtureOf = (name: string) => new Uint8Array(readFileSync(new URL(`../../../../../crates/engine-wasm/tests/fixtures/${name}`, import.meta.url)))
+const fixture = fixtureOf('stream.stream')
+/** The player's setup, the play and launch of clip 0 (played once), the launch of clip 1 (a short loop, gain 0.5). */
+const playerSetup = fixtureOf('player.stream')
+const playerLaunch = fixtureOf('player-launch.stream')
+const playerLoop = fixtureOf('player-loop.stream')
+/** Clip 1's gain (`scenario::SHORT_GAIN`). */
+const SHORT_GAIN = 0.5
+/** Frames after an onset that may differ from the source: the track's 5 ms fade in, the player's fade and gate (2 ms each). */
+const SETTLE = Math.ceil((RATE * 5) / 1000) + 2 * Math.max(1, Math.round(RATE * 0.002))
 
 describe('the shipped engine module streams from a folder', () => {
-  function rig(files: Map<string, Uint8Array>) {
+  function rig(files: Map<string, Uint8Array>, stream = fixture) {
     const memory = new WebAssembly.Memory({ initial: 256, maximum: 65_536, shared: true })
     const prepare = instantiate(module, memory)
     const setup = createChannel(prepare, RATE)
     const render = instantiate(module, memory)
     becomeRenderInstance(render, setup)
     const ch = setup.channel
-    const at = prepare.fk_inbox(ch, fixture.length)
-    new Uint8Array(memory.buffer, at, fixture.length).set(fixture)
-    expect(prepare.fk_push(ch, at, fixture.length)).toBe(0)
+    /** Pushes a control stream, as the prepare Worker does. */
+    const send = (bytes: Uint8Array) => {
+      const at = prepare.fk_inbox(ch, bytes.length)
+      new Uint8Array(memory.buffer, at, bytes.length).set(bytes)
+      expect(prepare.fk_push(ch, at, bytes.length)).toBe(0)
+    }
+    send(stream)
     let clock = 0
     const disk = new DiskExecutor(prepare, memory, ch, () => clock)
     disk.folder(memoryDir(files))
-    /** One block: the worklet's pump and voice, then the Worker's flush and disk tick. */
-    const block = async (read: boolean) => {
-      render.fk_pump(ch)
-      const got = read ? render.fk_probe_read(ch, BLOCK) : 0
-      const out = read ? new Float32Array(memory.buffer, render.fk_probe_out(ch), BLOCK * 2).slice() : null
+    /** One block: the worklet's render, then the Worker's flush and disk tick. Returns the block's left and right. */
+    const block = async () => {
+      render.fk_render(ch, BLOCK)
+      const left = new Float32Array(memory.buffer, render.fk_left(ch), BLOCK).slice()
+      const right = new Float32Array(memory.buffer, render.fk_right(ch), BLOCK).slice()
       clock += (BLOCK * 1000) / RATE
       prepare.fk_flush(ch)
       disk.tick()
       await Promise.all(disk.inFlight)
-      return { got, out }
+      return { left, right }
     }
-    return { memory, prepare, render, ch, block, disk }
+    return { memory, prepare, render, ch, block, disk, send }
   }
 
   const standard = () =>
@@ -190,51 +203,33 @@ describe('the shipped engine module streams from a folder', () => {
       [`.faulk/cache/pcm/${SHORT}.pcm`, shortCache()],
     ])
 
-  it('plays a clip start from memory then the ring, a jump on time and a short loop, without allocating', async () => {
-    const r = rig(standard())
-    for (let i = 0; i < 200; i++) await r.block(false)
+  it('plays a clip launched from the grid from memory then the ring, and a short loop at its gain, without allocating', async () => {
+    const r = rig(standard(), playerSetup)
+    for (let i = 0; i < 200; i++) await r.block()
     const allocs = [r.prepare.fk_allocs(ROLE_RENDER), r.prepare.fk_frees(ROLE_RENDER)]
-    const play = async (
-      source: number,
-      start: number,
-      end: number,
-      loop: [number, number] | null,
-      blocks: number,
-      expected: (i: number, c: number) => number,
-    ) => {
-      r.render.fk_pump(r.ch)
-      expect(r.render.fk_probe_start(r.ch, 0, 0, source, start, end, loop?.[0] ?? 0, loop?.[1] ?? 0)).toBe(1)
-      let waited = 0
-      let started = false
+    /** Renders `blocks` blocks after `launch` and checks every frame past the onset's fades against `expected`. */
+    const play = async (launch: Uint8Array, blocks: number, expected: (i: number, c: number) => number | null) => {
+      r.send(launch)
+      let heard = 0
       for (let b = 0; b < blocks; b++) {
-        const { got, out } = await r.block(true)
+        const { left, right } = await r.block()
         for (let f = 0; f < BLOCK; f++) {
           const i = b * BLOCK + f
-          const silent = out![2 * f] === 0 && out![2 * f + 1] === 0
-          if (!started && silent && f >= got) {
-            waited++
-            continue
-          }
-          started = true
-          expect([out![2 * f], out![2 * f + 1]], `frame ${i}`).toEqual([expected(i, 0), expected(i, 1)])
+          if (left[f] !== 0) heard++
+          // Launched at once: the clip's first frame is the first of the block that takes the launch.
+          if (i < SETTLE || expected(i, 0) === null) continue
+          expect([left[f], right[f]], `frame ${i}`).toEqual([expected(i, 0), expected(i, 1)])
         }
       }
-      return waited
+      return heard
     }
-    // A clip start: resident, no wait, handed over to the ring after 1.5 s.
-    expect(await play(0, CLIP_START, CLIP_START + 30 * RATE, null, 250, (i, c) => longValue(CLIP_START + i, c))).toBe(0)
-    // A jump: a short wait, then on time.
-    const jump = await play(0, 200_000, LONG_FRAMES, null, 100, (i, c) => longValue(200_000 + i, c))
-    expect(jump).toBeGreaterThan(0)
-    expect(jump).toBeLessThan(RATE / 4)
-    // A short loop of the short source, from memory.
-    const at = (i: number) => (i < 1_000 ? i : 1_000 + ((i - 1_000) % 800))
-    expect(await play(1, 0, SHORT_FRAMES, [1_000, 1_800], 100, (i, c) => shortValue(at(i), c))).toBe(0)
-    // A short loop of the long source, through the ring: a wait, then every wrap on time.
-    const wrap = (i: number) => (i < 1_000 ? 299_000 + i : 300_000 + ((i - 1_000) % 1_600))
-    expect(await play(0, 299_000, LONG_FRAMES, [300_000, 301_600], 150, (i, c) => longValue(wrap(i), c))).toBeGreaterThan(0)
-    // A render writes the report (about 30 per second): enough frames for one.
-    for (let i = 0; i < 4; i++) r.render.fk_render(r.ch, BLOCK)
+    // Clip 0 from its start: resident, then the ring after 1.5 s.
+    expect(await play(playerLaunch, 250, (i, c) => longValue(CLIP_START + i, c))).toBeGreaterThan(30_000)
+    // Clip 1, a short loop of the short source from memory, at half gain; each wrap's declick skipped.
+    const edge = Math.max(1, Math.round(RATE * 0.002))
+    const at = (i: number) => (i < 1_800 ? i : 1_000 + ((i - 1_800) % 800))
+    const heard = await play(playerLoop, 100, (i, c) => (i >= 1_800 && (i - 1_800) % 800 < edge ? null : Math.fround(shortValue(at(i), c) * SHORT_GAIN)))
+    expect(heard).toBeGreaterThan(12_000)
     expect([r.prepare.fk_allocs(ROLE_RENDER), r.prepare.fk_frees(ROLE_RENDER)]).toEqual(allocs)
     const report = readFeedback(r.memory.buffer, r.prepare.fk_feedback(r.ch), r.prepare.fk_feedback_len(r.ch))!
     expect(report.diskUnderruns).toBe(0)
@@ -252,10 +247,10 @@ describe('the shipped engine module streams from a folder', () => {
       for (let i = 0; i < 4; i++) r.render.fk_render(r.ch, BLOCK)
       return readFeedback(r.memory.buffer, r.prepare.fk_feedback(r.ch), r.prepare.fk_feedback_len(r.ch))!.offlineSources
     }
-    for (let i = 0; i < 20; i++) await r.block(false)
+    for (let i = 0; i < 20; i++) await r.block()
     expect(await offline()).toBe(1)
     files.set(`blobs/${LONG}`, wav)
-    for (let i = 0; i < 200; i++) await r.block(false)
+    for (let i = 0; i < 200; i++) await r.block()
     expect(await offline()).toBe(0)
   }, 60_000)
 })

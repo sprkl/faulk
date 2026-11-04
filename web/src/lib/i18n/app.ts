@@ -6,6 +6,7 @@
 
 import { arrangement } from './arrangement'
 import { automation } from './automation'
+import { browser } from './browser'
 import { clips } from './clips'
 import { audioExport } from './export'
 import { engine } from './engine'
@@ -18,6 +19,7 @@ import { controls } from './controls'
 import { devices } from './devices'
 import { drums } from './drums'
 import { compressor } from './compressor'
+import { agentConfirm } from './confirm'
 import { echo } from './echo'
 import { filter } from './filter'
 import { reverb } from './reverb'
@@ -44,6 +46,7 @@ export const features = {
   shortcuts,
   layout,
   tracks,
+  browser,
   transport,
   engine,
   helper,
@@ -69,6 +72,7 @@ export const features = {
   audioExport,
   history,
   refusal,
+  agentConfirm,
 } as const satisfies Record<string, FeatureMessages>
 
 type Features = typeof features

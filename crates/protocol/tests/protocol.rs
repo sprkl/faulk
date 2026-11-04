@@ -204,6 +204,22 @@ fn bundle_carries_the_command_contract() {
 }
 
 #[test]
+fn bundle_lists_the_destructive_commands_the_page_confirms() {
+    // AG-4: the page asks the user before an agent's call of each of them; the list is the
+    // catalog's `x-destructive` flag, in the catalog's order.
+    let bundle = schema_bundle();
+    let expected: Vec<String> = commands::catalog()
+        .into_iter()
+        .filter(|spec| spec.destructive)
+        .map(|spec| spec.name)
+        .collect();
+    assert!(!expected.is_empty());
+    assert!(expected.contains(&"project.new".to_owned()));
+    assert_eq!(bundle["destructive_commands"], serde_json::json!(expected));
+    assert_eq!(bundle["agent_confirm_ms"], protocol::AGENT_CONFIRM_MS);
+}
+
+#[test]
 fn the_single_synth_ids_are_valid_and_distinct() {
     let bundle = schema_bundle();
     let track = TrackId::parse(single_synth::TRACK).unwrap();

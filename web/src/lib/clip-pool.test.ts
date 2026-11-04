@@ -62,6 +62,24 @@ describe('the clip pool (#473)', () => {
     expect(poolNames(poolOf(twins, 't'), 'Audio clip')).toEqual({ c: 'Bass', a: 'Riff (1)', b: 'Riff (2)', d: 'Audio clip' })
   })
 
+  it('puts an audio clip used nowhere in a slot itself, and no used one (no audio copy yet)', () => {
+    const audio = (slot: string | null) => ({
+      name: 'Loop',
+      color: null,
+      slot,
+      content: { audio: { media: { hash: 'a', sample_rate: 48000, channels: 2, frames: 48000, name: 'loop.wav' } } },
+    })
+    const withAudio = {
+      scenes: project.scenes,
+      tracks: { a: { clips: { loose: audio(null), used: audio('s1') }, placements: {} } },
+    } as unknown as Pick<Project, 'tracks' | 'scenes'>
+    const [loose, used] = poolOf(withAudio, 'a')
+    expect(loose!.midi).toBe(false)
+    expect(gridCommand(loose!, 's2', false)).toEqual({ type: 'clip.move', clip: 'loose', slot: 's2', track: null })
+    expect(gridCommand(used!, 's2', false)).toBeNull()
+    expect(placeCommand(loose!, 0, false)).toBeNull()
+  })
+
   it('finds the first free slot of the track in scene order', () => {
     expect(freeScene(project, 't')).toBeNull()
     const more = { ...project, scenes: { ...project.scenes, s0: { name: 'Scene 0', order: 'Zz' }, s3: { name: 'Scene 3', order: 'a2' } } }
