@@ -199,6 +199,9 @@ fn examples() -> Vec<(Command, State)> {
             track: Some(f.track.clone()),
         })),
         on(Command::View(view::Command::SelectTrack { track: None })),
+        on(Command::View(view::Command::SetTheme {
+            theme: view::Theme::Light,
+        })),
     ]
     .into_iter()
     .chain(clip_examples::examples())
@@ -709,6 +712,57 @@ fn select_track_is_session_only_and_reports_the_previous_selection() {
     );
     assert_eq!(s.session.selected_track, None);
     assert_eq!(second.events, [ProjectEvent::TrackSelected { track: None }]);
+}
+
+/// `view.set_theme` (#687): the page keeps the theme, so the command changes nothing here;
+/// its tool says what it takes, is live, never undoable nor destructive, and refuses any
+/// other theme.
+#[test]
+fn set_theme_is_live_changes_nothing_and_takes_the_three_themes() {
+    use serde_json::json;
+    let mut s = fixture().state;
+    let before = s.clone();
+    let mut c = context();
+    for theme in [view::Theme::System, view::Theme::Dark, view::Theme::Light] {
+        let out = Command::View(view::Command::SetTheme { theme })
+            .apply(&mut s, &mut c)
+            .unwrap();
+        assert_eq!(out.output, Output::View(view::Output::SetTheme {}));
+        assert!(matches!(out.undo, commands::Undo::None));
+        assert!(out.events.is_empty() && out.control.is_empty());
+    }
+    assert_eq!(s.project, before.project);
+    assert_eq!(s.session, before.session);
+
+    let tool = catalog()
+        .into_iter()
+        .find(|t| t.name == "view.set_theme")
+        .expect("a tool for view.set_theme");
+    assert_eq!(tool.kind, commands::Kind::Live);
+    assert_eq!(tool.undo, commands::UndoKind::None);
+    assert!(!tool.destructive);
+    for word in ["dark", "light", "system", "default", "not undoable"] {
+        assert!(
+            tool.description.contains(word),
+            "{word}: {}",
+            tool.description
+        );
+    }
+    let valid = jsonschema::draft202012::new(&tool.input_schema).unwrap();
+    for theme in ["system", "dark", "light"] {
+        assert!(valid.is_valid(&json!({ "theme": theme })), "{theme}");
+    }
+    for bad in [
+        json!({ "theme": "sepia" }),
+        json!({ "theme": null }),
+        json!({}),
+    ] {
+        assert!(!valid.is_valid(&bad), "{bad}");
+    }
+    assert!(
+        serde_json::from_value::<Command>(json!({"type": "view.set_theme", "theme": "sepia"}))
+            .is_err()
+    );
 }
 
 #[test]

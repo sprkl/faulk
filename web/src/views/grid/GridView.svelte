@@ -1217,11 +1217,11 @@
   .cell[data-state='playing'],
   .cell[data-state='restarting'] {
     background: var(--track-color, var(--fk-accent));
-    color: #141414;
+    color: var(--fk-on-signal);
   }
   .cell[data-state='playing'] .cname,
   .cell[data-state='restarting'] .cname {
-    color: #141414;
+    color: var(--fk-on-signal);
   }
   .cell[data-state='queued'],
   .cell[data-state='restarting'] {
@@ -1403,7 +1403,7 @@
   }
   .actions .danger {
     border-color: var(--fk-rec);
-    color: var(--fk-rec);
+    color: var(--fk-rec-fg);
   }
 
   :where(button, input):focus-visible {

@@ -5,7 +5,7 @@
  * notes in sight, not the notes of the clip.
  */
 
-import { RULER_HEIGHT, type BodyFrame, type Colors } from '../../lib/components/timegrid/render'
+import { RULER_HEIGHT, trackInk, type BodyFrame, type Colors } from '../../lib/components/timegrid/render'
 import { tickToX, type View } from '../../lib/components/timegrid/grid'
 import { drawHandles } from '../../lib/components/timegrid/handles'
 import type { Note, TickLoop } from '../../lib/generated/protocol'
@@ -29,6 +29,7 @@ export interface RollFrame {
   /** The names of the keys the instrument answers to (a drum kit), or null for a pitched instrument: the other rows are dimmed. */
   names: ReadonlyMap<number, string> | null
   /** The colour of the track (#470): the notes are drawn in it, their brightness following their velocity. */
+  /** The track's hue; empty when the roll shows no track (the notes take the muted text colour). */
   trackColor: string
   /** The notes of the other tracks' clips at the same time range (#470): hollow, neutral, read-only. Empty when hidden. */
   others: readonly GhostNote[]
@@ -168,7 +169,7 @@ function drawNotes(ctx: CanvasRenderingContext2D, roll: RollFrame, frame: BodyFr
   drawOthers(ctx, roll, frame)
   // A note is the track's colour, brighter as it is louder; the selected ones are inverted (white).
   const paint = (list: readonly Note[], selected: boolean) => {
-    ctx.fillStyle = selected ? colors.text : roll.trackColor
+    ctx.fillStyle = selected ? colors.text : trackInk(roll.trackColor || colors.barLine, colors)
     for (const n of list) {
       const x = tickToX(n.start, view)
       const w = Math.max(MIN_NOTE_PX, n.length * view.pxPerTick - 1)
@@ -311,7 +312,7 @@ export function drawLane(
   clipLength: number,
   colors: Colors,
   hover: string | null = null,
-  trackColor: string = colors.accent,
+  trackColor: string = '',
 ): void {
   ctx.fillStyle = colors.bg
   ctx.fillRect(0, 0, width, height)
@@ -339,13 +340,14 @@ export function drawLane(
     ctx.fillRect(x, height - h, 3, h)
   }
   const hasHidden = hidden.size > 0
+  const ink = trackInk(trackColor || colors.barLine, colors)
   ctx.globalAlpha = 0.85
   for (const n of notes) {
     const x = tickToX(n.start, view)
     if (x > width) break
     const key = hasHidden || selected.size > 0 ? noteKey(n) : ''
     if (hasHidden && hidden.has(key)) continue
-    bar(n, selected.size > 0 && selected.has(key) ? colors.text : trackColor)
+    bar(n, selected.size > 0 && selected.has(key) ? colors.text : ink)
   }
   ctx.globalAlpha = 1
   for (const n of ghosts) bar(n, colors.text)

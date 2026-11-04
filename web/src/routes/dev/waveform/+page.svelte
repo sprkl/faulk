@@ -6,6 +6,7 @@
   // of the product UI.
   import '../../../lib/styles/app.css'
   import Waveform from '../../../lib/components/Waveform.svelte'
+  import { TRACK_COLORS } from '../../../lib/project/tracks'
   import { BLOCK, FACTOR, LEVELS, type Peaks } from '../../../lib/audio/peaks/format'
 
   const enabled = import.meta.env.DEV || import.meta.env.VITE_FAULK_DEV_ROUTES === '1'
@@ -85,12 +86,13 @@
 </svelte:head>
 
 {#if enabled}
-  <main class="demo" data-theme="dark">
+  <!-- The page's theme (#687): the waveform is a track's hue, drawn with the theme's ink like a clip in the Clips panel. -->
+  <main class="demo">
     <header>
       <span>One hour, stereo, 48 kHz. Wheel: scroll. Ctrl + wheel: zoom.</span>
     </header>
     <div class="wave" bind:this={box} data-testid="waveform-surface" data-from={from} data-frames-per-pixel={framesPerPixel} data-frames={FRAMES}>
-      <Waveform {peaks} {from} {framesPerPixel} color="var(--fk-accent)" />
+      <Waveform {peaks} {from} {framesPerPixel} color={TRACK_COLORS[7]} track />
     </div>
   </main>
 {/if}

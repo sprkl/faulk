@@ -267,7 +267,7 @@
     width: 100%;
     background: var(--fk-accent);
     border-color: var(--fk-accent);
-    color: #fff;
+    color: var(--fk-on-accent);
     font-weight: 600;
   }
   button.primary:hover:not(:disabled) {
