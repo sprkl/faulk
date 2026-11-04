@@ -64,7 +64,13 @@ function pitchRange(notes: readonly Note[]): [number, number] {
   return range
 }
 
-export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame, scene: ArrangementFrame): void {
+/** What a frame drew, for the browser checks: the audio blocks drawn with their waveform. */
+export interface ArrangementDrawn {
+  waveforms: number
+}
+
+export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame, scene: ArrangementFrame): ArrangementDrawn {
+  let waveforms = 0
   const { width, height, view, colors, dpr } = frame
   const crisp = (v: number) => (Math.round(v * dpr) + 0.5) / dpr
   ctx.save()
@@ -120,7 +126,7 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
       const roomy = h >= NAME_ROOM
       const top = y + (roomy ? 16 : 2)
       const height = Math.max(1, h - (roomy ? 18 : 4))
-      drawAudio(ctx, frame, block, block.audio, x0, top, height, scene.peaksOf?.(block.audio.media) ?? null, (ghost ? 0.7 : 0.95) * k)
+      if (drawAudio(ctx, frame, block, block.audio, x0, top, height, scene.peaksOf?.(block.audio.media) ?? null, (ghost ? 0.7 : 0.95) * k)) waveforms++
     }
     // The notes, as lines across the part of the clip that the block shows.
     const notes = block.notes
@@ -248,6 +254,7 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
     ctx.fillRect(x1 - 2, 0, 2, RULER_HEIGHT)
     ctx.globalAlpha = 1
   }
+  return { waveforms }
 }
 
 /**
@@ -265,12 +272,12 @@ function drawAudio(
   height: number,
   peaks: Peaks | null,
   alpha: number,
-) {
+): boolean {
   const { width, view, dpr } = frame
   const x1 = tickToX(block.end, view)
   const left = Math.max(0, x0 + 1)
   const right = Math.min(width, x1 - 1)
-  if (right <= left) return
+  if (right <= left) return false
   ctx.save()
   ctx.beginPath()
   ctx.rect(left, top, right - left, height)
@@ -281,7 +288,7 @@ function drawAudio(
     ctx.fillStyle = block.color
     ctx.fillRect(left, Math.floor(top + height / 2), right - left, 1)
     ctx.restore()
-    return
+    return false
   }
   // Frames of the file a CSS pixel holds.
   const perPixel = audio.framesPerTick / view.pxPerTick
@@ -301,6 +308,7 @@ function drawAudio(
     )
   }
   ctx.restore()
+  return true
 }
 
 /** The link mark of a linked clip: two interlocked rounded links, 11 by 7 px, drawn in the current fill colour's stroke. */

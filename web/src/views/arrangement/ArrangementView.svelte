@@ -763,7 +763,7 @@
   })
 
   const body = (ctx: CanvasRenderingContext2D, frame: BodyFrame) => {
-    drawArrangement(ctx, frame, {
+    const drawn = drawArrangement(ctx, frame, {
       layout,
       scrollY: y0,
       blocks,
@@ -803,6 +803,8 @@
     const stats = drawAutomation(ctx, frame, { lanes, box })
     // For the e2e measure: how many points the last frame looked at, and whether it drew them as columns.
     if (stage) {
+      // The audio placements drawn with their waveform (AU-6).
+      stage.dataset.waveforms = String(drawn.waveforms)
       stage.dataset.lanePoints = String(stats.visible)
       stage.dataset.laneDense = String(stats.dense)
     }

@@ -112,6 +112,8 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
       // `author` runs the command as that author (`agent:<name>`), as the agents' relay will (AG-1).
       __faulkRun: (command: Command, author?: string) => dispatcher.run(command, { author }),
       __faulkView: () => project.view,
+      // A command run as an agent's call, with its answer (`mixer.levels` reads the meters, #665; `audio-clips.spec.ts`).
+      __faulkAgent: (command: Command, author = 'agent:check') => dispatcher.runForAgent(command, author),
       // The history's entries (done, undone): a check counts that one gesture or key is one entry.
       __faulkHistory: () => dispatcher.history(),
       // The answer of `project.list_stored` (`storage-commands.spec.ts`).
