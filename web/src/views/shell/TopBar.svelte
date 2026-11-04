@@ -25,7 +25,8 @@
    *      name's room and the tabs' padding get tighter,
    *   3  the launch quantization moves to that menu too (the command is the same, the menu runs it),
    *   4  the idle take target text hides (the record button's title and a status line for screen readers keep it; the live
-   *      count-in and a lost-note notice never hide). It goes last: it says where the next take lands (spec § 4.1).
+   *      count-in and a lost-note notice never hide), and the master meter shrinks again to 40 px. The target goes last: it
+   *      says where the next take lands (spec § 4.1).
    * The project name keeps its minimum room at every step (`ProjectMenu.svelte`). Never hidden: the project, the views, the
    * transport's main controls, the engine pill with its latency and load, the help.
    */
@@ -179,7 +180,7 @@
         {#if waiting}<span class="waiting" aria-hidden="true" data-testid="engine-waiting"></span>{/if}
       </button>
       <!-- The master's level, in every view: the output is what the listener hears, whatever the view shows. -->
-      <div class="master-meter" class:short={fit >= 1}>
+      <div class="master-meter" class:short={fit >= 1} class:shortest={fit >= 4}>
         <LevelMeter
           snap={meters.snap(MASTER_METER)}
           orientation="horizontal"
@@ -371,6 +372,10 @@
   }
   .master-meter.short :global(.meter) {
     --len: 64px;
+  }
+  /* Last step of the fold: a short bar, the clip light stays. */
+  .master-meter.shortest :global(.meter) {
+    --len: 40px;
   }
   /* The overflow button: as wide as a transport tool, so it costs one slot of the bar. */
   .more {
