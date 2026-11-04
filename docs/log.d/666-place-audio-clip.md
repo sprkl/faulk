@@ -1,0 +1,2 @@
+2026-11-04
+* **Update** (#666): `arrangement.place` accepts an audio clip of an audio track: one placement of the whole clip (offset 0, its frames), end computed at the project tempo, never carving (an overlap or a span outside [0, 2^40] ticks is refused), undone by `arrangement.restore`; `length` and `offset` are refused for an audio clip (they are ticks) and a grid clip is pointed to `clip.import_audio`. The Clips panel keeps "Place at the playhead" closed to audio clips: the placement would be invisible until AU-6.
