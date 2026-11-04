@@ -18,6 +18,7 @@ const result = (reductionDb: number): ExportResult => ({
   peakDb: -0.3,
   clipped: 0,
   reductionDb,
+  silencedFrames: 0,
   tailCut: false,
   missing: [],
   renderMs: 10,

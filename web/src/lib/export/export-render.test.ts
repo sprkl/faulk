@@ -99,6 +99,8 @@ describe('the export render', () => {
     expect(done.clipped).toBe(0)
     // A mix under the ceiling never engages the output limiter, so the gain reduction is 0 (#402).
     expect(done.reduction).toBe(0)
+    // The shipped module's count of frames the output protection silenced for a non-finite sample: a number, 0 on a clean song.
+    expect(done.silenced).toBe(0)
   })
 
   it('reports its progress up to the end of the song, then the tail', async () => {
