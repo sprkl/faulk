@@ -23,6 +23,12 @@ export class EngineStore {
   voices = $state(0)
   /** The engine's last report (meters per track and master, transport, playhead, load, counters). */
   feedback = $state.raw<FeedbackReport | null>(null)
+  /**
+   * Stereo frames the output protection of the engine that plays turned to silence because a sample was non-finite
+   * (#667): since that engine started for this page (a helper session counts from its first report). The engine
+   * pill and its dialog say so.
+   */
+  silencedFrames = $state(0)
   /** The engine's CPU load, smoothed, and its peak held (#486); `null` while the engine does not measure it. */
   load = $state.raw<EngineLoad | null>(null)
   /** Notes sounding, for the piano strip and the MIDI activity light. */

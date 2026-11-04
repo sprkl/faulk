@@ -9,6 +9,7 @@
   import LevelMeter from '../../lib/components/LevelMeter.svelte'
   import { incompatibleMessage } from '../../lib/engine/helper-client'
   import { absentHelperMessages } from '../../lib/engine/local-access'
+  import { silencedDuration } from '../../lib/engine/silenced'
   import { MASTER_METER, useStores } from '../../lib/stores'
   import { allNotesOff } from '../../lib/synth-commands'
   import { QUANTIZE_GRIDS, DEFAULT_QUANTIZE_STRENGTH } from '../piano-roll/roll'
@@ -31,6 +32,13 @@
   )
   // The engine's load (#486): smoothed, and the peak of the last seconds.
   const load = $derived(engine.load ? t('engine.loadValue', { pct: Math.round(engine.load.smoothed * 100), peak: Math.round(engine.load.peak * 100) }) : null)
+
+  // What the output protection silenced since this engine started (#667), as a duration.
+  const silenced = $derived.by(() => {
+    if (engine.silencedFrames === 0) return t('engine.silencedNone')
+    const d = silencedDuration(engine.silencedFrames, engine.status?.sampleRate ?? 0, ui.lang)
+    return t('engine.silencedValue', { d: t(d.key, { n: d.n }) })
+  })
 
   /** The manual latency offset of recording (#470): session state, `record.set_settings`. */
   const offset = $derived(project.view?.session.record?.offset_ms ?? 0)
@@ -167,6 +175,8 @@
         <dd data-testid="engine-dialog-load">{load ?? t('engine.loadNone')}</dd>
         <dt>{t('engine.voicesLabel')}</dt>
         <dd data-testid="engine-dialog-voices">{engine.voices}</dd>
+        <dt>{t('engine.silencedLabel')}</dt>
+        <dd data-testid="engine-dialog-silenced" title={t('engine.silencedHint')}>{silenced}</dd>
         <dt>{t('meter.label')}</dt>
         <dd class="meter-box">
           <LevelMeter

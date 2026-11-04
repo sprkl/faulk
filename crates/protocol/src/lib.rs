@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 33;
+pub const PROTOCOL_VERSION: u32 = 34;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -43,6 +43,13 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 34 (#667, 33 is #658's): the report is `Feedback` version 8: the header grows from 88
+// to 92 bytes with `silenced_frames` at offset 88 (the stereo frames the output protection
+// silenced because a sample was non-finite, cumulative since the engine was built), so that a
+// NaN during playback shows in the page in both modes. `mixer.levels` answers that count too
+// (`silenced_frames`), so that an agent sees it. A page and a helper of different versions
+// refuse each other.
 
 // Version 33 (#658): the control link (`/control`, #608) opens with `control.hello` (the helper's
 // protocol), as the session opens with `hello`. The page refuses a helper of another version on

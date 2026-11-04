@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   ACTIVE_CLIP_BYTES,
@@ -113,6 +114,7 @@ describe('decodeFeedback', () => {
         v.setUint32(76, 2, true)
         v.setUint32(80, 1, true)
         v.setUint32(84, 4096, true)
+        v.setUint32(88, 131, true)
       }),
     )!
     expect(r).toMatchObject({
@@ -129,6 +131,7 @@ describe('decodeFeedback', () => {
       offlineSources: 2,
       pcmOverBudget: true,
       pcmKib: 4096,
+      silencedFrames: 131,
     })
     expect(r.tracks).toHaveLength(3)
     expect(r.tracks[2].peakL).toBeCloseTo(0.3)
@@ -147,7 +150,8 @@ describe('decodeFeedback', () => {
     expect(decodeFeedback(report(1, (v) => v.setFloat32(at + 16, NaN, true)))!.tracks[0].gainReductionDb).toBe(0)
   })
 
-  it('refuses a report of the previous layouts (version 5: a 72-byte header; version 4: 56 bytes; version 3)', () => {
+  it('refuses a report of the previous layouts (version 7: an 88-byte header, without the silenced frames; version 5: 72 bytes; version 4: 56 bytes; version 3)', () => {
+    expect(decodeFeedback(report(2, (v) => v.setUint8(0, 7)))).toBeNull()
     expect(decodeFeedback(report(2, (v) => v.setUint8(0, 5)))).toBeNull()
     expect(decodeFeedback(report(2, (v) => v.setUint8(0, 4)))).toBeNull()
     expect(decodeFeedback(report(2, (v) => v.setUint8(0, 3)))).toBeNull()
@@ -178,7 +182,7 @@ describe('decodeFeedback', () => {
     expect(decodeFeedback(report(0, (v) => v.setFloat32(72, NaN, true)))!.cpuPeak).toBeNull()
     expect(decodeFeedback(report(0, (v) => v.setFloat32(72, 2, true)))!.cpuPeak).toBe(1)
     // The meters start after it.
-    expect(FEEDBACK_HEADER_BYTES).toBe(88)
+    expect(FEEDBACK_HEADER_BYTES).toBe(92)
   })
 
   it('refuses another version, a short buffer and a track count beyond the bytes', () => {
@@ -277,5 +281,18 @@ describe('readFeedback', () => {
     // The tracks word announces more than the region holds: nothing, never a read past it.
     const big = report(2, (v) => v.setUint32(40, 5000, true))
     expect(readFeedback(shared(big, 10), 8, big.byteLength)).toBeNull()
+  })
+})
+
+describe('the engine report of non-finite samples (#667)', () => {
+  // The engine's own bytes (`crates/engine-wasm/tests/nonfinite_parity.rs`, recorded with FAULK_RECORD=1): three reports
+  // of a host with no track, after 0, 3 then 131 frames turned NaN before the output protection, then the last block.
+  const fixture = new Uint8Array(readFileSync(new URL('../../../../crates/engine-wasm/tests/fixtures/nonfinite.feedback', import.meta.url)))
+  const size = FEEDBACK_HEADER_BYTES + TRACK_METER_BYTES
+
+  it('reads the silenced frames the engine wrote at offset 88', () => {
+    expect(fixture.length).toBe(3 * size + 2 * 128 * 4)
+    const counts = [0, 1, 2].map((i) => decodeFeedback(fixture.slice(i * size, (i + 1) * size).buffer)!.silencedFrames)
+    expect(counts).toEqual([0, 3, 131])
   })
 })

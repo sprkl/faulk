@@ -39,6 +39,10 @@ pub struct LevelsStage {
     /// By engine track slot; a slot beyond the list is silent.
     pub tracks: Vec<MeterReading>,
     pub master: MeterReading,
+    /// Frames the output protection of the engine that plays silenced for a non-finite sample,
+    /// since that engine started for the page (#667), whether or not the transport runs.
+    #[serde(default)]
+    pub silenced_frames: u64,
 }
 
 /// The measures a host staged for `project.analyze_render`.
