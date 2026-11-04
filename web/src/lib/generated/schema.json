@@ -6566,7 +6566,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Set the range of the file an audio clip plays: the frames `[start, start + frames)`\nof its file (frames of the file, at its own sample rate). Refused when the range is\nempty or leaves the file, when the clip's loop would end past the new length (clear\nor move the loop first with `clip.audio.set_loop`: nothing is cut silently), and when\na placement of the clip starts inside it at or past the new length. Every placement\nthat plays the clip whole (offset 0, length equal to its old length in frames) takes\nthe new length in the same command; a growing placement stops at the start of the\nnext placement of its track; a placement that plays only part of the clip is left\nalone. Refused for a MIDI clip. Undo: set the range back, with the lengths of the\nplacements.",
+        "description": "Set the range of the file an audio clip plays: the frames `[start, start + frames)`\nof its file (frames of the file, at its own sample rate). Refused when the range is\nempty or leaves the file, when the clip's loop would end past the new length (clear\nor move the loop first with `clip.audio.set_loop`: nothing is cut silently), and when\na placement of the clip starts inside it at or past the new length. Every placement\nthat plays the clip whole (offset 0, length equal to its old length in frames) takes\nthe new length in the same command; a growing placement stops at the start of the\nnext placement of its track; a placement that plays only part of the clip is left\nalone, and the command is refused when that would leave one ending past the new\nlength (an audio placement always ends inside its clip) or overlapping another\nplacement of the track: move or resize it first. Refused for a MIDI clip. Undo: set\nthe range back, with the lengths of the placements.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -6792,7 +6792,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Bring back an audio clip with its identifier, as `clip.delete` removed it: the\ninverse of deleting an audio clip. Its placements give their length and offset in\nframes of the file. Refused when the track is not an audio track, when the clip's\nidentifier or a placement's already exists in the project, when the slot is taken\nor its scene is gone, or when the snapshot breaks a rule of the project (a range\noutside the file, a loop outside the range, a gain that is not a number). Undo:\n`clip.delete`.",
+        "description": "Bring back an audio clip with its identifier, as `clip.delete` removed it: the\ninverse of deleting an audio clip. Its placements give their length and offset in\nframes of the file. Refused when the track is not an audio track, when the clip's\nidentifier or a placement's already exists in the project, when the slot is taken\nor its scene is gone, or when the snapshot breaks a rule of the project (a range\noutside the file, a loop outside the range, a gain that is not a number, a\nplacement ending past the clip: `offset + length` at most the clip's frames, or\noverlapping another placement of the track or of the snapshot). Undo:\n`clip.delete`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -13688,7 +13688,7 @@
         "undo": "none"
       },
       {
-        "description": "Set the project's tempo in BPM, from 20 to 999. A value outside the range or not\na number is refused, and so is a tempo at which an audio placement (whose length is\nin frames of its file, so its end in ticks follows the tempo) would end past 2^40.\nA faster tempo lengthens audio placements in ticks, so one may then reach into the\nnext placement of its track: the project allows it, and the later one plays from its\nstart. Undo: set the previous tempo back.",
+        "description": "Set the project's tempo in BPM, from 20 to 999. A value outside the range or not\na number is refused, and so is a tempo at which an audio placement (whose length is\nin frames of its file, so its end in ticks follows the tempo) would end past 2^40.\nA faster tempo lengthens audio placements in ticks, so one may then reach into the\nnext placement of its track: an audio placement never overlaps another, so a tempo\nthat would make two placements of a track overlap is refused, naming them (move or\nshorten one first). Undo: set the previous tempo back.",
         "destructive": false,
         "input_schema": {
           "additionalProperties": false,
@@ -17500,7 +17500,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Set the range of the file an audio clip plays: the frames `[start, start + frames)`\nof its file (frames of the file, at its own sample rate). Refused when the range is\nempty or leaves the file, when the clip's loop would end past the new length (clear\nor move the loop first with `clip.audio.set_loop`: nothing is cut silently), and when\na placement of the clip starts inside it at or past the new length. Every placement\nthat plays the clip whole (offset 0, length equal to its old length in frames) takes\nthe new length in the same command; a growing placement stops at the start of the\nnext placement of its track; a placement that plays only part of the clip is left\nalone. Refused for a MIDI clip. Undo: set the range back, with the lengths of the\nplacements.",
+              "description": "Set the range of the file an audio clip plays: the frames `[start, start + frames)`\nof its file (frames of the file, at its own sample rate). Refused when the range is\nempty or leaves the file, when the clip's loop would end past the new length (clear\nor move the loop first with `clip.audio.set_loop`: nothing is cut silently), and when\na placement of the clip starts inside it at or past the new length. Every placement\nthat plays the clip whole (offset 0, length equal to its old length in frames) takes\nthe new length in the same command; a growing placement stops at the start of the\nnext placement of its track; a placement that plays only part of the clip is left\nalone, and the command is refused when that would leave one ending past the new\nlength (an audio placement always ends inside its clip) or overlapping another\nplacement of the track: move or resize it first. Refused for a MIDI clip. Undo: set\nthe range back, with the lengths of the placements.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
@@ -17598,7 +17598,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Bring back an audio clip with its identifier, as `clip.delete` removed it: the\ninverse of deleting an audio clip. Its placements give their length and offset in\nframes of the file. Refused when the track is not an audio track, when the clip's\nidentifier or a placement's already exists in the project, when the slot is taken\nor its scene is gone, or when the snapshot breaks a rule of the project (a range\noutside the file, a loop outside the range, a gain that is not a number). Undo:\n`clip.delete`.",
+              "description": "Bring back an audio clip with its identifier, as `clip.delete` removed it: the\ninverse of deleting an audio clip. Its placements give their length and offset in\nframes of the file. Refused when the track is not an audio track, when the clip's\nidentifier or a placement's already exists in the project, when the slot is taken\nor its scene is gone, or when the snapshot breaks a rule of the project (a range\noutside the file, a loop outside the range, a gain that is not a number, a\nplacement ending past the clip: `offset + length` at most the clip's frames, or\noverlapping another placement of the track or of the snapshot). Undo:\n`clip.delete`.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
@@ -22164,7 +22164,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Set the project's tempo in BPM, from 20 to 999. A value outside the range or not\na number is refused, and so is a tempo at which an audio placement (whose length is\nin frames of its file, so its end in ticks follows the tempo) would end past 2^40.\nA faster tempo lengthens audio placements in ticks, so one may then reach into the\nnext placement of its track: the project allows it, and the later one plays from its\nstart. Undo: set the previous tempo back.",
+              "description": "Set the project's tempo in BPM, from 20 to 999. A value outside the range or not\na number is refused, and so is a tempo at which an audio placement (whose length is\nin frames of its file, so its end in ticks follows the tempo) would end past 2^40.\nA faster tempo lengthens audio placements in ticks, so one may then reach into the\nnext placement of its track: an audio placement never overlaps another, so a tempo\nthat would make two placements of a track overlap is refused, naming them (move or\nshorten one first). Undo: set the previous tempo back.",
               "properties": {
                 "bpm": {
                   "format": "double",
