@@ -217,3 +217,56 @@ for (const lang of ['en', 'fr'] as const) {
     })
   }
 }
+
+// #625: F2 on a track row renames the track, as the row's menu ("Rename F2") and the button's tooltip say. It was the key
+// of the volume field, which on a clicked row opened nothing visible. Enter and a digit still open the volume.
+
+test('F2 on a clicked track row opens the rename field; Enter renames, Ctrl+Z undoes, Escape cancels', async ({ page }) => {
+  const seen = watch(page)
+  await page.goto('/app')
+  await page.getByTestId('engine-state').getByRole('button').click()
+  await engineUp(page)
+  await page.getByTestId('nav-arrangement').click()
+  await page.getByTestId('add-track').click()
+  await page.getByTestId('add-track-menu').getByRole('menuitem').nth(1).click()
+  const rows = page.getByTestId('track-header')
+  await expect(rows).toHaveCount(2)
+
+  // The new track is the selected one; a click on its name presses the row.
+  const second = page.getByTestId('arr-track').nth(1)
+  const before = (await second.getByTestId('track-name').textContent())!
+  await second.click()
+  await expect(second).toHaveAttribute('aria-pressed', 'true')
+  await page.keyboard.press('F2')
+  const field = rows.nth(1).getByRole('textbox')
+  await expect(field).toBeFocused()
+  // Not the volume field.
+  await expect(page.getByTestId('value-field')).toHaveCount(0)
+  await page.keyboard.type('Beats')
+  await page.keyboard.press('Enter')
+  await expect(field).toHaveCount(0)
+  await expect(second.getByTestId('track-name')).toHaveText('Beats')
+  await expect(second).toBeFocused()
+
+  await page.keyboard.press('Control+z')
+  await expect(second.getByTestId('track-name')).toHaveText(before)
+
+  // Escape leaves the name as it is.
+  await page.keyboard.press('F2')
+  await expect(rows.nth(1).getByRole('textbox')).toBeFocused()
+  await page.keyboard.type('Discarded')
+  await page.keyboard.press('Escape')
+  await expect(second.getByTestId('track-name')).toHaveText(before)
+
+  // A row that is not the selected one renames too, as its menu does; Enter on the selected row is still the volume.
+  const first = page.getByTestId('arr-track').nth(0)
+  await first.focus()
+  await page.keyboard.press('F2')
+  await expect(rows.nth(0).getByRole('textbox')).toBeFocused()
+  await page.keyboard.press('Escape')
+  await second.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('value-input')).toBeFocused()
+  await page.keyboard.press('Escape')
+  expect(seen.errors).toEqual([])
+})
