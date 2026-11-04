@@ -39,6 +39,8 @@ export const audioExport = defineFeature(
     'export.limited':
       'Your mix was pushed into the output limiter (up to {db} dB of gain reduction). The file does not clip, but it was audibly limited. Lower the master volume and export again for a cleaner sound.',
     'export.tailCut': 'An effect was still ringing after 30 seconds, so the file stops there.',
+    'export.missing':
+      'Faulk could not read these audio files, so their clips are silent in the file: {names}. Check that they are in the project folder, then export again.',
 
     'export.failed': 'The export failed. Nothing was saved.',
     'export.refused':
@@ -85,6 +87,8 @@ export const audioExport = defineFeature(
     'export.limited':
       'Ton mix a été poussé dans le limiteur de sortie (jusqu’à {db} dB de réduction de gain). Le fichier n’écrête pas, mais il a été limité de façon audible. Baisse le volume général et exporte à nouveau pour un son plus propre.',
     'export.tailCut': 'Un effet résonnait encore après 30 secondes, le fichier s’arrête donc là.',
+    'export.missing':
+      'Faulk n’a pas pu lire ces fichiers audio, leurs clips sont donc muets dans le fichier : {names}. Vérifie qu’ils sont dans le dossier du projet, puis exporte à nouveau.',
 
     'export.failed': 'L’export a échoué. Rien n’a été enregistré.',
     'export.refused':

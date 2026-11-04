@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
 import { engineUp, watch } from './support'
 
@@ -10,6 +11,7 @@ import { engineUp, watch } from './support'
 
 const ROW = 16
 const RULER = 28
+const FIXTURES = fileURLToPath(new URL('../../../crates/audio-import/tests/fixtures/', import.meta.url))
 
 const startAudio = (page: Page) =>
   page
@@ -496,6 +498,50 @@ test.describe('with the dispatcher hook (dev server)', () => {
     const CEILING = 0.966_050_8
     expect(wav.peak).toBeGreaterThan(0.9)
     expect(wav.peak).toBeLessThanOrEqual(CEILING + 1 / 8_388_608)
+    expect(seen.errors).toEqual([])
+  })
+
+  test('an imported WAV placed in the arrangement is in the file, at the level it plays (#647)', async ({ page }) => {
+    test.setTimeout(180_000)
+    const seen = watch(page)
+    await simulateSavePicker(page)
+    await page.goto('/app')
+    await startAudio(page)
+    await engineUp(page)
+    test.skip(
+      (await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function',
+      'the dispatcher hook exists in the dev server only',
+    )
+    type View = { project: { tracks: Record<string, { kind: string; clips: Record<string, { content: { audio?: { media: { hash: string } } } }> }> } }
+    const view = () => page.evaluate(() => (window as unknown as { __faulkView(): View }).__faulkView())
+    const run = (command: object) => page.evaluate((c) => (window as unknown as { __faulkRun(c: object): boolean }).__faulkRun(c), command)
+    // An audio track, the fixture imported in its Clips panel (the file lands in the draft's blobs/).
+    await page.getByTestId('add-track').click()
+    await page.getByTestId('add-track-menu').getByRole('menuitem', { name: 'Audio track' }).click()
+    const track = Object.entries((await view()).project.tracks).find(([, t]) => t.kind === 'audio')![0]
+    await run({ type: 'view.select_track', track })
+    await page.getByTestId('panel-clips').click()
+    const chooser = page.waitForEvent('filechooser')
+    await page.getByTestId('audio-import-button').click()
+    await (await chooser).setFiles(`${FIXTURES}sine-s16.wav`)
+    await expect(page.getByTestId('pool-clip')).toHaveCount(1)
+    const media = Object.values((await view()).project.tracks[track]!.clips).find((c) => c.content.audio)!.content.audio!.media.hash
+    // Placed at the start of the arrangement: the song is the file (0.5 s at 44.1 kHz).
+    await run({ type: 'clip.import_audio', track, media, at: { at: 'arrangement', start: 0 } })
+
+    await openDialog(page)
+    await page.getByTestId('export-start').click()
+    await expect(dialog(page)).toHaveAttribute('data-phase', 'done', { timeout: 60_000 })
+    await expect(page.getByTestId('export-missing')).toHaveCount(0)
+    const name = await page.evaluate(() => (window as unknown as { __picks: { suggestedName: string }[] }).__picks[0].suggestedName)
+    const wav = (await readWav(page, name))!
+    expect(wav.rate).toBe(48_000)
+    expect(wav.frames).toBeGreaterThanOrEqual(0.5 * 48_000)
+    // The fixture is a sine at half scale (0.49997), played at 0 dB by the clip, the track and
+    // the master: the file has it from its first 100 ms, within 0.5 dB.
+    const db = (x: number) => 20 * Math.log10(x)
+    expect(Math.abs(db(wav.peak) - db(0.499_97))).toBeLessThan(0.5)
+    expect(Math.abs(db(wav.firstPeak) - db(0.499_97))).toBeLessThan(0.5)
     expect(seen.errors).toEqual([])
   })
 })

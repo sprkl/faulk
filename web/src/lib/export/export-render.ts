@@ -3,6 +3,12 @@
 // stream the project core encoded (`ProjectCore.exportJob`), steps the engine faster than real
 // time and posts the file's bytes as they are made. The Worker (`export-worker.ts`) runs it; the
 // page cancels by terminating the Worker, so nothing here needs to be interruptible.
+//
+// Audio clips (#647): the render's engine reads their files through its disk planner. Between
+// steps this module serves its reads from the project's folder with the executor the live engine
+// uses (`DiskExecutor`), and the engine renders a block only once they are served, so the file is
+// the song as it plays. A file that cannot be read leaves its clips silent and is named in `done`.
+import { DiskExecutor, type Dir, type DiskExports } from '../audio/stream/executor'
 import { engineMemory, instantiate, ROLE_PREPARE, type ExportExports } from '../engine/engine-abi'
 
 /** What the page sends: to start a render, then one `ack` per chunk it has written. */
@@ -17,10 +23,14 @@ export interface ToStart {
   bits: number
   /** Frames of the content, before the tail. */
   bodyFrames: number
-  /** The stream that sets the engine up and starts it. */
+  /** The stream that sets the engine up. */
   setup: ArrayBuffer
+  /** The stream that starts it after the pre-roll. */
+  start: ArrayBuffer
   /** The stream that stops it once the content is rendered. */
   stop: ArrayBuffer
+  /** The project's folder, where the audio clips' files are read (#647); `null`: none (they are silent). */
+  folder: FileSystemDirectoryHandle | null
 }
 
 export type FromExport =
@@ -38,6 +48,8 @@ export type FromExport =
       /** Frames the output protection silenced for a non-finite sample (a NaN or an infinity; 0 on a clean render, #402). */
       silenced: number
       tailCut: boolean
+      /** The media (blob hashes, hex) of the audio clips whose file could not be read: silent in the file (#647). */
+      missing: string[]
     }
   | { type: 'error'; message: string; code: number | null }
 
@@ -87,8 +99,11 @@ async function run(message: ToStart, post: Post, room?: () => Promise<void>) {
     return bytes.byteLength
   }
   ex.fk_export_set_stop(handle, put(message.stop))
+  ex.fk_export_set_start(handle, put(message.start))
   const submitted = ex.fk_export_submit(handle, put(message.setup))
   if (submitted !== 0) throw new ExportFailure(`the engine refused the project (${submitted})`, submitted)
+  const disk = new DiskExecutor(diskOf(ex), memory, handle)
+  disk.folder(message.folder as unknown as Dir | null)
   for (;;) {
     const phase = ex.fk_export_step(handle, STEP_FRAMES)
     if (phase < 0) throw new ExportFailure(`the render failed (${phase})`, phase)
@@ -106,7 +121,17 @@ async function run(message: ToStart, post: Post, room?: () => Promise<void>) {
       [bytes],
     )
     if (phase === 2) break
-    await room?.()
+    // Only a chunk with bytes is acknowledged by the page once written: an empty one takes no room.
+    if (len > 0) await room?.()
+    // The step stopped before a block whose reads are not served: serve them, then step again.
+    while (ex.fk_export_stat(handle, 9) > 0) {
+      disk.tick()
+      // Jobs the engine could not hand over were failed back (it no longer waits): step again.
+      if (disk.inFlight.size === 0 && ex.fk_export_stat(handle, 9) === 0) break
+      // A wait with no read to make would never end: a failure, not a hang.
+      if (disk.inFlight.size === 0) throw new ExportFailure('the render waits for a read it never gave', null)
+      await Promise.all([...disk.inFlight])
+    }
   }
   const at = ex.fk_export_header(handle)
   const header = new Uint8Array(memory.buffer, at, ex.fk_export_header_len(handle)).slice().buffer
@@ -120,8 +145,29 @@ async function run(message: ToStart, post: Post, room?: () => Promise<void>) {
       reduction: ex.fk_export_stat(handle, 7),
       silenced: ex.fk_export_stat(handle, 8),
       tailCut: ex.fk_export_stat(handle, 5) > 0.5,
+      missing: missingOf(ex, memory, handle),
     },
     [header],
   )
   ex.fk_export_free(handle)
+}
+
+/** The export's disk exports as the executor calls them: the export's handle stands for the channel. */
+function diskOf(ex: ExportExports): DiskExports {
+  return {
+    // The render polls its planner itself, with its own clock: the executor only takes the jobs.
+    fk_disk_poll: (handle) => ex.fk_export_disk_jobs(handle),
+    fk_disk_jobs: (handle) => ex.fk_export_disk_table(handle),
+    fk_disk_inbox: (handle, len) => ex.fk_export_disk_inbox(handle, len),
+    fk_disk_done: (handle, id, len, fileLen) => ex.fk_export_disk_done(handle, id, len, fileLen),
+    fk_disk_failed: (handle, id, code) => ex.fk_export_disk_failed(handle, id, code),
+  }
+}
+
+/** The media the render could not read, as hex hashes. */
+function missingOf(ex: ExportExports, memory: WebAssembly.Memory, handle: number): string[] {
+  const count = ex.fk_export_missing(handle)
+  const at = ex.fk_export_missing_table(handle)
+  const bytes = new Uint8Array(memory.buffer, at, count * 32)
+  return Array.from({ length: count }, (_, i) => Array.from(bytes.subarray(i * 32, i * 32 + 32), (b) => b.toString(16).padStart(2, '0')).join(''))
 }
