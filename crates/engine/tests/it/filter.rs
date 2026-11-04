@@ -10,8 +10,8 @@
 use assert_no_alloc::assert_no_alloc;
 use engine::device::{AudioIo, BlockCtx, Device, Event, EventBuffer, Transport};
 use engine::devices::filter::{
-    self, BAND_PASS, CUTOFF, DESCRIPTOR, Filter, HIGH_PASS, K_MIN, LOW_PASS, MIX, MODE, RESONANCE,
-    damping,
+    self, BAND_PASS, CUTOFF, DESCRIPTOR, DRIVE, ENV_AMOUNT, Filter, HIGH_PASS, K_MIN, LFO_DEPTH,
+    LOW_PASS, MIX, MODE, NOTCH, RESONANCE, damping,
 };
 use engine::msg::ParamId;
 
@@ -398,11 +398,20 @@ fn it_survives_non_finite_and_huge_input() {
     input[40] = 3.0e38;
     input[50] = -3.0e38;
     input[60] = 1.0e-40;
-    for mode in [LOW_PASS, HIGH_PASS, BAND_PASS] {
-        let mut f = with(&[(MODE, mode as f32), (RESONANCE, 1.0)]);
-        let out = mono(&mut f, &input);
-        check(&out);
-        assert!(peak(&out) < 1e6 * BOUND);
+    for mode in [LOW_PASS, HIGH_PASS, BAND_PASS, NOTCH] {
+        // Still, then with the drive and the whole movement on (#686).
+        for drive in [0.0, 1.0] {
+            let mut f = with(&[
+                (MODE, mode as f32),
+                (RESONANCE, 1.0),
+                (DRIVE, drive),
+                (LFO_DEPTH, 5.0 * drive),
+                (ENV_AMOUNT, 5.0 * drive),
+            ]);
+            let out = mono(&mut f, &input);
+            check(&out);
+            assert!(peak(&out) < 1e6 * BOUND, "mode {mode}, drive {drive}");
+        }
     }
 }
 
@@ -670,7 +679,7 @@ fn the_cost_of_a_block_is_small() {
                 right: &mut right,
                 events_out: &mut unused,
             };
-            f.process(&ctx, &events, &mut io);
+            assert_no_alloc(|| f.process(&ctx, &events, &mut io));
         }
         let per_block = start.elapsed().as_nanos() as f64 / f64::from(blocks);
         println!("{label}: {per_block:.0} ns per block of 128 frames (stereo)");

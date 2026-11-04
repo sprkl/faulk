@@ -536,32 +536,45 @@ fn a_cutoff_lane_moves_the_centre_and_the_lfo_swings_around_it() {
     ]);
     let mut unused = EventBuffer::try_with_capacity(1).unwrap();
     let mut checked = 0;
+    // The centre as the test computes it from the lane: each value is reached by the
+    // contract's 20 ms linear ramp (960 frames) from where the centre was.
+    let ramp = 960.0f64;
+    let (mut from, mut to, mut since) = (200.0f64, 200.0f64, ramp);
     for frame in 0..frames {
-        // The lane's value lands as an event at offset 0 does (`set_param`); the centre this
-        // frame uses is then the smoother's value, read before the frame.
-        for (_, e) in events.iter().filter(|(e, _)| *e == frame) {
-            if let Event::ParamValue { id, value, .. } = *e {
-                f.set_param(id, value);
+        // The lane's value lands at offset 0 of the frame.
+        let local: Vec<Event> = events
+            .iter()
+            .filter(|(e, _)| *e == frame)
+            .map(|(_, e)| *e)
+            .collect();
+        for e in &local {
+            if let Event::ParamValue { value, .. } = *e {
+                from += (to - from) * (since / ramp).min(1.0);
+                to = f64::from(value);
+                since = 0.0;
             }
         }
-        let centre = f.cutoff_hz();
+        let centre = from + (to - from) * (since / ramp).min(1.0);
+        since += 1.0;
         let ctx = BlockCtx {
             sample_rate: SR,
             frames: 1,
             transport: playing(frame),
         };
         let (mut l, mut r) = ([0.0f32], [0.0f32]);
-        f.process(
-            &ctx,
-            &[],
-            &mut AudioIo {
-                left: &mut l,
-                right: &mut r,
-                events_out: &mut unused,
-            },
-        );
-        let expected = (centre * 2f32.powf(triangle(frame as f64 * TPF, 960.0, 0.0)))
-            .clamp(20.0, CUTOFF_NYQUIST_SHARE * SR);
+        assert_no_alloc(|| {
+            f.process(
+                &ctx,
+                &local,
+                &mut AudioIo {
+                    left: &mut l,
+                    right: &mut r,
+                    events_out: &mut unused,
+                },
+            )
+        });
+        let expected = (centre * 2f64.powf(f64::from(triangle(frame as f64 * TPF, 960.0, 0.0))))
+            .clamp(20.0, f64::from(CUTOFF_NYQUIST_SHARE * SR)) as f32;
         let got = f.effective_cutoffs()[0];
         assert!(
             (got / expected - 1.0).abs() < 1e-4,

@@ -1082,3 +1082,59 @@ fn a_filters_effective_cutoff_travels_in_the_report_with_its_slots() {
     bytes.truncate(bytes.len() - 1);
     assert!(engine::host::decode_feedback(&bytes).is_none());
 }
+
+/// #686: the master's chain runs cut at the clock's segments, so a Filter on the master whose
+/// LFO follows the transport sees a loop's wrap at its frame: the render does not depend on the
+/// block size, with the wrap in the middle of a block.
+#[test]
+fn a_master_filter_sees_a_loop_wrap_inside_a_block_whatever_the_block_size() {
+    use engine::devices::filter::{CUTOFF, DESCRIPTOR as FILTER, LFO_DEPTH, RESONANCE};
+    use engine::time::LoopRegion;
+    let render = |block: usize| {
+        let mut session = Session::new();
+        let mut msgs = vec![M::DeviceInsert {
+            track: TrackSlot::MASTER,
+            device: DeviceSlot(0),
+            kind: FILTER.kind_id,
+            state: Vec::new(),
+        }];
+        for (p, value) in [(CUTOFF, 600.0), (LFO_DEPTH, 3.0), (RESONANCE, 0.7)] {
+            msgs.push(M::ParamSet {
+                track: TrackSlot::MASTER,
+                device: DeviceSlot(0),
+                param: ParamId(p),
+                value,
+            });
+        }
+        msgs.push(param(Param::Waveform, 1.0));
+        msgs.push(note_on(45, 127));
+        // A loop of 4081 ticks: 102 025 frames at 120 BPM (the triangle at its top when it wraps to
+        // 0), its wrap inside a block of any of the
+        // sizes below.
+        msgs.push(M::SetLoop {
+            region: Some(LoopRegion::new(Tick(0), Tick(4081)).unwrap()),
+        });
+        msgs.push(M::Play { from: Tick(0) });
+        session.send(&msgs);
+        let mut out = Vec::new();
+        let total = 2 * 102_025 + 20_000;
+        while out.len() < 2 * total {
+            let n = session.host.render(block);
+            for i in 0..n {
+                out.push(session.host.left()[i]);
+                out.push(session.host.right()[i]);
+            }
+        }
+        out.truncate(2 * total);
+        out
+    };
+    let reference = render(128);
+    for block in [100, 1000] {
+        let other = render(block);
+        let worst = reference
+            .iter()
+            .zip(&other)
+            .fold(0f32, |m, (a, b)| m.max((a - b).abs()));
+        assert!(worst < 1e-5, "blocks of {block}: differs by {worst}");
+    }
+}

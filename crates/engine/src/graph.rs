@@ -847,18 +847,57 @@ impl Graph {
         // The master's chain (#364) runs over the whole sum, before the fader: effects only,
         // no note, so the sink is empty. An empty or bypassed chain leaves the sum as it is.
         scratch.sink.clear();
-        run_chain(
-            state.master_devices.as_mut_slice(),
-            master_outgoing,
-            &scratch.sink,
-            &mut scratch.merged,
-            &mut scratch.unused,
-            &mut scratch.blend,
-            fade,
-            ctx,
-            left,
-            right,
-        );
+        // Cut at the clock's segments (a loop's wrap, a seek inside the block), each piece at
+        // its own position, as a track's chain is: a device that follows the transport's
+        // position (the Filter's synced LFO, #686) sees the wrap at its frame, whatever the
+        // block size. A block of one segment, or a stopped clock, is one call as before.
+        let pieces = if clock.running && clock.segments.len() > 1 {
+            clock.segments
+        } else {
+            &[]
+        };
+        if pieces.is_empty() {
+            run_chain(
+                state.master_devices.as_mut_slice(),
+                master_outgoing,
+                &scratch.sink,
+                &mut scratch.merged,
+                &mut scratch.unused,
+                &mut scratch.blend,
+                fade,
+                ctx,
+                left,
+                right,
+            );
+        } else {
+            for segment in pieces {
+                let from = segment.offset.min(frames);
+                let to = (from + segment.frames).min(frames);
+                if to <= from {
+                    continue;
+                }
+                let sub = BlockCtx {
+                    frames: (to - from) as u32,
+                    transport: Transport {
+                        position_ticks: segment.position_at(from),
+                        ..ctx.transport
+                    },
+                    ..*ctx
+                };
+                run_chain(
+                    state.master_devices.as_mut_slice(),
+                    master_outgoing,
+                    &scratch.sink,
+                    &mut scratch.merged,
+                    &mut scratch.unused,
+                    &mut scratch.blend,
+                    fade,
+                    &sub,
+                    &mut left[from..to],
+                    &mut right[from..to],
+                );
+            }
+        }
         let sink = &mut scratch.sink;
         let Some(schedule) = state.master_schedule.as_deref_mut() else {
             master.apply_in_place(left, right, core::iter::empty(), fade);

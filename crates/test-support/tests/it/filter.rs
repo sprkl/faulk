@@ -343,6 +343,8 @@ fn every_movement_parameter_is_set_by_name_and_each_continuous_one_takes_a_lane(
                 ],
             }));
         }
+        // A while stopped first: a free LFO runs on meanwhile, so `lfo_restart` is heard.
+        s.render_secs(0.3);
         s.run(Command::Transport(transport::Command::Play {}));
         s.run(Command::Live(live::Command::NoteOn {
             track: f.track.clone(),
@@ -389,12 +391,7 @@ fn every_movement_parameter_is_set_by_name_and_each_continuous_one_takes_a_lane(
             )
             .scenario(),
         );
-        let changed = if param == "lfo_restart" {
-            // Restart off is heard only after the transport ran stopped: same here.
-            true
-        } else {
-            moving.max_difference(&r).0 > 1e-3
-        };
+        let changed = moving.max_difference(&r).0 > 1e-3;
         assert!(changed, "{param} = {value} changes the sound");
         assert!(still.max_difference(&r).0 > 1e-3, "{param}");
     }

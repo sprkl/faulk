@@ -97,7 +97,7 @@ fn render(f: &mut dyn Device, rate: f32, block: usize, play: bool, extra: &[Even
             right: &mut right,
             events_out: &mut unused,
         };
-        f.process(&ctx, &events, &mut io);
+        assert_no_alloc::assert_no_alloc(|| f.process(&ctx, &events, &mut io));
         for i in 0..n {
             out.push(left[i]);
             out.push(right[i]);
