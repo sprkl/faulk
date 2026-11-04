@@ -317,10 +317,10 @@ test('the storage question opens above the shortcut list: focus on Cancel, Tab s
   await expect(asked).toBeVisible()
   await expect(asked).toHaveJSProperty('open', true)
   await expect(page.getByTestId('confirm-cancel')).toBeFocused()
-  // Tab and Shift+Tab stay in the question: the page behind is inert.
+  // Tab and Shift+Tab never reach the page behind (inert): the focus stays in the question or leaves the page (the browser's own bar).
   for (const key of ['Tab', 'Tab', 'Tab', 'Shift+Tab']) {
     await page.keyboard.press(key)
-    expect(await asked.evaluate((el) => el.contains(document.activeElement))).toBe(true)
+    expect(await asked.evaluate((el) => el.contains(document.activeElement) || document.activeElement === document.body)).toBe(true)
   }
   await page.keyboard.press('Escape')
   await expect(asked).toHaveCount(0)
