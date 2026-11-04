@@ -123,6 +123,11 @@ pub struct Context {
     /// metadata it decoded from the file's bytes, which `clip.import_audio` writes into the
     /// clip. Kept for the session (a second clip of the same file, a redo), never taken.
     pub media: BTreeMap<project::Hash, project::AudioMedia>,
+    /// The audio files the project refers to that its folder did not hold when
+    /// `project.open` read it (AU-5): their clips are "média absent" (`clip.get`,
+    /// `track.get`). A file leaves the set when the host stages it again (the page writes the
+    /// blob before it stages the media); `project.new` and every open start it again.
+    pub missing_media: BTreeSet<project::Hash>,
 }
 
 /// The projects a host can open, as it lists them: what `project.list_stored` answers and the
@@ -223,6 +228,7 @@ impl Context {
             opened: None,
             stored: None,
             media: BTreeMap::new(),
+            missing_media: BTreeSet::new(),
         }
     }
 }
@@ -566,6 +572,8 @@ pub enum ClipPart {
     Notes,
     /// Length, loop and notes at once.
     Content,
+    /// An audio clip's gain.
+    Gain,
 }
 
 /// What the project sends to the engine after a command (spec § 2.3): the engine's own
