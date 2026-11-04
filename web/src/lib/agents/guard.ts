@@ -35,6 +35,11 @@ export const STORAGE_GUARDED: Readonly<Record<string, AgentQuestion['kind']>> = 
   'project.load_folder_version': 'loadFolder',
 }
 
+/** Whether `command` is one of the guarded storage actions (`STORAGE_GUARDED`). */
+export function isStorageGuarded(command: Command): boolean {
+  return Object.hasOwn(STORAGE_GUARDED, command.type)
+}
+
 /** The host of a link, for the question; `null` for one that does not parse (the storage refuses it then). */
 function hostOf(url: unknown): string | null {
   if (typeof url !== 'string') return null

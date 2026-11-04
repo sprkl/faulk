@@ -1,9 +1,10 @@
 /**
  * The page's questions to the user before an agent's call that cannot be undone runs (AG-4, #100): an `x-destructive`
  * command (`DESTRUCTIVE_COMMANDS`), or a storage action that replaces or deletes a project or settles a conflict
- * (`AGENT_CONFIRMED` in `dispatcher.ts`). One question is shown at a time, in the order the calls came; each has
- * the deadline its call was given when it reached the page (`AGENT_CONFIRM_MS` later), so that the agent always
- * learns the answer before the helper stops waiting for the page.
+ * (`STORAGE_GUARDED` in `guard.ts`). One question is shown at a time, in the order the calls came; each has
+ * the deadline its call was given when it reached the page (`AGENT_CONFIRM_MS` later), so that an unanswered question
+ * is answered before the helper stops waiting for the page. Once allowed, the action itself is not bounded: a slow one
+ * (a big download, a storage queue busy with a question of the user's) can outlast the helper's wait.
  *
  * Each question is answered once: `confirmed` (the user allowed it), `declined`, `timeout` (the deadline passed,
  * whether its timer fired or the user answered too late, as in a hidden tab whose timers the browser slows down),

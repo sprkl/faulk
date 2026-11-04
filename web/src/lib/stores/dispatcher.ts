@@ -28,7 +28,7 @@ import { releaseAllNotes, requestMidiInputs } from './housekeeping'
 import { takePairLink } from '../pair-link'
 import { answerAgentCall } from '../agents/agent-call'
 import { AgentConfirmations } from '../agents/confirm.svelte'
-import { agentQuestion, confirmDeadline, notConfirmed, type GuardView } from '../agents/guard'
+import { agentQuestion, confirmDeadline, isStorageGuarded, notConfirmed, type GuardView } from '../agents/guard'
 import { ControlLink, ControlTimeout } from '../agents/control-link'
 import { applyEffects } from './effects'
 import type { EngineStore, HelperState } from './engine.svelte'
@@ -614,6 +614,11 @@ export class Dispatcher {
     // for either. `project.new` makes its own project.
     const noCore = !this.core && !isNewProject(command)
     if (noCore) return { status: 'unavailable', reason: 'the page has no project yet: start audio in the page first' }
+    // A guarded action that asks nothing (a way out of a conflict while there is none) is not handed to the storage:
+    // a conflict found meanwhile would make it ask the user with no deadline, for an action nobody allowed.
+    if (!question && isStorageGuarded(command)) {
+      return { status: 'refused', error: { code: 'not_done', message: 'the page did not do it: nothing changed', notice: 'storage.noConflict' } }
+    }
     if (question) {
       const answer = await this.confirmations.ask(author, question, deadline, signal)
       if (answer !== 'confirmed') return notConfirmed(answer)

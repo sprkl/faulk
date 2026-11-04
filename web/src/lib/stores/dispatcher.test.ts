@@ -2606,10 +2606,15 @@ describe("an agent's destructive calls wait for the user's answer in the page (A
     })
   })
 
-  it('asks nothing for a way out of a conflict when there is none: the storage refuses it', async () => {
+  it('asks nothing for a way out of a conflict when there is none, and never hands it to the storage', async () => {
     const session = await started()
-    const result = await session.dispatcher.runForAgent({ type: 'project.keep_mine' }, 'agent:a')
+    const spies = storageSpies(session)
+    for (const type of ['project.keep_mine', 'project.load_folder_version'] as const) {
+      const result = await session.dispatcher.runForAgent({ type }, 'agent:a')
+      expect(result, type).toMatchObject({ status: 'refused', error: { code: 'not_done', notice: 'storage.noConflict' } })
+    }
     expect(session.dispatcher.confirmations.pending).toEqual([])
-    expect(result).toMatchObject({ status: 'refused', error: { code: 'not_done', notice: 'storage.noConflict' } })
+    expect(spies.keepMine).not.toHaveBeenCalled()
+    expect(spies.loadDisk).not.toHaveBeenCalled()
   })
 })

@@ -170,12 +170,15 @@ the sound), exactly as if the user did it: it appears in the page's history and 
 there. Your consecutive edits are one entry of that history, your turn, which one undo undoes \
 whole; the turn ends when the user or another agent edits, after an undo or a redo, and after \
 30 s without an edit of yours. A destructive tool (annotation `destructiveHint`: it cannot be \
-undone) and the tools that delete a project kept in the browser or settle a conflict with the \
-project's folder (`project_delete_browser_project`, `project_keep_mine`, \
-`project_load_folder_version`) wait for the user to allow them in the page, for up to 45 s: the \
-call answers once the user did. When the user refuses, or does not answer in time, the call \
-answers `command.refused` with the error code `confirmation.declined` or \
-`confirmation.timeout`, and nothing changed. Without a paired page open every tool answers the error \
+undone) and the tools that replace the open project, delete a project kept in the browser or \
+settle a conflict with the project's folder (`project_open_recent`, \
+`project_open_browser_project`, `project_reopen_last`, `project_open_url`, \
+`project_delete_browser_project`, `project_keep_mine`, `project_load_folder_version`) wait for \
+the user to allow them in the page, for up to 45 s, then answer once the page did the action \
+(a slow one, such as a large download, can still end in `page.timeout` although it ran: check \
+with `project_list_stored` or the project before calling again). When the user refuses, or does \
+not answer in time, the call answers `command.refused` with the error code \
+`confirmation.declined` or `confirmation.timeout`, and nothing changed. Without a paired page open every tool answers the error \
 `page.absent`: ask the user to open Faulk in the browser.";
 
 /// The MCP handler of one MCP session: lists the tools, relays their calls to the page.
