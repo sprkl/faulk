@@ -8,6 +8,7 @@ use commands::export::{ExportJob, ExportSettings, job, offline_plan};
 use engine::offline::{Offline, Phase, SampleFormat};
 use wasmi::{Engine, Linker, Module, Store, TypedFunc};
 
+use crate::render::Disk;
 use crate::signal::Render;
 use crate::wasm::wasm_module;
 
@@ -39,6 +40,12 @@ pub struct Exported {
     pub levels: Vec<f32>,
     /// The frames the content measured.
     pub measured_frames: u64,
+    /// The media of the audio sources that could not be read (#647).
+    pub missing: Vec<[u8; 32]>,
+    /// Blocks in which an audio clip's voice lacked frames (#647).
+    pub underruns: u32,
+    /// Steps that stopped to wait for the disk (#647).
+    pub disk_waits: u64,
 }
 
 /// The job of a state: panics when it is refused.
@@ -46,12 +53,19 @@ pub fn job_of(state: &State, settings: ExportSettings) -> ExportJob {
     job(&state.project, &state.session, settings).expect("the export is prepared")
 }
 
-/// Exports the state through `engine::offline` (the native target).
+/// Exports the state through `engine::offline` (the native target), with no audio file.
 pub fn export_native(state: &State, settings: ExportSettings) -> Exported {
+    export_native_with_disk(state, settings, &Disk::default())
+}
+
+/// [`export_native`] with a project folder's audio files (#647): after each step the render's
+/// disk reads are served from `disk`, as the page's export Worker serves them from the folder.
+pub fn export_native_with_disk(state: &State, settings: ExportSettings, disk: &Disk) -> Exported {
     let job = job_of(state, settings);
     let mut offline = Offline::new(settings.sample_rate, offline_plan(&job.plan))
         .expect("the render is accepted");
     offline.set_stop(&job.stop);
+    offline.set_start(&job.start);
     offline.submit(&job.setup).expect("the setup is accepted");
     let mut pcm = Vec::new();
     loop {
@@ -59,6 +73,12 @@ pub fn export_native(state: &State, settings: ExportSettings) -> Exported {
         pcm.extend_from_slice(offline.pcm());
         if phase == Phase::Done {
             break;
+        }
+        for job in offline.take_disk_jobs() {
+            match disk.read(&job) {
+                Ok((bytes, len)) => offline.disk_done(job.id, bytes, len),
+                Err(why) => offline.disk_failed(job.id, why),
+            }
         }
     }
     let mut wav = offline.header();
@@ -83,12 +103,21 @@ pub fn export_native(state: &State, settings: ExportSettings) -> Exported {
                 .collect()
         }),
         measured_frames: offline.measure().map_or(0, |m| m.frames),
+        missing: offline.missing().to_vec(),
+        underruns: offline.underruns(),
+        disk_waits: offline.disk_waits(),
     }
 }
 
 /// Exports the state through the `wasm32-unknown-unknown` build of `engine-wasm`
-/// (`fk_export_*`) in an interpreter, stepping as the page's Worker does.
+/// (`fk_export_*`) in an interpreter, stepping as the page's Worker does, with no audio file.
 pub fn export_wasm(state: &State, settings: ExportSettings) -> Exported {
+    export_wasm_with_disk(state, settings, &Disk::default())
+}
+
+/// [`export_wasm`] with a project folder's audio files, served through `fk_export_disk_*` as
+/// the page's export Worker serves them (#647).
+pub fn export_wasm_with_disk(state: &State, settings: ExportSettings, disk: &Disk) -> Exported {
     let job = job_of(state, settings);
     let bytes = std::fs::read(wasm_module()).expect("the wasm module exists");
     let engine = Engine::default();
@@ -109,6 +138,7 @@ pub fn export_wasm(state: &State, settings: ExportSettings) -> Exported {
     let inbox = func::<(i32, i32), i32>(&instance, &store, "fk_export_inbox");
     let submit = func::<(i32, i32), i32>(&instance, &store, "fk_export_submit");
     let set_stop = func::<(i32, i32), i32>(&instance, &store, "fk_export_set_stop");
+    let set_start = func::<(i32, i32), i32>(&instance, &store, "fk_export_set_start");
     let step = func::<(i32, i32), i32>(&instance, &store, "fk_export_step");
     let pcm = func::<i32, i32>(&instance, &store, "fk_export_pcm");
     let pcm_len = func::<i32, i32>(&instance, &store, "fk_export_pcm_len");
@@ -117,6 +147,13 @@ pub fn export_wasm(state: &State, settings: ExportSettings) -> Exported {
     let stat = func::<(i32, i32), f64>(&instance, &store, "fk_export_stat");
     let levels_at = func::<i32, i32>(&instance, &store, "fk_export_levels");
     let levels_len = func::<i32, i32>(&instance, &store, "fk_export_levels_len");
+    let disk_jobs = func::<i32, i32>(&instance, &store, "fk_export_disk_jobs");
+    let disk_table = func::<i32, i32>(&instance, &store, "fk_export_disk_table");
+    let disk_inbox = func::<(i32, i32), i32>(&instance, &store, "fk_export_disk_inbox");
+    let disk_done = func::<(i32, i32, i32, f64), i32>(&instance, &store, "fk_export_disk_done");
+    let disk_failed = func::<(i32, i32, i32), ()>(&instance, &store, "fk_export_disk_failed");
+    let missing = func::<i32, i32>(&instance, &store, "fk_export_missing");
+    let missing_table = func::<i32, i32>(&instance, &store, "fk_export_missing_table");
     let memory = instance
         .get_memory(&store, "memory")
         .expect("exported memory");
@@ -151,6 +188,13 @@ pub fn export_wasm(state: &State, settings: ExportSettings) -> Exported {
             .unwrap(),
         0
     );
+    put(&mut store, &job.start);
+    assert_eq!(
+        set_start
+            .call(&mut store, (ex, job.start.len() as i32))
+            .unwrap(),
+        0
+    );
     put(&mut store, &job.setup);
     assert_eq!(
         submit
@@ -176,7 +220,57 @@ pub fn export_wasm(state: &State, settings: ExportSettings) -> Exported {
         if phase == 2 {
             break;
         }
+        if stat.call(&mut store, (ex, 9)).unwrap() > 0.5 {
+            let count = disk_jobs.call(&mut store, ex).unwrap() as usize;
+            let at = disk_table.call(&mut store, ex).unwrap();
+            let table = read(
+                &store,
+                at,
+                (count * engine::audio_source::JOB_WIRE_BYTES) as i32,
+            );
+            for wire in table
+                .as_chunks::<{ engine::audio_source::JOB_WIRE_BYTES }>()
+                .0
+            {
+                let job = engine::audio_source::Job {
+                    id: u32::from_le_bytes(wire[0..4].try_into().unwrap()),
+                    file: if wire[4] == 1 {
+                        engine::audio_source::FileKind::Cache
+                    } else {
+                        engine::audio_source::FileKind::Blob
+                    },
+                    offset: u64::from_le_bytes(wire[8..16].try_into().unwrap()),
+                    len: u32::from_le_bytes(wire[16..20].try_into().unwrap()),
+                    media: wire[24..56].try_into().unwrap(),
+                };
+                match disk.read(&job) {
+                    Ok((bytes, file_len)) => {
+                        let at = disk_inbox
+                            .call(&mut store, (ex, bytes.len() as i32))
+                            .unwrap();
+                        assert_ne!(at, 0);
+                        memory.write(&mut store, at as usize, bytes).unwrap();
+                        let done = disk_done
+                            .call(
+                                &mut store,
+                                (ex, job.id as i32, bytes.len() as i32, file_len as f64),
+                            )
+                            .unwrap();
+                        assert_eq!(done, 0);
+                    }
+                    Err(why) => disk_failed
+                        .call(&mut store, (ex, job.id as i32, why as i32))
+                        .unwrap(),
+                }
+            }
+        }
     }
+    let count = missing.call(&mut store, ex).unwrap() as usize;
+    let at = missing_table.call(&mut store, ex).unwrap();
+    let missing: Vec<[u8; 32]> = read(&store, at, (count * 32) as i32)
+        .as_chunks::<32>()
+        .0
+        .to_vec();
     let at = header.call(&mut store, ex).unwrap();
     let len = header_len.call(&mut store, ex).unwrap();
     let mut wav = read(&store, at, len);
@@ -186,8 +280,10 @@ pub fn export_wasm(state: &State, settings: ExportSettings) -> Exported {
     let levels = if strips > 0 {
         let at = levels_at.call(&mut store, ex).unwrap();
         read(&store, at, strips * 16)
-            .chunks_exact(4)
-            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|b| f32::from_le_bytes(*b))
             .collect()
     } else {
         Vec::new()
@@ -205,7 +301,10 @@ pub fn export_wasm(state: &State, settings: ExportSettings) -> Exported {
         tail_cut: stat(&mut store, 5) > 0.5,
         busy: 0,
         levels,
-        measured_frames: stat(&mut store, 9).max(0.0) as u64,
+        measured_frames: stat(&mut store, 12).max(0.0) as u64,
+        missing,
+        underruns: stat(&mut store, 10) as u32,
+        disk_waits: stat(&mut store, 11) as u64,
     }
 }
 

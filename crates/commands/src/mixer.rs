@@ -111,7 +111,9 @@ domain! {
     /// meters of the playing engine: how an agent without ears learns whether a song
     /// sounds. Call it while the transport plays (`transport.play`): the meters keep the
     /// largest peak and the loudest RMS since the previous call (at most the last 10
-    /// seconds), so a call right after a passage covers it. Levels are in dBFS (0 is
+    /// seconds), so a call right after a passage covers it. That RMS is the loudest of
+    /// the engine's short windows (about 30 ms), so it reads higher than the RMS of a
+    /// whole passage, which is what `project.analyze_render` gives. Levels are in dBFS (0 is
     /// full scale; the master is measured before the output protection, so it can read
     /// above 0), `null` is silence; a peak is the larger of the two channels, an RMS the
     /// power mean of both. `playing` says whether the transport ran: when it did not (or
@@ -138,7 +140,8 @@ pub fn apply(
 ) -> Result<Outcome<Command, Output>, CommandError> {
     match command {
         Command::Levels {} => {
-            let stage = ctx.levels.take().unwrap_or_default();
+            // Nothing was heard while the transport did not run: the contract is `null` levels.
+            let stage = ctx.levels.take().filter(|s| s.playing).unwrap_or_default();
             let tracks = track_levels(
                 &state.project,
                 |id| ctx.engine.tracks.get(id),

@@ -49,7 +49,10 @@ pub struct AnalysisStage {
     /// project's range is no longer this one.
     pub start_tick: Tick,
     pub end_tick: Tick,
-    /// By engine slot of the render (the slots `engine_msgs::snapshot` assigns).
+    /// The tracks by engine slot of the render, as the job named them: the command refuses
+    /// the readings when the project's tracks are no longer these.
+    pub slots: Vec<TrackId>,
+    /// The readings by engine slot of the render.
     pub tracks: Vec<MeterReading>,
     pub master: MeterReading,
     /// Frames the output protection silenced for a non-finite sample.

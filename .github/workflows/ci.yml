@@ -146,6 +146,11 @@ jobs:
       # The dev server serves the WASM it does not build itself.
       - run: pnpm build:wasm
 
+      # The agent scenario (agent-scenario.spec.ts, AG-5) builds and runs the real helper, which links ALSA on Linux.
+      - name: ALSA headers for the helper of the agent scenario
+        if: needs.select.outputs.e2e_all == 'true' || contains(needs.select.outputs.e2e_specs, 'agent-scenario') || contains(needs.select.outputs.e2e_specs_changed, 'agent-scenario')
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+
       - name: End-to-end tests (shard ${{ matrix.shard }} of ${{ needs.select.outputs.e2e_shard_total }})
         shell: bash
         env:

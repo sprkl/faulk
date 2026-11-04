@@ -74,6 +74,7 @@ fn stage(state: &commands::State, from_bar: Option<u32>, to_bar: Option<u32>) ->
     AnalysisStage {
         start_tick: plan.start_tick,
         end_tick: plan.end_tick,
+        slots: commands::export::track_slots(&state.project, &state.session),
         tracks: vec![reading(0.5, 0.1)],
         master: reading(2.0, 0.5),
         silenced_frames: 3,
@@ -163,4 +164,45 @@ fn a_range_longer_than_the_bound_is_a_limit_before_any_render() {
         analyze(None, None).apply(&mut state, &mut context()),
         Err(CommandError::Limit { .. })
     ));
+}
+
+#[test]
+fn an_analysis_of_other_tracks_than_the_rendered_ones_is_refused() {
+    let f = arrangement_examples::fx();
+    let mut state = f.state.clone();
+    let mut ctx = context();
+    let mut staged = stage(&state, None, None);
+    staged.slots.reverse();
+    staged.slots.push(f.track.clone());
+    ctx.analysis = Some(staged);
+    let error = analyze(None, None).apply(&mut state, &mut ctx).unwrap_err();
+    assert!(matches!(error, CommandError::Invalid { .. }), "{error:?}");
+}
+
+#[test]
+fn levels_read_while_the_transport_did_not_run_are_all_silent() {
+    let f = arrangement_examples::fx();
+    let mut state = f.state.clone();
+    let mut ctx = context();
+    ctx.engine = snapshot(&state.project, &state.session).1;
+    ctx.levels = Some(LevelsStage {
+        playing: false,
+        tracks: vec![reading(0.5, 0.25); 4],
+        master: reading(1.0, 0.5),
+    });
+    let Output::Mixer(mixer::Output::Levels {
+        playing,
+        tracks,
+        master,
+    }) = levels(&mut state, &mut ctx)
+    else {
+        panic!()
+    };
+    assert!(!playing);
+    assert!(
+        tracks
+            .iter()
+            .all(|t| t.peak_db.is_none() && t.rms_db.is_none())
+    );
+    assert_eq!(master.peak_db, None);
 }

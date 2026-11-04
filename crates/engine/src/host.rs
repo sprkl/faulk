@@ -1136,3 +1136,43 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
         record_capturing: u32_at(68)? & 1 == 1,
     })
 }
+
+#[cfg(test)]
+mod tally_tests {
+    use super::*;
+
+    fn meter(peak: f32, rms: f32) -> TrackMeter {
+        TrackMeter {
+            peak_l: peak,
+            peak_r: peak / 2.0,
+            rms_l: rms,
+            rms_r: rms,
+            gain_reduction_db: 0.0,
+        }
+    }
+
+    #[test]
+    fn periods_fold_into_the_largest_peak_and_a_root_mean_square_weighted_by_frames() {
+        let mut tally = Tally::new().unwrap();
+        // 100 frames at RMS 1, then 300 frames of silence: the mean square is 100/400.
+        tally.add(100, &[meter(0.5, 1.0)], meter(0.9, 1.0));
+        tally.add(300, &[meter(0.25, 0.0)], meter(0.1, 0.0));
+        let levels = tally.levels();
+        assert_eq!(levels.frames, 400);
+        assert_eq!(levels.tracks.len(), 1);
+        let t = levels.tracks[0];
+        assert_eq!((t.peak_l, t.peak_r), (0.5, 0.25));
+        assert!((t.rms_l - 0.5).abs() < 1e-6, "{}", t.rms_l);
+        assert!((levels.master.peak_l - 0.9).abs() < 1e-6);
+        assert!((levels.master.rms_r - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_period_without_frames_weighs_nothing() {
+        let mut tally = Tally::new().unwrap();
+        tally.add(0, &[meter(0.0, 0.0)], meter(0.0, 0.0));
+        let levels = tally.levels();
+        assert_eq!(levels.frames, 0);
+        assert!(levels.master.rms_l == 0.0 && levels.master.peak_l == 0.0);
+    }
+}

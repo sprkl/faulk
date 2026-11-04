@@ -224,6 +224,7 @@ fn context_for(command: &Command, state: &State) -> commands::Context {
         ctx.analysis = Some(commands::levels::AnalysisStage {
             start_tick: plan.start_tick,
             end_tick: plan.end_tick,
+            slots: commands::export::track_slots(&state.project, &state.session),
             tracks: Vec::new(),
             master: commands::levels::MeterReading::default(),
             silenced_frames: 0,

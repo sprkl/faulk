@@ -260,12 +260,16 @@ impl Core {
         match job(&state.project, &state.session, settings) {
             Ok(job) => {
                 let setup_len = job.setup.len() as u32;
+                let start_len = job.start.len() as u32;
                 let mut bytes = job.setup;
+                bytes.extend(job.start);
                 bytes.extend(job.stop);
                 (
                     ExportReport::Ready {
                         plan: job.plan,
+                        tracks: job.tracks,
                         setup_len,
+                        start_len,
                     },
                     bytes,
                 )

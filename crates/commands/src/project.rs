@@ -229,9 +229,10 @@ domain! {
     /// bars `from_bar` to `to_bar` (both, counted from 1, the last one included); the
     /// tail after the range is not measured. Levels are in dBFS (0 is full scale), `null`
     /// is silence; a peak is the larger of the two channels, an RMS the power mean of
-    /// both. The metronome and the loop are off, the solo and mute state are on. Audio
-    /// clips are not in the render yet (they play, but the offline render does not read
-    /// their files), so a track of audio clips reads silent here. Refused, as an export
+    /// both, over the whole range (not the loudest short window that `mixer.levels`
+    /// gives). The metronome and the loop are off, the solo and mute state are on. Audio
+    /// clips are measured as they play: the render reads their files from the project's
+    /// folder, and a file that cannot be read leaves its clip silent. Refused, as an export
     /// is, when there is nothing to render (empty arrangement, a range that starts after
     /// the end of the arrangement or is out of order), and when the range lasts more than
     /// 10 minutes (a `limit` error). The page runs the render in the background (a few
@@ -276,8 +277,11 @@ domain! {
     /// counted from 1, required with it and refused without it, the last one included,
     /// then the same tail). `bit_depth` is `pcm16`, `pcm24` (default) or `float32`;
     /// `sample_rate` is 44100, 48000 (default) or 96000. The metronome is never in the
-    /// file; the solo and mute state are. Audio clips are not in the file yet (they play,
-    /// but the offline render does not read their files). It is refused when there is
+    /// file; the solo and mute state are. Audio clips are in the file as they play: the
+    /// render reads their files from the project's folder, in the page in both modes (so in
+    /// Boost too, where they are not heard yet), and waits for each read; a file that cannot
+    /// be read leaves its clips silent and the page names it when the render ends. It is
+    /// refused when there is
     /// nothing to render (empty arrangement, no loop region for `loop`, a `bars` range that
     /// starts after the end of the arrangement or is out of order) or the range lasts more
     /// than 30 minutes
@@ -449,16 +453,18 @@ pub fn apply(
                     message: "the project changed while it was measured: ask again".into(),
                 });
             }
-            let (_, slots) = crate::engine_msgs::snapshot(&state.project, &state.session);
+            if export::track_slots(&state.project, &state.session) != stage.slots {
+                return Err(CommandError::Invalid {
+                    field: "render".into(),
+                    message: "the tracks changed while the project was measured: ask again".into(),
+                });
+            }
+            let slot_of = |id: &TrackId| stage.slots.iter().position(|s| s == id).map(|i| i as u32);
             Ok(crate::query::answer(Output::AnalyzeRender {
                 start_tick: plan.start_tick,
                 end_tick: plan.end_tick,
                 duration_secs: plan.duration_secs,
-                tracks: levels::track_levels(
-                    &state.project,
-                    |id| slots.tracks.get(id),
-                    &stage.tracks,
-                ),
+                tracks: levels::track_levels(&state.project, slot_of, &stage.tracks),
                 master: levels::level_of(&stage.master),
                 silenced_frames: stage.silenced_frames,
                 limiter_reduction_db: levels::reduction_db(stage.reduction),

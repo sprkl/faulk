@@ -70,7 +70,9 @@ export class LevelHold {
     const buckets = this.buckets.filter((b) => b.epoch === epoch)
     this.buckets = []
     if (epoch === undefined || now - this.lastAt > STALE_MS) return { playing: false, tracks: [], master: SILENT }
-    const stage: LevelsStage = { playing: this.playing, tracks: [], master: SILENT }
+    // Nothing was heard while the transport did not run (the command says so too).
+    if (!this.playing) return { playing: false, tracks: [], master: SILENT }
+    const stage: LevelsStage = { playing: true, tracks: [], master: SILENT }
     for (const bucket of buckets) {
       bucket.tracks.forEach((m, slot) => {
         stage.tracks[slot] = louder(stage.tracks[slot] ?? SILENT, m)
@@ -96,6 +98,7 @@ export interface AnalyzerDeps {
 export interface AnalysisJob {
   plan: { body_frames: number; settings: { sample_rate: number } }
   setup: Uint8Array
+  start: Uint8Array
   stop: Uint8Array
 }
 
@@ -116,7 +119,7 @@ export class RenderAnalyzer {
     return this.running
   }
 
-  async run(job: AnalysisJob, signal?: AbortSignal): Promise<AnalysisOutcome> {
+  async run(job: AnalysisJob, folder: FileSystemDirectoryHandle | null, signal?: AbortSignal): Promise<AnalysisOutcome> {
     if (this.running) return { status: 'busy' }
     this.running = true
     try {
@@ -145,6 +148,7 @@ export class RenderAnalyzer {
         }
         worker.onerror = (event) => finish({ status: 'failed', reason: `the render failed: ${event.message}` })
         const setup = job.setup.slice().buffer
+        const start0 = job.start.slice().buffer
         const stop = job.stop.slice().buffer
         const start: ToExport = {
           type: 'start',
@@ -153,10 +157,12 @@ export class RenderAnalyzer {
           bits: 24,
           bodyFrames: job.plan.body_frames,
           setup,
+          start: start0,
           stop,
+          folder,
           analysis: true,
         }
-        worker.postMessage(start, [module, setup, stop])
+        worker.postMessage(start, [module, setup, start0, stop])
       })
     } catch (error) {
       return { status: 'failed', reason: `the render could not start: ${String(error)}` }

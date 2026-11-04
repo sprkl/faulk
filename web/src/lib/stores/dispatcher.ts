@@ -438,6 +438,15 @@ export class Dispatcher {
     hasContent: () => Object.values(this.project.view?.project.tracks ?? {}).some((track) => Object.keys(track?.placements ?? {}).length > 0),
     hasLoop: () => (this.project.view?.project.transport.loop_region ?? null) !== null,
     folder: async () => (await this.storage?.folderHandle()) ?? null,
+    mediaFolder: () => this.folder,
+    analysisRunning: () => this.analyzer?.busy ?? false,
+    mediaNames: (hashes) => {
+      const names = new Map<string, string>()
+      for (const track of Object.values(this.project.view?.project.tracks ?? {}))
+        for (const clip of Object.values(track?.clips ?? {}))
+          if (clip && 'audio' in clip.content) names.set(clip.content.audio.media.hash, clip.content.audio.media.name)
+      return hashes.map((hash) => names.get(hash) ?? hash)
+    },
   }
 
   private refuseOpen(reason: OpenRefusal): OpenOutcome {
@@ -707,7 +716,7 @@ export class Dispatcher {
     const job = core.exportJob({ analysis: true, ...range })
     if (job.status === 'refused') return { status: 'refused', error: job.error }
     if (job.status !== 'ready') return { status: 'unavailable', reason: `the project could not be prepared for a render (${job.stream_error})` }
-    const outcome = await analyzer.run(job, signal)
+    const outcome = await analyzer.run(job, this.folder, signal)
     switch (outcome.status) {
       case 'busy':
         return { status: 'unavailable', reason: 'another analysis is running: retry when it is done' }
@@ -720,6 +729,7 @@ export class Dispatcher {
         core.stageAnalysis({
           start_tick: job.plan.start_tick,
           end_tick: job.plan.end_tick,
+          slots: job.tracks,
           tracks: outcome.levels.tracks,
           master: outcome.levels.master,
           silenced_frames: outcome.levels.silenced,

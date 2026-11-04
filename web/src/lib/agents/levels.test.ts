@@ -42,11 +42,18 @@ describe('the held levels', () => {
     hold.feed(report([0.1], 0.1, { transport: 'stopped' }), 1000 + HOLD_MS + 2000)
     const stage = hold.take(1000 + HOLD_MS + 2100, 1)
     expect(stage.playing).toBe(false)
-    expect(stage.tracks[0].peak_l).toBe(0.1)
+    expect(stage.tracks).toEqual([])
+    hold.feed(report([0.1], 0.1), 1000 + HOLD_MS + 2200)
+    expect(hold.take(1000 + HOLD_MS + 2300, 1).tracks[0].peak_l).toBe(0.1)
   })
 })
 
-const job: AnalysisJob = { plan: { body_frames: 48_000, settings: { sample_rate: 48_000 } }, setup: new Uint8Array([1]), stop: new Uint8Array([2]) }
+const job: AnalysisJob = {
+  plan: { body_frames: 48_000, settings: { sample_rate: 48_000 } },
+  setup: new Uint8Array([1]),
+  start: new Uint8Array([3]),
+  stop: new Uint8Array([2]),
+}
 const levels: ContentLevels = { frames: 48_000, tracks: [], master: { peak_l: 1, peak_r: 1, rms_l: 0.5, rms_r: 0.5 }, silenced: 0, reduction: 0 }
 
 class FakeWorker implements ExportWorkerPort {
@@ -83,11 +90,22 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 0))
 describe('the offline measure', () => {
   it('asks the Worker for a measure only, and answers with the levels it posts', async () => {
     const { analyzer: a, workers } = analyzer()
-    const run = a.run(job)
+    const run = a.run(job, null)
     await tick()
     expect(a.busy).toBe(true)
     expect(workers[0].started).toMatchObject({ type: 'start', analysis: true, bodyFrames: 48_000 })
-    workers[0].say({ type: 'done', header: new ArrayBuffer(0), written: 0, peak: 1, clipped: 0, reduction: 0, tailCut: false, levels })
+    workers[0].say({
+      type: 'done',
+      header: new ArrayBuffer(0),
+      written: 0,
+      peak: 1,
+      clipped: 0,
+      reduction: 0,
+      tailCut: false,
+      silenced: 0,
+      missing: [],
+      levels,
+    })
     expect(await run).toEqual({ status: 'done', levels })
     expect(workers[0].terminated).toBe(true)
     expect(a.busy).toBe(false)
@@ -95,28 +113,39 @@ describe('the offline measure', () => {
 
   it('refuses a second measure while one runs, and runs again after', async () => {
     const { analyzer: a, workers } = analyzer()
-    const first = a.run(job)
+    const first = a.run(job, null)
     await tick()
-    expect(await a.run(job)).toEqual({ status: 'busy' })
+    expect(await a.run(job, null)).toEqual({ status: 'busy' })
     workers[0].say({ type: 'error', message: 'boom', code: null })
     expect(await first).toMatchObject({ status: 'failed' })
-    const again = a.run(job)
+    const again = a.run(job, null)
     await tick()
-    workers[1].say({ type: 'done', header: new ArrayBuffer(0), written: 0, peak: 0, clipped: 0, reduction: 0, tailCut: false, levels })
+    workers[1].say({
+      type: 'done',
+      header: new ArrayBuffer(0),
+      written: 0,
+      peak: 0,
+      clipped: 0,
+      reduction: 0,
+      tailCut: false,
+      silenced: 0,
+      missing: [],
+      levels,
+    })
     expect((await again).status).toBe('done')
   })
 
   it('stops the Worker when the call is cancelled', async () => {
     const { analyzer: a, workers } = analyzer()
     const controller = new AbortController()
-    const run = a.run(job, controller.signal)
+    const run = a.run(job, null, controller.signal)
     await tick()
     controller.abort()
     expect(await run).toEqual({ status: 'aborted' })
     expect(workers[0].terminated).toBe(true)
     expect(a.busy).toBe(false)
     // Already cancelled: no Worker at all.
-    expect(await a.run(job, controller.signal)).toEqual({ status: 'aborted' })
+    expect(await a.run(job, null, controller.signal)).toEqual({ status: 'aborted' })
     expect(workers).toHaveLength(1)
   })
 
@@ -124,7 +153,7 @@ describe('the offline measure', () => {
     vi.useFakeTimers()
     try {
       const { analyzer: a, workers } = analyzer(5000)
-      const run = a.run(job)
+      const run = a.run(job, null)
       await vi.advanceTimersByTimeAsync(10)
       await vi.advanceTimersByTimeAsync(5000)
       expect(await run).toMatchObject({ status: 'failed', reason: expect.stringContaining('5 s') })
@@ -136,9 +165,20 @@ describe('the offline measure', () => {
 
   it('fails, rather than answer, when the engine measured nothing', async () => {
     const { analyzer: a, workers } = analyzer()
-    const run = a.run(job)
+    const run = a.run(job, null)
     await tick()
-    workers[0].say({ type: 'done', header: new ArrayBuffer(0), written: 0, peak: 0, clipped: 0, reduction: 0, tailCut: false, levels: null })
+    workers[0].say({
+      type: 'done',
+      header: new ArrayBuffer(0),
+      written: 0,
+      peak: 0,
+      clipped: 0,
+      reduction: 0,
+      tailCut: false,
+      silenced: 0,
+      missing: [],
+      levels: null,
+    })
     expect(await run).toMatchObject({ status: 'failed' })
   })
 })

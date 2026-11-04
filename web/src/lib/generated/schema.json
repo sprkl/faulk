@@ -679,7 +679,7 @@
         "undo": "none"
       },
       {
-        "description": "Measure how loud the song is without playing it nor writing a file: the same\noffline render as `project.export_audio` (the engine that plays the song, run\nfaster than real time), but only the levels come back, per track and for the\nmaster, so an agent without ears learns whether its song sounds, whether it is too\nloud, and whether a track is silent. The range is the whole song by default, or\nbars `from_bar` to `to_bar` (both, counted from 1, the last one included); the\ntail after the range is not measured. Levels are in dBFS (0 is full scale), `null`\nis silence; a peak is the larger of the two channels, an RMS the power mean of\nboth. The metronome and the loop are off, the solo and mute state are on. Audio\nclips are not in the render yet (they play, but the offline render does not read\ntheir files), so a track of audio clips reads silent here. Refused, as an export\nis, when there is nothing to render (empty arrangement, a range that starts after\nthe end of the arrangement or is out of order), and when the range lasts more than\n10 minutes (a `limit` error). The page runs the render in the background (a few\nseconds for a few minutes of music), one at a time; it answers `unavailable` when\nanother analysis runs or the page's engine is not ready. A query: changes nothing\nin the project and never enters the history.",
+        "description": "Measure how loud the song is without playing it nor writing a file: the same\noffline render as `project.export_audio` (the engine that plays the song, run\nfaster than real time), but only the levels come back, per track and for the\nmaster, so an agent without ears learns whether its song sounds, whether it is too\nloud, and whether a track is silent. The range is the whole song by default, or\nbars `from_bar` to `to_bar` (both, counted from 1, the last one included); the\ntail after the range is not measured. Levels are in dBFS (0 is full scale), `null`\nis silence; a peak is the larger of the two channels, an RMS the power mean of\nboth, over the whole range (not the loudest short window that `mixer.levels`\ngives). The metronome and the loop are off, the solo and mute state are on. Audio\nclips are measured as they play: the render reads their files from the project's\nfolder, and a file that cannot be read leaves its clip silent. Refused, as an export\nis, when there is nothing to render (empty arrangement, a range that starts after\nthe end of the arrangement or is out of order), and when the range lasts more than\n10 minutes (a `limit` error). The page runs the render in the background (a few\nseconds for a few minutes of music), one at a time; it answers `unavailable` when\nanother analysis runs or the page's engine is not ready. A query: changes nothing\nin the project and never enters the history.",
         "destructive": false,
         "input_schema": {
           "additionalProperties": false,
@@ -839,7 +839,7 @@
         "undo": "none"
       },
       {
-        "description": "Render the project to an audio file (WAV) and save it, offline: the same engine\nthat plays the song, run faster than real time, so the file is the song as it\nsounds, not a recording of the speakers. `region` is `song` (default: from bar 1\nto the end of the last placement of the arrangement, then the tail, so that an\neffect such as the echo rings out; the file ends where the sound falls under\n-90 dBFS, after 30 seconds at most), `loop` (the loop region once, then the same\ntail) or `bars` (from the start of bar `from_bar` to the end of bar `to_bar`, both\ncounted from 1, required with it and refused without it, the last one included,\nthen the same tail). `bit_depth` is `pcm16`, `pcm24` (default) or `float32`;\n`sample_rate` is 44100, 48000 (default) or 96000. The metronome is never in the\nfile; the solo and mute state are. Audio clips are not in the file yet (they play,\nbut the offline render does not read their files). It is refused when there is\nnothing to render (empty arrangement, no loop region for `loop`, a `bars` range that\nstarts after the end of the arrangement or is out of order) or the range lasts more\nthan 30 minutes\n(a `limit` error). The output says what will be rendered; the page runs the render, shows its progress and asks\nwhere to save the file (a folder picker needs a click), so an agent that is not\ndriven by a user gets the render in the page to confirm. Changes nothing in the\nproject, so it never enters the history and has nothing to undo.",
+        "description": "Render the project to an audio file (WAV) and save it, offline: the same engine\nthat plays the song, run faster than real time, so the file is the song as it\nsounds, not a recording of the speakers. `region` is `song` (default: from bar 1\nto the end of the last placement of the arrangement, then the tail, so that an\neffect such as the echo rings out; the file ends where the sound falls under\n-90 dBFS, after 30 seconds at most), `loop` (the loop region once, then the same\ntail) or `bars` (from the start of bar `from_bar` to the end of bar `to_bar`, both\ncounted from 1, required with it and refused without it, the last one included,\nthen the same tail). `bit_depth` is `pcm16`, `pcm24` (default) or `float32`;\n`sample_rate` is 44100, 48000 (default) or 96000. The metronome is never in the\nfile; the solo and mute state are. Audio clips are in the file as they play: the\nrender reads their files from the project's folder, in the page in both modes (so in\nBoost too, where they are not heard yet), and waits for each read; a file that cannot\nbe read leaves its clips silent and the page names it when the render ends. It is\nrefused when there is\nnothing to render (empty arrangement, no loop region for `loop`, a `bars` range that\nstarts after the end of the arrangement or is out of order) or the range lasts more\nthan 30 minutes\n(a `limit` error). The output says what will be rendered; the page runs the render, shows its progress and asks\nwhere to save the file (a folder picker needs a click), so an agent that is not\ndriven by a user gets the render in the page to confirm. Changes nothing in the\nproject, so it never enters the history and has nothing to undo.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -10619,7 +10619,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Delete placements, in one command. Their clips stay in their tracks, even one that\nloses its last placement and sits in no grid slot: it stays in the track's pool,\nwhere `arrangement.place` puts it back and `clip.delete` deletes it. Refused when the\nlist is empty, names a placement twice or an unknown one. Undo:\n`arrangement.restore`.",
+        "description": "Delete placements, in one command, MIDI or audio ones. Their clips stay in their\ntracks, even one that loses its last placement and sits in no grid slot: it stays in\nthe track's pool (an audio clip keeps its file; `arrangement.place` puts a MIDI clip\nback, `clip.delete` deletes a clip). Refused when the\nlist is empty, names a placement twice or an unknown one. Undo:\n`arrangement.restore`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -11250,6 +11250,29 @@
               ],
               "type": "object"
             },
+            "FrameSpan": {
+              "additionalProperties": false,
+              "description": "The span of an audio placement, in frames of the clip's file.",
+              "properties": {
+                "length": {
+                  "description": "How many frames of the clip the placement plays, at least 1.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "offset": {
+                  "description": "The frame of the clip where it starts, before the clip's frame count.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "length",
+                "offset"
+              ],
+              "type": "object"
+            },
             "Id": {
               "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
               "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
@@ -11393,18 +11416,31 @@
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId",
-                  "description": "A MIDI clip of the track."
+                  "description": "A clip of the track: a MIDI clip in a MIDI track, an audio clip in an audio track."
+                },
+                "frames": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/FrameSpan"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "An audio placement's span, in frames of its clip's file: given for a placement of\nan audio track and only for those."
                 },
                 "id": {
                   "$ref": "#/$defs/PlacementId"
                 },
                 "length": {
                   "$ref": "#/$defs/Tick",
-                  "description": "Length on the timeline, in ticks."
+                  "default": 0,
+                  "description": "Length on the timeline, in ticks (a MIDI placement; 0 and ignored when `frames` is\ngiven)."
                 },
                 "offset": {
                   "$ref": "#/$defs/Tick",
-                  "description": "Where in the clip the placement starts, in ticks, before the clip's length."
+                  "default": 0,
+                  "description": "Where in the clip the placement starts, in ticks, before the clip's length (a MIDI\nplacement; 0 and ignored when `frames` is given)."
                 },
                 "start": {
                   "$ref": "#/$defs/Tick",
@@ -11414,9 +11450,7 @@
               "required": [
                 "id",
                 "clip",
-                "start",
-                "length",
-                "offset"
+                "start"
               ],
               "type": "object"
             },
@@ -11622,7 +11656,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Write the placements of one or more tracks exactly as given, without the overlap\nrule: the inverse of every arrangement command, which brings back what it carved,\nwith the identifiers. Per track: `put` creates or replaces placements by\nidentifier, `remove` removes placements, `clips` brings back MIDI clips (new\nidentifiers, a snapshot as `clip.restore` takes) and `remove_clips` removes clips.\nRefused when a placement is outside the timeline or its offset outside its clip,\nwhen a placement is left on a removed clip or names an unknown clip, when an\nidentifier to create is in use, or when a rule of the clip commands is broken (a\nnote outside the length, a limit). Undo: the restore of what it changed.",
+        "description": "Write the placements of one or more tracks exactly as given, without the overlap\nrule: the inverse of every arrangement command, which brings back what it carved,\nwith the identifiers. Per track: `put` creates or replaces placements by\nidentifier, `remove` removes placements, `clips` brings back MIDI clips (new\nidentifiers, a snapshot as `clip.restore` takes) and `remove_clips` removes clips.\nRefused when a placement is outside the timeline or its offset outside its clip,\nwhen a placement is left on a removed clip or names an unknown clip, when an\nidentifier to create is in use, or when a rule of the clip commands is broken (a\nnote outside the length, a limit). In an audio track only `put` and `remove` of\naudio placements (a record with `frames`) are taken, never `clips` or `remove_clips`.\nUndo: the restore of what it changed.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -11714,6 +11748,29 @@
               ],
               "type": "object"
             },
+            "FrameSpan": {
+              "additionalProperties": false,
+              "description": "The span of an audio placement, in frames of the clip's file.",
+              "properties": {
+                "length": {
+                  "description": "How many frames of the clip the placement plays, at least 1.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "offset": {
+                  "description": "The frame of the clip where it starts, before the clip's frame count.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "length",
+                "offset"
+              ],
+              "type": "object"
+            },
             "Id": {
               "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
               "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
@@ -11785,18 +11842,31 @@
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId",
-                  "description": "A MIDI clip of the track."
+                  "description": "A clip of the track: a MIDI clip in a MIDI track, an audio clip in an audio track."
+                },
+                "frames": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/FrameSpan"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "An audio placement's span, in frames of its clip's file: given for a placement of\nan audio track and only for those."
                 },
                 "id": {
                   "$ref": "#/$defs/PlacementId"
                 },
                 "length": {
                   "$ref": "#/$defs/Tick",
-                  "description": "Length on the timeline, in ticks."
+                  "default": 0,
+                  "description": "Length on the timeline, in ticks (a MIDI placement; 0 and ignored when `frames` is\ngiven)."
                 },
                 "offset": {
                   "$ref": "#/$defs/Tick",
-                  "description": "Where in the clip the placement starts, in ticks, before the clip's length."
+                  "default": 0,
+                  "description": "Where in the clip the placement starts, in ticks, before the clip's length (a MIDI\nplacement; 0 and ignored when `frames` is given)."
                 },
                 "start": {
                   "$ref": "#/$defs/Tick",
@@ -11806,9 +11876,7 @@
               "required": [
                 "id",
                 "clip",
-                "start",
-                "length",
-                "offset"
+                "start"
               ],
               "type": "object"
             },
@@ -14450,7 +14518,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Read how loud the project sounds now, per track and for the master, from the\nmeters of the playing engine: how an agent without ears learns whether a song\nsounds. Call it while the transport plays (`transport.play`): the meters keep the\nlargest peak and the loudest RMS since the previous call (at most the last 10\nseconds), so a call right after a passage covers it. Levels are in dBFS (0 is\nfull scale; the master is measured before the output protection, so it can read\nabove 0), `null` is silence; a peak is the larger of the two channels, an RMS the\npower mean of both. `playing` says whether the transport ran: when it did not (or\nthe audio is not started, or the engine has stopped reporting), every level is\n`null`. Tracks come in display order, after their fader and mute. To measure a\nstretch without playing it, use `project.analyze_render`. A query: changes nothing\nand never enters the history.",
+        "description": "Read how loud the project sounds now, per track and for the master, from the\nmeters of the playing engine: how an agent without ears learns whether a song\nsounds. Call it while the transport plays (`transport.play`): the meters keep the\nlargest peak and the loudest RMS since the previous call (at most the last 10\nseconds), so a call right after a passage covers it. That RMS is the loudest of\nthe engine's short windows (about 30 ms), so it reads higher than the RMS of a\nwhole passage, which is what `project.analyze_render` gives. Levels are in dBFS (0 is\nfull scale; the master is measured before the output protection, so it can read\nabove 0), `null` is silence; a peak is the larger of the two channels, an RMS the\npower mean of both. `playing` says whether the transport ran: when it did not (or\nthe audio is not started, or the engine has stopped reporting), every level is\n`null`. Tracks come in display order, after their fader and mute. To measure a\nstretch without playing it, use `project.analyze_render`. A query: changes nothing\nand never enters the history.",
         "destructive": false,
         "input_schema": {
           "additionalProperties": false,
@@ -16240,7 +16308,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Delete placements, in one command. Their clips stay in their tracks, even one that\nloses its last placement and sits in no grid slot: it stays in the track's pool,\nwhere `arrangement.place` puts it back and `clip.delete` deletes it. Refused when the\nlist is empty, names a placement twice or an unknown one. Undo:\n`arrangement.restore`.",
+              "description": "Delete placements, in one command, MIDI or audio ones. Their clips stay in their\ntracks, even one that loses its last placement and sits in no grid slot: it stays in\nthe track's pool (an audio clip keeps its file; `arrangement.place` puts a MIDI clip\nback, `clip.delete` deletes a clip). Refused when the\nlist is empty, names a placement twice or an unknown one. Undo:\n`arrangement.restore`.",
               "properties": {
                 "placements": {
                   "items": {
@@ -16482,7 +16550,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Write the placements of one or more tracks exactly as given, without the overlap\nrule: the inverse of every arrangement command, which brings back what it carved,\nwith the identifiers. Per track: `put` creates or replaces placements by\nidentifier, `remove` removes placements, `clips` brings back MIDI clips (new\nidentifiers, a snapshot as `clip.restore` takes) and `remove_clips` removes clips.\nRefused when a placement is outside the timeline or its offset outside its clip,\nwhen a placement is left on a removed clip or names an unknown clip, when an\nidentifier to create is in use, or when a rule of the clip commands is broken (a\nnote outside the length, a limit). Undo: the restore of what it changed.",
+              "description": "Write the placements of one or more tracks exactly as given, without the overlap\nrule: the inverse of every arrangement command, which brings back what it carved,\nwith the identifiers. Per track: `put` creates or replaces placements by\nidentifier, `remove` removes placements, `clips` brings back MIDI clips (new\nidentifiers, a snapshot as `clip.restore` takes) and `remove_clips` removes clips.\nRefused when a placement is outside the timeline or its offset outside its clip,\nwhen a placement is left on a removed clip or names an unknown clip, when an\nidentifier to create is in use, or when a rule of the clip commands is broken (a\nnote outside the length, a limit). In an audio track only `put` and `remove` of\naudio placements (a record with `frames`) are taken, never `clips` or `remove_clips`.\nUndo: the restore of what it changed.",
               "properties": {
                 "edits": {
                   "items": {
@@ -18847,6 +18915,29 @@
           ],
           "type": "object"
         },
+        "FrameSpan": {
+          "additionalProperties": false,
+          "description": "The span of an audio placement, in frames of the clip's file.",
+          "properties": {
+            "length": {
+              "description": "How many frames of the clip the placement plays, at least 1.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "offset": {
+              "description": "The frame of the clip where it starts, before the clip's frame count.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "length",
+            "offset"
+          ],
+          "type": "object"
+        },
         "Hash": {
           "description": "The SHA-256 of a blob, 64 lower-case hexadecimal characters.",
           "pattern": "^[0-9a-f]{64}$",
@@ -19589,7 +19680,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Read how loud the project sounds now, per track and for the master, from the\nmeters of the playing engine: how an agent without ears learns whether a song\nsounds. Call it while the transport plays (`transport.play`): the meters keep the\nlargest peak and the loudest RMS since the previous call (at most the last 10\nseconds), so a call right after a passage covers it. Levels are in dBFS (0 is\nfull scale; the master is measured before the output protection, so it can read\nabove 0), `null` is silence; a peak is the larger of the two channels, an RMS the\npower mean of both. `playing` says whether the transport ran: when it did not (or\nthe audio is not started, or the engine has stopped reporting), every level is\n`null`. Tracks come in display order, after their fader and mute. To measure a\nstretch without playing it, use `project.analyze_render`. A query: changes nothing\nand never enters the history.",
+              "description": "Read how loud the project sounds now, per track and for the master, from the\nmeters of the playing engine: how an agent without ears learns whether a song\nsounds. Call it while the transport plays (`transport.play`): the meters keep the\nlargest peak and the loudest RMS since the previous call (at most the last 10\nseconds), so a call right after a passage covers it. That RMS is the loudest of\nthe engine's short windows (about 30 ms), so it reads higher than the RMS of a\nwhole passage, which is what `project.analyze_render` gives. Levels are in dBFS (0 is\nfull scale; the master is measured before the output protection, so it can read\nabove 0), `null` is silence; a peak is the larger of the two channels, an RMS the\npower mean of both. `playing` says whether the transport ran: when it did not (or\nthe audio is not started, or the engine has stopped reporting), every level is\n`null`. Tracks come in display order, after their fader and mute. To measure a\nstretch without playing it, use `project.analyze_render`. A query: changes nothing\nand never enters the history.",
               "properties": {
                 "type": {
                   "const": "mixer.levels",
@@ -19735,18 +19826,31 @@
           "properties": {
             "clip": {
               "$ref": "#/$defs/ClipId",
-              "description": "A MIDI clip of the track."
+              "description": "A clip of the track: a MIDI clip in a MIDI track, an audio clip in an audio track."
+            },
+            "frames": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/FrameSpan"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "An audio placement's span, in frames of its clip's file: given for a placement of\nan audio track and only for those."
             },
             "id": {
               "$ref": "#/$defs/PlacementId"
             },
             "length": {
               "$ref": "#/$defs/Tick",
-              "description": "Length on the timeline, in ticks."
+              "default": 0,
+              "description": "Length on the timeline, in ticks (a MIDI placement; 0 and ignored when `frames` is\ngiven)."
             },
             "offset": {
               "$ref": "#/$defs/Tick",
-              "description": "Where in the clip the placement starts, in ticks, before the clip's length."
+              "default": 0,
+              "description": "Where in the clip the placement starts, in ticks, before the clip's length (a MIDI\nplacement; 0 and ignored when `frames` is given)."
             },
             "start": {
               "$ref": "#/$defs/Tick",
@@ -19756,9 +19860,7 @@
           "required": [
             "id",
             "clip",
-            "start",
-            "length",
-            "offset"
+            "start"
           ],
           "type": "object"
         },
@@ -20494,7 +20596,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Measure how loud the song is without playing it nor writing a file: the same\noffline render as `project.export_audio` (the engine that plays the song, run\nfaster than real time), but only the levels come back, per track and for the\nmaster, so an agent without ears learns whether its song sounds, whether it is too\nloud, and whether a track is silent. The range is the whole song by default, or\nbars `from_bar` to `to_bar` (both, counted from 1, the last one included); the\ntail after the range is not measured. Levels are in dBFS (0 is full scale), `null`\nis silence; a peak is the larger of the two channels, an RMS the power mean of\nboth. The metronome and the loop are off, the solo and mute state are on. Audio\nclips are not in the render yet (they play, but the offline render does not read\ntheir files), so a track of audio clips reads silent here. Refused, as an export\nis, when there is nothing to render (empty arrangement, a range that starts after\nthe end of the arrangement or is out of order), and when the range lasts more than\n10 minutes (a `limit` error). The page runs the render in the background (a few\nseconds for a few minutes of music), one at a time; it answers `unavailable` when\nanother analysis runs or the page's engine is not ready. A query: changes nothing\nin the project and never enters the history.",
+              "description": "Measure how loud the song is without playing it nor writing a file: the same\noffline render as `project.export_audio` (the engine that plays the song, run\nfaster than real time), but only the levels come back, per track and for the\nmaster, so an agent without ears learns whether its song sounds, whether it is too\nloud, and whether a track is silent. The range is the whole song by default, or\nbars `from_bar` to `to_bar` (both, counted from 1, the last one included); the\ntail after the range is not measured. Levels are in dBFS (0 is full scale), `null`\nis silence; a peak is the larger of the two channels, an RMS the power mean of\nboth, over the whole range (not the loudest short window that `mixer.levels`\ngives). The metronome and the loop are off, the solo and mute state are on. Audio\nclips are measured as they play: the render reads their files from the project's\nfolder, and a file that cannot be read leaves its clip silent. Refused, as an export\nis, when there is nothing to render (empty arrangement, a range that starts after\nthe end of the arrangement or is out of order), and when the range lasts more than\n10 minutes (a `limit` error). The page runs the render in the background (a few\nseconds for a few minutes of music), one at a time; it answers `unavailable` when\nanother analysis runs or the page's engine is not ready. A query: changes nothing\nin the project and never enters the history.",
               "properties": {
                 "from_bar": {
                   "default": null,
@@ -20529,7 +20631,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Render the project to an audio file (WAV) and save it, offline: the same engine\nthat plays the song, run faster than real time, so the file is the song as it\nsounds, not a recording of the speakers. `region` is `song` (default: from bar 1\nto the end of the last placement of the arrangement, then the tail, so that an\neffect such as the echo rings out; the file ends where the sound falls under\n-90 dBFS, after 30 seconds at most), `loop` (the loop region once, then the same\ntail) or `bars` (from the start of bar `from_bar` to the end of bar `to_bar`, both\ncounted from 1, required with it and refused without it, the last one included,\nthen the same tail). `bit_depth` is `pcm16`, `pcm24` (default) or `float32`;\n`sample_rate` is 44100, 48000 (default) or 96000. The metronome is never in the\nfile; the solo and mute state are. Audio clips are not in the file yet (they play,\nbut the offline render does not read their files). It is refused when there is\nnothing to render (empty arrangement, no loop region for `loop`, a `bars` range that\nstarts after the end of the arrangement or is out of order) or the range lasts more\nthan 30 minutes\n(a `limit` error). The output says what will be rendered; the page runs the render, shows its progress and asks\nwhere to save the file (a folder picker needs a click), so an agent that is not\ndriven by a user gets the render in the page to confirm. Changes nothing in the\nproject, so it never enters the history and has nothing to undo.",
+              "description": "Render the project to an audio file (WAV) and save it, offline: the same engine\nthat plays the song, run faster than real time, so the file is the song as it\nsounds, not a recording of the speakers. `region` is `song` (default: from bar 1\nto the end of the last placement of the arrangement, then the tail, so that an\neffect such as the echo rings out; the file ends where the sound falls under\n-90 dBFS, after 30 seconds at most), `loop` (the loop region once, then the same\ntail) or `bars` (from the start of bar `from_bar` to the end of bar `to_bar`, both\ncounted from 1, required with it and refused without it, the last one included,\nthen the same tail). `bit_depth` is `pcm16`, `pcm24` (default) or `float32`;\n`sample_rate` is 44100, 48000 (default) or 96000. The metronome is never in the\nfile; the solo and mute state are. Audio clips are in the file as they play: the\nrender reads their files from the project's folder, in the page in both modes (so in\nBoost too, where they are not heard yet), and waits for each read; a file that cannot\nbe read leaves its clips silent and the page names it when the render ends. It is\nrefused when there is\nnothing to render (empty arrangement, no loop region for `loop`, a `bars` range that\nstarts after the end of the arrangement or is out of order) or the range lasts more\nthan 30 minutes\n(a `limit` error). The output says what will be rendered; the page runs the render, shows its progress and asks\nwhere to save the file (a folder picker needs a click), so an agent that is not\ndriven by a user gets the render in the page to confirm. Changes nothing in the\nproject, so it never enters the history and has nothing to undo.",
               "properties": {
                 "bit_depth": {
                   "anyOf": [
@@ -28868,14 +28970,23 @@
             }
           ]
         },
+        "Id": {
+          "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+          "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+          "type": "string"
+        },
         "Tick": {
           "description": "A musical position or duration, in ticks ([`PPQ`] per quarter note).\n\nArithmetic saturates instead of overflowing. The inner value is public so that the\nproject and the UI read it as a plain integer.",
           "format": "int64",
           "type": "integer"
+        },
+        "TrackId": {
+          "$ref": "#/$defs/Id",
+          "description": "Identifier of a track."
         }
       },
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "What preparing an export (`project.export_audio`, #297) gave: the render's plan, with the\nengine bytes returned beside it (the setup stream, then the stream that stops the\ntransport, `setup_len` bytes then the rest).",
+      "description": "What preparing an export (`project.export_audio`, #297) gave: the render's plan, with the\nengine bytes returned beside it: the setup stream (`setup_len` bytes), the stream that\nstarts the transport after the render's pre-roll (`start_len` bytes), then the stream that\nstops it (the rest).",
       "oneOf": [
         {
           "additionalProperties": false,
@@ -28888,15 +28999,29 @@
               "minimum": 0,
               "type": "integer"
             },
+            "start_len": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
             "status": {
               "const": "ready",
               "type": "string"
+            },
+            "tracks": {
+              "description": "The tracks by the engine slot the render gives them (what a measure is of).",
+              "items": {
+                "$ref": "#/$defs/TrackId"
+              },
+              "type": "array"
             }
           },
           "required": [
             "status",
             "plan",
-            "setup_len"
+            "tracks",
+            "setup_len",
+            "start_len"
           ],
           "type": "object"
         },
