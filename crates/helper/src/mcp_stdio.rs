@@ -15,11 +15,13 @@
 //! without a request, or the helper restarted) is opened again by the bridge itself (#657): it
 //! replays the `initialize` request it kept (same `clientInfo`, so the same agent name) and the
 //! `notifications/initialized` after it, then replays the message that met the 404, once. The
-//! agent notices nothing. For the helper's presence by name ([`crate::agents`]) the new session is
-//! the same agent coming back: if its old session expired the page was told `agent.left` and
-//! closed that agent's history group, and the agent's next call opens a new one; if the helper
-//! restarted it knew nothing of the agent before. A second 404 on the replay is answered with an
-//! error, as is a 404 before any `initialize` went through the bridge.
+//! agent is not told. For the helper's presence by name ([`crate::agents`]) the new session is
+//! the same agent coming back. What the agent does lose is what the page did when the old session
+//! ended: it was told `agent.left` (or lost its link to the helper) and closed the history group
+//! that agent had left open (`history_begin_group` without `history_end_group`) and ended its
+//! turn, so the agent's later edits run outside any group, and its `history_end_group` has no group
+//! left to close, with no word to the agent. A second 404 on the replay is answered with an error, as
+//! is a 404 before any `initialize` went through the bridge.
 //!
 //! Without a running helper, or without the token, each request is answered with a JSON-RPC
 //! error that says what to do; notifications are dropped.
@@ -63,8 +65,10 @@ struct Opening {
 
 /// Why a message could not be relayed.
 enum Failure {
-    /// HTTP 404 on a message that carried a session: the helper no longer knows it.
-    SessionGone,
+    /// HTTP 404 on a message that carried this session id: the helper no longer knows it.
+    SessionGone(String),
+    /// HTTP 404 on a message with no session: nothing to open again.
+    Unknown,
     /// Anything else: what to tell the agent.
     Text(String),
 }
@@ -124,17 +128,18 @@ impl Link {
                 _ => {}
             }
         }
-        let sent_with = self.session.lock().expect("session lock").clone();
         let outcome = match self.post(message, true) {
-            Err(Failure::SessionGone) => {
+            Err(Failure::SessionGone(stale)) => {
                 if method == Some("initialize") {
                     // The agent starts over: no session to keep, nothing stored to replay.
                     *self.session.lock().expect("session lock") = None;
                     *self.version.lock().expect("version lock") = None;
                     self.post(message, true)
+                } else if method == Some("notifications/initialized") {
+                    // `reopen` sends it again, on the new session.
+                    self.reopen(&stale).map(|()| Vec::new())
                 } else {
-                    self.reopen(sent_with)
-                        .and_then(|()| self.post(message, true))
+                    self.reopen(&stale).and_then(|()| self.post(message, true))
                 }
             }
             other => other,
@@ -142,16 +147,16 @@ impl Link {
         match outcome {
             Ok(messages) => messages,
             Err(Failure::Text(text)) => fail(text),
-            Err(Failure::SessionGone) => fail(RESTART.to_owned()),
+            Err(Failure::SessionGone(_) | Failure::Unknown) => fail(RESTART.to_owned()),
         }
     }
 
     /// Opens the MCP session again after the helper answered 404 to `stale` (#657): the kept
     /// `initialize`, then `notifications/initialized`. Another thread may have done it already
     /// (the session is no longer `stale`): then there is nothing to do.
-    fn reopen(&self, stale: Option<String>) -> Result<(), Failure> {
+    fn reopen(&self, stale: &str) -> Result<(), Failure> {
         let _one = self.reopening.lock().unwrap_or_else(|p| p.into_inner());
-        if *self.session.lock().expect("session lock") != stale {
+        if self.session.lock().expect("session lock").as_deref() != Some(stale) {
             return Ok(());
         }
         let (initialize, initialized) = {
@@ -160,7 +165,7 @@ impl Link {
         };
         // Never initialized through this bridge: nothing to open again.
         let Some(mut initialize) = initialize else {
-            return Err(Failure::SessionGone);
+            return Err(Failure::Unknown);
         };
         initialize["id"] = json!("faulk-bridge-reopen");
         eprintln!("faulk-helper mcp: the helper no longer knows the MCP session: opening it again");
@@ -193,11 +198,11 @@ impl Link {
             .header("Authorization", &format!("Bearer {token}"))
             .header("Content-Type", "application/json")
             .header("Accept", "application/json, text/event-stream");
-        let mut had_session = false;
+        let mut sent_with = None;
         if with_session {
             if let Some(session) = self.session.lock().expect("session lock").clone() {
                 request = request.header("Mcp-Session-Id", &session);
-                had_session = true;
+                sent_with = Some(session);
             }
             if let Some(version) = self.version.lock().expect("version lock").clone() {
                 request = request.header("MCP-Protocol-Version", &version);
@@ -216,8 +221,7 @@ impl Link {
         if !(200..300).contains(&status) {
             return Err(match status {
                 401 => Failure::Text("the helper refused the MCP token: run `faulk-helper mcp-token`, then restart the agent".to_owned()),
-                404 if had_session => Failure::SessionGone,
-                404 => Failure::Text(RESTART.to_owned()),
+                404 => sent_with.map_or(Failure::Unknown, Failure::SessionGone),
                 _ => Failure::Text(format!("the helper answered HTTP {status}")),
             });
         }
@@ -388,6 +392,8 @@ mod tests {
         seen: Arc<Mutex<Vec<Seen>>>,
         /// An `initialize` answers with a session id the server does not keep.
         forgetful: Arc<AtomicBool>,
+        /// A `tools/call` meets a 404 even on a session the server keeps.
+        deaf_to_calls: Arc<AtomicBool>,
     }
 
     impl Fake {
@@ -399,11 +405,13 @@ mod tests {
                 sessions: Arc::default(),
                 seen: Arc::default(),
                 forgetful: Arc::default(),
+                deaf_to_calls: Arc::default(),
             };
-            let (sessions, seen, forgetful) = (
+            let (sessions, seen, forgetful, deaf) = (
                 fake.sessions.clone(),
                 fake.seen.clone(),
                 fake.forgetful.clone(),
+                fake.deaf_to_calls.clone(),
             );
             std::thread::spawn(move || {
                 let mut opened = 0;
@@ -438,7 +446,9 @@ mod tests {
                                 "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nMcp-Session-Id: {new}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
                                 body.len()
                             )
-                        } else if !known {
+                        } else if !known
+                            || (message["method"] == "tools/call" && deaf.load(Ordering::SeqCst))
+                        {
                             "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_owned()
                         } else if id.is_none() {
                             "HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_owned()
@@ -568,7 +578,7 @@ mod tests {
         let fake = Fake::start();
         let link = opened_link(&fake);
         fake.restart();
-        // From now on the helper hands out sessions it does not keep: the replay meets a 404 too.
+        // From now on the helper hands out sessions it does not keep: opening it again fails.
         fake.forgetful.store(true, Ordering::SeqCst);
         let answers = link.relay(&call(2));
         assert_eq!(answers.len(), 1);
@@ -590,6 +600,51 @@ mod tests {
             methods.iter().filter(|m| *m == "initialize").count(),
             2,
             "opened again once, no loop"
+        );
+    }
+
+    #[test]
+    fn a_replay_that_meets_a_404_too_is_an_error_and_not_sent_again() {
+        let fake = Fake::start();
+        let link = opened_link(&fake);
+        fake.deaf_to_calls.store(true, Ordering::SeqCst);
+        let answers = link.relay(&call(2));
+        assert_eq!(answers.len(), 1);
+        assert!(
+            answers[0]["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("restart the agent")
+        );
+        // The call, the session opened again, the call once more: no third.
+        assert_eq!(
+            fake.methods(),
+            [
+                "initialize",
+                "notifications/initialized",
+                "tools/call",
+                "initialize",
+                "notifications/initialized",
+                "tools/call",
+            ]
+        );
+    }
+
+    #[test]
+    fn an_initialized_notification_that_meets_a_404_is_sent_once_on_the_new_session() {
+        let fake = Fake::start();
+        let link = opened_link(&fake);
+        fake.restart();
+        assert!(link.relay(&initialized()).is_empty());
+        assert_eq!(
+            fake.methods(),
+            [
+                "initialize",
+                "notifications/initialized",
+                "notifications/initialized",
+                "initialize",
+                "notifications/initialized",
+            ]
         );
     }
 
