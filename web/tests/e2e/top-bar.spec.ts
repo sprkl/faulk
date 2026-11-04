@@ -140,7 +140,8 @@ for (const [lang, width] of [
 
     // The real bar first (armed, long name), then the widest one.
     await assertFits(page, width)
-    await widest(page)
+    // 24 px more in the pill: the CPU figure at 100 %, or a longer latency, is wider than the 0 % the stand-in engine reports.
+    await widest(page, 24)
     const out = await assertFits(page, width)
 
     // The project name stays readable (about ten characters), its full text a click or a hover away.
