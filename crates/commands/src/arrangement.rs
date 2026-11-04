@@ -1284,7 +1284,7 @@ fn place_audio(
     if source.slot.is_some() {
         return Err(invalid(
             "clip",
-            "the clip sits in the launch grid: it is placed in the arrangement by `clip.import_audio` with `at: arrangement`, not by arrangement.place",
+            "the clip sits in the launch grid: sending a grid audio clip to the arrangement comes with AU-6; meanwhile `clip.import_audio` with `at: arrangement` places its file again, and a clip of the pool (no slot) is placed by arrangement.place",
         ));
     }
     let tempo = project.tempo();

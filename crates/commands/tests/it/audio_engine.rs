@@ -230,7 +230,7 @@ fn every_audio_edit_and_its_undo_leave_the_engine_as_a_snapshot_would() {
             clip: f.audio_clip.clone(),
             gain_db: Some(-6.0),
         }),
-        // The placement goes (the clip and its source stay), then the clip with it.
+        // The placement goes (the clip and its source stay).
         Command::Arrangement(commands::arrangement::Command::Delete {
             placements: vec![placement],
         }),
