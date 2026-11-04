@@ -99,7 +99,7 @@ describe('audio files dropped on an audio track (AU-6)', () => {
   it('puts each file into the free cell the grid gives, or the pool when none is left', () => {
     const { h, log } = page()
     const scenes = ['s1', null]
-    const place = placeInGrid(h, 'track', (index) => scenes[index] ?? null)
+    const place = placeInGrid(h.run, 'track', () => scenes.shift() ?? null)
     place(media('a'), 0)
     place(media('b'), 1)
     expect(log).toEqual([

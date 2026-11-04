@@ -197,12 +197,12 @@
                   max="6"
                   step="0.1"
                   value={gain === null || gain === undefined ? '' : Math.round(gain * 10) / 10}
-                  placeholder="−∞"
+                  placeholder={t('audio.gainSilent')}
                   aria-label={t('audio.gainOf', { name: names[entry.id] ?? '' })}
                   data-testid="pool-gain"
                   onchange={(event) => setGain(entry, event.currentTarget)}
                 />
-                <span class="unit" aria-hidden="true">dB</span>
+                <span class="unit" aria-hidden="true">{t('audio.gainUnit')}</span>
               </label>
             {/if}
             <button class="ghost" type="button" title={t('clips.placeHint')} data-testid="pool-place" onclick={(event) => place(entry, event.altKey)}

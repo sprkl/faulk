@@ -74,12 +74,12 @@ export function placeOnLane(host: LaneHost, track: string, start: number): Impor
 
 /**
  * Files dropped on an empty cell of an audio track in the grid (AU-6): the first goes into that cell, each next one into
- * the next free cell below (`freeFrom` finds it, now), and a file with no free cell left into the track's pool.
+ * the next free cell below (`freeCell` finds it, now), and a file with no free cell left into the track's pool.
  */
-export function placeInGrid(host: PlaceHost, track: string, freeFrom: (index: number) => string | null): ImportPlacer {
-  return (media, index) => {
-    const scene = freeFrom(index)
-    return host.run({ type: 'clip.import_audio', track, media: media.hash, name: null, at: scene ? { at: 'slot', scene } : null })
+export function placeInGrid(run: (command: Command) => boolean, track: string, freeCell: () => string | null): ImportPlacer {
+  return (media) => {
+    const scene = freeCell()
+    return run({ type: 'clip.import_audio', track, media: media.hash, name: null, at: scene ? { at: 'slot', scene } : null })
   }
 }
 

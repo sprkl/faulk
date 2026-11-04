@@ -1990,6 +1990,10 @@ fn resize_audio(
         .ok_or_else(|| not_found("clip", &p.clip))?;
     let (s, e) = work.span(p)?;
     let (len, o) = (frame_i64(length), frame_i64(offset));
+    // An edge moved where it is changes nothing (its tick is rounded: its frames are kept).
+    if (edge == Edge::End && to == e) || (edge == Edge::Start && to == s) {
+        return Ok(p.clone());
+    }
     match edge {
         Edge::End => {
             if to <= s {
@@ -2031,7 +2035,12 @@ fn resize_audio(
             while grow > 0 && to + audio_ticks(work.tempo, g.rate, len + grow) > e {
                 grow -= 1;
             }
-            let start = if grow == o && o > 0 {
+            // Nothing before the offset (already at the clip's first frame), or not even a
+            // frame fits: the placement stays as it is.
+            if grow == 0 {
+                return Ok(p.clone());
+            }
+            let start = if grow == o {
                 // Back to the clip's first frame: it starts where that frame falls, the end
                 // kept.
                 (e - audio_ticks(work.tempo, g.rate, len + o)).max(to)
@@ -2148,9 +2157,10 @@ fn duplicate(
             .tracks
             .get(track_id)
             .ok_or_else(|| not_found("track", track_id))?;
-        let work = TrackWork::of(track, track_id, project.tempo());
         for id in list {
-            let (s, e) = work.span(placement_of(track, id)?)?;
+            let p = placement_of(track, id)?;
+            let (s, e) = crate::clip::placement_ticks(project.tempo(), track, p)
+                .ok_or_else(|| not_found("clip", &p.clip))?;
             first = first.min(s);
             last = last.max(e);
         }
@@ -2512,8 +2522,8 @@ fn restore_works(project: &Project, edits: &[TrackEdit]) -> Result<Works, Comman
             );
         }
         // A restored audio placement may not overlap another one of the track, restored or
-        // already there: the arrangement commands never leave an overlap, so an undo never
-        // brings one.
+        // already there (#702): the arrangement commands never leave an overlap; a tempo change or
+        // `clip.audio.set_range` still can (their spans are frames at the tempo), #703 closes that.
         for (id, field) in &audio_put {
             let Some((s, e)) = work.placements.get(id).and_then(|p| work.span(p).ok()) else {
                 continue;

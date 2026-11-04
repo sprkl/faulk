@@ -198,6 +198,45 @@ fn resizing_an_audio_edge_works_in_frames_and_stops_at_the_clip() {
     let mut s = placed.clone();
     ok(&mut s, resize(Edge::Start, 0));
     assert_eq!(at(&s), (3360, 33_075, 0), "down to the clip's first frame");
+    // An edge moved where it is, or a start pulled left of a placement already at the clip's
+    // first frame, changes nothing (no history entry).
+    for (state, command) in [
+        (&placed, resize(Edge::End, 4800)),
+        (&placed, resize(Edge::Start, 3840)),
+    ] {
+        let mut s = state.clone();
+        let outcome = run(&a(command), &mut s, &mut fresh()).unwrap();
+        assert!(matches!(outcome.undo, Undo::None));
+        assert_eq!(s.project, state.project);
+    }
+    let mut at_zero = placed.clone();
+    ok(&mut at_zero, resize(Edge::Start, 0));
+    let before = at_zero.clone();
+    let outcome = run(&a(resize(Edge::Start, 1000)), &mut at_zero, &mut fresh()).unwrap();
+    assert!(matches!(outcome.undo, Undo::None));
+    assert_eq!(
+        at_zero.project, before.project,
+        "the start stays at the clip's first frame"
+    );
+    // 27 560 frames are 1199.9 ticks, rounded to 1200: an end resized to where it is keeps them.
+    let mut odd = placed.clone();
+    if let Some(p) = odd
+        .project
+        .tracks
+        .get_mut(&f.audio_track)
+        .unwrap()
+        .placements
+        .get_mut(&id)
+    {
+        p.span = Span::Frames {
+            length: Frame::new(27_560),
+            offset: Frame::new(0),
+        };
+    }
+    let before = odd.clone();
+    let outcome = run(&a(resize(Edge::End, 3840 + 1200)), &mut odd, &mut fresh()).unwrap();
+    assert!(matches!(outcome.undo, Undo::None));
+    assert_eq!(odd.project, before.project);
     // The end stays after the start, the start before the end.
     for command in [resize(Edge::End, 3840), resize(Edge::Start, 4800)] {
         assert!(matches!(

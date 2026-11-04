@@ -439,11 +439,7 @@
     const from = scenes.findIndex((entry) => entry.id === scene)
     select(track)
     const placer = placeInGrid(
-      {
-        run,
-        group: (body) => inGroup((command, options) => dispatcher.run(command, options), body),
-        clipsOf: (id) => Object.keys(project.view?.project.tracks[id]?.clips ?? {}),
-      },
+      run,
       track,
       // The first free cell at or below the drop's, now (an earlier file may have taken one).
       () => {
