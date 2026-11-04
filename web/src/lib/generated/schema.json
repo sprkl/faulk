@@ -36626,7 +36626,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 33,
+  "protocol_version": 35,
   "server_message": {
     "$defs": {
       "Capabilities": {

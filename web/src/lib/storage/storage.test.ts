@@ -221,10 +221,13 @@ class FakeHost implements ProjectHost {
       }
     }
     const zip = text(`zip of ${entries.length}`)
+    if (this.extraBytes > 0) await io.sink.write(new Uint8Array(this.extraBytes))
     await io.sink.write(zip)
     this.sunk.push(zip)
     return { status: 'ok', files: entries.length, missingBlobs: this.missingBlobs }
   }
+  /** Zero bytes the fake export adds to the pack, to make it look big. */
+  extraBytes = 0
   /** The media are claimed by size only: nothing is read. */
   bigSizes = false
   async packImport(): Promise<PackImport> {
@@ -2023,6 +2026,21 @@ describe('export a .faulkpack', () => {
     // And the next export is not held back by it.
     w.host.exportHold = null
     expect(await w.storage.exportPack()).toBe(true)
+  })
+
+  it('says when the pack is too big for the page to open again, and says nothing for a pack it can open', async () => {
+    const { w, store } = await drafted()
+    store.media.set('blobs/aa', text('media'))
+    expect(await w.storage.exportPack()).toBe(true)
+    expect(w.storage.notice).toBeNull()
+    // The fake core writes `zip of N` and the media: make the sink see more than the page opens.
+    w.host.extraBytes = MAX_PACK_BYTES
+    expect(await w.storage.exportPack()).toBe(true)
+    expect(w.storage.notice).toBe('pack.tooBigForPage')
+    // Missing media is said first.
+    w.host.missingBlobs = 1
+    expect(await w.storage.exportPack()).toBe(true)
+    expect(w.storage.notice).toBe('pack.missingMedia')
   })
 
   it('can be cancelled before it writes: nothing is handed over', async () => {

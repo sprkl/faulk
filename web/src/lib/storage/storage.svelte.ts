@@ -1641,16 +1641,23 @@ export class ProjectStorage {
   private async writePack(prepared: { entries: FolderEntry[]; store: ProjectStore | null }, target: PackTarget, abort: AbortController): Promise<boolean> {
     this.exporting = 0
     const { store } = prepared
+    let written = 0
     try {
       const packed = await this.host.packExport(prepared.entries, {
         read: (path, start, end) => (store ? store.read(path, start, end) : Promise.reject(new Error(`${path}: no folder to read from`))),
-        sink: target,
+        sink: {
+          write: async (chunk) => {
+            await target.write(chunk)
+            written += chunk.length
+          },
+        },
         signal: abort.signal,
         onProgress: (fraction) => (this.exporting = fraction),
       })
       if (packed.status === 'ok') {
         await target.close()
-        this.notice = packed.missingBlobs > 0 ? 'pack.missingMedia' : null
+        // A pack the page itself would refuse to open (`MAX_PACK_BYTES`): it opens elsewhere, so it is said, not refused (#682).
+        this.notice = packed.missingBlobs > 0 ? 'pack.missingMedia' : written > MAX_PACK_BYTES ? 'pack.tooBigForPage' : null
         return true
       }
       await target.abort().catch(() => undefined)
