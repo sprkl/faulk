@@ -119,6 +119,16 @@ test('arrangement: Draw makes a clip of the dragged length, Select draws a box, 
   await undo(page)
   await expect(arr(page)).toHaveAttribute('data-block-count', '0')
 
+  // Leftwards with Ctrl: the same, read at the pointer.
+  await drag(page, { x: g.x(3500), y: g.y(0) }, { x: g.x(2000), y: g.y(0) }, ['Control'])
+  const freeLeft = await blocks(page)
+  expect(freeLeft).toHaveLength(1)
+  expect(Math.abs(freeLeft[0]!.start - 2000)).toBeLessThanOrEqual(tolerance)
+  expect(Math.abs(freeLeft[0]!.length - 1500)).toBeLessThanOrEqual(2 * tolerance)
+  expect(freeLeft[0]!.start % BEAT).not.toBe(0)
+  await undo(page)
+  await expect(arr(page)).toHaveAttribute('data-block-count', '0')
+
   // Escape ends a drawing without a clip; a plain click draws none either.
   await page.mouse.move(g.x(2000), g.y(0))
   await page.mouse.down()
@@ -164,6 +174,9 @@ test('arrangement: Draw makes a clip of the dragged length, Select draws a box, 
       .sort(),
   )
   expect(await selected(page)).toHaveLength(2)
+  // Shift adds the clips of a second box to the selection (here the clip of bar 4, from the free ground right of it).
+  await drag(page, { x: g.x(BAR * 6), y: g.y(0) + 12 }, { x: g.x(BAR * 4 + 100), y: g.y(0) - 12 }, ['Shift'])
+  expect(await selected(page)).toHaveLength(3)
   // A click on the free ground clears it.
   await page.mouse.click(g.x(BAR * 12), g.y(0))
   expect(await selected(page)).toEqual([])

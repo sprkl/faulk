@@ -410,6 +410,8 @@ describe('drawing a clip (#615)', () => {
     expect(drawnSpan(blocks, 2, 3000, 1000, 480)).toEqual({ start: 960, length: 1920 })
     // Free: the ticks as they are.
     expect(drawnSpan(blocks, 2, 1000, 1500, null)).toEqual({ start: 1000, length: 500 })
+    // A span of one tick is a clip (`clip.create` takes 1 to 2^40 ticks).
+    expect(drawnSpan(blocks, 2, 1000, 1001, null)).toEqual({ start: 1000, length: 1 })
   })
 
   it('draws nothing for a click or a span under the step', () => {
