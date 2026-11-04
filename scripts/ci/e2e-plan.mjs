@@ -31,7 +31,7 @@ export const areas = (...names) => {
 export const AREA = {
   arrangement: ['arrangement', 'audio-clips', 'arrangement-time', 'arrangement-handles', 'arrangement-view', 'arrangement-draw', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard', 'discoverability', 'keyboard-create', 'recording', 'piano-roll-follow', 'clip-pool', 'markers', 'context-menu', 'toolbar-overflow', 'device-browser'],
   clips: ['clip-pool'],
-  grid: ['audio-clips', 'clip-names', 'clip-pool', 'grid', 'grid-clips', 'grid-to-arrangement', 'recording'],
+  grid: ['clip-names', 'clip-pool', 'grid', 'grid-clips', 'grid-to-arrangement', 'recording'],
   history: ['history', 'history-cost', 'history-names', 'keyboard-create'],
   pianoRoll: ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard', 'keyboard-create', 'recording', 'piano-roll-follow', 'context-menu'],
   mixer: ['automation', 'continuous', 'layout-4', 'mixer', 'mixer-sound', 'master-chain', 'master-pan', 'track-state'],
