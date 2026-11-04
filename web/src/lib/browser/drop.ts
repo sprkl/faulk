@@ -64,8 +64,10 @@ const idsOf = (chain: readonly ChainEntry[]): Set<string> => new Set(chain.map((
 
 /**
  * Runs `steps` as one history group when there are several; a refused step ends the sequence, the group is closed either
- * way. A refused `history.begin_group` (a group is already open: an agent's turn, an author's gesture) is not an error:
- * the steps join that group, and its owner closes it, so `end_group` is sent only when this drop opened the group (#643).
+ * way. A refused `history.begin_group` (a group is already open, e.g. an agent's turn) is not an error: `end_group` is
+ * sent only when this drop opened the group (#643), the group of someone else is never closed here. The steps then run
+ * anyway; the history joins them to the open group only when the page (the same author) opened it, otherwise each step
+ * is its own undo entry, and undo stays refused until that group ends.
  */
 function grouped(host: DropHost, steps: ((host: DropHost) => boolean)[]): boolean {
   if (steps.length === 1) return steps[0]!(host)

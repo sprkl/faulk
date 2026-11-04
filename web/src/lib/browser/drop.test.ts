@@ -257,7 +257,7 @@ describe('a refused step', () => {
 })
 
 describe('a group already open', () => {
-  it('a refused begin_group: the steps still run in that group, and no end_group is sent', () => {
+  it('a refused begin_group: the steps still run, and no end_group is sent', () => {
     const f = fake((c) => c.type === 'history.begin_group')
     const result = applyItem(f.host, item('faulk.osc_synth', 'instrument', 'Round Bass'), { type: 'new-track' })
     expect(result.ok).toBe(true)
