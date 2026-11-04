@@ -43,8 +43,14 @@ class FakeStore implements ProjectStore {
     const entries: FolderEntry[] = [...this.files].map(([path, body]) => ({ path, bytes: text(body) }))
     return { entries, signature: this.signature() }
   }
-  async read() {
-    return new Uint8Array()
+  /** The paths read, and the binary files a read finds (the waveform peaks, AU-2). */
+  reads: string[] = []
+  binary = new Map<string, Uint8Array>()
+  async read(path: string) {
+    this.reads.push(path)
+    const found = this.binary.get(path)
+    if (!found && path.startsWith('.faulk/')) throw new StoreError('io', 'not found')
+    return found ?? new Uint8Array()
   }
   /** The media the folder holds (audio is not in a save). */
   media = new Map<string, Uint8Array>()
@@ -97,13 +103,16 @@ class FakeStore implements ProjectStore {
       media: { hash, sample_rate: 44_100, channels: 2, frames: 22_050, name: file.name },
       direct: true,
       blob: { path: `blobs/${hash}`, stamp: `5:${900 + this.imports.length}`, created: true },
+      peaks: true,
     }
   }
   cacheSignals: (AbortSignal | undefined)[] = []
+  cacheHold: Promise<void> | null = null
   async ensureAudioCache(media: MediaRef[], _onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<CacheReport> {
     this.caches.push(media)
     this.cacheSignals.push(signal)
-    return { made: media.map((m) => m.hash), missing: [], failed: [] }
+    if (this.cacheHold) await this.cacheHold
+    return { made: media.map((m) => m.hash), peaks: [], missing: [], failed: [] }
   }
   close() {
     this.closed = true
@@ -2650,12 +2659,62 @@ describe('importing an audio file (AU-1)', () => {
     expect(await w.storage.openRecent(handle.name)).toBe(true)
     await w.storage.audioCacheDone
     expect(store.caches.at(-1)).toEqual(media)
-    expect(w.storage.audioCache).toEqual({ made: [media[0]!.hash], missing: [], failed: [] })
+    expect(w.storage.audioCache).toEqual({ made: [media[0]!.hash], peaks: [], missing: [], failed: [] })
     // The project leaves the folder: what remains of that work stops.
     const signal = store.cacheSignals.at(-1)!
     expect(signal.aborted).toBe(false)
     await w.storage.newProject()
     expect(signal.aborted).toBe(true)
+  })
+
+  it('reads the waveform peaks of a media from the place, and has them made one media at a time, stopped when the project leaves it (AU-2)', async () => {
+    const { w, store } = await saved()
+    const a = { hash: 'a'.repeat(64), sample_rate: 44_100, channels: 2, frames: 10 }
+    const b = { ...a, hash: 'b'.repeat(64) }
+    store.binary.set(`.faulk/cache/peaks/${a.hash}.peaks`, new Uint8Array([1, 2, 3]))
+    expect(await w.storage.readPeaks(a.hash)).toEqual(new Uint8Array([1, 2, 3]))
+    // No file: none, not an error.
+    expect(await w.storage.readPeaks(b.hash)).toBeNull()
+    expect(store.reads.slice(-2)).toEqual([`.faulk/cache/peaks/${a.hash}.peaks`, `.faulk/cache/peaks/${b.hash}.peaks`])
+    // Two requests: the second waits for the first.
+    let release = () => {}
+    store.cacheHold = new Promise((resolve) => (release = resolve))
+    const before = store.caches.length
+    const first = w.storage.makePeaks(a)
+    const second = w.storage.makePeaks(b)
+    await settle()
+    expect(store.caches.slice(before)).toEqual([[a]])
+    const signal = store.cacheSignals.at(-1)!
+    // The project leaves the place: the run under way stops, the one waiting never starts.
+    const epoch = w.storage.peaksEpoch
+    w.storage.sleep()
+    const leaving = w.storage.newProject()
+    await settle()
+    expect(signal.aborted).toBe(true)
+    release()
+    await leaving
+    await first
+    await second
+    expect(store.caches.slice(before)).toEqual([[a]])
+    // Without a place, nothing to read or make.
+    expect(await w.storage.makePeaks(a)).toBeUndefined()
+    expect(store.caches.slice(before)).toEqual([[a]])
+    expect(w.storage.peaksEpoch).toBeGreaterThanOrEqual(epoch)
+  })
+
+  it('counts each attach, so that a waveform left without peaks is tried again (AU-2)', async () => {
+    const { w, handle } = await saved()
+    const epoch = w.storage.peaksEpoch
+    expect(epoch).toBeGreaterThan(0)
+    w.storage.sleep()
+    w.recents = [{ id: handle.name, name: handle.name, handle, at: 1 }]
+    await w.storage.newProject()
+    expect(await w.storage.openRecent(handle.name)).toBe(true)
+    expect(w.storage.peaksEpoch).toBeGreaterThan(epoch)
+    // An import that wrote its peaks counts too: a waveform of that file left without them is tried again.
+    const before = w.storage.peaksEpoch
+    await w.storage.importAudio(wav())
+    expect(w.storage.peaksEpoch).toBe(before + 1)
   })
 
   it('an import cancelled while it waited in the queue never reaches the store', async () => {

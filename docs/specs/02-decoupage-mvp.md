@@ -1123,6 +1123,7 @@ Décision 5 : import et lecture de fichiers audio (échantillons, boucles, stems
 - Dépend de : AU-1.
 - Phase : 5.
 - Étiquettes : hardware: non, founder: non.
+- **Réalisé (#111)** : voir [stockage local](../architecture/03-stockage-local.md) § 5.12. Crêtes `int8` arrondies vers l'extérieur, quatre niveaux, `.faulk/cache/peaks/<sha256>.peaks` (45 000 octets par minute de stéréo 48 kHz au niveau le plus fin), faites à l'import et refaites à l'ouverture quand elles manquent ; `PeaksCache` et `Waveform` dans la page, `drawWaveform` pour toute surface (AU-6) ; montré dans le panneau Clips. Écart à la tâche : depuis BO-1 la page calcule les crêtes dans les deux modes ; « mêmes crêtes en Web et en Boost » est tenu par construction et testé (même fichier en Web et en Boost), et la parité avec la construction native du crate (le futur helper) est testée sur les fichiers de référence.
 
 **AU-3 — Worker disque et anneau partagé vers le worklet**
 - But : le Worker disque lit le PCM par plages (`File.slice`, `SyncAccessHandle.read`, sur le blob WAV/AIFF ou sur le cache PCM d'un fichier compressé), tient la lecture anticipée par voix (2 à 4 s), le pré-chargement des débuts de clips (1 à 2 s) et le budget global de PCM décodé avec éviction LRU ([stockage local](../architecture/03-stockage-local.md) § 5.4), et pousse des blocs PCM dans des anneaux lock-free en `SharedArrayBuffer` lus par le moteur dans le worklet ; sauts et boucles vident et remplissent les anneaux sans jamais bloquer le thread audio.

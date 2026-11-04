@@ -3,4 +3,5 @@
 mod cache;
 mod errors;
 mod fixtures;
+mod peaks;
 mod support;
