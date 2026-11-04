@@ -1294,7 +1294,6 @@ fn place_audio(
         .max(1);
     check_extent(start.get(), ticks, "start")?;
     let end = start.get() + ticks;
-    let id = PlacementId::generate(&mut ctx.ids);
     let mut work = TrackWork::of_any(project, track_id)?;
     for other in work.placements.values() {
         if let Some((s, e)) = crate::clip::placement_ticks(tempo, track, other)
@@ -1307,6 +1306,7 @@ fn place_audio(
             ));
         }
     }
+    let id = PlacementId::generate(&mut ctx.ids);
     work.placements.insert(
         id.clone(),
         Placement {
