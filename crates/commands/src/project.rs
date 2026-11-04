@@ -77,11 +77,14 @@ domain! {
     "project.save" (kind = "live", undo = "none", destructive = false)
     Save {} => {};
 
-    /// Choose an empty folder and write the whole project into it; the project then lives
-    /// in that folder, and the automatic save keeps writing there. The folder is chosen by
-    /// the user (a browser needs a click for it), so an agent that is not driven by one gets
-    /// a notice in the page instead, and nothing is chosen. The old folder is left as it is. Changes nothing in the
-    /// project, so it never enters the history.
+    /// Ask the user for the project's name (a field prefilled with the current one), then for
+    /// a folder, and write the whole project into a folder of that name inside it; the project
+    /// takes that name (a `project.rename`, undoable) and then lives in that folder, and the
+    /// automatic save keeps writing there. The name and the folder are chosen by the user (a
+    /// browser needs a click for it), so an agent that is not driven by one gets a notice in the
+    /// page instead, and nothing is chosen. A folder of that name that already holds files is
+    /// refused. The old folder is left as it is. Changes nothing else in the project, so the save
+    /// itself never enters the history.
     "project.save_as" (kind = "live", undo = "none", destructive = false)
     SaveAs {} => {};
 

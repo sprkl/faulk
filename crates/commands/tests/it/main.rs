@@ -12,6 +12,7 @@ mod record_examples;
 mod track_examples;
 mod transport_examples;
 
+mod agent_turn;
 mod arrangement;
 mod arrangement_grid;
 mod arrangement_time;

@@ -109,5 +109,46 @@ test('history panel: French labels and an empty history', async ({ page }) => {
   await run(page, { type: 'project.rename', name: 'Titre' }, 'agent:claude')
   await expect(entries(page).first()).toContainText('Renommer le projet')
   await expect(entries(page).first()).toContainText('claude')
+  await run(page, { type: 'project.rename', name: 'Titre 2' }, 'agent:claude')
+  await expect(entries(page).first().getByTestId('history-turn')).toHaveText('2 modifications en un tour')
+  expect(errors).toEqual([])
+})
+
+// AG-3 (#99): an agent's consecutive edits are one turn, one row that one undo undoes; a user's gesture during the
+// turn has its own row and ends the turn.
+test("history panel: an agent's turn is one row that one undo undoes, and the user's gesture stays out of it", async ({ page }) => {
+  const { errors } = watch(page)
+  await page.goto('/app')
+  await page.getByTestId('engine-state').getByRole('button').click()
+  await engineUp(page)
+  test.skip((await hooks(page)) !== 'function', 'the dispatcher hook exists in the dev server only')
+  await page.getByTestId('panel-history').click()
+  const name = page.getByTestId('project-name')
+  const original = (await name.textContent())!.trim()
+
+  await run(page, { type: 'project.rename', name: 'Agent one' }, 'agent:claude')
+  await run(page, { type: 'project.rename', name: 'Agent two' }, 'agent:claude')
+  const top = entries(page).first()
+  await expect(top).toHaveAttribute('data-author', 'agent:claude')
+  await expect(top).toHaveAttribute('data-edits', '2')
+  await expect(top.getByTestId('history-turn')).toHaveText('2 edits in one turn')
+
+  // The user's gesture in the middle of the turn: a row of its own; the agent's next edit is a new turn.
+  const rows = await entries(page).count()
+  await run(page, { type: 'project.rename', name: 'Mine' })
+  await run(page, { type: 'project.rename', name: 'Agent three' }, 'agent:claude')
+  await expect(entries(page)).toHaveCount(rows + 2)
+  await expect(entries(page).nth(1)).toHaveAttribute('data-author', 'user')
+  await expect(entries(page).first()).toHaveAttribute('data-author', 'agent:claude')
+  await expect(entries(page).first().getByTestId('history-turn')).toHaveCount(0)
+
+  // Undone in the order of application: the agent's new turn, the gesture, then the whole first turn at once.
+  const undo = page.getByTestId('history-undo')
+  await undo.click()
+  await expect(name).toHaveText('Mine')
+  await undo.click()
+  await expect(name).toHaveText('Agent two')
+  await undo.click()
+  await expect(name).toHaveText(original)
   expect(errors).toEqual([])
 })

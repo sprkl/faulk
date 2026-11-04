@@ -59,7 +59,9 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
   const project = new ProjectStore()
   const engine = new EngineStore()
   const dispatcher = new Dispatcher(project, engine)
-  const storage = new ProjectStorage(dispatcher.host, deps)
+  // The page's own Save as asks the project's name in a dialog (`ui` is made below, before any click can ask); a test's deps keep theirs.
+  const storageDeps: StorageDeps = deps === browserDeps ? { ...deps, askName: (initial) => ui.askProjectName(initial) } : deps
+  const storage = new ProjectStorage(dispatcher.host, storageDeps)
   dispatcher.storage = storage
   const audioExport = new AudioExport(dispatcher.exportHost, exportDeps)
   dispatcher.audioExport = audioExport
