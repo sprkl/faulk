@@ -210,8 +210,10 @@ export const RULES = [
   [/^crates\/(project|project-wasm)\//, AREA.project],
   // The audio import pipeline (AU-1) and its WebAssembly build, run by the store's Worker.
   [/^crates\/(audio-import|audio-import-wasm)\//, AREA.audio],
+  // The helper is no page code, but the browser tests drive the real one (the agent scenario, AG-5) or its stand-in: its area (#668).
+  [/^crates\/helper\//, AREA.helper],
   // Crates the page never runs: their tests are the Rust job's.
-  [/^crates\/(helper|test-support)\//, NONE],
+  [/^crates\/test-support\//, NONE],
   // Anything else under the web app or the crates, and the build inputs: the whole suite.
   [/^(web|crates|modules|\.cargo)\//, ALL],
   [/^(Cargo\.toml|Cargo\.lock|rust-toolchain\.toml)$/, ALL],
