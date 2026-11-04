@@ -352,6 +352,61 @@ fn launches_stops_wraps_switches_jumps_and_underruns_make_no_click() {
 }
 
 #[test]
+fn a_placement_that_disappears_while_it_plays_fades_out_to_silence() {
+    // `arrangement.delete` of an audio placement sends the track's table again without it.
+    let engine = 48_000;
+    let (mut rig, frames) = sine_rig(engine, engine, 200.0, 10.0, None);
+    let source_step = (200.0 * core::f64::consts::TAU / f64::from(engine) * 0.5) as f32;
+    let bound = source_step + 1.0 / fade_frames(engine) as f32;
+    let table = |placements: Vec<Placement>| ControlMsg::TrackPlacementsUpload {
+        track: TrackSlot(0),
+        first: 0,
+        total: placements.len() as u32,
+        placements,
+    };
+    rig.send(&[
+        table(vec![Placement {
+            placement: PlacementSlot(0),
+            clip: ClipSlot(0),
+            start: Tick(0),
+            span: Span::Frames {
+                offset: Frame(0),
+                length: Frame(frames),
+            },
+        }]),
+        ControlMsg::Play { from: Tick(0) },
+    ]);
+    let (mut l, mut r) = rig.render(100);
+    assert!(l[l.len() - 500..].iter().any(|s| *s != 0.0), "it plays");
+    rig.send(&[table(vec![])]);
+    let (a, b) = rig.render(100);
+    l.extend(a);
+    r.extend(b);
+    let n = l.len();
+    assert!(
+        l[n - 500..].iter().chain(&r[n - 500..]).all(|s| *s == 0.0),
+        "silent once its placement is gone"
+    );
+    let step = max_step(&l, &r);
+    assert!(step <= bound, "a click: step {step} > {bound}");
+    // Back with it: the undo plays again.
+    rig.send(&[table(vec![Placement {
+        placement: PlacementSlot(0),
+        clip: ClipSlot(0),
+        start: Tick(0),
+        span: Span::Frames {
+            offset: Frame(0),
+            length: Frame(frames),
+        },
+    }])]);
+    let (a, _) = rig.render(100);
+    assert!(
+        a[a.len() - 500..].iter().any(|s| *s != 0.0),
+        "it plays again"
+    );
+}
+
+#[test]
 fn three_changes_within_one_fade_make_no_click() {
     let engine = 48_000;
     let (mut rig, _) = sine_rig(engine, engine, 200.0, 5.0, Some((0, 48_000)));

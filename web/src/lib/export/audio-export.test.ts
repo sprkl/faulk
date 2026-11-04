@@ -27,7 +27,7 @@ const PLAN = {
 } as const
 
 function ready(plan: Record<string, unknown> = {}): ExportJob {
-  return { status: 'ready', plan: { ...PLAN, ...plan } as never, setup: Uint8Array.of(1, 2, 3), stop: Uint8Array.of(4) }
+  return { status: 'ready', plan: { ...PLAN, ...plan } as never, setup: Uint8Array.of(1, 2, 3), start: Uint8Array.of(5), stop: Uint8Array.of(4) }
 }
 
 class FakeSink implements ExportSink {
@@ -98,6 +98,8 @@ function setup(
     hasLoop: () => overrides.hasLoop ?? false,
     songBars: () => 4,
     folder: async () => null,
+    mediaFolder: () => null,
+    mediaNames: (hashes) => hashes.map((hash) => (hash === 'ab12' ? 'drums.wav' : hash)),
   }
   const deps: ExportDeps = {
     pick: vi.fn(async () => overrides.pick ?? ({ status: 'chosen', sink } as SinkChoice)),
@@ -124,7 +126,9 @@ const done = (over: Partial<Extract<FromExport, { type: 'done' }>> = {}): FromEx
   peak: 0.5,
   clipped: 0,
   reduction: 0,
+  silenced: 0,
   tailCut: false,
+  missing: [],
   ...over,
 })
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -186,7 +190,9 @@ describe('an export', () => {
     expect(exporter.phase).toBe('rendering')
     expect(worker.started).toMatchObject({ type: 'start', sampleRate: 48_000, bits: 24, bodyFrames: 192_000 })
     expect(new Uint8Array(worker.started!.setup)).toEqual(Uint8Array.of(1, 2, 3))
+    expect(new Uint8Array(worker.started!.start)).toEqual(Uint8Array.of(5))
     expect(new Uint8Array(worker.started!.stop)).toEqual(Uint8Array.of(4))
+    expect(worker.started!.folder).toBeNull()
     worker.say(chunk(96_000, [1, 2]))
     expect(exporter.fraction).toBeCloseTo(0.5)
     expect(exporter.tail).toBe(false)
@@ -207,9 +213,22 @@ describe('an export', () => {
       peakDb: expect.closeTo(-6.02, 1),
       clipped: 0,
       reductionDb: 0,
+      silencedFrames: 0,
       tailCut: false,
+      missing: [],
     })
     expect(exporter.result!.renderMs).toBeGreaterThan(0)
+  })
+
+  it('names the audio files the render could not read (#647)', async () => {
+    const { exporter, worker } = setup()
+    exporter.show()
+    exporter.start()
+    await flush()
+    worker.say(done({ missing: ['ab12', 'cd34'] }))
+    await flush()
+    // A media the project names by its file; one it does not know keeps its hash.
+    expect(exporter.result!.missing).toEqual(['drums.wav', 'cd34'])
   })
 
   it('turns the limiter gain reduction into dB, with the tail cut and the silent file', async () => {
@@ -222,6 +241,16 @@ describe('an export', () => {
     await flush()
     expect(exporter.result).toMatchObject({ tailCut: true, peakDb: -Infinity })
     expect(exporter.result!.reductionDb).toBeCloseTo(6.02, 1)
+  })
+
+  it('carries the frames the output protection silenced for a non-finite sample', async () => {
+    const { exporter, worker } = setup()
+    exporter.show()
+    exporter.start()
+    await flush()
+    worker.say(done({ silenced: 128 }))
+    await flush()
+    expect(exporter.result!.silencedFrames).toBe(128)
   })
 
   it('reports no gain reduction as 0 dB, not -Infinity', async () => {

@@ -2649,12 +2649,14 @@ state: "failed"
 })
 /**
  * What preparing an export (`project.export_audio`, #297) gave: the render's plan, with the
- * engine bytes returned beside it (the setup stream, then the stream that stops the
- * transport, `setup_len` bytes then the rest).
+ * engine bytes returned beside it: the setup stream (`setup_len` bytes), the stream that
+ * starts the transport after the render's pre-roll (`start_len` bytes), then the stream that
+ * stops it (the rest).
  */
 export type ExportReport = ({
 plan: ExportPlan
 setup_len: number
+start_len: number
 status: "ready"
 } | {
 error: CommandError
@@ -3652,6 +3654,11 @@ export interface PlacementRecord {
  */
 clip: string
 /**
+ * An audio placement's span, in frames of its clip's file: given for a placement of
+ * an audio track and only for those.
+ */
+frames?: (FrameSpan | null)
+/**
  * Identifier of a placement in a track's arrangement.
  */
 id: string
@@ -3661,14 +3668,14 @@ id: string
  * Arithmetic saturates instead of overflowing. The inner value is public so that the
  * project and the UI read it as a plain integer.
  */
-length: number
+length?: number
 /**
  * A musical position or duration, in ticks ([`PPQ`] per quarter note).
  * 
  * Arithmetic saturates instead of overflowing. The inner value is public so that the
  * project and the UI read it as a plain integer.
  */
-offset: number
+offset?: number
 /**
  * A musical position or duration, in ticks ([`PPQ`] per quarter note).
  * 
@@ -3676,6 +3683,19 @@ offset: number
  * project and the UI read it as a plain integer.
  */
 start: number
+}
+/**
+ * The span of an audio placement, in frames of the clip's file.
+ */
+export interface FrameSpan {
+/**
+ * How many frames of the clip the placement plays, at least 1.
+ */
+length: number
+/**
+ * The frame of the clip where it starts, before the clip's frame count.
+ */
+offset: number
 }
 /**
  * The points of one automation lane, written whole by `arrangement.restore_time`.
