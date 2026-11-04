@@ -34,6 +34,11 @@ pub struct Exported {
     pub tail_cut: bool,
     /// Times the engine was full while the setup went in.
     pub busy: u32,
+    /// What the content measured (#665), four values per strip as `fk_export_levels` lays them
+    /// out: peak left, peak right, RMS left, RMS right, the tracks by slot then the output.
+    pub levels: Vec<f32>,
+    /// The frames the content measured.
+    pub measured_frames: u64,
 }
 
 /// The job of a state: panics when it is refused.
@@ -70,6 +75,14 @@ pub fn export_native(state: &State, settings: ExportSettings) -> Exported {
         silenced: offline.silenced(),
         tail_cut: offline.tail_cut(),
         busy: offline.busy(),
+        levels: offline.measure().map_or_else(Vec::new, |m| {
+            m.tracks
+                .iter()
+                .chain([&m.master])
+                .flat_map(|l| [l.peak_l, l.peak_r, l.rms_l, l.rms_r])
+                .collect()
+        }),
+        measured_frames: offline.measure().map_or(0, |m| m.frames),
     }
 }
 
@@ -102,6 +115,8 @@ pub fn export_wasm(state: &State, settings: ExportSettings) -> Exported {
     let header = func::<i32, i32>(&instance, &store, "fk_export_header");
     let header_len = func::<i32, i32>(&instance, &store, "fk_export_header_len");
     let stat = func::<(i32, i32), f64>(&instance, &store, "fk_export_stat");
+    let levels_at = func::<i32, i32>(&instance, &store, "fk_export_levels");
+    let levels_len = func::<i32, i32>(&instance, &store, "fk_export_levels_len");
     let memory = instance
         .get_memory(&store, "memory")
         .expect("exported memory");
@@ -167,6 +182,16 @@ pub fn export_wasm(state: &State, settings: ExportSettings) -> Exported {
     let mut wav = read(&store, at, len);
     wav.extend(data);
     let stat = |store: &mut Store<()>, which: i32| stat.call(store, (ex, which)).unwrap();
+    let strips = levels_len.call(&mut store, ex).unwrap();
+    let levels = if strips > 0 {
+        let at = levels_at.call(&mut store, ex).unwrap();
+        read(&store, at, strips * 16)
+            .chunks_exact(4)
+            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .collect()
+    } else {
+        Vec::new()
+    };
     Exported {
         wav,
         settings,
@@ -179,6 +204,8 @@ pub fn export_wasm(state: &State, settings: ExportSettings) -> Exported {
         silenced: stat(&mut store, 8) as u64,
         tail_cut: stat(&mut store, 5) > 0.5,
         busy: 0,
+        levels,
+        measured_frames: stat(&mut store, 9).max(0.0) as u64,
     }
 }
 

@@ -8,6 +8,7 @@ use crate::contract::{
     StoredBrowserProject, StoredFolder, StoredProjects, Undo,
 };
 use crate::export::{self, ExportBitDepth, ExportRegion, ExportSettings};
+use crate::levels::{self, Level, TrackLevel};
 use crate::macros::domain;
 use crate::query::DeviceSummary;
 use project::file::{OpenOptions, SessionLoad, load_session, open};
@@ -220,6 +221,51 @@ domain! {
     "project.allow_access" (kind = "live", undo = "none", destructive = false)
     AllowAccess {} => {};
 
+    /// Measure how loud the song is without playing it nor writing a file: the same
+    /// offline render as `project.export_audio` (the engine that plays the song, run
+    /// faster than real time), but only the levels come back, per track and for the
+    /// master, so an agent without ears learns whether its song sounds, whether it is too
+    /// loud, and whether a track is silent. The range is the whole song by default, or
+    /// bars `from_bar` to `to_bar` (both, counted from 1, the last one included); the
+    /// tail after the range is not measured. Levels are in dBFS (0 is full scale), `null`
+    /// is silence; a peak is the larger of the two channels, an RMS the power mean of
+    /// both. The metronome and the loop are off, the solo and mute state are on. Audio
+    /// clips are not in the render yet (they play, but the offline render does not read
+    /// their files), so a track of audio clips reads silent here. Refused, as an export
+    /// is, when there is nothing to render (empty arrangement, a range that starts after
+    /// the end of the arrangement or is out of order), and when the range lasts more than
+    /// 10 minutes (a `limit` error). The page runs the render in the background (a few
+    /// seconds for a few minutes of music), one at a time; it answers `unavailable` when
+    /// another analysis runs or the page's engine is not ready. A query: changes nothing
+    /// in the project and never enters the history.
+    "project.analyze_render" (kind = "query", undo = "none", destructive = false)
+    AnalyzeRender {
+        #[serde(default)]
+        #[schemars(range(min = 1))]
+        from_bar: Option<u32>,
+        #[serde(default)]
+        #[schemars(range(min = 1))]
+        to_bar: Option<u32>,
+    } => {
+        /// Where the measured range starts, in ticks (960 per quarter note).
+        start_tick: Tick,
+        /// Where it ends, in ticks.
+        end_tick: Tick,
+        /// Seconds of content measured.
+        duration_secs: f64,
+        /// The level of each track over the range, in display order.
+        tracks: Vec<TrackLevel>,
+        /// The level of the output over the range, after the master and before the output
+        /// protection: above 0 dBFS it is the protection that holds the sound.
+        master: Level,
+        /// Frames the output protection turned to silence because a sample was not a
+        /// number (NaN or infinity): 0 on a healthy mix.
+        silenced_frames: u64,
+        /// How deep the output protection attenuated the mix at its worst, in dB (0 when
+        /// it never engaged): above a dB or two, the mix is too loud.
+        limiter_reduction_db: f64,
+    };
+
     /// Render the project to an audio file (WAV) and save it, offline: the same engine
     /// that plays the song, run faster than real time, so the file is the song as it
     /// sounds, not a recording of the speakers. `region` is `song` (default: from bar 1
@@ -385,6 +431,39 @@ pub fn apply(
         // Like a save, the render belongs to the host (the page's worker and file picker):
         // the command checks the request against the project and says what will be
         // rendered.
+        // The numbers belong to the host (the page's offline render): the command checks the
+        // range against the project, takes what the host staged and names the tracks.
+        Command::AnalyzeRender { from_bar, to_bar } => {
+            let plan = export::analysis_plan(&state.project, *from_bar, *to_bar)?;
+            let Some(stage) = ctx.analysis.take() else {
+                return Err(CommandError::Invalid {
+                    field: "render".into(),
+                    message:
+                        "this host measured nothing: the page renders the range before it answers"
+                            .into(),
+                });
+            };
+            if (stage.start_tick, stage.end_tick) != (plan.start_tick, plan.end_tick) {
+                return Err(CommandError::Invalid {
+                    field: "render".into(),
+                    message: "the project changed while it was measured: ask again".into(),
+                });
+            }
+            let (_, slots) = crate::engine_msgs::snapshot(&state.project, &state.session);
+            Ok(crate::query::answer(Output::AnalyzeRender {
+                start_tick: plan.start_tick,
+                end_tick: plan.end_tick,
+                duration_secs: plan.duration_secs,
+                tracks: levels::track_levels(
+                    &state.project,
+                    |id| slots.tracks.get(id),
+                    &stage.tracks,
+                ),
+                master: levels::level_of(&stage.master),
+                silenced_frames: stage.silenced_frames,
+                limiter_reduction_db: levels::reduction_db(stage.reduction),
+            }))
+        }
         Command::ExportAudio {
             region,
             bit_depth,

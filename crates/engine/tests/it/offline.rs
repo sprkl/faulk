@@ -239,6 +239,67 @@ fn the_header_is_what_a_reader_expects() {
 }
 
 #[test]
+fn the_content_is_measured_per_track_and_the_tail_is_not() {
+    let frames = u64::from(RATE) * 2;
+    let mut offline = Offline::new(RATE, plan(frames)).unwrap();
+    offline.submit(&stream(0, master(1.0, false))).unwrap();
+    assert!(
+        offline.measure().is_none(),
+        "nothing is measured before the render"
+    );
+    let mut frozen = None;
+    while offline.step(QUANTUM).unwrap() != Phase::Done {
+        if frozen.is_none() && offline.phase() != Phase::Body {
+            frozen = offline.measure().cloned();
+        }
+    }
+    let frozen = frozen.expect("the measure exists as soon as the tail starts");
+    assert_eq!(
+        offline.measure(),
+        Some(&frozen),
+        "the tail changes nothing of the measure"
+    );
+    assert_eq!(frozen.frames, frames, "the content, not the tail");
+    assert_eq!(frozen.tracks.len(), 2, "the bass and the lead");
+    assert_eq!(frozen.silenced, 0);
+    for level in frozen.tracks.iter().chain([&frozen.master]) {
+        for (peak, rms) in [(level.peak_l, level.rms_l), (level.peak_r, level.rms_r)] {
+            assert!(peak.is_finite() && rms.is_finite());
+            assert!(
+                (0.0..=2.0).contains(&peak) && rms <= peak + 1e-6,
+                "peak {peak}, rms {rms}"
+            );
+        }
+    }
+    assert!(frozen.master.peak_l > 0.01, "the song makes sound");
+    assert!(frozen.master.rms_l > 0.0);
+    assert!(
+        frozen.tracks.iter().any(|t| t.peak_l > 0.01),
+        "a track sounds"
+    );
+}
+
+#[test]
+fn the_levels_do_not_change_the_bytes_of_the_file() {
+    // The tally is folded from the meters the report already takes: the same render with and
+    // without a measure read gives the same file.
+    let one = |read: bool| {
+        let mut offline = Offline::new(RATE, plan(RATE as u64)).unwrap();
+        offline.submit(&stream(0, master(1.0, false))).unwrap();
+        let mut pcm = Vec::new();
+        while offline.step(QUANTUM).unwrap() != Phase::Done {
+            pcm.extend_from_slice(offline.pcm());
+            if read {
+                let _ = offline.measure();
+            }
+        }
+        pcm.extend_from_slice(offline.pcm());
+        pcm
+    };
+    assert_eq!(one(false), one(true));
+}
+
+#[test]
 fn integer_formats_round_and_the_output_protection_keeps_the_ceiling() {
     // The synth at full gain into a master far above 0 dB: the output protection (#402)
     // holds the file under its ceiling, so nothing reaches full scale and nothing clips.

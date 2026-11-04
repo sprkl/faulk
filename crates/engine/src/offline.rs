@@ -21,7 +21,7 @@
 //! [`Offline::header`]. Nothing here runs on an audio thread; the engine's `process` path
 //! it drives is the one the allocation detector watches.
 
-use crate::host::{Host, Prepare, channel};
+use crate::host::{Host, Level, Prepare, channel};
 use crate::msg::{MsgError, limits};
 
 /// Frames per block: the AudioWorklet's render quantum, so that an export renders in the
@@ -154,6 +154,23 @@ pub enum OfflineError {
     Length,
 }
 
+/// What the content of a render measured, frozen when the content ends: the tail is not part
+/// of it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Measure {
+    /// Frames measured: the content's length.
+    pub frames: u64,
+    /// Levels by track slot, over the content.
+    pub tracks: Vec<Level>,
+    /// The output over the content, after the master and before the output protection.
+    pub master: Level,
+    /// Frames the output protection turned to silence for a non-finite sample, over the
+    /// content.
+    pub silenced: u64,
+    /// The output protection's peak gain reduction over the content ([`Offline::reduction`]).
+    pub reduction: f32,
+}
+
 /// The offline render (module doc).
 pub struct Offline {
     prepare: Prepare,
@@ -181,6 +198,8 @@ pub struct Offline {
     inbox: Vec<u8>,
     /// Times a stream stopped on a full engine and went on after the engine applied some.
     busy: u32,
+    /// What the content measured, once the content has been rendered.
+    measure: Option<Measure>,
 }
 
 impl core::fmt::Debug for Offline {
@@ -206,6 +225,7 @@ impl Offline {
         // this is belt-and-braces): clear them before the first frame.
         host.engine_mut().reset_limiter_reduction();
         host.engine_mut().reset_limiter_silenced();
+        host.tally_levels().map_err(OfflineError::Stream)?;
         let silence_frames = (SILENCE_SECS * sample_rate as f32) as u32;
         let reserve = |n: usize| -> Result<Vec<f32>, OfflineError> {
             let mut v = Vec::new();
@@ -240,6 +260,7 @@ impl Offline {
             pcm,
             inbox: Vec::new(),
             busy: 0,
+            measure: None,
         })
     }
 
@@ -409,6 +430,7 @@ impl Offline {
         while used < budget && self.phase != Phase::Done {
             if self.phase == Phase::Body && self.rendered >= self.plan.body_frames {
                 self.phase = Phase::Tail;
+                self.freeze_measure();
             }
             if self.phase == Phase::Tail && !self.stopped {
                 self.stopped = true;
@@ -437,6 +459,26 @@ impl Offline {
             return Err(OfflineError::Messages { rejected, skipped });
         }
         Ok(self.phase)
+    }
+
+    /// What the content measured: `None` until the content has been rendered (the first step
+    /// that reaches [`Phase::Tail`]). The tail is not in it.
+    pub fn measure(&self) -> Option<&Measure> {
+        self.measure.as_ref()
+    }
+
+    /// Closes the metering period of the content's last block and keeps the levels.
+    fn freeze_measure(&mut self) {
+        self.host.write_feedback();
+        if let Some(levels) = self.host.levels() {
+            self.measure = Some(Measure {
+                frames: levels.frames,
+                tracks: levels.tracks,
+                master: levels.master,
+                silenced: self.host.engine().limiter_silenced(),
+                reduction: self.host.engine().limiter_reduction(),
+            });
+        }
     }
 
     /// Writes or holds the `n` frames just rendered.

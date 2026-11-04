@@ -17,6 +17,7 @@
 //!   project's serialization. **Mute** is a field of the project and is versioned.
 
 use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, Undo};
+use crate::levels::{Level, TrackLevel, level_of, track_levels};
 use crate::macros::domain;
 use project::{AutomationTarget, Mixer, MixerParam, Project, TrackId};
 
@@ -105,15 +106,50 @@ domain! {
         /// Whether the track was soloed before the command.
         previous: bool,
     };
+
+    /// Read how loud the project sounds now, per track and for the master, from the
+    /// meters of the playing engine: how an agent without ears learns whether a song
+    /// sounds. Call it while the transport plays (`transport.play`): the meters keep the
+    /// largest peak and the loudest RMS since the previous call (at most the last 10
+    /// seconds), so a call right after a passage covers it. Levels are in dBFS (0 is
+    /// full scale; the master is measured before the output protection, so it can read
+    /// above 0), `null` is silence; a peak is the larger of the two channels, an RMS the
+    /// power mean of both. `playing` says whether the transport ran: when it did not (or
+    /// the audio is not started, or the engine has stopped reporting), every level is
+    /// `null`. Tracks come in display order, after their fader and mute. To measure a
+    /// stretch without playing it, use `project.analyze_render`. A query: changes nothing
+    /// and never enters the history.
+    "mixer.levels" (kind = "query", undo = "none", destructive = false)
+    Levels {} => {
+        /// Whether the transport was playing or recording at the last reading.
+        playing: bool,
+        /// The level of each track, in display order.
+        tracks: Vec<TrackLevel>,
+        /// The level of the output, after the master and before the output protection.
+        master: Level,
+    };
 }
 
 /// Applies a command of this domain.
 pub fn apply(
     command: &Command,
     state: &mut State,
-    _ctx: &mut Context,
+    ctx: &mut Context,
 ) -> Result<Outcome<Command, Output>, CommandError> {
     match command {
+        Command::Levels {} => {
+            let stage = ctx.levels.take().unwrap_or_default();
+            let tracks = track_levels(
+                &state.project,
+                |id| ctx.engine.tracks.get(id),
+                &stage.tracks,
+            );
+            Ok(crate::query::answer(Output::Levels {
+                playing: stage.playing,
+                tracks,
+                master: level_of(&stage.master),
+            }))
+        }
         Command::SetVolume { track, gain_db } => {
             let db = to_db(*gain_db)?;
             let mixer = &mut track_mut(state, track)?.mixer;

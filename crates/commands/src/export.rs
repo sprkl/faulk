@@ -269,6 +269,33 @@ pub fn plan(project: &Project, settings: ExportSettings) -> Result<ExportPlan, C
     })
 }
 
+/// What `project.analyze_render` measures: the song, or bars `from_bar` to `to_bar` (both
+/// or neither), at the default sample rate. Refused like an export, and when the range lasts
+/// more than [`crate::levels::MAX_ANALYZE_SECS`].
+pub fn analysis_settings(
+    from_bar: Option<u32>,
+    to_bar: Option<u32>,
+) -> Result<ExportSettings, CommandError> {
+    let region = (from_bar.is_some() || to_bar.is_some()).then_some(ExportRegion::Bars);
+    ExportSettings::of(region, None, None, from_bar, to_bar)
+}
+
+/// The plan of an analysis ([`analysis_settings`]), or why nothing can be measured.
+pub fn analysis_plan(
+    project: &Project,
+    from_bar: Option<u32>,
+    to_bar: Option<u32>,
+) -> Result<ExportPlan, CommandError> {
+    let plan = plan(project, analysis_settings(from_bar, to_bar)?)?;
+    if plan.duration_secs > crate::levels::MAX_ANALYZE_SECS as f64 {
+        return Err(CommandError::Limit {
+            entity: "analyze seconds".into(),
+            max: crate::levels::MAX_ANALYZE_SECS,
+        });
+    }
+    Ok(plan)
+}
+
 /// A render ready to run: its plan and the two streams `engine::offline::Offline` takes.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExportJob {

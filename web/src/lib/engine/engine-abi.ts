@@ -65,9 +65,14 @@ export interface ExportExports extends EngineExports {
   /**
    * 0 rendered, 1 written, 2 content frames, 3 peak (linear), 4 clipped, 5 tail cut,
    * 6 header bytes, 7 the output protection's peak gain reduction (linear, 0 = never engaged; #402),
-   * 8 the count of frames the protection silenced for a non-finite sample (0 on a clean render; #402).
+   * 8 the count of frames the protection silenced for a non-finite sample (0 on a clean render; #402),
+   * 9 the frames the content measured, 10 the frames silenced and 11 the peak gain reduction over the content only (-1 before the content is rendered; #665).
    */
   fk_export_stat(ex: number, which: number): number
+  /** The content's levels: four f32 per strip (peak L, peak R, RMS L, RMS R, linear), the tracks by slot then the output; 0 before the content is rendered. */
+  fk_export_levels(ex: number): number
+  /** The number of strips `fk_export_levels` holds (the tracks, then the output). */
+  fk_export_levels_len(ex: number): number
 }
 
 /** Roles of the two instances, for the module's allocation counters. */

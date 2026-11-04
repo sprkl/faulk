@@ -172,6 +172,50 @@ describe('the export render', () => {
     expect(core.exportJob({ region: 'loop' }).status).toBe('refused')
   })
 
+  it('measures the content only, posts no chunk, and project.analyze_render answers with it (#665)', async () => {
+    const core = song()
+    const job = core.exportJob({ analysis: true })
+    if (job.status !== 'ready') throw new Error(`not ready: ${JSON.stringify(job)}`)
+    const messages: FromExport[] = []
+    await renderExport(
+      {
+        type: 'start',
+        module: engine.slice(0),
+        sampleRate: job.plan.settings.sample_rate,
+        bits: 24,
+        bodyFrames: job.plan.body_frames,
+        setup: job.setup.slice().buffer,
+        stop: job.stop.slice().buffer,
+        analysis: true,
+      },
+      (message) => messages.push(message),
+    )
+    expect(messages.map((m) => m.type)).toEqual(['done'])
+    const done = messages[0]
+    if (done.type !== 'done' || !done.levels) throw new Error('levels')
+    expect(done.levels.frames).toBe(job.plan.body_frames)
+    expect(done.levels.master.peak_l).toBeGreaterThan(0.01)
+    expect(done.levels.silenced).toBe(0)
+    // The core names the tracks from what the page stages.
+    core.stageAnalysis({
+      start_tick: job.plan.start_tick,
+      end_tick: job.plan.end_tick,
+      tracks: done.levels.tracks,
+      master: done.levels.master,
+      silenced_frames: done.levels.silenced,
+      reduction: done.levels.reduction,
+    })
+    const { report } = core.run({ type: 'project.analyze_render' })
+    if (report.status !== 'applied' || report.output.type !== 'project.analyze_render') throw new Error(JSON.stringify(report))
+    expect(report.output.tracks).toHaveLength(1)
+    expect(report.output.tracks[0].peak_db).toBeGreaterThan(-60)
+    expect(report.output.silenced_frames).toBe(0)
+    // Taken once.
+    expect(core.run({ type: 'project.analyze_render' }).report.status).toBe('refused')
+    // An analysis takes only the bars.
+    expect(core.exportJob({ analysis: true, region: 'loop' }).status).toBe('refused')
+  })
+
   it('posts an error, not a file, when the engine is given a stream it refuses', async () => {
     const core = song()
     const job = core.exportJob({})
