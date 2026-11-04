@@ -68,10 +68,24 @@ export const devices = defineFeature(
       'What a new pre-delay does while the reverb rings. Glide: slides like a tape, pitch of the tail bends up to 25%. Fade: 50 ms crossfade, pitch kept, later changes wait. Jump: at once, may click.',
     'reverb.mix.hint': 'Balance between the dry sound (0) and the reverb (1).',
     'filter.mode.hint':
-      'What the filter lets through: the sound below the cutoff (low-pass), above it (high-pass) or around it (band-pass). A change fades over 10 ms.',
-    'filter.cutoff.hint': 'Frequency, in hertz, where the filter starts to cut, from 20 Hz to 20 kHz.',
+      'What the filter lets through: the sound below the cutoff (low-pass), above it (high-pass), around it (band-pass) or all but it (notch). A change fades over 10 ms.',
+    'filter.cutoff.hint':
+      'Frequency, in hertz, where the filter starts to cut, from 20 Hz to 20 kHz: the centre the LFO and the envelope move the cutoff around.',
     'filter.resonance.hint': 'Boost of the sound around the cutoff, from 0 (none) to 1 (a sharp peak that stays stable).',
     'filter.mix.hint': 'Balance between the dry sound (0) and the filtered sound (1).',
+    'filter.drive.hint': 'Soft saturation before the filter, from 0 (none) to 1: louder and rounder, so a strong resonance bites instead of whistling.',
+    'filter.lfo_shape.hint': 'Shape of the LFO that moves the cutoff: sine, triangle, rising saw, falling saw, square, or random (a new value at each cycle).',
+    'filter.lfo_sync.hint': 'Whether the LFO runs at its own rate in hertz (free) or follows the tempo (synced), each cycle on the same beat of every bar.',
+    'filter.lfo_rate.hint': 'Speed of the LFO in free mode, in cycles per second, from 0.01 to 20 Hz.',
+    'filter.lfo_division.hint': 'Length of one LFO cycle in synced mode, a note value from 1/32 to 8 bars.',
+    'filter.lfo_phase.hint': 'Where in its cycle the LFO starts, from 0 to 360 degrees: in synced mode, where in the bar the cutoff peaks.',
+    'filter.lfo_stereo.hint': "Offset of the right channel's LFO, from 0 to 180 degrees: at 180 the two channels open in opposition.",
+    'filter.lfo_depth.hint': 'How far the LFO moves the cutoff either side of its centre, in octaves, from 0 (no movement) to 5.',
+    'filter.lfo_restart.hint': 'In free mode, whether the LFO starts again from its phase each time playback starts (on) or runs on freely (off).',
+    'filter.env_amount.hint':
+      'How far the level of the incoming sound moves the cutoff, in octaves at full level, from -5 (louder closes) to +5 (louder opens); 0 for none.',
+    'filter.env_attack.hint': 'Time the envelope follower takes to rise with the sound, from 1 ms to 500 ms.',
+    'filter.env_release.hint': 'Time the envelope follower takes to fall back when the sound gets quieter, from 10 ms to 2 s.',
     'compressor.threshold.hint': 'Level, in decibels, above which the compressor turns the sound down, from -60 to 0 dB.',
     'compressor.ratio.hint':
       'How strongly the sound above the threshold is turned down, from 1 (not at all) to 20: at 4, a signal 8 dB over the threshold comes out 2 dB over it.',
@@ -139,10 +153,26 @@ export const devices = defineFeature(
       'Ce que fait un nouveau pré-délai pendant que la réverbération sonne. Glissé : glisse comme une bande, la hauteur de la queue se courbe jusqu’à 25 %. Fondu : fondu enchaîné de 50 ms, hauteur conservée, les changements suivants attendent. Saut : immédiat, peut claquer.',
     'reverb.mix.hint': 'Équilibre entre le son direct (0) et la réverbération (1).',
     'filter.mode.hint':
-      'Ce que le filtre laisse passer : le son sous la fréquence de coupure (passe-bas), au-dessus (passe-haut) ou autour (passe-bande). Un changement se fait en fondu de 10 ms.',
-    'filter.cutoff.hint': 'Fréquence, en hertz, à partir de laquelle le filtre coupe, de 20 Hz à 20 kHz.',
+      'Ce que le filtre laisse passer : le son sous la fréquence de coupure (passe-bas), au-dessus (passe-haut), autour (passe-bande) ou tout sauf elle (coupe-bande). Un changement se fait en fondu de 10 ms.',
+    'filter.cutoff.hint':
+      'Fréquence, en hertz, à partir de laquelle le filtre coupe, de 20 Hz à 20 kHz : le centre autour duquel le LFO et l’enveloppe font bouger la coupure.',
     'filter.resonance.hint': 'Renforcement du son autour de la fréquence de coupure, de 0 (aucun) à 1 (un pic net qui reste stable).',
     'filter.mix.hint': 'Équilibre entre le son direct (0) et le son filtré (1).',
+    'filter.drive.hint':
+      'Saturation douce avant le filtre, de 0 (aucune) à 1 : plus fort et plus rond, pour qu’une résonance poussée morde au lieu de siffler.',
+    'filter.lfo_shape.hint':
+      'Forme du LFO qui fait bouger la coupure : sinus, triangle, scie montante, scie descendante, carré, ou aléatoire (une nouvelle valeur à chaque cycle).',
+    'filter.lfo_sync.hint': 'Le LFO va à sa propre vitesse en hertz (libre) ou suit le tempo (au tempo), chaque cycle sur le même temps de chaque mesure.',
+    'filter.lfo_rate.hint': 'Vitesse du LFO en mode libre, en cycles par seconde, de 0,01 à 20 Hz.',
+    'filter.lfo_division.hint': 'Durée d’un cycle du LFO au tempo, une valeur de note de 1/32 à 8 mesures.',
+    'filter.lfo_phase.hint': 'Où le LFO commence dans son cycle, de 0 à 360 degrés : au tempo, l’endroit de la mesure où la coupure culmine.',
+    'filter.lfo_stereo.hint': 'Décalage du LFO du canal droit, de 0 à 180 degrés : à 180, les deux canaux s’ouvrent en opposition.',
+    'filter.lfo_depth.hint': 'De combien le LFO déplace la coupure de part et d’autre de son centre, en octaves, de 0 (aucun mouvement) à 5.',
+    'filter.lfo_restart.hint': 'En mode libre, le LFO repart de sa phase à chaque démarrage de la lecture (oui) ou continue librement (non).',
+    'filter.env_amount.hint':
+      'De combien le niveau du son entrant déplace la coupure, en octaves à pleine échelle, de -5 (plus fort ferme) à +5 (plus fort ouvre) ; 0 pour aucun effet.',
+    'filter.env_attack.hint': 'Temps que le suiveur d’enveloppe met à monter avec le son, de 1 ms à 500 ms.',
+    'filter.env_release.hint': 'Temps que le suiveur d’enveloppe met à redescendre quand le son baisse, de 10 ms à 2 s.',
     'compressor.threshold.hint': 'Niveau, en décibels, au-dessus duquel le compresseur baisse le son, de -60 à 0 dB.',
     'compressor.ratio.hint':
       'Force avec laquelle le son au-dessus du seuil est baissé, de 1 (pas du tout) à 20 : à 4, un signal 8 dB au-dessus du seuil ressort 2 dB au-dessus.',

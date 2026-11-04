@@ -487,6 +487,14 @@ pub trait Device: Send {
     fn gain_reduction_db(&self) -> f32 {
         0.0
     }
+
+    /// The live value of one of this device's parameters after the last block, when the
+    /// device moves it by itself (the Filter's cutoff under its LFO and envelope, #686), for the
+    /// visual feedback: the parameter and its value, in the parameter's unit, finite. `None`
+    /// for a device that moves none. It reads a field: no allocation, no lock.
+    fn readout(&self) -> Option<(ParamId, f32)> {
+        None
+    }
 }
 
 /// Builds a device off the audio path, with fallible allocations only.
@@ -509,6 +517,10 @@ pub enum Unit {
     Semitones,
     Cents,
     Percent,
+    /// An angle, in degrees (a phase).
+    Degrees,
+    /// A frequency ratio, in octaves (a depth of modulation: 1 octave doubles the frequency).
+    Octaves,
 }
 
 /// How a control maps its travel to the value.

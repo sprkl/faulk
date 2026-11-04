@@ -33,7 +33,7 @@
   const t = ui.t
   const run = (command: Command) => dispatcher.run(command)
 
-  const NO_SLOTS = { epoch: 0, tracks: {}, scenes: {} }
+  const NO_SLOTS = { epoch: 0, tracks: {}, scenes: {}, devices: {} }
 
   /** The sizes the layout is made of (the same numbers as the styles below): the window of drawn cells follows from them. */
   const ROW_H = 40

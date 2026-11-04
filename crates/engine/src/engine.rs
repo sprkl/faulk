@@ -47,11 +47,11 @@ use crate::launcher;
 use crate::limiter::Limiter;
 use crate::metronome::{Clicker, MAX_COUNT_IN_BARS};
 use crate::msg::{
-    ActiveClip, AutomationPoint, AutomationTarget, ClipSlot, ControlMsg, DeviceKind, DeviceSlot,
-    Feedback, Garbage, HEADER_BYTES, Header, LaneSlot, LaunchMsg, LiveEvent, LiveOverflow,
-    MsgError, Note, PAGE_SLOTS, Page, PagedGrowth, PagedPut, PagedSpare, ParamId, Placement, Put,
-    RtMsg, SceneSlot, Slots, SourceSlot, Spare, Table, TrackKind, TrackMeter, TrackSlot,
-    TransportMsg, TransportState, limits, state_pairs, try_box,
+    ActiveClip, AutomationPoint, AutomationTarget, ClipSlot, ControlMsg, DeviceKind, DeviceReadout,
+    DeviceSlot, Feedback, Garbage, HEADER_BYTES, Header, LaneSlot, LaunchMsg, LiveEvent,
+    LiveOverflow, MsgError, Note, PAGE_SLOTS, Page, PagedGrowth, PagedPut, PagedSpare, ParamId,
+    Placement, Put, RtMsg, SceneSlot, Slots, SourceSlot, Spare, Table, TrackKind, TrackMeter,
+    TrackSlot, TransportMsg, TransportState, limits, state_pairs, try_box,
 };
 use crate::recorder::{RecordClock, Recorder};
 use crate::time::{Frame, LoopRegion, Quantize, SampleRate, Tempo, Tick, TimeSignature};
@@ -2359,6 +2359,40 @@ impl Engine {
     pub fn active_clips(&self, push: impl FnMut(ActiveClip)) {
         let running = self.transport.state() != TransportState::Stopped;
         launcher::active_clips(&self.state, running, push);
+    }
+
+    /// The readouts of the enabled devices ([`Device::readout`], #686) after the last rendered
+    /// block, for the report: by track slot, then device slot, the master's chain last
+    /// ([`TrackSlot::MASTER`]). A parameter id above `u16::MAX` or a non-finite value is left
+    /// out. No allocation.
+    pub fn device_readouts(&self, mut push: impl FnMut(DeviceReadout)) {
+        let mut chain = |track: TrackSlot, devices: &Slots<Box<DeviceEntry>>| {
+            for (slot, entry) in devices.as_slice().iter().enumerate() {
+                let Some(entry) = entry.as_deref().filter(|e| e.enabled) else {
+                    continue;
+                };
+                let Some((param, value)) = entry.device.readout() else {
+                    continue;
+                };
+                if param.0 <= u32::from(u16::MAX)
+                    && value.is_finite()
+                    && slot <= usize::from(u16::MAX)
+                {
+                    push(DeviceReadout {
+                        track,
+                        device: DeviceSlot(slot as u16),
+                        param,
+                        value,
+                    });
+                }
+            }
+        };
+        for (slot, track) in self.state.tracks.as_slice().iter().enumerate() {
+            if let Some(track) = track.as_deref() {
+                chain(TrackSlot(slot as u32), &track.devices);
+            }
+        }
+        chain(TrackSlot::MASTER, &self.state.master_devices);
     }
 
     /// Voices sounding in the tracks' devices after the last rendered block (MO-5).

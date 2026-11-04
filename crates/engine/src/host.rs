@@ -35,8 +35,9 @@ use std::sync::Arc;
 use crate::device::{DeviceSetup, Factory};
 use crate::engine::{Engine, Preparer, channel as engine_channel};
 use crate::msg::{
-    ACTIVE_CLIP_BYTES, ActiveClip, ClipState, DeviceKind, FEEDBACK_HEADER_BYTES, FEEDBACK_VERSION,
-    Feedback, HEADER_BYTES, MAX_RECORDED_PER_REPORT, MSG_VERSION, MsgError, Note,
+    ACTIVE_CLIP_BYTES, ActiveClip, ClipState, DEVICE_READOUT_BYTES, DeviceKind, DeviceReadout,
+    DeviceSlot, FEEDBACK_HEADER_BYTES, FEEDBACK_VERSION, Feedback, HEADER_BYTES,
+    MAX_READOUTS_PER_REPORT, MAX_RECORDED_PER_REPORT, MSG_VERSION, MsgError, Note, ParamId,
     RECORDED_NOTE_WIRE_BYTES, RecordedNote, TRACK_METER_BYTES, Tag, TrackMeter, TrackSlot,
     TransportState, limits,
 };
@@ -764,7 +765,8 @@ impl Host {
     /// prepare side published, the most voices sounding during the period, the meters of
     /// every track slot up to the last track and the output's, then the active clips (GR-1),
     /// then the take's number, count and last notes (RE-2), the disk's underruns, offline
-    /// sources, budget flag and PCM in memory (AU-3).
+    /// sources, budget flag and PCM in memory (AU-3), and after the notes the devices' readouts
+    /// (#686).
     /// No allocation.
     pub fn write_feedback(&mut self) {
         let seq = self.feedback_seq.wrapping_add(1) | 1;
@@ -860,6 +862,19 @@ impl Host {
             }
         });
         put(48, recorded);
+        // The devices' readouts, after the notes (#686): the region has room for
+        // `MAX_READOUTS_PER_REPORT`; past it the rest is left out.
+        let mut readouts = 0u32;
+        self.engine.device_readouts(|r| {
+            if (readouts as usize) < MAX_READOUTS_PER_REPORT {
+                put(at, r.track.0);
+                put(at + 4, u32::from(r.device.0) | (r.param.0 << 16));
+                put(at + 8, r.value.to_bits());
+                at += DEVICE_READOUT_BYTES;
+                readouts += 1;
+            }
+        });
+        put(88, readouts);
         put(56, recorder.take());
         put(60, recorder.total());
         put(64, recorder.dropped());
@@ -883,14 +898,15 @@ pub fn feedback_voices(region: &[AtomicU32]) -> u32 {
     })
 }
 
-/// Bytes of a report of `tracks` tracks, `clips` active clips (at most two per track) and
-/// `recorded` notes: the fixed part, the track meters and the output's, the clips, then the
-/// notes.
-fn report_len(tracks: u32, clips: u32, recorded: u32) -> usize {
+/// Bytes of a report of `tracks` tracks, `clips` active clips (at most two per track),
+/// `recorded` notes and `readouts` device readouts: the fixed part, the track meters and the
+/// output's, the clips, the notes, then the readouts.
+fn report_len(tracks: u32, clips: u32, recorded: u32, readouts: u32) -> usize {
     let tracks = (tracks as usize).min(limits::MAX_TRACKS as usize);
     let clips = (clips as usize).min(2 * tracks);
     let recorded = (recorded as usize).min(MAX_RECORDED_PER_REPORT);
-    Feedback::size_for(tracks, clips, recorded)
+    let readouts = (readouts as usize).min(MAX_READOUTS_PER_REPORT);
+    Feedback::size_for(tracks, clips, recorded, readouts)
 }
 
 /// Copies the report of a region into `out` as the little-endian bytes of the `Feedback`
@@ -912,7 +928,7 @@ pub fn copy_feedback(region: &[AtomicU32], out: &mut Vec<u8>) -> bool {
     if seq == 0 || seq & 1 == 1 {
         return false;
     }
-    let len = report_len(load(10), load(11), load(12)).min(region.len() * 4);
+    let len = report_len(load(10), load(11), load(12), load(22)).min(region.len() * 4);
     out.clear();
     out.extend((0..len.div_ceil(4)).flat_map(|i| load(i).to_le_bytes()));
     out.truncate(len);
@@ -954,10 +970,12 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
     let tracks = u32_at(40)?;
     let clips = u32_at(44)?;
     let recorded = u32_at(48)?;
+    let readouts = u32_at(88)?;
     if tracks > limits::MAX_TRACKS
         || clips > 2 * tracks
         || recorded as usize > MAX_RECORDED_PER_REPORT
-        || bytes.len() < report_len(tracks, clips, recorded)
+        || readouts as usize > MAX_READOUTS_PER_REPORT
+        || bytes.len() < report_len(tracks, clips, recorded, readouts)
     {
         return None;
     }
@@ -1004,6 +1022,19 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
             })
         })
         .collect::<Option<Vec<_>>>()?;
+    let readouts_at = notes_at + recorded.len() * RECORDED_NOTE_WIRE_BYTES;
+    let readouts = (0..readouts as usize)
+        .map(|i| {
+            let at = readouts_at + i * DEVICE_READOUT_BYTES;
+            let ids = u32_at(at + 4)?;
+            Some(DeviceReadout {
+                track: TrackSlot(u32_at(at)?),
+                device: DeviceSlot(ids as u16),
+                param: ParamId(ids >> 16),
+                value: f32::from_bits(u32_at(at + 8)?),
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
     Some(Feedback {
         transport: match bytes[1] {
             1 => TransportState::Playing,
@@ -1031,5 +1062,6 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
         record_total: u32_at(60)?,
         record_dropped: u32_at(64)?,
         record_capturing: u32_at(68)? & 1 == 1,
+        readouts,
     })
 }

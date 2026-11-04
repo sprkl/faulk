@@ -409,14 +409,25 @@ fn it_survives_non_finite_and_huge_input() {
 #[test]
 fn every_parameter_swept_to_its_bounds_gives_clean_output() {
     let input = noise(SR as usize, 21);
-    for corner in 0..16u32 {
+    // All at the minimum, all at the maximum, then 62 corners whose bits come from a hash: each
+    // parameter at its minimum or its maximum. The movement is on in most of them.
+    for corner in 0..64u64 {
+        let bits = match corner {
+            0 => 0,
+            1 => u64::MAX,
+            _ => {
+                let mut z = corner.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+                z ^= z >> 31;
+                z.wrapping_mul(0xbf58_476d_1ce4_e5b9)
+            }
+        };
         let mut f = Filter::new(SR);
         let events: Vec<(usize, Event)> = DESCRIPTOR
             .params
             .iter()
             .enumerate()
             .map(|(i, p)| {
-                let high = (corner >> i) & 1 == 1;
+                let high = (bits >> i) & 1 == 1;
                 (0, param(p.id.0, (if high { p.max } else { p.min }) as f32))
             })
             .collect();
@@ -590,7 +601,7 @@ fn unknown_or_invalid_parameters_are_ignored() {
     a.set_param(ParamId(RESONANCE), 7.0);
     a.set_param(ParamId(MODE), 9.0);
     a.reset();
-    let mut b = with(&[(CUTOFF, 20_000.0), (RESONANCE, 1.0), (MODE, 2.0)]);
+    let mut b = with(&[(CUTOFF, 20_000.0), (RESONANCE, 1.0), (MODE, 3.0)]);
     assert_eq!(mono(&mut a, &input), mono(&mut b, &input));
 }
 
@@ -600,10 +611,13 @@ fn unknown_or_invalid_parameters_are_ignored() {
 fn the_descriptor_names_the_device_and_its_defaults_are_the_constructors() {
     assert_eq!(DESCRIPTOR.kind, "faulk.filter");
     assert_eq!(DESCRIPTOR.name, "Filter");
-    assert_eq!(DESCRIPTOR.params.len(), 4);
+    assert_eq!(DESCRIPTOR.params.len(), 16);
     let keys: Vec<&str> = DESCRIPTOR.params.iter().map(|p| p.key).collect();
-    assert_eq!(keys, ["mode", "cutoff", "resonance", "mix"]);
-    assert_eq!(DESCRIPTOR.param(ParamId(MODE)).unwrap().values.len(), 3);
+    assert_eq!(&keys[..4], ["mode", "cutoff", "resonance", "mix"]);
+    for (i, p) in DESCRIPTOR.params.iter().enumerate() {
+        assert_eq!(p.id.0 as usize, i, "ids follow the order of the panel");
+    }
+    assert_eq!(DESCRIPTOR.param(ParamId(MODE)).unwrap().values.len(), 4);
     assert_eq!(filter::BUILTIN.descriptor.kind_id, DESCRIPTOR.kind_id);
     // A fresh filter and one set to the defaults render the same.
     let input = noise(4_000, 81);

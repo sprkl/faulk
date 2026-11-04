@@ -102,6 +102,10 @@ export function formatValue(p: ParamDescriptor, value: number): string {
       return `${value > 0 ? '+' : ''}${Math.round(value)} ct`
     case 'percent':
       return `${Math.round(value)} %`
+    case 'degrees':
+      return `${Math.round(value)}°`
+    case 'octaves':
+      return `${value > 0 && p.min < 0 ? '+' : ''}${+value.toFixed(2)} oct`
     default:
       return p.min === 0 && p.max <= 1 ? `${Math.round(value * 100)} %` : `${+value.toFixed(2)}`
   }
@@ -114,6 +118,12 @@ export function formatValue(p: ParamDescriptor, value: number): string {
  */
 export const SHOWN_IN_MODE: Readonly<Record<string, Readonly<Record<string, { by: string; values: readonly string[] }>>>> = {
   'faulk.echo': { time: { by: 'mode', values: ['free'] }, division: { by: 'mode', values: ['synced'] } },
+  // Filter: the LFO's rate and restart in free mode, its note value in synced mode (#686).
+  'faulk.filter': {
+    lfo_rate: { by: 'lfo_sync', values: ['free'] },
+    lfo_restart: { by: 'lfo_sync', values: ['free'] },
+    lfo_division: { by: 'lfo_sync', values: ['synced'] },
+  },
 }
 
 /** The parameters of a device to show now, given the value of each parameter (`valueOf` falls back to the default). */

@@ -159,6 +159,7 @@
             onchange={(value) => dispatcher.run(setDeviceParam(entry.id, param.key, value))}
             onbegin={gesture.begin}
             onend={gesture.end}
+            live={bypassed ? undefined : meters.readout(entry.id, param.id)}
           />
           {#if master || track}
             <button

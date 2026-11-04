@@ -152,12 +152,13 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(page.getByTestId('device-card')).toHaveCount(1)
     await expect(reverb).toHaveCount(0)
 
-    // Filter (DV-2): inserted from the browser, one control per parameter, the mode is a choice of
-    // three, the cutoff shows hertz and the resonance a percentage, removed, then undone.
+    // Filter (DV-2, #686): inserted from the browser, one control per parameter shown in its LFO mode (synced:
+    // fourteen of sixteen), the mode is a choice of
+    // four, the cutoff shows hertz and the resonance a percentage, removed, then undone.
     await panel.getByRole('button', { name: x.add('Filter'), exact: true }).click()
     const filter = card(page, 'Filter')
-    await expect(filter.locator('[data-testid^=param-]')).toHaveCount(4)
-    await expect(filter.getByTestId('param-mode').getByRole('radio')).toHaveCount(3)
+    await expect(filter.locator('[data-testid^=param-]')).toHaveCount(14)
+    await expect(filter.getByTestId('param-mode').getByRole('radio')).toHaveCount(4)
     const lowpass = filter.getByRole('radio', { name: lang === 'en' ? 'Low-pass' : 'Passe-bas', exact: true })
     await expect(lowpass).toHaveAttribute('aria-checked', 'true')
     const bandpass = filter.getByRole('radio', { name: lang === 'en' ? 'Band-pass' : 'Passe-bande', exact: true })

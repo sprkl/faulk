@@ -53,7 +53,7 @@ beforeEach(() => {
       return applies || command.type !== 'record.commit_take'
     },
     mode: () => 'web',
-    slots: () => ({ epoch: 1, tracks: { a: 0 }, scenes: {} }),
+    slots: () => ({ epoch: 1, tracks: { a: 0 }, scenes: {}, devices: {} }),
     now: () => clock,
   })
   host = document.createElement('div')

@@ -1005,3 +1005,80 @@ fn the_reduction_travels_in_the_report_bytes() {
     bytes[0] = 3;
     assert!(engine::host::decode_feedback(&bytes).is_none());
 }
+
+// ------------------------------------------------------------ device readouts (#686)
+
+/// A Filter after the synth of track 1 whose LFO swings the cutoff, and a still one on the
+/// master; the track's filter can be left disabled.
+fn filtered(track_on: bool) -> Session {
+    use engine::devices::filter::{CUTOFF, DESCRIPTOR as FILTER, LFO_DEPTH};
+    let mut session = two_tracks(1.0);
+    let mut msgs = Vec::new();
+    for (track, device, depth) in [
+        (TrackSlot(1), DeviceSlot(1), 2.0),
+        (TrackSlot::MASTER, DeviceSlot(0), 0.0),
+    ] {
+        msgs.push(M::DeviceInsert {
+            track,
+            device,
+            kind: FILTER.kind_id,
+            state: Vec::new(),
+        });
+        for (param, value) in [(CUTOFF, 500.0), (LFO_DEPTH, depth)] {
+            msgs.push(M::ParamSet {
+                track,
+                device,
+                param: ParamId(param),
+                value,
+            });
+        }
+    }
+    if !track_on {
+        msgs.push(M::DeviceSetEnabled {
+            track: TrackSlot(1),
+            device: DeviceSlot(1),
+            enabled: false,
+        });
+    }
+    session.send(&msgs);
+    for _ in 0..50 {
+        session.host.render(128);
+    }
+    session
+}
+
+#[test]
+fn a_filters_effective_cutoff_travels_in_the_report_with_its_slots() {
+    use engine::devices::filter::CUTOFF;
+    let mut session = filtered(true);
+    session.host.write_feedback();
+    let mut bytes = Vec::new();
+    assert!(copy_feedback(session.host.feedback(), &mut bytes));
+    let decoded = engine::host::decode_feedback(&bytes).unwrap();
+    assert_eq!(decoded.readouts.len(), 2, "{:?}", decoded.readouts);
+    let track = decoded.readouts[0];
+    assert_eq!(
+        (track.track, track.device, track.param),
+        (TrackSlot(1), DeviceSlot(1), ParamId(CUTOFF))
+    );
+    // The synced triangle has moved the cutoff off its centre (the transport is stopped at
+    // tick 0, where the triangle is 0: the swing is what the LFO holds there).
+    assert!(track.value.is_finite() && track.value >= 20.0, "{track:?}");
+    let master = decoded.readouts[1];
+    assert_eq!(
+        (master.track, master.device),
+        (TrackSlot::MASTER, DeviceSlot(0))
+    );
+    assert_eq!(master.value, 500.0, "no movement: the centre");
+    // The count word and the bytes after the notes.
+    assert_eq!(u32::from_le_bytes(bytes[88..92].try_into().unwrap()), 2);
+    // A disabled device reports nothing.
+    let mut off = filtered(false);
+    off.host.write_feedback();
+    let report = engine::host::read_feedback(off.host.feedback()).unwrap();
+    assert_eq!(report.readouts.len(), 1);
+    assert_eq!(report.readouts[0].track, TrackSlot::MASTER);
+    // A report cut before its readouts is refused.
+    bytes.truncate(bytes.len() - 1);
+    assert!(engine::host::decode_feedback(&bytes).is_none());
+}

@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import {
   ACTIVE_CLIP_BYTES,
+  DEVICE_READOUT_BYTES,
   FEEDBACK_HEADER_BYTES,
+  MASTER_TRACK_SLOT,
+  MAX_READOUTS_PER_REPORT,
   FEEDBACK_VERSION,
   MAX_RECORDED_PER_REPORT,
   RECORDED_NOTE_BYTES,
@@ -177,8 +180,8 @@ describe('decodeFeedback', () => {
     expect(decodeFeedback(report(0, (v) => v.setFloat32(72, -1, true)))!.cpuPeak).toBeNull()
     expect(decodeFeedback(report(0, (v) => v.setFloat32(72, NaN, true)))!.cpuPeak).toBeNull()
     expect(decodeFeedback(report(0, (v) => v.setFloat32(72, 2, true)))!.cpuPeak).toBe(1)
-    // The meters start after it.
-    expect(FEEDBACK_HEADER_BYTES).toBe(88)
+    // The meters start after it (the readouts count at 88 since version 8, #686).
+    expect(FEEDBACK_HEADER_BYTES).toBe(92)
   })
 
   it('refuses another version, a short buffer and a track count beyond the bytes', () => {
@@ -277,5 +280,42 @@ describe('readFeedback', () => {
     // The tracks word announces more than the region holds: nothing, never a read past it.
     const big = report(2, (v) => v.setUint32(40, 5000, true))
     expect(readFeedback(shared(big, 10), 8, big.byteLength)).toBeNull()
+  })
+
+  /** `report` with device readouts after the (absent) notes: track, device, param, value. */
+  function withReadouts(tracks: number, readouts: [number, number, number, number][]): ArrayBuffer {
+    const base = new Uint8Array(report(tracks))
+    const buffer = new ArrayBuffer(base.length + readouts.length * DEVICE_READOUT_BYTES)
+    new Uint8Array(buffer).set(base)
+    const view = new DataView(buffer)
+    view.setUint32(88, readouts.length, true)
+    readouts.forEach(([track, device, param, value], i) => {
+      const at = base.length + i * DEVICE_READOUT_BYTES
+      view.setUint32(at, track, true)
+      view.setUint16(at + 4, device, true)
+      view.setUint16(at + 6, param, true)
+      view.setFloat32(at + 8, value, true)
+    })
+    return buffer
+  }
+
+  it('reads the devices’ readouts after the notes, the master’s as a null track (#686)', () => {
+    const bytes = withReadouts(2, [
+      [1, 1, 1, 523.5],
+      [MASTER_TRACK_SLOT, 0, 1, 2000],
+      [0, 2, 1, NaN],
+    ])
+    expect(decodeFeedback(bytes)!.readouts).toEqual([
+      { track: 1, device: 1, param: 1, value: 523.5 },
+      { track: null, device: 0, param: 1, value: 2000 },
+    ])
+    // Through the shared memory too, the copy covering the readouts.
+    expect(readFeedback(shared(bytes, 10), 8, bytes.byteLength)!.readouts).toHaveLength(2)
+    // A count past the bytes, or past the most a report carries, is refused.
+    expect(decodeFeedback(bytes.slice(0, bytes.byteLength - 1))).toBeNull()
+    const many = withReadouts(1, [])
+    new DataView(many).setUint32(88, MAX_READOUTS_PER_REPORT + 1, true)
+    expect(decodeFeedback(many)).toBeNull()
+    expect(decodeFeedback(report(1))!.readouts).toEqual([])
   })
 })

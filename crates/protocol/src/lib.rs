@@ -22,7 +22,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 32;
+pub const PROTOCOL_VERSION: u32 = 33;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -42,6 +42,13 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 33 (#686): the report is `Feedback` version 8: the header grows from 88 to 92 bytes
+// (offset 88: the number of device readouts) and a section of device readouts (track slot,
+// device slot, parameter id, value: 12 bytes each) follows the recorded notes, the live
+// value of a parameter a device moves by itself (the Filter's cutoff under its LFO and
+// envelope). The device contract gains the units `degrees` and `octaves`, and the Filter its
+// movement parameters. A page and a helper of different versions refuse each other.
 
 // Version 32 (#641): the helper tells the page that an agent left (`agent.left`, its name): its
 // last MCP session ended (the client closed it, the stdio bridge's input ended, or it stayed idle

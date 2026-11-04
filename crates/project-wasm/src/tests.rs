@@ -845,7 +845,7 @@ fn the_view_gives_the_engine_slots_of_tracks_and_scenes() {
     h.call0(pw_setup);
     assert_eq!(
         h.view()["slots"],
-        json!({"epoch": 1, "tracks": {}, "scenes": {}})
+        json!({"epoch": 1, "tracks": {}, "scenes": {}, "devices": {}})
     );
 
     let first = h.apply(json!({"type": "track.create", "kind": "midi"}))["track"]
@@ -860,9 +860,23 @@ fn the_view_gives_the_engine_slots_of_tracks_and_scenes() {
         .as_str()
         .unwrap()
         .to_owned();
+    let slots = h.view()["slots"].clone();
+    assert_eq!(slots["tracks"], json!({first: 0, second: 1}));
+    assert_eq!(slots["scenes"], json!({scene.clone(): 0}));
+    // Each track's instrument by its engine slots (#686).
+    let mut devices: Vec<_> = slots["devices"]
+        .as_object()
+        .unwrap()
+        .values()
+        .cloned()
+        .collect();
+    devices.sort_by_key(|d| d["track"].as_u64());
     assert_eq!(
-        h.view()["slots"],
-        json!({"epoch": 1, "tracks": {first: 0, second: 1}, "scenes": {scene.clone(): 0}})
+        devices,
+        vec![
+            json!({"track": 0, "slot": 0}),
+            json!({"track": 1, "slot": 0})
+        ]
     );
 
     // A deleted scene gives its slot back, and the next one takes it.

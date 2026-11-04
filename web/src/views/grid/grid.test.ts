@@ -11,7 +11,7 @@ const midi = (name = ''): Clip => ({ name, slot: null, content: { midi: { length
 const inSlot = (scene: string, name = ''): Clip => ({ ...midi(name), slot: scene })
 const audio = (scene: string): Clip => ({ name: '', slot: scene, content: { audio: {} } }) as unknown as Clip
 
-const slots = { epoch: 3, tracks: { t1: 0, t2: 1 }, scenes: { s1: 0, s2: 1, s3: 2 } }
+const slots = { epoch: 3, tracks: { t1: 0, t2: 1 }, scenes: { s1: 0, s2: 1, s3: 2 }, devices: {} }
 
 function view(): ProjectView {
   return {
