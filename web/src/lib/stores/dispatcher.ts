@@ -199,6 +199,7 @@ export class Dispatcher {
       const generation = ++this.webGeneration
       const web = await WebEngine.create(this.events('web', generation))
       this.web = web
+      web.setFolder?.(this.folder)
       this.state.started = true
       this.state.notice = null
       this.state.status = web.status()
@@ -355,7 +356,14 @@ export class Dispatcher {
     packImport: async (zip) => (await this.ensureCore()).packImport(zip),
     prepare: async () => void (await this.ensureCore()),
     audioMedia: () => audioMediaOf(this.project.view?.project),
+    folderChanged: (handle) => {
+      this.folder = handle
+      this.web?.setFolder?.(handle)
+    },
   }
+
+  /** The project's folder, given to each Web engine for its disk side (AU-3). */
+  private folder: FileSystemDirectoryHandle | null = null
 
   /** Stages an imported audio file in the core (AU-1), for `clip.import_audio`; false while there is no core. */
   stageMedia(media: AudioMedia): boolean {

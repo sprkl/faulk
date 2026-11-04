@@ -7,6 +7,7 @@ publish.workspace = true
 description = "Faulk's audio import pipeline (AU-1): streaming SHA-256, decoding with symphonia, metadata, the decoded PCM cache and the layout of PCM files read directly. Pure Rust; reads through a source the host gives. The same code in the page (WASM) and in the helper (native)."
 
 [dependencies]
+engine = { path = "../engine" }
 project = { path = "../project" }
 sha2 = "0.11.1"
 # No SIMD features (`opt-simd-*`): the native and the WASM builds run the same scalar code, so the

@@ -18,6 +18,7 @@
 //! It is rebuilt from the project by every snapshot (an engine reset), and changed by each
 //! command's engine messages (`commands::engine_msgs`).
 
+use crate::blob::Hash;
 use crate::ids::{ClipId, DeviceId, LaneId, PlacementId, SceneId, TrackId};
 use crate::time::Tick;
 use engine::msg::{AutomationTarget, TrackSlot};
@@ -165,6 +166,12 @@ pub struct EngineSlots {
     pub placements: SlotTable<PlacementId>,
     pub scenes: SlotTable<SceneId>,
     pub lanes: SlotTable<LaneId>,
+    /// The audio sources sent to the engine (AU-3): one per media that an audio clip on the
+    /// engine uses, declared before its first clip and released after its last.
+    pub sources: SlotTable<Hash>,
+    /// The media of each audio clip on the engine, so its source is released with its last
+    /// clip even after the project removed the clip.
+    pub clip_media: BTreeMap<ClipId, Hash>,
     /// The engine target (track slot + automation target) of every lane currently in the
     /// engine, by lane id (#394). Stored so that when a lane is deleted its target can be
     /// read even after the project has already removed it (e.g. `device.remove` removes the

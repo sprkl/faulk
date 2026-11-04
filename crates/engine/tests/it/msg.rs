@@ -128,6 +128,7 @@ fn samples() -> Vec<ControlMsg> {
             sample_rate: 48_000,
             channels: 2,
             frames: Frame(0),
+            media: [0; 32],
         },
         ControlMsg::AudioSourceRelease {
             source: SourceSlot(0),
@@ -137,6 +138,8 @@ fn samples() -> Vec<ControlMsg> {
             source: SourceSlot(0),
             start: Frame(0),
             length: Frame(0),
+            gain: 1.0,
+            looping: None,
         },
         ControlMsg::TrackPlacementsUpload {
             track: t,

@@ -522,11 +522,13 @@ impl ControlMsg {
                 sample_rate,
                 channels,
                 frames,
+                media,
             } => {
                 w.u32(source.0);
                 w.u32(*sample_rate);
                 w.u8(*channels);
                 w.u64(frames.0);
+                w.0.extend_from_slice(media);
             }
             ControlMsg::AudioSourceRelease { source } => w.u32(source.0),
             ControlMsg::ClipAudioSet {
@@ -534,11 +536,17 @@ impl ControlMsg {
                 source,
                 start,
                 length,
+                gain,
+                looping,
             } => {
                 w.u32(clip.0);
                 w.u32(source.0);
                 w.u64(start.0);
                 w.u64(length.0);
+                w.f32(*gain);
+                w.bool(looping.is_some());
+                w.u64(looping.map_or(0, |l| l.0.0));
+                w.u64(looping.map_or(0, |l| l.1.0));
             }
             ControlMsg::TrackPlacementsUpload {
                 track,
@@ -745,16 +753,32 @@ impl ControlMsg {
                 sample_rate: r.u32()?,
                 channels: r.u8()?,
                 frames: r.frame()?,
+                media: r.array()?,
             },
             Tag::AudioSourceRelease => ControlMsg::AudioSourceRelease {
                 source: SourceSlot(r.u32()?),
             },
-            Tag::ClipAudioSet => ControlMsg::ClipAudioSet {
-                clip: r.clip()?,
-                source: SourceSlot(r.u32()?),
-                start: r.frame()?,
-                length: r.frame()?,
-            },
+            Tag::ClipAudioSet => {
+                let clip = r.clip()?;
+                let source = SourceSlot(r.u32()?);
+                let start = r.frame()?;
+                let length = r.frame()?;
+                let gain = r.f32()?;
+                check(gain >= 0.0)?;
+                let looping = r.option(|r| Ok((r.frame()?, r.frame()?)))?;
+                // Within the clip: `[start, end)` inside `[0, length]`, not empty.
+                if let Some((s, e)) = looping {
+                    check(s < e && e <= length)?;
+                }
+                ControlMsg::ClipAudioSet {
+                    clip,
+                    source,
+                    start,
+                    length,
+                    gain,
+                    looping,
+                }
+            }
             Tag::TrackPlacementsUpload => ControlMsg::TrackPlacementsUpload {
                 track: r.track()?,
                 first: r.u32()?,

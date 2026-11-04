@@ -349,7 +349,8 @@ pub extern "C" fn ai_layout(
         };
         let head = &s.inbox[..(head_len as usize).min(s.inbox.len())];
         i32::from(
-            PcmLayout::parse(head, file_len(len_lo, len_hi)).is_some_and(|l| l.matches(&info)),
+            PcmLayout::parse(head, file_len(len_lo, len_hi))
+                .is_some_and(|l| l.matches(info.sample_rate, info.channels, info.frames)),
         )
     })
 }
