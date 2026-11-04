@@ -104,7 +104,14 @@ class Mcp {
   private readonly waiting = new Map<number, (message: { result?: unknown; error?: { message: string } }) => void>()
   private constructor(private readonly bridge: ChildProcess) {
     createInterface({ input: bridge.stdout! }).on('line', (line) => {
-      const message = JSON.parse(line) as { id?: number; result?: unknown; error?: { message: string } }
+      let message: { id?: number; result?: unknown; error?: { message: string } }
+      try {
+        message = JSON.parse(line) as typeof message
+      } catch {
+        // Not a JSON-RPC message: the bridge speaks only JSON on its stdout, so show it rather than fail elsewhere.
+        console.log(`MCP bridge, not JSON: ${line}`)
+        return
+      }
       if (typeof message.id === 'number') this.waiting.get(message.id)?.(message)
     })
   }
@@ -143,7 +150,13 @@ class Mcp {
       content: { type: string; text: string }[]
     }
     const text = result.content[0]?.text ?? ''
-    if (result.isError) return { ok: false, body: JSON.parse(text) as Record<string, unknown> }
+    if (result.isError) {
+      try {
+        return { ok: false, body: JSON.parse(text) as Record<string, unknown> }
+      } catch {
+        return { ok: false, body: { code: 'not-json', message: text } }
+      }
+    }
     return { ok: true, body: result.structuredContent ?? {} }
   }
 
