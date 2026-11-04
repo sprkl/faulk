@@ -101,14 +101,32 @@ pub enum Edge {
 #[serde(deny_unknown_fields)]
 pub struct PlacementRecord {
     pub id: PlacementId,
-    /// A MIDI clip of the track.
+    /// A clip of the track: a MIDI clip in a MIDI track, an audio clip in an audio track.
     pub clip: ClipId,
     /// Start in the arrangement, in ticks.
     pub start: Tick,
-    /// Length on the timeline, in ticks.
+    /// Length on the timeline, in ticks (a MIDI placement; 0 and ignored when `frames` is
+    /// given).
+    #[serde(default)]
     pub length: Tick,
-    /// Where in the clip the placement starts, in ticks, before the clip's length.
+    /// Where in the clip the placement starts, in ticks, before the clip's length (a MIDI
+    /// placement; 0 and ignored when `frames` is given).
+    #[serde(default)]
     pub offset: Tick,
+    /// An audio placement's span, in frames of its clip's file: given for a placement of
+    /// an audio track and only for those.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frames: Option<FrameSpan>,
+}
+
+/// The span of an audio placement, in frames of the clip's file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FrameSpan {
+    /// How many frames of the clip the placement plays, at least 1.
+    pub length: u64,
+    /// The frame of the clip where it starts, before the clip's frame count.
+    pub offset: u64,
 }
 
 /// One placement and the MIDI track it moves to (`arrangement.move_to_track`).
@@ -267,9 +285,10 @@ domain! {
         placement: PlacementId,
     };
 
-    /// Delete placements, in one command. Their clips stay in their tracks, even one that
-    /// loses its last placement and sits in no grid slot: it stays in the track's pool,
-    /// where `arrangement.place` puts it back and `clip.delete` deletes it. Refused when the
+    /// Delete placements, in one command, MIDI or audio ones. Their clips stay in their
+    /// tracks, even one that loses its last placement and sits in no grid slot: it stays in
+    /// the track's pool (an audio clip keeps its file; `arrangement.place` puts a MIDI clip
+    /// back, `clip.delete` deletes a clip). Refused when the
     /// list is empty, names a placement twice or an unknown one. Undo:
     /// `arrangement.restore`.
     "arrangement.delete" (kind = "edit", undo = "inverse", destructive = false)
@@ -464,7 +483,9 @@ domain! {
     /// Refused when a placement is outside the timeline or its offset outside its clip,
     /// when a placement is left on a removed clip or names an unknown clip, when an
     /// identifier to create is in use, or when a rule of the clip commands is broken (a
-    /// note outside the length, a limit). Undo: the restore of what it changed.
+    /// note outside the length, a limit). In an audio track only `put` and `remove` of
+    /// audio placements (a record with `frames`) are taken, never `clips` or `remove_clips`.
+    /// Undo: the restore of what it changed.
     "arrangement.restore" (kind = "edit", undo = "inverse", destructive = false)
     Restore { edits: Vec<TrackEdit> } => {};
 
@@ -563,7 +584,20 @@ type Works = BTreeMap<TrackId, TrackWork>;
 
 impl TrackWork {
     fn new(project: &Project, id: &TrackId) -> Result<Self, CommandError> {
-        let track = midi_track(project, id)?;
+        Ok(Self::of(midi_track(project, id)?, id))
+    }
+
+    /// The work on a track of either kind: an audio track holds no MIDI geometry, so only
+    /// the commands that never read it (a delete, a restore of audio placements) take it.
+    fn of_any(project: &Project, id: &TrackId) -> Result<Self, CommandError> {
+        let track = project
+            .tracks
+            .get(id)
+            .ok_or_else(|| not_found("track", id))?;
+        Ok(Self::of(track, id))
+    }
+
+    fn of(track: &Track, id: &TrackId) -> Self {
         let mut geo = BTreeMap::new();
         for (clip_id, clip) in &track.clips {
             if let ClipContent::Midi {
@@ -579,13 +613,13 @@ impl TrackWork {
                 );
             }
         }
-        Ok(Self {
+        Self {
             track: id.clone(),
             placements: track.placements.clone(),
             geo,
             new_clips: BTreeMap::new(),
             gone_clips: Vec::new(),
-        })
+        }
     }
 
     /// Carves the placements that overlap `[start, end)`; returns how many it touched.
@@ -1064,6 +1098,19 @@ fn as_tick_loop(region: Option<LoopRegion>) -> Option<TickLoop> {
 }
 
 fn record(id: &PlacementId, p: &Placement) -> Result<PlacementRecord, CommandError> {
+    if let Span::Frames { length, offset } = p.span {
+        return Ok(PlacementRecord {
+            id: id.clone(),
+            clip: p.clip.clone(),
+            start: p.start,
+            length: Tick(0),
+            offset: Tick(0),
+            frames: Some(FrameSpan {
+                length: length.get(),
+                offset: offset.get(),
+            }),
+        });
+    }
     let (start, length, offset) = extent(p)?;
     Ok(PlacementRecord {
         id: id.clone(),
@@ -1071,6 +1118,7 @@ fn record(id: &PlacementId, p: &Placement) -> Result<PlacementRecord, CommandErr
         start: Tick(start),
         length: Tick(length),
         offset: Tick(offset),
+        frames: None,
     })
 }
 
@@ -1596,7 +1644,8 @@ fn delete(state: &mut State, ids: &[PlacementId]) -> Result<Out, CommandError> {
     let groups = group_by_track(project, ids, "placements")?;
     let mut works = Works::new();
     for (track_id, gone) in groups {
-        let mut work = TrackWork::new(project, &track_id)?;
+        // An audio placement goes like a MIDI one: its clip and its blob stay.
+        let mut work = TrackWork::of_any(project, &track_id)?;
         for id in &gone {
             work.placements.remove(id);
         }
@@ -1770,8 +1819,20 @@ fn restore_works(project: &Project, edits: &[TrackEdit]) -> Result<Works, Comman
         if !tracks.insert(&edit.track) {
             return Err(invalid(format!("{at}.track"), "a track is listed twice"));
         }
-        let track = midi_track(project, &edit.track)?;
-        let mut work = TrackWork::new(project, &edit.track)?;
+        let track = project
+            .tracks
+            .get(&edit.track)
+            .ok_or_else(|| not_found("track", &edit.track))?;
+        // An audio track takes back only audio placements of the clips it holds: the
+        // inverse of `arrangement.delete`. Its clips come and go with the clip commands.
+        let audio = track.kind == project::TrackKind::Audio;
+        if audio && (!edit.clips.is_empty() || !edit.remove_clips.is_empty()) {
+            return Err(invalid(
+                format!("{at}.track"),
+                "an audio track's clips are not restored here; only its placements are",
+            ));
+        }
+        let mut work = TrackWork::of_any(project, &edit.track)?;
         let mut removed = HashSet::new();
         for id in &edit.remove {
             if !removed.insert(id) || work.placements.remove(id).is_none() {
@@ -1876,6 +1937,17 @@ fn restore_works(project: &Project, edits: &[TrackEdit]) -> Result<Works, Comman
                     format!("the identifier {} is already in use", rec.id),
                 ));
             }
+            if audio {
+                let placement = audio_placement(project, track, rec, &field)?;
+                work.placements.insert(rec.id.clone(), placement);
+                continue;
+            }
+            if rec.frames.is_some() {
+                return Err(invalid(
+                    format!("{field}.frames"),
+                    "a MIDI track holds no audio placement",
+                ));
+            }
             let geo = work
                 .geo
                 .get(&rec.clip)
@@ -1895,7 +1967,7 @@ fn restore_works(project: &Project, edits: &[TrackEdit]) -> Result<Works, Comman
         if let Some(p) = work
             .placements
             .values()
-            .find(|p| !work.geo.contains_key(&p.clip))
+            .find(|p| !audio && !work.geo.contains_key(&p.clip))
         {
             return Err(invalid(
                 format!("{at}.remove_clips"),
@@ -1905,6 +1977,53 @@ fn restore_works(project: &Project, edits: &[TrackEdit]) -> Result<Works, Comman
         works.insert(edit.track.clone(), work);
     }
     Ok(works)
+}
+
+/// The audio placement a restore record describes, checked like `clip.restore_audio`
+/// checks one: a clip of the track, a span of at least one frame that ends on the timeline,
+/// an offset inside the clip.
+fn audio_placement(
+    project: &Project,
+    track: &Track,
+    rec: &PlacementRecord,
+    field: &str,
+) -> Result<Placement, CommandError> {
+    let Some(span) = rec.frames else {
+        return Err(invalid(
+            format!("{field}.frames"),
+            "an audio track holds audio placements: give `frames`",
+        ));
+    };
+    let Some(ClipContent::Audio { media, frames, .. }) =
+        track.clips.get(&rec.clip).map(|c| &c.content)
+    else {
+        return Err(invalid(
+            format!("{field}.clip"),
+            format!("clip {} is not an audio clip of the track", rec.clip),
+        ));
+    };
+    let length = project::Frame::new(span.length);
+    let end = rec
+        .start
+        .saturating_add(project.tempo().frames_to_ticks(length, media.sample_rate));
+    if !(0..=MAX_TICK).contains(&rec.start.get())
+        || end.get() > MAX_TICK
+        || span.length == 0
+        || span.length > project::limits::MAX_FRAME
+    {
+        return Err(invalid(field, "a placement lies on the timeline"));
+    }
+    if span.offset >= frames.get() {
+        return Err(invalid(field, "a placement's offset is inside the clip"));
+    }
+    Ok(Placement {
+        clip: rec.clip.clone(),
+        start: rec.start,
+        span: Span::Frames {
+            length,
+            offset: project::Frame::new(span.offset),
+        },
+    })
 }
 
 /// `[start, start + length)` lies in `[0, 2^40]`, with a length of at least 1.
