@@ -113,12 +113,12 @@ describe('the shell', () => {
     expect(body).toContain('data-testid="engine-silenced"')
     expect(body).toMatch(/aria-label="[^"]*Invalid signal silenced to protect your ears\. Audio engine and MIDI"/)
     expect(body).toMatch(/title="Audio engine and MIDI: [^"]*\. Invalid signal silenced to protect your ears"/)
-    expect(body).toContain('100 ms of invalid signal silenced since this engine started')
+    expect(body).toContain('100 ms of invalid signal silenced since the audio started')
     stores.engine.silencedFrames = 3
     stores.ui.lang = 'fr'
     body = render(Shell, { props: { stores } }).body
     expect(body).toContain('Signal invalide coupé pour protéger tes oreilles')
-    expect(body).toContain('moins d’1 ms de signal invalide coupé depuis le démarrage de ce moteur')
+    expect(body).toContain('moins d’1 ms de signal invalide coupé depuis le démarrage de l’audio')
   })
 
   it('folds the bottom panel in the mixer and gives it back on leaving, without touching the stored fold', () => {

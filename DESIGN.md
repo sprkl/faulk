@@ -268,12 +268,8 @@ Components describe the DS-0.1 target. Where today's app differs, the entry says
 
 ### Engine indicator (signature)
 - A permanent pill in the top bar. Web: ink surface pill, dot, "WEB", estimated latency and CPU in mono. Boost: ultraviolet pill with a lightning glyph, "BOOST", measured latency, driver and CPU. Helper lost: amber outline with "Helper disconnected, back to Web".
-<<<<<<< HEAD
-- **Today:** the app shows the mode and the latency ("Web ~42 ms (estimated)") with the voice count; CPU load, driver and the amber helper-lost state are not shipped yet.
-- **Protection mark (#667):** a small red dot in the pill once the output protection has silenced a non-finite signal from the engine that plays; it stays while that engine plays (its count is cumulative), the tooltip and the accessible name say it in words, and the engine dialog's "Protection" row gives the duration. Apart from the yellow dot of a Boost waiting for an output.
-=======
 - **Today:** the app shows the mode and the latency ("Web ~42 ms (estimated)") with the voice count, and the CPU load ("CPU 12 %", with the peak of the last 3 s; #594); the driver and the amber helper-lost state are not shipped yet.
->>>>>>> origin/develop
+- **Protection mark (#667):** a small red dot in the pill once the output protection has silenced a non-finite signal from the engine that plays; it stays while that engine plays (its count is cumulative), the tooltip and the accessible name say it in words, and the engine dialog's "Protection" row gives the duration. Apart from the yellow dot of a Boost waiting for an output.
 
 ### Track header and clips
 - **Track header:** one row per track in the arrangement, at the `lane` height: the track colour as a 3px bar (also the grip that reorders the track), the name in normal case with the type and instrument under it (in the accessible name only below 40px), M, S and In toggles (letters, so state is not colour alone; In is live input, neutral inverted fill when on), and a level meter. A track silenced by another track's solo shows a dashed M (implied mute). No fader or pan in the row: the volume shows on hover and on focus, and is typed on the selected row (a digit starts the entry, Enter or F2 open it). The row's bottom edge sets its height.

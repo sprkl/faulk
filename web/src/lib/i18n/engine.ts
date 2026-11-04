@@ -40,7 +40,7 @@ export const engine = defineFeature(
     'engine.voicesLabel': 'Voices',
     'engine.silenced': 'Invalid signal silenced to protect your ears',
     'engine.silencedLabel': 'Protection',
-    'engine.silencedValue': '{d} of invalid signal silenced since this engine started',
+    'engine.silencedValue': '{d} of invalid signal silenced since the audio started',
     'engine.silencedNone': 'Nothing silenced',
     'engine.silencedHint':
       'A device produced samples that are not numbers (NaN or infinite). The output turned them to silence instead of sending them to your speakers.',
@@ -93,7 +93,7 @@ export const engine = defineFeature(
     'engine.voicesLabel': 'Voix',
     'engine.silenced': 'Signal invalide coupé pour protéger tes oreilles',
     'engine.silencedLabel': 'Protection',
-    'engine.silencedValue': '{d} de signal invalide coupé depuis le démarrage de ce moteur',
+    'engine.silencedValue': '{d} de signal invalide coupé depuis le démarrage de l’audio',
     'engine.silencedNone': 'Rien de coupé',
     'engine.silencedHint':
       'Un appareil a produit des échantillons qui ne sont pas des nombres (NaN ou infinis). La sortie les a remplacés par du silence au lieu de les envoyer à tes enceintes.',

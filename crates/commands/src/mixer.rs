@@ -120,8 +120,8 @@ domain! {
     /// the audio is not started, or the engine has stopped reporting), every level is
     /// `null`. Tracks come in display order, after their fader and mute. To measure a
     /// stretch without playing it, use `project.analyze_render`. `silenced_frames` above 0
-    /// says the output protection silenced an invalid (non-finite) signal since the engine
-    /// started, which the levels cannot show. A query: changes nothing
+    /// says the output protection silenced an invalid (non-finite) signal since the page's
+    /// audio started, which the levels cannot show. A query: changes nothing
     /// and never enters the history.
     "mixer.levels" (kind = "query", undo = "none", destructive = false)
     Levels {} => {
@@ -132,7 +132,8 @@ domain! {
         /// The level of the output, after the master and before the output protection.
         master: Level,
         /// Frames the output protection turned to silence because a sample was not a number
-        /// (NaN or infinite), since the engine that plays started: above 0, a device produced an
+        /// (NaN or infinite), since the engine that plays started for this page (in Boost, since
+        /// the page's session with the helper began): above 0, a device produced an
         /// invalid signal, which the levels above do not show. Counted whether or not the
         /// transport runs.
         silenced_frames: u64,

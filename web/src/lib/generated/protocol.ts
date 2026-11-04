@@ -2385,7 +2385,8 @@ master: Level1
 playing: boolean
 /**
  * Frames the output protection turned to silence because a sample was not a number
- * (NaN or infinite), since the engine that plays started: above 0, a device produced an
+ * (NaN or infinite), since the engine that plays started for this page (in Boost, since
+ * the page's session with the helper began): above 0, a device produced an
  * invalid signal, which the levels above do not show. Counted whether or not the
  * transport runs.
  */
