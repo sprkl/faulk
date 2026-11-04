@@ -1,0 +1,2 @@
+2026-11-04
+* **Update** (#114): AU-5, the commands of audio clips. `specs/02-decoupage-mvp.md` records what AU-5 delivered (an import into a slot or the arrangement, `clip.audio.set_range`, `set_gain`, `set_loop`, `clip.move` of an audio clip, the tempo guard, the "média absent" mark) and what waits for AU-3 and AU-4 (playback and the engine's report of a missing source); `architecture/03-stockage-local.md` § 5.9 points to it.

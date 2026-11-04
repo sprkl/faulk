@@ -1,4 +1,17 @@
-import type { AgentResult, Command } from '../generated/protocol'
+import type { AgentResult, ClientMessage, Command } from '../generated/protocol'
+
+/**
+ * The answer to an agent's call `id`, sent with `send` once: a second answer is dropped. Both links that carry calls
+ * (the Boost session, the control link) answer through it; the helper takes an answer only from the link it asked.
+ */
+export function answerOnce(id: number, send: (message: ClientMessage) => void): (result: AgentResult) => void {
+  let answered = false
+  return (result) => {
+    if (answered) return
+    answered = true
+    send({ type: 'agent.result', id, result })
+  }
+}
 
 /**
  * The page's side of an agent's tool call (AG-1). The helper serves MCP and relays each call as

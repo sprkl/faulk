@@ -162,7 +162,7 @@
       },
       {
         "additionalProperties": false,
-        "description": "The page's answer to the helper's `agent.call` of the same `id` (AG-1): what running\nthe agent's command did. The helper takes it only from the session the call went to.\nOnly on a session.",
+        "description": "The page's answer to the helper's `agent.call` of the same `id` (AG-1): what running\nthe agent's command did. The helper takes it only from the link (session or control\nlink) the call went to. On a session or a control link.",
         "properties": {
           "id": {
             "format": "uint64",
@@ -181,6 +181,20 @@
           "type",
           "id",
           "result"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The page came to the front (shown, or focused) (#608): its control link becomes the one\nthe agents' calls go to while no session is greeted, so with several pages open an agent\ndrives the one the user last looked at. Only on a control link.",
+        "properties": {
+          "type": {
+            "const": "control.front",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
         ],
         "type": "object"
       }
@@ -3319,6 +3333,13 @@
                   ],
                   "description": "The length in ticks (960 per quarter note) of a MIDI clip; `null` for an audio clip\n(its length depends on the tempo)."
                 },
+                "media_missing": {
+                  "description": "For an audio clip, whether its file was missing from the project's folder when the\nproject was opened (\"média absent\": the clip stays in the project, silent); `null`\nfor a MIDI clip.",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
                 "name": {
                   "description": "The clip's name.",
                   "type": "string"
@@ -6239,10 +6260,51 @@
         "undo": "inverse"
       },
       {
-        "description": "Make an audio clip in an audio track from an imported audio file (AU-1). `media` is\nthe SHA-256 of the file (64 lower-case hexadecimal characters, the name of its blob):\neither a file the page has just imported (the page reads the file the user chose,\nstores its bytes in the project's `blobs/` and stages its metadata before running\nthis command), or a file an audio clip of the project already uses (`clip.get` shows\nits `media.hash`), so another clip of the same file needs no new import. The clip\nplays the whole file, at 0 dB, without a loop, and sits in the track's pool (no\nlaunch-grid slot, no placement). `name` is optional (trimmed, at most 200\ncharacters): without one the clip takes the file's name without its extension.\nRefused when the track is not an audio track or the media is unknown. Undo:\n`clip.delete` of the clip; the file stays in the project's `blobs/` (blobs are removed\non request only).",
+        "description": "Make an audio clip in an audio track from an imported audio file (AU-1). `media` is\nthe SHA-256 of the file (64 lower-case hexadecimal characters, the name of its blob):\neither a file the page has just imported (the page reads the file the user chose,\nstores its bytes in the project's `blobs/` and stages its metadata before running\nthis command), or a file an audio clip of the project already uses (`clip.get` shows\nits `media.hash`), so another clip of the same file needs no new import. The clip\nplays the whole file, at 0 dB, without a loop. `at` is optional: without it (or\n`null`) the clip sits in the track's pool (no launch-grid slot, no placement); with\n`{\"at\": \"slot\", \"scene\": <scene id>}` it sits in that launch-grid slot (the scene must\nexist and the slot be free in the track); with `{\"at\": \"arrangement\", \"start\": <tick>}`\nit is also placed whole in the arrangement from that tick (its end is computed from\nthe file's duration at the project's tempo), refused when that placement would\noverlap another placement of the track or end past 2^40. `name` is optional (trimmed,\nat most 200 characters): without one the clip takes the file's name without its\nextension. Refused when the track is not an audio track or the media is unknown.\nUndo: `clip.delete` of the clip (and of its placement); the file stays in the\nproject's `blobs/` (blobs are removed on request only).",
         "destructive": false,
         "input_schema": {
           "$defs": {
+            "ClipTarget": {
+              "description": "Where `clip.create` puts the new clip.",
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "description": "In the launch grid, at the intersection of the track and a scene.",
+                  "properties": {
+                    "at": {
+                      "const": "slot",
+                      "type": "string"
+                    },
+                    "scene": {
+                      "$ref": "#/$defs/SceneId"
+                    }
+                  },
+                  "required": [
+                    "at",
+                    "scene"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "In the arrangement: a placement of the whole clip from `start` (in ticks).",
+                  "properties": {
+                    "at": {
+                      "const": "arrangement",
+                      "type": "string"
+                    },
+                    "start": {
+                      "$ref": "#/$defs/Tick"
+                    }
+                  },
+                  "required": [
+                    "at",
+                    "start"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
             "Hash": {
               "description": "The SHA-256 of a blob, 64 lower-case hexadecimal characters.",
               "pattern": "^[0-9a-f]{64}$",
@@ -6253,6 +6315,15 @@
               "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
               "type": "string"
             },
+            "SceneId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a scene."
+            },
+            "Tick": {
+              "description": "A musical position or duration, in ticks ([`PPQ`] per quarter note).\n\nArithmetic saturates instead of overflowing. The inner value is public so that the\nproject and the UI read it as a plain integer.",
+              "format": "int64",
+              "type": "integer"
+            },
             "TrackId": {
               "$ref": "#/$defs/Id",
               "description": "Identifier of a track."
@@ -6260,6 +6331,17 @@
           },
           "additionalProperties": false,
           "properties": {
+            "at": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ClipTarget"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
             "media": {
               "$ref": "#/$defs/Hash"
             },
@@ -6291,6 +6373,10 @@
               "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
               "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
               "type": "string"
+            },
+            "PlacementId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a placement in a track's arrangement."
             }
           },
           "additionalProperties": false,
@@ -6298,11 +6384,248 @@
             "clip": {
               "$ref": "#/$defs/ClipId",
               "description": "The clip created."
+            },
+            "placement": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PlacementId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Its placement, when it was imported into the arrangement."
             }
           },
           "required": [
             "clip"
           ],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
+        "description": "Set the range of the file an audio clip plays: the frames `[start, start + frames)`\nof its file (frames of the file, at its own sample rate). Refused when the range is\nempty or leaves the file, when the clip's loop would end past the new length (clear\nor move the loop first with `clip.audio.set_loop`: nothing is cut silently), and when\na placement of the clip starts inside it at or past the new length. Every placement\nthat plays the clip whole (offset 0, length equal to its old length in frames) takes\nthe new length in the same command; a growing placement stops at the start of the\nnext placement of its track; a placement that plays only part of the clip is left\nalone. Refused for a MIDI clip. Undo: set the range back, with the lengths of the\nplacements.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "ClipId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a clip."
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "clip": {
+              "$ref": "#/$defs/ClipId"
+            },
+            "frames": {
+              "description": "How many frames are played, at least 1.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "start": {
+              "description": "First frame of the file played.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "clip",
+            "start",
+            "frames"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "clip.audio.set_range",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "previous_frames": {
+              "description": "The length in frames before the command.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "previous_start": {
+              "description": "The first frame before the command.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "previous_start",
+            "previous_frames"
+          ],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
+        "description": "Set an audio clip's gain in dB, from -96 to +6; `null` is silence. A value outside\nthe range or not a number is refused, and so is a MIDI clip. Undo: set the previous\ngain back.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "ClipId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a clip."
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "clip": {
+              "$ref": "#/$defs/ClipId"
+            },
+            "gain_db": {
+              "description": "Required: `null` is silence, a missing field is an error.",
+              "format": "double",
+              "maximum": 6,
+              "minimum": -96,
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "clip",
+            "gain_db"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "clip.audio.set_gain",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "previous": {
+              "description": "The gain before the command, in dB; `null` was silence.",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "previous"
+          ],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
+        "description": "Set an audio clip's loop: `{\"start\": <frame>, \"end\": <frame>}` in frames from the\nclip's start (not from the file's), with `0 <= start < end <= frames` (the clip's\nlength in frames), or `null` for no loop. Refused for a MIDI clip (`clip.set_loop`\nsets its loop in ticks). Undo: set the previous loop back.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "ClipId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a clip."
+            },
+            "FrameLoop": {
+              "additionalProperties": false,
+              "description": "An audio clip's loop `[start, end)` in source frames, relative to the clip's start,\nwithin `[0, frames]`.",
+              "properties": {
+                "end": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "start": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "start",
+                "end"
+              ],
+              "type": "object"
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "clip": {
+              "$ref": "#/$defs/ClipId"
+            },
+            "looping": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/FrameLoop"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "clip"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "clip.audio.set_loop",
+        "output_schema": {
+          "$defs": {
+            "FrameLoop": {
+              "additionalProperties": false,
+              "description": "An audio clip's loop `[start, end)` in source frames, relative to the clip's start,\nwithin `[0, frames]`.",
+              "properties": {
+                "end": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "start": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "start",
+                "end"
+              ],
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "previous": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/FrameLoop"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The loop before the command."
+            }
+          },
+          "required": [],
           "type": "object"
         },
         "undo": "inverse"
@@ -6737,7 +7060,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid (with no placement, it stays in its track's pool, #473). A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
+        "description": "Move a clip to another launch-grid slot, of the same track or of `track` (another\ntrack of its kind: a MIDI clip to a MIDI track, an audio clip to an audio track),\nkeeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid (with no placement, it stays in its track's pool, #473). A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -8134,6 +8457,13 @@
                     }
                   ],
                   "description": "The length in ticks (960 per quarter note) of a MIDI clip; `null` for an audio clip\n(its length depends on the tempo)."
+                },
+                "media_missing": {
+                  "description": "For an audio clip, whether its file was missing from the project's folder when the\nproject was opened (\"média absent\": the clip stays in the project, silent); `null`\nfor a MIDI clip.",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 },
                 "name": {
                   "description": "The clip's name.",
@@ -10525,7 +10855,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Insert `length` ticks of empty time at the timeline tick `at`, in every track and in\nthe master, in one history entry (bar-level editing: a bar is 3840 ticks in 4/4).\nA placement that starts at or after `at` moves `length` ticks later; one that\nstraddles `at` is split there, the right part (a new placement of the same clip, so\nlinked) moving later and resuming the clip where the left part stops, round the clip.\nThe points of every automation lane at or after `at` move too (a ramp that straddles\n`at` stretches), so do the section markers at or after `at` (#473), and so do the\nloop region's boundaries after `at` (a loop that contains `at` grows). Tempo and time\nsignature hold one point at tick 0 and do not move; the playhead and the launch grid\ndo not move. Refused with `invalid` when `at` is not in [0, 2^40], `length` is less\nthan 1 or the cut would pass 2^40, or when a placement or a point would pass 2^40,\nand with `limit` when the splits pass the placement limits. Changes nothing (no\nhistory entry) when nothing lies at or after `at`. Undo: `arrangement.restore_time`.",
+        "description": "Insert `length` ticks of empty time at the timeline tick `at`, in every track and in\nthe master, in one history entry (bar-level editing: a bar is 3840 ticks in 4/4).\nA placement that starts at or after `at` moves `length` ticks later; one that\nstraddles `at` is split there, the right part (a new placement of the same clip, so\nlinked) moving later and resuming the clip where the left part stops, round the clip.\nThe points of every automation lane at or after `at` move too (a ramp that straddles\n`at` stretches), so do the section markers at or after `at` (#473), and so do the\nloop region's boundaries after `at` (a loop that contains `at` grows). Tempo and time\nsignature hold one point at tick 0 and do not move; the playhead and the launch grid\ndo not move. Refused with `invalid` when `at` is not in [0, 2^40], `length` is less\nthan 1 or the cut would pass 2^40, or when a placement or a point would pass 2^40,\nand with `limit` when the splits pass the placement limits. Refused too, for the\nwhole project, while any track holds an audio placement (`clip.import_audio` into\nthe arrangement makes one): audio placements do not move in time yet. Changes nothing\n(no history entry) when nothing lies at or after `at`. Undo: `arrangement.restore_time`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -10589,7 +10919,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Delete the time `[from, to)` ticks from every track and from the master,\nand close the gap, in one history entry. Placements are cut at both edges: what lies\ninside is removed (a placement that straddles the whole range is split in two, the\nright part a new placement resuming the clip where the range ends), what starts at or\nafter `to` moves `to - from` ticks earlier; a clip that loses its last placement stays\nin its track's pool. The points of every automation lane inside the range are removed and the\nlater ones move back, so the last point before the cut links straight to the first\none after it (a `step` point keeps holding its value up to the cut, then the next\nvalue applies: the lane is not smoothed). The section markers after the range move\nback, one inside it goes to `from` (#473). The loop region follows (a boundary inside\nthe range falls to `from`;\na loop left empty is cleared and switched off). Tempo and time signature hold one\npoint at tick 0 and do not move; the playhead and the launch grid do not move.\nRefused with `invalid` when `from` is not in [0, 2^40], `to` is not after `from` or\npasses 2^40, and with `limit` when the cuts pass the placement limits.\nChanges nothing (no history entry) when nothing lies at or after `from`. Undo:\n`arrangement.restore_time`.",
+        "description": "Delete the time `[from, to)` ticks from every track and from the master,\nand close the gap, in one history entry. Placements are cut at both edges: what lies\ninside is removed (a placement that straddles the whole range is split in two, the\nright part a new placement resuming the clip where the range ends), what starts at or\nafter `to` moves `to - from` ticks earlier; a clip that loses its last placement stays\nin its track's pool. The points of every automation lane inside the range are removed and the\nlater ones move back, so the last point before the cut links straight to the first\none after it (a `step` point keeps holding its value up to the cut, then the next\nvalue applies: the lane is not smoothed). The section markers after the range move\nback, one inside it goes to `from` (#473). The loop region follows (a boundary inside\nthe range falls to `from`;\na loop left empty is cleared and switched off). Tempo and time signature hold one\npoint at tick 0 and do not move; the playhead and the launch grid do not move.\nRefused with `invalid` when `from` is not in [0, 2^40], `to` is not after `from` or\npasses 2^40, and with `limit` when the cuts pass the placement limits. Refused too, for\nthe whole project, while any track holds an audio placement (audio placements do not\nmove in time yet). Changes nothing (no history entry) when nothing lies at or after\n`from`. Undo:\n`arrangement.restore_time`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -13129,7 +13459,7 @@
         "undo": "none"
       },
       {
-        "description": "Set the project's tempo in BPM, from 20 to 999. A value outside the range or not\na number is refused. Undo: set the previous tempo back.",
+        "description": "Set the project's tempo in BPM, from 20 to 999. A value outside the range or not\na number is refused, and so is a tempo at which an audio placement (whose length is\nin frames of its file, so its end in ticks follows the tempo) would end past 2^40.\nA faster tempo lengthens audio placements in ticks, so one may then reach into the\nnext placement of its track: the project allows it, and the later one plays from its\nstart. Undo: set the previous tempo back.",
         "destructive": false,
         "input_schema": {
           "additionalProperties": false,
@@ -15782,7 +16112,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Insert `length` ticks of empty time at the timeline tick `at`, in every track and in\nthe master, in one history entry (bar-level editing: a bar is 3840 ticks in 4/4).\nA placement that starts at or after `at` moves `length` ticks later; one that\nstraddles `at` is split there, the right part (a new placement of the same clip, so\nlinked) moving later and resuming the clip where the left part stops, round the clip.\nThe points of every automation lane at or after `at` move too (a ramp that straddles\n`at` stretches), so do the section markers at or after `at` (#473), and so do the\nloop region's boundaries after `at` (a loop that contains `at` grows). Tempo and time\nsignature hold one point at tick 0 and do not move; the playhead and the launch grid\ndo not move. Refused with `invalid` when `at` is not in [0, 2^40], `length` is less\nthan 1 or the cut would pass 2^40, or when a placement or a point would pass 2^40,\nand with `limit` when the splits pass the placement limits. Changes nothing (no\nhistory entry) when nothing lies at or after `at`. Undo: `arrangement.restore_time`.",
+              "description": "Insert `length` ticks of empty time at the timeline tick `at`, in every track and in\nthe master, in one history entry (bar-level editing: a bar is 3840 ticks in 4/4).\nA placement that starts at or after `at` moves `length` ticks later; one that\nstraddles `at` is split there, the right part (a new placement of the same clip, so\nlinked) moving later and resuming the clip where the left part stops, round the clip.\nThe points of every automation lane at or after `at` move too (a ramp that straddles\n`at` stretches), so do the section markers at or after `at` (#473), and so do the\nloop region's boundaries after `at` (a loop that contains `at` grows). Tempo and time\nsignature hold one point at tick 0 and do not move; the playhead and the launch grid\ndo not move. Refused with `invalid` when `at` is not in [0, 2^40], `length` is less\nthan 1 or the cut would pass 2^40, or when a placement or a point would pass 2^40,\nand with `limit` when the splits pass the placement limits. Refused too, for the\nwhole project, while any track holds an audio placement (`clip.import_audio` into\nthe arrangement makes one): audio placements do not move in time yet. Changes nothing\n(no history entry) when nothing lies at or after `at`. Undo: `arrangement.restore_time`.",
               "properties": {
                 "at": {
                   "$ref": "#/$defs/Tick"
@@ -15807,7 +16137,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Delete the time `[from, to)` ticks from every track and from the master,\nand close the gap, in one history entry. Placements are cut at both edges: what lies\ninside is removed (a placement that straddles the whole range is split in two, the\nright part a new placement resuming the clip where the range ends), what starts at or\nafter `to` moves `to - from` ticks earlier; a clip that loses its last placement stays\nin its track's pool. The points of every automation lane inside the range are removed and the\nlater ones move back, so the last point before the cut links straight to the first\none after it (a `step` point keeps holding its value up to the cut, then the next\nvalue applies: the lane is not smoothed). The section markers after the range move\nback, one inside it goes to `from` (#473). The loop region follows (a boundary inside\nthe range falls to `from`;\na loop left empty is cleared and switched off). Tempo and time signature hold one\npoint at tick 0 and do not move; the playhead and the launch grid do not move.\nRefused with `invalid` when `from` is not in [0, 2^40], `to` is not after `from` or\npasses 2^40, and with `limit` when the cuts pass the placement limits.\nChanges nothing (no history entry) when nothing lies at or after `from`. Undo:\n`arrangement.restore_time`.",
+              "description": "Delete the time `[from, to)` ticks from every track and from the master,\nand close the gap, in one history entry. Placements are cut at both edges: what lies\ninside is removed (a placement that straddles the whole range is split in two, the\nright part a new placement resuming the clip where the range ends), what starts at or\nafter `to` moves `to - from` ticks earlier; a clip that loses its last placement stays\nin its track's pool. The points of every automation lane inside the range are removed and the\nlater ones move back, so the last point before the cut links straight to the first\none after it (a `step` point keeps holding its value up to the cut, then the next\nvalue applies: the lane is not smoothed). The section markers after the range move\nback, one inside it goes to `from` (#473). The loop region follows (a boundary inside\nthe range falls to `from`;\na loop left empty is cleared and switched off). Tempo and time signature hold one\npoint at tick 0 and do not move; the playhead and the launch grid do not move.\nRefused with `invalid` when `from` is not in [0, 2^40], `to` is not after `from` or\npasses 2^40, and with `limit` when the cuts pass the placement limits. Refused too, for\nthe whole project, while any track holds an audio placement (audio placements do not\nmove in time yet). Changes nothing (no history entry) when nothing lies at or after\n`from`. Undo:\n`arrangement.restore_time`.",
               "properties": {
                 "from": {
                   "$ref": "#/$defs/Tick"
@@ -16780,8 +17110,19 @@
             },
             {
               "additionalProperties": false,
-              "description": "Make an audio clip in an audio track from an imported audio file (AU-1). `media` is\nthe SHA-256 of the file (64 lower-case hexadecimal characters, the name of its blob):\neither a file the page has just imported (the page reads the file the user chose,\nstores its bytes in the project's `blobs/` and stages its metadata before running\nthis command), or a file an audio clip of the project already uses (`clip.get` shows\nits `media.hash`), so another clip of the same file needs no new import. The clip\nplays the whole file, at 0 dB, without a loop, and sits in the track's pool (no\nlaunch-grid slot, no placement). `name` is optional (trimmed, at most 200\ncharacters): without one the clip takes the file's name without its extension.\nRefused when the track is not an audio track or the media is unknown. Undo:\n`clip.delete` of the clip; the file stays in the project's `blobs/` (blobs are removed\non request only).",
+              "description": "Make an audio clip in an audio track from an imported audio file (AU-1). `media` is\nthe SHA-256 of the file (64 lower-case hexadecimal characters, the name of its blob):\neither a file the page has just imported (the page reads the file the user chose,\nstores its bytes in the project's `blobs/` and stages its metadata before running\nthis command), or a file an audio clip of the project already uses (`clip.get` shows\nits `media.hash`), so another clip of the same file needs no new import. The clip\nplays the whole file, at 0 dB, without a loop. `at` is optional: without it (or\n`null`) the clip sits in the track's pool (no launch-grid slot, no placement); with\n`{\"at\": \"slot\", \"scene\": <scene id>}` it sits in that launch-grid slot (the scene must\nexist and the slot be free in the track); with `{\"at\": \"arrangement\", \"start\": <tick>}`\nit is also placed whole in the arrangement from that tick (its end is computed from\nthe file's duration at the project's tempo), refused when that placement would\noverlap another placement of the track or end past 2^40. `name` is optional (trimmed,\nat most 200 characters): without one the clip takes the file's name without its\nextension. Refused when the track is not an audio track or the media is unknown.\nUndo: `clip.delete` of the clip (and of its placement); the file stays in the\nproject's `blobs/` (blobs are removed on request only).",
               "properties": {
+                "at": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/ClipTarget"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
                 "media": {
                   "$ref": "#/$defs/Hash"
                 },
@@ -16803,6 +17144,104 @@
                 "type",
                 "track",
                 "media"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Set the range of the file an audio clip plays: the frames `[start, start + frames)`\nof its file (frames of the file, at its own sample rate). Refused when the range is\nempty or leaves the file, when the clip's loop would end past the new length (clear\nor move the loop first with `clip.audio.set_loop`: nothing is cut silently), and when\na placement of the clip starts inside it at or past the new length. Every placement\nthat plays the clip whole (offset 0, length equal to its old length in frames) takes\nthe new length in the same command; a growing placement stops at the start of the\nnext placement of its track; a placement that plays only part of the clip is left\nalone. Refused for a MIDI clip. Undo: set the range back, with the lengths of the\nplacements.",
+              "properties": {
+                "clip": {
+                  "$ref": "#/$defs/ClipId"
+                },
+                "frames": {
+                  "description": "How many frames are played, at least 1.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "start": {
+                  "description": "First frame of the file played.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "clip.audio.set_range",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "clip",
+                "start",
+                "frames"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Set an audio clip's gain in dB, from -96 to +6; `null` is silence. A value outside\nthe range or not a number is refused, and so is a MIDI clip. Undo: set the previous\ngain back.",
+              "properties": {
+                "clip": {
+                  "$ref": "#/$defs/ClipId"
+                },
+                "gain_db": {
+                  "description": "Required: `null` is silence, a missing field is an error.",
+                  "format": "double",
+                  "maximum": 6,
+                  "minimum": -96,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "clip.audio.set_gain",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "clip",
+                "gain_db"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Set an audio clip's loop: `{\"start\": <frame>, \"end\": <frame>}` in frames from the\nclip's start (not from the file's), with `0 <= start < end <= frames` (the clip's\nlength in frames), or `null` for no loop. Refused for a MIDI clip (`clip.set_loop`\nsets its loop in ticks). Undo: set the previous loop back.",
+              "properties": {
+                "clip": {
+                  "$ref": "#/$defs/ClipId"
+                },
+                "looping": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/FrameLoop"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": {
+                  "const": "clip.audio.set_loop",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "clip"
               ],
               "type": "object",
               "x-destructive": false,
@@ -16926,7 +17365,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid (with no placement, it stays in its track's pool, #473). A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
+              "description": "Move a clip to another launch-grid slot, of the same track or of `track` (another\ntrack of its kind: a MIDI clip to a MIDI track, an audio clip to an audio track),\nkeeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid (with no placement, it stays in its track's pool, #473). A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
@@ -21291,7 +21730,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Set the project's tempo in BPM, from 20 to 999. A value outside the range or not\na number is refused. Undo: set the previous tempo back.",
+              "description": "Set the project's tempo in BPM, from 20 to 999. A value outside the range or not\na number is refused, and so is a tempo at which an audio placement (whose length is\nin frames of its file, so its end in ticks follows the tempo) would end past 2^40.\nA faster tempo lengthens audio placements in ticks, so one may then reach into the\nnext placement of its track: the project allows it, and the later one plays from its\nstart. Undo: set the previous tempo back.",
               "properties": {
                 "bpm": {
                   "format": "double",
@@ -22548,6 +22987,17 @@
                   "$ref": "#/$defs/ClipId",
                   "description": "The clip created."
                 },
+                "placement": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/PlacementId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Its placement, when it was imported into the arrangement."
+                },
                 "type": {
                   "const": "clip.import_audio",
                   "type": "string"
@@ -22556,6 +23006,79 @@
               "required": [
                 "type",
                 "clip"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous_frames": {
+                  "description": "The length in frames before the command.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "previous_start": {
+                  "description": "The first frame before the command.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "clip.audio.set_range",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous_start",
+                "previous_frames"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "description": "The gain before the command, in dB; `null` was silence.",
+                  "format": "double",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "clip.audio.set_gain",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/FrameLoop"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The loop before the command."
+                },
+                "type": {
+                  "const": "clip.audio.set_loop",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
               ],
               "type": "object"
             },
@@ -22958,6 +23481,13 @@
                 }
               ],
               "description": "The length in ticks (960 per quarter note) of a MIDI clip; `null` for an audio clip\n(its length depends on the tempo)."
+            },
+            "media_missing": {
+              "description": "For an audio clip, whether its file was missing from the project's folder when the\nproject was opened (\"média absent\": the clip stays in the project, silent); `null`\nfor a MIDI clip.",
+              "type": [
+                "boolean",
+                "null"
+              ]
             },
             "name": {
               "description": "The clip's name.",
@@ -26438,6 +26968,7 @@
       "title": "CommandOutput"
     }
   },
+  "control_pushed_out": 4001,
   "device_descriptor": {
     "$defs": {
       "DeviceRole": {
@@ -30513,6 +31044,17 @@
                   "$ref": "#/$defs/ClipId",
                   "description": "The clip created."
                 },
+                "placement": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/PlacementId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Its placement, when it was imported into the arrangement."
+                },
                 "type": {
                   "const": "clip.import_audio",
                   "type": "string"
@@ -30521,6 +31063,79 @@
               "required": [
                 "type",
                 "clip"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous_frames": {
+                  "description": "The length in frames before the command.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "previous_start": {
+                  "description": "The first frame before the command.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "clip.audio.set_range",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous_start",
+                "previous_frames"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "description": "The gain before the command, in dB; `null` was silence.",
+                  "format": "double",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "clip.audio.set_gain",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/FrameLoop"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The loop before the command."
+                },
+                "type": {
+                  "const": "clip.audio.set_loop",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
               ],
               "type": "object"
             },
@@ -30906,6 +31521,11 @@
               "const": "content",
               "description": "Length, loop and notes at once.",
               "type": "string"
+            },
+            {
+              "const": "gain",
+              "description": "An audio clip's gain.",
+              "type": "string"
             }
           ]
         },
@@ -30942,6 +31562,13 @@
                 }
               ],
               "description": "The length in ticks (960 per quarter note) of a MIDI clip; `null` for an audio clip\n(its length depends on the tempo)."
+            },
+            "media_missing": {
+              "description": "For an audio clip, whether its file was missing from the project's folder when the\nproject was opened (\"média absent\": the clip stays in the project, silent); `null`\nfor a MIDI clip.",
+              "type": [
+                "boolean",
+                "null"
+              ]
             },
             "name": {
               "description": "The clip's name.",
@@ -35817,7 +36444,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 28,
+  "protocol_version": 30,
   "server_message": {
     "$defs": {
       "Capabilities": {
@@ -36233,7 +36860,7 @@
       },
       {
         "additionalProperties": false,
-        "description": "An agent's tool call (AG-1): the command to run, as JSON (`{\"type\": \"<domain.verb>\",\n...}`), and the agent's name, the history's author `agent:<name>`. The page runs it\nthrough its dispatcher like a user's action and answers `agent.result` with this `id`;\nthe helper gives up on it when the session ends or after its timeout.",
+        "description": "An agent's tool call (AG-1): the command to run, as JSON (`{\"type\": \"<domain.verb>\",\n...}`), and the agent's name, the history's author `agent:<name>`. The page runs it\nthrough its dispatcher like a user's action and answers `agent.result` with this `id`;\nthe helper gives up on it when the link it went on ends or after its timeout. Sent on\nthe greeted session (Boost) if there is one, else on the newest control link (#608).",
         "properties": {
           "agent": {
             "type": "string"

@@ -6,8 +6,10 @@ import { SINGLE_SYNTH, type Command } from '../generated/protocol'
 import { DEFAULT_PARAMS } from '../params'
 import { CoreError, ProjectCore, type FolderEntry } from '../project/core'
 import { readFolder, SONG_FOLDER } from '../project/reference-folder'
-import { OUTPUT_POLL_MS, REFUSAL_TOAST_MS } from './dispatcher'
+import { CONTROL_RETRY_MS, OUTPUT_POLL_MS, REFUSAL_TOAST_MS } from './dispatcher'
+import type { ControlEvents } from '../agents/control-link'
 import { TOKEN_KEY } from './storage'
+import type { PresetLibrary } from '../storage/presets'
 import { inputNoteOff, inputNoteOn } from '../synth-commands'
 
 const pairHelper = vi.fn()
@@ -77,6 +79,23 @@ vi.mock('../engine/native-engine', () => ({
       return nativeEngine ? Promise.resolve(nativeEngine) : Promise.reject(new Error('no helper in tests'))
     },
   },
+}))
+// The control link (#608): every `open` is recorded with the events it was given; it opens unless a test says otherwise.
+interface FakeControl {
+  token: string
+  events: ControlEvents
+  close: Mock<() => void>
+  front: Mock<() => void>
+}
+const controls: FakeControl[] = []
+const controlOpen = vi.fn<(token: string, events: ControlEvents) => Promise<FakeControl>>((token, events) => {
+  const link: FakeControl = { token, events, close: vi.fn(), front: vi.fn() }
+  controls.push(link)
+  return Promise.resolve(link)
+})
+vi.mock('../agents/control-link', () => ({
+  ControlLink: { open: (token: string, events: ControlEvents) => controlOpen(token, events) },
+  ControlTimeout: class ControlTimeout extends Error {},
 }))
 // Web MIDI is off, except in the tests that turn it on: then `releaseAll` is what the test controls.
 let midiOn = false
@@ -1910,6 +1929,108 @@ describe('the recorder in the dispatcher (#513)', () => {
   })
 })
 
+describe('the preset library (#191)', () => {
+  const kept = '01HZY00000000000000000AAAA'
+  const file = `{"format": 1, "device": "faulk.osc_synth", "version": 1, "name": "Kept", "params": {"attack": 0.5}}`
+
+  async function started(files: { id: string; text: string }[], write = vi.fn(() => Promise.resolve())) {
+    const session = newSession()
+    const remove = vi.fn(() => Promise.resolve())
+    const read = vi.fn(() => Promise.resolve(files))
+    session.dispatcher.presetLibrary = { available: true, read, write, remove } as unknown as PresetLibrary
+    await session.dispatcher.start()
+    await vi.waitFor(() => expect(read).toHaveBeenCalled())
+    await vi.waitFor(() => expect(session.project.presetsRev).toBeGreaterThan(0))
+    return { session, read, write, remove }
+  }
+
+  it('reads the library when the core is made, writes a preset saved there and removes a deleted one', async () => {
+    const { session, write, remove } = await started([{ id: kept, text: file }])
+    expect(session.dispatcher.run({ type: 'preset.save', device: SYNTH_DEVICE, name: 'Mine', location: 'library' })).toBe(true)
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1))
+    const [id, bytes] = write.mock.calls[0] as unknown as [string, Uint8Array]
+    expect(new TextDecoder().decode(bytes)).toContain('"name": "Mine"')
+    // The device shows it, unmodified.
+    const shown = session.dispatcher.listPresets(SYNTH_DEVICE)
+    expect(shown?.current?.name).toBe('Mine')
+    expect(shown?.modified).toBe(false)
+    // A library change is not a project change.
+    session.dispatcher.run({ type: 'preset.delete', preset: { location: 'library', id } })
+    await vi.waitFor(() => expect(remove).toHaveBeenCalledWith(id))
+    // Its undo writes the file again.
+    session.dispatcher.run({ type: 'history.undo' })
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(2))
+  })
+
+  it('says so when a write fails, keeps the preset in the tab, and writes it on the next try', async () => {
+    let fail = true
+    const write = vi.fn(() => (fail ? Promise.reject(new DOMException('full', 'QuotaExceededError')) : Promise.resolve()))
+    const { session, read } = await started([], write)
+    session.dispatcher.run({ type: 'preset.save', device: SYNTH_DEVICE, name: 'Mine', location: 'library' })
+    await vi.waitFor(() => expect(session.engine.notice).toBe('presets.writeFailed'))
+    // A read of the library while a write waits does not take the preset back.
+    const reads = read.mock.calls.length
+    await session.dispatcher.loadLibrary()
+    expect(read.mock.calls.length).toBe(reads)
+    expect(session.dispatcher.listPresetsOfKind('faulk.osc_synth')?.presets.some((p) => p.name === 'Mine')).toBe(true)
+    fail = false
+    session.dispatcher.retryPresets()
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(2))
+    await session.dispatcher.loadLibrary()
+    expect(read.mock.calls.length).toBe(reads + 1)
+  })
+})
+
+describe('the preset library and its reads (#191)', () => {
+  it('a read that a save overtook is read again: the saved preset stays, and so do the files on disk', async () => {
+    const session = newSession()
+    const onDisk: { id: string; text: string }[] = [
+      { id: '01HZY00000000000000000AAAA', text: `{"format": 1, "device": "faulk.osc_synth", "version": 1, "name": "Kept", "params": {}}` },
+    ]
+    let release: (() => void) | null = null
+    const read = vi.fn(async () => {
+      // The first read is held until a save has run; the later ones answer at once.
+      if (read.mock.calls.length === 1) await new Promise<void>((resolve) => (release = resolve))
+      return [...onDisk]
+    })
+    const write = vi.fn(async (id: string, bytes: Uint8Array) => {
+      onDisk.push({ id, text: new TextDecoder().decode(bytes) })
+    })
+    session.dispatcher.presetLibrary = { available: true, read, write, remove: vi.fn() } as unknown as PresetLibrary
+    await session.dispatcher.start()
+    await vi.waitFor(() => expect(release).not.toBeNull())
+    // A save while the first read is out: the listing it gets is stale.
+    session.dispatcher.run({ type: 'preset.save', device: SYNTH_DEVICE, name: 'Mine', location: 'library' })
+    release!()
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1))
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => {
+      const names = session.dispatcher.listPresetsOfKind('faulk.osc_synth')?.presets.map((p) => p.name) ?? []
+      expect(names).toContain('Mine')
+      expect(names).toContain('Kept')
+    })
+  })
+
+  it('a failed write does not hide another notice, and a successful retry clears its own', async () => {
+    const session = newSession()
+    let fail = true
+    const write = vi.fn(() => (fail ? Promise.reject(new DOMException('full', 'QuotaExceededError')) : Promise.resolve()))
+    session.dispatcher.presetLibrary = { available: true, read: vi.fn(() => Promise.resolve([])), write, remove: vi.fn() } as unknown as PresetLibrary
+    await session.dispatcher.start()
+    session.engine.notice = 'helper.lost'
+    session.dispatcher.run({ type: 'preset.save', device: SYNTH_DEVICE, name: 'A', location: 'library' })
+    await vi.waitFor(() => expect(write).toHaveBeenCalledTimes(1))
+    await Promise.resolve()
+    expect(session.engine.notice).toBe('helper.lost')
+    session.engine.notice = null
+    session.dispatcher.retryPresets()
+    await vi.waitFor(() => expect(session.engine.notice).toBe('presets.writeFailed'))
+    fail = false
+    session.dispatcher.retryPresets()
+    await vi.waitFor(() => expect(session.engine.notice).toBeNull())
+  })
+})
+
 describe("an agent's calls in Boost (AG-1)", () => {
   beforeEach(() => {
     webs = []
@@ -2000,6 +2121,244 @@ describe("an agent's calls in Boost (AG-1)", () => {
     events.onAgentCall!('a', setParamCommand(firstParam, 0.3), answer)
     expect(answer).toHaveBeenCalledWith(expect.objectContaining({ status: 'unavailable' }))
     expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+  })
+})
+
+describe("an agent's calls on the control link, in Web mode and without an output (#608)", () => {
+  beforeEach(() => {
+    webs = []
+    controls.length = 0
+    nativeEngine = null
+    midiOn = false
+    localStorage.clear()
+    controlOpen.mockClear()
+    probeHelper.mockReset()
+    probeHelper.mockResolvedValue({ status: 'available', audioOutput: true })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  /** A started page, paired, that probed the helper: its control link is open. */
+  async function linked() {
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    await session.dispatcher.checkHelper()
+    await vi.waitFor(() => expect(controls).toHaveLength(1))
+    return session
+  }
+
+  async function call(link: FakeControl, agent: string, command: unknown) {
+    const answer = vi.fn()
+    link.events.onAgentCall(agent, command, answer)
+    await vi.waitFor(() => expect(answer).toHaveBeenCalledTimes(1))
+    return answer.mock.calls[0][0]
+  }
+
+  it('runs the call in Web mode like the user, through the Web engine: history author, undo, refusal', async () => {
+    const session = await linked()
+    expect(controls[0].token).toBe('x')
+    expect(session.engine.mode).toBe('web')
+    const sends = webs[0].send.mock.calls.length
+    expect(await call(controls[0], 'claude-code', setParamCommand(firstParam, 0.3))).toMatchObject({ status: 'applied' })
+    expect(session.project.params[firstParam]).toBe(0.3)
+    expect(webs[0].send.mock.calls.length).toBe(sends + 1)
+    expect(session.dispatcher.history().undo.at(-1)).toMatchObject({ name: 'device.set_param', author: 'agent:claude-code' })
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const refused = await call(controls[0], 'a', { type: 'device.set_param', device: '00000000000000000000000009', param: firstParam, value: 1 })
+    expect(refused).toMatchObject({ status: 'refused', error: { code: 'not_found' } })
+    expect(await call(controls[0], 'a', { type: 'project.save_as' })).toMatchObject({ status: 'unavailable' })
+  })
+
+  it('serves while the helper has no output: the page waits for it in Web mode and the link still runs the call', async () => {
+    probeHelper.mockResolvedValue({ status: 'available', audioOutput: false })
+    const session = await linked()
+    vi.spyOn(NativeEngine, 'connect').mockImplementationOnce(() => Promise.reject(new NoOutputError()))
+    await session.dispatcher.enterBoost()
+    expect(session.engine.awaitingOutput).toBe(true)
+    expect(await call(controls[0], 'a', setParamCommand(firstParam, 0.4))).toMatchObject({ status: 'applied' })
+    expect(session.engine.mode).toBe('web')
+    session.dispatcher.stayInWeb()
+  })
+
+  it('answers unavailable before audio starts, and links nothing without a pairing or a helper', async () => {
+    const unpaired = newSession()
+    await unpaired.dispatcher.checkHelper()
+    expect(controlOpen).not.toHaveBeenCalled()
+
+    localStorage.setItem(TOKEN_KEY, 'x')
+    probeHelper.mockResolvedValueOnce({ status: 'absent' })
+    const absent = newSession()
+    await absent.dispatcher.checkHelper()
+    expect(controlOpen).not.toHaveBeenCalled()
+
+    const early = newSession()
+    await early.dispatcher.checkHelper()
+    await vi.waitFor(() => expect(controls).toHaveLength(1))
+    expect(await call(controls[0], 'a', setParamCommand(firstParam, 0.3))).toMatchObject({ status: 'unavailable' })
+  })
+
+  it('opens one link for two requests at once, and none again while it is open', async () => {
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await Promise.all([session.dispatcher.checkHelper(), session.dispatcher.checkHelper(), session.dispatcher.linkControl()])
+    await session.dispatcher.linkControl()
+    expect(controlOpen).toHaveBeenCalledTimes(1)
+  })
+
+  it('links once paired, and relinks with a new token after another pairing', async () => {
+    pairHelper.mockResolvedValue({ status: 'paired', token: 'first' })
+    const session = newSession()
+    await session.dispatcher.start()
+    await session.dispatcher.pair('12345678')
+    await vi.waitFor(() => expect(controls.map((c) => c.token)).toEqual(['first']))
+    pairHelper.mockResolvedValue({ status: 'paired', token: 'second' })
+    await session.dispatcher.pair('12345678')
+    await vi.waitFor(() => expect(controls.map((c) => c.token)).toEqual(['first', 'second']))
+    expect(controls[0].close).toHaveBeenCalled()
+  })
+
+  it('forgets the pairing when the running helper refuses the link, and keeps it when the helper is gone', async () => {
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    controlOpen.mockRejectedValueOnce(new Error('refused'))
+    await session.dispatcher.linkControl()
+    expect(localStorage.getItem(TOKEN_KEY)).toBeNull()
+    expect(session.engine.paired).toBe(false)
+
+    localStorage.setItem(TOKEN_KEY, 'x')
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    controlOpen.mockRejectedValueOnce(new Error('gone'))
+    probeHelper.mockResolvedValueOnce({ status: 'absent' })
+    await session.dispatcher.linkControl()
+    expect(localStorage.getItem(TOKEN_KEY)).toBe('x')
+    // Tried again: the helper is back.
+    await vi.advanceTimersByTimeAsync(CONTROL_RETRY_MS[0])
+    await vi.waitFor(() => expect(controls).toHaveLength(1))
+  })
+
+  it('a lost link is tried again, slower and slower, without end, until the helper is back', async () => {
+    const session = await linked()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    probeHelper.mockResolvedValue({ status: 'absent' })
+    probeHelper.mockClear()
+    controls[0].events.onClosed(false)
+    // The delays of CONTROL_RETRY_MS, then its last one again: well past two minutes.
+    const delays = [...CONTROL_RETRY_MS, ...Array(6).fill(CONTROL_RETRY_MS.at(-1))]
+    for (const [i, delay] of delays.entries()) {
+      await vi.advanceTimersByTimeAsync(delay - 1)
+      expect(probeHelper).toHaveBeenCalledTimes(i)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(probeHelper).toHaveBeenCalledTimes(i + 1)
+    }
+    expect(session.engine.helper).not.toBe('checking')
+    probeHelper.mockResolvedValue({ status: 'available', audioOutput: true })
+    await vi.advanceTimersByTimeAsync(CONTROL_RETRY_MS.at(-1)!)
+    await vi.waitFor(() => expect(controls).toHaveLength(2))
+    expect(session.engine.helper).toBe('available')
+    // Linked again: no more tries, and the next loss starts from the first delay.
+    probeHelper.mockClear()
+    await vi.advanceTimersByTimeAsync(5 * CONTROL_RETRY_MS.at(-1)!)
+    expect(probeHelper).not.toHaveBeenCalled()
+    probeHelper.mockResolvedValue({ status: 'absent' })
+    controls[1].events.onClosed(false)
+    await vi.advanceTimersByTimeAsync(CONTROL_RETRY_MS[0])
+    expect(probeHelper).toHaveBeenCalledTimes(1)
+  })
+
+  it('a link closed after a newer one replaced it does not start the tries', async () => {
+    pairHelper.mockResolvedValue({ status: 'paired', token: 'first' })
+    const session = newSession()
+    await session.dispatcher.start()
+    await session.dispatcher.pair('12345678')
+    pairHelper.mockResolvedValue({ status: 'paired', token: 'second' })
+    await session.dispatcher.pair('12345678')
+    await vi.waitFor(() => expect(controls).toHaveLength(2))
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    probeHelper.mockClear()
+    controls[0].events.onClosed(false)
+    await vi.advanceTimersByTimeAsync(CONTROL_RETRY_MS[0] * 2)
+    expect(probeHelper).not.toHaveBeenCalled()
+  })
+
+  it('a link the helper pushed out for newer ones is not tried again on its own, a later probe links it', async () => {
+    const session = await linked()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    probeHelper.mockClear()
+    controls[0].events.onClosed(true)
+    await vi.advanceTimersByTimeAsync(10 * CONTROL_RETRY_MS.at(-1)!)
+    expect(probeHelper).not.toHaveBeenCalled()
+    expect(controls).toHaveLength(1)
+    await session.dispatcher.checkHelper()
+    await vi.waitFor(() => expect(controls).toHaveLength(2))
+    // Or the user turns to it: it links again, as the newest.
+    controls[1].events.onClosed(true)
+    session.dispatcher.toFront()
+    await vi.waitFor(() => expect(controls).toHaveLength(3))
+    session.dispatcher.toFront()
+    expect(controls[2].front).toHaveBeenCalledTimes(1)
+    expect(controls).toHaveLength(3)
+  })
+
+  it('a link too slow to open keeps the pairing and is tried again', async () => {
+    const { ControlTimeout } = await import('../agents/control-link')
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    controlOpen.mockRejectedValueOnce(new ControlTimeout())
+    await session.dispatcher.linkControl()
+    expect(localStorage.getItem(TOKEN_KEY)).toBe('x')
+    expect(session.engine.paired).toBe(true)
+    await vi.advanceTimersByTimeAsync(CONTROL_RETRY_MS[0])
+    await vi.waitFor(() => expect(controls).toHaveLength(1))
+  })
+
+  it('a link lost in Boost is opened again while the session plays on', async () => {
+    const session = await linked()
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
+      close: vi.fn(() => Promise.resolve()),
+    }
+    await session.dispatcher.enterBoost()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    controls[0].events.onClosed(false)
+    await vi.advanceTimersByTimeAsync(CONTROL_RETRY_MS[0])
+    await vi.waitFor(() => expect(controls).toHaveLength(2))
+    expect(session.engine.mode).toBe('native')
+    expect(session.engine.helper).toBe('connected')
+  })
+
+  it('tells the helper when the page comes to the front', async () => {
+    const session = await linked()
+    session.dispatcher.toFront()
+    expect(controls[0].front).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the link through Boost and back, where the session takes the calls', async () => {
+    const session = await linked()
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
+      close: vi.fn(() => Promise.resolve()),
+    }
+    await session.dispatcher.enterBoost()
+    expect(session.engine.mode).toBe('native')
+    await session.dispatcher.enterWeb()
+    expect(controls).toHaveLength(1)
+    expect(controls[0].close).not.toHaveBeenCalled()
+    expect(await call(controls[0], 'a', setParamCommand(firstParam, 0.5))).toMatchObject({ status: 'applied' })
   })
 })
 
