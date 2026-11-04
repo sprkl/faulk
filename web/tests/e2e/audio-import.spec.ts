@@ -234,7 +234,8 @@ async function standInHelper() {
       send({ type: 'hello', protocol: PROTOCOL_VERSION, sample_rate: 48000, estimated_latency_ms: 5, epoch: 40, capabilities: { midi: true, disk: false } })
       send({ type: 'midi.inputs', inputs: [], selected: null })
       ws.on('message', (data) => frames.push(Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as Buffer)))
-    } else ws.close()
+    } else if (url.pathname === '/control' && url.searchParams.get('token') === TOKEN) send({ type: 'control.hello', protocol: PROTOCOL_VERSION })
+    else ws.close()
   })
   const close = async () => {
     for (const client of server.clients) client.terminate()

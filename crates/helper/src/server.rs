@@ -1026,6 +1026,10 @@ async fn control(ws: Ws, shared: &Arc<Shared>) {
     let (mut sink, mut stream) = ws.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<Out>();
     let id = shared.next_id.fetch_add(1, Ordering::Relaxed);
+    // First message, before the link counts: the page checks the version as for a session's `hello` (#658).
+    let _ = tx.send(Out::Msg(ServerMessage::ControlHello {
+        protocol: PROTOCOL_VERSION,
+    }));
     shared.open_control(id, tx.clone());
     let mut writer = tokio::spawn(async move {
         while let Some(out) = rx.recv().await {
