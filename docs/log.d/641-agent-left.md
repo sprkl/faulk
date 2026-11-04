@@ -1,0 +1,2 @@
+2026-11-04
+* **Update** (#641): `architecture/01-architecture.md` gains "Départ d'un agent" in the MCP section: when the helper counts an agent as gone (last MCP session closed, stdio bridge input ended, 5 minutes without a request, or a stateless agent silent as long), the `agent.left` message of protocol 32 on the Boost session and every control link, and what the page does (closes that agent's open history group, ends its turn, withdraws its questions; closes every agent's group when it loses all its links to the helper).

@@ -65,13 +65,41 @@ describe('a drop while a history group is open', () => {
   })
 })
 
+describe('a drop through the page host while an agent group is open', () => {
+  it('sends its begin_group quietly, so no refusal is shown, and leaves the agent group alone', () => {
+    const { core, as } = setup()
+    const quiet: Record<string, boolean | undefined> = {}
+    const dispatcher = {
+      run: (command: Command, options?: { quiet?: boolean }) => {
+        quiet[command.type] ??= options?.quiet
+        return core.run(command, 'user').report.status === 'applied'
+      },
+    }
+    const stores = {
+      dispatcher,
+      project: {
+        get tracks() {
+          return Object.entries(core.project().project.tracks).flatMap(([id, track]) => (track ? [{ id, track }] : []))
+        },
+        view: null,
+        selected: null,
+      },
+      ui: { masterSelection: null },
+    }
+    as('agent:claude', { type: 'history.begin_group' })
+    expect(applyItem(hostOf(stores as never), reverb, { type: 'new-track' }).ok).toBe(true)
+    expect(quiet['history.begin_group']).toBe(true)
+    expect(as('agent:claude', { type: 'history.end_group' })).toBe('applied')
+  })
+})
+
 describe('the page host', () => {
-  it('runs history.begin_group quietly (no refusal toast when a group is open), and every other command as usual', () => {
+  it('forwards the options of the group helper (a quiet begin_group shows no refusal toast), and nothing else', () => {
     const run = vi.fn(() => true)
     const host = hostOf({ dispatcher: { run }, project: { tracks: [], view: null, selected: null }, ui: { masterSelection: null } } as never)
-    host.run({ type: 'history.begin_group' })
+    host.run({ type: 'history.begin_group' }, { quiet: true })
     host.run({ type: 'history.end_group' })
     expect(run).toHaveBeenNthCalledWith(1, { type: 'history.begin_group' }, { quiet: true })
-    expect(run).toHaveBeenNthCalledWith(2, { type: 'history.end_group' }, {})
+    expect(run).toHaveBeenNthCalledWith(2, { type: 'history.end_group' }, undefined)
   })
 })

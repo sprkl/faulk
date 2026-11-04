@@ -110,6 +110,9 @@ export class NativeEngine implements Engine {
             else answer({ status: 'unavailable', reason: 'this page does not take agent calls' })
             break
           }
+          case 'agent.left':
+            events.onAgentLeft?.(message.agent)
+            break
           case 'update.status':
             engine.update = { current: message.current ?? null, checkedAt: message.checked_at ?? null, status: message.status }
             events.onHelperUpdate?.(engine.update)

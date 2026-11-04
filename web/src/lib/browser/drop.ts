@@ -6,7 +6,8 @@
  */
 
 import type { Command, Track } from '../generated/protocol'
-import { beginGroup, createTrack, endGroup } from '../track-commands'
+import { inGroup } from '../history-group'
+import { createTrack } from '../track-commands'
 import { insertEffect, insertMasterEffect, setInstrument } from '../device-commands'
 import { instrumentDescriptors } from '../devices'
 import { loadPreset } from '../preset-commands'
@@ -23,7 +24,7 @@ export type DropTarget =
 
 /** What the page offers the drop to read and run: the dispatcher and the project store, narrowed (and faked in the tests). */
 export interface DropHost {
-  run(command: Command): boolean
+  run(command: Command, options?: { quiet?: boolean }): boolean
   tracks(): readonly { id: string; track: Track }[]
   masterDevices(): Track['devices'] | undefined
   selectedTrack(): string | null
@@ -71,13 +72,13 @@ const idsOf = (chain: readonly ChainEntry[]): Set<string> => new Set(chain.map((
  */
 function grouped(host: DropHost, steps: ((host: DropHost) => boolean)[]): boolean {
   if (steps.length === 1) return steps[0]!(host)
-  const opened = host.run(beginGroup())
-  try {
-    for (const step of steps) if (!step(host)) return false
-    return true
-  } finally {
-    if (opened) host.run(endGroup())
-  }
+  return inGroup(
+    (command, options) => host.run(command, options),
+    () => {
+      for (const step of steps) if (!step(host)) return false
+      return true
+    },
+  )
 }
 
 /** Puts `item` on `target`. Never throws on a state it did not expect: it says it refused. */

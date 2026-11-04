@@ -94,6 +94,19 @@ describe('the Boost engine reads the helper', () => {
     expect(results).toEqual([{ type: 'agent.result', id: 7, result: { status: 'applied', output: { type: 'history.undo' } } }])
   })
 
+  it('tells that an agent left (#641)', async () => {
+    vi.stubGlobal('WebSocket', FakeSocket)
+    const onAgentLeft = vi.fn()
+    const events = { onStatus: vi.fn(), onFeedback: vi.fn(), onError: vi.fn(), onClosed: vi.fn(), onAgentLeft } satisfies EngineEvents
+    const connected = NativeEngine.connect('t', events)
+    const socket = FakeSocket.last
+    socket.onmessage!({ data: JSON.stringify({ type: 'hello', protocol: PROTOCOL_VERSION, sample_rate: 48000 }) })
+    await connected
+    socket.onmessage!({ data: JSON.stringify({ type: 'agent.left', agent: 'claude-code' }) })
+    expect(onAgentLeft).toHaveBeenCalledExactlyOnceWith('claude-code')
+    expect(events.onError).not.toHaveBeenCalled()
+  })
+
   it("aborts its agents' calls when the session ends: their questions are withdrawn (AG-4)", async () => {
     vi.stubGlobal('WebSocket', FakeSocket)
     const onAgentCall = vi.fn()

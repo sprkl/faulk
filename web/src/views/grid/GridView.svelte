@@ -20,7 +20,8 @@
   import { chordText } from '../../lib/shortcuts'
   import { createClipInCell, createScene, deleteScene, launchClip, launchScene, moveScene, renameScene, stopAll, stopTrack } from '../../lib/scene-commands'
   import { useStores } from '../../lib/stores'
-  import { beginGroup, endGroup, selectTrack } from '../../lib/track-commands'
+  import { inGroup } from '../../lib/history-group'
+  import { selectTrack } from '../../lib/track-commands'
   import { activeCells, activeSignature, cellClips, cellKey, clipCounts, clipHomes, sortedScenes, visibleRange } from './cells'
   import Glyph from './Glyph.svelte'
   import LinkMark from '../../lib/components/LinkMark.svelte'
@@ -216,12 +217,16 @@
    * quiet would read as a broken launch (the roll's Loop button turns it off).
    */
   function create(track: string, scene: string) {
-    run(beginGroup())
-    run(createClipInCell(track, scene))
-    const made = cellClips(project.view!.project).get(cellKey(track, scene))
-    const content = made?.clip.content
-    if (made && content && 'midi' in content) run(setClipLoop(made.id, { start: 0, end: content.midi.length }))
-    run(endGroup())
+    const made = inGroup(
+      (command, options) => dispatcher.run(command, options),
+      () => {
+        run(createClipInCell(track, scene))
+        const cell = cellClips(project.view!.project).get(cellKey(track, scene))
+        const content = cell?.clip.content
+        if (cell && content && 'midi' in content) run(setClipLoop(cell.id, { start: 0, end: content.midi.length }))
+        return cell
+      },
+    )
     if (made) open(track, made.id, true)
   }
 

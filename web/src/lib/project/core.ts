@@ -23,6 +23,8 @@ interface CoreExports {
   pw_live_routing(core: number): number
   pw_set_author(core: number, len: number): number
   pw_set_clock(core: number, nowMs: number): number
+  pw_agent_left(core: number, len: number): number
+  pw_agents_gone(core: number): number
   pw_export_job(core: number, len: number): number
   pw_stage(core: number, len: number): number
   pw_stage_stored(core: number, len: number): number
@@ -324,6 +326,23 @@ export class ProjectCore {
     const len = this.input(JSON.stringify(command))
     const report = this.output<RunReport>('run', this.exports.pw_run(this.live(), len))
     return { report, engine: this.engine() }
+  }
+
+  /**
+   * The agent `author` (`agent:<name>`) left (#641): the history group it left open is closed and its turn ends, so the
+   * user can undo at once. Whether anything changed; an author that is no agent's changes nothing.
+   */
+  agentLeft(author: string): boolean {
+    const code = this.exports.pw_agent_left(this.live(), this.input(author))
+    return code === 1
+  }
+
+  /**
+   * The page lost every link to the helper (#641): no agent can reach it nor be heard leaving, so the group an agent left
+   * open is closed and any agent's turn ends. Whether anything changed.
+   */
+  agentsGone(): boolean {
+    return this.exports.pw_agents_gone(this.live()) === 1
   }
 
   /** The undo history as the history panel shows it: the entries of both stacks, oldest first. */
