@@ -10,3 +10,6 @@ crates/audio-import/tests/fixtures/sine* binary
 
 # SV-1 reference folders: committed blobs are binary.
 crates/project/tests/reference/**/blobs/* binary
+
+# #667: the engine report fixture is binary (the page decodes it byte for byte).
+crates/engine-wasm/tests/fixtures/*.feedback binary

@@ -25,6 +25,10 @@ events-scenario = ["engine/testing"]
 # Exports the disk streaming scenario (`fk_stream_scenario`, AU-3), for the native/WASM
 # parity test only (`tests/stream_parity.rs` builds the module with it).
 stream-scenario = ["engine/testing"]
+# Exports the non-finite scenario (`fk_nonfinite_scenario`, #667: NaN samples turned to
+# silence and counted in the report), for the native/WASM parity test only
+# (`tests/nonfinite_parity.rs` builds the module with it).
+nonfinite-scenario = ["engine/testing"]
 
 [dependencies]
 engine = { path = "../engine" }
