@@ -107,6 +107,11 @@ export interface ExportResult {
    * down.
    */
   reductionDb: number
+  /**
+   * Frames the output protection silenced because a sample was not finite (a NaN or an infinity
+   * from a device or the mix; #402): 0 on a clean render. Not shown to the user; read by the checks.
+   */
+  silencedFrames: number
   /** An effect still rang after the longest tail: the file stops there. */
   tailCut: boolean
   /** How long the render took, in ms. */
@@ -391,6 +396,7 @@ export class AudioExport {
               // (a finite runaway) the log diverges, so cap the reported figure at a value past
               // which the exact number is meaningless to the user.
               reductionDb: message.reduction > 0 ? Math.min(-20 * Math.log10(Math.max(1 - message.reduction, 1e-9)), MAX_REPORTED_REDUCTION_DB) : 0,
+              silencedFrames: message.silenced,
               tailCut: message.tailCut,
               renderMs: this.deps.now() - started,
             }

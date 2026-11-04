@@ -41,4 +41,4 @@ One paragraph: the character in plain words, and what the profile was distilled 
 
 | File | Character |
 |---|---|
-| [morzak.md](morzak.md) | dark, warm, modal minor electronic music from hardware jams; low-end driven, short chord cycles, a chord that flips its third |
+| [morzak.md](morzak.md) | dark, warm, modal minor electronic music from hardware jams; low-end driven, short chord cycles under developing arpeggios and melodies, a chord that flips its third |
