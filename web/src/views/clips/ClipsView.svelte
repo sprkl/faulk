@@ -9,6 +9,7 @@
   import LinkMark from '../../lib/components/LinkMark.svelte'
   import { barStart } from '../../lib/arrangement-commands'
   import { CLIP_DRAG_TYPE, clipTrackType, freeScene, gridCommand, placeCommand, poolOf, type PoolClip } from '../../lib/clip-pool'
+  import { AUDIO_IMPORT_UI } from '../../lib/features'
   import { cancelAudioImport, chooseAudio, deleteClip } from '../../lib/clip-commands'
   import type { ImportFailure } from '../../lib/audio/import/audio-import.svelte'
   import type { MessageKey } from '../../lib/i18n'
@@ -91,7 +92,7 @@
 </script>
 
 <div class="clips" data-testid="clips-panel">
-  {#if track && trackId && track.kind === 'audio'}
+  {#if AUDIO_IMPORT_UI && track && trackId && track.kind === 'audio'}
     <div class="import" data-testid="audio-import">
       <button
         class="ghost"
