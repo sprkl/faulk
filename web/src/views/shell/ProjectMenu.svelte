@@ -181,7 +181,7 @@
 
 <style>
   /* The project name is the one thing of the bar that shrinks (#604): from its natural width, capped by the bar's `--fk-project-max`,
-     down to a minimum that still reads (about ten characters); the bar folds other things before it goes below. */
+     down to a minimum that still reads (about twelve characters, 70 px of name); the bar folds other things before it goes below. */
   .project {
     position: relative;
     display: inline-flex;
@@ -189,7 +189,7 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 2px;
-    min-width: 112px;
+    min-width: 124px;
     max-width: var(--fk-project-max, 160px);
   }
   .trigger {
