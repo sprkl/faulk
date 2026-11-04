@@ -1573,6 +1573,21 @@
     if (owner !== null && untrack(() => allEntries.some((e) => e.id === owner)) && !open.has(owner)) open = new Set([...open, owner])
   })
 
+  // The Clips panel placed clips and asks (once) that they be the selection and hold the keyboard focus (#624). The
+  // request is consumed once the placements are in `blocks`; ids the project does not have are dropped.
+  $effect(() => {
+    if (ui.placedRequest === null) return
+    const wanted = new Set(ui.placedRequest)
+    const found = blocks.filter((b) => wanted.has(b.id))
+    // Consumed at once, found or not: a request that matches nothing now must not select a placement that comes back later.
+    untrack(() => ui.takePlacedRequest())
+    if (found.length === 0) return
+    picked = new Set(found.map((b) => b.id))
+    const first = [...found].sort((x, y) => x.start - y.start)[0]!
+    ui.editClip(first.clip, first.id)
+    void focusItem(first.id)
+  })
+
   // --- the clips from the keyboard and for assistive technology (#471) ---------------------------------------------
   // The canvas has no children: a layer of named cells lies over it, one per clip in sight (and the focused one), in a
   // grid whose rows are the tracks. One cell is in the tab order (roving focus); the arrows move it (the selection

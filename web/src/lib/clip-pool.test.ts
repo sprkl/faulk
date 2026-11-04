@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Project } from './generated/protocol'
-import { freeScene, gridCommand, placeCommand, poolOf } from './clip-pool'
+import { freeScene, gridCommand, placeCommand, poolNames, poolOf } from './clip-pool'
 
 const midi = (name: string, slot: string | null = null) => ({
   name,
@@ -53,6 +53,13 @@ describe('the clip pool (#473)', () => {
     expect(gridCommand(arr!, 's9', true)).toEqual({ type: 'clip.move', clip: 'arr', slot: 's9', track: null })
     // A clip in the grid already is copied (a clip sits in one slot at most).
     expect(gridCommand(grid!, 's9', true)).toEqual({ type: 'clip.duplicate', clip: 'grid', slot: 's9', track: null })
+  })
+
+  it('tells two clips of one name apart by a number (#624)', () => {
+    const twins = {
+      tracks: { t: { clips: { b: midi('Riff'), a: midi('Riff'), c: midi('Bass'), d: midi('') }, placements: {} } },
+    } as unknown as Pick<Project, 'tracks'>
+    expect(poolNames(poolOf(twins, 't'), 'Audio clip')).toEqual({ c: 'Bass', a: 'Riff (1)', b: 'Riff (2)', d: 'Audio clip' })
   })
 
   it('finds the first free slot of the track in scene order', () => {
