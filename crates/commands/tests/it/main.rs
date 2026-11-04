@@ -21,6 +21,7 @@ mod arrangement_tracks;
 mod audio_clip;
 mod audio_engine;
 mod audio_import;
+mod audio_placements;
 mod automation;
 mod clip;
 mod clip_edit;

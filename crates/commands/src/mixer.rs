@@ -119,7 +119,9 @@ domain! {
     /// power mean of both. `playing` says whether the transport ran: when it did not (or
     /// the audio is not started, or the engine has stopped reporting), every level is
     /// `null`. Tracks come in display order, after their fader and mute. To measure a
-    /// stretch without playing it, use `project.analyze_render`. A query: changes nothing
+    /// stretch without playing it, use `project.analyze_render`. `silenced_frames` above 0
+    /// says the output protection silenced an invalid (non-finite) signal since the page's
+    /// audio started, which the levels cannot show. A query: changes nothing
     /// and never enters the history.
     "mixer.levels" (kind = "query", undo = "none", destructive = false)
     Levels {} => {
@@ -129,6 +131,12 @@ domain! {
         tracks: Vec<TrackLevel>,
         /// The level of the output, after the master and before the output protection.
         master: Level,
+        /// Frames the output protection turned to silence because a sample was not a number
+        /// (NaN or infinite), since the engine that plays started for this page (in Boost, since
+        /// the page's session with the helper began): above 0, a device produced an
+        /// invalid signal, which the levels above do not show. Counted whether or not the
+        /// transport runs.
+        silenced_frames: u64,
     };
 }
 
@@ -141,7 +149,10 @@ pub fn apply(
     match command {
         Command::Levels {} => {
             // Nothing was heard while the transport did not run: the contract is `null` levels.
-            let stage = ctx.levels.take().filter(|s| s.playing).unwrap_or_default();
+            let staged = ctx.levels.take();
+            // The protection's count holds whether or not the transport ran (#667).
+            let silenced_frames = staged.as_ref().map_or(0, |s| s.silenced_frames);
+            let stage = staged.filter(|s| s.playing).unwrap_or_default();
             let tracks = track_levels(
                 &state.project,
                 |id| ctx.engine.tracks.get(id),
@@ -151,6 +162,7 @@ pub fn apply(
                 playing: stage.playing,
                 tracks,
                 master: level_of(&stage.master),
+                silenced_frames,
             }))
         }
         Command::SetVolume { track, gain_db } => {

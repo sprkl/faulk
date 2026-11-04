@@ -527,7 +527,7 @@ fn audio_edit_examples(f: &ClipFx) -> Vec<(Command, State)> {
             c(clip::Command::AudioSetRange {
                 clip: clip(),
                 start: Frame::new(0),
-                frames: Frame::new(30_000),
+                frames: Frame::new(40_000),
                 placements: None,
             }),
             placed,
