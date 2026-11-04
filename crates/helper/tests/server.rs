@@ -1590,7 +1590,13 @@ async fn the_parity_check_fails_on_a_command_without_a_tool_or_any_other_gap() {
     let mut stray = served.clone();
     stray.push(serde_json::json!({"name": "zz_stray"}));
     stray.push(served[0].clone());
-    assert_eq!(parity_gaps(&catalog, &stray).len(), 2);
+    assert_eq!(
+        parity_gaps(&catalog, &stray),
+        [
+            "tool zz_stray has no command".to_string(),
+            format!("tool {} listed twice", served[0]["name"].as_str().unwrap()),
+        ]
+    );
 
     // Each field that may drift.
     for (field, value) in [
