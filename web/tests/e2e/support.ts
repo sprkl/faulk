@@ -38,7 +38,8 @@ export async function engineUp(page: Page, mode?: string) {
 
 /**
  * Skips the test when the page has no dev hooks (`window.__faulkRun`, `__faulkView`, ...): they exist on the dev server only, so
- * the `preview` project (the production build) has none. Call it on the opened page, before the first use of a hook; the static
+ * the `preview` project (the production build) has none. Call it once the app has booted (after `engineUp`: before that the hooks
+ * do not exist yet and the dev project would skip too), before the first use of a hook; the static
  * guard `scripts/e2e-dev-hooks.test.ts` (#626) fails a test that uses a hook without this or an equivalent skip.
  */
 export async function skipWithoutDevHooks(page: Page) {

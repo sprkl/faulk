@@ -166,7 +166,7 @@ export function checkSpec(file: string, source: string, hooks: string[]): DevHoo
 
   // Test bodies: from `test(` (or a setup hook) to the line that closes it at the same indentation.
   const spans: Span[] = []
-  for (const m of src.matchAll(/^([ \t]*)(test(?:\.(?:only|fixme|fail|slow))?|test\.(?:beforeEach|beforeAll|afterEach|afterAll))\s*\(\s*(['"`])?/gm)) {
+  for (const m of src.matchAll(/^([ \t]*)(test(?:\.only)?\s*\(\s*(?=['"`])|test\.(?:beforeEach|beforeAll|afterEach|afterAll)\s*\()\s*(['"`])?/gm)) {
     const setup = /before|after/.test(m[2])
     const rest = src.slice(m.index! + m[0].length)
     const title = m[3] ? rest.slice(0, rest.indexOf(m[3])) : m[2]
