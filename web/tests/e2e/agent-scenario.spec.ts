@@ -119,7 +119,13 @@ class Mcp {
   static async connect(): Promise<Mcp> {
     const bridge = spawn(exe, ['mcp', '--port', String(HELPER_PORT)], { env: helperEnv(), stdio: ['pipe', 'pipe', 'inherit'] })
     const mcp = new Mcp(bridge)
-    await mcp.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: CLIENT, version: '1' } })
+    try {
+      await mcp.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: CLIENT, version: '1' } })
+    } catch (error) {
+      // The test's own `finally` never gets this client: stop the bridge here.
+      mcp.close()
+      throw error
+    }
     mcp.send({ jsonrpc: '2.0', method: 'notifications/initialized' })
     return mcp
   }
