@@ -552,9 +552,16 @@ fn the_parity_scenario_plays_every_part_without_an_underrun() {
     assert!(part(250, 100) > 20_000);
     assert!(part(350, 150) > 30_000);
     assert!(part(500, 250) > 60_000);
-    assert_eq!(frames, 770 * BLOCK);
-    // The stop: silent at the end.
-    assert!(out[2 * 760 * BLOCK..2 * frames].iter().all(|s| *s == 0.0));
+    assert_eq!(frames, 1_070 * BLOCK);
+    // The stop: silent at its end.
+    assert!(
+        out[2 * 760 * BLOCK..2 * 770 * BLOCK]
+            .iter()
+            .all(|s| *s == 0.0)
+    );
+    // The resampled part (an engine at 11 025 Hz): both clips sound.
+    assert!(part(770, 100) > 20_000);
+    assert!(part(870, 200) > 40_000);
 }
 
 #[test]

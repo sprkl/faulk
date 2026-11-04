@@ -1577,8 +1577,9 @@ fn render_track(
     }
     // An audio clip played once from the grid ended with its last frame (AU-4): the grid's
     // player lets it go.
-    if let Some((clip, anchor)) = audio.take_ended()
-        && let Some((p, env)) = player.as_mut()
+    // Taken only when the player is there: otherwise it waits for the next block that runs it.
+    if let Some((p, env)) = player.as_mut()
+        && let Some((clip, anchor)) = audio.take_ended()
     {
         p.audio_ended(env.clips, slot, clip, anchor);
     }

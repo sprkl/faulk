@@ -512,12 +512,20 @@ pub fn player_scenario() -> Vec<f32> {
         track: TrackSlot(0),
     }]);
     take(&mut rig, 20);
-    all.push(
-        rig.host
-            .engine()
-            .disk_stats()
-            .underruns
-            .load(core::sync::atomic::Ordering::Relaxed) as f32,
-    );
+    let underruns = rig
+        .host
+        .engine()
+        .disk_stats()
+        .underruns
+        .load(core::sync::atomic::Ordering::Relaxed);
+    // Resampled: the same sources in an engine at 11 025 Hz, clip 1 (a loop from memory)
+    // then clip 0 through its preload and its ring.
+    let mut rig = Rig::new(11_025, MemDisk::standard(), &player_setup());
+    rig.render(200);
+    rig.send(&[ControlMsg::Play { from: Tick(0) }, launch(1)]);
+    take(&mut rig, 100);
+    rig.send(&[launch(0)]);
+    take(&mut rig, 200);
+    all.push(underruns as f32);
     all
 }

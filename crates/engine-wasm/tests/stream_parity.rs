@@ -4,7 +4,8 @@
 //! each waited and the underruns) run natively and through the real `.wasm` build, run by an
 //! interpreter, gives the same samples, bit for bit (the planner converts integers exactly).
 //! The same for the audio clip player's scenario (AU-4, `player_scenario`: grid launches, a
-//! placement entered by a seek, loops from memory and through the ring, a stop): its
+//! placement entered by a seek, loops from memory and through the ring, a stop, then the
+//! same clips resampled in an engine at 11 025 Hz): its
 //! resampler and fades use integer phases and `f32` products only, so the builds agree to
 //! the bit.
 
