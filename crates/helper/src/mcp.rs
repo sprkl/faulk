@@ -162,11 +162,15 @@ pub fn tool_result(result: Result<AgentResult, RelayError>) -> CallToolResult {
     }
 }
 
+/// What the server tells an agent. The turn's 30 s are `commands::history::TURN_GAP_MS`
+/// (tested).
 const INSTRUCTIONS: &str = "Faulk's commands, one tool per command. Each call runs in the Faulk \
 page open in the browser and paired with this helper (whether the browser or the helper plays \
 the sound), exactly as if the user did it: it appears in the page's history and can be undone \
-there. Without a paired page open every tool answers the error `page.absent`: ask the user to \
-open Faulk in the browser.";
+there. Your consecutive edits are one entry of that history, your turn, which one undo undoes \
+whole; the turn ends when the user or another agent edits, after an undo or a redo, and after \
+30 s without an edit of yours. Without a paired page open every tool answers the error \
+`page.absent`: ask the user to open Faulk in the browser.";
 
 /// The MCP handler of one MCP session: lists the tools, relays their calls to the page.
 #[derive(Clone)]
@@ -350,6 +354,12 @@ mod tests {
             "the command's own name is no tool"
         );
         assert_eq!(command_of("nope"), None);
+    }
+
+    #[test]
+    fn the_instructions_say_how_long_a_turn_waits() {
+        let seconds = commands::history::TURN_GAP_MS / 1000;
+        assert!(INSTRUCTIONS.contains(&format!("after {seconds} s without an edit")));
     }
 
     #[test]

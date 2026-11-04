@@ -4,7 +4,8 @@
    * who did it (you, or an agent) and when; the entries undone come first, dimmed, since a redo
    * brings them back. Each label names the objects (#473: "Mute Lead"). The settings changed outside
    * the undo history (the loop switch, the metronome) sit among the entries in the order they
-   * happened, marked as not undoable. Undo and redo sit at its head. It reads the entries from the project core
+   * happened, marked as not undoable. An agent's turn (AG-3: its consecutive edits, one entry that one undo undoes)
+   * says how many edits it holds. Undo and redo sit at its head. It reads the entries from the project core
    * when the history changes, and only while it is shown.
    */
   import type { ActivityView, HistoryEntryView } from '../../lib/generated/protocol'
@@ -40,6 +41,12 @@
     return agent === null ? t('history.you') : t('history.agent', { name: agent })
   }
 
+  /** An agent's entry with a group is one of its turns; one of several edits says how many. */
+  function turnEdits(entry: HistoryEntryView | ActivityView): number | null {
+    if (!('edits' in entry) || entry.group == null || !entry.author.startsWith('agent:')) return null
+    return entry.edits > 1 ? entry.edits : null
+  }
+
   const clock = $derived(new Intl.DateTimeFormat(ui.lang, { hour: '2-digit', minute: '2-digit', second: '2-digit' }))
   const time = (at: number) => (at > 0 ? clock.format(at) : '')
 </script>
@@ -58,6 +65,7 @@
   {:else}
     <ol class="list" aria-label={t('history.label')}>
       {#each entries as { key, entry, undone, setting } (key)}
+        {@const turn = turnEdits(entry)}
         <li
           class="row"
           class:undone
@@ -66,9 +74,11 @@
           data-name={entry.name}
           data-author={entry.author}
           data-undone={undone}
+          data-edits={turn ?? undefined}
         >
           <span class="what">{label(entry, t)}</span>
           {#if undone}<span class="tag">{t('history.undone')}</span>{:else if setting}<span class="tag">{t('history.notUndoable')}</span>{/if}
+          {#if turn !== null}<span class="tag turn" data-testid="history-turn">{t('history.turn', { count: turn })}</span>{/if}
           <span class="who" class:agent={entry.author !== 'user'}>{author(entry)}</span>
           <time class="when" datetime={entry.at > 0 ? new Date(entry.at).toISOString() : undefined}>{time(entry.at)}</time>
         </li>
@@ -105,7 +115,7 @@
   }
   .row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    grid-template-columns: minmax(0, 1fr) auto auto auto auto;
     align-items: baseline;
     gap: var(--fk-space-3);
     padding: var(--fk-space-1) var(--fk-space-3);
@@ -122,7 +132,8 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .setting .tag {
+  .setting .tag,
+  .tag.turn {
     color: var(--fk-text-muted);
   }
   .tag,

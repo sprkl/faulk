@@ -123,8 +123,11 @@ pub struct HistoryEntryView {
     pub others: u32,
     /// Who ran it.
     pub author: crate::Author,
-    /// The history group it belongs to, if any.
+    /// The history group it belongs to, if any: an agent's entry with a group is a turn
+    /// of that agent (AG-3).
     pub group: Option<crate::GroupId>,
+    /// How many commands it holds: "3 edits in one turn" (AG-3).
+    pub edits: u32,
 }
 
 /// One file of the user's preset library, as the page hands it to the core (`pw_stage_library`,
