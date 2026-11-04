@@ -41,6 +41,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       },
       { label: 'shortcut.save', chords: [['Mod', 'S']] },
       { label: 'shortcut.saveAs', chords: [['Mod', 'Shift', 'S']] },
+      { label: 'shortcut.renameProject', chords: [['F2']] },
       {
         label: 'shortcut.views',
         chords: [

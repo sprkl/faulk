@@ -496,7 +496,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'views/shell/BottomPanel.svelte': ['ArrowDown', 'ArrowUp', 'End', 'Enter', 'Home'],
       'views/shell/EngineDialog.svelte': ['Enter'], // the recording offset's field (#470)
       'views/shell/ExportDialog.svelte': ['Escape'],
-      'views/shell/ProjectMenu.svelte': ['Escape'],
+      'views/shell/ProjectMenu.svelte': ['Enter', 'Enter', 'Escape', 'Escape', 'F2'], // the name's field (#627): Enter and Escape; F2 on the name
       'views/shell/Shell.svelte': [],
       'views/shell/StorageBanners.svelte': ['Escape'],
       'views/tracks/TrackInspector.svelte': ['Enter', 'Enter', 'Escape', 'Escape', 'F2'],
