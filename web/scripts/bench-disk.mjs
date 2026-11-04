@@ -1,5 +1,4 @@
 // Usage, from web/: node scripts/bench-disk.mjs "$(pwd)/package.json" <scratch dir> (writes a 256 MiB file there; serves on port 5421).
-// @ts-nocheck: a measurement run by hand; its page globals live in a string of HTML.
 // Ranged-read throughput in Chromium (AU-3): 256 KiB `File.slice().arrayBuffer()` reads, sequential and
 // 8 in flight (the planner's limit), from an OPFS file and from a disk-backed File (input type=file).
 import { createServer } from 'node:http'
@@ -48,12 +47,12 @@ const p = await browser.newPage()
 await p.goto('http://localhost:5421/')
 await p.setInputFiles('#f', path)
 const results = []
-for (let r = 0; r < 3; r++) results.push(await p.evaluate(() => window.disk()))
+for (let r = 0; r < 3; r++) results.push(await p.evaluate(() => /** @type {any} */ (window).disk()))
 results.push(
   await p.evaluate(async () => {
     // OPFS file of the same size, written in the page.
     const bytes = new Uint8Array(256 * 1024 * 1024)
-    return window.opfs(bytes.buffer)
+    return /** @type {any} */ (window).opfs(bytes.buffer)
   }),
 )
 for (let r = 0; r < 2; r++)
