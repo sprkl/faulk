@@ -70,6 +70,7 @@ async function simulate(page: Page, first: string, options: { browserStorage: bo
     ([folder, browserStorage, lang]) => {
       const w = window as unknown as Faulk & {
         __allow: boolean
+        __saving?: boolean
         showDirectoryPicker: () => Promise<FileSystemDirectoryHandle>
         __faulkNoBrowserStorage?: boolean
       }
@@ -78,7 +79,15 @@ async function simulate(page: Page, first: string, options: { browserStorage: bo
       w.__allow = true
       if (!browserStorage) w.__faulkNoBrowserStorage = true
       if (lang) localStorage.setItem('faulk.lang', lang as string)
-      w.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle(w.__pick, { create: true })
+      w.showDirectoryPicker = async () => {
+        const root = await navigator.storage.getDirectory()
+        // Save as picks the folder that will hold the project's folder (#627): the root, where the page makes `__pick`.
+        if (w.__saving) {
+          w.__saving = false
+          return root
+        }
+        return root.getDirectoryHandle(w.__pick, { create: true })
+      }
       Object.defineProperty(FileSystemHandle.prototype, 'queryPermission', { value: async () => w.__perm, configurable: true })
       Object.defineProperty(FileSystemHandle.prototype, 'requestPermission', {
         value: async () => {
@@ -136,6 +145,11 @@ const editOutside = (page: Page, folder: string, name: string) =>
 const saveAs = async (page: Page) => {
   await page.getByTestId('project-menu').click()
   await page.getByTestId('menu-save-as').click()
+  // Save as asks the project's name first (#627), then the folder: the check names the project after the folder it simulates,
+  // and the picker hands back the root, where the page makes that folder.
+  await page.evaluate(() => ((window as unknown as { __saving: boolean }).__saving = true))
+  await page.getByTestId('save-as-field').fill(await page.evaluate(() => (window as unknown as { __pick: string }).__pick))
+  await page.getByTestId('save-as-submit').click()
 }
 
 test.describe('the projects the page keeps, by command', () => {
@@ -205,14 +219,15 @@ test.describe('the projects the page keeps, by command', () => {
     const set = (key: '__pick', value: string) => page.evaluate(([k, v]) => ((window as unknown as Record<string, string>)[k!] = v!), [key, value])
     const name = () => page.getByTestId('project-name')
 
-    await run(page, { type: 'project.rename', name: 'Alpha' })
+    // Save as names the project after its folder (#627): the names below are the folders'.
+    await run(page, { type: 'project.rename', name: 'cmd-a' })
     await saveAs(page)
     await expect(state(page)).toHaveText(/^Saved at/)
     await page.getByTestId('project-menu').click()
     await page.getByTestId('menu-new').click()
     // A new project is named after the moment it started (#473).
     await expect(name()).toHaveText(/^Sketch /)
-    await run(page, { type: 'project.rename', name: 'Beta' })
+    await run(page, { type: 'project.rename', name: 'cmd-b' })
     await set('__pick', 'cmd-b')
     await saveAs(page)
     await expect(state(page)).toHaveText(/^Saved at/)
@@ -223,7 +238,7 @@ test.describe('the projects the page keeps, by command', () => {
     // With no click behind it, the folder chooser is not opened: a notice says why, and nothing changes.
     await runWithoutClick(page, { type: 'project.open_folder' })
     await expect(notice(page)).toContainText('only after a click')
-    await expect(name()).toHaveText('Beta')
+    await expect(name()).toHaveText('cmd-b')
     await page.getByTestId('storage-notice').getByRole('button').click()
     // A name the page does not know is refused.
     await run(page, { type: 'project.open_recent', id: 'not-a-folder' })
@@ -233,11 +248,11 @@ test.describe('the projects the page keeps, by command', () => {
     // A click on the menu sends the command: the recent folder opens, then the chosen one.
     await page.getByTestId('project-menu').click()
     await page.getByTestId('menu-recent').filter({ hasText: 'cmd-a' }).click()
-    await expect(name()).toHaveText('Alpha')
+    await expect(name()).toHaveText('cmd-a')
     await set('__pick', 'cmd-b')
     await page.getByTestId('project-menu').click()
     await page.getByTestId('menu-open').click()
-    await expect(name()).toHaveText('Beta')
+    await expect(name()).toHaveText('cmd-b')
     expect(errors).toEqual([])
   })
 })

@@ -28,8 +28,17 @@ async function start(page: Page) {
 /** The page's `showDirectoryPicker` hands back the OPFS directory `name`. */
 async function simulatePicker(page: Page, name: string) {
   await page.addInitScript((folder) => {
-    ;(window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker = async () =>
-      (await navigator.storage.getDirectory()).getDirectoryHandle(folder, { create: true })
+    const w = window as unknown as { __pick: string; __saving?: boolean; showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+    w.__pick = folder
+    w.showDirectoryPicker = async () => {
+      const root = await navigator.storage.getDirectory()
+      // Save as picks the folder that will hold the project's folder (#627): the root, where the page makes `__pick`.
+      if (w.__saving) {
+        w.__saving = false
+        return root
+      }
+      return root.getDirectoryHandle(folder, { create: true })
+    }
   }, name)
 }
 
@@ -88,9 +97,18 @@ async function leaveAsks(page: Page): Promise<boolean> {
   return dialog
 }
 
-const saveAs = async (page: Page) => {
+/** Save as, naming the project after the simulated folder (or, with `keepName`, leaving its name); gives the folder the page makes. */
+const saveAs = async (page: Page, keepName = false) => {
   await page.getByTestId('project-menu').click()
   await page.getByTestId('menu-save-as').click()
+  // Save as asks the project's name first (#627), then the folder: the check names the project after the folder it simulates,
+  // and the picker hands back the root, where the page makes that folder.
+  await page.evaluate(() => ((window as unknown as { __saving: boolean }).__saving = true))
+  const field = page.getByTestId('save-as-field')
+  if (!keepName) await field.fill(await page.evaluate(() => (window as unknown as { __pick: string }).__pick))
+  const folder = (await field.inputValue()).replace(/[\\/:*?"<>|]/g, '-').trim()
+  await page.getByTestId('save-as-submit').click()
+  return folder
 }
 
 test.describe('a draft before a folder is chosen', () => {
@@ -142,10 +160,11 @@ test.describe('a draft before a folder is chosen', () => {
     const draft = await readTree(page, ['faulk', 'browser', dir!])
     expect(Object.keys(draft)).toContain('project.json')
 
-    await saveAs(page)
+    // The name the draft has stays: the folder is named after it.
+    const folder = await saveAs(page, true)
     await expect(state(page)).toHaveText(/^Saved at/)
     // The folder holds the very project the draft held, and the draft is gone.
-    expect(await readTree(page, ['song-moved'])).toEqual(draft)
+    expect(await readTree(page, [folder])).toEqual(draft)
     expect(await browserDirs(page)).toEqual([])
     await page.reload()
     await expect(tracks(page)).toHaveCount(2)
@@ -251,9 +270,9 @@ test.describe('a browser with no folders', () => {
     // The imported project is in the browser's storage, with the identity of the pack.
     const [importedDir] = await browserDirs(second)
     expect(await readTree(second, ['faulk', 'browser', importedDir!])).toEqual(original)
-    await saveAs(second)
+    const folder = await saveAs(second, true)
     await expect(state(second)).toHaveText(/^Saved at/)
-    expect(await readTree(second, ['song-imported'])).toEqual(original)
+    expect(await readTree(second, [folder])).toEqual(original)
     expect(await browserDirs(second)).toEqual([])
     await other.close()
     expect(secondErrors).toEqual([])
