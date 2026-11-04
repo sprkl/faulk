@@ -84,6 +84,8 @@ describe.each(Object.entries(THEMES))('the %s palette (#687)', (_, t) => {
     for (const hue of TRACK_COLORS) expect(ratio(v('--fk-on-signal'), hue), hue).toBeGreaterThanOrEqual(4.5)
   })
 
+  // Solo is not among them: its pressed state is the ink S and its underline on the fill, and the top bar's
+  // waiting dot (`--fk-solo`) has an ink ring; the light yellow itself is pale on paper by design.
   it('draws meters, the record glyph and the focus ring at 3:1 on the background and the surface', () => {
     for (const fg of ['--fk-play', '--fk-mute', '--fk-rec', '--fk-accent-fg'])
       for (const bg of ['--fk-bg', '--fk-surface']) expect(ratio(v(fg), v(bg)), `${fg} on ${bg}`).toBeGreaterThanOrEqual(3)

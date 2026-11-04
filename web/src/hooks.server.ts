@@ -11,6 +11,11 @@ export const handle: Handle = ({ event, resolve }) => {
   const lang = event.params.lang === 'fr' ? 'fr' : 'en'
   const head = app ? `<script>${themeScript()}</script>` : ''
   return resolve(event, {
-    transformPageChunk: ({ html }) => html.replace('%faulk.theme%', theme).replace('%faulk.lang%', lang).replace('%faulk.head%', head),
+    transformPageChunk: ({ html }) =>
+      html
+        .replace('%faulk.theme%', theme)
+        .replace('%faulk.lang%', lang)
+        // A function: the script is inserted as it is, never read as a replacement pattern (`$&`).
+        .replace('%faulk.head%', () => head),
   })
 }

@@ -338,6 +338,8 @@
     height: 7px;
     border-radius: 50%;
     background: var(--fk-solo);
+    /* The light theme's yellow is pale on paper: an ink ring keeps the dot in sight (#687). */
+    box-shadow: 0 0 0 1px var(--fk-on-signal);
   }
   .help {
     flex: none;

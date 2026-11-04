@@ -166,6 +166,11 @@ test('the main screens in both themes', async ({ page }) => {
       await expect(page.getByTestId('export-dialog')).toBeVisible()
       await shot('export-dialog')
       await page.keyboard.press('Escape')
+      await page.getByTestId('nav-arrangement').click()
+      await page.keyboard.press('Shift+Slash')
+      await expect(page.getByRole('dialog')).toBeVisible()
+      await shot('shortcuts-dialog')
+      await page.keyboard.press('Escape')
     }
     await choose(page, 'dark')
   }

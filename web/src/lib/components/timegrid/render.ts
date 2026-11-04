@@ -73,7 +73,10 @@ export function readColors(element: Element): Colors {
 }
 
 const HEX = /^#([0-9a-f]{6})$/i
+// The mixes of the current theme, by hue: emptied when the theme's text colour or shade changes, so a frame
+// builds no key and a switch serves no stale mix.
 const inks = new Map<string, string>()
+let inksOf = { text: '', shade: 0 }
 
 /**
  * A track hue as a line or a note is drawn on the background (#687): the hue mixed with the theme's text colour by
@@ -83,8 +86,11 @@ const inks = new Map<string, string>()
 export function trackInk(color: string, colors: Pick<Colors, 'text' | 'trackShade'>): string {
   const shade = colors.trackShade
   if (!(shade > 0)) return color
-  const key = `${color}|${colors.text}|${shade}`
-  const known = inks.get(key)
+  if (inksOf.text !== colors.text || inksOf.shade !== shade) {
+    inks.clear()
+    inksOf = { text: colors.text, shade }
+  }
+  const known = inks.get(color)
   if (known) return known
   const a = HEX.exec(color)
   const b = HEX.exec(colors.text)
@@ -97,7 +103,7 @@ export function trackInk(color: string, colors: Pick<Colors, 'text' | 'trackShad
   }
   // A track's colour can be any `#rrggbb` (`track.set_color`): the cache never grows past a few hundred.
   if (inks.size >= 256) inks.clear()
-  inks.set(key, out)
+  inks.set(color, out)
   return out
 }
 

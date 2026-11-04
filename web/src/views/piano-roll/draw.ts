@@ -340,7 +340,7 @@ export function drawLane(
     ctx.fillRect(x, height - h, 3, h)
   }
   const hasHidden = hidden.size > 0
-  const ink = trackInk(trackColor || colors.accent, colors)
+  const ink = trackInk(trackColor || colors.barLine, colors)
   ctx.globalAlpha = 0.85
   for (const n of notes) {
     const x = tickToX(n.start, view)

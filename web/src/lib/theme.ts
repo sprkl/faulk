@@ -46,7 +46,7 @@ export function themeScript(): string {
   return (
     `(function(){var s=null,l=false;try{s=localStorage.getItem(${JSON.stringify(THEME_KEY)})}catch(e){}` +
     `try{l=matchMedia(${JSON.stringify(LIGHT_QUERY)}).matches}catch(e){}` +
-    `var pick=${resolveTheme.toString()};` +
-    `document.documentElement.setAttribute('data-theme',pick(s,l))})()`
+    `var t='dark';try{var pick=${resolveTheme.toString()};t=pick(s,l)}catch(e){}` +
+    `document.documentElement.setAttribute('data-theme',t)})()`
   )
 }
