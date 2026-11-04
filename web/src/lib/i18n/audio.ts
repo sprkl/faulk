@@ -11,6 +11,7 @@ export const audio = defineFeature(
     'audio.gainHint': 'Clip gain in dB, from −96 to +6. Leave it empty for silence.',
     'audio.gainOf': 'Gain of {name}, in dB',
     'audio.importingHere': 'Importing into {track}: each file is placed where the last one ends.',
+    'audio.noAudioFile': 'No audio file in this drop: nothing was imported.',
     'audio.importingCell': 'Importing into {track}: each file goes into the next free slot down.',
   },
   {
@@ -21,6 +22,7 @@ export const audio = defineFeature(
     'audio.gainHint': 'Gain du clip en dB, de −96 à +6. Laissez vide pour le silence.',
     'audio.gainOf': 'Gain de {name}, en dB',
     'audio.importingHere': 'Import dans {track} : chaque fichier se place là où finit le précédent.',
+    'audio.noAudioFile': 'Aucun fichier audio dans ce dépôt : rien n’a été importé.',
     'audio.importingCell': 'Import dans {track} : chaque fichier va dans la case libre suivante, vers le bas.',
   },
 )

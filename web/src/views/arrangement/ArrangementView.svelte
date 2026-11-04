@@ -1545,7 +1545,7 @@
    */
   function dropFiles(event: DragEvent, target: { id: string; row: number }) {
     const files = Array.from(event.dataTransfer?.files ?? []).filter(isAudioFile)
-    if (files.length === 0) return announce(t('browser.audioNone'))
+    if (files.length === 0) return announce(t('audio.noAudioFile'))
     const { x } = local(event)
     const start = Math.max(0, snapTick(xToTick(x, shown), stepOf(event)))
     select(target.id)
@@ -1554,7 +1554,8 @@
         run,
         group,
         clipsOf: (track) => Object.keys(project.view?.project.tracks[track]?.clips ?? {}),
-        free: (from, to) => isFree(blocks, target.row, from, to),
+        // Read when each file's clip is made, by the track (its row may have moved meanwhile).
+        free: (from, to) => from >= 0 && !blocks.some((b) => b.track === target.id && b.start < to && from < b.end),
         ticksOf: (media) => framesToTicks(media.frames, media.sample_rate, project.view?.project.tempo[0]?.bpm ?? 120),
       },
       target.id,
