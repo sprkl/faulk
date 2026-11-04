@@ -1441,7 +1441,7 @@ async fn mcp_refuses_another_host_any_origin_and_any_other_token_before_the_mcp_
         );
     }
     // A session the MCP server does not know (the helper restarted): 404, which the stdio bridge
-    // turns into "restart the agent".
+    // opens again (#657), and answers "restart the agent" only if it cannot.
     let body = r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#;
     let unknown = format!(
         "POST /mcp HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\n{bearer}Mcp-Session-Id: no-such-session\r\nMCP-Protocol-Version: 2025-06-18\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -2381,6 +2381,34 @@ async fn a_session_that_stays_idle_counts_as_gone() {
     assert_eq!(next(&mut page).await, left("test-agent"));
     drop(feed);
     running.await.unwrap();
+}
+
+#[tokio::test]
+async fn a_bridge_whose_session_expired_opens_it_again_and_the_agent_comes_back() {
+    // The session ended by its idle timeout (what a helper restart looks like to the bridge: a
+    // session it does not know): the agent's next call succeeds with no action of the agent
+    // (#657). The page was told the agent left when the session ended; the new session counts
+    // as the same agent coming back, and it leaves once, when the bridge's input ends.
+    let h = start_with_idle(Duration::from_millis(300)).await;
+    let (mut page, _) = open_session(&h).await;
+    let (feed, running) = live_bridge(h.port, "test-agent");
+    agent_here(&h, "test-agent", true).await;
+    assert_eq!(next(&mut page).await, left("test-agent"));
+    assert!(!h.shared.agent_here("test-agent"));
+    feed.line(tool_call(2, "history_undo", serde_json::json!({})));
+    let (id, command) = next_call(&mut page).await;
+    assert_eq!(command, serde_json::json!({"type":"history.undo"}));
+    applied(&mut page, id).await;
+    agent_here(&h, "test-agent", true).await;
+    drop(feed);
+    let answers = running.await.unwrap();
+    let call = answer(&answers, 2);
+    assert_eq!(call["result"]["isError"], false, "{call}");
+    assert!(
+        answers.iter().all(|a| a.get("error").is_none()),
+        "{answers:?}"
+    );
+    assert_eq!(next(&mut page).await, left("test-agent"));
 }
 
 #[tokio::test]
