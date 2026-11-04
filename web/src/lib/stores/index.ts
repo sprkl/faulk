@@ -11,6 +11,7 @@ import { AudioImport, browserAudioPicker, browserCanAsk } from '../audio/import/
 import { PeaksCache } from '../audio/peaks/peaks.svelte'
 import { AudioExport, type ExportDeps } from '../export/audio-export.svelte'
 import { browserExportDeps } from '../export/browser'
+import { RenderAnalyzer } from '../agents/levels'
 import { browserDeps } from '../storage/browser'
 import { ProjectStorage, type StorageDeps } from '../storage/storage.svelte'
 import { AutomatedValues } from './automated.svelte'
@@ -68,6 +69,7 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
   dispatcher.storage = storage
   const audioExport = new AudioExport(dispatcher.exportHost, exportDeps)
   dispatcher.audioExport = audioExport
+  dispatcher.analyzer = new RenderAnalyzer(exportDeps)
   const audioImport = new AudioImport({
     canAsk: browserCanAsk,
     pick: browserAudioPicker,

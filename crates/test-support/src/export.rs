@@ -35,6 +35,11 @@ pub struct Exported {
     pub tail_cut: bool,
     /// Times the engine was full while the setup went in.
     pub busy: u32,
+    /// What the content measured (#665), four values per strip as `fk_export_levels` lays them
+    /// out: peak left, peak right, RMS left, RMS right, the tracks by slot then the output.
+    pub levels: Vec<f32>,
+    /// The frames the content measured.
+    pub measured_frames: u64,
     /// The media of the audio sources that could not be read (#647).
     pub missing: Vec<[u8; 32]>,
     /// Blocks in which an audio clip's voice lacked frames (#647).
@@ -90,6 +95,14 @@ pub fn export_native_with_disk(state: &State, settings: ExportSettings, disk: &D
         silenced: offline.silenced(),
         tail_cut: offline.tail_cut(),
         busy: offline.busy(),
+        levels: offline.measure().map_or_else(Vec::new, |m| {
+            m.tracks
+                .iter()
+                .chain([&m.master])
+                .flat_map(|l| [l.peak_l, l.peak_r, l.rms_l, l.rms_r])
+                .collect()
+        }),
+        measured_frames: offline.measure().map_or(0, |m| m.frames),
         missing: offline.missing().to_vec(),
         underruns: offline.underruns(),
         disk_waits: offline.disk_waits(),
@@ -132,6 +145,8 @@ pub fn export_wasm_with_disk(state: &State, settings: ExportSettings, disk: &Dis
     let header = func::<i32, i32>(&instance, &store, "fk_export_header");
     let header_len = func::<i32, i32>(&instance, &store, "fk_export_header_len");
     let stat = func::<(i32, i32), f64>(&instance, &store, "fk_export_stat");
+    let levels_at = func::<i32, i32>(&instance, &store, "fk_export_levels");
+    let levels_len = func::<i32, i32>(&instance, &store, "fk_export_levels_len");
     let disk_jobs = func::<i32, i32>(&instance, &store, "fk_export_disk_jobs");
     let disk_table = func::<i32, i32>(&instance, &store, "fk_export_disk_table");
     let disk_inbox = func::<(i32, i32), i32>(&instance, &store, "fk_export_disk_inbox");
@@ -261,6 +276,18 @@ pub fn export_wasm_with_disk(state: &State, settings: ExportSettings, disk: &Dis
     let mut wav = read(&store, at, len);
     wav.extend(data);
     let stat = |store: &mut Store<()>, which: i32| stat.call(store, (ex, which)).unwrap();
+    let strips = levels_len.call(&mut store, ex).unwrap();
+    let levels = if strips > 0 {
+        let at = levels_at.call(&mut store, ex).unwrap();
+        read(&store, at, strips * 16)
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|b| f32::from_le_bytes(*b))
+            .collect()
+    } else {
+        Vec::new()
+    };
     Exported {
         wav,
         settings,
@@ -273,6 +300,8 @@ pub fn export_wasm_with_disk(state: &State, settings: ExportSettings, disk: &Dis
         silenced: stat(&mut store, 8) as u64,
         tail_cut: stat(&mut store, 5) > 0.5,
         busy: 0,
+        levels,
+        measured_frames: stat(&mut store, 12).max(0.0) as u64,
         missing,
         underruns: stat(&mut store, 10) as u32,
         disk_waits: stat(&mut store, 11) as u64,

@@ -213,6 +213,10 @@ impl Core {
             from_bar: Option<u32>,
             #[serde(default)]
             to_bar: Option<u32>,
+            /// The render of `project.analyze_render` (#665): only `from_bar` and `to_bar`
+            /// are read, and the range is bounded by `MAX_ANALYZE_SECS`.
+            #[serde(default)]
+            analysis: bool,
         }
         let refused = |error| (ExportReport::Refused { error }, Vec::new());
         let request = match serde_json::from_slice::<Request>(json) {
@@ -224,17 +228,35 @@ impl Core {
                 });
             }
         };
-        let settings = match ExportSettings::of(
-            request.region,
-            request.bit_depth,
-            request.sample_rate,
-            request.from_bar,
-            request.to_bar,
-        ) {
-            Ok(settings) => settings,
-            Err(error) => return refused(error),
-        };
         let state = &self.synced.state;
+        let settings = if request.analysis {
+            let given = request.region.is_some()
+                || request.bit_depth.is_some()
+                || request.sample_rate.is_some();
+            if given {
+                return refused(commands::CommandError::Invalid {
+                    field: "analysis".into(),
+                    message: "an analysis takes only from_bar and to_bar".into(),
+                });
+            }
+            let planned =
+                commands::export::analysis_plan(&state.project, request.from_bar, request.to_bar);
+            match planned {
+                Ok(plan) => plan.settings,
+                Err(error) => return refused(error),
+            }
+        } else {
+            match ExportSettings::of(
+                request.region,
+                request.bit_depth,
+                request.sample_rate,
+                request.from_bar,
+                request.to_bar,
+            ) {
+                Ok(settings) => settings,
+                Err(error) => return refused(error),
+            }
+        };
         match job(&state.project, &state.session, settings) {
             Ok(job) => {
                 let setup_len = job.setup.len() as u32;
@@ -245,6 +267,7 @@ impl Core {
                 (
                     ExportReport::Ready {
                         plan: job.plan,
+                        tracks: job.tracks,
                         setup_len,
                         start_len,
                     },
@@ -333,6 +356,25 @@ impl Core {
     pub fn stage_stored(&mut self, json: &[u8]) -> Result<(), StoredJsonError> {
         let stored = serde_json::from_slice(json).map_err(|_| StoredJsonError)?;
         self.synced.ctx.stored = Some(stored);
+        Ok(())
+    }
+
+    /// Stages the live meters for the next `mixer.levels` (#665), as the JSON of a
+    /// [`commands::levels::LevelsStage`], replacing a reading staged before. Nothing is staged
+    /// when the JSON is not that.
+    pub fn stage_levels(&mut self, json: &[u8]) -> Result<(), StoredJsonError> {
+        let stage = serde_json::from_slice(json).map_err(|_| StoredJsonError)?;
+        self.synced.ctx.levels = Some(stage);
+        Ok(())
+    }
+
+    /// Stages the measures of an offline render for the next `project.analyze_render`
+    /// (#665), as the JSON of a [`commands::levels::AnalysisStage`], replacing one staged
+    /// before. `None` (JSON `null`) clears it. Nothing is staged when the JSON is not that.
+    pub fn stage_analysis(&mut self, json: &[u8]) -> Result<(), StoredJsonError> {
+        let stage: Option<commands::levels::AnalysisStage> =
+            serde_json::from_slice(json).map_err(|_| StoredJsonError)?;
+        self.synced.ctx.analysis = stage;
         Ok(())
     }
 
@@ -925,6 +967,43 @@ pub unsafe extern "C" fn pw_stage_stored(core: *mut Core, len: u32) -> i32 {
     unsafe {
         with_core(core, |core| {
             match with_inbox(len, |json| core.stage_stored(json)) {
+                Ok(()) => 0,
+                Err(StoredJsonError) => ERR_BAD_INPUT,
+            }
+        })
+    }
+}
+
+/// [`Core::stage_levels`] with the JSON in the first `len` bytes of the inbox: 0, or
+/// [`ERR_BAD_INPUT`] (nothing staged). The reading is taken by running `mixer.levels`.
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_stage_levels(core: *mut Core, len: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe {
+        with_core(core, |core| {
+            match with_inbox(len, |json| core.stage_levels(json)) {
+                Ok(()) => 0,
+                Err(StoredJsonError) => ERR_BAD_INPUT,
+            }
+        })
+    }
+}
+
+/// [`Core::stage_analysis`] with the JSON in the first `len` bytes of the inbox: 0, or
+/// [`ERR_BAD_INPUT`] (nothing staged). The measures are taken by running
+/// `project.analyze_render`.
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_stage_analysis(core: *mut Core, len: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe {
+        with_core(core, |core| {
+            match with_inbox(len, |json| core.stage_analysis(json)) {
                 Ok(()) => 0,
                 Err(StoredJsonError) => ERR_BAD_INPUT,
             }

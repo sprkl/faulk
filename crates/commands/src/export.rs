@@ -25,7 +25,7 @@ use engine::msg::{ControlMsg, MsgError};
 use engine::offline::{self, MAX_BODY_SECS, SampleFormat};
 
 const _: () = assert!(MAX_BODY_SECS as u64 == MAX_EXPORT_SECS);
-use project::{ClipContent, Project, SampleRate, SessionState, Span, Tick};
+use project::{ClipContent, Project, SampleRate, SessionState, Span, Tick, TrackId};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -274,11 +274,47 @@ pub fn plan(project: &Project, settings: ExportSettings) -> Result<ExportPlan, C
     })
 }
 
+/// The tracks of the project by the engine slot a render gives them ([`ExportJob::tracks`]).
+pub fn track_slots(project: &Project, session: &SessionState) -> Vec<TrackId> {
+    let (_, slots) = snapshot(project, session);
+    slots.tracks.iter().map(|(_, id)| id.clone()).collect()
+}
+
+/// What `project.analyze_render` measures: the song, or bars `from_bar` to `to_bar` (both
+/// or neither), at the default sample rate. Refused like an export, and when the range lasts
+/// more than [`crate::levels::MAX_ANALYZE_SECS`].
+pub fn analysis_settings(
+    from_bar: Option<u32>,
+    to_bar: Option<u32>,
+) -> Result<ExportSettings, CommandError> {
+    let region = (from_bar.is_some() || to_bar.is_some()).then_some(ExportRegion::Bars);
+    ExportSettings::of(region, None, None, from_bar, to_bar)
+}
+
+/// The plan of an analysis ([`analysis_settings`]), or why nothing can be measured.
+pub fn analysis_plan(
+    project: &Project,
+    from_bar: Option<u32>,
+    to_bar: Option<u32>,
+) -> Result<ExportPlan, CommandError> {
+    let plan = plan(project, analysis_settings(from_bar, to_bar)?)?;
+    if plan.duration_secs > crate::levels::MAX_ANALYZE_SECS as f64 {
+        return Err(CommandError::Limit {
+            entity: "analyze seconds".into(),
+            max: crate::levels::MAX_ANALYZE_SECS,
+        });
+    }
+    Ok(plan)
+}
+
 /// A render ready to run: its plan and the three streams `engine::offline::Offline` takes,
 /// encoded one after the other in the same stream: `setup`, `start`, `stop`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExportJob {
     pub plan: ExportPlan,
+    /// The tracks by the engine slot the render gives them (display order): what the levels
+    /// the render measures are of ([`track_slots`]).
+    pub tracks: Vec<TrackId>,
     /// A `Reset` and the snapshot of the project (no metronome, no loop).
     pub setup: Vec<u8>,
     /// The `Play` from the start of the range, sent after the pre-roll
@@ -298,7 +334,8 @@ pub fn job(
     let mut project = project.clone();
     project.transport.metronome.enabled = false;
     project.transport.loop_enabled = false;
-    let (snapshot, _) = snapshot(&project, session);
+    let (snapshot, slots) = snapshot(&project, session);
+    let tracks = slots.tracks.iter().map(|(_, id)| id.clone()).collect();
     let mut msgs = Vec::with_capacity(snapshot.len() + 1);
     msgs.push(ControlMsg::Reset { epoch: EPOCH });
     msgs.extend(snapshot);
@@ -314,6 +351,7 @@ pub fn job(
         .map_err(ExportError::Stream)?;
     Ok(ExportJob {
         plan,
+        tracks,
         setup,
         start,
         stop,
