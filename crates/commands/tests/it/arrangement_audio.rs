@@ -651,63 +651,81 @@ fn random_audio_edits_stay_inside_their_clips_overlap_free_and_undo_through_the_
             let tick = |rng: &mut Lcg| Tick(rng.next(9_000) as i64);
             // An empty track takes a placement first (a time edit or a move may empty it).
             let roll = if ids.is_empty() { 0 } else { rng.next(10) };
-            let command = match roll {
-                9 if ids.len() > 3 => arrangement::Command::MoveToTrack {
-                    moves: vec![TrackMove {
-                        placement: pick(&mut rng),
-                        track: other.clone(),
-                    }],
-                    by: Some(Tick(rng.next(4_000) as i64 - 2_000)),
-                },
-                0 => arrangement::Command::Place {
-                    clip: clips[rng.next(clips.len() as u64) as usize].clone(),
-                    start: tick(&mut rng),
-                    length: None,
-                    offset: None,
-                },
-                1 => arrangement::Command::Move {
-                    placements: vec![pick(&mut rng)],
-                    by: Tick(rng.next(4_000) as i64 - 2_000),
-                },
-                2 => arrangement::Command::Resize {
-                    placement: pick(&mut rng),
-                    edge: if rng.next(2) == 0 {
-                        Edge::Start
-                    } else {
-                        Edge::End
-                    },
-                    to: tick(&mut rng),
-                },
-                3 => arrangement::Command::Split {
-                    placement: pick(&mut rng),
-                    at: tick(&mut rng),
-                },
-                4 if ids.len() > 1 => arrangement::Command::Delete {
-                    placements: vec![pick(&mut rng)],
-                },
-                5 => arrangement::Command::Duplicate {
-                    placements: vec![pick(&mut rng)],
-                    linked: rng.next(2) == 0,
-                    by: Some(Tick(rng.next(6_000) as i64 - 1_500)),
-                },
-                6 => arrangement::Command::Repeat {
-                    placement: pick(&mut rng),
-                    until: Tick(rng.next(12_000) as i64 + 1),
-                },
-                7 => arrangement::Command::InsertTime {
-                    at: tick(&mut rng),
-                    length: Tick(1 + rng.next(2_000) as i64),
-                },
-                _ => {
-                    let from = rng.next(6_000) as i64;
-                    arrangement::Command::DeleteTime {
-                        from: Tick(from),
-                        to: Tick(from + 1 + rng.next(2_000) as i64),
-                    }
+            // Now and then a command that changes what the spans measure (#703): the tempo, or
+            // the clip's range. They refuse to leave a placement outside its clip or overlapping.
+            let measure = !ids.is_empty() && rng.next(8) == 0;
+            let command: Command = if measure {
+                if rng.next(2) == 0 {
+                    Command::Transport(commands::transport::Command::SetTempo {
+                        bpm: 60.0 + rng.next(140) as f64,
+                    })
+                } else {
+                    Command::Clip(commands::clip::Command::AudioSetRange {
+                        clip: f.audio_clip.clone(),
+                        start: Frame::new(0),
+                        frames: Frame::new(20_000 + rng.next(24_100)),
+                        placements: None,
+                    })
                 }
+            } else {
+                a(match roll {
+                    9 if ids.len() > 3 => arrangement::Command::MoveToTrack {
+                        moves: vec![TrackMove {
+                            placement: pick(&mut rng),
+                            track: other.clone(),
+                        }],
+                        by: Some(Tick(rng.next(4_000) as i64 - 2_000)),
+                    },
+                    0 => arrangement::Command::Place {
+                        clip: clips[rng.next(clips.len() as u64) as usize].clone(),
+                        start: tick(&mut rng),
+                        length: None,
+                        offset: None,
+                    },
+                    1 => arrangement::Command::Move {
+                        placements: vec![pick(&mut rng)],
+                        by: Tick(rng.next(4_000) as i64 - 2_000),
+                    },
+                    2 => arrangement::Command::Resize {
+                        placement: pick(&mut rng),
+                        edge: if rng.next(2) == 0 {
+                            Edge::Start
+                        } else {
+                            Edge::End
+                        },
+                        to: tick(&mut rng),
+                    },
+                    3 => arrangement::Command::Split {
+                        placement: pick(&mut rng),
+                        at: tick(&mut rng),
+                    },
+                    4 if ids.len() > 1 => arrangement::Command::Delete {
+                        placements: vec![pick(&mut rng)],
+                    },
+                    5 => arrangement::Command::Duplicate {
+                        placements: vec![pick(&mut rng)],
+                        linked: rng.next(2) == 0,
+                        by: Some(Tick(rng.next(6_000) as i64 - 1_500)),
+                    },
+                    6 => arrangement::Command::Repeat {
+                        placement: pick(&mut rng),
+                        until: Tick(rng.next(12_000) as i64 + 1),
+                    },
+                    7 => arrangement::Command::InsertTime {
+                        at: tick(&mut rng),
+                        length: Tick(1 + rng.next(2_000) as i64),
+                    },
+                    _ => {
+                        let from = rng.next(6_000) as i64;
+                        arrangement::Command::DeleteTime {
+                            from: Tick(from),
+                            to: Tick(from + 1 + rng.next(2_000) as i64),
+                        }
+                    }
+                })
             };
             let before = state.clone();
-            match run(&a(command.clone()), &mut state, &mut ctx) {
+            match run(&command, &mut state, &mut ctx) {
                 Ok(outcome) => {
                     state
                         .project
@@ -726,6 +744,30 @@ fn random_audio_edits_stay_inside_their_clips_overlap_free_and_undo_through_the_
                             "{bpm} {rate} step {step} {command:?}"
                         );
                         done += 1;
+                    }
+                    // Deleting any audio placement can be undone (#703).
+                    let held: Vec<PlacementId> = state.project.tracks[&f.audio_track]
+                        .placements
+                        .keys()
+                        .cloned()
+                        .collect();
+                    if let Some(gone) = held.get(rng.next(held.len().max(1) as u64) as usize) {
+                        let mut probe = state.clone();
+                        let deleted = run(
+                            &a(arrangement::Command::Delete {
+                                placements: vec![gone.clone()],
+                            }),
+                            &mut probe,
+                            &mut fresh(),
+                        )
+                        .unwrap();
+                        let Undo::Inverse(back) = deleted.undo else {
+                            panic!()
+                        };
+                        back.apply(&mut probe, &mut fresh()).unwrap_or_else(|e| {
+                            panic!("{bpm} {rate} step {step}: undo of a delete {e:?}")
+                        });
+                        assert_eq!(probe.project, state.project);
                     }
                 }
                 Err(_) => assert_eq!(state, before, "step {step}: a refusal changes nothing"),

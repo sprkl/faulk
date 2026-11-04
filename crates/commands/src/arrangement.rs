@@ -21,7 +21,10 @@
 //!   right (trimmed at the front so it never ends past where it did, through the clip's
 //!   loop), so a cut never makes an overlap or plays a frame twice; a part where not even one
 //!   frame fits goes. An edge resized past the clip stops at its first or last frame. A clip
-//!   only moves to a track of its kind (MIDI to MIDI, audio to audio).
+//!   only moves to a track of its kind (MIDI to MIDI, audio to audio). The commands that
+//!   change what an audio span measures without putting a placement down refuse to make an
+//!   overlap or a span past its clip (#703): `transport.set_tempo`, `clip.audio.set_range`;
+//!   so do the commands that create a clip there (`clip.import_audio`, `clip.restore_audio`).
 //! - **The overlap rule: the last one put down wins.** The placement a command places,
 //!   moves, resizes or copies keeps its span; the other placements of the track that it
 //!   covers are carved, so a track never holds two placements at the same tick after one
