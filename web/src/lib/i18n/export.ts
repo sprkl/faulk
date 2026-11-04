@@ -7,6 +7,7 @@ export const audioExport = defineFeature(
     'project.menu.export': 'Export audio…',
 
     'export.title': 'Export audio',
+    'export.fileName': 'File name',
     'export.range': 'What to export',
     'export.range.song': 'The song, from the start to the end of the last clip',
     'export.range.loop': 'The loop region',
@@ -52,6 +53,7 @@ export const audioExport = defineFeature(
     'project.menu.export': 'Exporter l’audio…',
 
     'export.title': 'Exporter l’audio',
+    'export.fileName': 'Nom du fichier',
     'export.range': 'Ce qu’il faut exporter',
     'export.range.song': 'Le morceau, du début à la fin du dernier clip',
     'export.range.loop': 'La zone de boucle',

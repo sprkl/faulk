@@ -21,9 +21,14 @@ export interface ExportChoices {
   /** The first and the last bar (counted from 1, the last one included) of the `bars` region. */
   fromBar: number
   toBar: number
+  /**
+   * The file's name as the dialog's field holds it, without `.wav` (#627). It starts as the project's name each time the
+   * dialog opens; a project that is renamed meanwhile does not change what the user typed.
+   */
+  fileName: string
 }
 
-export const DEFAULT_CHOICES: ExportChoices = { region: 'song', bitDepth: 'pcm24', sampleRate: 48_000, fromBar: 1, toBar: 1 }
+export const DEFAULT_CHOICES: ExportChoices = { region: 'song', bitDepth: 'pcm24', sampleRate: 48_000, fromBar: 1, toBar: 1, fileName: '' }
 
 /**
  * The most a download may weigh: the browser that has no file dialog keeps the whole file in memory
@@ -125,12 +130,17 @@ export type ExportPhase = 'options' | 'picking' | 'rendering' | 'done' | 'failed
 
 /** A file name for the project: nothing a file system refuses. */
 export function fileNameOf(project: string): string {
+  return `${cleanName(project.replace(/\.wav$/i, ''))}.wav`
+}
+
+/** What a file name keeps of a name: no character a file system refuses, nothing but a name; `Faulk` when nothing is left. */
+export function cleanName(project: string): string {
   const cleaned = project
     // eslint-disable-next-line no-control-regex
     .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-')
     .replace(/^[\s.]+|[\s.]+$/g, '')
     .slice(0, 100)
-  return `${cleaned || 'Faulk'}.wav`
+  return cleaned || 'Faulk'
 }
 
 export class AudioExport {
@@ -196,6 +206,7 @@ export class AudioExport {
     this.choices = {
       ...DEFAULT_CHOICES,
       toBar: this.host.songBars(),
+      fileName: cleanName(this.host.projectName()),
       ...Object.fromEntries(Object.entries(choices).filter(([, value]) => value !== undefined)),
     }
     // A loop that does not exist is not offered.
@@ -311,7 +322,7 @@ export class AudioExport {
     // The folder waits for a save under way; a cancel in the meantime must not open the dialog afterwards.
     const folder = await this.host.folder()
     if (run !== this.run) return
-    const choice = await this.deps.pick(fileNameOf(this.host.projectName()), headerBytes, folder)
+    const choice = await this.deps.pick(fileNameOf(this.choices.fileName), headerBytes, folder)
     if (run !== this.run) {
       if (choice.status === 'chosen') void choice.sink.abort().catch(() => undefined)
       return
