@@ -156,13 +156,16 @@ La [contrainte](../constraints/01-contraintes.md) rappelle que `SharedArrayBuffe
 
 ## 4. Ce que change le mode Boost
 
-- Le helper lit et écrit **directement sur le disque** : pas de permission navigateur, pas de quota, streaming natif. Le son ne traverse jamais le lien page ↔ helper : seul le moteur du helper lit les fichiers audio.
-- **La page et le helper doivent désigner le même dossier**, or un `FileSystemDirectoryHandle` ne révèle pas son chemin absolu. Options :
-  1. l'utilisateur ouvre le projet par un sélecteur natif du helper (ou en collant un chemin) ; la page reçoit les données du projet par le WebSocket. Simple et fiable ;
-  2. **rapprochement par identité** : `project.json` porte l'`id` stable du projet (ULID obligatoire, défini dans le [modèle de projet](02-modele-projet.md) § 1.3) ; la page l'envoie au helper, qui le cherche parmi ses projets récents. Deux dossiers de même `id` (une copie faite hors de Faulk) ne sont jamais choisis au hasard : le helper demande lequel ouvrir. Utile pour basculer à chaud.
-- **Identité des fichiers audio** : l'empreinte SHA-256 du blob. La page (poignées) et le helper (chemins natifs) résolvent le même blob par `blobs/<sha256>`, chemins relatifs à la racine et en `/`.
-- **Écritures concurrentes** : en mode Boost, une seule autorité écrit le dossier, le helper ; la page reste propriétaire du modèle (décision du 2026-10-14, [modèle de projet](02-modele-projet.md) § 5.4) et lui envoie les fichiers sales à écrire. C'est l'implémentation « helper » de `ProjectStore` (tâche AU-7 du [découpage du MVP](../specs/02-decoupage-mvp.md)) : seuls les fichiers texte du projet passent par le WebSocket ; ni le son, ni les blobs, ni le cache PCM ne traversent le lien (règle de `CLAUDE.md`), l'import (AU-1) et le streaming (AU-4) s'exécutant dans le helper en Boost.
-- **Projets en OPFS** : le helper n'y a pas accès. Passer en Boost depuis un projet OPFS passe par un export `.faulkpack` que le helper ouvre comme dossier (tâche SV-3) : aucun fichier audio ne traverse le WebSocket.
+Depuis BO-1 (#102), la page tient le projet dans les deux modes. Le helper ne tient aucun dossier : il annonce `disk: false` dans `hello` (`crates/helper/src/server.rs`). Ce qui suit décrit le code tel qu'il est ; ce qui reste à faire est listé à la fin.
+
+- **Le son ne traverse pas le lien.** Le helper reçoit les octets du moteur (`ControlMsg`) et les fichiers texte du projet à écrire. Ni les blobs, ni les caches PCM, ni les échantillons importés ne passent par le WebSocket (mesuré : un import d'une heure en Boost envoie 32 octets au helper, § 5.9).
+- **L'import (AU-1) tourne dans la page, dans les deux modes.** Le pipeline est dans le Worker du magasin de projet (`web/src/lib/audio/import/`, `web/src/lib/storage/worker.ts`) et écrit `blobs/` et `.faulk/cache/pcm/` dans le dossier que la page tient. Le helper n'intervient pas.
+- **Les lectures disque (AU-3) tournent dans la page.** Le planificateur et ses lectures sont dans le Worker de préparation de la page (`web/src/lib/audio/stream/executor.ts`, `web/src/lib/engine/prepare-worker.ts`), qui lit `blobs/<sha256>` et le cache PCM du dossier qui lui a été remis. En Boost, le moteur Web est suspendu (`web/src/lib/stores/dispatcher.ts`, `web.suspend()`) et le son vient du moteur du helper ; ce qu'advient alors du Worker de préparation de la page n'est pas vérifié ici.
+- **La lecture native n'est pas encore faite (AU-7, #116).** Le moteur du helper n'a pas de dossier : ses sources restent hors ligne (comptées dans `offline_sources`) et ses clips audio sont muets en Boost. Le helper ne lit aucun fichier audio.
+- **Les écritures.** En Boost, c'est la page qui écrit le dossier ; le helper n'en a pas. L'implémentation « helper » de `ProjectStore` n'existe pas encore.
+- **Les projets du navigateur (OPFS).** Un projet OPFS reste dans le navigateur. Son ouverture par le helper, par un export `.faulkpack` puis un dossier, est à AU-7 ([découpage du MVP](../specs/02-decoupage-mvp.md), SV-3).
+
+Reste à AU-7 ([découpage du MVP](../specs/02-decoupage-mvp.md)) : le choix de la façon dont le helper désigne le dossier (sélecteur natif ou rapprochement par l'`id` du projet, § 1.3 du [modèle de projet](02-modele-projet.md)), la lecture native des blobs par chemin natif, et l'ouverture d'un `.faulkpack`. Le protocole de la lecture native n'est pas figé ici.
 
 ## 5. Proposition pour le MVP
 
@@ -172,7 +175,7 @@ La [contrainte](../constraints/01-contraintes.md) rappelle que `SharedArrayBuffe
 | --- | --- |
 | Chrome / Edge bureau | **Dossier réel** choisi par l'utilisateur (défaut, décision du 2026-10-14), poignée en IndexedDB, permission « à chaque visite » encouragée. Caches en OPFS ou dans `.faulk/cache/`. Tâche SV-2. |
 | Firefox / Safari, ou dossier refusé | **OPFS** + `navigator.storage.persist()` + export/import `.faulkpack` (archive zip du dossier). Avertissement clair : « vos projets sont dans le navigateur ; exportez-les ». Tâche SV-3. |
-| Mode Boost (tous navigateurs) | Dossier réel, ouvert et écrit par le helper pour le compte de la page. Tâche AU-7. |
+| Mode Boost (tous navigateurs) | Pas encore livré : depuis BO-1 le helper ne tient aucun dossier (la page l'écrit). Le helper lira les blobs du dossier pour la lecture native. Tâche AU-7 (voir § 4). |
 
 Une **seule abstraction de stockage** dans le Worker disque (`ProjectStore` : lister, lire une plage, écrire atomiquement, observer), avec trois implémentations : dossier File System Access, OPFS, helper. Le format du dossier est identique dans les trois cas : un projet OPFS exporté est un dossier de projet ordinaire.
 
