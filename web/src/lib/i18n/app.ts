@@ -6,6 +6,7 @@
 
 import { arrangement } from './arrangement'
 import { automation } from './automation'
+import { browser } from './browser'
 import { clips } from './clips'
 import { audioExport } from './export'
 import { engine } from './engine'
@@ -45,6 +46,7 @@ export const features = {
   shortcuts,
   layout,
   tracks,
+  browser,
   transport,
   engine,
   helper,
