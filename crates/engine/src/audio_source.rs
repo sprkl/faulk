@@ -598,6 +598,25 @@ impl Voice {
     }
 }
 
+/// `jobs` as the table a wasm host reads ([`Disk::encode_jobs`]): as many as `out` holds;
+/// returns how many were written.
+pub fn encode_jobs(jobs: &[Job], out: &mut [u8]) -> usize {
+    let mut n = 0;
+    for (job, chunk) in jobs
+        .iter()
+        .zip(out.as_chunks_mut::<JOB_WIRE_BYTES>().0.iter_mut())
+    {
+        chunk.fill(0);
+        chunk[0..4].copy_from_slice(&job.id.to_le_bytes());
+        chunk[4] = job.file as u8;
+        chunk[8..16].copy_from_slice(&job.offset.to_le_bytes());
+        chunk[16..20].copy_from_slice(&job.len.to_le_bytes());
+        chunk[24..56].copy_from_slice(&job.media);
+        n += 1;
+    }
+    n
+}
+
 /// Copies `n` frames of `seg` from source frame `pos` (it covers them) into `out`.
 fn copy_segment(seg: &Segment, pos: u64, n: usize, ch: usize, out: &mut [f32]) {
     let sc = seg.channels as usize;
@@ -771,6 +790,8 @@ struct SourceState {
     frames: u64,
     status: Status,
     last_used: u64,
+    /// A voice asked for it (a start or a keepalive) since it was declared.
+    played: bool,
     segments: [SegSlot; MAX_SEGMENTS],
 }
 
@@ -1044,6 +1065,7 @@ impl Disk {
             frames,
             status: Status::Unprobed,
             last_used: self.now,
+            played: false,
             segments: Default::default(),
         });
         self.publish();
@@ -1133,21 +1155,30 @@ impl Disk {
     /// The jobs of the last poll, as the table a wasm host reads: [`JOB_WIRE_BYTES`] each,
     /// `id u32, file u8, pad ×3, offset u64, len u32, pad u32, media [u8; 32]`.
     pub fn encode_jobs(&self, out: &mut [u8]) -> usize {
-        let mut n = 0;
-        for (job, chunk) in self
-            .jobs
+        encode_jobs(&self.jobs, out)
+    }
+
+    /// Whether the planner has nothing under way: no read job in flight or waiting for the
+    /// next poll, and no message waiting for the audio side. The offline render (#647)
+    /// renders a block only once the planner is idle after a poll.
+    pub fn idle(&self) -> bool {
+        self.in_flight.is_empty() && self.queued.is_empty() && self.outbox.is_empty()
+    }
+
+    /// Whether no audio source is declared (nothing to read, no voice to feed).
+    pub fn no_sources(&self) -> bool {
+        self.sources.iter().all(Option::is_none)
+    }
+
+    /// The media of the sources that are offline now (a probe or a read failed: the file is
+    /// missing, unreadable, or its PCM cache is not made) and that a voice asked for since
+    /// they were declared (a clip of theirs played), in slot order.
+    pub fn offline_media(&self) -> impl Iterator<Item = [u8; 32]> + '_ {
+        self.sources
             .iter()
-            .zip(out.as_chunks_mut::<JOB_WIRE_BYTES>().0.iter_mut())
-        {
-            chunk.fill(0);
-            chunk[0..4].copy_from_slice(&job.id.to_le_bytes());
-            chunk[4] = job.file as u8;
-            chunk[8..16].copy_from_slice(&job.offset.to_le_bytes());
-            chunk[16..20].copy_from_slice(&job.len.to_le_bytes());
-            chunk[24..56].copy_from_slice(&job.media);
-            n += 1;
-        }
-        n
+            .flatten()
+            .filter(|s| s.played && matches!(s.status, Status::Offline { .. }))
+            .map(|s| s.media)
     }
 
     fn job(
@@ -1190,6 +1221,7 @@ impl Disk {
             return;
         };
         source.last_used = now;
+        source.played = true;
         let (source_gen, rate, channels, ready) = (
             source.generation,
             source.rate,
