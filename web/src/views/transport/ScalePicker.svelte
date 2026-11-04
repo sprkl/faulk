@@ -26,6 +26,10 @@
   let rootSelect = $state<HTMLSelectElement | null>(null)
 
   const open = $derived(ui.scaleOpen && !disabled)
+  // The engine stopped or the project is being replaced: the panel closes for good, never to pop open again when it is back.
+  $effect(() => {
+    if (disabled && ui.scaleOpen) ui.scaleOpen = false
+  })
 
   // After the menu that may have opened the panel gave the focus back to its opener (a microtask): the root takes it.
   $effect(() => {
