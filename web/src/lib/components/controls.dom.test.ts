@@ -24,7 +24,7 @@ let ui: UiStore
 function setup(component: Component<never>, props: Record<string, unknown>) {
   // Only the user interface store and the dispatcher's `run` are read by these controls.
   ui = new UiStore('arrangement', 'devices')
-  const stores = { ui, dispatcher: { run: (command: Command) => void sent.push(command) } } as unknown as Stores
+  const stores = { ui, dispatcher: { run: (command: Command) => sent.push(command) > 0 } } as unknown as Stores
   app = mount(component as never, { target: host, props, context: storesContext(stores) })
   flushSync()
   const slider = host.querySelector('[role="slider"]') as HTMLElement

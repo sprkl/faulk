@@ -4,7 +4,7 @@ import { engineUp, watch } from './support'
 // #190: the device browser in a real browser. Alt+B opens it with the focus in its search field; the list holds the
 // registry's devices with their presets; the search finds by device and preset name (case, accents, nothing, cleared);
 // Enter and a drag put a device or a preset on a track, at a place of its chain, or on the empty area of the track list
-// (a new MIDI track, one undo); an audio file there is told not to be handled yet; no console error.
+// (a new MIDI track, one undo); audio files there start an audio track and are imported into it (AU-4); no console error.
 
 const TEXTS = {
   en: {
@@ -14,8 +14,8 @@ const TEXTS = {
     instruments: 'Instruments',
     effects: 'Audio effects',
     none: 'No device or preset matches "zzzz".',
-    drop: 'Drop an instrument or a preset here to start a MIDI track.',
-    audio: 'Importing audio files is not available yet.',
+    drop: 'Drop an instrument or a preset here to start a MIDI track, or audio files to start an audio track.',
+    audio: 'A new audio track takes the files: its Clips panel shows the import.',
     inserted: 'Reverb inserted in',
     undo: 'Undo',
   },
@@ -26,8 +26,8 @@ const TEXTS = {
     instruments: 'Instruments',
     effects: 'Effets audio',
     none: 'Aucun device ni preset ne correspond à « zzzz ».',
-    drop: 'Dépose un instrument ou un preset ici pour créer une piste MIDI.',
-    audio: "L'import de fichiers audio n'est pas encore disponible.",
+    drop: 'Dépose un instrument ou un preset ici pour créer une piste MIDI, ou des fichiers audio pour une piste audio.',
+    audio: 'Une nouvelle piste audio reçoit les fichiers : son panneau Clips montre l’import.',
     inserted: 'Reverb inséré dans',
     undo: 'Annuler',
   },
@@ -140,14 +140,20 @@ for (const lang of ['en', 'fr'] as const) {
     await panel.locator('[data-testid="browse-device"][data-kind="faulk.compressor"]').dragTo(list.getByTestId('track-drop'), { force: true })
     await expect(list).toHaveAttribute('data-track-count', '1')
 
-    // An audio file there is recognised and told not to be handled yet: no track, no error.
+    // An audio file there starts an audio track and goes to its import (AU-4); this one is no real audio, so the import
+    // refuses it in the Clips panel and the track stays empty. Undo takes the track away.
     await list.getByTestId('track-drop').evaluate((node) => {
       const data = new DataTransfer()
       data.items.add(new File(['x'], 'a.wav', { type: 'audio/wav' }))
       for (const type of ['dragenter', 'dragover', 'drop']) node.dispatchEvent(new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: data }))
     })
     await expect(list.getByTestId('track-drop-note')).toHaveText(x.audio)
+    await expect(list).toHaveAttribute('data-track-count', '2')
+    await expect(page.getByTestId('audio-import-failure')).toBeVisible()
+    await list.getByRole('button', { name: x.undo }).click()
     await expect(list).toHaveAttribute('data-track-count', '1')
+    // The drop showed the Clips panel: back to the devices.
+    await page.getByTestId('panel-devices').click()
 
     // A drag onto a track's row in the arrangement (Alt+1; the page opens on the launch grid) puts the device in that track's chain.
     await page.getByTestId('browser-toggle').focus()

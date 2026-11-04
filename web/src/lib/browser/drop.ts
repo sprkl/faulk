@@ -6,7 +6,8 @@
  */
 
 import type { Command, Track } from '../generated/protocol'
-import { beginGroup, createTrack, endGroup } from '../track-commands'
+import { inGroup } from '../history-group'
+import { createTrack } from '../track-commands'
 import { insertEffect, insertMasterEffect, setInstrument } from '../device-commands'
 import { instrumentDescriptors } from '../devices'
 import { loadPreset } from '../preset-commands'
@@ -23,7 +24,7 @@ export type DropTarget =
 
 /** What the page offers the drop to read and run: the dispatcher and the project store, narrowed (and faked in the tests). */
 export interface DropHost {
-  run(command: Command): boolean
+  run(command: Command, options?: { quiet?: boolean }): boolean
   tracks(): readonly { id: string; track: Track }[]
   masterDevices(): Track['devices'] | undefined
   selectedTrack(): string | null
@@ -62,16 +63,22 @@ export const createsTrack = (item: Pick<BrowserItem, 'category'>): boolean => it
 
 const idsOf = (chain: readonly ChainEntry[]): Set<string> => new Set(chain.map((entry) => entry.id))
 
-/** Runs `steps` as one history group when there are several; a refused step ends the sequence, the group is closed either way. */
+/**
+ * Runs `steps` as one history group when there are several; a refused step ends the sequence, the group is closed either
+ * way. A refused `history.begin_group` (a group is already open, e.g. an agent's turn) is not an error: `end_group` is
+ * sent only when this drop opened the group (#643), the group of someone else is never closed here. The steps then run
+ * anyway; the history joins them to the open group only when the page (the same author) opened it, otherwise each step
+ * is its own undo entry, and undo stays refused until that group ends.
+ */
 function grouped(host: DropHost, steps: ((host: DropHost) => boolean)[]): boolean {
   if (steps.length === 1) return steps[0]!(host)
-  host.run(beginGroup())
-  try {
-    for (const step of steps) if (!step(host)) return false
-    return true
-  } finally {
-    host.run(endGroup())
-  }
+  return inGroup(
+    (command, options) => host.run(command, options),
+    () => {
+      for (const step of steps) if (!step(host)) return false
+      return true
+    },
+  )
 }
 
 /** Puts `item` on `target`. Never throws on a state it did not expect: it says it refused. */

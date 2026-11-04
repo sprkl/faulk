@@ -20,7 +20,8 @@
   import { chordText } from '../../lib/shortcuts'
   import { createClipInCell, createScene, deleteScene, launchClip, launchScene, moveScene, renameScene, stopAll, stopTrack } from '../../lib/scene-commands'
   import { useStores } from '../../lib/stores'
-  import { beginGroup, endGroup, selectTrack } from '../../lib/track-commands'
+  import { inGroup } from '../../lib/history-group'
+  import { selectTrack } from '../../lib/track-commands'
   import { activeCells, activeSignature, cellClips, cellKey, clipCounts, clipHomes, sortedScenes, visibleRange } from './cells'
   import Glyph from './Glyph.svelte'
   import LinkMark from '../../lib/components/LinkMark.svelte'
@@ -89,7 +90,7 @@
     return out
   })
   /** The scenes that hold a MIDI clip: only those can be sent to the arrangement. */
-  const scenesWithClips = $derived(new Set([...homes.values()].filter((home) => home.cell.launchable).map((home) => home.scene)))
+  const scenesWithClips = $derived(new Set([...homes.values()].filter((home) => home.cell.editable).map((home) => home.scene)))
   const sceneHasClip = (scene: string) => scenesWithClips.has(scene)
   /** The name of a clip: the one stored in the project (every MIDI clip has one); an audio clip without a name is just "Clip". */
   const nameOf = (clip: { name: string }) => clip.name.trim() || t('grid.clipPlain')
@@ -152,7 +153,7 @@
     if (event.ctrlKey || event.metaKey) {
       if (event.altKey || event.shiftKey || event.repeat) return
       const key = event.key.toLowerCase()
-      if (key === 'c' && cell.dataset.clip && cell.dataset.launchable === 'true') {
+      if (key === 'c' && cell.dataset.clip && cell.dataset.editable === 'true') {
         event.preventDefault()
         copied = cell.dataset.clip
       } else if (key === 'v' && !cell.dataset.clip && cell.dataset.midi === 'true') {
@@ -162,7 +163,7 @@
       return
     }
     if (event.altKey) return
-    if (cell.dataset.clip && cell.dataset.launchable === 'true') {
+    if (cell.dataset.clip && cell.dataset.editable === 'true') {
       if (event.key === 'F2') {
         event.preventDefault()
         void startClipRename(cell.dataset.clip)
@@ -216,12 +217,16 @@
    * quiet would read as a broken launch (the roll's Loop button turns it off).
    */
   function create(track: string, scene: string) {
-    run(beginGroup())
-    run(createClipInCell(track, scene))
-    const made = cellClips(project.view!.project).get(cellKey(track, scene))
-    const content = made?.clip.content
-    if (made && content && 'midi' in content) run(setClipLoop(made.id, { start: 0, end: content.midi.length }))
-    run(endGroup())
+    const made = inGroup(
+      (command, options) => dispatcher.run(command, options),
+      () => {
+        run(createClipInCell(track, scene))
+        const cell = cellClips(project.view!.project).get(cellKey(track, scene))
+        const content = cell?.clip.content
+        if (cell && content && 'midi' in content) run(setClipLoop(cell.id, { start: 0, end: content.midi.length }))
+        return cell
+      },
+    )
     if (made) open(track, made.id, true)
   }
 
@@ -247,7 +252,8 @@
       // The clicks of a double-click (`detail` 2 and more) launch nothing more: the double-click opens the clip.
       if (event.detail >= 2) return
       run(launchClip(clip))
-      open(track!, clip, false)
+      // An audio clip has no editor yet (AU-6): it is launched only.
+      if (cell.dataset.editable === 'true') open(track!, clip, false)
       return release(event, cell)
     }
     // An empty cell: a click selects its track, a key press (`detail` 0) creates the clip.
@@ -259,7 +265,7 @@
     const cell = (event.target as Element).closest<HTMLElement>('[data-cell]')
     if (!cell) return
     if (cell.dataset.clip) {
-      if (cell.dataset.launchable === 'true') open(cell.dataset.track!, cell.dataset.clip, true)
+      if (cell.dataset.editable === 'true') open(cell.dataset.track!, cell.dataset.clip, true)
     } else if (cell.dataset.midi === 'true') create(cell.dataset.track!, cell.dataset.scene!)
   }
 
@@ -348,12 +354,12 @@
     if (event.defaultPrevented) return
     const cell = (event.target as Element | null)?.closest?.<HTMLElement>('[data-cell]')
     if (!cell) return
-    const { track, scene, clip, launchable } = cell.dataset
+    const { track, scene, clip, editable } = cell.dataset
     const ti = Number(cell.dataset.ti)
     const si = Number(cell.dataset.si)
     const items: MenuItem[] = []
     if (clip) {
-      if (launchable === 'true') {
+      if (editable === 'true') {
         items.push(
           { id: 'open', label: t('grid.editClip', { clip: nameOf(homes.get(clip)?.cell.clip ?? { name: '' }) }), run: () => open(track!, clip, true) },
           { id: 'rename', label: t('grid.rename'), shortcut: chordText(['F2']), run: () => void startClipRename(clip) },
@@ -367,7 +373,7 @@
         {
           id: 'delete',
           label: t('grid.delete'),
-          shortcut: launchable === 'true' ? chordText(['Delete']) : undefined,
+          shortcut: editable === 'true' ? chordText(['Delete']) : undefined,
           separator: true,
           run: () => removeClip(clip, ti, si),
         },
@@ -427,7 +433,7 @@
 
   async function startClipRename(id: string) {
     const home = homes.get(id)
-    if (!home?.cell.launchable) return
+    if (!home?.cell.editable) return
     cellMenu = null
     clipDraft = nameOf(home.cell.clip)
     renamingClip = id
@@ -471,7 +477,7 @@
   function onBoardPointerDown(event: PointerEvent) {
     if (event.button !== 0 || press) return
     const cell = (event.target as Element).closest<HTMLElement>('[data-cell]')
-    if (!cell?.dataset.clip || cell.dataset.launchable !== 'true') return
+    if (!cell?.dataset.clip || cell.dataset.editable !== 'true') return
     press = { clip: cell.dataset.clip, track: cell.dataset.track!, x: event.clientX, y: event.clientY, active: false, aborted: false }
   }
 
@@ -875,16 +881,18 @@
                   data-scene={sc.id}
                   data-clip={cell.id}
                   data-launchable={cell.launchable}
+                  data-editable={cell.editable}
                   data-copied={copied === cell.id ? 'true' : undefined}
                   data-lifted={dragging?.clip === cell.id ? 'true' : undefined}
                   data-ti={entry.index}
                   data-si={si}
                   disabled={!cell.launchable}
-                  aria-label={(cell.launchable
+                  aria-label={(cell.editable
                     ? t('grid.cell', { track: label, scene: name, clip: clipName, state: stateText(state) })
-                    : t('grid.cellAudio', { track: label, scene: name, clip: clipName })) + (linked.has(cell.id) ? `, ${t('arrangement.clipLinked')}` : '')}
+                    : t('grid.cellAudio', { track: label, scene: name, clip: clipName, state: stateText(state) })) +
+                    (linked.has(cell.id) ? `, ${t('arrangement.clipLinked')}` : '')}
                   data-linked={linked.has(cell.id) ? 'true' : undefined}
-                  title={cell.launchable ? `${stateText(state)}. ${t('grid.clipHint')}` : undefined}
+                  title={cell.editable ? `${stateText(state)}. ${t('grid.clipHint')}` : stateText(state)}
                 >
                   <Glyph kind={state} />
                   <span class="cname">{clipName}</span>
@@ -903,7 +911,7 @@
                     onblur={() => finishClipRename(true, cell.id)}
                   />
                 {/if}
-                {#if cell.launchable}
+                {#if cell.editable}
                   <button
                     class="edit"
                     type="button"

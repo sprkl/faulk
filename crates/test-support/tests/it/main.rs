@@ -2,6 +2,7 @@
 
 mod all_sound_off;
 mod arrangement_commands;
+mod audio_replay;
 mod big_project;
 mod clip_edit_playback;
 mod compiler;

@@ -81,11 +81,11 @@ export function freeScene(project: Pick<Project, 'tracks' | 'scenes'>, track: st
 }
 
 /**
- * The command that puts a pool clip in the slot of `scene` (free, in its track); `null` for an audio clip or a clip
- * already in the grid that is not to be copied.
+ * The command that puts a pool clip in the slot of `scene` (free, in its track); `null` for a clip already in the grid
+ * that is not to be copied, and for an audio clip already used (an audio clip is not copied yet: AU-6).
  */
 export function gridCommand(entry: PoolClip, scene: string, linked: boolean): Command | null {
-  if (!entry.midi) return null
+  if (!entry.midi) return entry.uses === 0 ? moveClip(entry.id, scene, null) : null
   // Used nowhere, or linked on purpose (a clip of the arrangement only): the clip itself goes into the slot.
   if (entry.uses === 0 || (linked && !entry.slot)) return moveClip(entry.id, scene, null)
   // Used already: an independent copy in the slot.

@@ -147,6 +147,13 @@ impl Session {
         outcome.output
     }
 
+    /// Stages an imported audio file's metadata (AU-1), as the page does after it imported
+    /// the file and before it runs `clip.import_audio`.
+    pub fn stage_media(&mut self, media: project::AudioMedia) -> &mut Self {
+        self.synced.ctx.media.insert(media.hash, media);
+        self
+    }
+
     /// Stages a project folder for `project.open`, as the page does before it runs the
     /// command (`commands::contract::Folder`).
     pub fn stage(&mut self, folder: commands::contract::Folder) -> &mut Self {

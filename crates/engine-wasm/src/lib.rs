@@ -410,82 +410,6 @@ pub unsafe extern "C" fn fk_disk_set_budget(ch: *mut Channel, bytes: f64) {
     }
 }
 
-/// Starts the host's test voice (render instance; until AU-4's clip player, the consumer of
-/// the disk rings): `port` of `track`, `source` from `start` to `end`, looping in
-/// `[loop_start, loop_end)` when `loop_end > loop_start`. Frames as JavaScript numbers.
-/// Returns 1 when it started, 0 when the track or source does not exist. No allocation.
-///
-/// # Safety
-/// `ch` as in [`host`].
-#[unsafe(no_mangle)]
-#[allow(clippy::too_many_arguments)]
-pub unsafe extern "C" fn fk_probe_start(
-    ch: *mut Channel,
-    track: u32,
-    port: u32,
-    source: u32,
-    start: f64,
-    end: f64,
-    loop_start: f64,
-    loop_end: f64,
-) -> i32 {
-    let frame = |v: f64| {
-        if (0.0..=MAX_SAFE_FRAME).contains(&v) {
-            v as u64
-        } else {
-            0
-        }
-    };
-    let looping = (loop_end > loop_start).then(|| (frame(loop_start), frame(loop_end)));
-    let path = engine::audio_source::Path {
-        start: frame(start),
-        end: frame(end),
-        looping,
-    };
-    // SAFETY: forwarded from this function's contract.
-    unsafe { host(ch) }.map_or(0, |h| {
-        i32::from(h.probe_start(
-            engine::msg::TrackSlot(track),
-            port.min(255) as u8,
-            engine::msg::SourceSlot(source),
-            path,
-        ))
-    })
-}
-
-/// Reads `frames` frames (clamped to [`MAX_FRAMES`]) of the test voice into
-/// [`fk_probe_out`] (render instance). Returns the frames that came from the source.
-///
-/// # Safety
-/// `ch` as in [`host`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn fk_probe_read(ch: *mut Channel, frames: u32) -> u32 {
-    // SAFETY: forwarded from this function's contract.
-    unsafe { host(ch) }.map_or(0, |h| {
-        h.probe_read((frames as usize).min(MAX_FRAMES)) as u32
-    })
-}
-
-/// The test voice's output, interleaved, [`fk_probe_channels`] per frame (render instance).
-///
-/// # Safety
-/// `ch` as in [`host`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn fk_probe_out(ch: *mut Channel) -> *const f32 {
-    // SAFETY: forwarded from this function's contract.
-    unsafe { host(ch) }.map_or(core::ptr::null(), |h| h.probe_out().as_ptr())
-}
-
-/// Channels of the test voice's frames.
-///
-/// # Safety
-/// `ch` as in [`host`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn fk_probe_channels(ch: *mut Channel) -> u32 {
-    // SAFETY: forwarded from this function's contract.
-    unsafe { host(ch) }.map_or(0, |h| u32::from(h.probe().channels()))
-}
-
 /// Applies what arrived on the rt ring and takes the live events (render instance; the
 /// first half of [`fk_render`]). Returns the rt messages applied.
 ///
@@ -866,6 +790,29 @@ pub mod stream_exports {
     #[unsafe(no_mangle)]
     pub extern "C" fn fk_stream_len() -> u32 {
         scenario().len() as u32
+    }
+
+    /// The audio clip player's scenario (AU-4, `engine::audio_source::scenario::player_scenario`).
+    fn player() -> &'static [f32] {
+        static OUT: OnceLock<Box<[f32]>> = OnceLock::new();
+        OUT.get_or_init(|| engine::audio_source::scenario::player_scenario().into_boxed_slice())
+    }
+
+    /// Address of the player scenario's output, null when it is empty.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fk_player_scenario() -> *const f32 {
+        let out = player();
+        if out.is_empty() {
+            core::ptr::null()
+        } else {
+            out.as_ptr()
+        }
+    }
+
+    /// Number of `f32` values [`fk_player_scenario`] points to.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fk_player_len() -> u32 {
+        player().len() as u32
     }
 }
 

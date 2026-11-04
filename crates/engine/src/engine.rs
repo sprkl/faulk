@@ -165,6 +165,9 @@ pub struct Track {
     pub instance: u32,
     /// Its stream ports (AU-3, [`crate::audio_source`]): what its voices read from disk.
     pub ports: [crate::audio_source::Port; crate::audio_source::PORTS_PER_TRACK],
+    /// The audio clip player (AU-4, [`crate::devices::clip_player`]): the instrument stage of
+    /// an audio track.
+    pub audio: crate::devices::clip_player::AudioPlayer,
 }
 
 /// What a clip plays.
@@ -1489,6 +1492,7 @@ impl Preparer {
             player: ClipPlayer::default(),
             instance: 0,
             ports: Default::default(),
+            audio: Default::default(),
         })?;
         let shadow = TrackShadow::try_new()?;
         let grown = grow_for(self.shadow.tracks.len(), slot, limits::MAX_TRACKS)?;
@@ -2207,6 +2211,7 @@ impl Engine {
                 &clock,
                 live,
                 first && self.release_live,
+                (&mut self.disk_tx, &self.disk_stats),
                 &mut left[start..end],
                 &mut right[start..end],
             );
@@ -2287,6 +2292,8 @@ impl Engine {
             }
             track.graph.outgoing().end();
             track.graph.release_notes();
+            // The audio clips start again at the next block, from where they are (AU-4).
+            track.audio.reset();
         }
         for entry in self
             .state
