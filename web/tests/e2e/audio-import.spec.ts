@@ -10,13 +10,20 @@ import { engineUp, HELPER_HOST, HELPER_PORT, watch } from './support'
 // project store Worker hashes it, decodes it with the WebAssembly build of crates/audio-import, keeps its
 // bytes in `blobs/<sha256>` and, for a file that is not read directly, its decoded PCM in
 // `.faulk/cache/pcm/`; `clip.import_audio` makes the clip. Here in the browser's own storage (the OPFS
-// draft), which is a project folder like any other.
+// draft), which is a project folder like any other. AU-2 (#111): the import also writes the file's
+// waveform peaks to `.faulk/cache/peaks/`, which the Clips panel draws; an opening makes missing ones again.
 
 test.describe.configure({ timeout: 180_000 })
 
 const FIXTURES = fileURLToPath(new URL('../../../crates/audio-import/tests/fixtures/', import.meta.url))
 const fixture = (name: string) => `${FIXTURES}${name}`
 const sha256 = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex')
+/** What the native build records of each fixture (`peaks_sha256`: the waveform peaks it computes). */
+const expected = JSON.parse(readFileSync(fixture('expected.json'), 'utf8')) as Record<string, { peaks_sha256?: string }>
+
+/** The size of the peaks file of a media: a 32-byte header, then four levels of 2 bytes a channel a peak (crates/audio-import `peaks.rs`). */
+const peaksSize = (frames: number, channels: number) => 32 + [256, 1024, 4096, 16_384].reduce((n, block) => n + Math.ceil(frames / block) * 2 * channels, 0)
+const peaksPath = (hash: string) => `.faulk/cache/peaks/${hash}.peaks`
 
 type View = {
   project: {
@@ -51,6 +58,40 @@ const opfsFiles = (page: Page) =>
     }
     return out
   })
+
+/** The SHA-256 of a file of the page's browser projects (below `faulk/browser/<dir>/`), or `null`. */
+const opfsDigest = (page: Page, path: string) =>
+  page.evaluate(async (path) => {
+    const browser = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('faulk')).getDirectoryHandle('browser')
+    for await (const project of (browser as unknown as { values(): AsyncIterable<FileSystemDirectoryHandle> }).values()) {
+      try {
+        const parts = path.split('/')
+        let dir: FileSystemDirectoryHandle = project
+        for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part)
+        const bytes = await (await (await dir.getFileHandle(parts.at(-1)!)).getFile()).arrayBuffer()
+        return [...new Uint8Array(await crypto.subtle.digest('SHA-256', bytes))].map((b) => b.toString(16).padStart(2, '0')).join('')
+      } catch {
+        // Another project's directory.
+      }
+    }
+    return null
+  }, path)
+
+/** Removes a file of the page's browser projects (a new machine, a cleaned folder, a project from before AU-2). */
+const opfsRemove = (page: Page, path: string) =>
+  page.evaluate(async (path) => {
+    const browser = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('faulk')).getDirectoryHandle('browser')
+    for await (const project of (browser as unknown as { values(): AsyncIterable<FileSystemDirectoryHandle> }).values()) {
+      const parts = path.split('/')
+      let dir: FileSystemDirectoryHandle = project
+      try {
+        for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part)
+        await dir.removeEntry(parts.at(-1)!)
+      } catch {
+        // Another project's directory.
+      }
+    }
+  }, path)
 
 /** Whether the page, after a reload, has its project back (the draft reopens by itself). */
 const reopened = (page: Page) =>
@@ -95,6 +136,13 @@ test('a WAV chosen in the Clips panel becomes a clip, its bytes kept once in blo
   await expect.poll(async () => Object.keys(await opfsFiles(page)).filter((p) => p.startsWith('blobs/'))).toEqual([`blobs/${hash}`])
   expect((await opfsFiles(page))[`blobs/${hash}`]).toBe(readFileSync(fixture('sine-s16.wav')).length)
   expect(Object.keys(await opfsFiles(page)).filter((p) => p.startsWith('.faulk/cache/pcm'))).toEqual([])
+  // Its waveform peaks (AU-2): the native build's bytes, drawn in the clip's row.
+  expect((await opfsFiles(page))[peaksPath(hash)]).toBe(peaksSize(22_050, 2))
+  expect(await opfsDigest(page, peaksPath(hash))).toBe(expected['sine-s16.wav']!.peaks_sha256)
+  const wave = page.getByTestId('pool-waveform').getByTestId('waveform')
+  await expect(wave).toHaveAttribute('data-state', 'ready')
+  await expect.poll(async () => Number(await wave.getAttribute('data-draw-count'))).toBeGreaterThan(0)
+  await expect(wave).not.toHaveAttribute('data-level', '')
   // The same file again: a second clip, still one blob.
   await choose(page, fixture('sine-s16.wav'))
   await expect(page.getByTestId('pool-clip')).toHaveCount(2)
@@ -124,26 +172,23 @@ test('an MP3 gets its decoded PCM in the cache, and a cache deleted is made agai
   expect((await audioClips(page, track))[0]!.content.audio!.media.frames).toBe(22_050)
   await expect.poll(async () => Object.keys(await opfsFiles(page)).some((p) => p.includes('/clips/'))).toBe(true)
   await page.waitForTimeout(2000)
-  // The cache goes (a new machine, a cleaned folder): the next opening makes it again.
-  await page.evaluate(async (path) => {
-    const browser = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('faulk')).getDirectoryHandle('browser')
-    for await (const project of (browser as unknown as { values(): AsyncIterable<FileSystemDirectoryHandle> }).values()) {
-      const parts = path.split('/')
-      let dir: FileSystemDirectoryHandle = project
-      try {
-        for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part)
-        await dir.removeEntry(parts.at(-1)!)
-      } catch {
-        // Another project's directory.
-      }
-    }
-  }, cache)
+  expect((await opfsFiles(page))[peaksPath(hash)]).toBe(peaksSize(22_050, 2))
+  // The caches go (a new machine, a cleaned folder; no peaks at all for a project from before AU-2): the next opening makes them again.
+  await opfsRemove(page, cache)
+  await opfsRemove(page, peaksPath(hash))
   expect((await opfsFiles(page))[cache]).toBeUndefined()
   await page.reload()
   await expect.poll(() => reopened(page), { timeout: 30_000 }).toBe(true)
-  const report = await page.evaluate(() => (window as unknown as { __faulkAudioCache(): Promise<{ made: string[] } | null> }).__faulkAudioCache())
+  const report = await page.evaluate(() =>
+    (window as unknown as { __faulkAudioCache(): Promise<{ made: string[]; peaks: string[] } | null> }).__faulkAudioCache(),
+  )
   expect(report?.made).toEqual([hash])
+  expect(report?.peaks).toEqual([hash])
   expect((await opfsFiles(page))[cache]).toBe(32 + 22_050 * 2 * 4)
+  expect(await opfsDigest(page, peaksPath(hash))).toBe(expected['sine.mp3']!.peaks_sha256)
+  // The clip's row draws them.
+  await page.getByTestId('panel-clips').click()
+  await expect(page.getByTestId('pool-waveform').getByTestId('waveform')).toHaveAttribute('data-state', 'ready')
   expect(errors).toEqual([])
 })
 
@@ -171,7 +216,8 @@ const CODE = '12345678'
 const TOKEN = 'e2e-token'
 const text = (data: RawData) => (Array.isArray(data) ? Buffer.concat(data) : data instanceof ArrayBuffer ? Buffer.from(data) : data).toString('utf8')
 
-test('a one-hour file: the progress shows as it goes, and in Boost no byte of it crosses to the helper @full', async ({ page }) => {
+/** A stand-in helper on the e2e port: records every frame the page sends on its session. */
+async function standInHelper() {
   const server = new WebSocketServer({ host: HELPER_HOST, port: HELPER_PORT })
   await new Promise<void>((resolve, reject) => {
     server.once('listening', resolve)
@@ -191,15 +237,75 @@ test('a one-hour file: the progress shows as it goes, and in Boost no byte of it
     } else if (url.pathname === '/control' && url.searchParams.get('token') === TOKEN) send({ type: 'control.hello', protocol: PROTOCOL_VERSION })
     else ws.close()
   })
+  const close = async () => {
+    for (const client of server.clients) client.terminate()
+    await new Promise((resolve) => server.close(resolve))
+  }
+  return { frames, close }
+}
+
+/** Pairs the page with the stand-in helper and waits for Boost. */
+async function toBoost(page: Page, frames: Buffer[]) {
+  await page.getByTestId('engine-mode').click()
+  await page.getByRole('textbox', { name: /code/i }).fill('1234 5678')
+  await page.getByRole('button', { name: 'Pair', exact: true }).click()
+  await engineUp(page, 'Boost')
+  await page.keyboard.press('Escape')
+  await expect.poll(() => frames.length).toBeGreaterThan(0)
+}
+
+test('the same file gets the same waveform peaks in Web and in Boost, those of the native build, and none of them crosses to the helper', async ({ page }) => {
+  const helper = await standInHelper()
   try {
     const { errors } = watch(page)
     const track = await audioTrack(page)
-    await page.getByTestId('engine-mode').click()
-    await page.getByRole('textbox', { name: /code/i }).fill('1234 5678')
-    await page.getByRole('button', { name: 'Pair', exact: true }).click()
-    await engineUp(page, 'Boost')
-    await page.keyboard.press('Escape')
-    await expect.poll(() => frames.length).toBeGreaterThan(0)
+    const hash = sha256(fixture('sine.mp3'))
+    // Web: the import writes the peaks.
+    await choose(page, fixture('sine.mp3'))
+    await expect(page.getByTestId('pool-clip')).toHaveCount(1)
+    await expect.poll(() => opfsDigest(page, peaksPath(hash))).toBe(expected['sine.mp3']!.peaks_sha256)
+    // Boost: the same file again, its peaks file removed first so that this import writes it anew.
+    await toBoost(page, helper.frames)
+    await opfsRemove(page, peaksPath(hash))
+    const before = helper.frames.length
+    await choose(page, fixture('sine.mp3'))
+    await expect(page.getByTestId('pool-clip')).toHaveCount(2)
+    await expect.poll(() => opfsDigest(page, peaksPath(hash))).toBe(expected['sine.mp3']!.peaks_sha256)
+    // The peaks are the page's: no frame to the helper carries them, neither their header's magic nor a run of their level-0 bytes.
+    const file = Buffer.from(
+      await page.evaluate(async (path) => {
+        const browser = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('faulk')).getDirectoryHandle('browser')
+        for await (const project of (browser as unknown as { values(): AsyncIterable<FileSystemDirectoryHandle> }).values()) {
+          try {
+            let dir: FileSystemDirectoryHandle = project
+            const parts = path.split('/')
+            for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part)
+            return [...new Uint8Array(await (await (await dir.getFileHandle(parts.at(-1)!)).getFile()).arrayBuffer())]
+          } catch {
+            // Another project's directory.
+          }
+        }
+        return []
+      }, peaksPath(hash)),
+    )
+    expect(file.length).toBe(peaksSize(22_050, 2))
+    for (const run of [file.subarray(0, 8), file.subarray(32, 64), file.subarray(200, 232)]) {
+      for (const frame of helper.frames.slice(before)) expect(frame.includes(run)).toBe(false)
+    }
+    await expect(page.getByTestId('pool-waveform').first().getByTestId('waveform')).toHaveAttribute('data-state', 'ready')
+    void track
+    expect(errors).toEqual([])
+  } finally {
+    await helper.close()
+  }
+})
+
+test('a one-hour file: the progress shows as it goes, and in Boost no byte of it crosses to the helper @full', async ({ page }) => {
+  const { frames, close } = await standInHelper()
+  try {
+    const { errors } = watch(page)
+    const track = await audioTrack(page)
+    await toBoost(page, frames)
     const before = frames.length
     // One hour of mono 16-bit audio at 16 kHz (115 MB), built in the page: a WAV header then the same second
     // of samples 3 600 times. Its samples carry a run no engine message would: 0x5a, 0x3c repeated.
@@ -260,11 +366,45 @@ test('a one-hour file: the progress shows as it goes, and in Boost no byte of it
     const bytes = sent.reduce((n, f) => n + f.length, 0)
     console.log(`one-hour import in Boost: ${sent.length} frames, ${bytes} bytes to the helper`)
     expect(bytes).toBeLessThan(64 * 1024)
-    const run = Buffer.from(Array.from({ length: 32 }, (_, i) => (i % 2 ? 0x3c : 0x5a)))
-    for (const frame of sent) expect(frame.includes(run)).toBe(false)
+    const pattern = Buffer.from(Array.from({ length: 32 }, (_, i) => (i % 2 ? 0x3c : 0x5a)))
+    for (const frame of sent) expect(frame.includes(pattern)).toBe(false)
+    // Its waveform peaks (AU-2): about 45 KB a minute at the finest level in stereo at 48 kHz; here mono at
+    // 16 kHz, so 62.5 blocks a second of 2 bytes, 7.5 KB a minute, and the clip's row draws them.
+    const hash = hashes[0]!
+    const files = await opfsFiles(page)
+    expect(files[peaksPath(hash)]).toBe(peaksSize(SECONDS * RATE, 1))
+    console.log(`one-hour peaks: ${files[peaksPath(hash)]} bytes (${Math.ceil((SECONDS * RATE) / 256) * 2} at the finest level)`)
+    await expect(page.getByTestId('pool-waveform').getByTestId('waveform')).toHaveAttribute('data-state', 'ready')
+    // Gone (a project from before AU-2): the next opening decodes the hour again for them, in the background,
+    // while the page keeps answering its commands.
+    await opfsRemove(page, peaksPath(hash))
+    await expect.poll(async () => Object.keys(await opfsFiles(page)).some((p) => p.includes('/clips/'))).toBe(true)
+    await page.waitForTimeout(2000)
+    const reloaded = performance.now()
+    await page.reload()
+    await expect.poll(() => reopened(page), { timeout: 60_000 }).toBe(true)
+    const answers: number[] = []
+    let made = false
+    const remade = page
+      .evaluate(() => (window as unknown as { __faulkAudioCache(): Promise<{ peaks: string[] } | null> }).__faulkAudioCache())
+      .then((report) => ((made = true), report))
+    while (!made) {
+      const start = performance.now()
+      await page.evaluate(() => (window as unknown as { __faulkView(): unknown }).__faulkView())
+      await run(page, { type: 'view.select_track', track })
+      answers.push(performance.now() - start)
+      await page.waitForTimeout(200)
+    }
+    const report = await remade
+    const regenMs = performance.now() - reloaded
+    console.log(
+      `one-hour peaks made again at the opening: ${(regenMs / 1000).toFixed(1)} s from the reload; ${answers.length} commands meanwhile, slowest answer ${Math.max(...answers).toFixed(0)} ms`,
+    )
+    expect(report?.peaks).toEqual([hash])
+    expect((await opfsFiles(page))[peaksPath(hash)]).toBe(peaksSize(SECONDS * RATE, 1))
+    expect(Math.max(...answers)).toBeLessThan(1000)
     expect(errors).toEqual([])
   } finally {
-    for (const client of server.clients) client.terminate()
-    await new Promise((resolve) => server.close(resolve))
+    await close()
   }
 })

@@ -11,10 +11,20 @@ import { MemoryDir } from '../../storage/memory-dir'
 import { StoreError } from '../../storage/types'
 import { CACHE_HEADER_BYTES, HEAD_BYTES, ImportError, ImportModule, type ReadSync } from './abi'
 import { cachePath, ensureAudioCache, importAudio, importLock, IMPORT_TMP_PREFIX, mediaName, type PipelineDeps } from './pipeline'
+import { peaksPath } from '../peaks/format'
 
 const FIXTURES = new URL('../../../../../crates/audio-import/tests/fixtures/', import.meta.url)
 const fixture = (name: string) => new Uint8Array(readFileSync(new URL(name, FIXTURES)))
-type Record = { error?: string; sha256?: string; sample_rate?: number; channels?: number; frames?: number; direct?: boolean; pcm_sha256?: string }
+type Record = {
+  error?: string
+  sha256?: string
+  sample_rate?: number
+  channels?: number
+  frames?: number
+  direct?: boolean
+  pcm_sha256?: string
+  peaks_sha256?: string
+}
 const expected = JSON.parse(readFileSync(new URL('expected.json', FIXTURES), 'utf8')) as { [name: string]: Record }
 
 let compiled: WebAssembly.Module
@@ -58,6 +68,8 @@ describe('the import module, as the page runs it', () => {
         module.open(readerOf(bytes), bytes.length, name.split('.').pop()!)
         for (let block = module.next(); block; block = module.next()) blocks.push(block.slice())
         const info = module.finish()
+        // The waveform peaks (AU-2): the native build's bytes, for every file (MP3 and AAC too).
+        expect(sha256(module.peaks()!), `${name} peaks`).toBe(record.peaks_sha256)
         const direct = module.direct(bytes.subarray(0, HEAD_BYTES), bytes.length, info)
         const pcm = new Float32Array(blocks.reduce((n, b) => n + b.length, 0))
         blocks.reduce((at, b) => (pcm.set(b, at), at + b.length), 0)
@@ -120,7 +132,9 @@ describe('the import pipeline over a project folder', () => {
     expect(second.media.hash).toBe(hash)
     expect(second.blob.created).toBe(false)
     expect(dir.paths().filter((p) => p.startsWith('blobs/'))).toEqual([`blobs/${hash}`])
-    expect(dir.paths().filter((p) => p.startsWith('.faulk/'))).toEqual([])
+    // The waveform peaks are its only cache.
+    expect(dir.paths().filter((p) => p.startsWith('.faulk/'))).toEqual([peaksPath(hash)])
+    expect(first.peaks).toBe(true)
   })
 
   it('writes the decoded PCM of a compressed file to its cache, which is valid and holds the decode', async () => {
@@ -134,7 +148,8 @@ describe('the import pipeline over a project folder', () => {
     expect(bytes.length).toBe(CACHE_HEADER_BYTES + media.frames * media.channels * 4)
     expect(new ImportModule(compiled).cacheValid(bytes.subarray(0, CACHE_HEADER_BYTES), bytes.length, media)).toBe(true)
     expect(sha256(bytes.subarray(CACHE_HEADER_BYTES))).toBe(expected['sine.ogg']!.pcm_sha256)
-    expect(dir.paths().sort()).toEqual([`.faulk/cache/pcm/${media.hash}.pcm`, `blobs/${media.hash}`])
+    expect(dir.paths().sort()).toEqual([`.faulk/cache/pcm/${media.hash}.pcm`, peaksPath(media.hash), `blobs/${media.hash}`])
+    expect(sha256(dir.bytes(peaksPath(media.hash))!)).toBe(expected['sine.ogg']!.peaks_sha256)
   })
 
   it('stores nothing for a file it refuses, and nothing either when cancelled', async () => {
@@ -158,13 +173,19 @@ describe('the import pipeline over a project folder', () => {
       await expect(refused).rejects.toMatchObject({ name: 'QuotaExceededError' })
       expect(dir.paths()).toEqual([])
     }
+    // The peaks are a cache: a write of them refused leaves the import whole, without them.
+    const dir = new MemoryDir('song')
+    dir.hooks.failWrite = (name) => name.endsWith('.peaks')
+    const outcome = await importAudio(dir.handle(), file('sine.mp3'), deps())
+    expect(outcome.peaks).toBe(false)
+    expect(dir.paths().sort()).toEqual([cachePath(outcome.media.hash), `blobs/${outcome.media.hash}`])
   })
 
   it('makes the blob in place where the folder cannot move a file, and the cache too', async () => {
     const dir = new MemoryDir('song')
     dir.hooks.noMove = true
     const { media } = await importAudio(dir.handle(), file('sine.ogg'), deps())
-    expect(dir.paths().sort()).toEqual([`.faulk/cache/pcm/${media.hash}.pcm`, `blobs/${media.hash}`])
+    expect(dir.paths().sort()).toEqual([`.faulk/cache/pcm/${media.hash}.pcm`, peaksPath(media.hash), `blobs/${media.hash}`])
     // A write that fails in place removes the name: no half-written blob under a hash.
     const other = new MemoryDir('song')
     other.hooks.noMove = true
@@ -195,7 +216,7 @@ describe('the import pipeline over a project folder', () => {
       ensureAudioCache(other.handle(), [{ hash: m4a.sha256!, sample_rate: 44_100, channels: 2, frames: 22_050 }], one),
     ])
     expect(imported.media.frames).toBe(22_050)
-    expect(report).toEqual({ made: [m4a.sha256], missing: [], failed: [] })
+    expect(report).toEqual({ made: [m4a.sha256], peaks: [m4a.sha256], missing: [], failed: [] })
     const cache = (other.entries.get('.faulk') as MemoryDir).entries.get('cache') as MemoryDir
     const made = (cache.entries.get('pcm') as MemoryDir).entries.get(`${m4a.sha256}.pcm`) as unknown as { bytes: Uint8Array }
     const native = new Float32Array(new Uint8Array(readFileSync(new URL('sine.m4a.pcm', FIXTURES))).buffer)
@@ -211,7 +232,8 @@ describe('the import pipeline over a project folder', () => {
     ])
     expect(outcomes[0]!.media.hash).toBe(outcomes[1]!.media.hash)
     const hash = outcomes[0]!.media.hash
-    expect(dir.paths().sort()).toEqual([`.faulk/cache/pcm/${hash}.pcm`, `blobs/${hash}`])
+    expect(dir.paths().sort()).toEqual([`.faulk/cache/pcm/${hash}.pcm`, peaksPath(hash), `blobs/${hash}`])
+    expect(sha256(dir.bytes(peaksPath(hash))!)).toBe(expected['sine.mp3']!.peaks_sha256)
   })
 
   it('names a media as the project takes it: trimmed, 200 characters at most', () => {
@@ -235,13 +257,50 @@ describe('the PCM caches an opening makes again', () => {
     dir.put(cachePath(ref('sine.m4a').hash), new Uint8Array(100))
     const media = [ref('sine.mp3'), ref('sine.m4a'), ref('sine-s24.wav'), ref('sine.ogg'), ref('sine.mp3')]
     const report = await ensureAudioCache(dir.handle(), media, deps())
-    expect(report).toEqual({ made: [ref('sine.mp3').hash, ref('sine.m4a').hash], missing: [ref('sine.ogg').hash], failed: [] })
+    expect(report).toEqual({
+      made: [ref('sine.mp3').hash, ref('sine.m4a').hash],
+      // The WAV is read directly (no PCM cache) but still gets its peaks.
+      peaks: [ref('sine.mp3').hash, ref('sine.m4a').hash, ref('sine-s24.wav').hash],
+      missing: [ref('sine.ogg').hash],
+      failed: [],
+    })
     for (const name of ['sine.mp3', 'sine.m4a']) {
       const bytes = new TextEncoder().encode(dir.text(cachePath(ref(name).hash)) ?? '')
       expect(bytes.length).toBeGreaterThan(0)
     }
     // Once made, nothing to do.
-    expect(await ensureAudioCache(dir.handle(), media, deps())).toEqual({ made: [], missing: [ref('sine.ogg').hash], failed: [] })
+    expect(await ensureAudioCache(dir.handle(), media, deps())).toEqual({ made: [], peaks: [], missing: [ref('sine.ogg').hash], failed: [] })
+  })
+
+  it('makes the peaks a project imported before them lacks, leaving a valid PCM cache alone, and remakes doubtful ones', async () => {
+    const dir = new MemoryDir('song')
+    const mp3 = await importAudio(dir.handle(), new File([fixture('sine.mp3') as Uint8Array<ArrayBuffer>], 'a.mp3'), deps())
+    const wav = await importAudio(dir.handle(), new File([fixture('sine-s16.wav') as Uint8Array<ArrayBuffer>], 'b.wav'), deps())
+    const media = [mp3.media, wav.media]
+    const pcm = dir.bytes(cachePath(mp3.media.hash))!
+    const good = dir.bytes(peaksPath(mp3.media.hash))!
+    // As before AU-2: no peaks at all.
+    dir.remove(peaksPath(mp3.media.hash))
+    dir.remove(peaksPath(wav.media.hash))
+    expect(await ensureAudioCache(dir.handle(), media, deps())).toEqual({ made: [], peaks: [mp3.media.hash, wav.media.hash], missing: [], failed: [] })
+    expect(dir.bytes(peaksPath(mp3.media.hash))).toEqual(good)
+    expect(dir.bytes(cachePath(mp3.media.hash))).toEqual(pcm)
+    // Of another decoder (byte 24), cut short, or longer: made again.
+    for (const doubtful of [Uint8Array.from(good, (b, i) => (i === 24 ? b + 1 : b)), good.slice(0, good.length - 1), Uint8Array.from([...good, 0])]) {
+      dir.put(peaksPath(mp3.media.hash), doubtful)
+      expect((await ensureAudioCache(dir.handle(), media, deps())).peaks).toEqual([mp3.media.hash])
+      expect(dir.bytes(peaksPath(mp3.media.hash))).toEqual(good)
+    }
+    expect((await ensureAudioCache(dir.handle(), media, deps())).peaks).toEqual([])
+  })
+
+  it('a peaks write the folder refuses leaves the PCM cache made and the media not failed', async () => {
+    const dir = new MemoryDir('song')
+    const m = ref('sine.mp3')
+    dir.put(`blobs/${m.hash}`, fixture('sine.mp3'))
+    dir.hooks.failWrite = (name) => name.endsWith('.peaks')
+    expect(await ensureAudioCache(dir.handle(), [m], deps())).toEqual({ made: [m.hash], peaks: [], missing: [], failed: [] })
+    expect(dir.paths().sort()).toEqual([cachePath(m.hash), `blobs/${m.hash}`])
   })
 
   it('reports a blob that does not decode as the project says, and keeps no cache of it', async () => {

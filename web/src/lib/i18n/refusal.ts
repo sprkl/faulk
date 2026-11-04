@@ -28,6 +28,7 @@ export const refusal = defineFeature(
     'refusal.entity.clipsPerTrack': 'clips per track',
     'refusal.entity.lanes': 'automation lanes',
     'refusal.entity.exportSeconds': 'seconds of export',
+    'refusal.entity.analyzeSeconds': 'seconds of analysis',
   },
   {
     'refusal.not_found': 'Pas fait : la cible n’existe plus.',
@@ -50,5 +51,6 @@ export const refusal = defineFeature(
     'refusal.entity.clipsPerTrack': 'clips par piste',
     'refusal.entity.lanes': 'courbes d’automation',
     'refusal.entity.exportSeconds': 'secondes d’export',
+    'refusal.entity.analyzeSeconds': 'secondes d’analyse',
   },
 )

@@ -15,6 +15,9 @@
 //!   in the little-endian wasm memory are already the bytes of the PCM cache);
 //!   [`ai_finish`] checks and gives the metadata ([`ai_rate`], [`ai_channels`],
 //!   [`ai_frames`]).
+//! - **Peaks** (AU-2): each block a job decodes also goes to its waveform peaks; after
+//!   [`ai_finish`], [`ai_peaks`] and [`ai_peaks_len`] give the whole peaks file
+//!   (`.faulk/cache/peaks/<sha256>.peaks`), and [`ai_peaks_valid`] checks one.
 //! - **Layout and cache**: [`ai_layout`] says whether the file is read directly (no cache);
 //!   [`ai_cache_header`] and [`ai_cache_valid`] write and check the cache's header.
 //!
@@ -23,7 +26,7 @@
 //! file as damaged and makes a new instance. Natively (tests) the reader is a buffer set by
 //! [`set_source`].
 
-use audio_import::{Decoding, ImportError, MediaInfo, PcmLayout, Sha256, Source, cache};
+use audio_import::{Decoding, ImportError, MediaInfo, PcmLayout, Sha256, Source, cache, peaks};
 use std::cell::RefCell;
 use std::io::{Read, Seek, SeekFrom};
 
@@ -57,6 +60,10 @@ struct State {
     job: Option<Decoding>,
     info: Option<MediaInfo>,
     block: Vec<f32>,
+    /// The peaks of the open job, made at its first block (the channels are known then).
+    peaks: Option<peaks::PeakBuilder>,
+    /// The peaks file of the last job finished (empty when it gave none).
+    peaks_file: Vec<u8>,
     error: String,
     header: [u8; cache::HEADER_BYTES],
 }
@@ -69,6 +76,8 @@ thread_local! {
         job: None,
         info: None,
         block: Vec::new(),
+        peaks: None,
+        peaks_file: Vec::new(),
         error: String::new(),
         header: [0; cache::HEADER_BYTES],
     }) };
@@ -222,6 +231,8 @@ pub extern "C" fn ai_open(len_lo: u32, len_hi: u32, hint_len: u32) -> i32 {
         s.job = None;
         s.info = None;
         s.block.clear();
+        s.peaks = None;
+        s.peaks_file = Vec::new();
         POSITION.set(0);
         let hint = std::str::from_utf8(&s.inbox[..(hint_len as usize).min(s.inbox.len())])
             .ok()
@@ -245,15 +256,23 @@ pub extern "C" fn ai_open(len_lo: u32, len_hi: u32, hint_len: u32) -> i32 {
 #[unsafe(no_mangle)]
 pub extern "C" fn ai_next() -> i32 {
     STATE.with_borrow_mut(|s| {
-        let State { job, block, .. } = s;
+        let State {
+            job, block, peaks, ..
+        } = s;
         let Some(job) = job.as_mut() else {
             return ERR_NO_JOB;
         };
         match job.next(block) {
-            Ok(true) => BLOCK,
+            Ok(true) => {
+                peaks
+                    .get_or_insert_with(|| peaks::PeakBuilder::new(job.channels()))
+                    .push(block);
+                BLOCK
+            }
             Ok(false) => END,
             Err(e) => {
                 s.job = None;
+                s.peaks = None;
                 fail(s, &e)
             }
         }
@@ -286,9 +305,11 @@ pub extern "C" fn ai_finish() -> i32 {
         let Some(job) = s.job.take() else {
             return ERR_NO_JOB;
         };
+        let builder = s.peaks.take();
         match job.finish() {
             Ok(info) => {
                 s.info = Some(info);
+                s.peaks_file = builder.and_then(|b| b.finish(&info)).unwrap_or_default();
                 0
             }
             Err(e) => fail(s, &e),
@@ -402,6 +423,36 @@ pub extern "C" fn ai_cache_valid(
         let head = &s.inbox[..(head_len as usize).min(s.inbox.len())];
         let ok = info_of(rate, channels, frames)
             .is_some_and(|info| file_len >= 0.0 && cache::is_valid(head, file_len as u64, &info));
+        i32::from(ok)
+    })
+}
+
+/// The address of the peaks file of the last job finished ([`ai_peaks_len`] bytes; none when
+/// it gave none: memory refused, or nothing decoded).
+#[unsafe(no_mangle)]
+pub extern "C" fn ai_peaks() -> *const u8 {
+    STATE.with_borrow(|s| s.peaks_file.as_ptr())
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn ai_peaks_len() -> u32 {
+    STATE.with_borrow(|s| s.peaks_file.len() as u32)
+}
+
+/// Whether a peaks file whose first `head_len` bytes are in the inbox, of `file_len` bytes, is
+/// the whole peaks file of such a media for this decoder (1) or not (0).
+#[unsafe(no_mangle)]
+pub extern "C" fn ai_peaks_valid(
+    head_len: u32,
+    file_len: f64,
+    rate: u32,
+    channels: u32,
+    frames: f64,
+) -> i32 {
+    STATE.with_borrow(|s| {
+        let head = &s.inbox[..(head_len as usize).min(s.inbox.len())];
+        let ok = info_of(rate, channels, frames)
+            .is_some_and(|info| file_len >= 0.0 && peaks::is_valid(head, file_len as u64, &info));
         i32::from(ok)
     })
 }
