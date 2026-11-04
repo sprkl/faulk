@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 34;
+pub const PROTOCOL_VERSION: u32 = 35;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -43,6 +43,8 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 35 (#617; 33 is #670's and 34 is #676's): the commands gain `project.cancel_export_pack` (stops the `.faulkpack` export under way); the helper generates its MCP tools from the commands, so a helper of version 34 would not offer it to an agent. No message changes.
 
 // Version 34 (#667, 33 is #658's): the report is `Feedback` version 8: the header grows from 88
 // to 92 bytes with `silenced_frames` at offset 88 (the stereo frames the output protection

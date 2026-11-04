@@ -1561,9 +1561,19 @@ describe('the project in a folder (SV-2)', () => {
     if (frame?.status !== 'ok') throw new Error('no frame')
     const files = frame.entries.flatMap((e) => (e.type === 'write' ? [{ path: e.path, bytes: e.bytes }] : []))
     expect(session.dispatcher.host.projectName()).toBe(session.project.view!.project.name)
-    const packed = await session.dispatcher.host.packExport(files)
-    if (packed.status !== 'ok') throw new Error(packed.message)
-    const unpacked = await session.dispatcher.host.packImport(packed.zip)
+    const parts: Uint8Array[] = []
+    const packed = await session.dispatcher.host.packExport(files, {
+      read: async () => new Uint8Array(),
+      sink: { write: async (chunk) => void parts.push(chunk) },
+    })
+    if (packed.status !== 'ok') throw new Error(JSON.stringify(packed))
+    const zip = new Uint8Array(parts.reduce((n, p) => n + p.length, 0))
+    let at = 0
+    for (const part of parts) {
+      zip.set(part, at)
+      at += part.length
+    }
+    const unpacked = await session.dispatcher.host.packImport(zip)
     expect(unpacked.status === 'ok' && unpacked.files.some((f) => f.path === 'project.json')).toBe(true)
   })
 
@@ -1601,8 +1611,11 @@ describe('the project in a folder (SV-2)', () => {
     const importPack = vi.spyOn(session.storage, 'importPack').mockResolvedValue(true)
     session.dispatcher.run({ type: 'project.save' })
     session.dispatcher.run({ type: 'project.save_as' })
+    const cancelExport = vi.spyOn(session.storage, 'cancelExport')
     session.dispatcher.run({ type: 'project.export_pack' })
+    session.dispatcher.run({ type: 'project.cancel_export_pack' })
     session.dispatcher.run({ type: 'project.import_pack' })
+    expect(cancelExport).toHaveBeenCalledTimes(1)
     expect(save).toHaveBeenCalledTimes(1)
     expect(saveAs).toHaveBeenCalledTimes(1)
     expect(exportPack).toHaveBeenCalledTimes(1)
