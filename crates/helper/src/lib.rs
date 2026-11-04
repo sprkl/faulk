@@ -1,5 +1,6 @@
 //! Faulk native helper: the local bridge for Boost mode.
 
+pub mod agents;
 pub mod audio;
 pub mod instance;
 pub mod live;

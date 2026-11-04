@@ -40,6 +40,8 @@ export interface EngineEvents {
    * came from, once. `signal` aborts when that session ends: the call can no longer be answered (AG-4).
    */
   onAgentCall?(agent: string, command: unknown, answer: (result: AgentResult) => void, signal: AbortSignal): void
+  /** Native engine only: an agent left (`agent.left`, #641): its last MCP session ended or it stayed silent too long. */
+  onAgentLeft?(agent: string): void
   onError(code: string): void
   /**
    * The engine stopped taking the message stream (`MsgError::code`: out of memory, engine busy,

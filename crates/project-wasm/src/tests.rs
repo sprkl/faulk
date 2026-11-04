@@ -651,6 +651,8 @@ fn a_null_core_is_an_error_and_clears_the_engine_bytes() {
         assert_eq!(pw_project(core::ptr::null_mut()), ERR_NO_CORE);
         assert_eq!(pw_history(core::ptr::null_mut()), ERR_NO_CORE);
         assert_eq!(pw_set_author(core::ptr::null_mut(), 0), ERR_NO_CORE);
+        assert_eq!(pw_agent_left(core::ptr::null_mut(), 0), ERR_NO_CORE);
+        assert_eq!(pw_agents_gone(core::ptr::null_mut()), ERR_NO_CORE);
         assert_eq!(pw_set_clock(core::ptr::null_mut(), 1.0), ERR_NO_CORE);
         assert_eq!(pw_stage(core::ptr::null_mut(), 0), ERR_NO_CORE);
         assert_eq!(pw_stage_stored(core::ptr::null_mut(), 0), ERR_NO_CORE);
@@ -1559,6 +1561,52 @@ fn the_history_lists_entries_with_author_and_time_and_a_bad_author_changes_nothi
     assert_eq!(view["undo"].as_array().unwrap().len(), 2);
     assert_eq!(view["redo"][0]["name"], "project.rename");
     assert_eq!(view["redo"][0]["at"], 1234);
+}
+
+fn agent_left(h: &Handle, author: &str) -> i32 {
+    write_inbox(author);
+    // SAFETY: a live core.
+    unsafe { pw_agent_left(h.0, author.len() as u32) }
+}
+
+#[test]
+fn an_agent_that_left_frees_the_undo_its_group_held() {
+    // #641: the helper's `agent.left` reaches the core through `pw_agent_left`.
+    let h = Handle::new(KIND_EMPTY);
+    h.call0(pw_setup);
+    assert_eq!(set_author(&h, "agent:claude"), 0);
+    h.apply(json!({"type": "history.begin_group"}));
+    h.apply(json!({"type": "project.rename", "name": "By agent"}));
+    assert_eq!(set_author(&h, "user"), 0);
+    let (refused, _) = h.run(json!({"type": "history.undo"}));
+    assert_eq!(refused["status"], "refused", "{refused}");
+    for bad in ["", "user", "robot", "agent:"] {
+        assert_eq!(agent_left(&h, bad), ERR_BAD_INPUT, "{bad:?}");
+    }
+    assert_eq!(agent_left(&h, "agent:other"), 0, "another agent's leave");
+    assert_eq!(agent_left(&h, "agent:claude"), 1);
+    assert_eq!(agent_left(&h, "agent:claude"), 0, "nothing left to close");
+    h.apply(json!({"type": "history.undo"}));
+    assert_eq!(h.view()["project"]["name"], "Sketch");
+}
+
+#[test]
+fn every_agent_gone_frees_the_undo_and_never_closes_the_users_group() {
+    let h = Handle::new(KIND_EMPTY);
+    h.call0(pw_setup);
+    // SAFETY: a live core.
+    assert_eq!(unsafe { pw_agents_gone(h.0) }, 0);
+    h.apply(json!({"type": "history.begin_group"}));
+    // SAFETY: a live core.
+    assert_eq!(unsafe { pw_agents_gone(h.0) }, 0, "the user's group stays");
+    h.apply(json!({"type": "history.end_group"}));
+    assert_eq!(set_author(&h, "agent:claude"), 0);
+    h.apply(json!({"type": "history.begin_group"}));
+    // SAFETY: a live core.
+    assert_eq!(unsafe { pw_agents_gone(h.0) }, 1);
+    assert_eq!(set_author(&h, "user"), 0);
+    let (report, _) = h.run(json!({"type": "history.undo"}));
+    assert_eq!(report["status"], "applied", "{report}");
 }
 
 #[test]

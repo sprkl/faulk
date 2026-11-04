@@ -2035,6 +2035,7 @@ describe('the preset library and its reads (#191)', () => {
 describe("an agent's calls in Boost (AG-1)", () => {
   beforeEach(() => {
     webs = []
+    controls.length = 0
     midiOn = false
     midiReleaseAll = () => Promise.resolve()
     localStorage.clear()
@@ -2151,6 +2152,57 @@ describe("an agent's calls in Boost (AG-1)", () => {
     expect(answer).toHaveBeenCalledWith(expect.objectContaining({ status: 'unavailable' }))
     expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
   })
+
+  /** The agent `agent` opens a history group and edits in it; the user cannot undo meanwhile. */
+  async function groupOpenedBy(session: Awaited<ReturnType<typeof boosted>>, agent: string) {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(await call(agent, { type: 'history.begin_group' })).toMatchObject({ status: 'applied' })
+    expect(await call(agent, setParamCommand(firstParam, 0.3))).toMatchObject({ status: 'applied' })
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam], 'undo is refused while the group is open').toBe(0.3)
+  }
+
+  it('closes the group of an agent that left: the user undoes it at once (#641)', async () => {
+    const session = await boosted()
+    await groupOpenedBy(session, 'claude-code')
+    nativeEvents!.onAgentLeft!('claude-code')
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+  })
+
+  it("leaves an agent's group open when another agent leaves, or when Boost ends while the control link stays (#641)", async () => {
+    const session = await boosted()
+    await vi.waitFor(() => expect(controls).toHaveLength(1))
+    await groupOpenedBy(session, 'a')
+    nativeEvents!.onAgentLeft!('b')
+    controls[0].events.onAgentLeft('b')
+    await session.dispatcher.enterWeb()
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam]).toBe(0.3)
+    // Its calls now come on the control link, and it closes its own group.
+    expect(await call2(controls[0], 'a', { type: 'history.end_group' })).toMatchObject({ status: 'applied' })
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+  })
+
+  it("closes an agent's group when the page loses both its Boost session and its control link (#641)", async () => {
+    const session = await boosted()
+    await vi.waitFor(() => expect(controls).toHaveLength(1))
+    await groupOpenedBy(session, 'a')
+    controls[0].events.onClosed(false)
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam], 'the Boost session still links the page').toBe(0.3)
+    nativeEvents!.onClosed()
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+  })
+
+  async function call2(link: FakeControl, agent: string, command: unknown) {
+    const answer = vi.fn()
+    link.events.onAgentCall(agent, command, answer, new AbortController().signal)
+    await vi.waitFor(() => expect(answer).toHaveBeenCalledTimes(1))
+    return answer.mock.calls[0][0]
+  }
 })
 
 describe("an agent's calls on the control link, in Web mode and without an output (#608)", () => {
@@ -2186,6 +2238,42 @@ describe("an agent's calls on the control link, in Web mode and without an outpu
     await vi.waitFor(() => expect(answer).toHaveBeenCalledTimes(1))
     return answer.mock.calls[0][0]
   }
+
+  /** The agent `agent` opens a history group on the control link and edits in it; the user cannot undo meanwhile. */
+  async function groupOpenedBy(session: Awaited<ReturnType<typeof linked>>, agent: string) {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(await call(controls[0], agent, { type: 'history.begin_group' })).toMatchObject({ status: 'applied' })
+    expect(await call(controls[0], agent, setParamCommand(firstParam, 0.3))).toMatchObject({ status: 'applied' })
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam], 'undo is refused while the group is open').toBe(0.3)
+  }
+
+  it('closes the group of an agent that left, in Web mode (#641)', async () => {
+    const session = await linked()
+    await groupOpenedBy(session, 'claude-code')
+    controls[0].events.onAgentLeft('claude-code')
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+  })
+
+  it("closes an agent's group when the helper drops the page's only link (#641)", async () => {
+    const session = await linked()
+    await groupOpenedBy(session, 'a')
+    controls[0].events.onClosed(false)
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+  })
+
+  it("closes an agent's group when the page itself replaces its only link for another helper's (#641)", async () => {
+    pairHelper.mockResolvedValue({ status: 'paired', token: 'second' })
+    const session = await linked()
+    await groupOpenedBy(session, 'a')
+    await session.dispatcher.pair('12345678')
+    await vi.waitFor(() => expect(controls.map((c) => c.token)).toEqual(['x', 'second']))
+    expect(controls[0].close).toHaveBeenCalled()
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+  })
 
   it('runs the call in Web mode like the user, through the Web engine: history author, undo, refusal', async () => {
     const session = await linked()
@@ -2573,6 +2661,24 @@ describe("an agent's destructive calls wait for the user's answer in the page (A
     expect(await answer).toMatchObject({ status: 'unavailable' })
     expect(session.dispatcher.confirmations.pending).toEqual([])
     expect(spies.reopenLast).not.toHaveBeenCalled()
+  })
+
+  it('withdraws the questions of an agent that left, and runs nothing for it (#641)', async () => {
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = await started()
+    controls.length = 0
+    await session.dispatcher.linkControl()
+    const link = controls[0]
+    const spies = storageSpies(session)
+    const answer = session.dispatcher.runForAgent({ type: 'project.reopen_last' }, 'agent:a')
+    const other = session.dispatcher.runForAgent({ type: 'project.new' }, 'agent:b')
+    await vi.waitFor(() => expect(session.dispatcher.confirmations.pending).toHaveLength(2))
+    link.events.onAgentLeft('a')
+    expect(await answer).toMatchObject({ status: 'unavailable' })
+    expect(session.dispatcher.confirmations.pending.map((p) => p.agent)).toEqual(['agent:b'])
+    expect(spies.reopenLast).not.toHaveBeenCalled()
+    session.dispatcher.confirmations.answer(false)
+    expect(await other).toMatchObject({ status: 'refused' })
   })
 
   it('answers an allowed storage action once the storage did it, told it was allowed', async () => {

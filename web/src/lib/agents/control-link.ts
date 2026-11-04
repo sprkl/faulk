@@ -9,6 +9,8 @@ export interface ControlEvents {
    * the link closes: the call can no longer be answered (AG-4).
    */
   onAgentCall(agent: string, command: unknown, answer: (result: AgentResult) => void, signal: AbortSignal): void
+  /** An agent left (`agent.left`, #641): its last MCP session ended or it stayed silent too long. */
+  onAgentLeft(agent: string): void
   /**
    * The link closed after it opened: the helper went away or restarted, or (`pushedOut`) it closed this link because
    * newer ones went past its limit (`CONTROL_PUSHED_OUT`).
@@ -25,7 +27,7 @@ export class ControlTimeout extends Error {
 }
 
 /**
- * The page's control link to the helper (#608): the agents' relay only (`agent.call` in, `agent.result` out). A paired
+ * The page's control link to the helper (#608): the agents' relay only (`agent.call` and `agent.left` in, `agent.result` out). A paired
  * page holds it in Web mode as in Boost, whether or not the helper has an audio output; it never takes the audio role
  * (that is the Boost session's, `NativeEngine`). The helper sends an agent's call to the Boost session if there is
  * one, else to the front control link: the newest, or the last that said `control.front`.
@@ -62,6 +64,7 @@ export class ControlLink {
       }
       ws.onmessage = (event) => {
         const message = parseServerMessage(event.data)
+        if (message?.type === 'agent.left') return events.onAgentLeft(message.agent)
         if (message?.type !== 'agent.call') return
         events.onAgentCall(
           message.agent,
