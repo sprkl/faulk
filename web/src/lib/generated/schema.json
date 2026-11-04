@@ -10459,7 +10459,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Delete placements, in one command, MIDI or audio ones. Their clips stay in their\ntracks, even one that loses its last placement and sits in no grid slot: it stays in\nthe track's pool (an audio clip keeps its file; `arrangement.place` puts a MIDI clip\nback, `clip.delete` deletes a clip). Refused when the\nlist is empty, names a placement twice or an unknown one. Undo:\n`arrangement.restore`.",
+        "description": "Delete placements, in one command, MIDI or audio ones. Their clips stay in their\ntracks, even one that loses its last placement and sits in no grid slot: it stays in\nthe track's pool (an audio clip keeps its file; `arrangement.place` puts a clip back,\nMIDI or audio; `clip.delete` deletes a clip). Refused when the\nlist is empty, names a placement twice or an unknown one. Undo:\n`arrangement.restore`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -16036,7 +16036,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Delete placements, in one command, MIDI or audio ones. Their clips stay in their\ntracks, even one that loses its last placement and sits in no grid slot: it stays in\nthe track's pool (an audio clip keeps its file; `arrangement.place` puts a MIDI clip\nback, `clip.delete` deletes a clip). Refused when the\nlist is empty, names a placement twice or an unknown one. Undo:\n`arrangement.restore`.",
+              "description": "Delete placements, in one command, MIDI or audio ones. Their clips stay in their\ntracks, even one that loses its last placement and sits in no grid slot: it stays in\nthe track's pool (an audio clip keeps its file; `arrangement.place` puts a clip back,\nMIDI or audio; `clip.delete` deletes a clip). Refused when the\nlist is empty, names a placement twice or an unknown one. Undo:\n`arrangement.restore`.",
               "properties": {
                 "placements": {
                   "items": {

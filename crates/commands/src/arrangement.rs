@@ -290,8 +290,8 @@ domain! {
 
     /// Delete placements, in one command, MIDI or audio ones. Their clips stay in their
     /// tracks, even one that loses its last placement and sits in no grid slot: it stays in
-    /// the track's pool (an audio clip keeps its file; `arrangement.place` puts a MIDI clip
-    /// back, `clip.delete` deletes a clip). Refused when the
+    /// the track's pool (an audio clip keeps its file; `arrangement.place` puts a clip back,
+    /// MIDI or audio; `clip.delete` deletes a clip). Refused when the
     /// list is empty, names a placement twice or an unknown one. Undo:
     /// `arrangement.restore`.
     "arrangement.delete" (kind = "edit", undo = "inverse", destructive = false)
