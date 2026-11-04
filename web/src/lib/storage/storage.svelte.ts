@@ -58,8 +58,8 @@ export interface ProjectHost {
   projectId(): string | null
   /** The name of the project now (for the file an export hands over). */
   projectName(): string | null
-  /** `project.rename` through the command path (Save as names the project after the folder it creates); undoable. */
-  renameProject?(name: string): void
+  /** `project.rename` through the command path (Save as names the project after the folder it creates); false when the project did not take the name. */
+  renameProject(name: string): boolean
   /** The `.faulkpack` of a project folder given whole (see `ProjectCore.packExport`). */
   packExport(files: { path: string; bytes: Uint8Array }[]): Promise<PackExport>
   /** The files of a `.faulkpack`, validated (see `ProjectCore.packImport`). */
@@ -593,6 +593,12 @@ export class ProjectStorage {
     let dir: string | null = null
     let frame: SaveFrame | null = null
     let handle: FolderHandle
+    // The name the project had before Save as renamed it: given back when the write does not happen.
+    let renamedFrom: string | null = null
+    const undoRename = () => {
+      if (renamedFrom !== null) this.host.renameProject(renamedFrom)
+      renamedFrom = null
+    }
     try {
       if (target.kind === 'browser') {
         // The directory's lock is taken before the directory exists, so another tab's sweep of
@@ -612,11 +618,18 @@ export class ProjectStorage {
       }
       // Save as names the project: through the command path, once the folder is known to take it, and just before
       // the frame is computed so the folder holds the new name.
-      if (target.kind === 'folder' && target.project !== undefined && target.project !== this.host.projectName()) this.host.renameProject?.(target.project)
+      const before = this.host.projectName()
+      if (target.kind === 'folder' && target.project !== undefined && target.project !== before) {
+        if (!this.host.renameProject(target.project)) throw new Error('the project did not take its new name')
+        renamedFrom = before ?? ''
+      }
       const startedComputing = performance.now()
       frame = this.host.save(from?.kind === 'folder' ? 'copy' : 'everything')
       const coreMs = performance.now() - startedComputing
-      if (!frame) return await this.abandon(null, store, null, releaseDir, dir)
+      if (!frame) {
+        undoRename()
+        return await this.abandon(null, store, null, releaseDir, dir)
+      }
       if (frame.status === 'failed') throw new Error(frame.message)
       if (promotedFrom) {
         // Same project, same identity: its lock moves to the folder instead of being taken twice.
@@ -626,6 +639,7 @@ export class ProjectStorage {
         release = id ? await this.deps.lock(id) : () => undefined
         if (!release) {
           this.notice = 'storage.locked'
+          undoRename()
           return await this.abandon(frame, store, null, releaseDir, dir)
         }
       }
@@ -639,6 +653,7 @@ export class ProjectStorage {
       this.lastWrite = { coreMs, writeMs: performance.now() - startedWriting, files, bytes }
       this.host.saved(true)
     } catch (error) {
+      undoRename()
       await this.abandon(frame, store, promotedFrom ? null : release, releaseDir, dir)
       if (!(error instanceof StoreError)) console.error(error)
       if (target.kind === 'browser') {

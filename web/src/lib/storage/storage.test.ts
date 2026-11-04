@@ -170,9 +170,13 @@ class FakeHost implements ProjectHost {
   }
   /** The names Save as gave the project (`project.rename`). */
   renames: string[] = []
+  /** The project does not take a new name (the engine is stopped, the command is refused). */
+  refuseRename = false
   renameProject(name: string) {
+    if (this.refuseRename) return false
     this.renames.push(name)
     this.name = name
+    return true
   }
   /** What the core answers to a pack export, and to an import. */
   exports: { path: string; bytes: Uint8Array }[][] = []
@@ -2694,6 +2698,30 @@ describe('Save as names the project (#627)', () => {
     expect(w.host.saves).toEqual([])
     // Nothing was made here, so nothing is removed: the user's folder stays.
     expect(parent.removed).toEqual([])
+  })
+
+  it('gives the old name back when the write fails after the rename', async () => {
+    const { w, renames } = asking('Night Drive')
+    w.picks.push({ status: 'chosen', handle: parentOf().handle })
+    w.edit()
+    w.host.frameFails = true
+    expect(await w.storage.saveAs()).toBe(false)
+    // Renamed to write the frame, renamed back when it failed: the project is as it was.
+    expect(renames).toEqual(['Night Drive', 'Song'])
+    expect(w.host.name).toBe('Song')
+  })
+
+  it('writes nothing when the project does not take the new name', async () => {
+    const { w } = asking('Night Drive')
+    const parent = parentOf()
+    w.picks.push({ status: 'chosen', handle: parent.handle })
+    w.edit()
+    w.host.refuseRename = true
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(w.storage.notice).toBe('storage.saveFailed')
+    expect(w.host.saves).toEqual([])
+    expect(w.host.name).toBe('Song')
+    expect(parent.removed).toEqual(['Night Drive'])
   })
 
   it('removes the empty folder it made when the write fails', async () => {
