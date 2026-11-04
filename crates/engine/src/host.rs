@@ -203,6 +203,11 @@ impl StreamQueue {
         &self.prepare
     }
 
+    /// The prepare side, to drive its disk planner (AU-3: [`Prepare::disk_poll`]).
+    pub fn prepare_mut(&mut self) -> &mut Prepare {
+        &mut self.prepare
+    }
+
     /// Changes the sample rate ([`Prepare::set_sample_rate`], #236): the devices are built
     /// again for `rate` and go in before the streams that wait here, which the prepare side
     /// then builds at `rate` too. Nothing changes on an error.
@@ -452,10 +457,14 @@ pub struct Host {
     /// The clock's rate the host last saw (#236): a change makes the report period and the
     /// load follow it.
     clock_rate: u32,
-    /// A test voice ([`Host::probe_start`]): the consumer of the disk rings until AU-4's clip
-    /// player, so the web build's two instances are exercised end to end.
+    /// A test voice ([`Host::probe_start`]): reads one port's ring and segments outside any
+    /// clip, so the stream layer (AU-3) is tested on its own. Test builds only: the audio
+    /// clip player (AU-4) is the consumer of the rings.
+    #[cfg(feature = "testing")]
     probe: crate::audio_source::Voice,
+    #[cfg(feature = "testing")]
     probe_port: (crate::msg::TrackSlot, u8),
+    #[cfg(feature = "testing")]
     probe_out: Box<[f32]>,
 }
 
@@ -510,8 +519,11 @@ pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
         feedback: Arc::from(feedback.into_boxed_slice()),
         feedback_seq: 0,
         clock_rate: 0,
+        #[cfg(feature = "testing")]
         probe: crate::audio_source::Voice::default(),
+        #[cfg(feature = "testing")]
         probe_port: (TrackSlot(0), 0),
+        #[cfg(feature = "testing")]
         probe_out: try_slice(frames * crate::audio_source::MAX_CHANNELS, 0.0)?,
     };
     let prepare = Prepare { preparer, status };
@@ -535,9 +547,10 @@ fn word(bytes: [u8; 4]) -> u32 {
 }
 
 impl Host {
-    /// Starts the test voice on `port` of `track`, playing `path` of `source` (AU-3, until
-    /// AU-4's clip player). `false` when the track or the source does not exist. No
-    /// allocation.
+    /// Starts the test voice on `port` of `track`, playing `path` of `source` (AU-3's stream
+    /// layer on its own; test builds only). `false` when the track or the source does not
+    /// exist. No allocation.
+    #[cfg(feature = "testing")]
     pub fn probe_start(
         &mut self,
         track: TrackSlot,
@@ -587,6 +600,7 @@ impl Host {
 
     /// Reads `frames` frames of the test voice into [`Host::probe_out`]; returns how many
     /// came from the source. No allocation.
+    #[cfg(feature = "testing")]
     pub fn probe_read(&mut self, frames: usize) -> usize {
         let (track, port) = self.probe_port;
         let source = self.probe.source();
@@ -614,11 +628,13 @@ impl Host {
     }
 
     /// The test voice's last frames, interleaved ([`crate::audio_source::Voice::channels`]).
+    #[cfg(feature = "testing")]
     pub fn probe_out(&self) -> &[f32] {
         &self.probe_out
     }
 
     /// The test voice.
+    #[cfg(feature = "testing")]
     pub fn probe(&self) -> &crate::audio_source::Voice {
         &self.probe
     }

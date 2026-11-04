@@ -98,16 +98,17 @@
 use rtrb::{Producer, PushError};
 
 use crate::automation::{LANE_ROOM, MasterLanes, NO_LANE, TrackLanes};
-use crate::clip_player::Env;
+use crate::clip_player::{Env, HANDOVER_ROOM, Handover, Owner};
 use crate::device::{
     AudioIo, BlockCtx, DeviceRole, DeviceSetup, Event, EventBuffer, Transport, VoiceId,
 };
+use crate::devices::clip_player::{self as audio_clips, AudioPlayer};
 use crate::engine::{Clip, DeviceEntry, Lane, Paged, State, Track};
 use crate::events::{NOTE_ROOM, PARAM_CHUNK, Read, Schedule, Sink};
 pub use crate::mixer::mix_levels;
 use crate::mixer::{Mixer, timed};
-use crate::msg::{DeviceSlot, LiveEvent, MsgError, TrackMeter, TrackSlot};
-use crate::time::{Quantize, Tick, TimeSignature};
+use crate::msg::{DeviceSlot, LiveEvent, MsgError, TrackKind, TrackMeter, TrackSlot};
+use crate::time::{Quantize, Tempo, Tick, TimeSignature};
 use crate::transport::Segment;
 
 /// Duration of a track's fade in or out, and of every change of a level, in seconds.
@@ -535,6 +536,8 @@ pub struct Graph {
     retired: Producer<Retired>,
     /// The devices that left the master's chain while it was heard, fading out (#233).
     master_outgoing: Outgoing,
+    /// The audio clip players' scratch (AU-4), shared by the tracks.
+    audio_scratch: audio_clips::Scratch,
 }
 
 impl core::fmt::Debug for Graph {
@@ -601,6 +604,7 @@ impl Graph {
             retiring_len: 0,
             retired,
             master_outgoing: Outgoing::new(),
+            audio_scratch: audio_clips::Scratch::try_new()?,
         })
     }
 
@@ -669,12 +673,18 @@ impl Graph {
     /// [`Graph::max_frames`] (module doc), cut by `clock`'s segments; `live` and `release`
     /// (the live events of the block and whether the live notes must be released) are
     /// delivered at its first frame.
+    /// `disk` is the voices' request queue and the disk's counters (AU-3, AU-4).
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn block(
         &mut self,
         state: &mut State,
         clock: &BlockClock<'_>,
         live: &[LiveEvent],
         release: bool,
+        disk: (
+            &mut crate::audio_source::RequestTx,
+            &crate::audio_source::DiskStats,
+        ),
         left: &mut [f32],
         right: &mut [f32],
     ) {
@@ -699,6 +709,14 @@ impl Graph {
         crate::automation::link(&mut state.tracks, &mut state.lanes, &mut self.master_lanes);
         let clips = &mut state.clips;
         let lanes = &mut state.lanes;
+        let tempo = state.transport.tempo;
+        let mut aio = audio_clips::Io {
+            sources: &state.sources,
+            tx: disk.0,
+            stats: disk.1,
+            rate: rate_hz(self.sample_rate),
+            scratch: &mut self.audio_scratch,
+        };
         for (slot, entry) in state.tracks.as_mut_slice().iter_mut().enumerate() {
             let Some(track) = entry.as_deref_mut() else {
                 continue;
@@ -716,6 +734,7 @@ impl Graph {
                     clips: &mut *clips,
                     quantize,
                     signature,
+                    tempo,
                 }),
                 lanes: Some(&mut *lanes),
             };
@@ -725,6 +744,7 @@ impl Graph {
                 clock,
                 &ctx,
                 &mut self.scratch,
+                &mut aio,
                 fade,
                 left,
                 right,
@@ -754,6 +774,7 @@ impl Graph {
                     clock,
                     &ctx,
                     &mut self.scratch,
+                    &mut aio,
                     fade,
                     left,
                     right,
@@ -1143,6 +1164,90 @@ struct ClipsIn<'a> {
     clips: &'a mut Paged<Box<Clip>>,
     quantize: Quantize,
     signature: TimeSignature,
+    /// The project's tempo: where an audio placement ends (AU-4).
+    tempo: Tempo,
+}
+
+/// The engine's rate as the audio clip player reads it (AU-4), in whole hertz; 48 kHz for a
+/// rate that rounds below 1 (never a division by zero).
+fn rate_hz(sample_rate: f32) -> u32 {
+    let hz = sample_rate.round();
+    if hz.is_finite() && hz >= 1.0 {
+        hz as u32
+    } else {
+        48_000
+    }
+}
+
+/// What the audio clip player of an audio track does in a sub-block (AU-4). On the stack: a
+/// box would allocate on the audio path.
+#[allow(clippy::large_enum_variant)]
+enum AudioStep<'c> {
+    /// The transport plays: the segment of the sub-block, and what the grid's player said of
+    /// its read (`None`: the player did not run, nothing plays).
+    Run {
+        segment: Segment,
+        read: Option<(Owner, [Handover; HANDOVER_ROOM], usize)>,
+        clips: Option<&'c Paged<Box<Clip>>>,
+    },
+    /// The clock is stopped: the streams fade out.
+    Stopped { clips: Option<&'c Paged<Box<Clip>>> },
+    /// A retiring track: the streams go on.
+    Tail,
+}
+
+/// The track's side of the audio clip player (AU-4).
+struct AudioTrack<'a> {
+    slot: TrackSlot,
+    instance: u32,
+    ports: &'a mut [crate::audio_source::Port],
+    placements: &'a [crate::msg::Placement],
+    tempo: Tempo,
+}
+
+/// Runs the audio clip player over `[from, to)` of the block (AU-4).
+#[allow(clippy::too_many_arguments)]
+fn render_audio(
+    audio: &mut AudioPlayer,
+    aio: &mut audio_clips::Io<'_>,
+    t: &mut AudioTrack<'_>,
+    step: AudioStep<'_>,
+    from: usize,
+    to: usize,
+    left: &mut [f32],
+    right: &mut [f32],
+) {
+    let clips = match &step {
+        AudioStep::Run { clips, .. } | AudioStep::Stopped { clips } => *clips,
+        AudioStep::Tail => None,
+    };
+    let mut track = audio_clips::TrackIo {
+        slot: t.slot,
+        instance: t.instance,
+        ports: &mut t.ports[..],
+        placements: t.placements,
+        clips,
+        tempo: t.tempo,
+    };
+    match step {
+        AudioStep::Run { segment, read, .. } => {
+            let (entry, handovers, len) =
+                read.unwrap_or((Owner::default(), [Handover::default(); HANDOVER_ROOM], 0));
+            audio.render(
+                aio,
+                &mut track,
+                &segment,
+                from,
+                to,
+                entry,
+                &handovers[..len.min(HANDOVER_ROOM)],
+                left,
+                right,
+            );
+        }
+        AudioStep::Stopped { .. } => audio.render_stopped(aio, &mut track, from, to, left, right),
+        AudioStep::Tail => audio.render_tail(aio, &mut track, from, to, left, right),
+    }
 }
 
 /// Whether the track has a device to render: an enabled one, or one that still fades out
@@ -1168,6 +1273,7 @@ fn render_track(
     clock: &BlockClock<'_>,
     ctx: &BlockCtx,
     scratch: &mut Scratch,
+    aio: &mut audio_clips::Io<'_>,
     fade: u32,
     out_left: &mut [f32],
     out_right: &mut [f32],
@@ -1176,7 +1282,14 @@ fn render_track(
     // plays or a launch waits (GR-1): the grid state must not wait for an instrument.
     let player_runs = input.as_ref().is_some_and(|i| i.clips.is_some())
         && (track.player.engaged() || track.launch.is_some() || track.back);
-    if !chain_sounds(track) && !player_runs {
+    // An audio track's clip player (AU-4) is its instrument: the track renders while a
+    // stream sounds or something may start one.
+    let audio_track = track.kind == TrackKind::Audio;
+    let audio_runs = audio_track
+        && (track.audio.busy()
+            || (input.as_ref().is_some_and(|i| i.clips.is_some())
+                && (player_runs || !track.placements.is_empty())));
+    if !chain_sounds(track) && !player_runs && !audio_runs {
         // Not rendered: the next stopped block it renders applies its lanes again.
         track.graph.stopped_at = None;
         return false;
@@ -1230,8 +1343,21 @@ fn render_track(
         back,
         graph,
         player,
+        audio,
+        ports,
+        instance,
+        kind,
         ..
     } = track;
+    let kind = *kind;
+    let tempo = clips.as_ref().map_or(Tempo::default(), |c| c.tempo);
+    let mut audio_track = audio_track.then(|| AudioTrack {
+        slot,
+        instance: *instance,
+        ports: &mut ports[..],
+        placements: placements.as_slice(),
+        tempo,
+    });
     let TrackGraph {
         mixer,
         meter,
@@ -1261,6 +1387,7 @@ fn render_track(
         back,
         quantize: c.quantize,
         signature: c.signature,
+        kind,
     });
     let engaged = env.is_some()
         && (player.engaged()
@@ -1281,7 +1408,11 @@ fn render_track(
         None
     };
     let devices = devices.as_mut_slice();
-    let mut chain = |sink: &Sink, from: usize, to: usize, position: f64| {
+    let mut chain = |sink: &Sink, from: usize, to: usize, position: f64, step: AudioStep<'_>| {
+        // The audio clip player first, in the instrument's place (AU-4).
+        if let Some(t) = audio_track.as_mut() {
+            render_audio(audio, aio, t, step, from, to, left, right);
+        }
         let sub = BlockCtx {
             frames: (to - from) as u32,
             transport: Transport {
@@ -1336,7 +1467,14 @@ fn render_track(
         if let Some((p, env)) = player.as_mut() {
             p.stop(env, sink);
         }
-        chain(sink, 0, frames, clock.position);
+        let step = if reads {
+            AudioStep::Stopped {
+                clips: player.as_ref().map(|(_, e)| &*e.clips),
+            }
+        } else {
+            AudioStep::Tail
+        };
+        chain(sink, 0, frames, clock.position, step);
     } else {
         *stopped_at = None;
         let mut start = 0;
@@ -1418,7 +1556,8 @@ fn render_track(
                 if let Some(l) = lanes.as_mut() {
                     l.push_end(&segment, clock.frame, start, end, sink);
                 }
-                chain(sink, start, end, position);
+                let step = audio_step(reads, segment, &player);
+                chain(sink, start, end, position, step);
                 sink.clear();
                 pushed = false;
                 start = end;
@@ -1426,11 +1565,49 @@ fn render_track(
         }
         if start < frames {
             // Unreachable: the segments of a running block cover it.
-            chain(sink, start, frames, position);
+            let step = if reads {
+                AudioStep::Stopped {
+                    clips: player.as_ref().map(|(_, e)| &*e.clips),
+                }
+            } else {
+                AudioStep::Tail
+            };
+            chain(sink, start, frames, position, step);
         }
+    }
+    // An audio clip played once from the grid ended with its last frame (AU-4): the grid's
+    // player lets it go.
+    if let Some((clip, anchor)) = audio.take_ended()
+        && let Some((p, env)) = player.as_mut()
+    {
+        p.audio_ended(env.clips, slot, clip, anchor);
     }
 
     true
+}
+
+/// The audio clip player's step for a sub-block of `segment` (AU-4): what the grid's player
+/// said of its read, the clips; a retiring track's streams go on.
+fn audio_step<'c>(
+    reads: bool,
+    segment: Segment,
+    player: &'c Option<(&mut crate::clip_player::ClipPlayer, &mut Env<'_>)>,
+) -> AudioStep<'c> {
+    if !reads {
+        return AudioStep::Tail;
+    }
+    AudioStep::Run {
+        segment,
+        read: player.as_ref().map(|(p, _)| {
+            let (entry, list) = p.handovers();
+            let mut handovers = [Handover::default(); HANDOVER_ROOM];
+            for (h, x) in handovers.iter_mut().zip(list) {
+                *h = *x;
+            }
+            (entry, handovers, list.len())
+        }),
+        clips: player.as_ref().map(|(_, e)| &*e.clips),
+    }
 }
 
 /// Whether the track has a launch order or a `BackToArrangement` its player has not taken yet.

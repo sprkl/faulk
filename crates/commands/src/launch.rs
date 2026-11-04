@@ -18,17 +18,18 @@
 
 use crate::contract::{CommandError, Context, Outcome, State};
 use crate::macros::domain;
-use project::{ClipContent, ClipId, SceneId, TrackId};
+use project::{ClipId, SceneId, TrackId};
 
 domain! {
     domain = "launch", schema = ("LaunchCommand", "LaunchOutput");
 
-    /// Launch a MIDI clip of the launch grid at the next boundary of the launch
+    /// Launch a clip of the launch grid, MIDI or audio, at the next boundary of the launch
     /// quantization; it replaces the clip its track plays. The clip must sit in a slot of
-    /// the grid (a clip of the arrangement only cannot be launched) and must not be an
-    /// audio clip (not launchable yet). If the transport is stopped, it starts playing
-    /// from its position, so the clip starts at the first boundary. Played live: not
-    /// undoable, not saved.
+    /// the grid (a clip of the arrangement only cannot be launched). An audio clip plays
+    /// from its first frame at the boundary, at its gain, looped when it has a loop, else
+    /// once to its last frame. If the transport is stopped, it starts playing from its
+    /// position, so the clip starts at the first boundary. Played live: not undoable, not
+    /// saved.
     "launch.clip" (kind = "live", undo = "none", destructive = false)
     Clip { clip: ClipId } => {};
 
@@ -95,12 +96,6 @@ pub fn apply(
                     entity: "clip".into(),
                     id: clip.to_string(),
                 })?;
-            if !matches!(found.content, ClipContent::Midi { .. }) {
-                return Err(CommandError::Invalid {
-                    field: "clip".into(),
-                    message: "an audio clip cannot be launched yet".into(),
-                });
-            }
             if found.slot.is_none() {
                 return Err(CommandError::Invalid {
                     field: "clip".into(),

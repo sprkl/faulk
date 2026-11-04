@@ -3,8 +3,12 @@
 //! start, a jump, a short loop from memory and a short loop through the ring, then the frames
 //! each waited and the underruns) run natively and through the real `.wasm` build, run by an
 //! interpreter, gives the same samples, bit for bit (the planner converts integers exactly).
+//! The same for the audio clip player's scenario (AU-4, `player_scenario`: grid launches, a
+//! placement entered by a seek, loops from memory and through the ring, a stop): its
+//! resampler and fades use integer phases and `f32` products only, so the builds agree to
+//! the bit.
 
-use engine::audio_source::scenario::scenario;
+use engine::audio_source::scenario::{player_scenario, scenario};
 use std::path::PathBuf;
 use std::process::Command;
 use wasmi::{Engine, Linker, Module, Store};
@@ -26,7 +30,8 @@ fn build_wasm() -> PathBuf {
     target_dir.join("wasm32-unknown-unknown/release/engine_wasm.wasm")
 }
 
-fn render_wasm() -> Vec<f32> {
+/// The output of the module's scenario export `name` (its length from `len`).
+fn render_wasm_of(name: &str, len: &str) -> Vec<f32> {
     let bytes = std::fs::read(build_wasm()).expect("the wasm module exists");
     let engine = Engine::default();
     let module = Module::new(&engine, &bytes[..]).expect("valid module");
@@ -35,11 +40,11 @@ fn render_wasm() -> Vec<f32> {
         .instantiate_and_start(&mut store, &module)
         .expect("the module needs no imports");
     let run = instance
-        .get_typed_func::<(), i32>(&store, "fk_stream_scenario")
-        .expect("export fk_stream_scenario");
+        .get_typed_func::<(), i32>(&store, name)
+        .expect("the scenario's export");
     let len = instance
-        .get_typed_func::<(), i32>(&store, "fk_stream_len")
-        .expect("export fk_stream_len");
+        .get_typed_func::<(), i32>(&store, len)
+        .expect("the scenario's length export");
     let memory = instance
         .get_memory(&store, "memory")
         .expect("exported memory");
@@ -66,6 +71,56 @@ fn the_stream_fixture_is_the_scenario_s_control_stream() {
     }
     let recorded = std::fs::read(&path).expect("tests/fixtures/stream.stream (FAULK_RECORD=1)");
     assert_eq!(recorded, stream);
+}
+
+/// The audio clip player's control streams (AU-4), recorded for the web test of the shipped
+/// module: the setup (`player.stream`), the play and launch of clip 0 (`player-launch.stream`),
+/// the launch of the looped clip 1 (`player-loop.stream`). `FAULK_RECORD=1` rewrites them.
+#[test]
+fn the_player_fixtures_are_the_scenario_s_control_streams() {
+    use engine::audio_source::scenario::{launch, player_setup};
+    use engine::msg::{ControlMsg, encode_stream};
+    let mut setup = vec![ControlMsg::Reset { epoch: 1 }];
+    setup.extend(player_setup());
+    let streams = [
+        ("player.stream", setup),
+        (
+            "player-launch.stream",
+            vec![
+                ControlMsg::Play {
+                    from: engine::time::Tick(0),
+                },
+                launch(0),
+            ],
+        ),
+        ("player-loop.stream", vec![launch(1)]),
+    ];
+    for (name, msgs) in streams {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures")
+            .join(name);
+        let stream = encode_stream(1, 0, &msgs).unwrap();
+        if std::env::var_os("FAULK_RECORD").is_some() {
+            std::fs::write(&path, &stream).unwrap();
+        }
+        let recorded = std::fs::read(&path).expect("the fixture (FAULK_RECORD=1)");
+        assert_eq!(recorded, stream, "{name}");
+    }
+}
+
+fn render_wasm() -> Vec<f32> {
+    render_wasm_of("fk_stream_scenario", "fk_stream_len")
+}
+
+#[test]
+fn the_audio_clip_player_gives_the_same_samples_in_native_and_wasm() {
+    let native = player_scenario();
+    let wasm = render_wasm_of("fk_player_scenario", "fk_player_len");
+    assert_eq!(native.len(), wasm.len());
+    assert!(native.iter().any(|s| *s != 0.0), "the scenario must play");
+    for (i, (a, b)) in native.iter().zip(&wasm).enumerate() {
+        assert_eq!(a.to_bits(), b.to_bits(), "sample {i}: {a} native, {b} wasm");
+    }
 }
 
 #[test]

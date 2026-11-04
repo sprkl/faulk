@@ -5,7 +5,7 @@
    * the selected track. The tracks themselves are listed once, as the arrangement's rows. Every action is a command
    * through the dispatcher.
    */
-  import { INSTRUMENTS, OFFER_AUDIO_TRACK } from '../../lib/project/tracks'
+  import { INSTRUMENTS } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
   import { createTrack, selectTrack } from '../../lib/track-commands'
   import { runHistory } from '../../lib/history-said'
@@ -100,10 +100,8 @@
           {#each INSTRUMENTS as instrument (instrument.kind)}
             <button role="menuitem" type="button" onclick={() => add('midi', instrument.kind)}>{instrument.name}</button>
           {/each}
-          {#if OFFER_AUDIO_TRACK}
-            <hr />
-            <button role="menuitem" type="button" onclick={() => add('audio', null)}>{t('tracks.addAudio')}</button>
-          {/if}
+          <hr />
+          <button role="menuitem" type="button" onclick={() => add('audio', null)}>{t('tracks.addAudio')}</button>
         </div>
       {/if}
     </div>

@@ -9889,7 +9889,7 @@
         "undo": "none"
       },
       {
-        "description": "Launch a MIDI clip of the launch grid at the next boundary of the launch\nquantization; it replaces the clip its track plays. The clip must sit in a slot of\nthe grid (a clip of the arrangement only cannot be launched) and must not be an\naudio clip (not launchable yet). If the transport is stopped, it starts playing\nfrom its position, so the clip starts at the first boundary. Played live: not\nundoable, not saved.",
+        "description": "Launch a clip of the launch grid, MIDI or audio, at the next boundary of the launch\nquantization; it replaces the clip its track plays. The clip must sit in a slot of\nthe grid (a clip of the arrangement only cannot be launched). An audio clip plays\nfrom its first frame at the boundary, at its gain, looped when it has a loop, else\nonce to its last frame. If the transport is stopped, it starts playing from its\nposition, so the clip starts at the first boundary. Played live: not undoable, not\nsaved.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -18709,7 +18709,7 @@
           "oneOf": [
             {
               "additionalProperties": false,
-              "description": "Launch a MIDI clip of the launch grid at the next boundary of the launch\nquantization; it replaces the clip its track plays. The clip must sit in a slot of\nthe grid (a clip of the arrangement only cannot be launched) and must not be an\naudio clip (not launchable yet). If the transport is stopped, it starts playing\nfrom its position, so the clip starts at the first boundary. Played live: not\nundoable, not saved.",
+              "description": "Launch a clip of the launch grid, MIDI or audio, at the next boundary of the launch\nquantization; it replaces the clip its track plays. The clip must sit in a slot of\nthe grid (a clip of the arrangement only cannot be launched). An audio clip plays\nfrom its first frame at the boundary, at its gain, looped when it has a loop, else\nonce to its last frame. If the transport is stopped, it starts playing from its\nposition, so the clip starts at the first boundary. Played live: not undoable, not\nsaved.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
