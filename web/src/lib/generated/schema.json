@@ -380,6 +380,25 @@
         "undo": "none"
       },
       {
+        "description": "Stop the `.faulkpack` export under way, from the moment it was asked for: nothing is handed\nover (a download is not started; a file the user chose is left empty). Nothing happens when\nno export is running. Changes nothing in the project, so\nit never enters the history.",
+        "destructive": false,
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "kind": "live",
+        "name": "project.cancel_export_pack",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "undo": "none"
+      },
+      {
         "description": "Open a `.faulkpack` the user chooses: its project replaces the current one and is kept\nin the browser as a new project of its own (an import never overwrites a project that\nis already there). A file is chosen by the user (a browser needs a click for it), so\nan agent that is not driven by one gets a notice in the page instead. A file that is\nnot a valid pack is refused with the reason and nothing changes. The history of the\nreplaced project is gone; the page asks first when that project has changes that are\nnot kept anywhere.",
         "destructive": false,
         "input_schema": {
@@ -20392,6 +20411,23 @@
             },
             {
               "additionalProperties": false,
+              "description": "Stop the `.faulkpack` export under way, from the moment it was asked for: nothing is handed\nover (a download is not started; a file the user chose is left empty). Nothing happens when\nno export is running. Changes nothing in the project, so\nit never enters the history.",
+              "properties": {
+                "type": {
+                  "const": "project.cancel_export_pack",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "live",
+              "x-undo": "none"
+            },
+            {
+              "additionalProperties": false,
               "description": "Open a `.faulkpack` the user chooses: its project replaces the current one and is kept\nin the browser as a new project of its own (an import never overwrites a project that\nis already there). A file is chosen by the user (a browser needs a click for it), so\nan agent that is not driven by one gets a notice in the page instead. A file that is\nnot a valid pack is refused with the reason and nothing changes. The history of the\nreplaced project is gone; the page asks first when that project has changes that are\nnot kept anywhere.",
               "properties": {
                 "type": {
@@ -25733,6 +25769,19 @@
               "properties": {
                 "type": {
                   "const": "project.export_pack",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "project.cancel_export_pack",
                   "type": "string"
                 }
               },
@@ -35283,6 +35332,19 @@
               "additionalProperties": false,
               "properties": {
                 "type": {
+                  "const": "project.cancel_export_pack",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
                   "const": "project.import_pack",
                   "type": "string"
                 }
@@ -37222,7 +37284,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 34,
+  "protocol_version": 35,
   "server_message": {
     "$defs": {
       "Capabilities": {

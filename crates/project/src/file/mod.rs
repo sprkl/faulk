@@ -41,7 +41,7 @@ pub use error::FileError;
 pub use fs::StdFs;
 pub use fs::{DirEntry, FileSystem, FsError, MemFs, Op, walk};
 pub use migrate::{MIGRATIONS, Migration, migrate};
-pub use pack::{PackLimits, PackReport, export_pack, import_pack};
+pub use pack::{PackLimits, PackPlan, PackReport, PackWriter, export_pack, import_pack, plan_pack};
 pub use read::{OpenOptions, OpenReport, Opened, open, open_with, referenced_blobs};
 pub use session_file::{SessionLoad, load_session, save_session};
 pub use unit::{Layout, Unit};
