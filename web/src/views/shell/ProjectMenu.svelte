@@ -162,9 +162,7 @@
         >{t('project.menu.open')}</button
       >
       <hr />
-      <button role="menuitem" disabled={!ready} data-testid="menu-rename" onclick={() => choose(startRename)}>
-        {t('project.menu.rename')}<kbd>{chordText(['F2'])}</kbd>
-      </button>
+      <button role="menuitem" disabled={!ready} data-testid="menu-rename" onclick={() => choose(startRename)}>{t('project.menu.rename')}</button>
       <button role="menuitem" disabled={!ready} data-testid="menu-save" onclick={() => choose(() => dispatcher.run(save()))}>
         {t('project.menu.save')}<kbd>{chordText(['Mod', 'S'])}</kbd>
       </button>

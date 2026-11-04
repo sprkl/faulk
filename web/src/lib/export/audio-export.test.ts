@@ -152,7 +152,7 @@ describe('the export dialog', () => {
     const { exporter, deps } = setup()
     exporter.show()
     expect(exporter.choices.fileName).toBe('My- song-')
-    exporter.choices.fileName = 'Take 1.WAV'
+    exporter.choices.fileName = ' Take 1.WAV '
     exporter.start()
     await flush()
     expect(deps.pick).toHaveBeenCalledWith('Take 1.wav', 44, null)

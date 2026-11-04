@@ -130,7 +130,7 @@ export type ExportPhase = 'options' | 'picking' | 'rendering' | 'done' | 'failed
 
 /** A file name for the project: nothing a file system refuses. */
 export function fileNameOf(project: string): string {
-  return `${cleanName(project.replace(/\.wav$/i, ''))}.wav`
+  return `${cleanName(project.trim().replace(/\.wav$/i, ''))}.wav`
 }
 
 /** What a file name keeps of a name: no character a file system refuses, nothing but a name; `Faulk` when nothing is left. */

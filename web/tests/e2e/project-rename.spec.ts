@@ -66,6 +66,21 @@ test('a double click on the name opens the field; Escape cancels, an empty name 
   expect(seen.errors).toEqual([])
 })
 
+test('a field left open while another project replaces this one renames nothing', async ({ page }) => {
+  // The replacement goes in through the dev server's hook: the preview build has none, and keeps the checks above.
+  test.skip(test.info().project.name !== 'dev', 'needs the dev hook __faulkRun')
+  const seen = watch(page)
+  await open(page)
+  await page.getByTestId('project-menu').dblclick()
+  await page.getByTestId('project-rename').fill('Stale')
+  await page.evaluate(() => (window as unknown as { __faulkRun(c: object): boolean }).__faulkRun({ type: 'project.new', name: 'Fresh' }))
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __faulkView(): { project: { name: string } } }).__faulkView().project.name)).toBe('Fresh')
+  await page.getByTestId('project-rename').press('Enter')
+  await expect(page.getByTestId('project-rename')).toHaveCount(0)
+  await expect(name(page)).toHaveText('Fresh')
+  expect(seen.errors).toEqual([])
+})
+
 test('F2 on the name in the top bar renames the project', async ({ page }) => {
   const seen = watch(page)
   await open(page)
