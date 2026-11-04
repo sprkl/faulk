@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { NativeEngine, NoOutputError } from '../engine/native-engine'
 import type { EngineEvents } from '../engine/engine'
-import { AGENT_CONFIRM_MS, DESTRUCTIVE_COMMANDS, SINGLE_SYNTH, type Command } from '../generated/protocol'
+import { AGENT_CONFIRM_MS, DESTRUCTIVE_COMMANDS, PROTOCOL_VERSION, SINGLE_SYNTH, type Command } from '../generated/protocol'
 import { STORAGE_GUARDED } from '../agents/guard'
 import { DEFAULT_PARAMS } from '../params'
 import { CoreError, ProjectCore, type FolderEntry } from '../project/core'
@@ -97,6 +97,11 @@ const controlOpen = vi.fn<(token: string, events: ControlEvents) => Promise<Fake
 vi.mock('../agents/control-link', () => ({
   ControlLink: { open: (token: string, events: ControlEvents) => controlOpen(token, events) },
   ControlTimeout: class ControlTimeout extends Error {},
+  ControlIncompatible: class ControlIncompatible extends Error {
+    constructor(readonly protocol: number) {
+      super('incompatible')
+    }
+  },
 }))
 // Web MIDI is off, except in the tests that turn it on: then `releaseAll` is what the test controls.
 let midiOn = false
@@ -2420,6 +2425,20 @@ describe("an agent's calls on the control link, in Web mode and without an outpu
     session.dispatcher.toFront()
     expect(controls[2].front).toHaveBeenCalledTimes(1)
     expect(controls).toHaveLength(3)
+  })
+
+  it('a helper of another protocol on the link is shown as incompatible, keeps the pairing and is not retried (#658)', async () => {
+    const { ControlIncompatible } = await import('../agents/control-link')
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    controlOpen.mockRejectedValueOnce(new ControlIncompatible(PROTOCOL_VERSION + 1))
+    await session.dispatcher.linkControl()
+    expect(session.engine.helper).toBe('incompatible')
+    expect(session.engine.helperProtocol).toBe(PROTOCOL_VERSION + 1)
+    expect(localStorage.getItem(TOKEN_KEY)).toBe('x')
+    await vi.advanceTimersByTimeAsync(CONTROL_RETRY_MS[0] * 2)
+    expect(controls).toHaveLength(0)
   })
 
   it('a link too slow to open keeps the pairing and is tried again', async () => {

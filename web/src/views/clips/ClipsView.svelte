@@ -7,6 +7,7 @@
    * founder's decision 11: a copy of a clip already used, the clip itself with Alt).
    */
   import LinkMark from '../../lib/components/LinkMark.svelte'
+  import Waveform from '../../lib/components/Waveform.svelte'
   import { barStart } from '../../lib/arrangement-commands'
   import { CLIP_DRAG_TYPE, clipTrackType, freeScene, gridCommand, placeCommand, poolNames, poolOf, type PoolClip } from '../../lib/clip-pool'
   import { cancelAudioImport, chooseAudio, deleteClip } from '../../lib/clip-commands'
@@ -16,7 +17,7 @@
   import { barTicks } from '../transport/time'
   import { trackColor } from '../../lib/project/tracks'
 
-  const { project, dispatcher, ui, engine, audioImport } = useStores()
+  const { project, dispatcher, ui, engine, audioImport, peaks } = useStores()
   const t = ui.t
 
   /** What a failed import says: by why the file was refused, or that the folder refused it. */
@@ -159,6 +160,13 @@
           >
             <span class="swatch" style:background={entry.clip.color ?? color} aria-hidden="true"></span>
             <span class="name">{names[entry.id]}</span>
+            {#if 'audio' in entry.clip.content}
+              {@const audio = entry.clip.content.audio}
+              <!-- The part of its file the clip plays (AU-2), drawn from the file's peaks. -->
+              <span class="wave" data-testid="pool-waveform" data-media={audio.media.hash}>
+                <Waveform peaks={peaks.of(audio.media).peaks} from={audio.start} frames={audio.frames} color={entry.clip.color ?? color} />
+              </span>
+            {/if}
           </span>
           {#if entry.uses > 1}<span class="linked" title={t('clips.linkedHint')}><LinkMark />{t('clips.linked')}</span>{/if}
           <span class="where">{where(entry)}</span>
@@ -241,6 +249,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .wave {
+    flex: 1 1 64px;
+    min-width: 32px;
+    max-width: 240px;
+    height: 20px;
   }
   .row.unused .name {
     font-style: italic;
