@@ -42,8 +42,8 @@ export const AREA = {
   keyboard: ['keyboard', 'keyboard-all-views', 'layout-4', 'live-input', 'typing-mode', 'track-state'],
   export: ['export-audio'],
   storage: ['project-store', 'project-save', 'project-rename', 'project-save-as-name', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability', 'open-url', 'audio-import'],
-  // Importing audio files (AU-1): the pipeline in the store's Worker, the Clips panel that starts it, the storage it writes.
-  audio: ['audio-import', 'audio-play', 'clip-pool', 'browser-storage', 'project-store'],
+  // Importing audio files (AU-1): the pipeline in the store's Worker, the Clips panel that starts it, the storage it writes; their waveforms (AU-2).
+  audio: ['audio-import', 'audio-play', 'clip-pool', 'browser-storage', 'project-store', 'waveform'],
   shortcuts: ['discoverability', 'keyboard-all-views'],
   shortcutsDialog: ['discoverability', 'keyboard-all-views', 'navigation'],
   bottomPanel: ['bottom-panel', 'layout-4', 'ux-quick-wins'],
@@ -136,6 +136,7 @@ export const RULES = [
   [/^web\/src\/lib\/components\/Knob\.svelte$/, areas('devices', 'valueEntry')],
   [/^web\/src\/lib\/components\/LevelMeter\.svelte$/, areas('arrangement', 'mixer', 'topBar')],
   [/^web\/src\/lib\/components\/LinkMark\.svelte$/, areas('clips', 'grid', 'audio')],
+  [/^web\/src\/lib\/components\/Waveform\.svelte$/, areas('clips', 'audio')], // the Clips panel's rows and the /dev/waveform surface (AU-2)
   [/^web\/src\/lib\/components\/Monogram\.svelte$/, areas('landing', 'topBar')],
   [/^web\/src\/lib\/components\/PanControl\.svelte$/, areas('mixer', 'tracks')],
   [/^web\/src\/lib\/components\/ParamControl\.svelte$/, areas('devices', 'valueEntry')],
@@ -192,6 +193,7 @@ export const RULES = [
   [/^web\/src\/routes\/\[lang=lang\]\/journey\//, AREA.journey],
   [/^web\/src\/routes\/\[lang=lang\]\//, ['navigation', 'isolation']],
   [/^web\/src\/(lib\/journey\/|routes\/journey\/)/, AREA.journey],
+  [/^web\/src\/routes\/dev\/waveform\//, ['waveform']],
   [/^web\/src\/routes\/dev\//, ['timegrid']],
   // The landing page at `/`, the layout every page shares, the language parameter of its routes.
   [/^web\/src\/(routes\/\+(layout|page)\.|params\.ts$)/, AREA.landing],

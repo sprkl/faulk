@@ -32,7 +32,8 @@ test.beforeAll(async () => {
     else if (url.pathname === '/session' && url.searchParams.get('token') === TOKEN) {
       send({ type: 'hello', protocol: PROTOCOL_VERSION, sample_rate: 48000, estimated_latency_ms: 5 })
       send({ type: 'midi.inputs', inputs: [], selected: null })
-    } else ws.close()
+    } else if (url.pathname === '/control' && url.searchParams.get('token') === TOKEN) send({ type: 'control.hello', protocol: PROTOCOL_VERSION })
+    else ws.close()
   })
 })
 

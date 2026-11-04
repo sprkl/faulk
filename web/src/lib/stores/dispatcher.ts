@@ -32,7 +32,7 @@ import { agentAuthor, answerAgentCall } from '../agents/agent-call'
 import { LevelHold, type RenderAnalyzer } from '../agents/levels'
 import { AgentConfirmations } from '../agents/confirm.svelte'
 import { agentQuestion, confirmDeadline, isStorageGuarded, notConfirmed, type GuardView } from '../agents/guard'
-import { ControlLink, ControlTimeout } from '../agents/control-link'
+import { ControlIncompatible, ControlLink, ControlTimeout } from '../agents/control-link'
 import { applyEffects } from './effects'
 import type { EngineStore, HelperState } from './engine.svelte'
 import { refusalNotice, type OpenOutcome, type OpenRefusal } from './open'
@@ -1081,6 +1081,14 @@ export class Dispatcher {
     } catch (error) {
       // Too slow to open: a busy helper keeps the pairing, the link is tried again.
       if (error instanceof ControlTimeout) return this.retryControl()
+      // Another protocol than the page's (#658): shown as a probe shows it; no retry, the next probe decides.
+      if (error instanceof ControlIncompatible) {
+        if (!this.native) {
+          this.state.helper = 'incompatible'
+          this.state.helperProtocol = error.protocol
+        }
+        return
+      }
       // Refused while the helper answers its probe: the token is not this helper's (a reinstall). A pairing that
       // happened meanwhile stored a newer token: that one stays.
       const probe = await probeHelper()

@@ -8,6 +8,7 @@
     "frames": 24000,
     "pcm_reference": null,
     "pcm_sha256": "edfb836a86a67fe7179f490193970eef1a0eb60366fd17550bf67213f552f7c3",
+    "peaks_sha256": "ac44ccd40ea5a9715b75f060f01c7fb5149cf7c60f5689e0abeec04c98661b45",
     "sample_rate": 48000,
     "sha256": "e09b397b8c941923c8f7e9e808cab7e517b7d9de08ece369d7911f5788d67140"
   },
@@ -17,6 +18,7 @@
     "frames": 22050,
     "pcm_reference": null,
     "pcm_sha256": "d1070756d2dfaef09381ec185e8e45c500ed36ef35a7bc88ea126160cec02d54",
+    "peaks_sha256": "889998f16178315418f48d3f70dd34f722520c6cd2e070d8463099209aab6819",
     "sample_rate": 44100,
     "sha256": "2639ed94dc1b58389bb54e6ae4ed4711bbbdf9880a27896972f7ad207f866631"
   },
@@ -26,6 +28,7 @@
     "frames": 22050,
     "pcm_reference": null,
     "pcm_sha256": "d1070756d2dfaef09381ec185e8e45c500ed36ef35a7bc88ea126160cec02d54",
+    "peaks_sha256": "889998f16178315418f48d3f70dd34f722520c6cd2e070d8463099209aab6819",
     "sample_rate": 44100,
     "sha256": "833dd3b9dcb98bedde4069428c0c0d40f7b06fcae36353d9a39c6b3c73ece125"
   },
@@ -35,6 +38,7 @@
     "frames": 22050,
     "pcm_reference": null,
     "pcm_sha256": "d1070756d2dfaef09381ec185e8e45c500ed36ef35a7bc88ea126160cec02d54",
+    "peaks_sha256": "889998f16178315418f48d3f70dd34f722520c6cd2e070d8463099209aab6819",
     "sample_rate": 44100,
     "sha256": "c23da032182589eeab569dc75d294ccb12736d8bbdaf35aabeeb19a1c4acf00d"
   },
@@ -44,6 +48,7 @@
     "frames": 22050,
     "pcm_reference": null,
     "pcm_sha256": "d1070756d2dfaef09381ec185e8e45c500ed36ef35a7bc88ea126160cec02d54",
+    "peaks_sha256": "889998f16178315418f48d3f70dd34f722520c6cd2e070d8463099209aab6819",
     "sample_rate": 44100,
     "sha256": "03a1d78e4ce4e775482593d3a907e933347ba2740b92b453250d7fb9f8b13a48"
   },
@@ -53,6 +58,7 @@
     "frames": 22050,
     "pcm_reference": null,
     "pcm_sha256": "d1070756d2dfaef09381ec185e8e45c500ed36ef35a7bc88ea126160cec02d54",
+    "peaks_sha256": "889998f16178315418f48d3f70dd34f722520c6cd2e070d8463099209aab6819",
     "sample_rate": 44100,
     "sha256": "e1e01d67fe7857044233617c6131bf7eb87de7432ef45fed5936e31d2c0a1cf1"
   },
@@ -62,6 +68,7 @@
     "frames": 22050,
     "pcm_reference": null,
     "pcm_sha256": "d1070756d2dfaef09381ec185e8e45c500ed36ef35a7bc88ea126160cec02d54",
+    "peaks_sha256": "889998f16178315418f48d3f70dd34f722520c6cd2e070d8463099209aab6819",
     "sample_rate": 44100,
     "sha256": "8fe56079093a7df9722a2460edaeaeac2f1459bf601f87bda87f4b558d70f6d9"
   },
@@ -71,6 +78,7 @@
     "frames": 22050,
     "pcm_reference": null,
     "pcm_sha256": "2e31f2a65bbb8a9d9a870d5e36a0f2d631c06766b44e590af00c3b7d6783c783",
+    "peaks_sha256": "201eb19220dbca2f5ea2fe543351cc8a93e8bc520943daf308b331046347de37",
     "sample_rate": 44100,
     "sha256": "0ca497f92e2c3e278efac7755495343fc08ebe79218ca4ef850bdd8e0af5d8c6"
   },
@@ -80,6 +88,7 @@
     "frames": 22050,
     "pcm_reference": null,
     "pcm_sha256": "d1070756d2dfaef09381ec185e8e45c500ed36ef35a7bc88ea126160cec02d54",
+    "peaks_sha256": "889998f16178315418f48d3f70dd34f722520c6cd2e070d8463099209aab6819",
     "sample_rate": 44100,
     "sha256": "b446f154efec095f1e93731a1184c20e590d3c028eeab1f5d6215ad63bf6c462"
   },
@@ -89,6 +98,7 @@
     "frames": 22050,
     "pcm_reference": "sine.m4a.pcm",
     "pcm_sha256": null,
+    "peaks_sha256": "abe0377ad9923ecdfebf230fc8bf9ce7754c05d31c003b2e03305ed7061d5829",
     "sample_rate": 44100,
     "sha256": "9d65ab5d5ea344193e5685fcaacea2d864a7920580235f2b7002fb5fd26707e5"
   },
@@ -98,6 +108,7 @@
     "frames": 22050,
     "pcm_reference": "sine.mp3.pcm",
     "pcm_sha256": null,
+    "peaks_sha256": "1aec5fff0b9f93f572ee962f2771d59a5aca8b16a718ba45748375c818da7835",
     "sample_rate": 44100,
     "sha256": "0065f3dbf623f3dc2f927ab63ec9b2ddbaabe42cc6ca8384a7de1f59c4ce1462"
   },
@@ -107,6 +118,7 @@
     "frames": 22050,
     "pcm_reference": null,
     "pcm_sha256": "78ffa78efc11c79e8a8c76836d0d74b17a2019140eb3d0bf1cf72041137d82bb",
+    "peaks_sha256": "e386f726d95c5c1e5c00bd495e5af2d80d9398499c8a413922e6f2b5d26f9f74",
     "sample_rate": 44100,
     "sha256": "9ab53fe1beb65604a0b53b02efbd579a4f3dc10f8ef4bdae3aba5f6edbb16a2b"
   },
