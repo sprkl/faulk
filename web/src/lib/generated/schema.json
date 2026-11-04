@@ -162,7 +162,7 @@
       },
       {
         "additionalProperties": false,
-        "description": "The page's answer to the helper's `agent.call` of the same `id` (AG-1): what running\nthe agent's command did. The helper takes it only from the session the call went to.\nOnly on a session.",
+        "description": "The page's answer to the helper's `agent.call` of the same `id` (AG-1): what running\nthe agent's command did. The helper takes it only from the link (session or control\nlink) the call went to. On a session or a control link.",
         "properties": {
           "id": {
             "format": "uint64",
@@ -181,6 +181,20 @@
           "type",
           "id",
           "result"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The page came to the front (shown, or focused) (#608): its control link becomes the one\nthe agents' calls go to while no session is greeted, so with several pages open an agent\ndrives the one the user last looked at. Only on a control link.",
+        "properties": {
+          "type": {
+            "const": "control.front",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
         ],
         "type": "object"
       }
@@ -26438,6 +26452,7 @@
       "title": "CommandOutput"
     }
   },
+  "control_pushed_out": 4001,
   "device_descriptor": {
     "$defs": {
       "DeviceRole": {
@@ -35817,7 +35832,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 28,
+  "protocol_version": 29,
   "server_message": {
     "$defs": {
       "Capabilities": {
@@ -36233,7 +36248,7 @@
       },
       {
         "additionalProperties": false,
-        "description": "An agent's tool call (AG-1): the command to run, as JSON (`{\"type\": \"<domain.verb>\",\n...}`), and the agent's name, the history's author `agent:<name>`. The page runs it\nthrough its dispatcher like a user's action and answers `agent.result` with this `id`;\nthe helper gives up on it when the session ends or after its timeout.",
+        "description": "An agent's tool call (AG-1): the command to run, as JSON (`{\"type\": \"<domain.verb>\",\n...}`), and the agent's name, the history's author `agent:<name>`. The page runs it\nthrough its dispatcher like a user's action and answers `agent.result` with this `id`;\nthe helper gives up on it when the link it went on ends or after its timeout. Sent on\nthe greeted session (Boost) if there is one, else on the newest control link (#608).",
         "properties": {
           "agent": {
             "type": "string"
