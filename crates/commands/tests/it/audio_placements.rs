@@ -31,6 +31,22 @@ fn a_range_change_that_would_leave_a_placement_past_the_clip_is_refused() {
     assert!(error.to_string().contains(&partial.to_string()), "{error}");
     // 33 075 frames keep it exactly inside.
     run(&range(&f, 0, 33_075), &mut state.clone(), &mut context()).unwrap();
+    // A looped clip keeps the strict rule (AU-6, #115, decides looped placements).
+    let mut looped = state.clone();
+    run(
+        &c(clip::Command::AudioSetLoop {
+            clip: f.audio_clip.clone(),
+            looping: Some(::project::FrameLoop {
+                start: Frame::new(0),
+                end: Frame::new(1_000),
+            }),
+        }),
+        &mut looped,
+        &mut context(),
+    )
+    .unwrap();
+    let error = check_refusal(&range(&f, 0, 30_000), &looped, &context()).unwrap();
+    assert_eq!(error.code(), "invalid");
 }
 
 #[test]
@@ -133,6 +149,42 @@ fn a_restored_audio_clip_refuses_a_placement_ending_past_the_clip() {
         let error = check_refusal(&restore(length, offset), &deleted, &context()).unwrap();
         assert_eq!(error.code(), "invalid", "{length} {offset}");
     }
+    // A placement that overlaps one the track holds, or another restored with it.
+    let mut held = deleted.clone();
+    run(
+        &import_at(&f, Some(ClipTarget::Arrangement { start: Tick(0) })),
+        &mut held,
+        &mut context(),
+    )
+    .unwrap();
+    let with = |starts: &[i64], on: &State| {
+        let mut placements = placements.clone();
+        let mut next = placements[0].clone();
+        placements.clear();
+        for (i, start) in starts.iter().enumerate() {
+            next.id = ::project::PlacementId::generate(&mut ::project::IdGenerator::new(
+                1_700_000_000_000,
+                40 + i as u128,
+            ));
+            next.start = Tick(*start);
+            placements.push(next.clone());
+        }
+        let command = c(clip::Command::RestoreAudio {
+            track: track.clone(),
+            clip: clip.clone(),
+            snapshot: snapshot.clone(),
+            placements,
+        });
+        check_refusal(&command, on, &context())
+    };
+    // Two seconds' worth of ticks apart: fine; one tick apart: overlap.
+    assert!(with(&[0, 3_840], &deleted).is_err());
+    let error = with(&[0, 100], &deleted).unwrap();
+    assert_eq!(error.code(), "invalid");
+    // Against a placement the track already holds (the import covers ticks 0 to 4 000).
+    assert!(with(&[5_000], &held).is_err());
+    let error = with(&[100], &held).unwrap();
+    assert_eq!(error.code(), "invalid");
 }
 
 /// A small deterministic generator: the sequences below are the same on every run.
@@ -182,7 +234,13 @@ fn after_any_sequence_of_commands_every_delete_can_be_undone() {
     let f = fx();
     for seed in 1..=40_u64 {
         let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
-        let mut state = f.state.clone();
+        // Odd seeds start from a placement that plays part of the clip (offset and length
+        // short of the whole), even ones from no placement.
+        let mut state = if seed % 2 == 1 {
+            with_audio_placement(&f).0
+        } else {
+            f.state.clone()
+        };
         let mut ctx = context();
         let mut undos: Vec<(Command, Command)> = Vec::new();
         for _ in 0..30 {

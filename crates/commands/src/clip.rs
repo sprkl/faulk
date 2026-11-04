@@ -307,7 +307,8 @@ domain! {
     /// identifier or a placement's already exists in the project, when the slot is taken
     /// or its scene is gone, or when the snapshot breaks a rule of the project (a range
     /// outside the file, a loop outside the range, a gain that is not a number, a
-    /// placement ending past the clip: `offset + length` at most the clip's frames). Undo:
+    /// placement ending past the clip: `offset + length` at most the clip's frames, or
+    /// overlapping another placement of the track or of the snapshot). Undo:
     /// `clip.delete`.
     "clip.restore_audio" (kind = "edit", undo = "inverse", destructive = false)
     RestoreAudio {
@@ -1754,7 +1755,8 @@ fn check_audio_placements(
             return Err(invalid(
                 "frames",
                 format!(
-                    "placement {id} would overlap placement {other}: an audio placement never                      carves; move or resize one of them first"
+                    "placement {id} would overlap placement {other}: an audio placement never \
+                     carves; move or resize one of them first"
                 ),
             ));
         }
@@ -2099,6 +2101,26 @@ fn restore_audio(
                 "a placement ends inside the clip: `offset + length` is at most the clip's frames",
             ));
         }
+    }
+    // An audio placement never overlaps another one of the track, nor one of the others
+    // restored with it (the same rule as `arrangement.restore`).
+    let mut spans = taken_spans(tempo, track);
+    for (i, p) in placements.iter().enumerate() {
+        let start = p.start.get();
+        let end = start.saturating_add(
+            tempo
+                .frames_to_ticks(p.length, snap.media.sample_rate)
+                .get()
+                .max(1),
+        );
+        if spans.iter().any(|(s, e)| *s < end && start < *e) {
+            return Err(invalid(
+                format!("placements[{i}]"),
+                "the placement would overlap another placement of the track: an audio \
+                 placement never carves",
+            ));
+        }
+        spans.push((start, end));
     }
     insert_audio(state, track_id, clip_id, snap, placements)?;
     Ok(edited(

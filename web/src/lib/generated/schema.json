@@ -6792,7 +6792,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Bring back an audio clip with its identifier, as `clip.delete` removed it: the\ninverse of deleting an audio clip. Its placements give their length and offset in\nframes of the file. Refused when the track is not an audio track, when the clip's\nidentifier or a placement's already exists in the project, when the slot is taken\nor its scene is gone, or when the snapshot breaks a rule of the project (a range\noutside the file, a loop outside the range, a gain that is not a number, a\nplacement ending past the clip: `offset + length` at most the clip's frames). Undo:\n`clip.delete`.",
+        "description": "Bring back an audio clip with its identifier, as `clip.delete` removed it: the\ninverse of deleting an audio clip. Its placements give their length and offset in\nframes of the file. Refused when the track is not an audio track, when the clip's\nidentifier or a placement's already exists in the project, when the slot is taken\nor its scene is gone, or when the snapshot breaks a rule of the project (a range\noutside the file, a loop outside the range, a gain that is not a number, a\nplacement ending past the clip: `offset + length` at most the clip's frames, or\noverlapping another placement of the track or of the snapshot). Undo:\n`clip.delete`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -17591,7 +17591,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Bring back an audio clip with its identifier, as `clip.delete` removed it: the\ninverse of deleting an audio clip. Its placements give their length and offset in\nframes of the file. Refused when the track is not an audio track, when the clip's\nidentifier or a placement's already exists in the project, when the slot is taken\nor its scene is gone, or when the snapshot breaks a rule of the project (a range\noutside the file, a loop outside the range, a gain that is not a number, a\nplacement ending past the clip: `offset + length` at most the clip's frames). Undo:\n`clip.delete`.",
+              "description": "Bring back an audio clip with its identifier, as `clip.delete` removed it: the\ninverse of deleting an audio clip. Its placements give their length and offset in\nframes of the file. Refused when the track is not an audio track, when the clip's\nidentifier or a placement's already exists in the project, when the slot is taken\nor its scene is gone, or when the snapshot breaks a rule of the project (a range\noutside the file, a loop outside the range, a gain that is not a number, a\nplacement ending past the clip: `offset + length` at most the clip's frames, or\noverlapping another placement of the track or of the snapshot). Undo:\n`clip.delete`.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
