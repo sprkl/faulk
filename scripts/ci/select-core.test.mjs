@@ -84,14 +84,19 @@ test('engine change: every dependent is tested, both wasm builds, the web job an
   assert.equal(r.e2e, 'dev')
 })
 
-test('helper-only change: helper tests, no wasm, no web, no e2e', () => {
+test('helper-only change: helper tests, no wasm, the web job with the helper area specs (#668)', () => {
   const r = pr(['crates/helper/src/tray.rs'])
   assert.equal(r.rustTest, '-p helper')
   assert.equal(r.rustChecks, true)
   assert.equal(r.helperWindows, true)
   assert.equal(r.rustWasmEngine || r.rustWasmProject, false)
-  assert.equal(r.web, false)
-  assert.equal(r.e2e, '')
+  assert.equal(r.web, true)
+  assert.equal(r.e2e, 'dev')
+  assert.equal(r.e2eTier, 'area')
+  assert.equal(r.e2eAll, false)
+  for (const n of ['agent-scenario', 'helper', 'local-access', 'big-project']) assert.ok(r.e2eSpecs.includes(n), n)
+  // The CI step that installs the ALSA headers keys on the scenario being in the plan.
+  assert.match(toOutputs(r).e2e_specs, /tests\/e2e\/agent-scenario\.spec\.ts/)
 })
 
 test('a leaf crate that the page embeds runs the web job but not helper', () => {
@@ -292,7 +297,7 @@ test('tier core: a shared page file runs the core tests alone, on one machine', 
   }
 })
 
-test('tier for crates: the contracts run all, the engine and the project an area, helper and test-support nothing', () => {
+test('tier for crates: the contracts run all, the engine and the project an area, helper its own area, test-support nothing', () => {
   for (const f of ['crates/protocol/src/lib.rs', 'crates/commands/src/track.rs', 'crates/engine/src/msg.rs', 'crates/engine/src/msg/codec.rs', 'crates/engine-wasm/src/lib.rs']) {
     const r = pr([f])
     assert.deepEqual([r.e2e, r.e2eTier, r.e2eAll, r.e2eShards], ['dev', 'all', true, 3], f)
@@ -304,10 +309,17 @@ test('tier for crates: the contracts run all, the engine and the project an area
   const project = pr(['crates/project-wasm/src/save.rs'])
   assert.equal(project.e2eTier, 'area')
   assert.ok(project.e2eSpecs.includes('project-store'))
-  for (const f of ['crates/helper/src/tray.rs', 'crates/test-support/src/signal.rs']) assert.deepEqual([pr([f]).e2e, pr([f]).e2eTier], ['', 'none'], f)
-  // helper with the engine: the engine's files decide, helper adds nothing.
+  const ts = pr(['crates/test-support/src/signal.rs'])
+  assert.deepEqual([ts.e2e, ts.e2eTier], ['', 'none'])
+  // helper (MCP, server, link): the helper area, not the whole suite.
+  for (const f of ['crates/helper/src/tray.rs', 'crates/helper/src/mcp/server.rs', 'crates/helper/Cargo.toml']) {
+    const h = pr([f])
+    assert.deepEqual([h.e2e, h.e2eTier, h.e2eAll, h.web], ['dev', 'area', false, true], f)
+    assert.ok(h.e2eSpecs.includes('agent-scenario'), f)
+  }
+  // helper with the engine: both areas run.
   const both = pr(['crates/helper/src/tray.rs', 'crates/engine/src/devices/reverb.rs'])
-  assert.deepEqual(names(both), names(engine))
+  for (const n of [...engine.e2eSpecs, 'agent-scenario']) assert.ok(both.e2eSpecs.includes(n), n)
   // A workspace-wide input or modules/: the whole suite.
   for (const f of ['Cargo.lock', 'modules/x/a.dsp']) assert.equal(pr([f]).e2eTier, 'all', f)
 })
@@ -321,7 +333,7 @@ test('a longer list gets more machines, never more than three; the core tests do
 })
 
 test('no browser test to run: no end-to-end job, no shard', () => {
-  for (const files of [['docs/a.md'], ['web/src/lib/a.test.ts'], ['web/README.md'], ['crates/helper/src/a.rs'], ['scripts/agent/verify.mjs']]) {
+  for (const files of [['docs/a.md'], ['web/src/lib/a.test.ts'], ['web/README.md'], ['crates/test-support/src/a.rs'], ['scripts/agent/verify.mjs']]) {
     const r = pr(files)
     assert.equal(r.e2e, '', files.join())
     assert.equal(r.e2eShards, 0, files.join())
