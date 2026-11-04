@@ -91,6 +91,7 @@ test('arrangement: Draw makes a clip of the dragged length, Select draws a box, 
   await expect(page.getByTestId('gesture-label')).toContainText(/Length|Longueur/)
   await expect(page.getByTestId('gesture-label')).toContainText(/Snap|Magn/)
   expect(await blocks(page)).toEqual([])
+  if (process.env.FAULK_E2E_SHOTS) await page.screenshot({ path: `${process.env.FAULK_E2E_SHOTS}/arrangement-draw.png` })
   await page.mouse.up()
   // 2000 and 6000 snap to 1920 and 5760.
   expect(await spans(page)).toEqual([[2 * BEAT, 4 * BEAT]])
