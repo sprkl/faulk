@@ -10,7 +10,7 @@
 //!   inside `[0, 2^40]`). Two placements of the same clip are linked: editing the clip
 //!   changes both. A placement has no loop of its own: when it is longer than its clip, the
 //!   clip repeats inside it, through the clip's loop when it has one, the whole clip when
-//!   it has none (#473). Audio placements come with the audio import (AU) and are refused here.
+//!   it has none (#473). Audio placements are refused here, except by `arrangement.delete` and its inverse `arrangement.restore` (#640); moving, resizing and copying them comes with AU-6.
 //! - **The overlap rule: the last one put down wins.** The placement a command places,
 //!   moves, resizes or copies keeps its span; the other placements of the track that it
 //!   covers are carved, so a track never holds two placements at the same tick after one
@@ -2002,6 +2002,12 @@ fn audio_placement(
             format!("clip {} is not an audio clip of the track", rec.clip),
         ));
     };
+    if rec.length.get() != 0 || rec.offset.get() != 0 {
+        return Err(invalid(
+            field,
+            "an audio placement is given in `frames`: `length` and `offset` stay 0",
+        ));
+    }
     let length = project::Frame::new(span.length);
     let end = rec
         .start

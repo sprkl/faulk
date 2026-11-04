@@ -1381,6 +1381,11 @@ fn an_audio_restore_is_checked_like_the_audio_clip_restore() {
         length: Tick(960),
         ..record.clone()
     });
+    // Ticks on an audio record (they would be ignored).
+    bad(arrangement::PlacementRecord {
+        length: Tick(960),
+        ..record.clone()
+    });
     // A MIDI clip of the other track.
     bad(arrangement::PlacementRecord {
         clip: f.looped.clone(),
@@ -1641,4 +1646,57 @@ fn a_project_edited_by_the_commands_survives_the_folder_format() {
     .unwrap();
     let opened = open(&fs, &OpenOptions::default()).unwrap();
     assert_eq!(opened.project, state.project);
+}
+
+#[test]
+fn an_audio_restore_replaces_a_placement_by_its_identifier_and_removes_one() {
+    let f = fx();
+    let (placed, audio) = arrangement_examples::with_audio_placement(&f);
+    let mut state = placed;
+    let mut ctx = fresh_context();
+    let record = arrangement::PlacementRecord {
+        id: audio.clone(),
+        clip: f.audio_clip.clone(),
+        start: Tick(7680),
+        length: Tick(0),
+        offset: Tick(0),
+        frames: Some(arrangement::FrameSpan {
+            length: 1_000,
+            offset: 0,
+        }),
+    };
+    // Same identifier: replaced in place.
+    let outcome = run(&a(audio_restore(vec![record], &f)), &mut state, &mut ctx).unwrap();
+    state.project.validate().unwrap();
+    let p = &state.project.tracks[&f.audio_track].placements[&audio];
+    assert_eq!(p.start, Tick(7680));
+    assert!(matches!(
+        p.span,
+        Span::Frames { length, offset } if length.get() == 1_000 && offset.get() == 0
+    ));
+    // Its undo puts the old one back; the remove path then empties the track.
+    let Undo::Inverse(undo) = outcome.undo else {
+        panic!("no inverse")
+    };
+    run(&undo, &mut state, &mut ctx).unwrap();
+    assert_eq!(
+        state.project.tracks[&f.audio_track].placements[&audio].start,
+        Tick(3840)
+    );
+    let remove = arrangement::Command::Restore {
+        edits: vec![arrangement::TrackEdit {
+            track: f.audio_track.clone(),
+            put: vec![],
+            remove: vec![audio.clone()],
+            clips: vec![],
+            remove_clips: vec![],
+        }],
+    };
+    run(&a(remove), &mut state, &mut ctx).unwrap();
+    assert!(state.project.tracks[&f.audio_track].placements.is_empty());
+    assert!(
+        state.project.tracks[&f.audio_track]
+            .clips
+            .contains_key(&f.audio_clip)
+    );
 }
