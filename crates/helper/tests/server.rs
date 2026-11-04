@@ -1488,23 +1488,132 @@ fn result_text(result: &serde_json::Value) -> serde_json::Value {
     serde_json::from_str(text).unwrap_or(serde_json::Value::String(text.into()))
 }
 
-#[tokio::test]
-async fn the_mcp_server_lists_one_tool_per_command_of_the_catalog() {
-    let h = start().await;
+/// The tools the MCP server really serves: `tools/list` through the stdio bridge, against the
+/// helper's HTTP MCP endpoint (so a filter or a dropped tool anywhere in the server shows).
+async fn served_tools(h: &Harness) -> Vec<serde_json::Value> {
     let mut lines = initialize();
     lines.push(serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}));
     let answers = bridge(h.port, Some(MCP_TOKEN), lines).await.unwrap();
     assert_eq!(answer(&answers, 1)["result"]["serverInfo"]["name"], "faulk");
     assert!(answer(&answers, 1)["result"]["capabilities"]["tools"].is_object());
-    let tools = answer(&answers, 2)["result"]["tools"].as_array().unwrap();
+    answer(&answers, 2)["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .clone()
+}
+
+/// Every difference between the commands of `catalog` and the `served` tools, matched by name
+/// (not by position): a command with no tool, a tool with no command, a tool listed twice, and
+/// a description, input schema, output schema or hint that differs. Empty means parity.
+fn parity_gaps(catalog: &[commands::ToolSpec], served: &[serde_json::Value]) -> Vec<String> {
+    let mut gaps = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for tool in served {
+        let name = tool["name"].as_str().unwrap_or_default();
+        if !seen.insert(name) {
+            gaps.push(format!("tool {name} listed twice"));
+        }
+        if !catalog
+            .iter()
+            .any(|spec| helper::mcp::tool_name(&spec.name) == name)
+        {
+            gaps.push(format!("tool {name} has no command"));
+        }
+    }
+    for spec in catalog {
+        let name = helper::mcp::tool_name(&spec.name);
+        let Some(tool) = served.iter().find(|t| t["name"] == name.as_str()) else {
+            gaps.push(format!("command {} has no tool", spec.name));
+            continue;
+        };
+        if tool["description"] != spec.description.as_str() {
+            gaps.push(format!("{}: description differs", spec.name));
+        }
+        if tool["inputSchema"] != spec.input_schema {
+            gaps.push(format!("{}: input schema differs", spec.name));
+        }
+        if tool["outputSchema"] != spec.output_schema {
+            gaps.push(format!("{}: output schema differs", spec.name));
+        }
+        if tool["annotations"]["destructiveHint"] != spec.destructive {
+            gaps.push(format!("{}: destructive hint differs", spec.name));
+        }
+        if tool["annotations"]["readOnlyHint"] != (spec.kind == commands::Kind::Query) {
+            gaps.push(format!("{}: read-only hint differs", spec.name));
+        }
+    }
+    gaps
+}
+
+#[tokio::test]
+async fn the_mcp_server_lists_one_tool_per_command_of_the_catalog() {
+    let h = start().await;
     let catalog = commands::catalog();
-    assert_eq!(tools.len(), catalog.len());
-    for (tool, spec) in tools.iter().zip(&catalog) {
-        assert_eq!(tool["name"], helper::mcp::tool_name(&spec.name));
-        assert_eq!(tool["description"], spec.description.as_str());
-        assert_eq!(tool["inputSchema"], spec.input_schema, "{}", spec.name);
-        assert_eq!(tool["outputSchema"], spec.output_schema, "{}", spec.name);
-        assert_eq!(tool["annotations"]["destructiveHint"], spec.destructive);
+    let served = served_tools(&h).await;
+    assert!(!catalog.is_empty());
+    assert_eq!(served.len(), catalog.len());
+    assert_eq!(parity_gaps(&catalog, &served), Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn the_parity_check_fails_on_a_command_without_a_tool_or_any_other_gap() {
+    let h = start().await;
+    let catalog = commands::catalog();
+    let served = served_tools(&h).await;
+    assert!(parity_gaps(&catalog, &served).is_empty());
+
+    // A served list missing one tool: the command it stood for has no tool.
+    for index in [0, served.len() / 2, served.len() - 1] {
+        let mut missing = served.clone();
+        let removed = missing.remove(index);
+        let gaps = parity_gaps(&catalog, &missing);
+        assert_eq!(gaps.len(), 1, "{gaps:?}");
+        assert!(gaps[0].contains("has no tool"), "{gaps:?}");
+        let tool = removed["name"].as_str().unwrap();
+        assert_eq!(
+            gaps[0].replace('.', "_"),
+            format!("command {tool} has no tool")
+        );
+    }
+
+    // A command the catalog gains while the server does not serve it.
+    let mut longer = catalog.clone();
+    let mut extra = longer[0].clone();
+    extra.name = "zz.not_served".into();
+    longer.push(extra);
+    assert_eq!(
+        parity_gaps(&longer, &served),
+        ["command zz.not_served has no tool"]
+    );
+
+    // A tool without a command and a duplicate.
+    let mut stray = served.clone();
+    stray.push(serde_json::json!({"name": "zz_stray"}));
+    stray.push(served[0].clone());
+    assert_eq!(
+        parity_gaps(&catalog, &stray),
+        [
+            "tool zz_stray has no command".to_string(),
+            format!("tool {} listed twice", served[0]["name"].as_str().unwrap()),
+        ]
+    );
+
+    // Each field that may drift.
+    for (field, value) in [
+        ("description", serde_json::json!("changed")),
+        ("inputSchema", serde_json::json!({"type": "null"})),
+        ("outputSchema", serde_json::json!({"type": "null"})),
+    ] {
+        let mut drifted = served.clone();
+        drifted[0][field] = value;
+        let gaps = parity_gaps(&catalog, &drifted);
+        assert_eq!(gaps.len(), 1, "{field}: {gaps:?}");
+    }
+    for hint in ["destructiveHint", "readOnlyHint"] {
+        let mut drifted = served.clone();
+        let current = drifted[0]["annotations"][hint].as_bool().unwrap();
+        drifted[0]["annotations"][hint] = serde_json::json!(!current);
+        assert_eq!(parity_gaps(&catalog, &drifted).len(), 1, "{hint}");
     }
 }
 
