@@ -341,7 +341,7 @@
         "undo": "none"
       },
       {
-        "description": "Choose an empty folder and write the whole project into it; the project then lives\nin that folder, and the automatic save keeps writing there. The folder is chosen by\nthe user (a browser needs a click for it), so an agent that is not driven by one gets\na notice in the page instead, and nothing is chosen. The old folder is left as it is. Changes nothing in the\nproject, so it never enters the history.",
+        "description": "Ask the user for the project's name (a field prefilled with the current one), then for\na folder, and write the whole project into a folder of that name inside it; the project\ntakes that name (a `project.rename`, undoable) and then lives in that folder, and the\nautomatic save keeps writing there. The name and the folder are chosen by the user (a\nbrowser needs a click for it), so an agent that is not driven by one gets a notice in the\npage instead, and nothing is chosen. A folder of that name that already holds files is\nrefused. The old folder is left as it is. Changes nothing else in the project, so the save\nitself never enters the history.",
         "destructive": false,
         "input_schema": {
           "additionalProperties": false,
@@ -19959,7 +19959,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Choose an empty folder and write the whole project into it; the project then lives\nin that folder, and the automatic save keeps writing there. The folder is chosen by\nthe user (a browser needs a click for it), so an agent that is not driven by one gets\na notice in the page instead, and nothing is chosen. The old folder is left as it is. Changes nothing in the\nproject, so it never enters the history.",
+              "description": "Ask the user for the project's name (a field prefilled with the current one), then for\na folder, and write the whole project into a folder of that name inside it; the project\ntakes that name (a `project.rename`, undoable) and then lives in that folder, and the\nautomatic save keeps writing there. The name and the folder are chosen by the user (a\nbrowser needs a click for it), so an agent that is not driven by one gets a notice in the\npage instead, and nothing is chosen. A folder of that name that already holds files is\nrefused. The old folder is left as it is. Changes nothing else in the project, so the save\nitself never enters the history.",
               "properties": {
                 "type": {
                   "const": "project.save_as",

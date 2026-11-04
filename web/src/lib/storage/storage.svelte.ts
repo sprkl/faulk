@@ -17,6 +17,7 @@ import type { MessageKey } from '../i18n'
 import { needsBytes, type FolderEntry, type SaveEntry, type SaveFrame, type SaveMode } from '../project/core'
 import type { PackExport, PackImport } from '../project/core'
 import type { OpenOutcome } from '../stores/open'
+import { cleanName } from '../export/audio-export.svelte'
 import { checkOpenUrl, downloadPack, packNameOf } from './open-url'
 import {
   StoreError,
@@ -57,6 +58,8 @@ export interface ProjectHost {
   projectId(): string | null
   /** The name of the project now (for the file an export hands over). */
   projectName(): string | null
+  /** `project.rename` through the command path (Save as names the project after the folder it creates); false when the project did not take the name. */
+  renameProject(name: string): boolean
   /** The `.faulkpack` of a project folder given whole (see `ProjectCore.packExport`). */
   packExport(files: { path: string; bytes: Uint8Array }[]): Promise<PackExport>
   /** The files of a `.faulkpack`, validated (see `ProjectCore.packImport`). */
@@ -79,6 +82,12 @@ export interface StorageDeps {
   /** Calls back when the folder may have changed; returns what stops watching. */
   watch(handle: FolderHandle, onChange: () => void): () => void
   now(): number
+  /**
+   * Save as asks the project's name first (an in-app field, prefilled with `initial`): the project then goes into a
+   * folder of that name inside the folder the user picks. `null` when the user cancelled. Without it (tests) the picked
+   * folder itself is the project's folder.
+   */
+  askName?(initial: string): Promise<string | null>
   /** The browser's own storage (the OPFS), where drafts and browser projects live. */
   browser: BrowserProjects
   /** Asks the user for a `.faulkpack` (a file chooser; call straight from a click); `null` when cancelled. */
@@ -93,6 +102,9 @@ export interface StorageDeps {
 
 /** The biggest `.faulkpack` the page reads: the core holds the pack and its files in memory (`crates/project-wasm` `pack.rs`). */
 export const MAX_PACK_BYTES = 192 << 20
+
+/** Where `writeInto` puts a project: the browser's storage, or a folder (`project` and `folder`: Save as named the project). */
+type SaveTarget = { kind: 'folder'; handle: FolderHandle; project?: string; folder?: string } | { kind: 'browser' }
 
 /** What stands between the user and a write: the interface shows a banner for each. */
 export type Block =
@@ -488,8 +500,9 @@ export class ProjectStorage {
   // ------------------------------------------------------------------ choosing a folder
 
   /**
-   * Save as: the user picks an empty folder and the project is written into it whole, with a
-   * new identity when it already had a folder. Call straight from a click.
+   * Save as: the user names the project, picks a folder, and the project is written whole into a folder of that
+   * name inside it (an empty one, or one made now), with a new identity when it already had a folder. The folder
+   * dialog opens from the click that confirmed the name. Call straight from a click.
    */
   async saveAs(): Promise<boolean> {
     if (!this.supported) {
@@ -498,6 +511,15 @@ export class ProjectStorage {
     }
     // The chooser opens only from a click: an agent without one is told so, and nothing is chosen.
     if (this.needsGesture()) return false
+    let name: string | null = null
+    if (this.deps.askName) {
+      name = await this.deps.askName(this.host.projectName() ?? '')
+      name = name?.trim() ?? null
+      // Cancelled, or nothing typed (the field refuses it too): nothing was chosen.
+      if (!name) return false
+      // The confirming click is the gesture of the folder dialog, a moment ago at most.
+      if (this.needsGesture()) return false
+    }
     const picked = await this.deps.picker.pick()
     if (picked.status === 'cancelled') return false
     if (picked.status === 'refused') {
@@ -505,7 +527,36 @@ export class ProjectStorage {
       return false
     }
     this.notice = null
-    return this.enqueue(() => this.saveInto({ kind: 'folder', handle: picked.handle }))
+    if (name === null) return this.enqueue(() => this.saveInto({ kind: 'folder', handle: picked.handle }))
+    const folder = cleanName(name)
+    const made = await this.makeFolder(picked.handle, folder)
+    if (!made) return false
+    const project = name
+    const saved = await this.enqueue(() => this.saveInto({ kind: 'folder', handle: made.handle, project, folder }))
+    // A folder made for this save and left empty goes away (`removeEntry` refuses a folder that holds anything).
+    if (!saved && made.created) await picked.handle.removeEntry(folder).catch(() => undefined)
+    return saved
+  }
+
+  /** The folder `name` inside `parent`, made when it does not exist yet; `null` (with the notice) when the browser refuses. */
+  private async makeFolder(parent: FolderHandle, name: string): Promise<{ handle: FolderHandle; created: boolean } | null> {
+    try {
+      return { handle: await parent.getDirectoryHandle(name), created: false }
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'NotFoundError')) return this.folderFailed(error)
+    }
+    try {
+      return { handle: await parent.getDirectoryHandle(name, { create: true }), created: true }
+    } catch (error) {
+      return this.folderFailed(error)
+    }
+  }
+
+  private folderFailed(error: unknown): null {
+    const refused = error instanceof DOMException && (error.name === 'NotAllowedError' || error.name === 'SecurityError')
+    // A file called like that (TypeMismatchError) or anything else the browser throws.
+    this.notice = refused ? 'storage.refused' : 'storage.saveFailed'
+    return null
   }
 
   /**
@@ -526,13 +577,13 @@ export class ProjectStorage {
    * come along, the lock on its identity is carried over, and the draft is deleted once the folder
    * holds everything). A failure leaves the project where it was.
    */
-  private saveInto(target: { kind: 'folder'; handle: FolderHandle } | { kind: 'browser' }): Promise<boolean> {
+  private saveInto(target: SaveTarget): Promise<boolean> {
     // The whole move is one gap for Save and the export folder: the blobs are copied and the frame written
     // while the old home is still current, and a Save then would ask for a second folder.
     return this.holdingBarrier(this.writeInto(target))
   }
 
-  private async writeInto(target: { kind: 'folder'; handle: FolderHandle } | { kind: 'browser' }): Promise<boolean> {
+  private async writeInto(target: SaveTarget): Promise<boolean> {
     this.cancelTimers()
     const from = this.current
     const promotedFrom = from?.kind === 'browser' && target.kind === 'folder' ? from : null
@@ -542,6 +593,12 @@ export class ProjectStorage {
     let dir: string | null = null
     let frame: SaveFrame | null = null
     let handle: FolderHandle
+    // The name the project had before Save as renamed it: given back when the write does not happen.
+    let renamedFrom: string | null = null
+    const undoRename = () => {
+      if (renamedFrom !== null) this.host.renameProject(renamedFrom)
+      renamedFrom = null
+    }
     try {
       if (target.kind === 'browser') {
         // The directory's lock is taken before the directory exists, so another tab's sweep of
@@ -554,13 +611,25 @@ export class ProjectStorage {
       }
       store = await this.deps.openStore(handle)
       if (!(await store.isEmpty())) {
-        this.notice = 'storage.notEmpty'
+        const named = target.kind === 'folder' ? target.folder : undefined
+        this.notice = named ? 'storage.nameTaken' : 'storage.notEmpty'
+        if (named) this.noticeVars = { name: named }
         return await this.abandon(null, store, null, releaseDir, dir)
+      }
+      // Save as names the project: through the command path, once the folder is known to take it, and just before
+      // the frame is computed so the folder holds the new name.
+      const before = this.host.projectName()
+      if (target.kind === 'folder' && target.project !== undefined && target.project !== before) {
+        if (!this.host.renameProject(target.project)) throw new Error('the project did not take its new name')
+        renamedFrom = before ?? ''
       }
       const startedComputing = performance.now()
       frame = this.host.save(from?.kind === 'folder' ? 'copy' : 'everything')
       const coreMs = performance.now() - startedComputing
-      if (!frame) return await this.abandon(null, store, null, releaseDir, dir)
+      if (!frame) {
+        undoRename()
+        return await this.abandon(null, store, null, releaseDir, dir)
+      }
       if (frame.status === 'failed') throw new Error(frame.message)
       if (promotedFrom) {
         // Same project, same identity: its lock moves to the folder instead of being taken twice.
@@ -570,6 +639,7 @@ export class ProjectStorage {
         release = id ? await this.deps.lock(id) : () => undefined
         if (!release) {
           this.notice = 'storage.locked'
+          undoRename()
           return await this.abandon(frame, store, null, releaseDir, dir)
         }
       }
@@ -583,6 +653,7 @@ export class ProjectStorage {
       this.lastWrite = { coreMs, writeMs: performance.now() - startedWriting, files, bytes }
       this.host.saved(true)
     } catch (error) {
+      undoRename()
       await this.abandon(frame, store, promotedFrom ? null : release, releaseDir, dir)
       if (!(error instanceof StoreError)) console.error(error)
       if (target.kind === 'browser') {
