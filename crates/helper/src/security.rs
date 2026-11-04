@@ -3,7 +3,7 @@
 //! Any web page open in the browser can try to reach `127.0.0.1`. The helper accepts
 //! a WebSocket handshake only when its `Host` names the helper (against DNS
 //! rebinding) and its `Origin` is in the allow-list. The probe and pairing routes need
-//! no token; the session route needs the pairing token.
+//! no token; the session route and the control link (#608) need the pairing token.
 //!
 //! The MCP server (`/mcp`, AG-1) takes plain HTTP requests from local agents: their `Host`
 //! names the helper, they carry no `Origin` (no web page drives it) and they hold the MCP
@@ -25,6 +25,8 @@ pub enum Route {
     Probe,
     Pair,
     Session,
+    /// The page's control link (#608): the agents' relay only.
+    Control,
 }
 
 /// Why a handshake was refused. The reason is logged, never sent to the client.
@@ -142,20 +144,22 @@ impl Policy {
         match h.path {
             paths::PROBE => Ok(Route::Probe),
             paths::PAIR => Ok(Route::Pair),
-            paths::SESSION => {
-                let token = h
-                    .query
-                    .unwrap_or_default()
-                    .split('&')
-                    .find_map(|kv| kv.strip_prefix("token="));
-                match token {
-                    Some(t) if constant_time_eq(t.as_bytes(), self.token.as_bytes()) => {
-                        Ok(Route::Session)
-                    }
-                    _ => Err(Refusal::BadToken),
-                }
-            }
+            paths::SESSION => self.with_token(h, Route::Session),
+            paths::CONTROL => self.with_token(h, Route::Control),
             _ => Err(Refusal::UnknownPath),
+        }
+    }
+
+    /// `route` when the handshake's `?token=` is the pairing token.
+    fn with_token(&self, h: &Handshake<'_>, route: Route) -> Result<Route, Refusal> {
+        let token = h
+            .query
+            .unwrap_or_default()
+            .split('&')
+            .find_map(|kv| kv.strip_prefix("token="));
+        match token {
+            Some(t) if constant_time_eq(t.as_bytes(), self.token.as_bytes()) => Ok(route),
+            _ => Err(Refusal::BadToken),
         }
     }
 }
@@ -453,7 +457,7 @@ mod tests {
     const HOST: &str = "127.0.0.1:47800";
 
     #[test]
-    fn accepts_probe_pair_and_authenticated_session() {
+    fn accepts_probe_pair_and_authenticated_session_and_control_link() {
         let p = policy();
         assert_eq!(p.check(&hs("/probe", None, HOST, ORIGIN)), Ok(Route::Probe));
         assert_eq!(
@@ -464,6 +468,10 @@ mod tests {
         assert_eq!(
             p.check(&hs("/session", q, HOST, ORIGIN)),
             Ok(Route::Session)
+        );
+        assert_eq!(
+            p.check(&hs("/control", q, HOST, ORIGIN)),
+            Ok(Route::Control)
         );
     }
 
@@ -515,6 +523,37 @@ mod tests {
             p.check(&hs("/session", Some("token="), HOST, ORIGIN)),
             Err(Refusal::BadToken)
         );
+        // The control link (#608) asks for the same token, Host and Origin as the session.
+        let q = Some("token=0123456789abcdef0123456789abcdef");
+        for (what, handshake, refusal) in [
+            (
+                "no token",
+                hs("/control", None, HOST, ORIGIN),
+                Refusal::BadToken,
+            ),
+            (
+                "wrong token",
+                hs("/control", Some("token=wrong"), HOST, ORIGIN),
+                Refusal::BadToken,
+            ),
+            (
+                "no origin",
+                hs("/control", q, HOST, None),
+                Refusal::BadOrigin,
+            ),
+            (
+                "foreign origin",
+                hs("/control", q, HOST, Some("https://evil.example")),
+                Refusal::BadOrigin,
+            ),
+            (
+                "rebinding",
+                hs("/control", q, "evil.example:47800", ORIGIN),
+                Refusal::BadHost,
+            ),
+        ] {
+            assert_eq!(p.check(&handshake), Err(refusal), "{what}");
+        }
     }
 
     #[test]

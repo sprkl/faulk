@@ -13,6 +13,13 @@
 //! Without an audio output (#525) the helper still serves: the probe says so
 //! (`audio_output: false`) and a session is answered `error audio.no_output` and closed, so the
 //! page keeps playing itself until an output opens.
+//!
+//! Agents (AG-1, #608): an agent's call goes to the greeted session (Boost) if there is one,
+//! else to the front control link (`/control`): a paired page's connection that carries only
+//! the agents' relay, whatever plays (the page in Web mode, or the helper) and whether or not
+//! the helper has an output. The front link is the newest, or the last whose page said it came
+//! to the front (`control.front`). Control links never take the audio role and never replace
+//! the session; at most [`MAX_CONTROLS`] are kept, a newer one closing the oldest.
 
 use crate::audio::{EngineSlot, Meter, Refusal};
 use crate::live::LiveInput;
@@ -34,7 +41,8 @@ use tokio::sync::oneshot;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
 use tokio_tungstenite::tungstenite::http::StatusCode;
-use tokio_tungstenite::tungstenite::protocol::WebSocketConfig;
+use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
+use tokio_tungstenite::tungstenite::protocol::{CloseFrame, WebSocketConfig};
 
 /// What the helper reports to its host (the tray, or the console).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,7 +65,19 @@ pub use protocol::errors::NO_OUTPUT;
 enum Out {
     Msg(ServerMessage),
     Report(Vec<u8>),
+    /// Close the connection: a control link that a newer one pushed out.
+    Close,
 }
+
+/// A page's control link (#608): the agents' relay, apart from the audio role.
+struct Control {
+    id: u64,
+    tx: mpsc::UnboundedSender<Out>,
+}
+
+/// The most control links the helper keeps (one per open page, as a rule): a newer one closes
+/// the oldest, so a page that reconnects in a loop, or many tabs, never pile up connections.
+pub const MAX_CONTROLS: usize = 8;
 
 struct Session {
     id: u64,
@@ -87,6 +107,10 @@ pub struct Shared {
     /// The helper's updater, reported to the session (`update.status`); `None` in tests.
     updates: Option<UpdateWatch>,
     session: Mutex<Option<Session>>,
+    /// The pages' control links (#608), the front one last: an agent's call goes to it when no
+    /// session is greeted.
+    controls: Mutex<Vec<Control>>,
+    /// Ids of sessions and control links alike: a waiting call names the link it went on.
     next_id: AtomicU64,
     /// The agents' calls waiting for the page's answer (AG-1), by call id.
     calls: Mutex<HashMap<u64, PendingCall>>,
@@ -97,19 +121,20 @@ pub struct Shared {
     mcp: OnceLock<crate::mcp::McpHttp>,
 }
 
-/// An agent's call sent to a session, waiting for its `agent.result`.
+/// An agent's call sent to a page, waiting for its `agent.result`.
 struct PendingCall {
-    /// The session the call went to: only it may answer.
-    session: u64,
+    /// The session or control link the call went to: only it may answer.
+    link: u64,
     answer: oneshot::Sender<AgentResult>,
 }
 
 /// Why an agent's call got no answer from the page (AG-1). `code` is stable for agents.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RelayError {
-    /// No page is connected (or it has not been greeted yet).
+    /// No page is paired and connected: no greeted session, no control link.
     Absent,
-    /// The page's session ended, or another page replaced it, before it answered.
+    /// The session or control link the call went on ended, or another page replaced it,
+    /// before the page answered.
     Gone,
     /// The page did not answer within the helper's timeout.
     Timeout,
@@ -127,7 +152,7 @@ impl RelayError {
     pub fn message(self) -> &'static str {
         match self {
             Self::Absent => {
-                "no Faulk page is connected to the helper: open Faulk in the browser and switch it to Boost"
+                "no Faulk page is paired with the helper: open Faulk in the browser (and pair it with the helper once)"
             }
             Self::Gone => "the Faulk page closed or was replaced before it answered",
             Self::Timeout => "the Faulk page did not answer in time",
@@ -178,6 +203,7 @@ impl Shared {
             notify,
             updates: None,
             session: Mutex::new(None),
+            controls: Mutex::new(Vec::new()),
             next_id: AtomicU64::new(1),
             calls: Mutex::new(HashMap::new()),
             next_call: AtomicU64::new(1),
@@ -192,10 +218,10 @@ impl Shared {
         self
     }
 
-    /// Relays an agent's command to the page (AG-1): sent to the current session as
-    /// `agent.call`, answered by the page's `agent.result` of the same id. `Absent` at once
-    /// without a greeted session; `Gone` when the session ends or is replaced first; `Timeout`
-    /// after the helper's timeout.
+    /// Relays an agent's command to the page (AG-1, #608): sent as `agent.call` to the greeted
+    /// session (Boost) if there is one, else to the front control link, and answered by the
+    /// page's `agent.result` of the same id. `Absent` at once without either; `Gone` when that
+    /// link ends or is replaced first; `Timeout` after the helper's timeout.
     pub async fn agent_call(
         &self,
         agent: &str,
@@ -203,62 +229,116 @@ impl Shared {
     ) -> Result<AgentResult, RelayError> {
         let id = self.next_call.fetch_add(1, Ordering::Relaxed);
         let (answer, answered) = oneshot::channel();
+        let call = ServerMessage::AgentCall {
+            id,
+            agent: agent.to_owned(),
+            command,
+        };
+        // Registered under the lock that guards the chosen link's end, as that end: a call is
+        // never registered for a link whose calls were already dropped. The session's lock is
+        // let go before the control links' is taken: the two are never held together.
         let _guard = {
-            // Under the session lock, as the session's end: a call is never registered for a
-            // session whose calls were already dropped.
-            let current = self.session.lock().expect("session lock");
-            let Some(session) = current.as_ref().filter(|s| s.engine.is_some()) else {
-                return Err(RelayError::Absent);
-            };
-            self.calls.lock().expect("calls lock").insert(
-                id,
-                PendingCall {
-                    session: session.id,
-                    answer,
-                },
-            );
-            let guard = CallGuard {
-                calls: &self.calls,
-                id,
-            };
-            let call = ServerMessage::AgentCall {
-                id,
-                agent: agent.to_owned(),
-                command,
-            };
-            if session.tx.send(Out::Msg(call)).is_err() {
-                return Err(RelayError::Gone);
+            let session = self.session.lock().expect("session lock");
+            if let Some(s) = session.as_ref().filter(|s| s.engine.is_some()) {
+                self.send_call(s.id, &s.tx, id, answer, call)?
+            } else {
+                drop(session);
+                let controls = self.controls.lock().expect("controls lock");
+                let Some(c) = controls.last() else {
+                    return Err(RelayError::Absent);
+                };
+                self.send_call(c.id, &c.tx, id, answer, call)?
             }
-            guard
         };
         match tokio::time::timeout(self.agent_timeout, answered).await {
             Ok(Ok(result)) => Ok(result),
-            // The sender was dropped: the session ended or was replaced.
+            // The sender was dropped: the link ended or was replaced.
             Ok(Err(_)) => Err(RelayError::Gone),
             Err(_) => Err(RelayError::Timeout),
         }
     }
 
-    /// Drops the waiting calls of session `id`: their agents get `Gone`.
+    /// Registers call `id` for `link` and sends it there; the guard drops it when its wait ends.
+    fn send_call(
+        &self,
+        link: u64,
+        tx: &mpsc::UnboundedSender<Out>,
+        id: u64,
+        answer: oneshot::Sender<AgentResult>,
+        call: ServerMessage,
+    ) -> Result<CallGuard<'_>, RelayError> {
+        self.calls
+            .lock()
+            .expect("calls lock")
+            .insert(id, PendingCall { link, answer });
+        let guard = CallGuard {
+            calls: &self.calls,
+            id,
+        };
+        if tx.send(Out::Msg(call)).is_err() {
+            return Err(RelayError::Gone);
+        }
+        Ok(guard)
+    }
+
+    /// Drops the waiting calls of link `id` (a session or a control link): their agents get
+    /// `Gone`.
     fn drop_calls(&self, id: u64) {
         if let Ok(mut calls) = self.calls.lock() {
-            calls.retain(|_, call| call.session != id);
+            calls.retain(|_, call| call.link != id);
         }
     }
 
-    /// The page's answer to call `call`, from session `session`: taken only when that session
-    /// is the one the call went to.
-    fn answer_call(&self, session: u64, call: u64, result: AgentResult) {
+    /// Counts control link `id` (#608) as the front one. Past [`MAX_CONTROLS`] the oldest is
+    /// taken out first, under the same lock (no call can reach it after), told to close, and
+    /// its waiting calls end.
+    fn open_control(&self, id: u64, tx: mpsc::UnboundedSender<Out>) {
+        let mut controls = self.controls.lock().expect("controls lock");
+        while controls.len() >= MAX_CONTROLS {
+            let oldest = controls.remove(0);
+            crate::log!("closed the oldest control link: {MAX_CONTROLS} are open");
+            let _ = oldest.tx.send(Out::Close);
+            self.drop_calls(oldest.id);
+        }
+        controls.push(Control { id, tx });
+    }
+
+    /// Control link `id`'s page came to the front (`control.front`): its link becomes the one
+    /// agents' calls go to when no session is greeted. Nothing for a link already gone.
+    fn front_control(&self, id: u64) {
+        let mut controls = self.controls.lock().expect("controls lock");
+        if let Some(at) = controls.iter().position(|c| c.id == id) {
+            let link = controls.remove(at);
+            controls.push(link);
+        }
+    }
+
+    /// Control link `id` ended: no call goes to it any more, and its waiting calls end. Under
+    /// the controls' lock, as a call's registration.
+    fn close_control(&self, id: u64) {
+        let mut controls = self.controls.lock().expect("controls lock");
+        controls.retain(|c| c.id != id);
+        self.drop_calls(id);
+    }
+
+    /// How many control links are open.
+    pub fn control_links(&self) -> usize {
+        self.controls.lock().map_or(0, |c| c.len())
+    }
+
+    /// The page's answer to call `call`, from link `link` (a session or a control link): taken
+    /// only when that link is the one the call went to.
+    fn answer_call(&self, link: u64, call: u64, result: AgentResult) {
         let mut calls = self.calls.lock().expect("calls lock");
         match calls.get(&call) {
-            Some(pending) if pending.session == session => {
+            Some(pending) if pending.link == link => {
                 if let Some(pending) = calls.remove(&call) {
                     let _ = pending.answer.send(result);
                 }
             }
-            // Defensive: a replaced or ended session's calls are dropped first, so another
-            // session finds none of them today; this keeps it so if that order ever changes.
-            Some(_) => crate::log!("ignored an agent result from another session (call {call})"),
+            // Another link's call: a session and a control link, or two pages, never answer
+            // each other's calls.
+            Some(_) => crate::log!("ignored an agent result from another link (call {call})"),
             None => crate::log!("ignored an agent result for no waiting call (call {call})"),
         }
     }
@@ -420,10 +500,12 @@ impl Shared {
                 self.answer_call(id, call, result);
                 Vec::new()
             }
-            Ok(ClientMessage::Pair { .. }) | Err(_) => vec![ServerMessage::Error {
-                code: "protocol.invalid".into(),
-                message: "expected a session message (the engine's streams are binary)".into(),
-            }],
+            Ok(ClientMessage::Pair { .. } | ClientMessage::ControlFront) | Err(_) => {
+                vec![ServerMessage::Error {
+                    code: "protocol.invalid".into(),
+                    message: "expected a session message (the engine's streams are binary)".into(),
+                }]
+            }
         }
     }
 }
@@ -630,6 +712,7 @@ async fn connection(stream: TcpStream, shared: Arc<Shared>) {
         Some(Route::Probe) => probe(ws, &shared).await,
         Some(Route::Pair) => pair(ws, &shared).await,
         Some(Route::Session) => session(ws, &shared).await,
+        Some(Route::Control) => control(ws, &shared).await,
         None => {}
     }
 }
@@ -774,6 +857,7 @@ async fn session(mut ws: Ws, shared: &Arc<Shared>) {
                     (text(&message), replaced)
                 }
                 Out::Report(bytes) => (Message::binary(bytes), false),
+                Out::Close => break,
             };
             let sent = sink.send(frame).await;
             // A report left the queue: the next one may follow (a JSON frame says nothing
@@ -822,6 +906,77 @@ async fn session(mut ws: Ws, shared: &Arc<Shared>) {
     }
     drop(current);
     writer.abort();
+}
+
+/// A page's control link (#608): `agent.call` out; `agent.result` and `control.front` in,
+/// nothing else. It opens whatever plays and whether or not the helper has an output, and
+/// leaves the session alone.
+async fn control(ws: Ws, shared: &Arc<Shared>) {
+    let (mut sink, mut stream) = ws.split();
+    let (tx, mut rx) = mpsc::unbounded_channel::<Out>();
+    let id = shared.next_id.fetch_add(1, Ordering::Relaxed);
+    shared.open_control(id, tx.clone());
+    let mut writer = tokio::spawn(async move {
+        while let Some(out) = rx.recv().await {
+            let frame = match out {
+                Out::Msg(message) => text(&message),
+                Out::Report(_) => continue,
+                Out::Close => {
+                    // Pushed out by newer links: the page is told so, and does not come back on its own.
+                    let _ = sink
+                        .send(Message::Close(Some(CloseFrame {
+                            code: CloseCode::Library(protocol::CONTROL_PUSHED_OUT),
+                            reason: "pushed out by newer control links".into(),
+                        })))
+                        .await;
+                    return;
+                }
+            };
+            if sink.send(frame).await.is_err() {
+                break;
+            }
+        }
+        let _ = sink.close().await;
+    });
+    loop {
+        tokio::select! {
+            message = stream.next() => {
+                let reply = match message {
+                    Some(Ok(Message::Text(body))) => {
+                        match serde_json::from_str::<ClientMessage>(&body) {
+                            Ok(ClientMessage::AgentResult { id: call, result }) => {
+                                shared.answer_call(id, call, result);
+                                None
+                            }
+                            Ok(ClientMessage::ControlFront) => {
+                                shared.front_control(id);
+                                None
+                            }
+                            _ => Some(control_invalid()),
+                        }
+                    }
+                    Some(Ok(Message::Binary(_))) => Some(control_invalid()),
+                    Some(Ok(_)) => None,
+                    Some(Err(_)) | None => break,
+                };
+                if let Some(reply) = reply {
+                    let _ = tx.send(Out::Msg(reply));
+                }
+            }
+            // Closed by the helper (a newer link pushed it out), or the page stopped reading.
+            _ = &mut writer => break,
+        }
+    }
+    shared.close_control(id);
+    writer.abort();
+}
+
+/// The answer to anything else than the control link's messages; the link goes on.
+fn control_invalid() -> ServerMessage {
+    ServerMessage::Error {
+        code: "protocol.invalid".into(),
+        message: "a control link takes agent.result and control.front only".into(),
+    }
 }
 
 /// At most one report waits in a session's queue: a stalled page never makes the queue grow

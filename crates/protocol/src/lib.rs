@@ -12,19 +12,28 @@
 //!
 //! Agents (AG-1, version 26): the helper serves MCP and relays each tool call to the page as
 //! `agent.call` (a command, with an `id`); the page runs it through its own dispatcher, as a
-//! user's action, and answers `agent.result` with the same `id`.
+//! user's action, and answers `agent.result` with the same `id`. Since version 29 (#608) a
+//! paired page also holds a control link (`/control`) that carries only these two messages
+//! and `control.front`, in Web mode as in Boost, with or without an audio output.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 28;
+pub const PROTOCOL_VERSION: u32 = 29;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
 /// encodes (16 Mi notes at about 21 bytes each are 352 MB). The page never sends a longer
 /// one; the helper's other routes keep the WebSocket library's default limits.
 pub const MAX_STREAM_BYTES: usize = 1 << 30;
+
+/// The WebSocket close code of a control link the helper closed because newer ones pushed it
+/// out (#608, more than its limit of links open): the page does not try it again on its own,
+/// so that many pages never push each other out in a loop.
+pub const CONTROL_PUSHED_OUT: u16 = 4001;
+
+// Version 29 (#608; 28 is #191's): agents reach a paired page in Web mode and with a helper that has no audio output. A new token route, `/control`, is the page's control link: it carries only `agent.call`, `agent.result` and `control.front` (the page came to the front), never takes the audio role, never replaces the session and opens whatever the output. The helper sends an agent's call to the greeted session (Boost) first, else to the front control link (the newest, or the last that sent `control.front`); `page.absent` only when neither exists. At most 8 links: a newer one closes the oldest with close code `CONTROL_PUSHED_OUT` (4001). A page and a helper of different versions refuse each other.
 
 // Version 28 (#191, 27 is #616's): device presets. The commands gain the `preset` domain (`preset.save`, `preset.load`, `preset.delete`, `preset.rename`, `preset.copy`, `preset.list`, `preset.restore`, `preset.restore_device`), the events `preset_changed` and `device_preset_changed`, a device an optional `preset`, the project its `presets` (folder format 4). The helper's MCP tools come from the command catalogue (AG-1), so a helper of version 27 would not offer them.
 
@@ -108,6 +117,10 @@ pub mod paths {
     /// Requires `?token=`: the session, which takes the page's engine streams (binary frames)
     /// and the messages for the helper's MIDI inputs.
     pub const SESSION: &str = "/session";
+    /// Requires `?token=`: the page's control link (#608), which carries only the agents'
+    /// relay (`agent.call`, `agent.result`). It never takes the audio role, never replaces the
+    /// session, and opens whether or not the helper has an audio output.
+    pub const CONTROL: &str = "/control";
 }
 
 /// The ids of the page's default project (`commands::engine_msgs::single_synth`, the project
@@ -143,10 +156,15 @@ pub enum ClientMessage {
     #[serde(rename = "live.routing")]
     LiveRouting { epoch: u16, tracks: Vec<u32> },
     /// The page's answer to the helper's `agent.call` of the same `id` (AG-1): what running
-    /// the agent's command did. The helper takes it only from the session the call went to.
-    /// Only on a session.
+    /// the agent's command did. The helper takes it only from the link (session or control
+    /// link) the call went to. On a session or a control link.
     #[serde(rename = "agent.result")]
     AgentResult { id: u64, result: AgentResult },
+    /// The page came to the front (shown, or focused) (#608): its control link becomes the one
+    /// the agents' calls go to while no session is greeted, so with several pages open an agent
+    /// drives the one the user last looked at. Only on a control link.
+    #[serde(rename = "control.front")]
+    ControlFront,
 }
 
 /// What running an agent's command in the page did (`agent.result`).
@@ -264,7 +282,8 @@ pub enum ServerMessage {
     /// An agent's tool call (AG-1): the command to run, as JSON (`{"type": "<domain.verb>",
     /// ...}`), and the agent's name, the history's author `agent:<name>`. The page runs it
     /// through its dispatcher like a user's action and answers `agent.result` with this `id`;
-    /// the helper gives up on it when the session ends or after its timeout.
+    /// the helper gives up on it when the link it went on ends or after its timeout. Sent on
+    /// the greeted session (Boost) if there is one, else on the newest control link (#608).
     #[serde(rename = "agent.call")]
     AgentCall {
         id: u64,
@@ -327,6 +346,7 @@ pub fn schema_bundle() -> serde_json::Value {
         "param_ids": param_ids,
         "error_codes": { "no_output": errors::NO_OUTPUT, "audio_stream": errors::AUDIO_STREAM },
         "max_stream_bytes": MAX_STREAM_BYTES,
+        "control_pushed_out": CONTROL_PUSHED_OUT,
         "param_defaults": param_defaults,
         // The fader's law (#389): `[position, dB]` points, from the bottom (silence) to the top.
         // The page's fader, the axis of a volume lane and the engine's reading of a lane all

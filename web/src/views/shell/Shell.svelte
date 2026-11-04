@@ -76,6 +76,12 @@
     if (link !== null) storage.offerLink(link)
     const onHashChange = () => dispatcher.takePairLink(location, clearAddress)
     window.addEventListener('hashchange', onHashChange)
+    // With several pages open, the agents drive the one the user last brought to the front (#608).
+    const toFront = () => {
+      if (document.visibilityState === 'visible') dispatcher.toFront()
+    }
+    window.addEventListener('focus', toFront)
+    document.addEventListener('visibilitychange', toFront)
     // A reload or a closed tab keeps the layout of the moment.
     const keepLayout = () => ui.keepNow()
     window.addEventListener('pagehide', keepLayout)
@@ -83,6 +89,8 @@
       stopMeters()
       stopLocalAccess()
       window.removeEventListener('hashchange', onHashChange)
+      window.removeEventListener('focus', toFront)
+      document.removeEventListener('visibilitychange', toFront)
       window.removeEventListener('pagehide', keepLayout)
     }
   })
