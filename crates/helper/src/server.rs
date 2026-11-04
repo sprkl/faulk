@@ -19,7 +19,9 @@
 //! the agents' relay, whatever plays (the page in Web mode, or the helper) and whether or not
 //! the helper has an output. The front link is the newest, or the last whose page said it came
 //! to the front (`control.front`). Control links never take the audio role and never replace
-//! the session; at most [`MAX_CONTROLS`] are kept, a newer one closing the oldest.
+//! the session; at most [`MAX_CONTROLS`] are kept, a newer one closing the oldest. When an agent
+//! leaves (#641, [`crate::agents`]), the greeted session and every control link are told
+//! (`agent.left`), so that the page closes the history group that agent left open.
 
 use crate::audio::{EngineSlot, Meter, Refusal};
 use crate::live::LiveInput;
@@ -119,6 +121,32 @@ pub struct Shared {
     agent_timeout: Duration,
     /// The MCP server, made once `serve` holds the `Arc` (its handler keeps a weak one).
     mcp: OnceLock<crate::mcp::McpHttp>,
+    /// The agents here, by name (#641): the page is told when one leaves.
+    agents: Mutex<crate::agents::Presence>,
+    /// How long an agent may stay silent before it counts as gone (tests shorten it).
+    agent_idle: Duration,
+}
+
+/// An agent's MCP session, counted as long as it lives (#641): dropped with the session (the
+/// MCP library drops the session's handler when the client closes it or it stays idle), it
+/// tells the page the agent left when it was that name's last.
+pub struct AgentSession {
+    shared: std::sync::Weak<Shared>,
+    name: String,
+}
+
+impl Drop for AgentSession {
+    fn drop(&mut self) {
+        if let Some(shared) = self.shared.upgrade() {
+            let left = shared
+                .agents
+                .lock()
+                .is_ok_and(|mut a| a.session_closed(&self.name, Instant::now()));
+            if left {
+                shared.agent_left(&self.name);
+            }
+        }
+    }
 }
 
 /// An agent's call sent to a page, waiting for its `agent.result`.
@@ -209,6 +237,8 @@ impl Shared {
             next_call: AtomicU64::new(1),
             agent_timeout: AGENT_TIMEOUT,
             mcp: OnceLock::new(),
+            agents: Mutex::new(crate::agents::Presence::default()),
+            agent_idle: crate::agents::AGENT_IDLE,
         }
     }
 
@@ -216,6 +246,78 @@ impl Shared {
     pub fn with_agent_timeout(mut self, timeout: Duration) -> Self {
         self.agent_timeout = timeout;
         self
+    }
+
+    /// How long an agent may stay silent before it counts as gone (tests shorten it): the MCP
+    /// sessions' idle timeout and the lease of a stateless call (#641). Set before `serve`.
+    pub fn with_agent_idle(mut self, idle: Duration) -> Self {
+        self.agent_idle = idle;
+        self
+    }
+
+    /// How long an agent may stay silent before it counts as gone.
+    pub fn agent_idle(&self) -> Duration {
+        self.agent_idle
+    }
+
+    /// Counts an MCP session of the agent `name` (#641) until the guard drops.
+    pub fn agent_session(self: &Arc<Self>, name: &str) -> AgentSession {
+        if let Ok(mut agents) = self.agents.lock() {
+            agents.session_opened(name);
+        }
+        AgentSession {
+            shared: Arc::downgrade(self),
+            name: name.to_owned(),
+        }
+    }
+
+    /// The agent `name` made a call outside any MCP session (a stateless MCP request, #641):
+    /// it counts as here for `agent_idle` from now.
+    pub fn agent_called(&self, name: &str) {
+        if let Ok(mut agents) = self.agents.lock() {
+            agents.called(name, Instant::now(), self.agent_idle);
+        }
+    }
+
+    /// Whether the agent `name` counts as here (#641).
+    pub fn agent_here(&self, name: &str) -> bool {
+        self.agents
+            .lock()
+            .is_ok_and(|a| a.is_here(name, Instant::now()))
+    }
+
+    /// The agents whose stateless calls stopped for `agent_idle` left (#641): the ticker's.
+    fn expire_agents(&self) {
+        let left = self
+            .agents
+            .lock()
+            .map(|mut a| a.expire(Instant::now()))
+            .unwrap_or_default();
+        for name in left {
+            self.agent_left(&name);
+        }
+    }
+
+    /// Tells the page that the agent `name` left (#641): on the greeted session and on every
+    /// control link, whichever its calls went to (another page it drove may hold its group). The
+    /// session gets it too, after any call it carried for that agent: the page runs that call
+    /// before it learns the agent left, so a group the call opened is closed, not left open.
+    fn agent_left(&self, name: &str) {
+        crate::log!("agent {name:?} left");
+        let message = ServerMessage::AgentLeft {
+            agent: name.to_owned(),
+        };
+        // Only a greeted session: the agents' calls go to no other, and `hello` comes first.
+        if let Ok(session) = self.session.lock()
+            && let Some(s) = session.as_ref().filter(|s| s.engine.is_some())
+        {
+            let _ = s.tx.send(Out::Msg(message.clone()));
+        }
+        if let Ok(controls) = self.controls.lock() {
+            for c in controls.iter() {
+                let _ = c.tx.send(Out::Msg(message.clone()));
+            }
+        }
     }
 
     /// Relays an agent's command to the page (AG-1, #608): sent as `agent.call` to the greeted
@@ -573,6 +675,8 @@ async fn ticker(shared: Arc<Shared>) {
             if changed {
                 shared.to_session(shared.midi_inputs());
             }
+            // An agent whose stateless calls stopped left (#641).
+            shared.expire_agents();
             // About once a second: a download's progress is not sent at every step.
             let update = shared.update_status();
             if update != last_update {
