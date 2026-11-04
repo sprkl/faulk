@@ -19,6 +19,7 @@ const result = (reductionDb: number): ExportResult => ({
   clipped: 0,
   reductionDb,
   tailCut: false,
+  missing: [],
   renderMs: 10,
 })
 
@@ -51,5 +52,16 @@ describe('the export dialog’s limiter warning', () => {
 
   it('shows no warning for a mix that never engaged the limiter (0 dB)', () => {
     expect(body(0)).not.toContain('data-testid="export-limited"')
+  })
+})
+
+describe('the export dialog’s unread audio files (#647)', () => {
+  it('names the files whose clips are silent, and says nothing when every file was read', () => {
+    const stores = doneWith(0)
+    stores.audioExport.result = { ...result(0), missing: ['kick.wav', 'voice.mp3'] }
+    const b = render(ExportDialog, { context: storesContext(stores) }).body
+    expect(b).toContain('data-testid="export-missing"')
+    expect(b).toContain('kick.wav, voice.mp3')
+    expect(body(0)).not.toContain('data-testid="export-missing"')
   })
 })

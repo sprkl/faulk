@@ -230,8 +230,11 @@ domain! {
     /// counted from 1, required with it and refused without it, the last one included,
     /// then the same tail). `bit_depth` is `pcm16`, `pcm24` (default) or `float32`;
     /// `sample_rate` is 44100, 48000 (default) or 96000. The metronome is never in the
-    /// file; the solo and mute state are. Audio clips are not in the file yet (they play,
-    /// but the offline render does not read their files). It is refused when there is
+    /// file; the solo and mute state are. Audio clips are in the file as they play: the
+    /// render reads their files from the project's folder, in the page in both modes (so in
+    /// Boost too, where they are not heard yet), and waits for each read; a file that cannot
+    /// be read leaves its clips silent and the page names it when the render ends. It is
+    /// refused when there is
     /// nothing to render (empty arrangement, no loop region for `loop`, a `bars` range that
     /// starts after the end of the arrangement or is out of order) or the range lasts more
     /// than 30 minutes

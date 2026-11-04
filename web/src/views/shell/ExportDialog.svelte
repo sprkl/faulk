@@ -167,6 +167,9 @@
             {t('export.limited', { db: result.reductionDb.toFixed(1) })}
           </p>{/if}
         {#if result.tailCut}<p class="warn" role="status" data-testid="export-tail-cut">{t('export.tailCut')}</p>{/if}
+        {#if result.missing.length > 0}<p class="warn" role="alert" data-testid="export-missing">
+            {t('export.missing', { names: result.missing.join(', ') })}
+          </p>{/if}
         <div class="actions">
           <button bind:this={primary} class="primary" onclick={() => exporter.close()} data-testid="export-close">{t('export.close')}</button>
         </div>

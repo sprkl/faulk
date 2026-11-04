@@ -35,17 +35,28 @@ impl Disk {
         self
     }
 
+    /// What `job` reads: its bytes and the file's length, or why it cannot be read.
+    pub fn read(
+        &self,
+        job: &engine::audio_source::Job,
+    ) -> Result<(&[u8], u64), engine::audio_source::Failure> {
+        match self.files.get(&(job.media, job.file as u8)) {
+            Some(file) => {
+                let from = (job.offset as usize).min(file.len());
+                let to = from.saturating_add(job.len as usize).min(file.len());
+                Ok((&file[from..to], file.len() as u64))
+            }
+            None => Err(engine::audio_source::Failure::NotFound),
+        }
+    }
+
     /// Serves the planner's jobs at `now_ms`: each read at once, from the files.
     fn serve(&self, prepare: &mut engine::host::Prepare, now_ms: u64) {
         let jobs = prepare.disk_poll(now_ms).to_vec();
         for job in jobs {
-            match self.files.get(&(job.media, job.file as u8)) {
-                Some(file) => {
-                    let from = (job.offset as usize).min(file.len());
-                    let to = from.saturating_add(job.len as usize).min(file.len());
-                    prepare.disk_done(job.id, &file[from..to], file.len() as u64);
-                }
-                None => prepare.disk_failed(job.id, engine::audio_source::Failure::NotFound),
+            match self.read(&job) {
+                Ok((bytes, len)) => prepare.disk_done(job.id, bytes, len),
+                Err(why) => prepare.disk_failed(job.id, why),
             }
         }
     }

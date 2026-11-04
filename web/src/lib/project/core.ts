@@ -227,7 +227,7 @@ export interface ExportRequest {
 
 /** An export the core prepared: its plan and the two streams of the engine that renders it. */
 export type ExportJob =
-  | { status: 'ready'; plan: Extract<ExportReport, { status: 'ready' }>['plan']; setup: Uint8Array; stop: Uint8Array }
+  | { status: 'ready'; plan: Extract<ExportReport, { status: 'ready' }>['plan']; setup: Uint8Array; start: Uint8Array; stop: Uint8Array }
   | Exclude<ExportReport, { status: 'ready' }>
 
 /** What running a command means for the engine. */
@@ -385,7 +385,14 @@ export class ProjectCore {
     const report = this.output<ExportReport>('export_job', this.exports.pw_export_job(this.live(), len))
     if (report.status !== 'ready') return report
     const bytes = this.engine()
-    return { status: 'ready', plan: report.plan, setup: bytes.slice(0, report.setup_len), stop: bytes.slice(report.setup_len) }
+    const started = report.setup_len + report.start_len
+    return {
+      status: 'ready',
+      plan: report.plan,
+      setup: bytes.slice(0, report.setup_len),
+      start: bytes.slice(report.setup_len, started),
+      stop: bytes.slice(started),
+    }
   }
 
   /**

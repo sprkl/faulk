@@ -425,6 +425,14 @@ export class Dispatcher {
     hasContent: () => Object.values(this.project.view?.project.tracks ?? {}).some((track) => Object.keys(track?.placements ?? {}).length > 0),
     hasLoop: () => (this.project.view?.project.transport.loop_region ?? null) !== null,
     folder: async () => (await this.storage?.folderHandle()) ?? null,
+    mediaFolder: () => this.folder,
+    mediaNames: (hashes) => {
+      const names = new Map<string, string>()
+      for (const track of Object.values(this.project.view?.project.tracks ?? {}))
+        for (const clip of Object.values(track?.clips ?? {}))
+          if (clip && 'audio' in clip.content) names.set(clip.content.audio.media.hash, clip.content.audio.media.name)
+      return hashes.map((hash) => names.get(hash) ?? hash)
+    },
   }
 
   private refuseOpen(reason: OpenRefusal): OpenOutcome {
