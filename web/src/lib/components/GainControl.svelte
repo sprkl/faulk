@@ -32,7 +32,7 @@
   } = $props()
 
   const { dispatcher, ui } = useStores()
-  const gesture = createGesture((command) => dispatcher.run(command))
+  const gesture = createGesture((command, options) => dispatcher.run(command, options))
   onDestroy(() => gesture.end())
 
   const same = (a: number | null | undefined, b: number | null) => (a ?? null) === b
