@@ -26,7 +26,7 @@ import { audioMediaOf } from '../audio/import/media'
 import type { ProjectHost, ProjectStorage } from '../storage/storage.svelte'
 import { releaseAllNotes, requestMidiInputs } from './housekeeping'
 import { takePairLink } from '../pair-link'
-import { answerAgentCall } from '../agents/agent-call'
+import { agentAuthor, answerAgentCall } from '../agents/agent-call'
 import { AgentConfirmations } from '../agents/confirm.svelte'
 import { agentQuestion, confirmDeadline, isStorageGuarded, notConfirmed, type GuardView } from '../agents/guard'
 import { ControlLink, ControlTimeout } from '../agents/control-link'
@@ -173,6 +173,8 @@ export class Dispatcher {
         }
         void answerAgentCall(this, agent, command, signal).then(answer)
       },
+      // Whichever session tells it, even one no longer played: the agent left all the same (#641).
+      onAgentLeft: (agent) => this.agentLeft(agent),
       onStreamRefused: (code, at, epoch) => {
         if (!current()) return
         if (kind === 'native') this.resyncNative(code, epoch)
@@ -202,6 +204,7 @@ export class Dispatcher {
       onClosed: () => {
         if (kind !== 'native' || !current()) return
         this.native = null
+        this.linkLost()
         this.state.mode = 'web'
         if (this.state.notice !== 'helper.replaced') this.state.notice = 'helper.lost'
         void this.enterWeb()
@@ -982,6 +985,8 @@ export class Dispatcher {
     if (this.control?.token === token) return
     this.control?.close()
     this.control = null
+    // Another token: maybe another helper, which never heard of this one's agents.
+    this.linkLost()
     const opening = this.openControl(token).finally(() => {
       if (this.controlOpening === opening) this.controlOpening = null
     })
@@ -994,9 +999,11 @@ export class Dispatcher {
     try {
       link = await ControlLink.open(token, {
         onAgentCall: (agent, command, answer, signal) => void answerAgentCall(this, agent, command, signal).then(answer),
+        onAgentLeft: (agent) => this.agentLeft(agent),
         onClosed: (pushedOut) => {
           if (this.control !== link) return
           this.control = null
+          this.linkLost()
           // Pushed out by newer pages' links: coming back would push another out in turn, so the page waits for
           // its next probe, pairing or Boost.
           if (!pushedOut) this.retryControl()
@@ -1050,6 +1057,27 @@ export class Dispatcher {
     const link = this.control
     this.control = null
     link?.close()
+    this.linkLost()
+  }
+
+  /**
+   * The agent `agent` left (#641, the helper's `agent.left`): the history group it left open is closed and its turn
+   * ends, so the user can undo at once, and its questions to the user are withdrawn: nothing runs for an agent gone.
+   */
+  private agentLeft(agent: string) {
+    const author = agentAuthor(agent)
+    this.core?.agentLeft(author)
+    this.confirmations.withdraw(author)
+  }
+
+  /**
+   * A link to the helper ended, whoever ended it (#641). With neither the control link nor a Boost session left, no agent
+   * can reach this page, and none can be heard leaving: the group an agent left open is closed and any agent's turn ends,
+   * or a helper restarted meanwhile (which never knew the agents of the one before) would leave the user without undo.
+   * Their questions were withdrawn with their links.
+   */
+  private linkLost() {
+    if (!this.control && !this.native) this.core?.agentsGone()
   }
 
   /** The page came to the front (shown or focused): agents' calls come to it while no Boost session is open (#608). */
@@ -1287,6 +1315,7 @@ export class Dispatcher {
     const native = this.native
     const web = this.web
     this.native = null
+    this.linkLost()
     this.boostSince = null
     this.state.mode = 'web'
     this.state.helperUpdate = null
