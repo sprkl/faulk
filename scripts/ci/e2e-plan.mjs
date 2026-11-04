@@ -43,7 +43,7 @@ export const AREA = {
   export: ['export-audio'],
   storage: ['project-store', 'project-save', 'project-rename', 'project-save-as-name', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability', 'open-url', 'audio-import'],
   // Importing audio files (AU-1): the pipeline in the store's Worker, the Clips panel that starts it, the storage it writes.
-  audio: ['audio-import', 'clip-pool', 'browser-storage', 'project-store'],
+  audio: ['audio-import', 'audio-play', 'clip-pool', 'browser-storage', 'project-store'],
   shortcuts: ['discoverability', 'keyboard-all-views'],
   shortcutsDialog: ['discoverability', 'keyboard-all-views', 'navigation'],
   bottomPanel: ['bottom-panel', 'layout-4', 'ux-quick-wins'],
@@ -108,6 +108,7 @@ export const RULES = [
   [/^web\/src\/views\/arrangement\//, AREA.arrangement],
   [/^web\/src\/views\/clips\/ClipsView\.svelte$/, areas('clips', 'audio')], // it starts the audio import (AU-1)
   [/^web\/src\/views\/clips\//, AREA.clips],
+  [/^web\/src\/views\/confirm\//, AREA.helper], // an agent's question before a destructive call (AG-4), asked over the helper link
   [/^web\/src\/views\/grid\//, AREA.grid],
   [/^web\/src\/views\/history\//, AREA.history],
   [/^web\/src\/views\/piano-roll\//, AREA.pianoRoll],
@@ -156,6 +157,7 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/automation\.ts$/, areas('arrangement', 'devices', 'mixer')],
   [/^web\/src\/lib\/i18n\/browser\.ts$/, areas('deviceBrowser', 'tracks')],
   [/^web\/src\/lib\/i18n\/clips\.ts$/, areas('clips', 'audio')],
+  [/^web\/src\/lib\/i18n\/confirm\.ts$/, areas('helper', 'history')], // shown by the agents' question (lib/agents/, views/confirm/)
   [/^web\/src\/lib\/i18n\/(devices|presets|synth|drums|echo|reverb|filter|compressor)\.ts$/, areas('devices')],
   [/^web\/src\/lib\/i18n\/controls\.ts$/, areas('mixer', 'tracks', 'devices', 'valueEntry', 'arrangement', 'pianoRoll')],
   [/^web\/src\/lib\/i18n\/engine\.ts$/, areas('arrangement', 'mixer', 'topBar')],

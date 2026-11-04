@@ -86,12 +86,27 @@ describe('the Boost engine reads the helper', () => {
     socket.onmessage!({ data: JSON.stringify({ type: 'hello', protocol: PROTOCOL_VERSION, sample_rate: 48000 }) })
     await connected
     socket.onmessage!({ data: JSON.stringify({ type: 'agent.call', id: 7, agent: 'claude-code', command: { type: 'history.undo' } }) })
-    expect(onAgentCall).toHaveBeenCalledWith('claude-code', { type: 'history.undo' }, expect.any(Function))
+    expect(onAgentCall).toHaveBeenCalledWith('claude-code', { type: 'history.undo' }, expect.any(Function), expect.any(AbortSignal))
     const answer = onAgentCall.mock.calls[0][2]
     answer({ status: 'applied', output: { type: 'history.undo' } })
     answer({ status: 'invalid', message: 'twice' })
     const results = socket.sent.filter((m): m is string => typeof m === 'string').map((m) => JSON.parse(m))
     expect(results).toEqual([{ type: 'agent.result', id: 7, result: { status: 'applied', output: { type: 'history.undo' } } }])
+  })
+
+  it("aborts its agents' calls when the session ends: their questions are withdrawn (AG-4)", async () => {
+    vi.stubGlobal('WebSocket', FakeSocket)
+    const onAgentCall = vi.fn()
+    const events = { onStatus: vi.fn(), onFeedback: vi.fn(), onError: vi.fn(), onClosed: vi.fn(), onAgentCall } satisfies EngineEvents
+    const connected = NativeEngine.connect('t', events)
+    const socket = FakeSocket.last
+    socket.onmessage!({ data: JSON.stringify({ type: 'hello', protocol: PROTOCOL_VERSION, sample_rate: 48000 }) })
+    await connected
+    socket.onmessage!({ data: JSON.stringify({ type: 'agent.call', id: 7, agent: 'a', command: { type: 'project.new' } }) })
+    const signal = onAgentCall.mock.calls[0][3] as AbortSignal
+    expect(signal.aborted).toBe(false)
+    socket.onclose!()
+    expect(signal.aborted).toBe(true)
   })
 
   it('answers an agent call unavailable when the page takes none, never leaving the agent waiting', async () => {

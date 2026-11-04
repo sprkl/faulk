@@ -230,9 +230,11 @@ domain! {
     /// counted from 1, required with it and refused without it, the last one included,
     /// then the same tail). `bit_depth` is `pcm16`, `pcm24` (default) or `float32`;
     /// `sample_rate` is 44100, 48000 (default) or 96000. The metronome is never in the
-    /// file; the solo and mute state are. It is refused when there is nothing to render
-    /// (empty arrangement, no loop region for `loop`, a `bars` range that starts after the
-    /// end of the arrangement or is out of order) or the range lasts more than 30 minutes
+    /// file; the solo and mute state are. Audio clips are not in the file yet (they play,
+    /// but the offline render does not read their files). It is refused when there is
+    /// nothing to render (empty arrangement, no loop region for `loop`, a `bars` range that
+    /// starts after the end of the arrangement or is out of order) or the range lasts more
+    /// than 30 minutes
     /// (a `limit` error). The output says what will be rendered; the page runs the render, shows its progress and asks
     /// where to save the file (a folder picker needs a click), so an agent that is not
     /// driven by a user gets the render in the page to confirm. Changes nothing in the

@@ -554,14 +554,22 @@ fn launch_refuses_what_it_cannot_launch_and_leaves_the_state_intact() {
         let e = refused(&la(command), &f.state);
         assert!(matches!(e, CommandError::NotFound { entity: ref got, .. } if got == entity));
     }
-    // An audio clip: not launchable yet.
-    let e = refused(
-        &la(launch::Command::Clip {
-            clip: f.audio_clip.clone(),
-        }),
-        &f.state,
-    );
-    assert_eq!(invalid_field(e), "clip");
+    // An audio clip in a slot is launched like a MIDI clip (AU-4).
+    let mut s = f.state.clone();
+    s.project
+        .tracks
+        .get_mut(&f.audio_track)
+        .unwrap()
+        .clips
+        .get_mut(&f.audio_clip)
+        .unwrap()
+        .slot = Some(f.scene_a.clone());
+    s.project.validate().expect("valid");
+    la(launch::Command::Clip {
+        clip: f.audio_clip.clone(),
+    })
+    .apply(&mut s, &mut context())
+    .expect("an audio clip of the grid is launched");
     // A clip of the arrangement only (no slot).
     let mut s = f.state.clone();
     let out = commands::Command::Clip(clip::Command::Create {

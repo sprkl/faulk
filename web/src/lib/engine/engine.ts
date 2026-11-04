@@ -37,9 +37,9 @@ export interface EngineEvents {
   /**
    * Native engine only: an agent's tool call the helper relays (AG-1, `agent.call`): the command it
    * sent, as JSON, and its name. `answer` sends the page's `agent.result` back on the session the call
-   * came from, once.
+   * came from, once. `signal` aborts when that session ends: the call can no longer be answered (AG-4).
    */
-  onAgentCall?(agent: string, command: unknown, answer: (result: AgentResult) => void): void
+  onAgentCall?(agent: string, command: unknown, answer: (result: AgentResult) => void, signal: AbortSignal): void
   onError(code: string): void
   /**
    * The engine stopped taking the message stream (`MsgError::code`: out of memory, engine busy,
