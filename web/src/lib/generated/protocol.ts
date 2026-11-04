@@ -6,6 +6,8 @@ export const PARAM_IDS = {"attack":1,"decay":2,"gain":5,"release":4,"sustain":3,
 export const ERROR_CODES = {"audio_stream":"audio.stream","no_output":"audio.no_output"} as const
 /** The longest engine stream the page sends the helper in one binary frame (`protocol::MAX_STREAM_BYTES`, BO-1). */
 export const MAX_STREAM_BYTES = 1073741824
+/** The close code of a control link the helper pushed out for newer ones (`protocol::CONTROL_PUSHED_OUT`, #608): not tried again. */
+export const CONTROL_PUSHED_OUT = 4001
 export const PARAM_DEFAULTS = {"attack":0.005,"decay":0.2,"gain":0.8,"release":0.3,"sustain":0.7,"waveform":1} as const
 /** The law of the fader (#389), `[position, dB]` points from the bottom (silence) to the top: defined in `engine::fader`. */
 export const FADER_TAPER = [[0,-96],[0.08,-60],[0.28,-30],[0.5,-12],[0.78,0],[1,6]] as const
@@ -2516,6 +2518,8 @@ type: "live.routing"
 id: number
 result: AgentResult
 type: "agent.result"
+} | {
+type: "control.front"
 })
 /**
  * What running an agent's command in the page did (`agent.result`).

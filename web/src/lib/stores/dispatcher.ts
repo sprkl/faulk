@@ -26,6 +26,7 @@ import type { ProjectHost, ProjectStorage } from '../storage/storage.svelte'
 import { releaseAllNotes, requestMidiInputs } from './housekeeping'
 import { takePairLink } from '../pair-link'
 import { answerAgentCall } from '../agents/agent-call'
+import { ControlLink, ControlTimeout } from '../agents/control-link'
 import { applyEffects } from './effects'
 import type { EngineStore, HelperState } from './engine.svelte'
 import { refusalNotice, type OpenOutcome, type OpenRefusal } from './open'
@@ -54,6 +55,13 @@ export const OUTPUT_STEADY_MAX_MS = 60_000
 /** The helper's engine is resynced at most this many times within `NATIVE_RESYNC_WINDOW_MS`; past that the page plays itself (BO-1). */
 export const NATIVE_RESYNCS = 3
 export const NATIVE_RESYNC_WINDOW_MS = 10_000
+
+/**
+ * After the control link is lost or could not open (#608), the page probes the helper again after each of these delays
+ * in turn, then every last one until a link is open again, in milliseconds: a helper that restarts (an update, a sleep
+ * of the machine) serves the agents again without a reload.
+ */
+export const CONTROL_RETRY_MS = [1000, 2000, 4000, 8000, 16_000, 30_000]
 
 /** How long a refusal stays on screen, in milliseconds. */
 export const REFUSAL_TOAST_MS = 6000
@@ -763,7 +771,116 @@ export class Dispatcher {
     if (probe !== this.probes) return found
     this.state.helper = found
     if (result.status === 'incompatible') this.state.helperProtocol = result.protocol
+    // A paired page links for the agents whatever plays (#608).
+    if (found === 'available') void this.linkControl()
     return found
+  }
+
+  /** The page's control link to the helper (#608): the agents' relay, in Web mode as in Boost. */
+  private control: ControlLink | null = null
+  /** The control link being opened: a second request joins it. */
+  private controlOpening: Promise<void> | null = null
+  /** The next probe after the control link was lost or could not open; `null` while none waits. */
+  private controlTimer: ReturnType<typeof setTimeout> | null = null
+  /** How many probes in a row found no link to open since the last one was lost (`CONTROL_RETRY_MS`). */
+  private controlRetries = 0
+
+  /**
+   * Opens the control link with the stored pairing token, unless one is open with it (#608): the helper relays the
+   * agents' calls there when no Boost session is open, so a paired page serves them in Web mode and when the helper has
+   * no audio output. A link the helper refuses while it runs means the token is no longer its own: the pairing is
+   * forgotten, as for a refused session. A link that could not open, or is lost later, is tried again (`retryControl`).
+   */
+  async linkControl(): Promise<void> {
+    while (this.controlOpening) await this.controlOpening
+    const token = storage()?.getItem(TOKEN_KEY)
+    if (!token) return this.unlinkControl()
+    if (this.control?.token === token) return
+    this.control?.close()
+    this.control = null
+    const opening = this.openControl(token).finally(() => {
+      if (this.controlOpening === opening) this.controlOpening = null
+    })
+    this.controlOpening = opening
+    await opening
+  }
+
+  private async openControl(token: string) {
+    let link: ControlLink
+    try {
+      link = await ControlLink.open(token, {
+        onAgentCall: (agent, command, answer) => void answerAgentCall(this, agent, command).then(answer),
+        onClosed: (pushedOut) => {
+          if (this.control !== link) return
+          this.control = null
+          // Pushed out by newer pages' links: coming back would push another out in turn, so the page waits for
+          // its next probe, pairing or Boost.
+          if (!pushedOut) this.retryControl()
+        },
+      })
+    } catch (error) {
+      // Too slow to open: a busy helper keeps the pairing, the link is tried again.
+      if (error instanceof ControlTimeout) return this.retryControl()
+      // Refused while the helper answers its probe: the token is not this helper's (a reinstall). A pairing that
+      // happened meanwhile stored a newer token: that one stays.
+      const probe = await probeHelper()
+      if (probe.status === 'available' && storage()?.getItem(TOKEN_KEY) === token) this.forgetPairing()
+      else this.retryControl()
+      return
+    }
+    // Forgotten, or paired again, while it opened.
+    if (storage()?.getItem(TOKEN_KEY) !== token) {
+      link.close()
+      return void this.linkControl()
+    }
+    this.control = link
+    this.controlRetries = 0
+    if (this.controlTimer) clearTimeout(this.controlTimer)
+    this.controlTimer = null
+  }
+
+  /** Probes the helper again after the next delay of `CONTROL_RETRY_MS`; a helper found there brings the link back. */
+  private retryControl() {
+    if (this.controlTimer || !storage()?.getItem(TOKEN_KEY)) return
+    const delay = CONTROL_RETRY_MS[Math.min(this.controlRetries, CONTROL_RETRY_MS.length - 1)]
+    this.controlRetries++
+    this.controlTimer = setTimeout(() => {
+      this.controlTimer = null
+      if (this.control || !storage()?.getItem(TOKEN_KEY)) return
+      // Its own probe first, so the helper's state is not shown as `checking` at each try. A helper found is
+      // shown by `checkHelper`, and linked here too: in Boost `checkHelper` leaves the state, and the link, alone.
+      void probeHelper().then((probe) => {
+        if (this.control) return
+        if (probe.status !== 'available') return this.retryControl()
+        if (!this.native) void this.checkHelper()
+        void this.linkControl()
+      })
+    }, delay)
+  }
+
+  /** Closes the control link and stops trying it again (the pairing is gone). */
+  private unlinkControl() {
+    if (this.controlTimer) clearTimeout(this.controlTimer)
+    this.controlTimer = null
+    this.controlRetries = 0
+    const link = this.control
+    this.control = null
+    link?.close()
+  }
+
+  /** The page came to the front (shown or focused): agents' calls come to it while no Boost session is open (#608). */
+  toFront() {
+    if (this.control) return this.control.front()
+    // No link (pushed out by newer pages', or lost and not back yet): the page the user turns to links again, as the
+    // newest, so the agents reach it. Only on the user's turn to it, so pages never push each other out in a loop.
+    if (storage()?.getItem(TOKEN_KEY)) void this.linkControl()
+  }
+
+  /** The helper refused this page's token while it runs: the pairing is forgotten, the link closed. */
+  private forgetPairing() {
+    storage()?.removeItem(TOKEN_KEY)
+    this.state.paired = false
+    this.unlinkControl()
   }
 
   /**
@@ -797,6 +914,8 @@ export class Dispatcher {
     if (result.status === 'paired') {
       storage()?.setItem(TOKEN_KEY, result.token)
       this.state.paired = true
+      // The agents reach the page from now on, whether Boost opens or not (#608).
+      void this.linkControl()
       await this.enterBoost()
     } else if (result.status === 'refused') {
       this.state.pairingMessage = result.attemptsLeft > 0 ? { key: 'helper.refused', n: result.attemptsLeft } : { key: 'helper.refusedNew' }
@@ -921,6 +1040,8 @@ export class Dispatcher {
       this.state.status = session.status
       this.state.helperUpdate = session.update
       this.state.helper = 'connected'
+      // The page's control link stays through Boost and after it (#608): the session takes the agents' calls first.
+      void this.linkControl()
       this.state.selectedInput = null
       // The helper's engine starts from the page's project before anything is awaited: no change reaches
       // it before its snapshot (BO-1). A snapshot that does not encode leaves it nothing to play.
@@ -953,10 +1074,7 @@ export class Dispatcher {
       // Forget the token only when the helper answers but refused the session (new
       // token after a reinstall); a helper that is gone or busy keeps the pairing.
       // A pairing that happened meanwhile stored a newer token: that one stays.
-      if ((await this.checkHelper()) === 'available' && storage()?.getItem(TOKEN_KEY) === token) {
-        storage()?.removeItem(TOKEN_KEY)
-        this.state.paired = false
-      }
+      if ((await this.checkHelper()) === 'available' && storage()?.getItem(TOKEN_KEY) === token) this.forgetPairing()
     }
   }
 

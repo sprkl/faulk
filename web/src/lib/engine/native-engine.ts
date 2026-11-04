@@ -1,15 +1,7 @@
-import {
-  ERROR_CODES,
-  MAX_STREAM_BYTES,
-  PROTOCOL_VERSION,
-  type AgentResult,
-  type Capabilities,
-  type ClientMessage,
-  type Command,
-  type LiveRouting,
-} from '../generated/protocol'
+import { ERROR_CODES, MAX_STREAM_BYTES, PROTOCOL_VERSION, type Capabilities, type ClientMessage, type Command, type LiveRouting } from '../generated/protocol'
 import type { Engine, EngineEvents, EngineStatus, HelperUpdateState } from './engine'
 import { decodeFeedback } from './feedback'
+import { answerOnce } from '../agents/agent-call'
 import { HELPER_URL, parseServerMessage } from './helper-client'
 
 /** The helper answered the session with `audio.no_output`: it runs and the token is good, but it has no audio output to play on yet. */
@@ -110,14 +102,8 @@ export class NativeEngine implements Engine {
             events.onStreamRefused?.(message.code, message.at, message.epoch)
             break
           case 'agent.call': {
-            // Answered once, on this session: the helper takes an answer only from the session it asked.
-            let answered = false
-            const id = message.id
-            const answer = (result: AgentResult) => {
-              if (answered) return
-              answered = true
-              engine.message({ type: 'agent.result', id, result })
-            }
+            // Answered once, on this session: the helper takes an answer only from the link it asked.
+            const answer = answerOnce(message.id, (m) => engine.message(m))
             if (events.onAgentCall) events.onAgentCall(message.agent, message.command, answer)
             else answer({ status: 'unavailable', reason: 'this page does not take agent calls' })
             break

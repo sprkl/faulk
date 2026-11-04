@@ -61,6 +61,8 @@ const parts = [
   `export const ERROR_CODES = ${JSON.stringify(bundle.error_codes)} as const`,
   '/** The longest engine stream the page sends the helper in one binary frame (`protocol::MAX_STREAM_BYTES`, BO-1). */',
   `export const MAX_STREAM_BYTES = ${bundle.max_stream_bytes}`,
+  '/** The close code of a control link the helper pushed out for newer ones (`protocol::CONTROL_PUSHED_OUT`, #608): not tried again. */',
+  `export const CONTROL_PUSHED_OUT = ${bundle.control_pushed_out}`,
   `export const PARAM_DEFAULTS = ${JSON.stringify(bundle.param_defaults)} as const`,
   '/** The law of the fader (#389), `[position, dB]` points from the bottom (silence) to the top: defined in `engine::fader`. */',
   `export const FADER_TAPER = ${JSON.stringify(bundle.fader_taper)} as const`,
