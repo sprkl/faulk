@@ -26,6 +26,7 @@ import { fill, type Lang } from './lang'
 import { midi } from './midi'
 import { mixer } from './mixer'
 import { pianoRoll } from './piano-roll'
+import { presets } from './presets'
 import { project } from './project'
 import { refusal } from './refusal'
 import { shell } from './shell'
@@ -53,6 +54,7 @@ export const features = {
   filter,
   compressor,
   devices,
+  presets,
   keys,
   pianoRoll,
   grid,

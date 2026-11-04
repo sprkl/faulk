@@ -15,6 +15,8 @@ export class ProjectStore {
   canRedo = $state(false)
   /** Counts the changes of the history (an entry recorded, undone, redone, or the history replaced): the history panel reads the entries again when it moves. */
   historyRev = $state(0)
+  /** Counts the changes of the presets (#191): one saved, renamed, deleted or brought back, in the project or the library, or the library read again. The device panels list their presets again when it moves. */
+  presetsRev = $state(0)
   /** Counts the projects opened or started (`project_opened`): a view that holds a choice made on the previous project drops it when this moves (#445). */
   openedRev = $state(0)
   /** Told of the events of every applied command before the mirror takes them (the automated controls hold a lane on a manual change). */
@@ -126,6 +128,9 @@ export class ProjectStore {
       } else if (event.type === 'project_opened') {
         this.openedRev++
         changed = true
+      } else if (event.type === 'preset_changed' && event.location === 'library') {
+        // The library is not the project: nothing to read again, the panels list their presets again.
+        this.presetsRev++
       } else if (event.type === 'control_change') {
         // A controller on the live input changes nothing in the project: a sweep must not read it again.
       } else if (event.type === 'device_param_changed' && this.setParam(event.device, event.param, event.value)) {
