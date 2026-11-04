@@ -2,7 +2,7 @@
 // writes, what it says, and what it does when the folder, the permission or the page goes away.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CacheReport, ImportOutcome, MediaRef } from '../audio/import/pipeline'
-import type { FolderEntry, PackExport, PackImport, SaveEntry, SaveFrame, SaveMode } from '../project/core'
+import type { FolderEntry, PackExport, PackImport, PackIO, SaveEntry, SaveFrame, SaveMode } from '../project/core'
 import type { OpenOutcome } from '../stores/open'
 import {
   AUTOSAVE_DELAY_MS,
@@ -43,13 +43,15 @@ class FakeStore implements ProjectStore {
     const entries: FolderEntry[] = [...this.files].map(([path, body]) => ({ path, bytes: text(body) }))
     return { entries, signature: this.signature() }
   }
-  async read() {
-    return new Uint8Array()
+  async read(path?: string, start = 0, end?: number) {
+    return this.media.get(path ?? '')?.slice(start, end) ?? new Uint8Array()
   }
   /** The media the folder holds (audio is not in a save). */
   media = new Map<string, Uint8Array>()
-  async readBlobs() {
-    return [...this.media].map(([path, bytes]) => ({ path, bytes }))
+  /** Media the folder claims to hold, by size, for an export that must look big (no bytes are made). */
+  bigMedia = new Map<string, number>()
+  async listBlobs(): Promise<FolderEntry[]> {
+    return [...[...this.media].map(([path, bytes]) => ({ path, size: bytes.length })), ...[...this.bigMedia].map(([path, size]) => ({ path, size }))]
   }
   /** Files with a stamp of their own (an imported blob); the others share the folder's. */
   stamps = new Map<string, number>()
@@ -184,15 +186,47 @@ class FakeHost implements ProjectHost {
     return true
   }
   /** What the core answers to a pack export, and to an import. */
-  exports: { path: string; bytes: Uint8Array }[][] = []
+  exports: FolderEntry[][] = []
   exportFails: string | null = null
   missingBlobs = 0
+  /** What the export wrote to its sink, and the media it read (path and range). */
+  sunk: Uint8Array[] = []
+  reads: string[] = []
+  /** Waits here before the export's second piece, so a test can cancel it. */
+  exportHold: Promise<void> | null = null
   unpacked: PackImport = { status: 'ok', files: [] }
-  async packExport(files: { path: string; bytes: Uint8Array }[]): Promise<PackExport> {
-    this.exports.push(files)
+  async packExport(entries: FolderEntry[], io: PackIO): Promise<PackExport> {
+    this.exports.push(entries)
     if (this.exportFails) return { status: 'failed', message: this.exportFails }
-    return { status: 'ok', zip: text(`zip of ${files.length}`), files: files.length, missingBlobs: this.missingBlobs }
+    for (const entry of entries) {
+      if (!('size' in entry)) continue
+      // The real export reads the blobs by `PACK_CHUNK_BYTES`; the fake in two halves.
+      const half = Math.ceil(entry.size / 2)
+      for (const [start, end] of [
+        [0, half],
+        [half, entry.size],
+      ] as const) {
+        if (io.signal?.aborted) return { status: 'cancelled' }
+        this.reads.push(`${entry.path}:${start}-${end}`)
+        if (this.sunk.length === 1 && this.exportHold) await this.exportHold
+        if (io.signal?.aborted) return { status: 'cancelled' }
+        if (this.bigSizes) {
+          io.onProgress?.(end / entry.size)
+          continue
+        }
+        const chunk = await io.read(entry.path, start, end)
+        await io.sink.write(chunk)
+        this.sunk.push(chunk)
+        io.onProgress?.(end / entry.size)
+      }
+    }
+    const zip = text(`zip of ${entries.length}`)
+    await io.sink.write(zip)
+    this.sunk.push(zip)
+    return { status: 'ok', files: entries.length, missingBlobs: this.missingBlobs }
   }
+  /** The media are claimed by size only: nothing is read. */
+  bigSizes = false
   async packImport(): Promise<PackImport> {
     return this.unpacked
   }
@@ -279,6 +313,10 @@ interface World {
   /** The files the user "chooses" for an import, and what the page hands over for download. */
   packs: (File | null)[]
   downloads: { name: string; blob: Blob }[]
+  /** What the page's file dialog answers to a big export, and the files it wrote; the room the browser says it has. */
+  saveFile: 'unsupported' | 'cancelled' | 'chosen'
+  saved: { name: string; chunks: Uint8Array[]; closed: boolean; aborted: boolean }[]
+  free: number | null
   /** What each link answers for `openUrl` (#497): bytes, or a network failure; the links asked for. */
   served: Map<string, Uint8Array | 'unreachable'>
   fetched: { url: string; init: RequestInit | undefined }[]
@@ -304,6 +342,9 @@ function world(): World {
     supported: true,
     packs: [] as (File | null)[],
     downloads: [] as { name: string; blob: Blob }[],
+    saveFile: 'unsupported',
+    saved: [],
+    free: null,
     served: new Map(),
     fetched: [],
     pageHostname: 'faulk.app',
@@ -356,6 +397,18 @@ function world(): World {
     download: (name, blob) => {
       w.downloads.push({ name, blob })
     },
+    saveFile: async (name) => {
+      if (w.saveFile === 'cancelled') return 'cancelled'
+      if (w.saveFile === 'unsupported') return null
+      const file = { name, chunks: [] as Uint8Array[], closed: false, aborted: false }
+      w.saved.push(file)
+      return {
+        write: async (chunk) => void file.chunks.push(chunk),
+        close: async () => void (file.closed = true),
+        abort: async () => void (file.aborted = true),
+      }
+    },
+    freeSpace: async () => w.free,
     fetch: async (input, init) => {
       const url = input instanceof Request ? input.url : input.toString()
       w.fetched.push({ url, init })
@@ -1884,8 +1937,11 @@ describe('export a .faulkpack', () => {
     expect(await w.storage.exportPack()).toBe(true)
     const files = w.host.exports[0]!
     expect(files.map((f) => f.path).sort()).toEqual(['blobs/aa', 'project.json'])
-    // The unsaved change is in the pack: it is the project as it is now.
-    expect(new TextDecoder().decode(files.find((f) => f.path === 'project.json')!.bytes)).toBe('rev 2')
+    // The media travel by size and are read from the home in pieces; the unsaved change is in the pack: it is the project as it is now.
+    expect(files.find((f) => f.path === 'blobs/aa')).toEqual({ path: 'blobs/aa', size: 5 })
+    expect(w.host.reads).toEqual(['blobs/aa:0-3', 'blobs/aa:3-5'])
+    const project = files.find((f) => f.path === 'project.json')!
+    expect(new TextDecoder().decode('bytes' in project ? project.bytes : undefined)).toBe('rev 2')
     expect(w.downloads.map((d) => d.name)).toEqual(['My_ song_.faulkpack'])
     expect(w.downloads[0]!.blob.type).toBe('application/zip')
     // The export wrote nothing: the project is still waiting for its own write.
@@ -1901,6 +1957,85 @@ describe('export a .faulkpack', () => {
     expect(await w.storage.exportPack()).toBe(true)
     expect(w.downloads.length).toBe(1)
     expect(w.host.dirty()).toBe(true)
+  })
+
+  it('downloads what the export wrote, whole and in order, and shows no progress once it is over', async () => {
+    const { w, store } = await drafted()
+    store.media.set('blobs/aa', text('media'))
+    expect(await w.storage.exportPack()).toBe(true)
+    expect(w.storage.exporting).toBeNull()
+    expect(await w.downloads[0]!.blob.text()).toBe('mediazip of 2')
+    expect(w.saved).toEqual([])
+  })
+
+  it('sends a big pack to the file the user chooses, in pieces, and downloads nothing', async () => {
+    const { w, store } = await drafted()
+    store.bigMedia.set('blobs/big', 700 << 20)
+    w.host.bigSizes = true
+    w.saveFile = 'chosen'
+    expect(await w.storage.exportPack()).toBe(true)
+    expect(w.saved.map((f) => [f.name, f.closed, f.aborted])).toEqual([['Song.faulkpack', true, false]])
+    expect(w.downloads).toEqual([])
+    expect(w.host.reads).toHaveLength(2)
+  })
+
+  it('falls back to a download where the browser has no file dialog, and stops quietly when the user closes it', async () => {
+    const { w, store } = await drafted()
+    store.bigMedia.set('blobs/big', 700 << 20)
+    w.host.bigSizes = true
+    expect(await w.storage.exportPack()).toBe(true)
+    expect(w.downloads).toHaveLength(1)
+    w.saveFile = 'cancelled'
+    expect(await w.storage.exportPack()).toBe(false)
+    expect(w.downloads).toHaveLength(1)
+    expect(w.storage.exporting).toBeNull()
+  })
+
+  it('refuses a big download the browser has no room to keep, and a small pack is never checked', async () => {
+    const { w, store } = await drafted()
+    store.bigMedia.set('blobs/big', 700 << 20)
+    w.host.bigSizes = true
+    w.free = 100 << 20
+    expect(await w.storage.exportPack()).toBe(false)
+    expect(w.storage.notice).toBe('pack.noRoom')
+    expect(w.host.exports).toEqual([])
+    store.bigMedia.clear()
+    store.media.set('blobs/aa', text('media'))
+    w.host.bigSizes = false
+    expect(await w.storage.exportPack()).toBe(true)
+  })
+
+  it('shows its progress, can be cancelled, and leaves nothing behind when it is', async () => {
+    const { w, store } = await drafted()
+    store.media.set('blobs/aa', text('media'))
+    let release!: () => void
+    w.host.exportHold = new Promise<void>((resolve) => (release = resolve))
+    const done = w.storage.exportPack()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.storage.exporting).toBe(0.6)
+    expect(w.storage.banner).toBe('exporting')
+    w.storage.cancelExport()
+    release()
+    expect(await done).toBe(false)
+    expect(w.storage.exporting).toBeNull()
+    expect(w.storage.notice).toBe('pack.exportCancelled')
+    expect(w.downloads).toEqual([])
+    // And the next export is not held back by it.
+    w.host.exportHold = null
+    expect(await w.storage.exportPack()).toBe(true)
+  })
+
+  it('does not start a second export while one is under way', async () => {
+    const { w, store } = await drafted()
+    store.media.set('blobs/aa', text('media'))
+    let release!: () => void
+    w.host.exportHold = new Promise<void>((resolve) => (release = resolve))
+    const first = w.storage.exportPack()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(await w.storage.exportPack()).toBe(false)
+    release()
+    expect(await first).toBe(true)
+    expect(w.host.exports).toHaveLength(1)
   })
 
   it('says when the project could not be exported, or lacks media, and downloads nothing for the first', async () => {

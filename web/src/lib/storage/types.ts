@@ -54,8 +54,11 @@ export interface ProjectStore {
    * dense automation lanes as bytes, the other blobs by size (`needsBytes`).
    */
   readFolder(): Promise<{ entries: FolderEntry[]; signature: Signature }>
-  /** Every file of `blobs/`, whole (an export carries the media a save does not rewrite). */
-  readBlobs(): Promise<{ path: string; bytes: Uint8Array }[]>
+  /**
+   * Every file of `blobs/` that is no swap file, by size (an export carries the media a save does not rewrite and reads
+   * them in pieces with `read`); the blobs of dense automation lanes, which opening reads, come with their bytes (`needsBytes`).
+   */
+  listBlobs(): Promise<FolderEntry[]>
   /** Bytes `[start, end)` of a file, without reading the rest. */
   read(path: string, start?: number, end?: number): Promise<Uint8Array>
   /**

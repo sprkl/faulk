@@ -112,6 +112,11 @@
     <button class="primary" data-testid="keep-mine" onclick={() => dispatcher.run(keepMine())}>{t('save.banner.keepMine')}</button>
     <button data-testid="load-disk" onclick={() => dispatcher.run(loadFolderVersion())}>{t('save.banner.loadDisk')}</button>
   </p>
+{:else if storage.banner === 'exporting'}
+  <p class="banner" role="status" data-testid="export-banner">
+    <span>{t('pack.exporting', { percent: Math.floor((storage.exporting ?? 0) * 100) })}</span>
+    <button data-testid="export-cancel" onclick={() => storage.cancelExport()}>{t('pack.cancelExport')}</button>
+  </p>
 {:else if storage.banner === 'downloading'}
   <p class="banner" role="status" data-testid="download-banner">
     <span>{t('openUrl.downloading', { host: storage.downloading ?? '' })}</span>

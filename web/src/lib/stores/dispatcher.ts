@@ -379,7 +379,7 @@ export class Dispatcher {
     projectId: () => this.project.view?.project.id ?? null,
     projectName: () => this.project.view?.project.name ?? null,
     renameProject: (name) => this.run(renameProjectCommand(name), { quiet: true }),
-    packExport: async (files) => (await this.ensureCore()).packExport(files),
+    packExport: async (entries, io) => (await this.ensureCore()).packExport(entries, io),
     packImport: async (zip) => (await this.ensureCore()).packImport(zip),
     prepare: async () => void (await this.ensureCore()),
     audioMedia: () => audioMediaOf(this.project.view?.project),

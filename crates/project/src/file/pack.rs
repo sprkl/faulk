@@ -16,7 +16,7 @@ use super::unit::{GITATTRIBUTES_FILE, GITIGNORE_FILE, PROJECT_FILE, blob_file, s
 use crate::blob::Hash;
 use std::collections::BTreeSet;
 use std::io::{Read, Seek, Write};
-use zip::write::SimpleFileOptions;
+use zip::write::{SimpleFileOptions, StreamWriter};
 use zip::{CompressionMethod, DateTime, ZipArchive, ZipWriter};
 
 /// What an import accepts.
@@ -67,9 +67,20 @@ fn pack_path(path: &str) -> bool {
     text_path(path)
 }
 
-/// Writes the pack of the project in `fs` into `out`. The project is opened (and so
-/// validated) first: an invalid project is not exported.
-pub fn export_pack<W: Write + Seek>(fs: &dyn FileSystem, out: W) -> Result<PackReport, FileError> {
+/// What an export will put in the pack, found before any byte is written.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PackPlan {
+    /// The files of the pack, in the order they are written (sorted).
+    pub paths: Vec<String>,
+    /// Blobs the project refers to that the folder does not have: not in the pack.
+    pub missing_blobs: Vec<Hash>,
+}
+
+/// Opens (and so validates) the project in `fs` and lists the files its pack holds. An
+/// invalid project is not exported. Reads the project's own files, never a blob's bytes: a
+/// blob only has to exist (`FileSystem::exists`), so `fs` may know a blob by its name and size
+/// alone.
+pub fn plan_pack(fs: &dyn FileSystem) -> Result<PackPlan, FileError> {
     let opened = open(fs, &OpenOptions::default())?;
     let mut paths: BTreeSet<String> = opened.state.known_files().map(str::to_owned).collect();
     for support in [GITATTRIBUTES_FILE, GITIGNORE_FILE] {
@@ -87,22 +98,66 @@ pub fn export_pack<W: Write + Seek>(fs: &dyn FileSystem, out: W) -> Result<PackR
             missing.push(hash);
         }
     }
-    let options = SimpleFileOptions::default()
-        .compression_method(CompressionMethod::Deflated)
-        .last_modified_time(DateTime::default())
-        .unix_permissions(0o644);
-    let mut zip = ZipWriter::new(out);
-    let mut files = 0;
-    for path in &paths {
-        let bytes = fs.read(path).map_err(|e| FileError::io(path, e))?;
-        zip.start_file(path.as_str(), options).map_err(bad)?;
-        zip.write_all(&bytes).map_err(bad)?;
-        files += 1;
-    }
-    zip.finish().map_err(bad)?;
-    Ok(PackReport {
-        files,
+    Ok(PackPlan {
+        paths: paths.into_iter().collect(),
         missing_blobs: missing,
+    })
+}
+
+/// A file of this size or more is written with the 64-bit zip fields.
+const LARGE_FILE_BYTES: u64 = 1 << 30;
+
+/// Writes a pack one file at a time, in whatever pieces they come in, to a writer that need not
+/// seek: the memory it holds is the compressor's buffers and the central directory, whatever the
+/// size of the files. The bytes are the same for the same files, whatever the pieces.
+pub struct PackWriter<W: Write> {
+    zip: ZipWriter<StreamWriter<W>>,
+}
+
+impl<W: Write> PackWriter<W> {
+    pub fn new(out: W) -> Self {
+        Self {
+            zip: ZipWriter::new_stream(out),
+        }
+    }
+
+    /// Starts the file `path`, whose `size` the caller knows (the next [`write`](Self::write)s
+    /// add up to it). The previous file is closed.
+    pub fn start(&mut self, path: &str, size: u64) -> Result<(), FileError> {
+        let options = SimpleFileOptions::default()
+            .compression_method(CompressionMethod::Deflated)
+            .last_modified_time(DateTime::default())
+            .unix_permissions(0o644)
+            .large_file(size >= LARGE_FILE_BYTES);
+        self.zip.start_file(path, options).map_err(bad)
+    }
+
+    /// Adds `bytes` to the file started last.
+    pub fn write(&mut self, bytes: &[u8]) -> Result<(), FileError> {
+        self.zip.write_all(bytes).map_err(bad)
+    }
+
+    /// Closes the last file, writes the directory and gives the writer back.
+    pub fn finish(self) -> Result<W, FileError> {
+        let out = self.zip.finish().map_err(bad)?;
+        Ok(out.into_inner())
+    }
+}
+
+/// Writes the pack of the project in `fs` into `out` (see [`plan_pack`]), reading one file at
+/// a time.
+pub fn export_pack<W: Write>(fs: &dyn FileSystem, out: W) -> Result<PackReport, FileError> {
+    let plan = plan_pack(fs)?;
+    let mut pack = PackWriter::new(out);
+    for path in &plan.paths {
+        let bytes = fs.read(path).map_err(|e| FileError::io(path, e))?;
+        pack.start(path, bytes.len() as u64)?;
+        pack.write(&bytes)?;
+    }
+    pack.finish()?;
+    Ok(PackReport {
+        files: plan.paths.len(),
+        missing_blobs: plan.missing_blobs,
     })
 }
 

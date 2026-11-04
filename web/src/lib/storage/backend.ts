@@ -168,7 +168,7 @@ export class FolderBackend implements ProjectStore {
     }
   }
 
-  async readBlobs(): Promise<{ path: string; bytes: Uint8Array }[]> {
+  async listBlobs(): Promise<FolderEntry[]> {
     try {
       let dir: FileSystemDirectoryHandle
       try {
@@ -179,11 +179,14 @@ export class FolderBackend implements ProjectStore {
       }
       const files: FileSystemFileHandle[] = []
       for await (const entry of children(dir)) if (entry.kind === 'file' && !entry.name.endsWith(SWAP_SUFFIX)) files.push(entry as FileSystemFileHandle)
-      const out: { path: string; bytes: Uint8Array }[] = new Array(files.length)
+      const out: FolderEntry[] = new Array(files.length)
       await each(
         files.map((handle, index) => ({ handle, index })),
         async ({ handle, index }) => {
-          out[index] = { path: `blobs/${handle.name}`, bytes: new Uint8Array(await (await handle.getFile()).arrayBuffer()) }
+          const file = await handle.getFile()
+          const path = `blobs/${handle.name}`
+          const head = new Uint8Array(await file.slice(0, 8).arrayBuffer())
+          out[index] = needsBytes(path, head) ? { path, bytes: new Uint8Array(await file.arrayBuffer()) } : { path, size: file.size }
         },
       )
       return out
