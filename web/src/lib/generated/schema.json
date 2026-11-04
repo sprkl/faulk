@@ -237,6 +237,95 @@
         "undo": "inverse"
       },
       {
+        "description": "Set the project's key and scale: `root` is the tonic's pitch class, 0 (C) to 11 (B), and\n`mode` one of `major`, `natural_minor`, `harmonic_minor`, `melodic_minor` (its rising\nform), `dorian`, `phrygian`, `lydian`, `mixolydian`, `locrian`, `major_pentatonic`,\n`minor_pentatonic`, `blues` (the six-note minor blues), or `chromatic` for no scale (the\ndefault: every tool works on all twelve notes; `root` is then not kept). F minor is\n`{\"root\": 5, \"mode\": \"natural_minor\"}`. The piano roll shows the scale's notes, and\n`project.get` answers the scale and its pitch classes. One scale for the whole project.\nA root outside 0 to 11 is refused; the scale the project already has changes nothing.\nUndo: set the previous scale back.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "ScaleKind": {
+              "description": "What a command names as the scale (`project.set_scale`, `project.get`): one of the\nscales, or `chromatic` for none (every note of the twelve; the project then holds no\nscale).",
+              "enum": [
+                "chromatic",
+                "major",
+                "natural_minor",
+                "harmonic_minor",
+                "melodic_minor",
+                "dorian",
+                "phrygian",
+                "lydian",
+                "mixolydian",
+                "locrian",
+                "major_pentatonic",
+                "minor_pentatonic",
+                "blues"
+              ],
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "mode": {
+              "$ref": "#/$defs/ScaleKind"
+            },
+            "root": {
+              "format": "uint8",
+              "maximum": 11,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "root",
+            "mode"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "project.set_scale",
+        "output_schema": {
+          "$defs": {
+            "ScaleKind": {
+              "description": "What a command names as the scale (`project.set_scale`, `project.get`): one of the\nscales, or `chromatic` for none (every note of the twelve; the project then holds no\nscale).",
+              "enum": [
+                "chromatic",
+                "major",
+                "natural_minor",
+                "harmonic_minor",
+                "melodic_minor",
+                "dorian",
+                "phrygian",
+                "lydian",
+                "mixolydian",
+                "locrian",
+                "major_pentatonic",
+                "minor_pentatonic",
+                "blues"
+              ],
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "previous_mode": {
+              "$ref": "#/$defs/ScaleKind",
+              "description": "The scale before the command; `chromatic` when there was none."
+            },
+            "previous_root": {
+              "description": "The tonic before the command (0 when there was no scale).",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "previous_root",
+            "previous_mode"
+          ],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
         "description": "Open the project folder the host staged under `folder` (the host reads the folder\nfirst; named any other way, the command is refused as `not_staged`), replacing the\ncurrent project: the engine starts over from it (stopped, nothing held, the saved solo and\nselection restored from `.faulk/session.json`). A folder that is not a valid\nproject of this version is refused with the reason and nothing changes. Replaces\nthe history: not undoable, destructive (the caller confirms first when the current\nproject has unsaved changes).",
         "destructive": true,
         "input_schema": {
@@ -873,7 +962,7 @@
         "undo": "none"
       },
       {
-        "description": "Read the project's summary: its id, name, file format version, tempo in BPM, time\nsignature, master mixer (gain in dB, `null` is silence; pan; mute), how many tracks,\nscenes, clips, placements, automation lanes it holds, the master's effect chain (each device with its id, role, bypass state, source and English name), the selected\ntrack, and whether there is something to undo or redo. It lists nothing: use\n`track.list`, `scene.list` and `transport.get` for the rest. A query: changes nothing,\nnever enters the history and never marks the project as having changes to save.",
+        "description": "Read the project's summary: its id, name, file format version, tempo in BPM, time\nsignature, key and scale (as `project.set_scale` takes them, with the scale's pitch\nclasses, 0 = C to 11 = B), master mixer (gain in dB, `null` is silence; pan; mute), how many tracks,\nscenes, clips, placements, automation lanes it holds, the master's effect chain (each device with its id, role, bypass state, source and English name), the selected\ntrack, and whether there is something to undo or redo. It lists nothing: use\n`track.list`, `scene.list` and `transport.get` for the rest. A query: changes nothing,\nnever enters the history and never marks the project as having changes to save.",
         "destructive": false,
         "input_schema": {
           "additionalProperties": false,
@@ -1033,6 +1122,25 @@
               "$ref": "#/$defs/Id",
               "description": "Identifier of a project: created once with it, never changed (project model § 1.3)."
             },
+            "ScaleKind": {
+              "description": "What a command names as the scale (`project.set_scale`, `project.get`): one of the\nscales, or `chromatic` for none (every note of the twelve; the project then holds no\nscale).",
+              "enum": [
+                "chromatic",
+                "major",
+                "natural_minor",
+                "harmonic_minor",
+                "melodic_minor",
+                "dorian",
+                "phrygian",
+                "lydian",
+                "mixolydian",
+                "locrian",
+                "major_pentatonic",
+                "minor_pentatonic",
+                "blues"
+              ],
+              "type": "string"
+            },
             "TrackId": {
               "$ref": "#/$defs/Id",
               "description": "Identifier of a track."
@@ -1105,6 +1213,27 @@
               "minimum": 0,
               "type": "integer"
             },
+            "scale_mode": {
+              "$ref": "#/$defs/ScaleKind",
+              "description": "The scale; `chromatic` when the project has none."
+            },
+            "scale_pitch_classes": {
+              "description": "The pitch classes of the scale (0 = C to 11 = B), rising; all twelve when there is\nno scale.",
+              "items": {
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "scale_root": {
+              "description": "The scale's tonic, 0 (C) to 11 (B); 0 when there is no scale.",
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
             "scene_count": {
               "description": "How many scenes.",
               "format": "uint32",
@@ -1141,6 +1270,9 @@
             "tempo_bpm",
             "numerator",
             "denominator",
+            "scale_root",
+            "scale_mode",
+            "scale_pitch_classes",
             "master",
             "track_count",
             "scene_count",
@@ -20001,6 +20133,34 @@
             },
             {
               "additionalProperties": false,
+              "description": "Set the project's key and scale: `root` is the tonic's pitch class, 0 (C) to 11 (B), and\n`mode` one of `major`, `natural_minor`, `harmonic_minor`, `melodic_minor` (its rising\nform), `dorian`, `phrygian`, `lydian`, `mixolydian`, `locrian`, `major_pentatonic`,\n`minor_pentatonic`, `blues` (the six-note minor blues), or `chromatic` for no scale (the\ndefault: every tool works on all twelve notes; `root` is then not kept). F minor is\n`{\"root\": 5, \"mode\": \"natural_minor\"}`. The piano roll shows the scale's notes, and\n`project.get` answers the scale and its pitch classes. One scale for the whole project.\nA root outside 0 to 11 is refused; the scale the project already has changes nothing.\nUndo: set the previous scale back.",
+              "properties": {
+                "mode": {
+                  "$ref": "#/$defs/ScaleKind"
+                },
+                "root": {
+                  "format": "uint8",
+                  "maximum": 11,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "project.set_scale",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "root",
+                "mode"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
               "description": "Open the project folder the host staged under `folder` (the host reads the folder\nfirst; named any other way, the command is refused as `not_staged`), replacing the\ncurrent project: the engine starts over from it (stopped, nothing held, the saved solo and\nselection restored from `.faulk/session.json`). A folder that is not a valid\nproject of this version is refused with the reason and nothing changes. Replaces\nthe history: not undoable, destructive (the caller confirms first when the current\nproject has unsaved changes).",
               "properties": {
                 "folder": {
@@ -20374,7 +20534,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Read the project's summary: its id, name, file format version, tempo in BPM, time\nsignature, master mixer (gain in dB, `null` is silence; pan; mute), how many tracks,\nscenes, clips, placements, automation lanes it holds, the master's effect chain (each device with its id, role, bypass state, source and English name), the selected\ntrack, and whether there is something to undo or redo. It lists nothing: use\n`track.list`, `scene.list` and `transport.get` for the rest. A query: changes nothing,\nnever enters the history and never marks the project as having changes to save.",
+              "description": "Read the project's summary: its id, name, file format version, tempo in BPM, time\nsignature, key and scale (as `project.set_scale` takes them, with the scale's pitch\nclasses, 0 = C to 11 = B), master mixer (gain in dB, `null` is silence; pan; mute), how many tracks,\nscenes, clips, placements, automation lanes it holds, the master's effect chain (each device with its id, role, bypass state, source and English name), the selected\ntrack, and whether there is something to undo or redo. It lists nothing: use\n`track.list`, `scene.list` and `transport.get` for the rest. A query: changes nothing,\nnever enters the history and never marks the project as having changes to save.",
               "properties": {
                 "type": {
                   "const": "project.get",
@@ -20707,6 +20867,25 @@
         "Rgb": {
           "description": "A colour, written #rrggbb.",
           "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "ScaleKind": {
+          "description": "What a command names as the scale (`project.set_scale`, `project.get`): one of the\nscales, or `chromatic` for none (every note of the twelve; the project then holds no\nscale).",
+          "enum": [
+            "chromatic",
+            "major",
+            "natural_minor",
+            "harmonic_minor",
+            "melodic_minor",
+            "dorian",
+            "phrygian",
+            "lydian",
+            "mixolydian",
+            "locrian",
+            "major_pentatonic",
+            "minor_pentatonic",
+            "blues"
+          ],
           "type": "string"
         },
         "SceneClip": {
@@ -25252,6 +25431,32 @@
             {
               "additionalProperties": false,
               "properties": {
+                "previous_mode": {
+                  "$ref": "#/$defs/ScaleKind",
+                  "description": "The scale before the command; `chromatic` when there was none."
+                },
+                "previous_root": {
+                  "description": "The tonic before the command (0 when there was no scale).",
+                  "format": "uint8",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "project.set_scale",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous_root",
+                "previous_mode"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
                 "migrated_from": {
                   "description": "The format version the folder was in, when it was migrated in memory.",
                   "format": "uint32",
@@ -25618,6 +25823,27 @@
                   "minimum": 0,
                   "type": "integer"
                 },
+                "scale_mode": {
+                  "$ref": "#/$defs/ScaleKind",
+                  "description": "The scale; `chromatic` when the project has none."
+                },
+                "scale_pitch_classes": {
+                  "description": "The pitch classes of the scale (0 = C to 11 = B), rising; all twelve when there is\nno scale.",
+                  "items": {
+                    "format": "uint8",
+                    "maximum": 255,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "scale_root": {
+                  "description": "The scale's tonic, 0 (C) to 11 (B); 0 when there is no scale.",
+                  "format": "uint8",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
                 "scene_count": {
                   "description": "How many scenes.",
                   "format": "uint32",
@@ -25659,6 +25885,9 @@
                 "tempo_bpm",
                 "numerator",
                 "denominator",
+                "scale_root",
+                "scale_mode",
+                "scale_pitch_classes",
                 "master",
                 "track_count",
                 "scene_count",
@@ -25929,6 +26158,25 @@
         "Rgb": {
           "description": "A colour, written #rrggbb.",
           "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "ScaleKind": {
+          "description": "What a command names as the scale (`project.set_scale`, `project.get`): one of the\nscales, or `chromatic` for none (every note of the twelve; the project then holds no\nscale).",
+          "enum": [
+            "chromatic",
+            "major",
+            "natural_minor",
+            "harmonic_minor",
+            "melodic_minor",
+            "dorian",
+            "phrygian",
+            "lydian",
+            "mixolydian",
+            "locrian",
+            "major_pentatonic",
+            "minor_pentatonic",
+            "blues"
+          ],
           "type": "string"
         },
         "SceneId": {
@@ -29632,6 +29880,17 @@
               },
               "type": "object"
             },
+            "scale": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Scale"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The project's key and scale (#695). Absent (not written) when there is none: the project\nis chromatic and every tool behaves as without a scale."
+            },
             "scenes": {
               "additionalProperties": false,
               "description": "The rows of the launch grid.",
@@ -29755,6 +30014,46 @@
         "Rgb": {
           "description": "A colour, written #rrggbb.",
           "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "Scale": {
+          "additionalProperties": false,
+          "description": "A key and a scale: `root` is the pitch class of the tonic (0 = C, 1 = C sharp, … 11 = B),\n`mode` the scale built on it.",
+          "properties": {
+            "mode": {
+              "$ref": "#/$defs/ScaleMode",
+              "description": "The scale built on the tonic."
+            },
+            "root": {
+              "description": "The tonic's pitch class, 0 (C) to 11 (B).",
+              "format": "uint8",
+              "maximum": 11,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "root",
+            "mode"
+          ],
+          "type": "object"
+        },
+        "ScaleMode": {
+          "description": "The scales a project can be in (lead's decision on #695). Major is the Ionian mode and\nnatural minor the Aeolian one: they are not listed twice.",
+          "enum": [
+            "major",
+            "natural_minor",
+            "harmonic_minor",
+            "melodic_minor",
+            "dorian",
+            "phrygian",
+            "lydian",
+            "mixolydian",
+            "locrian",
+            "major_pentatonic",
+            "minor_pentatonic",
+            "blues"
+          ],
           "type": "string"
         },
         "Scene": {
@@ -34060,6 +34359,31 @@
             },
             {
               "additionalProperties": false,
+              "description": "The project's key and scale changed (#695): `mode` is `chromatic` (and `root` 0) when\nthe project has none.",
+              "properties": {
+                "mode": {
+                  "$ref": "#/$defs/ScaleKind"
+                },
+                "root": {
+                  "format": "uint8",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "scale_changed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "root",
+                "mode"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
               "description": "The launch quantization changed (the project's one value).",
               "properties": {
                 "quantize": {
@@ -34618,6 +34942,32 @@
             {
               "additionalProperties": false,
               "properties": {
+                "previous_mode": {
+                  "$ref": "#/$defs/ScaleKind",
+                  "description": "The scale before the command; `chromatic` when there was none."
+                },
+                "previous_root": {
+                  "description": "The tonic before the command (0 when there was no scale).",
+                  "format": "uint8",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "project.set_scale",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous_root",
+                "previous_mode"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
                 "migrated_from": {
                   "description": "The format version the folder was in, when it was migrated in memory.",
                   "format": "uint32",
@@ -34984,6 +35334,27 @@
                   "minimum": 0,
                   "type": "integer"
                 },
+                "scale_mode": {
+                  "$ref": "#/$defs/ScaleKind",
+                  "description": "The scale; `chromatic` when the project has none."
+                },
+                "scale_pitch_classes": {
+                  "description": "The pitch classes of the scale (0 = C to 11 = B), rising; all twelve when there is\nno scale.",
+                  "items": {
+                    "format": "uint8",
+                    "maximum": 255,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "scale_root": {
+                  "description": "The scale's tonic, 0 (C) to 11 (B); 0 when there is no scale.",
+                  "format": "uint8",
+                  "maximum": 255,
+                  "minimum": 0,
+                  "type": "integer"
+                },
                 "scene_count": {
                   "description": "How many scenes.",
                   "format": "uint32",
@@ -35025,6 +35396,9 @@
                 "tempo_bpm",
                 "numerator",
                 "denominator",
+                "scale_root",
+                "scale_mode",
+                "scale_pitch_classes",
                 "master",
                 "track_count",
                 "scene_count",
@@ -35295,6 +35669,25 @@
         "Rgb": {
           "description": "A colour, written #rrggbb.",
           "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        "ScaleKind": {
+          "description": "What a command names as the scale (`project.set_scale`, `project.get`): one of the\nscales, or `chromatic` for none (every note of the twelve; the project then holds no\nscale).",
+          "enum": [
+            "chromatic",
+            "major",
+            "natural_minor",
+            "harmonic_minor",
+            "melodic_minor",
+            "dorian",
+            "phrygian",
+            "lydian",
+            "mixolydian",
+            "locrian",
+            "major_pentatonic",
+            "minor_pentatonic",
+            "blues"
+          ],
           "type": "string"
         },
         "SceneId": {
@@ -36564,7 +36957,148 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 32,
+  "protocol_version": 36,
+  "scale_intervals": [
+    {
+      "intervals": [
+        0,
+        2,
+        4,
+        5,
+        7,
+        9,
+        11
+      ],
+      "mode": "major"
+    },
+    {
+      "intervals": [
+        0,
+        2,
+        3,
+        5,
+        7,
+        8,
+        10
+      ],
+      "mode": "natural_minor"
+    },
+    {
+      "intervals": [
+        0,
+        2,
+        3,
+        5,
+        7,
+        8,
+        11
+      ],
+      "mode": "harmonic_minor"
+    },
+    {
+      "intervals": [
+        0,
+        2,
+        3,
+        5,
+        7,
+        9,
+        11
+      ],
+      "mode": "melodic_minor"
+    },
+    {
+      "intervals": [
+        0,
+        2,
+        3,
+        5,
+        7,
+        9,
+        10
+      ],
+      "mode": "dorian"
+    },
+    {
+      "intervals": [
+        0,
+        1,
+        3,
+        5,
+        7,
+        8,
+        10
+      ],
+      "mode": "phrygian"
+    },
+    {
+      "intervals": [
+        0,
+        2,
+        4,
+        6,
+        7,
+        9,
+        11
+      ],
+      "mode": "lydian"
+    },
+    {
+      "intervals": [
+        0,
+        2,
+        4,
+        5,
+        7,
+        9,
+        10
+      ],
+      "mode": "mixolydian"
+    },
+    {
+      "intervals": [
+        0,
+        1,
+        3,
+        5,
+        6,
+        8,
+        10
+      ],
+      "mode": "locrian"
+    },
+    {
+      "intervals": [
+        0,
+        2,
+        4,
+        7,
+        9
+      ],
+      "mode": "major_pentatonic"
+    },
+    {
+      "intervals": [
+        0,
+        3,
+        5,
+        7,
+        10
+      ],
+      "mode": "minor_pentatonic"
+    },
+    {
+      "intervals": [
+        0,
+        3,
+        5,
+        6,
+        7,
+        10
+      ],
+      "mode": "blues"
+    }
+  ],
   "server_message": {
     "$defs": {
       "Capabilities": {

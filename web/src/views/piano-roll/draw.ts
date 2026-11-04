@@ -36,6 +36,13 @@ export interface RollFrame {
   taking?: readonly Note[]
   /** The note whose end is drawn as a resize handle (#612): the hovered or the resized one; `strong` when the pointer is on the end itself. */
   handle?: { note: Note; strong: boolean } | null
+  /** The project's scale (#695, #511): its pitch classes and its root, or null for none (and for a drum kit). */
+  scale?: { classes: ReadonlySet<number>; root: number } | null
+}
+
+/** Whether a pitch's row is shaded as off the keys: the black keys without a scale, the notes out of it with one. */
+export function rowShaded(pitch: number, scale: { classes: ReadonlySet<number> } | null | undefined): boolean {
+  return scale ? !scale.classes.has(((pitch % 12) + 12) % 12) : isBlackKey(pitch)
 }
 
 /** Under this row height only the Cs are named. */
@@ -63,8 +70,17 @@ export function drawRoll(ctx: CanvasRenderingContext2D, frame: BodyFrame, roll: 
   const [high, low] = visiblePitches(layout, height)
   ctx.fillStyle = colors.ruler
   ctx.globalAlpha = 0.55
+  const scale = roll.names ? null : (roll.scale ?? null)
   for (let pitch = high; pitch >= low; pitch--) {
-    if (isBlackKey(pitch)) ctx.fillRect(0, pitchTop(pitch, layout), width, layout.rowHeight)
+    if (rowShaded(pitch, scale)) ctx.fillRect(0, pitchTop(pitch, layout), width, layout.rowHeight)
+  }
+  // The root's rows stand out a little: the tonic is where a phrase comes home.
+  if (scale) {
+    ctx.fillStyle = colors.text
+    ctx.globalAlpha = 0.07
+    for (let pitch = high; pitch >= low; pitch--) {
+      if (((pitch % 12) + 12) % 12 === scale.root) ctx.fillRect(0, pitchTop(pitch, layout), width, layout.rowHeight)
+    }
   }
   ctx.globalAlpha = 0.6
   ctx.lineWidth = 1
@@ -246,7 +262,7 @@ function drawOthers(ctx: CanvasRenderingContext2D, roll: RollFrame, frame: BodyF
   ctx.globalAlpha = 1
 }
 
-/** The keyboard column: one key per row, black keys narrower, the Cs named, the pitch played lit. */
+/** The keyboard column: one key per row, black keys narrower, the Cs named, the pitch played lit, the scale's keys marked. */
 export function drawKeys(
   ctx: CanvasRenderingContext2D,
   width: number,
@@ -256,6 +272,7 @@ export function drawKeys(
   font: string,
   active: ReadonlySet<number>,
   names: ReadonlyMap<number, string> | null = null,
+  scale: { classes: ReadonlySet<number>; root: number } | null = null,
 ): void {
   ctx.fillStyle = colors.ruler
   ctx.fillRect(0, 0, width, height)
@@ -283,6 +300,14 @@ export function drawKeys(
       ctx.textAlign = 'right'
       ctx.fillText(pitchName(pitch), width - 5, y + layout.rowHeight / 2)
       ctx.textAlign = 'start'
+    }
+    // The notes of the scale (#695): a mark on the key's edge, wider on the root.
+    if (scale && !names && scale.classes.has(((pitch % 12) + 12) % 12)) {
+      ctx.fillStyle = active.has(pitch) ? colors.bg : colors.text
+      ctx.globalAlpha = 0.75
+      const root = ((pitch % 12) + 12) % 12 === scale.root
+      ctx.fillRect(0, y + 1, root ? 4 : 2, layout.rowHeight - 3)
+      ctx.globalAlpha = 1
     }
     if (names && name === undefined) {
       // No sound on this key: the row is dimmed.

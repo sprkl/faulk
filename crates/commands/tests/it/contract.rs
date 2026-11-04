@@ -51,6 +51,10 @@ fn examples() -> Vec<(Command, State)> {
         on(Command::Project(project::Command::Rename {
             name: "  Demo song  ".into(),
         })),
+        on(Command::Project(project::Command::SetScale {
+            root: 5,
+            mode: ::project::ScaleKind::NaturalMinor,
+        })),
         on(Command::Project(project::Command::Open {
             folder: commands::testing::OPENED_FOLDER.into(),
         })),

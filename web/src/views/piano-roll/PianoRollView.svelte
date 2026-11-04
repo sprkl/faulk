@@ -49,6 +49,7 @@
   import { sortedScenes } from '../grid/cells'
   import { clipEntries, clipLabel, clipOrigin, editedClip, editedPlacement, ghostNotes, midiClips, type ClipEntry, type MidiClip } from './clips'
   import { drawKeys, drawLane, drawRoll } from './draw'
+  import { pitchClasses } from '../../lib/scale'
   import {
     DEFAULT_ROW_HEIGHT,
     DEFAULT_VELOCITY,
@@ -138,6 +139,12 @@
   const keyNames = $derived.by<ReadonlyMap<number, string> | null>(() => {
     const named = track ? instrumentNamedKeys(track.track) : []
     return named.length === 0 ? null : new Map(named.map((k) => [k.key, k.name]))
+  })
+  /** The project's scale (#695, #511): its rows stand out; none on a drum kit, whose rows are its sounds. */
+  const rollScale = $derived.by(() => {
+    const value = project.view?.project.scale ?? null
+    const classes = keyNames ? null : pitchClasses(value)
+    return value && classes ? { classes, root: value.root } : null
   })
   // The notes of the clip are drawn in the track's colour; the other tracks' notes at the same time range show hollow (#470).
   const trackColor = $derived(track ? colorOfTrack(track.track.color, track.index) : '#8f8a85')
@@ -379,6 +386,7 @@
       clipLength,
       loop: loopShown,
       names: keyNames,
+      scale: rollScale,
       trackColor,
       others,
       taking,
@@ -387,7 +395,7 @@
 
   // The grid draws in its own frame and cannot see this state: tell it when something it draws changed.
   $effect(() => {
-    void [notes, chosenKeys, ghosts, hidden, band, layout, clipLength, loopShown, keyNames, trackColor, others, taking, handleNow]
+    void [notes, chosenKeys, ghosts, hidden, band, layout, clipLength, loopShown, keyNames, rollScale, trackColor, others, taking, handleNow]
     grid?.invalidate()
   })
 
@@ -1264,6 +1272,7 @@
     data-selected-count={chosenNotes.length}
     data-clip-length={clipLength}
     data-key-names={keyNames ? JSON.stringify(Object.fromEntries(keyNames)) : ''}
+    data-scale={rollScale ? [...rollScale.classes].sort((a, b) => a - b).join(',') : ''}
     data-loop={edited.looping ? `${edited.looping.start}-${edited.looping.end}` : ''}
     data-notes={notes.length <= 32 ? JSON.stringify(notes) : undefined}
     data-first-note={notes[0] ? JSON.stringify(notes[0]) : undefined}
@@ -1427,7 +1436,10 @@
         onpointercancel={keysUp}
         onlostpointercapture={keysUp}
       >
-        <Surface label={t('pianoRoll.keyboard')} draw={(ctx, w, h, colors, font) => drawKeys(ctx, w, h, layout, colors, font, activePitches, keyNames)} />
+        <Surface
+          label={t('pianoRoll.keyboard')}
+          draw={(ctx, w, h, colors, font) => drawKeys(ctx, w, h, layout, colors, font, activePitches, keyNames, rollScale)}
+        />
       </div>
       <div
         class="stage"

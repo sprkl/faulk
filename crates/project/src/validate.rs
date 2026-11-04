@@ -100,6 +100,8 @@ pub enum ViolationKind {
     /// A preset of the project that breaks a rule of the preset format, or a device's preset
     /// with an id that is not one of its location (#191).
     BadPreset,
+    /// A scale root above [`crate::scale::MAX_ROOT`] (#695).
+    ScaleRoot(u8),
     /// More elements than a safety limit allows.
     TooMany { limit: usize },
 }
@@ -243,6 +245,13 @@ impl Project {
             ViolationKind::MeterMap,
         );
         self.validate_transport(&mut c);
+        if let Some(scale) = self.scale {
+            c.check(
+                scale.root <= crate::scale::MAX_ROOT,
+                "scale",
+                ViolationKind::ScaleRoot(scale.root),
+            );
+        }
         c.mixer(&self.master, "master");
         self.validate_master_chain(&mut c);
         let (mut notes, mut points) = (0usize, 0usize);

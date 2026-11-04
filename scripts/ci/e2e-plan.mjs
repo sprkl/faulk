@@ -33,10 +33,10 @@ export const AREA = {
   clips: ['clip-pool'],
   grid: ['clip-names', 'clip-pool', 'grid', 'grid-clips', 'grid-to-arrangement', 'recording'],
   history: ['history', 'history-cost', 'history-names', 'keyboard-create'],
-  pianoRoll: ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard', 'keyboard-create', 'recording', 'piano-roll-follow', 'context-menu'],
+  pianoRoll: ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard', 'keyboard-create', 'recording', 'piano-roll-follow', 'context-menu', 'scale'],
   mixer: ['automation', 'continuous', 'layout-4', 'mixer', 'mixer-sound', 'master-chain', 'master-pan', 'track-state'],
   devices: ['automation', 'continuous', 'device-browser', 'devices', 'presets', 'layout-4', 'master-chain', 'master-pan', 'track-state', 'context-menu'],
-  transport: ['all-sound-off', 'transport', 'playhead', 'space-bar', 'track-state', 'discoverability', 'recording', 'stop-to-marker', 'tap-tempo'],
+  transport: ['all-sound-off', 'transport', 'playhead', 'space-bar', 'track-state', 'discoverability', 'recording', 'stop-to-marker', 'tap-tempo', 'scale'],
   tracks: ['tracks', 'track-order', 'lane-rows', 'discoverability', 'device-browser'],
   deviceBrowser: ['device-browser', 'devices', 'tracks', 'lane-rows', 'discoverability', 'keyboard-all-views'],
   keyboard: ['keyboard', 'keyboard-all-views', 'layout-4', 'live-input', 'typing-mode', 'track-state'],
@@ -65,7 +65,7 @@ export const AREA = {
   // crates/engine itself (engine-channel), the export render.
   engine: ['all-sound-off', 'automation', 'big-project', 'continuous', 'devices', 'engine-channel', 'engine-mo2', 'engine-mo5', 'export-audio', 'keyboard', 'master-chain', 'master-pan', 'mixer-sound', 'recording', 'stop-to-marker'],
   // What the project core (project, project-wasm) reaches beyond the core tests: storage, history, refusals.
-  project: ['project-store', 'project-save', 'project-rename', 'project-save-as-name', 'open-project', 'browser-storage', 'storage-commands', 'open-url', 'history', 'history-names', 'refused-commands'],
+  project: ['project-store', 'project-save', 'project-rename', 'project-save-as-name', 'open-project', 'browser-storage', 'storage-commands', 'open-url', 'history', 'history-names', 'refused-commands', 'scale'],
 }
 
 /**
@@ -178,6 +178,7 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/shortcuts\.ts$/, areas('arrangement', 'shortcuts', 'shortcutsDialog', 'topBar')],
   [/^web\/src\/lib\/i18n\/tracks\.ts$/, areas('arrangement', 'grid', 'mixer', 'tracks')],
   [/^web\/src\/lib\/i18n\/transport\.ts$/, areas('transport', 'topBar')],
+  [/^web\/src\/lib\/i18n\/scale\.ts$/, areas('transport', 'topBar')], // the key and scale picker of the transport bar (#695)
   // Libraries with one clear audience.
   [/^web\/src\/lib\/shortcuts\.ts$/, AREA.shortcuts],
   [/^web\/src\/lib\/export\//, AREA.export],
