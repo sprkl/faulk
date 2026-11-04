@@ -744,6 +744,33 @@ fn an_imported_file_the_page_staged_becomes_a_clip_and_a_save_writes_its_metadat
 }
 
 #[test]
+fn staging_a_file_the_folder_lacked_clears_its_missing_mark() {
+    let h = Handle::new(KIND_SINGLE_SYNTH);
+    h.call0(pw_setup);
+    let created = h.apply(json!({"type": "track.create", "kind": "audio"}));
+    let track = created["track"].as_str().unwrap().to_owned();
+    let hash = "9e".repeat(32);
+    let media = json!({"hash": hash, "sample_rate": 44100, "channels": 2, "frames": 22050, "name": "kick.wav"});
+    let text = media.to_string();
+    write_inbox(&text);
+    // SAFETY: a live core.
+    assert_eq!(unsafe { pw_stage_media(h.0, text.len() as u32) }, 0);
+    let output = h.apply(json!({"type": "clip.import_audio", "track": track, "media": hash}));
+    let clip = output["clip"].as_str().unwrap().to_owned();
+    // As `project.open` marks a file its folder did not hold.
+    let parsed = project::Hash::parse(&hash).unwrap();
+    // SAFETY: a live core, no other reference to it.
+    unsafe { (*h.0).synced.ctx.missing_media.insert(parsed) };
+    let get = json!({"type": "clip.get", "clip": clip});
+    assert_eq!(h.apply(get.clone())["summary"]["media_missing"], true);
+    // The page writes the blob, then stages the media again: the mark goes.
+    write_inbox(&text);
+    // SAFETY: a live core.
+    assert_eq!(unsafe { pw_stage_media(h.0, text.len() as u32) }, 0);
+    assert_eq!(h.apply(get)["summary"]["media_missing"], false);
+}
+
+#[test]
 fn a_call_that_produces_no_bytes_never_returns_the_previous_ones() {
     let h = Handle::new(KIND_SINGLE_SYNTH);
     h.call0(pw_setup);

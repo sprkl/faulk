@@ -18,7 +18,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 28;
+pub const PROTOCOL_VERSION: u32 = 30;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -26,6 +26,11 @@ pub const PROTOCOL_VERSION: u32 = 28;
 /// one; the helper's other routes keep the WebSocket library's default limits.
 pub const MAX_STREAM_BYTES: usize = 1 << 30;
 
+// Version 30 (#114, 29 is #619's): audio clip commands (AU-5). `clip.import_audio` takes an
+// optional target `at` and answers its `placement`; new `clip.audio.set_range`,
+// `clip.audio.set_gain`, `clip.audio.set_loop`; `clip.move` takes audio clips; clip summaries
+// gain `media_missing`; the clip event part `gain`. A helper of version 28 would not offer the
+// new tools.
 // Version 28 (#191, 27 is #616's): device presets. The commands gain the `preset` domain (`preset.save`, `preset.load`, `preset.delete`, `preset.rename`, `preset.copy`, `preset.list`, `preset.restore`, `preset.restore_device`), the events `preset_changed` and `device_preset_changed`, a device an optional `preset`, the project its `presets` (folder format 4). The helper's MCP tools come from the command catalogue (AG-1), so a helper of version 27 would not offer them.
 
 // Version 27 (#110, AU-1): the commands gain `clip.import_audio`, `clip.restore_audio`, `clip.choose_audio` and `clip.cancel_audio_import`, and `clip.delete` takes an audio clip; the helper generates its MCP tools from the commands, so a helper of version 26 would not offer them to an agent. No message changes: the import runs in the page in both modes, and nothing of an audio file crosses the link.

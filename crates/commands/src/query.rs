@@ -31,12 +31,12 @@ use engine::device::{
 };
 use project::{
     AudioMedia, AutomationLane, AutomationTarget, Clip, ClipContent, ClipId, Device, DeviceId,
-    DeviceRole, DeviceSource, FrameLoop, LaneId, Mixer, Note, Placement, PlacementId, Project,
-    Quantize, Rgb, Scene, SceneId, Tick, TickLoop, Track, TrackId, TrackKind,
+    DeviceRole, DeviceSource, FrameLoop, Hash, LaneId, Mixer, Note, Placement, PlacementId,
+    Project, Quantize, Rgb, Scene, SceneId, Tick, TickLoop, Track, TrackId, TrackKind,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Items a page holds when the query gives no `limit`.
 pub const DEFAULT_PAGE: u32 = 100;
@@ -161,6 +161,10 @@ pub struct ClipSummary {
     pub length: Option<Tick>,
     /// How many notes a MIDI clip holds; `null` for an audio clip.
     pub note_count: Option<u32>,
+    /// For an audio clip, whether its file was missing from the project's folder when the
+    /// project was opened ("média absent": the clip stays in the project, silent); `null`
+    /// for a MIDI clip.
+    pub media_missing: Option<bool>,
 }
 
 /// What a clip holds, apart from the notes (`clip.notes.list`).
@@ -414,6 +418,7 @@ pub(crate) struct TrackData {
 
 pub(crate) fn track_get(
     state: &State,
+    missing: &BTreeSet<Hash>,
     id: &TrackId,
     offset: Option<u32>,
     limit: Option<u32>,
@@ -433,7 +438,7 @@ pub(crate) fn track_get(
             .collect(),
         clips: clips
             .into_iter()
-            .map(|(id, clip)| clip_summary(id, clip))
+            .map(|(id, clip)| clip_summary(id, clip, missing))
             .collect(),
         page: page_info,
         placement_count: count(track.placements.len()),
@@ -455,12 +460,20 @@ fn device_summary(id: &DeviceId, device: &Device) -> DeviceSummary {
     }
 }
 
-fn clip_summary(id: &ClipId, clip: &Clip) -> ClipSummary {
-    let (kind, length, note_count) = match &clip.content {
-        ClipContent::Midi { length, notes, .. } => {
-            (TrackKind::Midi, Some(*length), Some(count(notes.len())))
-        }
-        ClipContent::Audio { .. } => (TrackKind::Audio, None, None),
+fn clip_summary(id: &ClipId, clip: &Clip, missing: &BTreeSet<Hash>) -> ClipSummary {
+    let (kind, length, note_count, media_missing) = match &clip.content {
+        ClipContent::Midi { length, notes, .. } => (
+            TrackKind::Midi,
+            Some(*length),
+            Some(count(notes.len())),
+            None,
+        ),
+        ClipContent::Audio { media, .. } => (
+            TrackKind::Audio,
+            None,
+            None,
+            Some(missing.contains(&media.hash)),
+        ),
     };
     ClipSummary {
         id: id.clone(),
@@ -470,6 +483,7 @@ fn clip_summary(id: &ClipId, clip: &Clip) -> ClipSummary {
         kind,
         length,
         note_count,
+        media_missing,
     }
 }
 
@@ -496,6 +510,7 @@ pub(crate) struct ClipData {
 
 pub(crate) fn clip_get(
     project: &Project,
+    missing: &BTreeSet<Hash>,
     id: &ClipId,
     offset: Option<u32>,
     limit: Option<u32>,
@@ -532,7 +547,7 @@ pub(crate) fn clip_get(
     };
     Ok(ClipData {
         track: track_id.clone(),
-        summary: clip_summary(id, clip),
+        summary: clip_summary(id, clip, missing),
         launch_quantize: clip.launch_quantize,
         content,
         placements: items
