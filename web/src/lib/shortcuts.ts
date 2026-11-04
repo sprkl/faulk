@@ -41,6 +41,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       },
       { label: 'shortcut.save', chords: [['Mod', 'S']] },
       { label: 'shortcut.saveAs', chords: [['Mod', 'Shift', 'S']] },
+      { label: 'shortcut.renameProject', chords: [['F2']] },
       {
         label: 'shortcut.views',
         chords: [
@@ -131,7 +132,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       },
       { label: 'shortcut.remove', chords: [['Delete'], ['Backspace']], covers: ['Delete', 'Backspace'] },
       { label: 'shortcut.rename', chords: [['F2']], covers: ['F2'] },
-      { label: 'shortcut.laneVolume', chords: [['Enter'], ['F2'], ['0-9']] },
+      { label: 'shortcut.laneVolume', chords: [['Enter'], ['0-9']] },
       { label: 'shortcut.laneHeight', chords: [['↑'], ['↓'], ['Home'], ['End']], covers: ['End'] },
     ],
   },

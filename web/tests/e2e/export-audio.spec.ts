@@ -190,6 +190,36 @@ test('exports the song as a 24-bit WAV file while the song plays: header, length
   expect(seen.errors).toEqual([])
 })
 
+test('the dialog proposes the project name as the file name, in a field the user can change (#627)', async ({ page }) => {
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  await simulateSavePicker(page)
+  await makeSong(page)
+  // The project is named from the interface, then exported: the file carries the name.
+  await page.getByTestId('project-menu').click()
+  await page.getByTestId('menu-rename').click()
+  await page.getByTestId('project-rename').fill('My: song')
+  await page.getByTestId('project-rename').press('Enter')
+  await expect(page.getByTestId('project-name')).toHaveText('My: song')
+
+  await openDialog(page)
+  // What a file system refuses is already replaced in what the field shows.
+  await expect(page.getByTestId('export-file-name')).toHaveValue('My- song')
+  await page.getByTestId('export-start').click()
+  await expect(dialog(page)).toHaveAttribute('data-phase', 'done', { timeout: 60_000 })
+  expect(await page.evaluate(() => (window as unknown as { __picks: { suggestedName: string }[] }).__picks[0].suggestedName)).toBe('My- song.wav')
+  await page.getByTestId('export-close').click()
+
+  // The field is the user's: another name, with or without the extension.
+  await openDialog(page)
+  await page.getByTestId('export-file-name').fill('Take 1.wav')
+  await page.getByTestId('export-start').click()
+  await expect(dialog(page)).toHaveAttribute('data-phase', 'done', { timeout: 60_000 })
+  expect(await page.evaluate(() => (window as unknown as { __picks: { suggestedName: string }[] }).__picks[1].suggestedName)).toBe('Take 1.wav')
+  await expect(page.getByTestId('export-status')).toContainText('Take 1.wav')
+  expect(seen.errors).toEqual([])
+})
+
 test('four bars: the file lasts eight seconds and a bit, and a range of bars is that range', async ({ page }) => {
   test.setTimeout(120_000)
   const seen = watch(page)

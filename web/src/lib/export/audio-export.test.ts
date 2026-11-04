@@ -148,6 +148,20 @@ describe('the export dialog', () => {
     expect(exporter.choices.region).toBe('song')
   })
 
+  it('proposes the project name in the dialog, and the field of the user wins (#627)', async () => {
+    const { exporter, deps } = setup()
+    exporter.show()
+    expect(exporter.choices.fileName).toBe('My- song-')
+    exporter.choices.fileName = ' Take 1.WAV '
+    exporter.start()
+    await flush()
+    expect(deps.pick).toHaveBeenCalledWith('Take 1.wav', 44, null)
+    // Opened again, the field starts from the project's name once more.
+    exporter.close()
+    exporter.show()
+    expect(exporter.choices.fileName).toBe('My- song-')
+  })
+
   it('names the file after the project, without what a file system refuses', () => {
     expect(fileNameOf('My: song?')).toBe('My- song-.wav')
     expect(fileNameOf('  ..  ')).toBe('Faulk.wav')
