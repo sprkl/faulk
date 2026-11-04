@@ -172,6 +172,19 @@ export class MemoryDir {
     return node instanceof MemoryFile ? new TextDecoder().decode(node.bytes) : null
   }
 
+  /** A copy of the bytes of the file at `path`, or `null`. */
+  bytes(path: string): Uint8Array | null {
+    const node = path.split('/').reduce<Node | undefined>((at, part) => (at instanceof MemoryDir ? at.entries.get(part) : undefined), this)
+    return node instanceof MemoryFile ? node.bytes.slice() : null
+  }
+
+  /** Removes the file at `path`, if there is one. */
+  remove(path: string): void {
+    const parts = path.split('/')
+    const dir = parts.slice(0, -1).reduce<Node | undefined>((at, part) => (at instanceof MemoryDir ? at.entries.get(part) : undefined), this)
+    if (dir instanceof MemoryDir) dir.entries.delete(parts[parts.length - 1]!)
+  }
+
   /** Every file path below this directory. */
   paths(base = ''): string[] {
     return [...this.entries].flatMap(([name, node]) =>

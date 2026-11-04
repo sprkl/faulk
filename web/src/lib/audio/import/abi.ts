@@ -61,6 +61,9 @@ interface Exports {
   ai_layout_candidate(headLen: number, lenLo: number, lenHi: number): number
   ai_cache_header(rate: number, channels: number, frames: number): number
   ai_cache_valid(headLen: number, fileLen: number, rate: number, channels: number, frames: number): number
+  ai_peaks(): number
+  ai_peaks_len(): number
+  ai_peaks_valid(headLen: number, fileLen: number, rate: number, channels: number, frames: number): number
   ai_error(): number
   ai_error_len(): number
 }
@@ -79,6 +82,9 @@ const END = 0
 
 /** The bytes of the PCM cache's header. */
 export const CACHE_HEADER_BYTES = 32
+
+/** The bytes of a peaks file's header (`peaks::HEADER_BYTES` of crates/audio-import). */
+export const PEAKS_HEADER_BYTES = 32
 
 /** How much of the start of a file `layout` reads (`HEAD_BYTES` of crates/audio-import). */
 export const HEAD_BYTES = 64 * 1024
@@ -201,6 +207,19 @@ export class ImportModule {
       if (ptr === 0) throw new ImportError('io', 'not the metadata of a file')
       return new Uint8Array(this.exports.memory.buffer, ptr, CACHE_HEADER_BYTES).slice()
     })
+  }
+
+  /** The waveform peaks file of the job just finished (AU-2, a copy), or `null` when it gave none. */
+  peaks(): Uint8Array | null {
+    return this.guard(() => {
+      const len = this.exports.ai_peaks_len()
+      return len > 0 ? new Uint8Array(this.exports.memory.buffer, this.exports.ai_peaks(), len).slice() : null
+    })
+  }
+
+  /** Whether a peaks file starting with `head`, of `size` bytes, is the whole peaks file of such a media for this decoder. */
+  peaksValid(head: Uint8Array, size: number, info: MediaInfo): boolean {
+    return this.guard(() => this.exports.ai_peaks_valid(this.inbox(head), size, info.sample_rate, info.channels, info.frames) === 1)
   }
 
   /** Whether a cache file starting with `head`, of `size` bytes, is the whole cache of such a file. */

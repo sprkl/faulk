@@ -10,7 +10,10 @@
 // the file cannot be read directly; (3) only then put the copy in `blobs/<sha256>` (or drop it
 // when the folder already has that blob: one blob per file, however often it is imported) and the
 // cache in `.faulk/cache/pcm/`. A failure anywhere removes the temporary files and stores nothing.
-import { CACHE_HEADER_BYTES, HEAD_BYTES, ImportError, type ImportModule, type MediaInfo, type ReadSync } from './abi'
+// Decoding also gives the waveform peaks (AU-2), written last to `.faulk/cache/peaks/<sha256>.peaks`:
+// a cache like the PCM one, so failing to write them never fails the import (they are made again).
+import { CACHE_HEADER_BYTES, HEAD_BYTES, ImportError, PEAKS_HEADER_BYTES, type ImportModule, type MediaInfo, type ReadSync } from './abi'
+import { PEAKS_DIR } from '../peaks/format'
 
 /** A media as `clip.import_audio` takes it (`project::AudioMedia`). */
 export interface ImportedMedia extends MediaInfo {
@@ -26,14 +29,18 @@ export interface ImportOutcome {
   direct: boolean
   /** The blob's path and stamp (`<size>:<modified>`, as a scan sees it), and whether this import wrote it. */
   blob: { path: string; stamp: string; created: boolean }
+  /** Whether its waveform peaks were written (they are made again at the next opening otherwise). */
+  peaks: boolean
 }
 
 /** A media the project uses, as `ensureAudioCache` checks it. */
 export type MediaRef = { hash: string } & MediaInfo
 
 export interface CacheReport {
-  /** Caches made (again). */
+  /** PCM caches made (again). */
   made: string[]
+  /** Waveform peaks made (again). */
+  peaks: string[]
   /** Media whose blob the folder lacks. */
   missing: string[]
   /** Media whose blob could not be decoded. */
@@ -189,7 +196,8 @@ async function copyInto(dir: FileSystemDirectoryHandle, name: string, from: File
 
 /**
  * Decodes the file `source` reads, every packet, writing the PCM cache into `cache` when given.
- * Returns the metadata. Progress goes from `from` to `to` as the decoder reads the file.
+ * Returns the metadata and the waveform peaks (`null` when the module gave none). Progress goes from
+ * `from` to `to` as the decoder reads the file.
  */
 async function decode(
   module: ImportModule,
@@ -200,7 +208,7 @@ async function decode(
   deps: PipelineDeps,
   progress: (fraction: number) => void,
   span: [number, number],
-): Promise<MediaInfo> {
+): Promise<{ info: MediaInfo; peaks: Uint8Array | null }> {
   module.open(read, size, extension)
   const buffer = new Uint8Array(SLICE)
   let filled = 0
@@ -238,12 +246,13 @@ async function decode(
     }
   }
   const info = module.finish()
+  const peaks = module.peaks()
   if (cache) {
     await flush()
     // The header, now that the length is known: written over the 32 bytes kept for it.
     await cache.writeAt(0, module.cacheHeader(info))
   }
-  return info
+  return { info, peaks }
 }
 
 /** The first bytes of a file. */
@@ -266,6 +275,38 @@ async function placeCache(root: FileSystemDirectoryHandle, hash: string, temp: T
       await temp.discard()
     }
   })
+}
+
+/**
+ * Writes the waveform peaks of `hash` (a few megabytes at most, in memory) at their final name, with
+ * `createWritable`, which replaces the file whole at its close; a write that fails removes the name.
+ * A file cut short anyway is harmless: its size says so, and it is made again.
+ */
+async function placePeaks(root: FileSystemDirectoryHandle, hash: string, bytes: Uint8Array) {
+  await serialised(`${hash}.peaks`, async () => {
+    const dir = await directory(root, PEAKS_DIR, true)
+    const name = `${hash}.peaks`
+    const handle = await dir.getFileHandle(name, { create: true })
+    const writable = await handle.createWritable()
+    try {
+      await writable.write(bytes as Uint8Array<ArrayBuffer>)
+      await writable.close()
+    } catch (error) {
+      await writable.abort().catch(() => undefined)
+      await dir.removeEntry(name).catch(() => undefined)
+      throw error
+    }
+  })
+}
+
+/** Whether the folder holds the whole peaks file of this media, for this decoder. */
+async function peaksValid(root: FileSystemDirectoryHandle, module: ImportModule, media: MediaRef): Promise<boolean> {
+  const dir = await directory(root, PEAKS_DIR, false).catch(() => null)
+  const found = dir && (await maybeFile(dir, `${media.hash}.peaks`))
+  if (!found) return false
+  const file = await found.getFile()
+  const start = new Uint8Array(await file.slice(0, PEAKS_HEADER_BYTES).arrayBuffer())
+  return module.peaksValid(start, file.size, media)
 }
 
 /** The imports of a blob in this Worker, one at a time: two imports of the same file never race on its name. */
@@ -324,7 +365,7 @@ async function runImport(root: FileSystemDirectoryHandle, file: File, deps: Pipe
     // rare case the check fails (the headers and the decoder disagree), it is decoded again into one.
     const maybeDirect = module.maybeDirect(start, size)
     if (!maybeDirect) cache = await TempFile.create(root, `${IMPORT_TMP_PREFIX}${id}.pcm`)
-    const info = await decode(module, read, size, extensionOf(file.name), cache, deps, progress, [0.5, 1])
+    const { info, peaks } = await decode(module, read, size, extensionOf(file.name), cache, deps, progress, [0.5, 1])
     const direct = maybeDirect && module.direct(start, size, info)
     if (!maybeDirect) {
       await cache!.close()
@@ -352,8 +393,18 @@ async function runImport(root: FileSystemDirectoryHandle, file: File, deps: Pipe
     if (cache) await placeCache(root, hash, cache)
 
     cache = null
+    // The peaks last: a cache, made again at the next opening when this write fails.
+    let wrote = false
+    if (peaks) {
+      try {
+        await placePeaks(root, hash, peaks)
+        wrote = true
+      } catch {
+        // The import stands without them.
+      }
+    }
     progress(1, true)
-    return { media: { hash, ...info, name: mediaName(file.name) }, direct, blob }
+    return { media: { hash, ...info, name: mediaName(file.name) }, direct, blob, peaks: wrote }
   } catch (error) {
     await copy?.discard()
     await cache?.discard()
@@ -365,12 +416,14 @@ async function runImport(root: FileSystemDirectoryHandle, file: File, deps: Pipe
 }
 
 /**
- * Makes again the PCM caches the folder lacks (the cache absent regenerates on opening, in the
- * target that holds the disk: the page, since the helper holds no disk). A cache whole and of the
- * media is left alone; a media read directly needs none; a missing blob is reported, not an error.
+ * Makes again the PCM caches and the waveform peaks the folder lacks (a cache absent regenerates on
+ * opening, in the target that holds the disk: the page, since the helper holds no disk). A cache whole
+ * and of the media is left alone; a media read directly needs no PCM cache, but its peaks (a project
+ * imported before AU-2 has none) still take a decode; a missing blob is reported, not an error. One
+ * media at a time, one decode per media for both.
  */
 export async function ensureAudioCache(root: FileSystemDirectoryHandle, media: MediaRef[], deps: PipelineDeps): Promise<CacheReport> {
-  const report: CacheReport = { made: [], missing: [], failed: [] }
+  const report: CacheReport = { made: [], peaks: [], missing: [], failed: [] }
   const progress = progressReporter(deps.onProgress)
   const seen = new Set<string>()
   const list = media.filter((m) => !seen.has(m.hash) && seen.add(m.hash))
@@ -386,27 +439,42 @@ export async function ensureAudioCache(root: FileSystemDirectoryHandle, media: M
     const module = await deps.module()
     const cacheDir = await directory(root, CACHE_DIR, false).catch(() => null)
     const cached = cacheDir && (await maybeFile(cacheDir, `${m.hash}.pcm`))
+    let pcmOk = false
     if (cached) {
       const file = await cached.getFile()
       const start = new Uint8Array(await file.slice(0, CACHE_HEADER_BYTES).arrayBuffer())
-      if (module.cacheValid(start, file.size, m)) continue
+      pcmOk = module.cacheValid(start, file.size, m)
     }
+    const peaksOk = await peaksValid(root, module, m)
+    if (pcmOk && peaksOk) continue
     const blob = await blobHandle.getFile()
     const read = await deps.readerOf(blob)
-    if (module.direct(head(read, blob.size), blob.size, m)) continue
+    if (!pcmOk && module.direct(head(read, blob.size), blob.size, m)) pcmOk = true
+    if (pcmOk && peaksOk) continue
     const id = crypto.randomUUID()
     await holdingLock(id, async () => {
-      const temp = await TempFile.create(root, `${IMPORT_TMP_PREFIX}${id}.pcm`)
+      const temp = pcmOk ? null : await TempFile.create(root, `${IMPORT_TMP_PREFIX}${id}.pcm`)
       try {
-        const info = await decode(await deps.module(), read, blob.size, '', temp, deps, progress, span)
-        await temp.close()
+        const { info, peaks } = await decode(await deps.module(), read, blob.size, '', temp, deps, progress, span)
+        await temp?.close()
         if (info.frames !== m.frames || info.channels !== m.channels || info.sample_rate !== m.sample_rate) {
           throw new ImportError('corrupt', 'the file decodes differently from what the project says of it')
         }
-        await placeCache(root, m.hash, temp)
-        report.made.push(m.hash)
+        if (temp) {
+          await placeCache(root, m.hash, temp)
+          report.made.push(m.hash)
+        }
+        if (!peaksOk && peaks) {
+          try {
+            await placePeaks(root, m.hash, peaks)
+            report.peaks.push(m.hash)
+          } catch {
+            // A cache the folder refuses (a quota, a write refused): the media decoded, its PCM
+            // cache stands; its waveform waits for an opening that can write them.
+          }
+        }
       } catch (error) {
-        await temp.discard()
+        await temp?.discard()
         if (error instanceof ImportError && error.code === 'cancelled') throw error
         report.failed.push({ hash: m.hash, code: error instanceof ImportError ? error.code : 'io' })
       }
