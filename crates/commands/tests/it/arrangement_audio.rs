@@ -573,11 +573,13 @@ impl Lcg {
 
 #[test]
 fn random_audio_edits_stay_inside_their_clips_overlap_free_and_undo_through_the_history() {
-    for (seed, bpm, rate) in [
-        (5u64, 120.0, 44_100u32),
-        (11, 97.3, 48_000),
-        (23, 173.0, 8_000),
-        (31, 61.0, 96_000),
+    for (seed, bpm, rate, looped) in [
+        (5u64, 120.0, 44_100u32, false),
+        (11, 97.3, 48_000, false),
+        (23, 173.0, 8_000, false),
+        (31, 61.0, 96_000, false),
+        // A looped clip: the cuts go round its loop.
+        (41, 133.0, 44_100, true),
     ] {
         let f = fx();
         let (mut state, _) = with_second(&f, 0);
@@ -594,6 +596,38 @@ fn random_audio_edits_stay_inside_their_clips_overlap_free_and_undo_through_the_
         {
             media.sample_rate = SampleRate::new(rate).unwrap();
         }
+        if looped
+            && let ClipContent::Audio { looping, .. } = &mut state
+                .project
+                .tracks
+                .get_mut(&f.audio_track)
+                .unwrap()
+                .clips
+                .get_mut(&f.audio_clip)
+                .unwrap()
+                .content
+        {
+            *looping = Some(FrameLoop {
+                start: Frame::new(5_000),
+                end: Frame::new(17_000),
+            });
+        }
+        // A second audio track, for `move_to_track`.
+        let Output::Track(commands::track::Output::Create { track: other, .. }) = run(
+            &Command::Track(commands::track::Command::Create {
+                kind: ::project::TrackKind::Audio,
+                name: None,
+                color: None,
+                instrument: None,
+            }),
+            &mut state,
+            &mut fresh(),
+        )
+        .unwrap()
+        .output
+        else {
+            panic!("no track")
+        };
         state.project.validate().unwrap();
         let start = state.clone();
         let mut ctx = fresh();
@@ -610,12 +644,21 @@ fn random_audio_edits_stay_inside_their_clips_overlap_free_and_undo_through_the_
                 .keys()
                 .cloned()
                 .collect();
-            if ids.is_empty() {
+            if clips.is_empty() {
                 break;
             }
             let pick = |rng: &mut Lcg| ids[rng.next(ids.len() as u64) as usize].clone();
             let tick = |rng: &mut Lcg| Tick(rng.next(9_000) as i64);
-            let command = match rng.next(9) {
+            // An empty track takes a placement first (a time edit or a move may empty it).
+            let roll = if ids.is_empty() { 0 } else { rng.next(10) };
+            let command = match roll {
+                9 if ids.len() > 3 => arrangement::Command::MoveToTrack {
+                    moves: vec![TrackMove {
+                        placement: pick(&mut rng),
+                        track: other.clone(),
+                    }],
+                    by: Some(Tick(rng.next(4_000) as i64 - 2_000)),
+                },
                 0 => arrangement::Command::Place {
                     clip: clips[rng.next(clips.len() as u64) as usize].clone(),
                     start: tick(&mut rng),
