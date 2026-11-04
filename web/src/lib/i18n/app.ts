@@ -7,6 +7,7 @@
 import { arrangement } from './arrangement'
 import { automation } from './automation'
 import { browser } from './browser'
+import { audio } from './audio'
 import { clips } from './clips'
 import { audioExport } from './export'
 import { engine } from './engine'
@@ -69,6 +70,7 @@ export const features = {
   arrangement,
   automation,
   clips,
+  audio,
   audioExport,
   history,
   refusal,

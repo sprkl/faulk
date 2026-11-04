@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { dropAudioFiles, isAudioFile, type AudioDropHost } from './audio-drop'
+import type { AudioMedia, Command } from '../generated/protocol'
+import { dropAudioFiles, isAudioFile, placeInGrid, placeOnLane, type AudioDropHost, type LaneHost } from './audio-drop'
 
 const file = (name: string, type = '') => new File(['x'], name, { type })
 
@@ -41,5 +42,69 @@ describe('audio files dropped on the track list (AU-4)', () => {
     const refused = host(null)
     expect(dropAudioFiles(refused.h, [file('a.wav', 'audio/wav')])).toBe('browser.audioNoTrack')
     expect(refused.calls.imported).toEqual([])
+  })
+})
+
+describe('audio files dropped on an audio track (AU-6)', () => {
+  const media = (hash: string, frames = 48000): AudioMedia => ({ hash, sample_rate: 48000, channels: 2, frames, name: `${hash}.wav` })
+
+  /** A page that records the commands, groups them, and makes a clip `c<n>` for each import. */
+  function page(taken: [number, number][] = []) {
+    const log: (Command | 'begin' | 'end')[] = []
+    const clips: string[] = []
+    const h: LaneHost = {
+      run: (command) => {
+        log.push(command)
+        if (command.type === 'clip.import_audio') clips.push(`c${clips.length + 1}`)
+        return true
+      },
+      group: (body) => {
+        log.push('begin')
+        try {
+          return body()
+        } finally {
+          log.push('end')
+        }
+      },
+      clipsOf: () => [...clips],
+      free: (from, to) => !taken.some(([s, e]) => s < to && from < e),
+      // One second is 1920 ticks at 120 bpm.
+      ticksOf: (m) => Math.round((m.frames / 48000) * 1920),
+    }
+    return { h, log }
+  }
+
+  it('places each file on the lane where the last one ends, made in the arrangement where the span is free', () => {
+    const { h, log } = page()
+    const place = placeOnLane(h, 'track', 3840)
+    expect(place(media('a'), 0)).toBe(true)
+    expect(place(media('b', 24000), 1)).toBe(true)
+    expect(log).toEqual([
+      { type: 'clip.import_audio', track: 'track', media: 'a', name: null, at: { at: 'arrangement', start: 3840 } },
+      { type: 'clip.import_audio', track: 'track', media: 'b', name: null, at: { at: 'arrangement', start: 5760 } },
+    ])
+  })
+
+  it('makes the clip in the pool and places it, one history group, where the span is taken (the placement carves)', () => {
+    const { h, log } = page([[4000, 5000]])
+    expect(placeOnLane(h, 'track', 3840)(media('a'), 0)).toBe(true)
+    expect(log).toEqual([
+      'begin',
+      { type: 'clip.import_audio', track: 'track', media: 'a', name: null },
+      { type: 'arrangement.place', clip: 'c1', start: 3840 },
+      'end',
+    ])
+  })
+
+  it('puts each file into the free cell the grid gives, or the pool when none is left', () => {
+    const { h, log } = page()
+    const scenes = ['s1', null]
+    const place = placeInGrid(h, 'track', (index) => scenes[index] ?? null)
+    place(media('a'), 0)
+    place(media('b'), 1)
+    expect(log).toEqual([
+      { type: 'clip.import_audio', track: 'track', media: 'a', name: null, at: { at: 'slot', scene: 's1' } },
+      { type: 'clip.import_audio', track: 'track', media: 'b', name: null, at: null },
+    ])
   })
 })

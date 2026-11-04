@@ -86,6 +86,21 @@
     if (command) dispatcher.run(command)
   }
 
+  /**
+   * An audio clip's gain from its field (AU-6): a number from -96 to +6 dB, or empty for silence; anything else puts the
+   * field back to the clip's gain without a command.
+   */
+  function setGain(entry: PoolClip, input: HTMLInputElement) {
+    if (!('audio' in entry.clip.content)) return
+    const current = entry.clip.content.audio.gain_db ?? null
+    const text = input.value.trim()
+    const value = text === '' ? null : Number(text)
+    const valid = value === null || (Number.isFinite(value) && value >= -96 && value <= 6)
+    if (!valid || value === current || !dispatcher.run({ type: 'clip.audio.set_gain', clip: entry.id, gain_db: value })) {
+      input.value = current === null ? '' : String(Math.round(current * 10) / 10)
+    }
+  }
+
   function onDragStart(event: DragEvent, entry: PoolClip) {
     if (!event.dataTransfer || !trackId) return
     // Copy by default, link with Alt: both drop effects are allowed.
@@ -151,7 +166,7 @@
             class="handle"
             role="button"
             tabindex="0"
-            draggable={entry.midi}
+            draggable="true"
             title={t('clips.dragHint')}
             aria-label={t('clips.row', { name: names[entry.id], where: where(entry) }) + (entry.uses > 1 ? `, ${t('clips.linked')}` : '')}
             data-testid="pool-handle"
@@ -171,18 +186,32 @@
           {#if entry.uses > 1}<span class="linked" title={t('clips.linkedHint')}><LinkMark />{t('clips.linked')}</span>{/if}
           <span class="where">{where(entry)}</span>
           <span class="actions">
-            <button
-              class="ghost"
-              type="button"
-              disabled={!entry.midi}
-              title={t('clips.placeHint')}
-              data-testid="pool-place"
-              onclick={(event) => place(entry, event.altKey)}>{t('clips.place')}</button
+            {#if 'audio' in entry.clip.content}
+              {@const gain = entry.clip.content.audio.gain_db}
+              <!-- The clip's gain (AU-6): one command per value typed; empty is silence. -->
+              <label class="gain" title={t('audio.gainHint')}>
+                <span>{t('audio.gain')}</span>
+                <input
+                  type="number"
+                  min="-96"
+                  max="6"
+                  step="0.1"
+                  value={gain === null || gain === undefined ? '' : Math.round(gain * 10) / 10}
+                  placeholder="−∞"
+                  aria-label={t('audio.gainOf', { name: names[entry.id] ?? '' })}
+                  data-testid="pool-gain"
+                  onchange={(event) => setGain(entry, event.currentTarget)}
+                />
+                <span class="unit" aria-hidden="true">dB</span>
+              </label>
+            {/if}
+            <button class="ghost" type="button" title={t('clips.placeHint')} data-testid="pool-place" onclick={(event) => place(entry, event.altKey)}
+              >{t('clips.place')}</button
             >
             <button
               class="ghost"
               type="button"
-              disabled={!entry.midi || entry.uses === 0}
+              disabled={entry.uses === 0}
               title={t('clips.placeCopyHint')}
               data-testid="pool-place-copy"
               onclick={() => place(entry, true)}>{t('clips.placeCopy')}</button
@@ -190,7 +219,7 @@
             <button
               class="ghost"
               type="button"
-              disabled={!free || (!entry.midi && entry.uses > 0)}
+              disabled={!free}
               title={free ? t('clips.toGridHint') : t('clips.noFreeSlot')}
               data-testid="pool-grid"
               onclick={(event) => toGrid(entry, event.altKey)}>{t('clips.toGrid')}</button
@@ -276,7 +305,22 @@
   .actions {
     grid-column: 4;
     display: flex;
+    align-items: center;
     gap: var(--fk-space-1);
+  }
+  .gain {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--fk-space-1);
+    margin-right: var(--fk-space-2);
+    color: var(--fk-text-muted);
+    font-size: 0.85em;
+  }
+  .gain input {
+    width: 60px;
+    padding: 0 var(--fk-space-1);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
   }
   .empty {
     margin: 0;

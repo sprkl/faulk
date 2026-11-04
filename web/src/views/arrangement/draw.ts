@@ -8,8 +8,11 @@ import { tickToX } from '../../lib/components/timegrid/grid'
 import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
 import type { LoopRegion, Note } from '../../lib/generated/protocol'
 import { drawHandles, type HandleSide } from '../../lib/components/timegrid/handles'
-import { BLOCK_INSET, cycleOf, edgeZone, laneHeight, laneTop, passCount, passesOf, type Block } from './arrangement'
+import { BLOCK_INSET, audioPasses, cycleOf, edgeZone, laneHeight, laneTop, passCount, passesOf, type AudioPart, type Block } from './arrangement'
 import type { Layout } from './automation/layout'
+import { drawWaveform } from '../../lib/audio/peaks/draw'
+import type { Peaks } from '../../lib/audio/peaks/format'
+import type { MediaRef } from '../../lib/audio/import/pipeline'
 
 export interface ArrangementFrame {
   /** The rows of the tracks and of their lanes. */
@@ -34,6 +37,8 @@ export interface ArrangementFrame {
   markers: readonly { tick: number }[]
   /** The block whose ends are drawn as resize handles (#612): the hovered or the resized one, and the end in use (`null`: the pointer is on its body). */
   handles?: { block: Block; strong: HandleSide | null } | null
+  /** The waveform peaks of a media (AU-6), `null` while they are read or made. */
+  peaksOf?: (media: MediaRef) => Peaks | null
 }
 
 /** How much of its colour a clip of a silent track keeps. */
@@ -109,6 +114,14 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
     ctx.lineWidth = selected ? 2 : 1
     ctx.strokeRect(x0 + 0.5, y + 0.5, w - 1, h - 1)
 
+    // An audio placement (AU-6): the waveform of the frames it plays, through the clip's loop, from the file's peaks
+    // (a faint line while they are read or made).
+    if (block.audio && w > 2) {
+      const roomy = h >= NAME_ROOM
+      const top = y + (roomy ? 16 : 2)
+      const height = Math.max(1, h - (roomy ? 18 : 4))
+      drawAudio(ctx, frame, block, block.audio, x0, top, height, scene.peaksOf?.(block.audio.media) ?? null, (ghost ? 0.7 : 0.95) * k)
+    }
     // The notes, as lines across the part of the clip that the block shows.
     const notes = block.notes
     if (notes.length > 0 && w > 6) {
@@ -145,8 +158,8 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
     }
     // The repeat boundaries (#473): a line where each pass after the first starts, so the clip's length reads
     // as the distance between them and the block's as the block.
-    const passes = passesOf(block, 256, Math.max(block.start, view.scrollTick))
-    if (passCount(block) > 1 && w > 6) {
+    const passes = block.audio ? [] : passesOf(block, 256, Math.max(block.start, view.scrollTick))
+    if (!block.audio && passCount(block) > 1 && w > 6) {
       ctx.save()
       ctx.globalAlpha = (ghost ? 0.5 : 0.75) * k
       ctx.fillStyle = block.color
@@ -235,6 +248,59 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
     ctx.fillRect(x1 - 2, 0, 2, RULER_HEIGHT)
     ctx.globalAlpha = 1
   }
+}
+
+/**
+ * The waveform of an audio block between `top` and `top + height`: each pass of its read (`audioPasses`) drawn from the
+ * file's peaks where it is in sight, clipped to the block. Only the visible columns are asked of `drawWaveform`, so a
+ * long placement zoomed in costs what the screen shows.
+ */
+function drawAudio(
+  ctx: CanvasRenderingContext2D,
+  frame: BodyFrame,
+  block: Block,
+  audio: AudioPart,
+  x0: number,
+  top: number,
+  height: number,
+  peaks: Peaks | null,
+  alpha: number,
+) {
+  const { width, view, dpr } = frame
+  const x1 = tickToX(block.end, view)
+  const left = Math.max(0, x0 + 1)
+  const right = Math.min(width, x1 - 1)
+  if (right <= left) return
+  ctx.save()
+  ctx.beginPath()
+  ctx.rect(left, top, right - left, height)
+  ctx.clip()
+  ctx.globalAlpha = alpha
+  if (!peaks) {
+    ctx.globalAlpha = alpha * 0.4
+    ctx.fillStyle = block.color
+    ctx.fillRect(left, Math.floor(top + height / 2), right - left, 1)
+    ctx.restore()
+    return
+  }
+  // Frames of the file a CSS pixel holds.
+  const perPixel = audio.framesPerTick / view.pxPerTick
+  const pxPerFrame = 1 / perPixel
+  for (const pass of audioPasses(audio)) {
+    const px0 = x0 + pass.at * pxPerFrame
+    const px1 = px0 + pass.frames * pxPerFrame
+    const a = Math.max(left, px0)
+    const b = Math.min(right, px1)
+    if (b <= a) continue
+    drawWaveform(
+      ctx,
+      peaks,
+      { x: a, y: top, width: b - a, height },
+      { from: audio.clipStart + pass.from + (a - px0) * perPixel, framesPerPixel: perPixel },
+      { color: block.color, dpr },
+    )
+  }
+  ctx.restore()
 }
 
 /** The link mark of a linked clip: two interlocked rounded links, 11 by 7 px, drawn in the current fill colour's stroke. */
