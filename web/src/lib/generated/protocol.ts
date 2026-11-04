@@ -71,6 +71,10 @@ type: "project.load_folder_version"
 } | {
 type: "project.allow_access"
 } | {
+from_bar?: (number | null)
+to_bar?: (number | null)
+type: "project.analyze_render"
+} | {
 bit_depth?: (ExportBitDepth | null)
 from_bar?: (number | null)
 region?: (ExportRegion | null)
@@ -1134,6 +1138,8 @@ solo: boolean
  */
 track: string
 type: "mixer.set_solo"
+} | {
+type: "mixer.levels"
 })
 /**
  * The commands of this domain, tagged by `type`.
@@ -1340,6 +1346,41 @@ type: "project.keep_mine"
 type: "project.load_folder_version"
 } | {
 type: "project.allow_access"
+} | {
+/**
+ * Seconds of content measured.
+ */
+duration_secs: number
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+end_tick: number
+/**
+ * How deep the output protection attenuated the mix at its worst, in dB (0 when
+ * it never engaged): above a dB or two, the mix is too loud.
+ */
+limiter_reduction_db: number
+master: Level
+/**
+ * Frames the output protection turned to silence because a sample was not a
+ * number (NaN or infinity): 0 on a healthy mix.
+ */
+silenced_frames: number
+/**
+ * A musical position or duration, in ticks ([`PPQ`] per quarter note).
+ * 
+ * Arithmetic saturates instead of overflowing. The inner value is public so that the
+ * project and the UI read it as a plain integer.
+ */
+start_tick: number
+/**
+ * The level of each track over the range, in display order.
+ */
+tracks: TrackLevel[]
+type: "project.analyze_render"
 } | {
 /**
  * How the samples are written.
@@ -2336,6 +2377,17 @@ type: "mixer.set_master_pan"
  */
 previous: boolean
 type: "mixer.set_solo"
+} | {
+master: Level1
+/**
+ * Whether the transport was playing or recording at the last reading.
+ */
+playing: boolean
+/**
+ * The level of each track, in display order.
+ */
+tracks: TrackLevel[]
+type: "mixer.levels"
 })
 /**
  * The outputs of this domain's commands, tagged by the command's `type`.
@@ -2658,6 +2710,12 @@ plan: ExportPlan
 setup_len: number
 start_len: number
 status: "ready"
+/**
+ * The tracks by the engine slot the render gives them (what a measure is of).
+ * 
+ * Items: Identifier of a track.
+ */
+tracks: string[]
 } | {
 error: CommandError
 status: "refused"
@@ -3841,6 +3899,38 @@ id: string
 name: string
 }
 /**
+ * The level of the output over the range, after the master and before the output
+ * protection: above 0 dBFS it is the protection that holds the sound.
+ */
+export interface Level {
+/**
+ * The largest sample of either channel, in dBFS.
+ */
+peak_db: (number | null)
+/**
+ * The root mean square of both channels, in dBFS.
+ */
+rms_db: (number | null)
+}
+/**
+ * The level of a track.
+ */
+export interface TrackLevel {
+name: string
+/**
+ * A level in dBFS (0 is full scale, above 0 is over); `null` is silence.
+ */
+peak_db: (number | null)
+/**
+ * A level in dBFS (0 is full scale, above 0 is over); `null` is silence.
+ */
+rms_db: (number | null)
+/**
+ * Identifier of a track.
+ */
+track: string
+}
+/**
  * Gain, pan and mute of a track or of the master. Solo is not here: it is session state
  * (founder's decision 10). Sends come after the MVP.
  */
@@ -4506,6 +4596,19 @@ offset: number
  * How many items the whole list holds.
  */
 total: number
+}
+/**
+ * The level of the output, after the master and before the output protection.
+ */
+export interface Level1 {
+/**
+ * The largest sample of either channel, in dBFS.
+ */
+peak_db: (number | null)
+/**
+ * The root mean square of both channels, in dBFS.
+ */
+rms_db: (number | null)
 }
 /**
  * A clip a take wrote into.

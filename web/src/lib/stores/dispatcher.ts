@@ -11,7 +11,9 @@ import { WebMidiHost } from '../midi/web-midi'
 import { draftName } from '../project/draft-name'
 import { CoreError, coreModule, engineStep, ProjectCore, type EngineStep, type FolderEntry, type StoredProjects } from '../project/core'
 import {
+  analyzeRange,
   isListStored,
+  isMixerLevels,
   isNewProject,
   isSaveCommand,
   isStoredProjectCommand,
@@ -27,6 +29,7 @@ import type { ProjectHost, ProjectStorage } from '../storage/storage.svelte'
 import { releaseAllNotes, requestMidiInputs } from './housekeeping'
 import { takePairLink } from '../pair-link'
 import { agentAuthor, answerAgentCall } from '../agents/agent-call'
+import { LevelHold, type RenderAnalyzer } from '../agents/levels'
 import { AgentConfirmations } from '../agents/confirm.svelte'
 import { agentQuestion, confirmDeadline, isStorageGuarded, notConfirmed, type GuardView } from '../agents/guard'
 import { ControlLink, ControlTimeout } from '../agents/control-link'
@@ -146,6 +149,7 @@ export class Dispatcher {
         const shown = load.update(report.cpuLoad, report.cpuPeak, performance.now())
         if (!sameLoad(this.state.load, shown)) this.state.load = shown
         this.state.peak = peakOf(report.master)
+        this.levelHold.feed(report, performance.now())
         this.state.voices = report.voices
         this.recorder?.feedback(report)
       },
@@ -408,6 +412,12 @@ export class Dispatcher {
   /** The audio export (#297); set once by `createStores`. */
   audioExport: AudioExport | null = null
 
+  /** What the engine's reports showed since the last `mixer.levels` (#665). */
+  readonly levelHold = new LevelHold()
+
+  /** The offline measure of `project.analyze_render` (#665); set once by `createStores`. */
+  analyzer: RenderAnalyzer | null = null
+
   /** What the audio export needs of the page's project. */
   readonly exportHost: ExportHost = {
     // The dialog shows the refusal of the export itself.
@@ -429,6 +439,7 @@ export class Dispatcher {
     hasLoop: () => (this.project.view?.project.transport.loop_region ?? null) !== null,
     folder: async () => (await this.storage?.folderHandle()) ?? null,
     mediaFolder: () => this.folder,
+    analysisRunning: () => this.analyzer?.busy ?? false,
     mediaNames: (hashes) => {
       const names = new Map<string, string>()
       for (const track of Object.values(this.project.view?.project.tracks ?? {}))
@@ -628,6 +639,13 @@ export class Dispatcher {
       const lists = await this.listStored()
       return { status: 'applied', output: lists }
     }
+    // The queries that measure levels: the page stages its numbers in the core, then the command answers (#665).
+    if (isMixerLevels(command) && this.core) this.stageLevels(this.core)
+    const range = analyzeRange(command)
+    if (range) {
+      const early = await this.measureRender(range, signal)
+      if (early) return early
+    }
     const question = agentQuestion(command, this.storage ? guardView(this.storage) : null)
     // Without a core, `execute` would make one and run the command later: nothing an agent can be told. Not asked
     // for either. `project.new` makes its own project.
@@ -675,6 +693,49 @@ export class Dispatcher {
       }
     } finally {
       stopWatching?.()
+    }
+  }
+
+  /** Stages what the meters held since the last `mixer.levels` for the core to answer with. */
+  private stageLevels(core: ProjectCore) {
+    const slots = this.project.view?.slots
+    core.stageLevels(this.levelHold.take(performance.now(), this.state.started ? slots?.epoch : undefined))
+  }
+
+  /**
+   * `project.analyze_render`: renders the range offline and stages what it measured in the core, so that the command
+   * answers with it. `null` when the command is to run now; else the answer (refused range, busy, stopped, failed).
+   * Nothing of the project changes, and a stop (the call's signal, the time cap) leaves nothing staged.
+   */
+  private async measureRender(range: { from_bar?: number; to_bar?: number }, signal?: AbortSignal): Promise<AgentResult | null> {
+    const core = this.core
+    const analyzer = this.analyzer
+    if (!core || !this.engine || !analyzer) return { status: 'unavailable', reason: 'the page has no project yet: start audio in the page first' }
+    if (analyzer.busy) return { status: 'unavailable', reason: 'another analysis is running: retry when it is done' }
+    if (this.audioExport?.busy) return { status: 'unavailable', reason: 'the page is exporting a file: retry when it is done' }
+    const job = core.exportJob({ analysis: true, ...range })
+    if (job.status === 'refused') return { status: 'refused', error: job.error }
+    if (job.status !== 'ready') return { status: 'unavailable', reason: `the project could not be prepared for a render (${job.stream_error})` }
+    const outcome = await analyzer.run(job, this.folder, signal)
+    switch (outcome.status) {
+      case 'busy':
+        return { status: 'unavailable', reason: 'another analysis is running: retry when it is done' }
+      case 'aborted':
+        return { status: 'unavailable', reason: 'the call was cancelled: nothing was measured' }
+      case 'failed':
+        return { status: 'unavailable', reason: outcome.reason }
+      case 'done':
+        // The project may have been replaced while it rendered: the command refuses a range that is no longer this one.
+        core.stageAnalysis({
+          start_tick: job.plan.start_tick,
+          end_tick: job.plan.end_tick,
+          slots: job.tracks,
+          tracks: outcome.levels.tracks,
+          master: outcome.levels.master,
+          silenced_frames: outcome.levels.silenced,
+          reduction: outcome.levels.reduction,
+        })
+        return null
     }
   }
 
