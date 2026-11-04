@@ -230,11 +230,17 @@ test("an agent's destructive call waits for the user's answer in the page: refus
   await expect(dialog).toBeHidden()
   await expect(page.getByTestId('grid-track')).toHaveCount(tracks)
 
-  // Escape refuses too.
+  // Escape refuses too, above another modal dialog of the page (the shortcut list) that stays open behind it.
+  await page.getByTestId('shortcuts-open').click()
+  await expect(page.getByTestId('shortcuts-dialog')).toBeVisible()
   const escaped = agentCallLater(3, { type: 'project.new' })
   await expect(dialog).toBeVisible()
+  await expect(page.getByTestId('agent-confirm-refuse')).toBeFocused()
   await page.keyboard.press('Escape')
   expect(await escaped).toMatchObject({ status: 'refused', error: { code: 'confirmation.declined' } })
+  await expect(dialog).toBeHidden()
+  await expect(page.getByTestId('shortcuts-dialog')).toBeVisible()
+  await page.getByTestId('shortcuts-close').click()
   await expect(page.getByTestId('grid-track')).toHaveCount(tracks)
 
   // Two at once: one question after the other, the second says it waits.
