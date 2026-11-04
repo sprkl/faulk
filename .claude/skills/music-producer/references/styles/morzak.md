@@ -39,9 +39,9 @@ Dark, warm, nocturnal instrumental electronic music, made on hardware (FM synth,
 3. **Peak at 55–70 % (earlier than the measured 70–95 %, on purpose), then a 16-bar exit** that removes layers in the reverse order of their arrival, instead of a stop within seconds.
 4. **One contrasting B section** of 4 or 8 bars on ♭VI or the dorian IV, heard once, to break the cycle.
 5. **Swing the offbeats** of one part only (hat or bass) while the rest stays straight.
-6. **An arpeggio that evolves section by section**: in register, in density (8ths, then 16ths, then triplets) and in filter opening.
+6. **An arpeggio that evolves section by section**: in register, in density (8ths, then 16ths, then triplets) and in filter opening. The check's remark on a repeated highest note is expected on an arpeggio: keep the figure.
 7. **Arpeggio and lead interlock**: a counter-melody answers the arpeggio in its gaps; optionally a polymetric arpeggio (a 3-step figure over 4/4).
-8. **The cycle stays, the timbre moves**: at least two automation lanes (filter cutoff, resonance, FM index), so that builds come from the sound, not only from added layers.
+8. **The cycle stays, the timbre moves**: at least two automation lanes (filter cutoff, resonance, FM index), so that builds come from the sound, not only from added layers. The notation has no automation lanes: write each lane under Finishing notes, as parameter, start and end values, and bars.
 9. **The melody develops like the rest**: stated, varied, extended at the peak, thinned in the exit.
 
 ## Avoid

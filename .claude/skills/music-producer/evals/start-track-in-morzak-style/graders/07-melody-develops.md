@@ -4,4 +4,4 @@ focus: trace
 weight: 1
 ---
 
-The melody or the arpeggio develops across the arrangement (varied, extended or re-voiced from one section to the next; an arpeggio played by the FM synth counts) instead of a few notes repeated unchanged from start to end, or the sheet records the departure and why.
+The sheet has an arpeggio part (played by the FM synth counts), and at least one melodic part (lead, hook or arpeggio) changes in at least two sections by more than one note: new notes, register, density or length. A few notes repeated unchanged from start to end, or changed by a single note, fails.
