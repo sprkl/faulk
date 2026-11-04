@@ -455,6 +455,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       ], // a section marker: F2 renames, Delete removes, Alt+arrows move it (#554), the name field takes Enter and Escape (#473); Shift+Enter on the free cursor puts the playhead there (#554)
       'views/arrangement/LaneHeader.svelte': ['Enter', 'Enter', 'Escape', 'F2'], // the rename field and F2 on the row (#625); the row's other keys are in lane-keys.ts (digits, signs, Enter, the height handle's arrows): no letter
       'views/clips/ClipsView.svelte': ['Backspace', 'Delete', 'Enter'], // the pool row's handle: places (Enter) or deletes the clip; no letter
+      'views/devices/PresetBar.svelte': ['Escape'], // the preset name field: Escape closes it; a text field keeps every other key
       'views/grid/GridView.svelte': [
         'ArrowDown',
         'ArrowLeft',
@@ -495,7 +496,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'views/shell/BottomPanel.svelte': ['ArrowDown', 'ArrowUp', 'End', 'Enter', 'Home'],
       'views/shell/EngineDialog.svelte': ['Enter'], // the recording offset's field (#470)
       'views/shell/ExportDialog.svelte': ['Escape'],
-      'views/shell/ProjectMenu.svelte': ['Escape'],
+      'views/shell/ProjectMenu.svelte': ['Enter', 'Enter', 'Escape', 'Escape', 'F2'], // the name's field (#627): Enter and Escape; F2 on the name
       'views/shell/Shell.svelte': [],
       'views/shell/StorageBanners.svelte': ['Escape'],
       'views/tracks/TrackInspector.svelte': ['Enter', 'Enter', 'Escape', 'Escape', 'F2'],

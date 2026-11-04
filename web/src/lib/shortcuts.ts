@@ -41,6 +41,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       },
       { label: 'shortcut.save', chords: [['Mod', 'S']] },
       { label: 'shortcut.saveAs', chords: [['Mod', 'Shift', 'S']] },
+      { label: 'shortcut.renameProject', chords: [['F2']] },
       {
         label: 'shortcut.views',
         chords: [
@@ -99,6 +100,13 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
           ['Alt', '↓'],
         ],
       },
+      {
+        label: 'shortcut.clipResize',
+        chords: [
+          ['Alt', 'Shift', '←'],
+          ['Alt', 'Shift', '→'],
+        ],
+      },
       { label: 'shortcut.clipOpen', chords: [['Enter']], covers: ['Enter'] },
       { label: 'shortcut.clipDuplicate', chords: [['Mod', 'D']] },
       { label: 'shortcut.clipDuplicateLinked', chords: [['Mod', 'Shift', 'D']] },
@@ -152,6 +160,13 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         chords: [
           ['Alt', '←'],
           ['Alt', '→'],
+        ],
+      },
+      {
+        label: 'shortcut.noteResize',
+        chords: [
+          ['Alt', 'Shift', '←'],
+          ['Alt', 'Shift', '→'],
         ],
       },
       {

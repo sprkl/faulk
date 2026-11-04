@@ -26,6 +26,8 @@ interface CoreExports {
   pw_export_job(core: number, len: number): number
   pw_stage(core: number, len: number): number
   pw_stage_stored(core: number, len: number): number
+  pw_stage_library(core: number, len: number): number
+  pw_preset_file(core: number, location: number, len: number): number
   pw_stage_media(core: number, len: number): number
   pw_save(core: number, mode: number): number
   pw_saved(core: number, applied: number): number
@@ -42,6 +44,17 @@ export interface StoredProjects {
   /** The projects kept in the browser's storage, newest first. */
   browser: { dir: string; name: string }[]
 }
+
+/** What staging the preset library did (`LibraryReport` in `crates/commands/src/host.rs`, #191). */
+export interface LibraryReport {
+  loaded: number
+  /** The files left out, each with why; they stay where they are. */
+  skipped: { id: string; reason: string }[]
+}
+
+/** `pw_preset_file`: no such preset (deleted). */
+export const ERR_NO_PRESET = -5
+const PRESET_LOCATIONS = { project: 1, library: 2 } as const
 
 /** A `.faulkpack` made by `ProjectCore.packExport`. */
 export type PackExport = { status: 'ok'; zip: Uint8Array; files: number; missingBlobs: number } | { status: 'failed'; message: string }
@@ -396,6 +409,24 @@ export class ProjectCore {
     const len = this.input(JSON.stringify(list))
     const code = this.exports.pw_stage_stored(this.live(), len)
     if (code !== 0) throw new CoreError('stage_stored', code)
+  }
+
+  /**
+   * Gives the core the user's preset library as the browser's storage holds it (#191): every file, by
+   * id and text. It replaces what the core held; the files it cannot read are left out and named.
+   */
+  stageLibrary(files: { id: string; text: string }[]): LibraryReport {
+    const len = this.input(JSON.stringify(files))
+    return this.output<LibraryReport>('stage_library', this.exports.pw_stage_library(this.live(), len))
+  }
+
+  /** The file of a preset of the project or of the library, as the core writes it; `null` when there is no such preset. */
+  presetFile(location: 'project' | 'library', id: string): Uint8Array | null {
+    const len = this.input(id)
+    const code = this.exports.pw_preset_file(this.live(), PRESET_LOCATIONS[location], len)
+    if (code === ERR_NO_PRESET) return null
+    if (code < 0) throw new CoreError('preset_file', code)
+    return new Uint8Array(this.exports.memory.buffer, this.exports.pw_out(), code).slice()
   }
 
   /**

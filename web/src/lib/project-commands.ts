@@ -2,6 +2,8 @@ import type { Command } from './generated/protocol'
 
 /** The commands of the project menu (SV-2, SV-3): the page's storage runs them (`lib/storage`); the export (#297) renders in the page. */
 export const newProject = (name?: string): Command => (name === undefined ? { type: 'project.new' } : { type: 'project.new', name })
+/** Renames the project (undoable): the project menu's field and the name in the top bar (#627). */
+export const renameProject = (name: string): Command => ({ type: 'project.rename', name })
 export const save = (): Command => ({ type: 'project.save' })
 export const saveAs = (): Command => ({ type: 'project.save_as' })
 export const exportPack = (): Command => ({ type: 'project.export_pack' })
