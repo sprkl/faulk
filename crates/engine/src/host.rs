@@ -97,6 +97,32 @@ impl Prepare {
         &self.preparer
     }
 
+    /// The disk planner's poll at `now_ms` (AU-3, [`crate::audio_source::Disk::poll`]): its
+    /// messages are sent, its new read jobs returned.
+    pub fn disk_poll(&mut self, now_ms: u64) -> &[crate::audio_source::Job] {
+        self.preparer.disk_poll(now_ms)
+    }
+
+    /// A read job's bytes ([`crate::audio_source::Disk::done`]).
+    pub fn disk_done(&mut self, id: u32, bytes: &[u8], file_len: u64) {
+        self.preparer.disk_done(id, bytes, file_len);
+    }
+
+    /// A read job failed ([`crate::audio_source::Disk::failed`]).
+    pub fn disk_failed(&mut self, id: u32, why: crate::audio_source::Failure) {
+        self.preparer.disk_failed(id, why);
+    }
+
+    /// The disk planner.
+    pub fn disk(&self) -> &crate::audio_source::Disk {
+        self.preparer.disk()
+    }
+
+    /// The disk planner, to set its budget.
+    pub fn disk_mut(&mut self) -> &mut crate::audio_source::Disk {
+        self.preparer.disk_mut()
+    }
+
     fn publish(&self) {
         let s = &self.status;
         s.epoch
@@ -426,6 +452,11 @@ pub struct Host {
     /// The clock's rate the host last saw (#236): a change makes the report period and the
     /// load follow it.
     clock_rate: u32,
+    /// A test voice ([`Host::probe_start`]): the consumer of the disk rings until AU-4's clip
+    /// player, so the web build's two instances are exercised end to end.
+    probe: crate::audio_source::Voice,
+    probe_port: (crate::msg::TrackSlot, u8),
+    probe_out: Box<[f32]>,
 }
 
 impl core::fmt::Debug for Host {
@@ -479,6 +510,9 @@ pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
         feedback: Arc::from(feedback.into_boxed_slice()),
         feedback_seq: 0,
         clock_rate: 0,
+        probe: crate::audio_source::Voice::default(),
+        probe_port: (TrackSlot(0), 0),
+        probe_out: try_slice(frames * crate::audio_source::MAX_CHANNELS, 0.0)?,
     };
     let prepare = Prepare { preparer, status };
     prepare.publish();
@@ -501,6 +535,94 @@ fn word(bytes: [u8; 4]) -> u32 {
 }
 
 impl Host {
+    /// Starts the test voice on `port` of `track`, playing `path` of `source` (AU-3, until
+    /// AU-4's clip player). `false` when the track or the source does not exist. No
+    /// allocation.
+    pub fn probe_start(
+        &mut self,
+        track: TrackSlot,
+        port: u8,
+        source: crate::msg::SourceSlot,
+        path: crate::audio_source::Path,
+    ) -> bool {
+        let (state, tx, _) = self.engine.streams();
+        let Some(src) = state
+            .sources
+            .as_slice()
+            .get(source.0 as usize)
+            .and_then(|s| s.as_deref())
+        else {
+            return false;
+        };
+        let Some(t) = state
+            .tracks
+            .as_mut_slice()
+            .get_mut(track.0 as usize)
+            .and_then(|t| t.as_deref_mut())
+        else {
+            return false;
+        };
+        let instance = t.instance;
+        let Some(p) = t.ports.get_mut(port as usize) else {
+            return false;
+        };
+        let path = crate::audio_source::Path::new(path.start, path.end, path.looping, src.frames.0);
+        self.probe.start(
+            crate::audio_source::PortId {
+                track,
+                instance,
+                port,
+            },
+            p,
+            source,
+            src.sample_rate,
+            u16::from(src.channels),
+            &src.segments,
+            path,
+            tx,
+        );
+        self.probe_port = (track, port);
+        true
+    }
+
+    /// Reads `frames` frames of the test voice into [`Host::probe_out`]; returns how many
+    /// came from the source. No allocation.
+    pub fn probe_read(&mut self, frames: usize) -> usize {
+        let (track, port) = self.probe_port;
+        let source = self.probe.source();
+        let (state, tx, stats) = self.engine.streams();
+        let Some(t) = state
+            .tracks
+            .as_mut_slice()
+            .get_mut(track.0 as usize)
+            .and_then(|t| t.as_deref_mut())
+        else {
+            self.probe.stop();
+            return 0;
+        };
+        let Some(p) = t.ports.get_mut(port as usize) else {
+            return 0;
+        };
+        let segments = state
+            .sources
+            .as_slice()
+            .get(source.0 as usize)
+            .and_then(|s| s.as_deref())
+            .map_or(&[][..], |s| &s.segments[..]);
+        self.probe
+            .read(p, segments, tx, stats, &mut self.probe_out, frames)
+    }
+
+    /// The test voice's last frames, interleaved ([`crate::audio_source::Voice::channels`]).
+    pub fn probe_out(&self) -> &[f32] {
+        &self.probe_out
+    }
+
+    /// The test voice.
+    pub fn probe(&self) -> &crate::audio_source::Voice {
+        &self.probe
+    }
+
     /// The audio side of the cycle.
     pub fn engine(&self) -> &Engine {
         &self.engine
@@ -625,8 +747,8 @@ impl Host {
     /// Written: version, transport state and playhead, CPU load and peak, epoch and the counters the
     /// prepare side published, the most voices sounding during the period, the meters of
     /// every track slot up to the last track and the output's, then the active clips (GR-1),
-    /// then the take's number, count and last notes (RE-2). Not produced yet, written as
-    /// zero: the disk underruns (AU-3).
+    /// then the take's number, count and last notes (RE-2), the disk's underruns, offline
+    /// sources, budget flag and PCM in memory (AU-3).
     /// No allocation.
     pub fn write_feedback(&mut self) {
         let seq = self.feedback_seq.wrapping_add(1) | 1;
@@ -659,7 +781,14 @@ impl Host {
         put(24, load.to_bits());
         put(28, self.status.live_overflows.load(Ordering::Relaxed));
         put(32, self.status.rejected.load(Ordering::Relaxed));
-        put(36, 0);
+        let disk = self.engine.disk_stats();
+        put(36, disk.underruns.load(Ordering::Relaxed));
+        put(76, disk.offline.load(Ordering::Relaxed));
+        put(80, disk.flags.load(Ordering::Relaxed));
+        put(
+            84,
+            (disk.pcm_bytes.load(Ordering::Relaxed) / 1024).min(u64::from(u32::MAX)) as u32,
+        );
         put(40, tracks as u32);
         put(52, self.period_voices);
         let mut at = FEEDBACK_HEADER_BYTES;
@@ -874,6 +1003,9 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
         live_overflows: u32_at(28)?,
         rejected: u32_at(32)?,
         disk_underruns: u32_at(36)?,
+        offline_sources: u32_at(76)?,
+        pcm_flags: u32_at(80)?,
+        pcm_kib: u32_at(84)?,
         meters,
         master: meter(tracks as usize)?,
         voices: u32_at(52)?,

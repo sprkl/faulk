@@ -1,10 +1,10 @@
-// Decodes the engine's report (the `Feedback` layout of crates/engine/src/msg.rs, version 6). The
+// Decodes the engine's report (the `Feedback` layout of crates/engine/src/msg.rs, version 7). The
 // same bytes reach the page two ways: the Web engine's render instance writes them under a
 // seqlock into the shared memory (`readFeedback`), the helper sends them as binary WebSocket
 // frames (`decodeFeedback` on the frame). One decoder, so that both modes show the same thing.
 
 /** Size of the fixed part of a report. */
-export const FEEDBACK_HEADER_BYTES = 76
+export const FEEDBACK_HEADER_BYTES = 88
 /** Size of one meter. */
 export const TRACK_METER_BYTES = 20
 /** Size of one active clip (track u32, scene u16, state u8, one padding byte, anchor i64). */
@@ -14,7 +14,7 @@ export const RECORDED_NOTE_BYTES = 32
 /** Most recorded notes one report carries (`MAX_RECORDED_PER_REPORT`). */
 export const MAX_RECORDED_PER_REPORT = 256
 /** The layout version this page reads. */
-export const FEEDBACK_VERSION = 6
+export const FEEDBACK_VERSION = 7
 
 /** Peak and RMS of both channels, linear amplitude, and the gain reduction of the strip's devices. */
 export interface Meter {
@@ -74,7 +74,14 @@ export interface FeedbackReport {
   cpuPeak: number | null
   liveOverflows: number
   rejected: number
+  /** Blocks in which a voice had fewer frames from disk than it needed (cumulative, AU-3). */
   diskUnderruns: number
+  /** Declared audio sources the engine cannot read: blob missing, PCM cache not ready, no disk (AU-3). */
+  offlineSources: number
+  /** Something did not fit the budget of PCM in memory (AU-3). */
+  pcmOverBudget: boolean
+  /** PCM in memory (rings and resident segments), in KiB (AU-3). */
+  pcmKib: number
   /** Most voices sounding in the tracks' devices during the period. */
   voices: number
   /** Per track slot, after the track's fader (all zeros for an empty slot). */
@@ -182,6 +189,9 @@ export function decodeFeedback(bytes: ArrayBufferLike, at = 0, len = bytes.byteL
     liveOverflows: view.getUint32(28, true),
     rejected: view.getUint32(32, true),
     diskUnderruns: view.getUint32(36, true),
+    offlineSources: view.getUint32(76, true),
+    pcmOverBudget: (view.getUint32(80, true) & 1) === 1,
+    pcmKib: view.getUint32(84, true),
     voices: view.getUint32(52, true),
     tracks: meters,
     master: meterAt(view, FEEDBACK_HEADER_BYTES + tracks * TRACK_METER_BYTES),

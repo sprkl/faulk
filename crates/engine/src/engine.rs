@@ -160,6 +160,11 @@ pub struct Track {
     pub graph: TrackGraph,
     /// The clip player (CL-2): the launched clip and its read state.
     pub player: ClipPlayer,
+    /// Given by the prepare side's disk planner when the track is created: a request of a
+    /// track that the slot no longer holds is ignored (AU-3).
+    pub instance: u32,
+    /// Its stream ports (AU-3, [`crate::audio_source`]): what its voices read from disk.
+    pub ports: [crate::audio_source::Port; crate::audio_source::PORTS_PER_TRACK],
 }
 
 /// What a clip plays.
@@ -167,11 +172,20 @@ pub struct Track {
 pub enum ClipContent {
     /// A MIDI clip's notes, in their delivery order ([`crate::clip_player`]).
     Notes(ClipNotes),
-    Audio {
-        source: SourceSlot,
-        start: Frame,
-        length: Frame,
-    },
+    /// An audio clip (AU-3 sends it, AU-4 plays it), boxed so that a clip slot stays as small
+    /// as a MIDI clip's (the clip table's worst case counts against the wasm32 cap).
+    Audio(Box<AudioClip>),
+}
+
+/// An audio clip: a range `[start, start + length)` of a source, its linear gain and its loop
+/// in source frames relative to `start`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AudioClip {
+    pub source: SourceSlot,
+    pub start: Frame,
+    pub length: Frame,
+    pub gain: f32,
+    pub looping: Option<(Frame, Frame)>,
 }
 
 /// A clip: its content, its length and its loop (ticks, MIDI clips).
@@ -197,12 +211,14 @@ pub struct Lane {
     pub run: crate::automation::LaneRun,
 }
 
-/// A declared audio source; AU-3 adds its streaming buffers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// A declared audio source and its resident segments (AU-3, [`crate::audio_source`]): the
+/// disk side puts them (`RtMsg::SegmentPut`), voices read them.
+#[derive(Debug)]
 pub struct Source {
     pub sample_rate: u32,
     pub channels: u8,
     pub frames: Frame,
+    pub segments: [Option<Box<crate::audio_source::Segment>>; crate::audio_source::MAX_SEGMENTS],
 }
 
 /// Transport settings (`SetTransport`).
@@ -537,6 +553,8 @@ pub fn channel_with(
     let (live_tx, live_rx) = RingBuffer::new(limits::LIVE_QUEUE_CAPACITY);
     let (retired_tx, retired_rx) = RingBuffer::new(RETIRE_RING_CAPACITY);
     let overflow = Arc::new(LiveOverflow::new());
+    let disk_stats = Arc::new(crate::audio_source::DiskStats::default());
+    let (disk_tx, disk_rx) = crate::audio_source::request_queue();
     let mut pending = VecDeque::new();
     pending
         .try_reserve_exact(limits::PENDING_QUEUE_CAPACITY)
@@ -561,6 +579,7 @@ pub fn channel_with(
         rejected: 0,
         collected: 0,
         stopped_at: None,
+        disk: crate::audio_source::Disk::new(Arc::clone(&disk_stats), disk_rx),
     };
     let graph = Graph::try_new(&setup, retired_tx)?;
     // TR-1 cuts a block of `frames` in at most `frames + 2` segments (at most `frames + 1`
@@ -586,6 +605,8 @@ pub fn channel_with(
         cut: None,
         limiter: Limiter::new(rate_of(&setup)),
         recorder: Recorder::try_new()?,
+        disk_tx,
+        disk_stats,
     };
     Ok((preparer, engine))
 }
@@ -787,6 +808,8 @@ pub struct Preparer {
     rejected: u32,
     collected: u64,
     stopped_at: Option<usize>,
+    /// The disk planner (AU-3, [`crate::audio_source::Disk`]).
+    disk: crate::audio_source::Disk,
 }
 
 impl core::fmt::Debug for Preparer {
@@ -976,6 +999,49 @@ impl Preparer {
         n
     }
 
+    /// The disk planner's poll at `now_ms` (AU-3): what waited is pushed, the planner plans,
+    /// its messages are sent as far as the queue allows ([`Disk::next_message`]), and its new
+    /// read jobs are returned.
+    ///
+    /// [`Disk::next_message`]: crate::audio_source::Disk::next_message
+    pub fn disk_poll(&mut self, now_ms: u64) -> &[crate::audio_source::Job] {
+        self.flush();
+        self.disk.poll(now_ms);
+        self.send_disk();
+        self.disk.jobs()
+    }
+
+    /// A read job's bytes.
+    pub fn disk_done(&mut self, id: u32, bytes: &[u8], file_len: u64) {
+        self.disk.done(id, bytes, file_len);
+        self.send_disk();
+    }
+
+    /// A read job failed.
+    pub fn disk_failed(&mut self, id: u32, why: crate::audio_source::Failure) {
+        self.disk.failed(id, why);
+        self.send_disk();
+    }
+
+    /// The disk planner.
+    pub fn disk(&self) -> &crate::audio_source::Disk {
+        &self.disk
+    }
+
+    /// The disk planner, to set its budget.
+    pub fn disk_mut(&mut self) -> &mut crate::audio_source::Disk {
+        &mut self.disk
+    }
+
+    fn send_disk(&mut self) {
+        while self.pending.len() < self.pending_capacity {
+            let Some(msg) = self.disk.next_message(self.pending.len()) else {
+                break;
+            };
+            self.send(msg);
+        }
+    }
+
     /// Sends a prepared message: on the ring when nothing waits and it has room, else at
     /// the end of the queue (whose room `handle` checked: no allocation here).
     fn send(&mut self, msg: RtMsg) {
@@ -1004,6 +1070,7 @@ impl Preparer {
                 self.notes.clear();
                 self.points.clear();
                 self.placements.clear();
+                self.disk.reset();
                 RtMsg::Reset(state)
             }
             ControlMsg::SetTransport {
@@ -1030,6 +1097,7 @@ impl Preparer {
                 self.existing_track(track)?;
                 self.shadow.tracks[track.0 as usize] = None;
                 self.placements.remove(&track.0);
+                self.disk.track_removed(track);
                 RtMsg::TrackRemove(track)
             }
             ControlMsg::TrackSetMix {
@@ -1163,6 +1231,7 @@ impl Preparer {
             }
             ControlMsg::ClipRemove { clip } => {
                 self.notes.remove(&clip.0);
+                self.disk.clip_removed(clip.0);
                 if !self.shadow.clips.has_page(clip.0) {
                     // Never put (an upload rejected or not finished): nothing to remove.
                     return Ok(None);
@@ -1174,17 +1243,21 @@ impl Preparer {
                 sample_rate,
                 channels,
                 frames,
+                media,
             } => {
                 let value = try_box(Source {
                     sample_rate,
                     channels,
                     frames,
+                    segments: Default::default(),
                 })?;
                 let grown = grow_for(
                     self.shadow.sources,
                     source.0 as usize,
                     limits::MAX_AUDIO_SOURCES,
                 )?;
+                self.disk
+                    .declare(source, sample_rate, channels, frames.0, media)?;
                 if let Some(g) = &grown {
                     self.shadow.sources = g.capacity();
                 }
@@ -1198,6 +1271,7 @@ impl Preparer {
                 if source.0 as usize >= self.shadow.sources {
                     return Ok(None);
                 }
+                self.disk.release(source);
                 RtMsg::SourceRemove(source)
             }
             ControlMsg::ClipAudioSet {
@@ -1205,6 +1279,8 @@ impl Preparer {
                 source,
                 start,
                 length,
+                gain,
+                looping,
             } => {
                 let (value, growth) = self.prepare_clip(
                     clip,
@@ -1212,14 +1288,23 @@ impl Preparer {
                         length: Tick::ZERO,
                         looping: None,
                         on_track: None,
-                        content: ClipContent::Audio {
+                        content: ClipContent::Audio(try_box(AudioClip {
                             source,
                             start,
                             length,
-                        },
+                            gain,
+                            looping,
+                        })?),
                     },
                 )?;
                 self.notes.remove(&clip.0);
+                self.disk.clip_set(
+                    clip.0,
+                    source,
+                    start.0,
+                    length.0,
+                    looping.map(|(s, e)| (s.0, e.0)),
+                );
                 self.finish_clip(clip, value, growth)
             }
             ControlMsg::TrackPlacementsUpload {
@@ -1385,7 +1470,7 @@ impl Preparer {
 
     fn prepare_track(&mut self, track: TrackSlot, kind: TrackKind) -> Result<RtMsg, MsgError> {
         let slot = track.0 as usize;
-        let value = try_box(Track {
+        let mut value = try_box(Track {
             kind,
             gain: 1.0,
             pan: 0.0,
@@ -1400,6 +1485,8 @@ impl Preparer {
             back: false,
             graph: TrackGraph::new(),
             player: ClipPlayer::default(),
+            instance: 0,
+            ports: Default::default(),
         })?;
         let shadow = TrackShadow::try_new()?;
         let grown = grow_for(self.shadow.tracks.len(), slot, limits::MAX_TRACKS)?;
@@ -1412,6 +1499,7 @@ impl Preparer {
             self.shadow.tracks.resize_with(g.capacity(), || None);
         }
         // Commit: nothing below allocates or fails.
+        value.instance = self.disk.track_created(track);
         self.shadow.tracks[slot] = Some(shadow);
         // A new track starts with an empty arrangement: a staging for an old one is void.
         self.placements.remove(&track.0);
@@ -1947,6 +2035,10 @@ pub struct Engine {
     limiter: Limiter,
     /// MIDI recording (RE-2): the notes played on the armed tracks while recording.
     recorder: Recorder,
+    /// The voices' requests to the disk planner (AU-3).
+    disk_tx: crate::audio_source::RequestTx,
+    /// What the disk planner and the voices report.
+    disk_stats: Arc<crate::audio_source::DiskStats>,
 }
 
 /// An `AllSoundOff` in progress: the output fades out linearly over one graph fade, then
@@ -2020,6 +2112,23 @@ impl Engine {
     /// The state, for the render (MO-3) that mutates its devices.
     pub fn state_mut(&mut self) -> &mut State {
         &mut self.state
+    }
+
+    /// The state to mutate and the request queue of the voices (AU-3): what a voice needs to
+    /// start and read ([`crate::audio_source::Voice`]).
+    pub fn streams(
+        &mut self,
+    ) -> (
+        &mut State,
+        &mut crate::audio_source::RequestTx,
+        &crate::audio_source::DiskStats,
+    ) {
+        (&mut self.state, &mut self.disk_tx, &self.disk_stats)
+    }
+
+    /// What the disk planner and the voices report (AU-3).
+    pub fn disk_stats(&self) -> &Arc<crate::audio_source::DiskStats> {
+        &self.disk_stats
     }
 
     /// The graph that renders the state (MO-3).
@@ -2768,6 +2877,43 @@ impl Engine {
                     None
                 }
             },
+            RtMsg::SegmentPut {
+                source,
+                index,
+                segment,
+            } => {
+                let place = state
+                    .sources
+                    .as_mut_slice()
+                    .get_mut(source.0 as usize)
+                    .and_then(|s| s.as_deref_mut())
+                    .and_then(|s| s.segments.get_mut(index as usize));
+                match place {
+                    Some(place) => Some(Garbage::Segment(core::mem::replace(place, segment))),
+                    None => {
+                        skipped = true;
+                        Some(Garbage::Segment(segment))
+                    }
+                }
+            }
+            RtMsg::StreamAttach {
+                track,
+                instance,
+                port,
+                ring,
+            } => {
+                let place = state
+                    .track_mut(track)
+                    .filter(|t| t.instance == instance)
+                    .and_then(|t| t.ports.get_mut(port as usize));
+                match place {
+                    Some(place) => Some(Garbage::Ring(core::mem::replace(&mut place.ring, ring))),
+                    None => {
+                        skipped = true;
+                        Some(Garbage::Ring(ring))
+                    }
+                }
+            }
             RtMsg::PlacementsSet { track, placements } => match state.track_mut(track) {
                 Some(t) => Some(Garbage::Placements(core::mem::replace(
                     &mut t.placements,
@@ -3047,6 +3193,8 @@ fn garbage_is_empty(garbage: &Garbage) -> bool {
         Garbage::Clips(s) => s.is_empty(),
         Garbage::Lanes(s) => s.is_empty(),
         Garbage::Sources(s) => s.is_empty(),
+        Garbage::Segment(s) => s.is_none(),
+        Garbage::Ring(r) => r.is_none(),
         Garbage::State(_) | Garbage::Placements(_) | Garbage::Scenes(_) => false,
     }
 }

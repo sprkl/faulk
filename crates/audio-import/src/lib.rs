@@ -33,13 +33,12 @@ pub mod cache;
 mod decode;
 mod error;
 mod hash;
-mod layout;
 mod mp4;
 
 pub use decode::{BLOCK_FRAMES, Decoding, MediaInfo, Source};
+pub use engine::audio_source::layout::{self, PcmLayout, SampleEncoding};
 pub use error::ImportError;
 pub use hash::Sha256;
-pub use layout::{PcmLayout, SampleEncoding};
 
 use std::io::{Read, Seek, SeekFrom};
 
@@ -84,7 +83,8 @@ pub fn import<S: Read + Seek + Send + Sync + 'static>(
         sink(&block);
     }
     let info = decoding.finish()?;
-    let layout = PcmLayout::parse(&head, len).filter(|l| l.matches(&info));
+    let layout = PcmLayout::parse(&head, len)
+        .filter(|l| l.matches(info.sample_rate, info.channels, info.frames));
     Ok(Imported { hash, info, layout })
 }
 

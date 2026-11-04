@@ -71,6 +71,8 @@ fn variant(rt: &RtMsg) -> &'static str {
         RtMsg::ClipRemove(_) => "ClipRemove",
         RtMsg::SourcePut(_) => "SourcePut",
         RtMsg::SourceRemove(_) => "SourceRemove",
+        RtMsg::SegmentPut { .. } => "SegmentPut",
+        RtMsg::StreamAttach { .. } => "StreamAttach",
         RtMsg::PlacementsSet { .. } => "PlacementsSet",
         RtMsg::LanePut(_) => "LanePut",
         RtMsg::LaneRemove(_) => "LaneRemove",
@@ -224,6 +226,7 @@ fn every_rt_message_applies_without_allocating() {
             sample_rate: 44_100,
             channels: 1,
             frames: Frame(100),
+            media: [0; 32],
         },
         M::AudioSourceRelease {
             source: SourceSlot(1),
@@ -233,6 +236,8 @@ fn every_rt_message_applies_without_allocating() {
             source: SourceSlot(1),
             start: Frame(10),
             length: Frame(20),
+            gain: 1.0,
+            looping: None,
         },
         M::TrackPlacementsUpload {
             track: T0,
@@ -294,7 +299,7 @@ fn every_rt_message_applies_without_allocating() {
     assert!(s.clip(ClipSlot(2)).is_none());
     assert!(matches!(
         s.clip(ClipSlot(3)).unwrap().content,
-        ClipContent::Audio { .. }
+        ClipContent::Audio(_)
     ));
     assert!(s.source(SourceSlot(1)).is_none());
     assert_eq!(t.placements.len(), 1);
@@ -535,6 +540,7 @@ fn the_device_row_the_scene_row_and_the_paged_tables_grow_in_apply() {
             sample_rate: 48_000,
             channels: 2,
             frames: Frame(1),
+            media: [0; 32],
         },
     );
     assert_eq!(
@@ -577,6 +583,7 @@ fn a_slot_beyond_the_table_is_skipped_counted_and_freed_off_the_audio_side() {
             sample_rate: 1,
             channels: 1,
             frames: Frame(1),
+            segments: Default::default(),
         }),
         grown: None,
     });
@@ -623,6 +630,8 @@ fn a_growth_that_is_not_larger_never_loses_a_live_entry() {
             back: false,
             graph: Default::default(),
             player: Default::default(),
+            instance: 0,
+            ports: Default::default(),
         }),
         grown: Some(Table::try_filled(2).unwrap()),
     });
@@ -746,7 +755,7 @@ fn a_device_is_built_with_its_initial_state() {
 fn notes_of(e: &Engine, clip: u32) -> Option<usize> {
     match &e.state().clip(ClipSlot(clip))?.content {
         ClipContent::Notes(n) => Some(n.notes()),
-        ClipContent::Audio { .. } => None,
+        ClipContent::Audio(_) => None,
     }
 }
 

@@ -141,6 +141,11 @@ export class WebEngine implements Engine {
     this.worker.postMessage({ type: 'push', bytes: buffer } satisfies ToPrepare, [buffer])
   }
 
+  /** The project's folder, where the engine's disk side reads the audio files (AU-3); `null`: none. */
+  setFolder(handle: FileSystemDirectoryHandle | null) {
+    this.worker.postMessage({ type: 'folder', handle } satisfies ToPrepare)
+  }
+
   /** Pauses audio without losing the engine (used while the helper plays). */
   async suspend() {
     await this.context.suspend()

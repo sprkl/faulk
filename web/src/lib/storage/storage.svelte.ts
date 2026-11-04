@@ -65,6 +65,8 @@ export interface ProjectHost {
   prepare?(): Promise<void>
   /** The audio files the project's clips play (AU-1), whose PCM caches an opening makes again. */
   audioMedia?(): MediaRef[]
+  /** The project's place changed: its folder (or browser directory), where the engine reads audio files (AU-3); `null`: none. */
+  folderChanged?(handle: FileSystemDirectoryHandle | null): void
 }
 
 /** The browser calls the controller makes, so tests run it without a dialog, a Worker or a clock. */
@@ -962,6 +964,7 @@ export class ProjectStorage {
       dir: place.dir,
     }
     this.current = current
+    this.host.folderChanged?.(handle)
     this.folder = place.kind === 'folder' ? { name: handle.name } : null
     this.inBrowser = place.kind === 'browser'
     this.block = null
@@ -1059,6 +1062,7 @@ export class ProjectStorage {
     this.externalTimer = null
     this.current = null
     if (!current) return
+    this.host.folderChanged?.(null)
     current.stopWatching()
     current.release()
     current.releaseDir?.()

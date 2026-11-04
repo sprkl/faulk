@@ -1,0 +1,2 @@
+2026-11-04
+* **Update** (#112, AU-3): `architecture/03-stockage-local.md` gains § 5.11 (audio files read from disk: the engine's disk planner, resident segments, rings, voices, budget, the prepare Worker as the disk Worker, measurements) and § 5.4 no longer sends the PCM counter's measurement to QA-7; `specs/02-decoupage-mvp.md` records AU-3 as done (audio clips sent to the engine, `Feedback` version 7, protocol 31) with its deviations.
