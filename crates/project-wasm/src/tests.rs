@@ -1630,9 +1630,10 @@ fn an_export_job_is_refused_on_an_empty_arrangement_and_ready_on_a_clip() {
         "one bar at 120 BPM"
     );
     let setup = report["setup_len"].as_u64().unwrap() as usize;
+    let start = report["start_len"].as_u64().unwrap() as usize;
     assert!(
-        setup > 0 && setup < engine.len(),
-        "the stop stream follows the setup"
+        setup > 0 && start > 0 && setup + start < engine.len(),
+        "the start stream follows the setup, the stop stream follows the start"
     );
     // A request that is not one is refused.
     let (report, _) = h.call(r#"{"sample_rate":1}"#, pw_export_job);

@@ -12,6 +12,7 @@ mod device_fade;
 mod drums;
 mod echo;
 mod export;
+mod export_audio;
 mod filter;
 mod harness;
 mod journey_pack;
