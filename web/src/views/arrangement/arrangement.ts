@@ -353,7 +353,13 @@ export function copyShift(selection: readonly Block[]): number | null {
  * at tick 0, so the clip it asks `clip.create` for never overlaps one. `null` when nothing is left (a click, or a span under
  * a tick once snapped).
  */
-export function drawnSpan(blocks: readonly Block[], row: number, pressTick: number, tick: number, step: number | null): { start: number; length: number } | null {
+export function drawnSpan(
+  blocks: readonly Block[],
+  row: number,
+  pressTick: number,
+  tick: number,
+  step: number | null,
+): { start: number; length: number } | null {
   const lane = blocks.filter((b) => b.row === row)
   const floor = lane.reduce((low, b) => (b.end <= pressTick ? Math.max(low, b.end) : low), 0)
   const ceiling = lane.reduce((high, b) => (b.start >= pressTick ? Math.min(high, b.start) : high), MAX_TICK)
