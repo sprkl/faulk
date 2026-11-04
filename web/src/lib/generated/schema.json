@@ -28533,6 +28533,12 @@
               "$ref": "#/$defs/Author",
               "description": "Who ran it."
             },
+            "edits": {
+              "description": "How many commands it holds: \"3 edits in one turn\" (AG-3).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
             "group": {
               "anyOf": [
                 {
@@ -28542,7 +28548,7 @@
                   "type": "null"
                 }
               ],
-              "description": "The history group it belongs to, if any."
+              "description": "The history group it belongs to, if any: an agent's entry with a group is a turn\nof that agent (AG-3)."
             },
             "id": {
               "description": "Identifies the entry for as long as it is in the history, whichever stack holds it.",
@@ -28577,7 +28583,8 @@
             "at",
             "name",
             "others",
-            "author"
+            "author",
+            "edits"
           ],
           "type": "object"
         },
