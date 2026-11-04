@@ -1,9 +1,10 @@
 /**
  * The clip pool (#473): every clip of a track, wherever it is used (its placements in the arrangement, its launch-grid
  * slot) or nowhere (a clip that lost its last placement stays in its track). The Clips panel lists it; a clip of it
- * goes to the arrangement or to the grid by a drag or a button. Which command that is follows the founder's decision 11:
- * a clip already used somewhere is copied by default (an independent clip), and Alt (or the `linked` flag) puts the same
- * clip there instead (a linked clip); a clip used nowhere is put there itself. Pure: no DOM, no store.
+ * goes to the arrangement or to the grid by a drag or a button. `linked` picks the command: false makes an independent
+ * copy of a clip already used, true puts the same clip there (a linked clip); a clip used nowhere is put there itself.
+ * Who passes which: the Place buttons link by default (#624), while the grid button and the drag copy by default and link
+ * with Alt (founder's decision 11). Pure: no DOM, no store.
  */
 import type { Clip, Command, Placement, Project, Tick } from './generated/protocol'
 import { placeFromSlot, duplicatePlacements } from './arrangement-commands'
@@ -49,6 +50,23 @@ export function poolOf(project: Pick<Project, 'tracks'>, track: string): PoolCli
     out.push({ id, clip, placements, slot, uses: placements.length + (slot ? 1 : 0), midi: 'midi' in clip.content })
   }
   return out.sort((a, b) => a.clip.name.localeCompare(b.clip.name) || (a.id < b.id ? -1 : 1))
+}
+
+/**
+ * The name each row shows, by clip id (#624): the clip's name (`fallback` for none), and a number after it when another
+ * clip of the pool has the same name, so that two rows never read alike.
+ */
+export function poolNames(pool: readonly PoolClip[], fallback: string): Record<string, string> {
+  const total: Record<string, number> = {}
+  for (const e of pool) total[e.clip.name] = (total[e.clip.name] ?? 0) + 1
+  const seen: Record<string, number> = {}
+  const out: Record<string, string> = {}
+  for (const e of pool) {
+    const n = (seen[e.clip.name] = (seen[e.clip.name] ?? 0) + 1)
+    const base = e.clip.name || fallback
+    out[e.id] = (total[e.clip.name] ?? 0) > 1 ? `${base} (${n})` : base
+  }
+  return out
 }
 
 /** The command that puts a pool clip in the arrangement at `start`; `null` for an audio clip. */

@@ -1,5 +1,5 @@
 import type { Command } from '../../lib/generated/protocol'
-import { beginGroup, endGroup } from '../../lib/track-commands'
+import { closeGroup, openGroup } from '../../lib/history-group'
 
 /**
  * A run of tempo changes that history counts as one entry (taps, wheel notches): the first `apply` opens a history group, every
@@ -9,7 +9,7 @@ import { beginGroup, endGroup } from '../../lib/track-commands'
  * `run` returns whether the command was accepted: a refused `begin_group` (another group is open) leaves the series closed and
  * the command is run on its own.
  */
-export function createSeries(run: (command: Command) => boolean, idleMs: number) {
+export function createSeries(run: (command: Command, options?: { quiet?: boolean }) => boolean, idleMs: number) {
   let open = false
   let timer: ReturnType<typeof setTimeout> | undefined
   const end = () => {
@@ -17,7 +17,7 @@ export function createSeries(run: (command: Command) => boolean, idleMs: number)
     timer = undefined
     if (!open) return
     open = false
-    run(endGroup())
+    closeGroup(run, true)
   }
   const arm = () => {
     clearTimeout(timer)
@@ -25,7 +25,7 @@ export function createSeries(run: (command: Command) => boolean, idleMs: number)
   }
   return {
     apply(command: Command) {
-      if (!open) open = run(beginGroup())
+      if (!open) open = openGroup(run)
       run(command)
       arm()
     },

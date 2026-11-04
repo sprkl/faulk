@@ -71,18 +71,29 @@ test('a clip outlives its last placement, comes back from the pool, and repeats 
   await run(page, { type: 'arrangement.resize', placement, edge: 'end', to: 3840 * 5 })
   await expect(page.locator(`[data-testid=arr-item][data-block="${placement}"]`)).toHaveAccessibleName(/plays its content 4 times/)
 
-  // Placed again with Alt from the button: a linked clip, marked in the panel and on the block.
+  // Placed again from the button (#624): a linked clip, marked in the panel and on the block; the new placement is the
+  // selection and holds the keyboard focus, so that the next key applies to it.
   await page.getByTestId('panel-clips').click()
-  await page.keyboard.down('Alt')
   await row.getByTestId('pool-place').click()
-  await page.keyboard.up('Alt')
   await expect(row).toHaveAttribute('data-uses', '2')
   await expect(row.getByTestId('link-mark')).toBeVisible()
   await expect(page.locator(`[data-testid=arr-item][data-block="${placement}"]`)).toHaveAccessibleName(/linked/)
+  const made = Object.keys((await view(page)).project.tracks[track]!.placements).filter((id) => id !== placement)
+  expect(made).toHaveLength(1)
+  expect(Object.keys((await view(page)).project.tracks[track]!.clips)).toEqual([clip])
+  await expect(page.locator(`[data-testid=arr-item][data-block="${made[0]}"]`)).toBeFocused()
+  // Ctrl+Shift+R acts on that placement (the repeat field), with no click in between.
+  await page.keyboard.press('Control+Shift+R')
+  await expect(page.getByTestId('repeat-field')).toBeVisible()
+  await page.keyboard.press('Escape')
 
-  // Without Alt, a used clip is copied: a new clip.
-  await row.getByTestId('pool-place').click()
+  // The "Place a copy" button (and Alt on Place) copies a used clip instead: a new, independent clip, selected too.
+  await page.getByTestId('panel-clips').click()
+  await row.getByTestId('pool-place-copy').click()
   await expect.poll(async () => Object.keys((await view(page)).project.tracks[track]!.clips).length).toBe(2)
+  const copied = Object.keys((await view(page)).project.tracks[track]!.placements).filter((id) => id !== placement && id !== made[0])
+  expect(copied).toHaveLength(1)
+  await expect(page.locator(`[data-testid=arr-item][data-block="${copied[0]}"]`)).toBeFocused()
 
   // Into the grid: the copy goes in a free cell; a cell of the track takes a drag from the pool.
   await run(page, { type: 'scene.create' })

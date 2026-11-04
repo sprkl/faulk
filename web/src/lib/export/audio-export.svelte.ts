@@ -88,6 +88,10 @@ export interface ExportHost {
   hasLoop(): boolean
   /** The project's folder, where the file dialog opens. */
   folder(): Promise<FolderHandle | null>
+  /** The folder the engine reads the audio clips' files from (the same as the live engine's; #647), or none. */
+  mediaFolder(): FileSystemDirectoryHandle | null
+  /** The names of these media (blob hashes) as the project calls them; a hash it does not know stays as it is. */
+  mediaNames(hashes: string[]): string[]
 }
 
 /** What a finished export tells the user. */
@@ -107,8 +111,15 @@ export interface ExportResult {
    * down.
    */
   reductionDb: number
+  /**
+   * Frames the output protection silenced because a sample was not finite (a NaN or an infinity
+   * from a device or the mix; #402): 0 on a clean render. Not shown to the user; read by the checks.
+   */
+  silencedFrames: number
   /** An effect still rang after the longest tail: the file stops there. */
   tailCut: boolean
+  /** The audio files that could not be read, by name: their clips are silent in the file (#647). */
+  missing: string[]
   /** How long the render took, in ms. */
   renderMs: number
 }
@@ -391,7 +402,9 @@ export class AudioExport {
               // (a finite runaway) the log diverges, so cap the reported figure at a value past
               // which the exact number is meaningless to the user.
               reductionDb: message.reduction > 0 ? Math.min(-20 * Math.log10(Math.max(1 - message.reduction, 1e-9)), MAX_REPORTED_REDUCTION_DB) : 0,
+              silencedFrames: message.silenced,
               tailCut: message.tailCut,
+              missing: this.host.mediaNames(message.missing),
               renderMs: this.deps.now() - started,
             }
             this.phase = 'done'
@@ -404,8 +417,15 @@ export class AudioExport {
       }
     }
     const setup = job.setup.slice().buffer
+    const start = job.start.slice().buffer
     const stop = job.stop.slice().buffer
-    worker.postMessage({ type: 'start', module, sampleRate: rate, bits: BITS[this.choices.bitDepth], bodyFrames: body, setup, stop }, [module, setup, stop])
+    const media = this.host.mediaFolder()
+    worker.postMessage({ type: 'start', module, sampleRate: rate, bits: BITS[this.choices.bitDepth], bodyFrames: body, setup, start, stop, folder: media }, [
+      module,
+      setup,
+      start,
+      stop,
+    ])
   }
 }
 

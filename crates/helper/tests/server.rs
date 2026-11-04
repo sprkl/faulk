@@ -42,6 +42,15 @@ async fn start() -> Harness {
 }
 
 async fn start_with_updates(updates: Option<UpdateWatch>) -> Harness {
+    start_with(updates, None).await
+}
+
+/// A helper whose agents count as gone after `idle` of silence (#641).
+async fn start_with_idle(idle: Duration) -> Harness {
+    start_with(None, Some(idle)).await
+}
+
+async fn start_with(updates: Option<UpdateWatch>, idle: Option<Duration>) -> Harness {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let meter = Arc::new(Meter::default());
@@ -73,6 +82,10 @@ async fn start_with_updates(updates: Option<UpdateWatch>) -> Harness {
         }),
     )
     .with_agent_timeout(AGENT_WAIT);
+    let shared = match idle {
+        Some(idle) => shared.with_agent_idle(idle),
+        None => shared,
+    };
     let shared = Arc::new(match updates {
         Some(watch) => shared.with_updates(watch),
         None => shared,
@@ -137,7 +150,7 @@ async fn open_session(h: &Harness) -> (Ws, u16) {
         other => panic!("expected hello, got {other:?}"),
     };
     assert!(matches!(
-        next(&mut ws).await,
+        next_but_left(&mut ws).await,
         ServerMessage::MidiInputs { .. }
     ));
     (ws, epoch)
@@ -186,6 +199,17 @@ async fn next(ws: &mut Ws) -> ServerMessage {
         if let Message::Text(text) = frame {
             let message: ServerMessage = serde_json::from_str(&text).unwrap();
             return message;
+        }
+    }
+}
+
+/// Next server message but `agent.left` (#641): a test whose bridges end tells its agents left
+/// on every link, between the messages it is about.
+async fn next_but_left(ws: &mut Ws) -> ServerMessage {
+    loop {
+        match next(ws).await {
+            ServerMessage::AgentLeft { .. } => continue,
+            message => return message,
         }
     }
 }
@@ -1417,7 +1441,7 @@ async fn mcp_refuses_another_host_any_origin_and_any_other_token_before_the_mcp_
         );
     }
     // A session the MCP server does not know (the helper restarted): 404, which the stdio bridge
-    // turns into "restart the agent".
+    // opens again (#657), and answers "restart the agent" only if it cannot.
     let body = r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#;
     let unknown = format!(
         "POST /mcp HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\n{bearer}Mcp-Session-Id: no-such-session\r\nMCP-Protocol-Version: 2025-06-18\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
@@ -1829,7 +1853,7 @@ async fn a_page_that_never_answers_ends_the_call_with_page_timeout() {
     .await;
     send(&mut page, &ClientMessage::MidiListInputs).await;
     assert!(matches!(
-        next(&mut page).await,
+        next_but_left(&mut page).await,
         ServerMessage::MidiInputs { .. }
     ));
 }
@@ -1908,7 +1932,7 @@ fn call_tool(
 
 /// The next `agent.call` on `ws`: its id and command.
 async fn next_call(ws: &mut Ws) -> (u64, serde_json::Value) {
-    match next(ws).await {
+    match next_but_left(ws).await {
         ServerMessage::AgentCall { id, command, .. } => (id, command),
         other => panic!("expected agent.call, got {other:?}"),
     }
@@ -2177,4 +2201,225 @@ async fn a_control_link_leaves_the_session_alone() {
     // The control link's own message is refused on a session.
     send(&mut session, &ClientMessage::ControlFront).await;
     assert_eq!(next_error(&mut session).await, "protocol.invalid");
+}
+
+// --- #641: the page is told when an agent left ---------------------------------------------
+
+/// The input of a stdio bridge the test writes to line by line; dropping it closes the input.
+struct Feed(std::sync::mpsc::Sender<Vec<u8>>);
+
+impl Feed {
+    fn line(&self, message: serde_json::Value) {
+        self.0.send(format!("{message}\n").into_bytes()).unwrap();
+    }
+}
+
+/// What the bridge reads: the lines the test fed it, until the `Feed` is dropped.
+struct FedInput {
+    lines: std::sync::mpsc::Receiver<Vec<u8>>,
+    rest: std::io::Cursor<Vec<u8>>,
+}
+
+impl std::io::Read for FedInput {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        loop {
+            let n = std::io::Read::read(&mut self.rest, buf)?;
+            if n > 0 {
+                return Ok(n);
+            }
+            match self.lines.recv() {
+                Ok(bytes) => self.rest = std::io::Cursor::new(bytes),
+                Err(_) => return Ok(0),
+            }
+        }
+    }
+}
+
+/// A stdio bridge of the agent `name`, initialized, whose input stays open until the `Feed`
+/// is dropped; its answers once it ended.
+fn live_bridge(port: u16, name: &str) -> (Feed, tokio::task::JoinHandle<Vec<serde_json::Value>>) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let feed = Feed(tx);
+    feed.line(
+        serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+        "protocolVersion":"2025-06-18","capabilities":{},
+        "clientInfo":{"name":name,"version":"1"}}}),
+    );
+    feed.line(serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized"}));
+    let input = std::io::BufReader::new(FedInput {
+        lines: rx,
+        rest: std::io::Cursor::new(Vec::new()),
+    });
+    let running = tokio::task::spawn_blocking(move || {
+        let out = Captured::default();
+        helper::mcp_stdio::run(port, Some(MCP_TOKEN.into()), input, out.clone());
+        let text = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();
+        text.lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
+    });
+    (feed, running)
+}
+
+/// Waits until the helper counts agent `name` as here (`true`) or gone, or fails after 5 s.
+async fn agent_here(h: &Harness, name: &str, here: bool) {
+    for _ in 0..500 {
+        if h.shared.agent_here(name) == here {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("agent {name:?} here: expected {here}");
+}
+
+/// Proves nothing waits on the session `ws`: a `midi.list_inputs` is answered next.
+async fn nothing_before_the_next(ws: &mut Ws) {
+    send(ws, &ClientMessage::MidiListInputs).await;
+    let message = next(ws).await;
+    assert!(
+        matches!(message, ServerMessage::MidiInputs { .. }),
+        "{message:?}"
+    );
+}
+
+fn left(name: &str) -> ServerMessage {
+    ServerMessage::AgentLeft { agent: name.into() }
+}
+
+#[tokio::test]
+async fn an_agent_whose_bridge_ends_is_told_left_once_after_its_calls_on_every_link() {
+    // The agent opens a group and edits over the stdio bridge, then its input ends: the bridge
+    // closes its MCP session and the page learns the agent left, at once (the calls of a session
+    // take no lease), after its calls on the session, and on the control link too.
+    let h = start().await;
+    let (mut session, _) = open_session(&h).await;
+    let mut control = open_control(&h).await;
+    control_links(&h, 1).await;
+    let (feed, running) = live_bridge(h.port, "test-agent");
+    agent_here(&h, "test-agent", true).await;
+    feed.line(tool_call(2, "history_begin_group", serde_json::json!({})));
+    let (id, command) = next_call(&mut session).await;
+    assert_eq!(command, serde_json::json!({"type":"history.begin_group"}));
+    applied(&mut session, id).await;
+    feed.line(tool_call(
+        3,
+        "project_rename",
+        serde_json::json!({"name":"x"}),
+    ));
+    let (id, _) = next_call(&mut session).await;
+    applied(&mut session, id).await;
+    // Still here while its input is open: nothing told yet.
+    nothing_before_the_next(&mut session).await;
+    drop(feed);
+    let answers = running.await.unwrap();
+    assert_eq!(answer(&answers, 3)["result"]["isError"], false);
+    assert_eq!(next(&mut session).await, left("test-agent"));
+    assert_eq!(next(&mut control).await, left("test-agent"));
+    assert!(!h.shared.agent_here("test-agent"));
+    nothing_before_the_next(&mut session).await;
+}
+
+#[tokio::test]
+async fn a_name_leaves_with_its_last_session_and_another_names_leave_is_its_own() {
+    let h = start().await;
+    let (mut page, _) = open_session(&h).await;
+    let (first, first_done) = live_bridge(h.port, "test-agent");
+    let (second, second_done) = live_bridge(h.port, "test-agent");
+    let (other, other_done) = live_bridge(h.port, "other");
+    agent_here(&h, "other", true).await;
+    // Both sessions of the name counted before the first ends.
+    for _ in 0..500 {
+        if h.shared.agent_sessions("test-agent") == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(h.shared.agent_sessions("test-agent"), 2);
+
+    drop(first);
+    let answers = first_done.await.unwrap();
+    assert_eq!(answer(&answers, 1)["result"]["serverInfo"]["name"], "faulk");
+    assert_eq!(h.shared.agent_sessions("test-agent"), 1);
+    nothing_before_the_next(&mut page).await;
+
+    drop(other);
+    other_done.await.unwrap();
+    assert_eq!(next(&mut page).await, left("other"));
+    assert!(
+        h.shared.agent_here("test-agent"),
+        "its other session is open"
+    );
+
+    drop(second);
+    second_done.await.unwrap();
+    assert_eq!(next(&mut page).await, left("test-agent"));
+
+    // The same name comes back: here again, and told left again when it goes.
+    let (again, again_done) = live_bridge(h.port, "test-agent");
+    agent_here(&h, "test-agent", true).await;
+    drop(again);
+    again_done.await.unwrap();
+    assert_eq!(next(&mut page).await, left("test-agent"));
+}
+
+#[tokio::test]
+async fn a_session_that_stays_idle_counts_as_gone() {
+    // A bridge killed without closing its input sends no DELETE: the session's idle timeout ends
+    // it, and the agent with it.
+    let h = start_with_idle(Duration::from_millis(300)).await;
+    let (mut page, _) = open_session(&h).await;
+    let (feed, running) = live_bridge(h.port, "test-agent");
+    agent_here(&h, "test-agent", true).await;
+    assert_eq!(next(&mut page).await, left("test-agent"));
+    drop(feed);
+    running.await.unwrap();
+}
+
+#[tokio::test]
+async fn a_bridge_whose_session_expired_opens_it_again_and_the_agent_comes_back() {
+    // The session ended by its idle timeout (what a helper restart looks like to the bridge: a
+    // session it does not know): the agent's next call succeeds with no action of the agent
+    // (#657). The page was told the agent left when the session ended; the new session counts
+    // as the same agent coming back, and it leaves once, when the bridge's input ends.
+    let h = start_with_idle(Duration::from_millis(300)).await;
+    let (mut page, _) = open_session(&h).await;
+    let (feed, running) = live_bridge(h.port, "test-agent");
+    agent_here(&h, "test-agent", true).await;
+    assert_eq!(next(&mut page).await, left("test-agent"));
+    assert!(!h.shared.agent_here("test-agent"));
+    feed.line(tool_call(2, "history_undo", serde_json::json!({})));
+    let (id, command) = next_call(&mut page).await;
+    assert_eq!(command, serde_json::json!({"type":"history.undo"}));
+    applied(&mut page, id).await;
+    agent_here(&h, "test-agent", true).await;
+    drop(feed);
+    let answers = running.await.unwrap();
+    let call = answer(&answers, 2);
+    assert_eq!(call["result"]["isError"], false, "{call}");
+    assert!(
+        answers.iter().all(|a| a.get("error").is_none()),
+        "{answers:?}"
+    );
+    assert_eq!(next(&mut page).await, left("test-agent"));
+}
+
+#[tokio::test]
+async fn a_stateless_call_keeps_its_agent_until_its_silence_runs_out() {
+    // A handler that never saw `initialize` serves a stateless request: no session will end, so
+    // its agent leaves after the idle time without a call.
+    let h = start_with_idle(Duration::from_millis(500)).await;
+    let (mut page, _) = open_session(&h).await;
+    let handler = helper::mcp::Handler::new(&h.shared);
+    let calling = tokio::spawn(async move {
+        handler
+            .call("stateless", "history_undo", None)
+            .await
+            .unwrap()
+    });
+    let (id, _) = next_call(&mut page).await;
+    applied(&mut page, id).await;
+    calling.await.unwrap();
+    assert!(h.shared.agent_here("stateless"));
+    assert_eq!(next(&mut page).await, left("stateless"));
+    assert!(!h.shared.agent_here("stateless"));
 }

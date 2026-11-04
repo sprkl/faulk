@@ -23,6 +23,8 @@ interface CoreExports {
   pw_live_routing(core: number): number
   pw_set_author(core: number, len: number): number
   pw_set_clock(core: number, nowMs: number): number
+  pw_agent_left(core: number, len: number): number
+  pw_agents_gone(core: number): number
   pw_export_job(core: number, len: number): number
   pw_stage(core: number, len: number): number
   pw_stage_stored(core: number, len: number): number
@@ -227,7 +229,7 @@ export interface ExportRequest {
 
 /** An export the core prepared: its plan and the two streams of the engine that renders it. */
 export type ExportJob =
-  | { status: 'ready'; plan: Extract<ExportReport, { status: 'ready' }>['plan']; setup: Uint8Array; stop: Uint8Array }
+  | { status: 'ready'; plan: Extract<ExportReport, { status: 'ready' }>['plan']; setup: Uint8Array; start: Uint8Array; stop: Uint8Array }
   | Exclude<ExportReport, { status: 'ready' }>
 
 /** What running a command means for the engine. */
@@ -326,6 +328,23 @@ export class ProjectCore {
     return { report, engine: this.engine() }
   }
 
+  /**
+   * The agent `author` (`agent:<name>`) left (#641): the history group it left open is closed and its turn ends, so the
+   * user can undo at once. Whether anything changed; an author that is no agent's changes nothing.
+   */
+  agentLeft(author: string): boolean {
+    const code = this.exports.pw_agent_left(this.live(), this.input(author))
+    return code === 1
+  }
+
+  /**
+   * The page lost every link to the helper (#641): no agent can reach it nor be heard leaving, so the group an agent left
+   * open is closed and any agent's turn ends. Whether anything changed.
+   */
+  agentsGone(): boolean {
+    return this.exports.pw_agents_gone(this.live()) === 1
+  }
+
   /** The undo history as the history panel shows it: the entries of both stacks, oldest first. */
   history(): HistoryView {
     return this.output<HistoryView>('history', this.exports.pw_history(this.live()))
@@ -385,7 +404,14 @@ export class ProjectCore {
     const report = this.output<ExportReport>('export_job', this.exports.pw_export_job(this.live(), len))
     if (report.status !== 'ready') return report
     const bytes = this.engine()
-    return { status: 'ready', plan: report.plan, setup: bytes.slice(0, report.setup_len), stop: bytes.slice(report.setup_len) }
+    const started = report.setup_len + report.start_len
+    return {
+      status: 'ready',
+      plan: report.plan,
+      setup: bytes.slice(0, report.setup_len),
+      start: bytes.slice(report.setup_len, started),
+      stop: bytes.slice(started),
+    }
   }
 
   /**

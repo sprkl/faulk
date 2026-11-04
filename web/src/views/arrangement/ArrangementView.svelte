@@ -52,7 +52,8 @@
   import { useStores } from '../../lib/stores'
   import { MASTER } from '../../lib/stores/automated.svelte'
   import { MASTER_METER } from '../../lib/stores'
-  import { beginGroup, endGroup, moveTrack, selectTrack } from '../../lib/track-commands'
+  import { inGroup as inHistoryGroup } from '../../lib/history-group'
+  import { moveTrack, selectTrack } from '../../lib/track-commands'
   import LevelMeter from '../../lib/components/LevelMeter.svelte'
   import { seek, setLoopRegion, toggleLoop } from '../../lib/transport-commands'
   import { liveTick, settle } from '../piano-roll/playhead'
@@ -115,6 +116,7 @@
   const { project, engine, ui, dispatcher, meters } = stores
   const t = ui.t
   const run = (command: Command) => dispatcher.run(command)
+  const group = <T,>(body: () => T) => inHistoryGroup((command, options) => dispatcher.run(command, options), body)
 
   /** Bars the grid keeps free after the last clip, so that there is always room to place one. */
   const SPARE_BARS = 16
@@ -817,9 +819,9 @@
   /** Runs several commands as one history entry. */
   function inGroup(commands: Command[]) {
     if (commands.length === 1) return run(commands[0]!)
-    run(beginGroup())
-    for (const command of commands) run(command)
-    run(endGroup())
+    group(() => {
+      for (const command of commands) run(command)
+    })
   }
 
   const cancel = () => {
@@ -1575,6 +1577,21 @@
     if (ui.openLanes === null) return
     const owner = untrack(() => ui.takeLanesRequest())
     if (owner !== null && untrack(() => allEntries.some((e) => e.id === owner)) && !open.has(owner)) open = new Set([...open, owner])
+  })
+
+  // The Clips panel placed clips and asks (once) that they be the selection and hold the keyboard focus (#624). The
+  // request is consumed once the placements are in `blocks`; ids the project does not have are dropped.
+  $effect(() => {
+    if (ui.placedRequest === null) return
+    const wanted = new Set(ui.placedRequest)
+    const found = blocks.filter((b) => wanted.has(b.id))
+    // Consumed at once, found or not: a request that matches nothing now must not select a placement that comes back later.
+    untrack(() => ui.takePlacedRequest())
+    if (found.length === 0) return
+    picked = new Set(found.map((b) => b.id))
+    const first = [...found].sort((x, y) => x.start - y.start)[0]!
+    ui.editClip(first.clip, first.id)
+    void focusItem(first.id)
   })
 
   // --- the clips from the keyboard and for assistive technology (#471) ---------------------------------------------

@@ -55,7 +55,8 @@ export const AREA = {
   journey: ['journey'],
   // The shared time grid is drawn by the arrangement and the piano roll: both areas.
   timegrid: ['arrangement', 'arrangement-time', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'timegrid', 'lane-rows'],
-  helper: ['big-project', 'helper', 'local-access'],
+  // The helper link; the agent scenario (AG-5) drives the real helper's MCP server and the page's control link.
+  helper: ['agent-scenario', 'big-project', 'helper', 'local-access'],
   // Typed values in the continuous controls.
   valueEntry: ['value-entry'],
   refusal: ['refused-commands'],
@@ -209,8 +210,10 @@ export const RULES = [
   [/^crates\/(project|project-wasm)\//, AREA.project],
   // The audio import pipeline (AU-1) and its WebAssembly build, run by the store's Worker.
   [/^crates\/(audio-import|audio-import-wasm)\//, AREA.audio],
+  // The helper is no page code, but the browser tests drive the real one (the agent scenario, AG-5) or its stand-in: its area (#668).
+  [/^crates\/helper\//, AREA.helper],
   // Crates the page never runs: their tests are the Rust job's.
-  [/^crates\/(helper|test-support)\//, NONE],
+  [/^crates\/test-support\//, NONE],
   // Anything else under the web app or the crates, and the build inputs: the whole suite.
   [/^(web|crates|modules|\.cargo)\//, ALL],
   [/^(Cargo\.toml|Cargo\.lock|rust-toolchain\.toml)$/, ALL],

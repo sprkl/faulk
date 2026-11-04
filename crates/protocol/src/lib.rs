@@ -13,14 +13,16 @@
 //! Agents (AG-1, version 26): the helper serves MCP and relays each tool call to the page as
 //! `agent.call` (a command, with an `id`); the page runs it through its own dispatcher, as a
 //! user's action, and answers `agent.result` with the same `id`. Since version 29 (#608) a
-//! paired page also holds a control link (`/control`) that carries only these two messages
-//! and `control.front`, in Web mode as in Boost, with or without an audio output.
+//! paired page also holds a control link (`/control`) that carries only these two messages,
+//! `agent.left` and `control.front`, in Web mode as in Boost, with or without an audio output.
+//! Since version 32 (#641) the helper says when an agent left (`agent.left`), so that the page
+//! closes the history group that agent left open.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 31;
+pub const PROTOCOL_VERSION: u32 = 32;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -40,6 +42,12 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 32 (#641): the helper tells the page that an agent left (`agent.left`, its name): its
+// last MCP session ended (the client closed it, the stdio bridge's input ended, or it stayed idle
+// for `AGENT_IDLE`), or its stateless calls stopped for as long. The page closes the history group
+// that agent left open and ends its turn, so that the user can undo again. Sent on the session and
+// on every control link. A page of version 31 would not know the message.
 
 // Version 31 (#112, AU-3): audio clips reach the engine. `AudioSourceDeclare` carries the
 // blob's SHA-256 and `ClipAudioSet` the clip's gain and loop (their payloads change), and the
@@ -138,7 +146,7 @@ pub mod paths {
     /// and the messages for the helper's MIDI inputs.
     pub const SESSION: &str = "/session";
     /// Requires `?token=`: the page's control link (#608), which carries only the agents'
-    /// relay (`agent.call`, `agent.result`). It never takes the audio role, never replaces the
+    /// relay (`agent.call`, `agent.result`, `agent.left`). It never takes the audio role, never replaces the
     /// session, and opens whether or not the helper has an audio output.
     pub const CONTROL: &str = "/control";
 }
@@ -310,6 +318,14 @@ pub enum ServerMessage {
         agent: String,
         command: serde_json::Value,
     },
+    /// An agent left (#641): no MCP session of that name is open any more and it made no
+    /// stateless call for `AGENT_IDLE` (`crates/helper`). Its last session ended when the client
+    /// closed it, when the stdio bridge's input ended, or after `AGENT_IDLE` without a request.
+    /// Two sessions of one name are one author: the name leaves with its last one. The page
+    /// closes the history group that agent (`agent:<agent>`) left open, ends its turn and
+    /// withdraws its questions to the user. Sent on the session and on every control link.
+    #[serde(rename = "agent.left")]
+    AgentLeft { agent: String },
     /// The helper could not do something; `code` is stable, `message` is for developers.
     #[serde(rename = "error")]
     Error { code: String, message: String },

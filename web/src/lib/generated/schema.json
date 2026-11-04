@@ -679,7 +679,7 @@
         "undo": "none"
       },
       {
-        "description": "Render the project to an audio file (WAV) and save it, offline: the same engine\nthat plays the song, run faster than real time, so the file is the song as it\nsounds, not a recording of the speakers. `region` is `song` (default: from bar 1\nto the end of the last placement of the arrangement, then the tail, so that an\neffect such as the echo rings out; the file ends where the sound falls under\n-90 dBFS, after 30 seconds at most), `loop` (the loop region once, then the same\ntail) or `bars` (from the start of bar `from_bar` to the end of bar `to_bar`, both\ncounted from 1, required with it and refused without it, the last one included,\nthen the same tail). `bit_depth` is `pcm16`, `pcm24` (default) or `float32`;\n`sample_rate` is 44100, 48000 (default) or 96000. The metronome is never in the\nfile; the solo and mute state are. Audio clips are not in the file yet (they play,\nbut the offline render does not read their files). It is refused when there is\nnothing to render (empty arrangement, no loop region for `loop`, a `bars` range that\nstarts after the end of the arrangement or is out of order) or the range lasts more\nthan 30 minutes\n(a `limit` error). The output says what will be rendered; the page runs the render, shows its progress and asks\nwhere to save the file (a folder picker needs a click), so an agent that is not\ndriven by a user gets the render in the page to confirm. Changes nothing in the\nproject, so it never enters the history and has nothing to undo.",
+        "description": "Render the project to an audio file (WAV) and save it, offline: the same engine\nthat plays the song, run faster than real time, so the file is the song as it\nsounds, not a recording of the speakers. `region` is `song` (default: from bar 1\nto the end of the last placement of the arrangement, then the tail, so that an\neffect such as the echo rings out; the file ends where the sound falls under\n-90 dBFS, after 30 seconds at most), `loop` (the loop region once, then the same\ntail) or `bars` (from the start of bar `from_bar` to the end of bar `to_bar`, both\ncounted from 1, required with it and refused without it, the last one included,\nthen the same tail). `bit_depth` is `pcm16`, `pcm24` (default) or `float32`;\n`sample_rate` is 44100, 48000 (default) or 96000. The metronome is never in the\nfile; the solo and mute state are. Audio clips are in the file as they play: the\nrender reads their files from the project's folder, in the page in both modes (so in\nBoost too, where they are not heard yet), and waits for each read; a file that cannot\nbe read leaves its clips silent and the page names it when the render ends. It is\nrefused when there is\nnothing to render (empty arrangement, no loop region for `loop`, a `bars` range that\nstarts after the end of the arrangement or is out of order) or the range lasts more\nthan 30 minutes\n(a `limit` error). The output says what will be rendered; the page runs the render, shows its progress and asks\nwhere to save the file (a folder picker needs a click), so an agent that is not\ndriven by a user gets the render in the page to confirm. Changes nothing in the\nproject, so it never enters the history and has nothing to undo.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -20307,7 +20307,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Render the project to an audio file (WAV) and save it, offline: the same engine\nthat plays the song, run faster than real time, so the file is the song as it\nsounds, not a recording of the speakers. `region` is `song` (default: from bar 1\nto the end of the last placement of the arrangement, then the tail, so that an\neffect such as the echo rings out; the file ends where the sound falls under\n-90 dBFS, after 30 seconds at most), `loop` (the loop region once, then the same\ntail) or `bars` (from the start of bar `from_bar` to the end of bar `to_bar`, both\ncounted from 1, required with it and refused without it, the last one included,\nthen the same tail). `bit_depth` is `pcm16`, `pcm24` (default) or `float32`;\n`sample_rate` is 44100, 48000 (default) or 96000. The metronome is never in the\nfile; the solo and mute state are. Audio clips are not in the file yet (they play,\nbut the offline render does not read their files). It is refused when there is\nnothing to render (empty arrangement, no loop region for `loop`, a `bars` range that\nstarts after the end of the arrangement or is out of order) or the range lasts more\nthan 30 minutes\n(a `limit` error). The output says what will be rendered; the page runs the render, shows its progress and asks\nwhere to save the file (a folder picker needs a click), so an agent that is not\ndriven by a user gets the render in the page to confirm. Changes nothing in the\nproject, so it never enters the history and has nothing to undo.",
+              "description": "Render the project to an audio file (WAV) and save it, offline: the same engine\nthat plays the song, run faster than real time, so the file is the song as it\nsounds, not a recording of the speakers. `region` is `song` (default: from bar 1\nto the end of the last placement of the arrangement, then the tail, so that an\neffect such as the echo rings out; the file ends where the sound falls under\n-90 dBFS, after 30 seconds at most), `loop` (the loop region once, then the same\ntail) or `bars` (from the start of bar `from_bar` to the end of bar `to_bar`, both\ncounted from 1, required with it and refused without it, the last one included,\nthen the same tail). `bit_depth` is `pcm16`, `pcm24` (default) or `float32`;\n`sample_rate` is 44100, 48000 (default) or 96000. The metronome is never in the\nfile; the solo and mute state are. Audio clips are in the file as they play: the\nrender reads their files from the project's folder, in the page in both modes (so in\nBoost too, where they are not heard yet), and waits for each read; a file that cannot\nbe read leaves its clips silent and the page names it when the render ends. It is\nrefused when there is\nnothing to render (empty arrangement, no loop region for `loop`, a `bars` range that\nstarts after the end of the arrangement or is out of order) or the range lasts more\nthan 30 minutes\n(a `limit` error). The output says what will be rendered; the page runs the render, shows its progress and asks\nwhere to save the file (a folder picker needs a click), so an agent that is not\ndriven by a user gets the render in the page to confirm. Changes nothing in the\nproject, so it never enters the history and has nothing to undo.",
               "properties": {
                 "bit_depth": {
                   "anyOf": [
@@ -28505,7 +28505,7 @@
         }
       },
       "$schema": "https://json-schema.org/draft/2020-12/schema",
-      "description": "What preparing an export (`project.export_audio`, #297) gave: the render's plan, with the\nengine bytes returned beside it (the setup stream, then the stream that stops the\ntransport, `setup_len` bytes then the rest).",
+      "description": "What preparing an export (`project.export_audio`, #297) gave: the render's plan, with the\nengine bytes returned beside it: the setup stream (`setup_len` bytes), the stream that\nstarts the transport after the render's pre-roll (`start_len` bytes), then the stream that\nstops it (the rest).",
       "oneOf": [
         {
           "additionalProperties": false,
@@ -28518,6 +28518,11 @@
               "minimum": 0,
               "type": "integer"
             },
+            "start_len": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
             "status": {
               "const": "ready",
               "type": "string"
@@ -28526,7 +28531,8 @@
           "required": [
             "status",
             "plan",
-            "setup_len"
+            "setup_len",
+            "start_len"
           ],
           "type": "object"
         },
@@ -36558,7 +36564,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 31,
+  "protocol_version": 32,
   "server_message": {
     "$defs": {
       "Capabilities": {
@@ -36995,6 +37001,24 @@
           "id",
           "agent",
           "command"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "An agent left (#641): no MCP session of that name is open any more and it made no\nstateless call for `AGENT_IDLE` (`crates/helper`). Its last session ended when the client\nclosed it, when the stdio bridge's input ended, or after `AGENT_IDLE` without a request.\nTwo sessions of one name are one author: the name leaves with its last one. The page\ncloses the history group that agent (`agent:<agent>`) left open, ends its turn and\nwithdraws its questions to the user. Sent on the session and on every control link.",
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "type": {
+            "const": "agent.left",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "agent"
         ],
         "type": "object"
       },

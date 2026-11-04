@@ -31,7 +31,7 @@
   const reduction = $derived(bypassed ? 0 : meters.snap(master ? MASTER_METER : (track ?? MASTER_METER)).reductionDb)
 
   // A knob drag is one history group: one undo takes it back whole.
-  const gesture = createGesture((command) => dispatcher.run(command))
+  const gesture = createGesture((command, options) => dispatcher.run(command, options))
   onDestroy(() => gesture.end())
 
   /** The right click on the card (#524): bypass, and for an effect its place in the chain and its removal. A control inside answers for itself. */
