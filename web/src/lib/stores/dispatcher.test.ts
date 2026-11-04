@@ -118,6 +118,28 @@ vi.mock('../midi/web-midi', () => ({
 
 const { createStores } = await import('./index')
 
+/** An engine report as far as the dispatcher reads it, with `silencedFrames` (#667). */
+const silencedReport = (silencedFrames: number) =>
+  ({
+    seq: 2,
+    epoch: 1,
+    transport: 'stopped',
+    cpuLoad: null,
+    cpuPeak: null,
+    liveOverflows: 0,
+    silencedFrames,
+    voices: 0,
+    tracks: [],
+    master: { peakL: 0, peakR: 0, rmsL: 0, rmsR: 0, gainReductionDb: 0 },
+    clips: [],
+    held: [],
+    recordTake: 0,
+    recordTotal: 0,
+    recordDropped: 0,
+    recordCapturing: false,
+    recorded: [],
+  }) as never
+
 const newSession = () => createStores('arrangement', 'devices')
 
 function address(hash: string) {
@@ -519,6 +541,54 @@ describe('running commands through the project core', () => {
     expect(webs[0].push.mock.calls.length).toBe(pushes + 1)
     expect(session.engine.mode).toBe('web')
     expect(session.project.params[firstParam]).toBe(0.5)
+  })
+
+  it('forgets the frames silenced by a Web engine it stopped, and a new one counts from 0 (#667)', async () => {
+    const session = newSession()
+    await session.dispatcher.start()
+    webEvents!.onFeedback(silencedReport(5))
+    expect(session.engine.silencedFrames).toBe(5)
+    webEvents!.onStreamRefused?.(-3, 0)
+    expect(session.engine.silencedFrames).toBe(0)
+    await session.dispatcher.start()
+    webEvents!.onFeedback(silencedReport(2))
+    expect(session.engine.silencedFrames).toBe(2)
+  })
+
+  it('shows the frames silenced by the engine that plays: from 0 in Web, from its first report for a helper (#667)', async () => {
+    const report = silencedReport
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
+      close: vi.fn(() => Promise.resolve()),
+    }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    const web = webEvents!
+    // The page's own engine counts from 0: its first report already counts.
+    web.onFeedback(report(3))
+    expect(session.engine.silencedFrames).toBe(3)
+    // The helper's engine silenced 500 frames for an earlier page: not this one's.
+    await session.dispatcher.enterBoost()
+    const native = nativeEvents!
+    native.onFeedback(report(500))
+    expect(session.engine.silencedFrames).toBe(0)
+    native.onFeedback(report(503))
+    expect(session.engine.silencedFrames).toBe(3)
+    // A report of the suspended Web engine changes nothing while the helper plays.
+    web.onFeedback(report(9))
+    expect(session.engine.silencedFrames).toBe(3)
+    // A count below the base: the helper built a new engine, counted from 0.
+    native.onFeedback(report(2))
+    expect(session.engine.silencedFrames).toBe(2)
+    // Back to Web: the same Web engine, its own count (3 silenced in it before Boost, 9 since).
+    await session.dispatcher.enterWeb()
+    web.onFeedback(report(9))
+    expect(session.engine.silencedFrames).toBe(9)
   })
 
   it("keeps the helper's update state while its session is current, and forgets it in Web mode (#515)", async () => {
@@ -2674,6 +2744,14 @@ describe("an agent's destructive calls wait for the user's answer in the page (A
     // Taken: nothing heard since.
     const second = await session.dispatcher.runForAgent({ type: 'mixer.levels' }, 'agent:a')
     expect(second).toMatchObject({ status: 'applied', output: { playing: true, master: { peak_db: null } } })
+    expect((first.output as { silenced_frames: number }).silenced_frames).toBe(0)
+  })
+
+  it('tells an agent through mixer.levels how many frames the output protection silenced (#667)', async () => {
+    const session = await started()
+    session.engine.silencedFrames = 131
+    const answer = await session.dispatcher.runForAgent({ type: 'mixer.levels' }, 'agent:a')
+    expect(answer).toMatchObject({ status: 'applied', output: { silenced_frames: 131 } })
   })
 
   describe('project.analyze_render (#665)', () => {

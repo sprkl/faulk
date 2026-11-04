@@ -1005,3 +1005,91 @@ fn the_reduction_travels_in_the_report_bytes() {
     bytes[0] = 3;
     assert!(engine::host::decode_feedback(&bytes).is_none());
 }
+
+/// #667: the live report carries the frames the output protection silenced because a sample
+/// was non-finite, cumulative; the output stays finite; nothing on that path allocates.
+#[test]
+fn the_report_counts_the_frames_silenced_for_a_non_finite_sample() {
+    let mut session = Session::new();
+    session.send(&[M::Play { from: Tick(0) }, note_on(60, 100)]);
+    session.host.render(128);
+    session.host.write_feedback();
+    assert_eq!(
+        read_feedback(session.host.feedback())
+            .unwrap()
+            .silenced_frames,
+        0
+    );
+
+    // 3 frames turned NaN before the protection: 3 silenced, the output finite.
+    session.host.engine_mut().poison_next_frames(3);
+    assert_no_alloc(|| {
+        session.host.render(128);
+        session.host.write_feedback();
+    });
+    assert!(
+        session.host.left()[..128]
+            .iter()
+            .chain(&session.host.right()[..128])
+            .all(|s| s.is_finite())
+    );
+    assert_eq!(
+        session.host.left()[..3],
+        [0.0; 3],
+        "the NaN frames are silent"
+    );
+    assert_eq!(
+        read_feedback(session.host.feedback())
+            .unwrap()
+            .silenced_frames,
+        3
+    );
+
+    // Armed over two blocks: 200 more, split 128 + 72; cumulative.
+    session.host.engine_mut().poison_next_frames(200);
+    session.host.render(128);
+    session.host.render(128);
+    session.host.write_feedback();
+    assert_eq!(
+        read_feedback(session.host.feedback())
+            .unwrap()
+            .silenced_frames,
+        203
+    );
+
+    // A clean block, a report period and an all-sound-off keep the count: it is cumulative.
+    session.send(&[M::AllSoundOff]);
+    for _ in 0..40 {
+        session.host.render(128);
+    }
+    session.host.write_feedback();
+    assert_eq!(
+        read_feedback(session.host.feedback())
+            .unwrap()
+            .silenced_frames,
+        203
+    );
+}
+
+/// The count saturates in the report's 32-bit word.
+#[test]
+fn the_silenced_word_saturates() {
+    use engine::host::silenced_word;
+    assert_eq!(silenced_word(0), 0);
+    assert_eq!(silenced_word(131), 131);
+    assert_eq!(silenced_word(u64::from(u32::MAX)), u32::MAX);
+    assert_eq!(silenced_word(u64::MAX), u32::MAX);
+}
+
+/// A report of version 7 (the header of 88 bytes, without the silenced frames) is refused.
+#[test]
+fn a_report_of_version_7_is_refused() {
+    let mut session = Session::new();
+    session.host.render(128);
+    session.host.write_feedback();
+    let mut bytes = Vec::new();
+    assert!(copy_feedback(session.host.feedback(), &mut bytes));
+    assert!(engine::host::decode_feedback(&bytes).is_some());
+    bytes[0] = 7;
+    assert!(engine::host::decode_feedback(&bytes).is_none());
+}
