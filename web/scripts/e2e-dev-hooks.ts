@@ -113,19 +113,49 @@ interface Span {
   setup: boolean
 }
 
+/** A skip that leaves the production build out: the hook is not a function, the project is not `dev` (or is `preview`). */
+const SKIP_CONDITION = /!==\s*'function'|\bproject\.name\s*!==\s*'dev'|\bproject\.name\s*===\s*'preview'/
+
+/** The end of the statement that starts at `from`: the first line break outside every bracket. */
+function statementEnd(src: string, from: number): number {
+  let depth = 0
+  for (let i = from; i < src.length; i++) {
+    const c = src[i]
+    if (c === '(' || c === '[' || c === '{') depth++
+    else if (c === ')' || c === ']' || c === '}') depth--
+    else if (c === '\n' && depth <= 0) return i
+  }
+  return src.length
+}
+
 /**
- * Where the code tells the two builds apart: `skipWithoutDevHooks(page)`, a `test.skip(...)` on that test, or (inside a
- * test body only) a branch on the same test, as `if (info.project.name === 'dev') { ... }` or `if (hooked) { ... }`
- * after a presence probe.
+ * Where the code tells the two builds apart: `skipWithoutDevHooks(page)`, a `test.skip(...)` whose condition leaves the
+ * production build out, or (inside a test body only) an `if` whose condition reads a presence probe or the project's name,
+ * or a variable declared from such a read and tested by a later `if`. A bare read of the project's name is not a guard.
+ * Outside the test bodies only a `test.skip` written at the left margin counts: a skip inside a `describe` covers that
+ * block, not the file.
  */
 function guardsIn(src: string, from: number, to: number, inBody: boolean): number[] {
   const at: number[] = []
   const part = src.slice(from, to)
   for (const m of part.matchAll(/\b(skipWithoutDevHooks|test\.skip)\s*(?=\()/g)) {
-    const call = callText(src, from + m.index! + m[0].length)
-    if (m[1] === 'skipWithoutDevHooks' ? /^\(\s*page\s*\)$/.test(call) : GUARD_TOKEN.test(call)) at.push(from + m.index!)
+    const index = from + m.index!
+    const call = callText(src, index + m[0].length)
+    if (m[1] === 'skipWithoutDevHooks') {
+      if (inBody && /^\(\s*page\s*\)$/.test(call)) at.push(index)
+    } else if (SKIP_CONDITION.test(call) && (inBody || index === 0 || src[index - 1] === '\n')) at.push(index)
   }
-  if (inBody) for (const m of part.matchAll(new RegExp(GUARD_TOKEN, 'g'))) at.push(from + m.index!)
+  if (inBody) {
+    for (const m of part.matchAll(/\bif\s*(?=\()/g)) {
+      if (GUARD_TOKEN.test(callText(src, from + m.index! + m[0].length))) at.push(from + m.index!)
+    }
+    for (const m of part.matchAll(/\b(?:const|let)\s+(\w+)\s*=/g)) {
+      const start = from + m.index!
+      if (!GUARD_TOKEN.test(src.slice(start, statementEnd(src, start)))) continue
+      const later = part.slice(m.index! + m[0].length)
+      if (new RegExp(`\\bif\\s*\\([^)]*\\b${m[1]}\\b`).test(later)) at.push(start)
+    }
+  }
   return at.sort((x, y) => x - y)
 }
 
@@ -161,9 +191,9 @@ export function checkSpec(file: string, source: string, hooks: string[]): DevHoo
     for (const p of src.slice(a, b).split(/^(?=(?:export\s+)?(?:async\s+)?(?:function|const|let)\s)/m)) {
       const m = p.match(/^(?:export\s+)?(?:async\s+)?(?:function\s+|const\s+|let\s+)(\w+)/)
       if (m) {
-        // A helper that tells the two builds apart before its first use (a `project.name` branch) guards itself.
+        // A helper that tells the two builds apart (a skip, a `project.name` branch) guards itself, and its callers.
         const text = p.slice(m[0].length)
-        const guard = text.search(GUARD_TOKEN)
+        const guard = guardsIn(text, 0, text.length, true)[0] ?? -1
         decls.push({ name: m[1], text: blankProbes(text), guard })
       }
     }
@@ -199,6 +229,13 @@ export function checkSpec(file: string, source: string, hooks: string[]): DevHoo
     uses.sort((a, b) => a.at - b.at)
     const first = uses[0]
     const guards = guardsIn(src, s.start, s.end, true)
+    // A call to a helper that skips for the preview project is a guard, where the call stands.
+    for (const d of decls) {
+      if (d.guard < 0) continue
+      const call = new RegExp(`\\b${d.name}\\s*\\(`).exec(code)
+      if (call) guards.push(s.start + call.index)
+    }
+    guards.sort((x, y) => x - y)
     if (!guards.length) {
       findings.push({ file, line: lineOf(src, first.at), test: s.name, hook: first.hook, why: 'no skip for the preview project' })
     } else if (guards[0] > first.at) {

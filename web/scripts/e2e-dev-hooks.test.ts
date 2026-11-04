@@ -74,6 +74,31 @@ describe('the guard on the specs (#626)', () => {
     expect(check(`test.beforeEach(async ({ page }) => {\n  ${run}\n})\ntest('a', async ({ page }) => {\n  await page.goto('/')\n})\n`)).toHaveLength(1)
   })
 
+  it('refuses a bare read of the project name, an inverted skip and a variable no branch tests', () => {
+    expect(check(`test('a', async ({ page }, info) => {\n  const label = info.project.name === 'dev' ? 'a' : 'b'\n  ${run}\n})\n`)).toHaveLength(1)
+    expect(check(`test('a', async ({ page }, info) => {\n  test.skip(info.project.name === 'dev', 'wrong way')\n  ${run}\n})\n`)).toHaveLength(1)
+    expect(check(`test('a', async ({ page }, info) => {\n  const named = info.project.name === 'dev'\n  ${run}\n})\n`)).toHaveLength(1)
+    // The same variable, tested by an `if`, is a branch.
+    expect(check(`test('a', async ({ page }, info) => {\n  const named = info.project.name === 'dev'\n  if (named) {\n    ${run}\n  }\n})\n`)).toEqual([])
+  })
+
+  it('takes a skip inside a describe for a guard of that block, not of the file', () => {
+    const spec = `test.describe('dev', () => {\n  test.skip(test.info().project.name !== 'dev', 'dev only')\n  test('a', async ({ page }) => {\n    ${run}\n  })\n})\ntest('b', async ({ page }) => {\n  ${run}\n})\n`
+    expect(check(spec).map((f) => f.test)).toEqual(['a', 'b'])
+  })
+
+  it('takes a call to a helper that skips for a guard', () => {
+    const start = `async function start(page: Page) {\n  await skipWithoutDevHooks(page)\n}\n`
+    expect(check(`${start}test('a', async ({ page }) => {\n  await start(page)\n  ${run}\n})\n`)).toEqual([])
+    expect(check(`${start}test('a', async ({ page }) => {\n  ${run}\n  await start(page)\n})\n`)).toHaveLength(1)
+  })
+
+  it('lists every key of the dev block', () => {
+    const stores = readFileSync(join(root, 'src/lib/stores/index.ts'), 'utf8')
+    const block = stores.slice(stores.indexOf('import.meta.env.DEV'), stores.indexOf('const ui = new UiStore'))
+    expect([...new Set([...block.matchAll(/^\s+(__faulk\w+)\s*:/gm)].map((m) => m[1]))].sort()).toEqual(hooks)
+  })
+
   it('catches a real spec once its skips are taken out', () => {
     const file = 'tests/e2e/markers.spec.ts'
     const source = readFileSync(join(root, file), 'utf8')
