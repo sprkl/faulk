@@ -66,11 +66,24 @@
   onMount(() => {
     if (!bar || typeof ResizeObserver === 'undefined') return
     // The bar and every one of its children: a longer text (a language, a take's target, a tempo tap) is a change of width too.
-    const observer = new ResizeObserver(measure)
+    // `measure` changes the layout (it folds parts and flushes the DOM), so it never runs inside the observer's callback: the
+    // browser would then report "ResizeObserver loop completed with undelivered notifications" (#674). The callback asks for
+    // one measure on the next frame, before the next layout; the observer sees the folded bar then and asks again until it fits.
+    let frame = 0
+    const observer = new ResizeObserver(() => {
+      if (frame !== 0) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        measure()
+      })
+    })
     observer.observe(bar)
     for (const child of bar.children) observer.observe(child)
     measure()
-    return () => observer.disconnect()
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(frame)
+    }
   })
 
   /** The menu of what the bar folded: the launch quantization (a radio group), the keyboard octave and the key and scale. */
