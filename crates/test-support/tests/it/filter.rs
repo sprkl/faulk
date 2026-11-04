@@ -361,6 +361,9 @@ fn every_movement_parameter_is_set_by_name_and_each_continuous_one_takes_a_lane(
         ("drive", 0.8),
         ("lfo_shape", 4.0),
         ("lfo_division", 2.0),
+        ("lfo_sync", 1.0),
+        ("lfo_rate", 7.0),
+        ("lfo_depth", 3.0),
         ("lfo_phase", 90.0),
         ("lfo_stereo", 180.0),
         ("lfo_restart", 0.0),
@@ -558,4 +561,61 @@ fn renders_of_the_movement_are_written_for_listening() {
     let r = parity(s.scenario());
     r.assert_clean();
     r.write_wav("filter-wobble-under-lane");
+
+    // Each movement preset on the chord with the transport playing (a synced LFO holds still
+    // while it is stopped): the cutoff it reports moves.
+    for slug in [
+        "quarter-wobble",
+        "slow-sweep",
+        "talking-filter",
+        "random-steps",
+    ] {
+        let mut s = Session::from_state(f.state.clone(), context());
+        let fx = insert(&mut s, &f.track);
+        load(&mut s, &fx, &format!("faulk.filter/{slug}"));
+        s.run(Command::Transport(transport::Command::Play {}));
+        if slug == "talking-filter" {
+            // The envelope speaks on notes that start and stop.
+            for k in 0..8 {
+                for note in [45, 52] {
+                    s.run(Command::Live(live::Command::NoteOn {
+                        track: f.track.clone(),
+                        note,
+                        velocity: 110,
+                    }));
+                }
+                s.render_secs(0.25);
+                for note in [45, 52] {
+                    s.run(Command::Live(live::Command::NoteOff {
+                        track: f.track.clone(),
+                        note,
+                    }));
+                }
+                s.render_secs(if k % 2 == 0 { 0.25 } else { 0.5 });
+            }
+        } else {
+            chord(&mut s);
+            s.render_secs(8.5);
+        }
+        let r = parity(s.scenario());
+        r.assert_clean();
+        r.assert_audible(0.5..3.0, 0.001);
+        // The tone moves: the brightness of quarter-second windows (where there is sound)
+        // spreads.
+        let w = (0.25 * r.sample_rate) as usize;
+        let bright: Vec<f32> = r
+            .left
+            .chunks(w)
+            .filter(|c| c.len() == w && c.iter().any(|s| s.abs() > 1e-3))
+            .map(brightness)
+            .collect();
+        let (lo, hi) = bright
+            .iter()
+            .fold((f32::MAX, 0f32), |(lo, hi), b| (lo.min(*b), hi.max(*b)));
+        // The envelope only moves the cutoff at the notes' edges (a held note holds its level): a
+        // smaller spread there; its curve is measured in the engine's own tests.
+        let spread = if slug == "talking-filter" { 1.15 } else { 1.3 };
+        assert!(hi > spread * lo, "{slug}: brightness {lo} to {hi}");
+        r.write_wav(&format!("filter-preset-{slug}"));
+    }
 }
