@@ -4,8 +4,11 @@ import { answerOnce } from './agent-call'
 
 /** What a control link tells the page. */
 export interface ControlEvents {
-  /** An agent's call (`agent.call`): `answer` sends the page's `agent.result` on this link, once. */
-  onAgentCall(agent: string, command: unknown, answer: (result: AgentResult) => void): void
+  /**
+   * An agent's call (`agent.call`): `answer` sends the page's `agent.result` on this link, once. `signal` aborts when
+   * the link closes: the call can no longer be answered (AG-4).
+   */
+  onAgentCall(agent: string, command: unknown, answer: (result: AgentResult) => void, signal: AbortSignal): void
   /**
    * The link closed after it opened: the helper went away or restarted, or (`pushedOut`) it closed this link because
    * newer ones went past its limit (`CONTROL_PUSHED_OUT`).
@@ -29,6 +32,8 @@ export class ControlTimeout extends Error {
  */
 export class ControlLink {
   private closing = false
+  /** Aborted when the link closes, whoever closes it: its agents' calls can no longer be answered. */
+  private readonly calls = new AbortController()
 
   private constructor(
     private readonly ws: WebSocket,
@@ -62,10 +67,12 @@ export class ControlLink {
           message.agent,
           message.command,
           answerOnce(message.id, (m) => link.send(m)),
+          link.calls.signal,
         )
       }
       ws.onclose = (event: { code?: number }) => {
         clearTimeout(timer)
+        link.calls.abort()
         if (!opened) reject(new Error('helper refused the control link'))
         else if (!link.closing) events.onClosed(event.code === CONTROL_PUSHED_OUT)
       }

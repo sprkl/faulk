@@ -26,6 +26,7 @@
   import SaveAsDialog from './SaveAsDialog.svelte'
   import ShortcutsDialog from './ShortcutsDialog.svelte'
   import StorageBanners from './StorageBanners.svelte'
+  import AgentConfirm from '../confirm/AgentConfirm.svelte'
   import TopBar from './TopBar.svelte'
   import TrackList from '../tracks/TrackList.svelte'
 
@@ -272,6 +273,7 @@
   <a class="skip" href="#fk-main" data-testid="skip-link" onclick={skipToMain}>{ui.t(ui.view === 'arrangement' ? 'shell.skipTimeline' : 'shell.skipMain')}</a>
   <TopBar />
   <StorageBanners />
+  <AgentConfirm />
   {#if ui.contextMenu}
     {#key ui.contextMenu}
       <ContextMenu x={ui.contextMenu.x} y={ui.contextMenu.y} items={ui.contextMenu.items} label={ui.contextMenu.label} onclose={() => ui.closeMenu()} />
