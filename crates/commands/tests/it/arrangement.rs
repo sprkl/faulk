@@ -1559,6 +1559,25 @@ fn an_audio_restore_is_checked_like_the_audio_clip_restore() {
         }),
         ..record.clone()
     });
+    // A span that runs past the end of the clip (offset + length > the clip's frames).
+    let clip_frames = match &placed.project.tracks[&f.audio_track].clips[&f.audio_clip].content {
+        ::project::ClipContent::Audio { frames, .. } => frames.get(),
+        other => panic!("{other:?}"),
+    };
+    bad(arrangement::PlacementRecord {
+        frames: Some(arrangement::FrameSpan {
+            length: clip_frames,
+            offset: 1,
+        }),
+        ..record.clone()
+    });
+    bad(arrangement::PlacementRecord {
+        frames: Some(arrangement::FrameSpan {
+            length: clip_frames + 1,
+            offset: 0,
+        }),
+        ..record.clone()
+    });
     bad(arrangement::PlacementRecord {
         start: Tick(-1),
         ..record.clone()
@@ -1852,4 +1871,53 @@ fn an_audio_restore_replaces_a_placement_by_its_identifier_and_removes_one() {
             .clips
             .contains_key(&f.audio_clip)
     );
+}
+
+#[test]
+fn an_audio_restore_never_overlaps_audio_placements() {
+    let f = fx();
+    let (placed, audio) = arrangement_examples::with_audio_placement(&f);
+    let existing = placed.project.tracks[&f.audio_track].placements[&audio].clone();
+    let Span::Frames { length, .. } = existing.span else {
+        panic!("{existing:?}")
+    };
+    let mut ctx = fresh_context();
+    let record = |id: PlacementId, start: Tick| arrangement::PlacementRecord {
+        id,
+        clip: f.audio_clip.clone(),
+        start,
+        length: Tick(0),
+        offset: Tick(0),
+        frames: Some(arrangement::FrameSpan {
+            length: length.get(),
+            offset: 0,
+        }),
+    };
+    // A new placement that starts inside the existing one.
+    let over = record(
+        PlacementId::generate(&mut ctx.ids),
+        existing.start + Tick(1),
+    );
+    let error = check_refusal(&a(audio_restore(vec![over], &f)), &placed, &context()).unwrap();
+    assert!(matches!(error, CommandError::Invalid { .. }), "{error:?}");
+    // Two restored placements that overlap each other.
+    let one = record(PlacementId::generate(&mut ctx.ids), Tick(0));
+    let two = record(PlacementId::generate(&mut ctx.ids), Tick(0));
+    let (gone, _) = after(
+        placed.clone(),
+        &a(arrangement::Command::Delete {
+            placements: vec![audio.clone()],
+        }),
+    );
+    let error = check_refusal(&a(audio_restore(vec![one, two], &f)), &gone, &context()).unwrap();
+    assert!(matches!(error, CommandError::Invalid { .. }), "{error:?}");
+    // The same identifier moved in place does not clash with itself.
+    let same = record(audio.clone(), existing.start + Tick(1));
+    let mut state = placed;
+    run(
+        &a(audio_restore(vec![same], &f)),
+        &mut state,
+        &mut fresh_context(),
+    )
+    .unwrap();
 }
