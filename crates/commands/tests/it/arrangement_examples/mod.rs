@@ -147,6 +147,13 @@ pub fn examples() -> Vec<(Command, State)> {
             length: None,
             offset: None,
         }),
+        // An audio clip of the audio track, whole.
+        on(arrangement::Command::Place {
+            clip: f.audio_clip.clone(),
+            start: Tick(3840),
+            length: None,
+            offset: None,
+        }),
         // Over A (cut on its right) and B (trimmed at the front).
         on(arrangement::Command::Place {
             clip: f.straight.clone(),

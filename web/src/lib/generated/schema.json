@@ -10364,7 +10364,7 @@
         "undo": "none"
       },
       {
-        "description": "Put a MIDI clip of the track in the arrangement, as a new placement of the same clip\n(a linked clip: editing the clip changes every placement of it); a clip of the\ntrack's pool, with no placement and no slot, comes back this way (#473). A clip that\nsits in the launch grid is refused: copying or linking it is\n`arrangement.place_from_slot` (founder's decision 11). `start` is in\nticks; `offset` (default 0, before the clip's length) is where in the clip the\nplacement starts; `length` (default: what is left of the clip after `offset`) is\nits length on the timeline, which may exceed the clip (the clip repeats: its loop\nwhen it has one, the whole clip when it has none). The new placement wins on overlap: the\nother placements of the track that it covers are removed, shortened, trimmed at\nthe front or split (`overwritten` counts them). Undo: `arrangement.restore`.",
+        "description": "Put a clip of the track in the arrangement, as a new placement of the same clip\n(a linked clip: editing the clip changes every placement of it); a clip of the\ntrack's pool, with no placement and no slot, comes back this way (#473). A clip that\nsits in the launch grid is refused: copying or linking it is\n`arrangement.place_from_slot` (founder's decision 11). `start` is in\nticks; `offset` (default 0, before the clip's length) is where in the clip the\nplacement starts; `length` (default: what is left of the clip after `offset`) is\nits length on the timeline, which may exceed the clip (the clip repeats: its loop\nwhen it has one, the whole clip when it has none). The new placement wins on overlap: the\nother placements of the track that it covers are removed, shortened, trimmed at\nthe front or split (`overwritten` counts them). An audio clip of an audio track is\nplaced whole (from its first frame, its end computed from its frames at the project's\ntempo, so `length` and `offset` are refused); there the new placement never carves:\nan overlap, or a span outside `[0, 2^40]` ticks, is refused. Undo: `arrangement.restore`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -10751,7 +10751,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Delete placements, in one command, MIDI or audio ones. Their clips stay in their\ntracks, even one that loses its last placement and sits in no grid slot: it stays in\nthe track's pool (an audio clip keeps its file; `arrangement.place` puts a MIDI clip\nback, `clip.delete` deletes a clip). Refused when the\nlist is empty, names a placement twice or an unknown one. Undo:\n`arrangement.restore`.",
+        "description": "Delete placements, in one command, MIDI or audio ones. Their clips stay in their\ntracks, even one that loses its last placement and sits in no grid slot: it stays in\nthe track's pool (an audio clip keeps its file; `arrangement.place` puts a clip back,\nMIDI or audio; `clip.delete` deletes a clip). Refused when the\nlist is empty, names a placement twice or an unknown one. Undo:\n`arrangement.restore`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -16279,7 +16279,7 @@
           "oneOf": [
             {
               "additionalProperties": false,
-              "description": "Put a MIDI clip of the track in the arrangement, as a new placement of the same clip\n(a linked clip: editing the clip changes every placement of it); a clip of the\ntrack's pool, with no placement and no slot, comes back this way (#473). A clip that\nsits in the launch grid is refused: copying or linking it is\n`arrangement.place_from_slot` (founder's decision 11). `start` is in\nticks; `offset` (default 0, before the clip's length) is where in the clip the\nplacement starts; `length` (default: what is left of the clip after `offset`) is\nits length on the timeline, which may exceed the clip (the clip repeats: its loop\nwhen it has one, the whole clip when it has none). The new placement wins on overlap: the\nother placements of the track that it covers are removed, shortened, trimmed at\nthe front or split (`overwritten` counts them). Undo: `arrangement.restore`.",
+              "description": "Put a clip of the track in the arrangement, as a new placement of the same clip\n(a linked clip: editing the clip changes every placement of it); a clip of the\ntrack's pool, with no placement and no slot, comes back this way (#473). A clip that\nsits in the launch grid is refused: copying or linking it is\n`arrangement.place_from_slot` (founder's decision 11). `start` is in\nticks; `offset` (default 0, before the clip's length) is where in the clip the\nplacement starts; `length` (default: what is left of the clip after `offset`) is\nits length on the timeline, which may exceed the clip (the clip repeats: its loop\nwhen it has one, the whole clip when it has none). The new placement wins on overlap: the\nother placements of the track that it covers are removed, shortened, trimmed at\nthe front or split (`overwritten` counts them). An audio clip of an audio track is\nplaced whole (from its first frame, its end computed from its frames at the project's\ntempo, so `length` and `offset` are refused); there the new placement never carves:\nan overlap, or a span outside `[0, 2^40]` ticks, is refused. Undo: `arrangement.restore`.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
@@ -16440,7 +16440,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Delete placements, in one command, MIDI or audio ones. Their clips stay in their\ntracks, even one that loses its last placement and sits in no grid slot: it stays in\nthe track's pool (an audio clip keeps its file; `arrangement.place` puts a MIDI clip\nback, `clip.delete` deletes a clip). Refused when the\nlist is empty, names a placement twice or an unknown one. Undo:\n`arrangement.restore`.",
+              "description": "Delete placements, in one command, MIDI or audio ones. Their clips stay in their\ntracks, even one that loses its last placement and sits in no grid slot: it stays in\nthe track's pool (an audio clip keeps its file; `arrangement.place` puts a clip back,\nMIDI or audio; `clip.delete` deletes a clip). Refused when the\nlist is empty, names a placement twice or an unknown one. Undo:\n`arrangement.restore`.",
               "properties": {
                 "placements": {
                   "items": {
@@ -38024,6 +38024,26 @@
           "sample_rate",
           "epoch",
           "capabilities"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "First message of a control link (#658): the helper's protocol, as `hello` carries it for\na session. The page closes the link when it differs from its own.",
+        "properties": {
+          "protocol": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "control.hello",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "protocol"
         ],
         "type": "object"
       },

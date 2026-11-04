@@ -2670,6 +2670,9 @@ protocol: number
 sample_rate: number
 type: "hello"
 } | {
+protocol: number
+type: "control.hello"
+} | {
 at: number
 code: number
 epoch: number

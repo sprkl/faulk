@@ -111,6 +111,7 @@ test.beforeAll(async () => {
     } else if (url.pathname === '/control' && url.searchParams.get('token') === TOKEN) {
       // The page's control link (#608): agents' calls out, their answers in.
       controlSocket = ws
+      send({ type: 'control.hello', protocol: PROTOCOL_VERSION })
       ws.on('message', (data) => controlMessages.push(JSON.parse(text(data))))
     } else ws.close()
   })
