@@ -11,7 +11,7 @@
   import { runHistory } from '../../lib/history-said'
   import { withShortcut } from '../../lib/shortcuts'
   import TrackInspector from './TrackInspector.svelte'
-  import { dropAudioFiles } from '../../lib/browser/audio-drop'
+  import { dropAudioFiles, type AudioDropHost } from '../../lib/browser/audio-drop'
   import { dropTarget } from '../../lib/browser/dnd'
   import { createsTrack } from '../../lib/browser/drop'
   import { putItem } from '../../lib/browser/put'
@@ -44,11 +44,25 @@
     addButton?.focus()
   }
 
-  // The empty area (#190): an instrument or a preset dropped here starts a MIDI track with it; an audio file is the audio
-  // import's (AU-1), which says it is not there yet.
+  // The empty area (#190): an instrument or a preset dropped here starts a MIDI track with it; audio files start an audio
+  // track and are imported into it (AU-4, `audio-drop.ts`).
   let over = $state(false)
   let dropNote = $state<MessageKey | null>(null)
   const showDrop = $derived(ui.browserOpen || ui.dragged !== null)
+
+  /** The page's side of an audio drop: the track made and selected, its Clips panel shown, the files imported. */
+  const audioDrop: AudioDropHost = {
+    createAudioTrack: () => {
+      const before = new Set(project.tracks.map((entry) => entry.id))
+      if (!dispatcher.run(createTrack('audio', null))) return null
+      const created = project.tracks.find((entry) => !before.has(entry.id))
+      if (!created) return null
+      dispatcher.run(selectTrack(created.id))
+      ui.showPanel('clips')
+      return created.id
+    },
+    importFiles: (track, files) => stores.audioImport.importFiles(track, files),
+  }
 
   function onMenuKey(event: KeyboardEvent) {
     if (event.key !== 'Escape') return
@@ -150,7 +164,7 @@
             if (value) dropNote = null
           },
           drop: (item) => putItem(stores, item, { type: 'new-track' }),
-          files: (files) => (dropNote = dropAudioFiles(files)),
+          files: (files) => (dropNote = dropAudioFiles(audioDrop, files)),
         }}
       >
         <p>{over ? t('browser.dropRelease') : t('browser.dropEmpty')}</p>
