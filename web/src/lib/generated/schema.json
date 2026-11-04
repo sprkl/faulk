@@ -380,7 +380,7 @@
         "undo": "none"
       },
       {
-        "description": "Stop the `.faulkpack` export under way: the file being written is removed and nothing is\nhanded over. Nothing happens when no export is running. Changes nothing in the project, so\nit never enters the history.",
+        "description": "Stop the `.faulkpack` export under way, from the moment it was asked for: nothing is handed\nover (a download is not started; a file the user chose is left empty). Nothing happens when\nno export is running. Changes nothing in the project, so\nit never enters the history.",
         "destructive": false,
         "input_schema": {
           "additionalProperties": false,
@@ -20013,7 +20013,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Stop the `.faulkpack` export under way: the file being written is removed and nothing is\nhanded over. Nothing happens when no export is running. Changes nothing in the project, so\nit never enters the history.",
+              "description": "Stop the `.faulkpack` export under way, from the moment it was asked for: nothing is handed\nover (a download is not started; a file the user chose is left empty). Nothing happens when\nno export is running. Changes nothing in the project, so\nit never enters the history.",
               "properties": {
                 "type": {
                   "const": "project.cancel_export_pack",

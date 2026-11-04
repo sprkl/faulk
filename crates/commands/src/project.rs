@@ -96,8 +96,9 @@ domain! {
     "project.export_pack" (kind = "live", undo = "none", destructive = false)
     ExportPack {} => {};
 
-    /// Stop the `.faulkpack` export under way: the file being written is removed and nothing is
-    /// handed over. Nothing happens when no export is running. Changes nothing in the project, so
+    /// Stop the `.faulkpack` export under way, from the moment it was asked for: nothing is handed
+    /// over (a download is not started; a file the user chose is left empty). Nothing happens when
+    /// no export is running. Changes nothing in the project, so
     /// it never enters the history.
     "project.cancel_export_pack" (kind = "live", undo = "none", destructive = false)
     CancelExportPack {} => {};

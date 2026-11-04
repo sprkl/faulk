@@ -1530,6 +1530,9 @@ export class ProjectStorage {
     // One at a time, from the click to the end: the file dialog is part of it.
     if (this.exportBusy) return false
     this.exportBusy = true
+    // A cancel counts from the click on: during the dialog and the preparation too.
+    const abort = new AbortController()
+    this.exportAbort = abort
     try {
       // The place of the pack first, before anything waits (the queue, a store): the browser opens its file
       // dialog only for a call that follows a click closely.
@@ -1540,14 +1543,16 @@ export class ProjectStorage {
         return false
       }
       const prepared = await this.enqueue(() => this.prepareExport())
-      if (!prepared) {
+      if (!prepared || abort.signal.aborted) {
         await target.abort().catch(() => undefined)
+        if (prepared) this.notice = 'pack.exportCancelled'
         return false
       }
       // Outside the queue: a long export never holds a save back.
-      return await this.writePack(prepared, target)
+      return await this.writePack(prepared, target, abort)
     } finally {
       this.exportBusy = false
+      this.exportAbort = null
     }
   }
 
@@ -1572,7 +1577,7 @@ export class ProjectStorage {
     }
   }
 
-  /** Stops the export under way (the file it was making is removed). */
+  /** Stops the export under way, whatever it is doing (choosing the file, preparing, writing). */
   cancelExport() {
     this.exportAbort?.abort()
   }
@@ -1633,9 +1638,7 @@ export class ProjectStorage {
     }
   }
 
-  private async writePack(prepared: { entries: FolderEntry[]; store: ProjectStore | null }, target: PackTarget): Promise<boolean> {
-    const abort = new AbortController()
-    this.exportAbort = abort
+  private async writePack(prepared: { entries: FolderEntry[]; store: ProjectStore | null }, target: PackTarget, abort: AbortController): Promise<boolean> {
     this.exporting = 0
     const { store } = prepared
     try {
@@ -1665,7 +1668,6 @@ export class ProjectStorage {
       return false
     } finally {
       this.exporting = null
-      this.exportAbort = null
     }
   }
 

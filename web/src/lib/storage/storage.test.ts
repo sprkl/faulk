@@ -2025,6 +2025,17 @@ describe('export a .faulkpack', () => {
     expect(await w.storage.exportPack()).toBe(true)
   })
 
+  it('can be cancelled before it writes: nothing is handed over', async () => {
+    const { w } = await drafted()
+    const done = w.storage.exportPack()
+    w.storage.cancelExport()
+    expect(await done).toBe(false)
+    expect(w.storage.notice).toBe('pack.exportCancelled')
+    expect(w.downloads).toEqual([])
+    expect(w.host.exports).toEqual([])
+    expect(await w.storage.exportPack()).toBe(true)
+  })
+
   it('does not start a second export while one is under way', async () => {
     const { w, store } = await drafted()
     store.media.set('blobs/aa', text('media'))
