@@ -121,6 +121,22 @@ describe('AgentConfirmations', () => {
     expect(fake.timers.size).toBe(0)
   })
 
+  it("withdraws the questions of an agent that left, and only that agent's (#641)", async () => {
+    const fake = fakeClock()
+    const queue = new AgentConfirmations(fake.clock)
+    const first = queue.ask('agent:a', { kind: 'new' }, 46_000)
+    const other = queue.ask('agent:b', { kind: 'new' }, 46_000)
+    const second = queue.ask('agent:a', { kind: 'command', command: 'track.delete' }, 46_000)
+    queue.withdraw('agent:a')
+    expect(await first).toBe('withdrawn')
+    expect(await second).toBe('withdrawn')
+    expect(queue.pending.map((p) => p.agent)).toEqual(['agent:b'])
+    queue.withdraw('agent:nobody')
+    queue.answer(true)
+    expect(await other).toBe('confirmed')
+    expect(fake.timers.size).toBe(0)
+  })
+
   it('withdraws at once a question whose link closed before it was asked', async () => {
     const link = new AbortController()
     link.abort()

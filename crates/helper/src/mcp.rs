@@ -13,6 +13,10 @@
 //! user's action, as `agent:<client name>`, and answers with `agent.result`
 //! ([`crate::server::Shared::agent_call`]). No paired page open → the tool answers the error
 //! `page.absent` at once.
+//!
+//! Each MCP session counts its agent until it ends, and a stateless call keeps its agent for
+//! [`crate::agents::AGENT_IDLE`]: when an agent's name is no longer here, the page is told
+//! (`agent.left`, #641, [`crate::agents`]).
 
 use crate::security::McpRefusal;
 use crate::server::{RelayError, Shared};
@@ -24,8 +28,8 @@ use protocol::AgentResult;
 use rmcp::ServerHandler;
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, Implementation,
-    InitializeResult, ListToolsResult, PaginatedRequestParams, ServerCapabilities, ServerConfig,
-    Tool, ToolAnnotations,
+    InitializeRequestParams, InitializeResult, ListToolsResult, PaginatedRequestParams,
+    ServerCapabilities, ServerConfig, Tool, ToolAnnotations,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use rmcp::transport::streamable_http_server::session::local::LocalSessionManager;
@@ -162,14 +166,18 @@ pub fn tool_result(result: Result<AgentResult, RelayError>) -> CallToolResult {
     }
 }
 
-/// What the server tells an agent. The turn's 30 s are `commands::history::TURN_GAP_MS` and
-/// the confirmation's 45 s are `protocol::AGENT_CONFIRM_MS` (both tested).
+/// What the server tells an agent. The turn's 30 s are `commands::history::TURN_GAP_MS`, the
+/// confirmation's 45 s are `protocol::AGENT_CONFIRM_MS` and the 5 minutes of silence are
+/// `crate::agents::AGENT_IDLE` (all tested).
 const INSTRUCTIONS: &str = "Faulk's commands, one tool per command. Each call runs in the Faulk \
 page open in the browser and paired with this helper (whether the browser or the helper plays \
 the sound), exactly as if the user did it: it appears in the page's history and can be undone \
 there. Your consecutive edits are one entry of that history, your turn, which one undo undoes \
 whole; the turn ends when the user or another agent edits, after an undo or a redo, and after \
-30 s without an edit of yours. A destructive tool (annotation `destructiveHint`: it cannot be \
+30 s without an edit of yours. A history group you open with `history_begin_group` blocks undo \
+for everyone until you end it with `history_end_group`; the page closes it for you when you \
+leave (your MCP session ends, or 5 minutes pass without a request of yours) and when the page \
+loses its link to this helper. A destructive tool (annotation `destructiveHint`: it cannot be \
 undone) and the tools that replace the open project, delete a project kept in the browser or \
 settle a conflict with the project's folder (`project_open_recent`, \
 `project_open_browser_project`, `project_reopen_last`, `project_open_url`, \
@@ -181,16 +189,42 @@ not answer in time, the call answers `command.refused` with the error code \
 `confirmation.declined` or `confirmation.timeout`, and nothing changed. Without a paired page open every tool answers the error \
 `page.absent`: ask the user to open Faulk in the browser.";
 
-/// The MCP handler of one MCP session: lists the tools, relays their calls to the page.
+/// The MCP handler of one MCP session, or of one stateless request: lists the tools, relays
+/// their calls to the page. A new one for each (the server's factory, [`McpHttp::new`]).
+///
+/// The agent's presence (#641, [`crate::agents`]): a session's handler counts its agent from
+/// `initialize` on, and the count ends when the MCP library drops the handler with the
+/// session (the client's `DELETE`, or its idle timeout). A handler that never saw `initialize`
+/// serves a stateless request: each of its calls keeps the agent here for the idle time.
 #[derive(Clone)]
 pub struct Handler {
     shared: Weak<Shared>,
+    /// The session's count of its agent, once `initialize` named it; shared by the clones of
+    /// this handler, so that it ends with the last.
+    session: Arc<OnceLock<crate::server::AgentSession>>,
 }
 
 impl Handler {
     pub fn new(shared: &Arc<Shared>) -> Self {
+        Self::with_weak(Arc::downgrade(shared))
+    }
+
+    fn with_weak(shared: Weak<Shared>) -> Self {
         Self {
-            shared: Arc::downgrade(shared),
+            shared,
+            session: Arc::new(OnceLock::new()),
+        }
+    }
+
+    /// Counts this handler's session as one of agent `name`'s (#641), once: a second
+    /// `initialize` on the same session changes nothing.
+    pub fn open_session(&self, name: &str) {
+        if self.session.get().is_some() {
+            return;
+        }
+        if let Some(shared) = self.shared.upgrade() {
+            // A guard that loses the race drops at once: its count ends with it.
+            let _ = self.session.set(shared.agent_session(name));
         }
     }
 
@@ -210,7 +244,17 @@ impl Handler {
         let Some(shared) = self.shared.upgrade() else {
             return Ok(tool_result(Err(RelayError::Absent)));
         };
-        Ok(tool_result(shared.agent_call(agent, command).await))
+        // Outside a session, nothing will say the agent left but its silence (#641). The lease
+        // is taken again once the call ends: a call that waited for the page counts from then.
+        let stateless = self.session.get().is_none();
+        if stateless {
+            shared.agent_called(agent);
+        }
+        let result = shared.agent_call(agent, command).await;
+        if stateless {
+            shared.agent_called(agent);
+        }
+        Ok(tool_result(result))
     }
 }
 
@@ -219,6 +263,18 @@ impl ServerHandler for Handler {
         InitializeResult::new(ServerCapabilities::builder().enable_tools().build())
             .with_server_info(Implementation::new("faulk", env!("CARGO_PKG_VERSION")))
             .with_instructions(INSTRUCTIONS)
+    }
+
+    async fn initialize(
+        &self,
+        request: InitializeRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<InitializeResult, rmcp::ErrorData> {
+        // rmcp's own `initialize`, then the session counts its agent (#641).
+        context.peer.set_peer_info(request.clone());
+        let result = self.negotiate_initialize(&request)?;
+        self.open_session(&agent_name(Some(request.client_info.name.as_str())));
+        Ok(result)
     }
 
     async fn list_tools(
@@ -255,13 +311,18 @@ pub struct McpHttp(Mcp);
 impl McpHttp {
     pub fn new(shared: &Arc<Shared>) -> Self {
         let port = shared.policy.port;
-        let handler = Handler::new(shared);
+        let weak = Arc::downgrade(shared);
         let config = StreamableHttpServerConfig::default()
             .with_allowed_hosts([format!("127.0.0.1:{port}"), format!("localhost:{port}")])
             .enforce_origin_validation();
+        // An idle session ends after the agents' idle time (#641): the agent counts as gone.
+        let mut sessions = LocalSessionManager::default();
+        sessions.session_config.keep_alive = Some(shared.agent_idle());
+        // A new handler for each session and each stateless request: a session's count of its
+        // agent is its own (#641).
         Self(StreamableHttpService::new(
-            move || Ok(handler.clone()),
-            Arc::new(LocalSessionManager::default()),
+            move || Ok(Handler::with_weak(weak.clone())),
+            Arc::new(sessions),
             config,
         ))
     }
@@ -369,6 +430,13 @@ mod tests {
     fn the_instructions_say_how_long_a_turn_waits() {
         let seconds = commands::history::TURN_GAP_MS / 1000;
         assert!(INSTRUCTIONS.contains(&format!("after {seconds} s without an edit")));
+    }
+
+    #[test]
+    fn the_instructions_say_when_an_agent_counts_as_gone() {
+        let minutes = crate::agents::AGENT_IDLE.as_secs() / 60;
+        assert_eq!(crate::agents::AGENT_IDLE.as_secs() % 60, 0);
+        assert!(INSTRUCTIONS.contains(&format!("{minutes} minutes pass without a request")));
     }
 
     #[test]

@@ -40,27 +40,41 @@
   } as const
 
   let cancel = $state<HTMLButtonElement | null>(null)
+  let linkCancel = $state<HTMLButtonElement | null>(null)
+  // A question is shown while there is one: its dialog is made then and removed after, and each takes the focus on its
+  // safe answer. Closing gives the focus back where it was (the browser does it for a modal dialog).
   $effect(() => {
     if (storage.confirm) cancel?.focus()
   })
-  let linkCancel = $state<HTMLButtonElement | null>(null)
   $effect(() => {
     if (storage.linkOffer && !storage.confirm) linkCancel?.focus()
   })
+
+  /** Opens the dialog as a native modal one: above any other modal dialog (Go to, Shortcuts, Save as…), which goes inert behind it. */
+  function modal(node: HTMLDialogElement) {
+    node.showModal()
+    return {
+      destroy() {
+        if (node.open) node.close()
+      },
+    }
+  }
 
   function answerLink(open: boolean) {
     const url = storage.answerLink(open)
     if (url) dispatcher.run(openUrl(url))
   }
 
-  function onKeyDown(event: KeyboardEvent) {
-    if (event.key !== 'Escape') return
+  /** Escape: the browser would close the dialog; the question is answered no instead. */
+  function onCancelConfirm(event: Event) {
+    event.preventDefault()
     if (storage.confirm) storage.respond(false)
-    else if (storage.linkOffer) answerLink(false)
+  }
+  function onCancelLink(event: Event) {
+    event.preventDefault()
+    if (storage.linkOffer) answerLink(false)
   }
 </script>
-
-<svelte:window onkeydown={onKeyDown} />
 
 {#if storage.banner === 'reopen' && storage.reopen}
   <p class="banner" role="status" data-testid="reopen-banner">
@@ -130,41 +144,57 @@
   </p>
 {/if}
 
+<!-- Native modal dialogs, like the agents' question (`AgentConfirm.svelte`): they open above any other modal dialog (Go to,
+     Shortcuts, Save as…), whose page goes inert behind them, and Escape answers no. -->
 {#if storage.linkOffer && !storage.confirm}
-  <div class="overlay">
-    <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="link-title" aria-describedby="link-body" data-testid="open-link">
-      <h2 id="link-title">{t('openUrl.confirm.title', { host: storage.linkOffer.host })}</h2>
-      <p id="link-body">{t('openUrl.confirm.body')}</p>
-      <p class="link" data-testid="open-link-url">{storage.linkOffer.url}</p>
-      <div class="actions">
-        <button bind:this={linkCancel} data-testid="open-link-cancel" onclick={() => answerLink(false)}>{t('confirm.cancel')}</button>
-        <button class="primary" data-testid="open-link-open" onclick={() => answerLink(true)}>{t('openUrl.confirm.open')}</button>
-      </div>
+  <dialog
+    use:modal
+    class="dialog"
+    role="alertdialog"
+    aria-modal="true"
+    aria-labelledby="link-title"
+    aria-describedby="link-body"
+    data-testid="open-link"
+    oncancel={onCancelLink}
+  >
+    <h2 id="link-title">{t('openUrl.confirm.title', { host: storage.linkOffer.host })}</h2>
+    <p id="link-body">{t('openUrl.confirm.body')}</p>
+    <p class="link" data-testid="open-link-url">{storage.linkOffer.url}</p>
+    <div class="actions">
+      <button bind:this={linkCancel} data-testid="open-link-cancel" onclick={() => answerLink(false)}>{t('confirm.cancel')}</button>
+      <button class="primary" data-testid="open-link-open" onclick={() => answerLink(true)}>{t('openUrl.confirm.open')}</button>
     </div>
-  </div>
+  </dialog>
 {/if}
 
 {#if storage.confirm}
-  <div class="overlay">
-    <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirm-body" data-testid="confirm">
-      <h2 id="confirm-title">{t(TITLES[storage.confirm.action])}</h2>
-      <p id="confirm-body">
-        {#if storage.confirm.action === 'delete'}
-          {t('confirm.delete.body', { name: storage.confirm.name ?? '' })}
-        {:else if storage.confirm.action === 'keepMine'}
-          {t('confirm.keepMine.body', { name: storage.confirm.name ?? '' })}
-        {:else if storage.confirm.action === 'loadFolder'}
-          {t('confirm.loadFolder.body', { name: storage.confirm.name ?? '' })}
-        {:else}
-          {storage.confirm.name ? t('confirm.bodyFolder', { name: storage.confirm.name }) : t('confirm.body')}
-        {/if}
-      </p>
-      <div class="actions">
-        <button bind:this={cancel} class="primary" data-testid="confirm-cancel" onclick={() => storage.respond(false)}>{t('confirm.cancel')}</button>
-        <button data-testid="confirm-discard" onclick={() => storage.respond(true)}>{t(CONFIRMS[storage.confirm.action])}</button>
-      </div>
+  <dialog
+    use:modal
+    class="dialog"
+    role="alertdialog"
+    aria-modal="true"
+    aria-labelledby="confirm-title"
+    aria-describedby="confirm-body"
+    data-testid="confirm"
+    oncancel={onCancelConfirm}
+  >
+    <h2 id="confirm-title">{t(TITLES[storage.confirm.action])}</h2>
+    <p id="confirm-body">
+      {#if storage.confirm.action === 'delete'}
+        {t('confirm.delete.body', { name: storage.confirm.name ?? '' })}
+      {:else if storage.confirm.action === 'keepMine'}
+        {t('confirm.keepMine.body', { name: storage.confirm.name ?? '' })}
+      {:else if storage.confirm.action === 'loadFolder'}
+        {t('confirm.loadFolder.body', { name: storage.confirm.name ?? '' })}
+      {:else}
+        {storage.confirm.name ? t('confirm.bodyFolder', { name: storage.confirm.name }) : t('confirm.body')}
+      {/if}
+    </p>
+    <div class="actions">
+      <button bind:this={cancel} class="primary" data-testid="confirm-cancel" onclick={() => storage.respond(false)}>{t('confirm.cancel')}</button>
+      <button data-testid="confirm-discard" onclick={() => storage.respond(true)}>{t(CONFIRMS[storage.confirm.action])}</button>
     </div>
-  </div>
+  </dialog>
 {/if}
 
 <style>
@@ -204,20 +234,16 @@
   button.primary:hover {
     background: var(--fk-accent-strong);
   }
-  .overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 50;
-    display: grid;
-    place-items: center;
-    background: rgb(0 0 0 / 0.5);
-  }
   .dialog {
     width: min(420px, calc(100vw - 32px));
     padding: var(--fk-space-5, 20px);
     border: 1px solid var(--fk-line);
     border-radius: var(--fk-radius);
     background: var(--fk-surface);
+    color: var(--fk-text);
+  }
+  .dialog::backdrop {
+    background: rgb(0 0 0 / 0.5);
   }
   h2 {
     margin: 0 0 var(--fk-space-2);

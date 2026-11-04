@@ -339,6 +339,25 @@ export class UiStore {
     this.showLanes('master')
   }
 
+  /**
+   * A one-shot request from the Clips panel (#624) that the arrangement select the placements it just made and give the
+   * first one the keyboard focus, so that the next key (Ctrl+Shift+R, Ctrl+D, Delete) applies to them. `ArrangementView`
+   * consumes it with `takePlacedRequest()`; a second request before the first is consumed replaces it.
+   */
+  placedRequest = $state<string[] | null>(null)
+
+  /** Asks the arrangement to select and focus these placements, once. */
+  showPlaced(ids: string[]) {
+    this.placedRequest = ids.length > 0 ? ids : null
+  }
+
+  /** Reads and clears the pending placements request: their ids, or `null` when none was pending. */
+  takePlacedRequest(): string[] | null {
+    const ids = this.placedRequest
+    this.placedRequest = null
+    return ids
+  }
+
   /** Reads and clears the pending lanes request: the owner to unfold, or `null` when none was pending. */
   takeLanesRequest(): string | null {
     const owner = this.openLanes

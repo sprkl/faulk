@@ -36558,7 +36558,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 31,
+  "protocol_version": 32,
   "server_message": {
     "$defs": {
       "Capabilities": {
@@ -36995,6 +36995,24 @@
           "id",
           "agent",
           "command"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "An agent left (#641): no MCP session of that name is open any more and it made no\nstateless call for `AGENT_IDLE` (`crates/helper`). Its last session ended when the client\nclosed it, when the stdio bridge's input ended, or after `AGENT_IDLE` without a request.\nTwo sessions of one name are one author: the name leaves with its last one. The page\ncloses the history group that agent (`agent:<agent>`) left open, ends its turn and\nwithdraws its questions to the user. Sent on the session and on every control link.",
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "type": {
+            "const": "agent.left",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "agent"
         ],
         "type": "object"
       },
