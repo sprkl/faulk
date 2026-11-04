@@ -113,6 +113,28 @@ vi.mock('../midi/web-midi', () => ({
 
 const { createStores } = await import('./index')
 
+/** An engine report as far as the dispatcher reads it, with `silencedFrames` (#667). */
+const silencedReport = (silencedFrames: number) =>
+  ({
+    seq: 2,
+    epoch: 1,
+    transport: 'stopped',
+    cpuLoad: null,
+    cpuPeak: null,
+    liveOverflows: 0,
+    silencedFrames,
+    voices: 0,
+    tracks: [],
+    master: { peakL: 0, peakR: 0, rmsL: 0, rmsR: 0, gainReductionDb: 0 },
+    clips: [],
+    held: [],
+    recordTake: 0,
+    recordTotal: 0,
+    recordDropped: 0,
+    recordCapturing: false,
+    recorded: [],
+  }) as never
+
 const newSession = () => createStores('arrangement', 'devices')
 
 function address(hash: string) {
@@ -516,27 +538,20 @@ describe('running commands through the project core', () => {
     expect(session.project.params[firstParam]).toBe(0.5)
   })
 
+  it('forgets the frames silenced by a Web engine it stopped, and a new one counts from 0 (#667)', async () => {
+    const session = newSession()
+    await session.dispatcher.start()
+    webEvents!.onFeedback(silencedReport(5))
+    expect(session.engine.silencedFrames).toBe(5)
+    webEvents!.onStreamRefused?.(-3, 0)
+    expect(session.engine.silencedFrames).toBe(0)
+    await session.dispatcher.start()
+    webEvents!.onFeedback(silencedReport(2))
+    expect(session.engine.silencedFrames).toBe(2)
+  })
+
   it('shows the frames silenced by the engine that plays: from 0 in Web, from its first report for a helper (#667)', async () => {
-    const report = (silencedFrames: number) =>
-      ({
-        seq: 2,
-        epoch: 1,
-        transport: 'stopped',
-        cpuLoad: null,
-        cpuPeak: null,
-        liveOverflows: 0,
-        silencedFrames,
-        voices: 0,
-        tracks: [],
-        master: { peakL: 0, peakR: 0, rmsL: 0, rmsR: 0, gainReductionDb: 0 },
-        clips: [],
-        held: [],
-        recordTake: 0,
-        recordTotal: 0,
-        recordDropped: 0,
-        recordCapturing: false,
-        recorded: [],
-      }) as never
+    const report = silencedReport
     nativeEngine = {
       kind: 'native',
       status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
