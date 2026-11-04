@@ -377,3 +377,38 @@ fn a_three_minute_song_renders_much_faster_than_it_plays() {
     exported.render().assert_clean();
     assert!(seconds > 180.0);
 }
+
+/// What the content measured (#665) is the signal: the master's RMS is the RMS of the file (the
+/// limiter is idle on this song), a muted track reads silent while the other sounds, and the
+/// figures are of the content only.
+#[test]
+fn the_levels_measured_are_the_signal_and_follow_the_mute() {
+    use commands::{Command, mixer};
+    let state = demo_song(2, None);
+    let loud = song(&state);
+    let r = loud.render();
+    let rms_file = f64::from(r.rms_in(0.0..4.0));
+    let strips: Vec<_> = loud.levels.as_chunks::<4>().0.iter().collect();
+    let master = strips.last().unwrap();
+    let rms_master = f64::from(master[2]).hypot(f64::from(master[3])) / 2f64.sqrt();
+    assert!(
+        (rms_master - rms_file).abs() < 0.02 * rms_file,
+        "master rms {rms_master}, file rms {rms_file}"
+    );
+    assert_eq!(loud.measured_frames, loud.body_frames);
+    let tracks = strips.len() - 1;
+    assert!(tracks >= 2);
+    assert!(strips[..tracks].iter().all(|s| s[0] > 0.001), "both sound");
+
+    // Mute the first track in display order: its slot reads silent, the other does not.
+    let first = state.project.tracks_in_order()[0].0.clone();
+    let mut session = test_support::Session::from_state(state, commands::testing::context());
+    session.exec(Command::Mixer(mixer::Command::SetMute {
+        track: first,
+        mute: true,
+    }));
+    let muted = song(session.state());
+    let strips: Vec<_> = muted.levels.as_chunks::<4>().0.iter().collect();
+    assert_eq!(*strips[0], [0.0; 4], "the muted track");
+    assert!(strips[1][0] > 0.001, "the other track still sounds");
+}

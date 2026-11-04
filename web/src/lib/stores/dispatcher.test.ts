@@ -2610,6 +2610,87 @@ describe("an agent's destructive calls wait for the user's answer in the page (A
     expect(session.storage.confirm).toBeNull()
   })
 
+  it('answers mixer.levels from the meters held since the last call, in dBFS, and changes nothing (#665)', async () => {
+    const session = await started()
+    const slots = session.project.view!.slots
+    const slot = slots.tracks[SINGLE_SYNTH.track]!
+    const m = (peak: number) => ({ peakL: peak, peakR: peak, rmsL: peak / 2, rmsR: peak / 2, gainReductionDb: 0 })
+    const tracks = Array.from({ length: slot + 1 }, (_, i) => m(i === slot ? 0.5 : 0))
+    session.engine.started = true
+    session.dispatcher.levelHold.feed({ epoch: slots.epoch, transport: 'playing', tracks, master: m(1) } as never, performance.now())
+    const history = session.dispatcher.history().undo.length
+    const first = await session.dispatcher.runForAgent({ type: 'mixer.levels' }, 'agent:a')
+    if (first.status !== 'applied') throw new Error(JSON.stringify(first))
+    const out = first.output as { playing: boolean; tracks: { track: string; peak_db: number | null }[]; master: { peak_db: number | null } }
+    expect(out.playing).toBe(true)
+    expect(out.master.peak_db).toBeCloseTo(0, 6)
+    expect(out.tracks.find((t) => t.track === SINGLE_SYNTH.track)!.peak_db).toBeCloseTo(20 * Math.log10(0.5), 6)
+    expect(session.dispatcher.history().undo).toHaveLength(history)
+    // Taken: nothing heard since.
+    const second = await session.dispatcher.runForAgent({ type: 'mixer.levels' }, 'agent:a')
+    expect(second).toMatchObject({ status: 'applied', output: { playing: true, master: { peak_db: null } } })
+  })
+
+  describe('project.analyze_render (#665)', () => {
+    const levels = {
+      frames: 192_000,
+      tracks: [{ peak_l: 0.5, peak_r: 0.5, rms_l: 0.1, rms_r: 0.1 }],
+      master: { peak_l: 0.5, peak_r: 0.5, rms_l: 0.1, rms_r: 0.1 },
+      silenced: 2,
+      reduction: 0,
+    }
+    async function withSong(outcome: (...args: never[]) => Promise<unknown>) {
+      const session = await started()
+      const run = (command: Command) => session.dispatcher.run(command, { quiet: true })
+      run({ type: 'clip.create', track: SINGLE_SYNTH.track, at: { at: 'arrangement', start: 0 }, length: 7680 } as Command)
+      const analyzer = { busy: false, run: vi.fn(outcome) }
+      session.dispatcher.analyzer = analyzer as never
+      return { session, analyzer }
+    }
+
+    it('renders offline, stages what it measured and answers, changing nothing', async () => {
+      const { session, analyzer } = await withSong(async () => ({ status: 'done', levels }))
+      const history = session.dispatcher.history().undo.length
+      const result = await session.dispatcher.runForAgent({ type: 'project.analyze_render' }, 'agent:a')
+      if (result.status !== 'applied') throw new Error(JSON.stringify(result))
+      expect(analyzer.run).toHaveBeenCalledTimes(1)
+      const out = result.output as { silenced_frames: number; master: { peak_db: number }; tracks: { peak_db: number | null }[] }
+      expect(out.silenced_frames).toBe(2)
+      expect(out.master.peak_db).toBeCloseTo(20 * Math.log10(0.5), 6)
+      expect(out.tracks[0].peak_db).toBeCloseTo(20 * Math.log10(0.5), 6)
+      expect(session.dispatcher.history().undo).toHaveLength(history)
+      // Nothing is left staged for a later call.
+      expect(await session.dispatcher.runForAgent({ type: 'project.analyze_render' }, 'agent:a')).toMatchObject({ status: 'applied' })
+    })
+
+    it('refuses an empty range before any render, and a bound range over the limit', async () => {
+      const { session, analyzer } = await withSong(async () => ({ status: 'done', levels }))
+      const refused = await session.dispatcher.runForAgent({ type: 'project.analyze_render', from_bar: 90, to_bar: 91 } as Command, 'agent:a')
+      expect(refused).toMatchObject({ status: 'refused', error: { code: 'invalid' } })
+      const bad = await session.dispatcher.runForAgent({ type: 'project.analyze_render', from_bar: 2 } as Command, 'agent:a')
+      expect(bad).toMatchObject({ status: 'refused' })
+      expect(analyzer.run).not.toHaveBeenCalled()
+    })
+
+    it('answers unavailable, with nothing staged, when the render is busy, cancelled, or failed', async () => {
+      for (const outcome of [{ status: 'busy' }, { status: 'aborted' }, { status: 'failed', reason: 'boom' }]) {
+        const { session } = await withSong(async () => outcome)
+        const result = await session.dispatcher.runForAgent({ type: 'project.analyze_render' }, 'agent:a')
+        expect(result, outcome.status).toMatchObject({ status: 'unavailable' })
+        // A later call with a working render still measures.
+        session.dispatcher.analyzer = { busy: false, run: async () => ({ status: 'done', levels }) } as never
+        expect(await session.dispatcher.runForAgent({ type: 'project.analyze_render' }, 'agent:a')).toMatchObject({ status: 'applied' })
+      }
+    })
+
+    it('does not start while another analysis runs or the page exports a file', async () => {
+      const { session, analyzer } = await withSong(async () => ({ status: 'done', levels }))
+      analyzer.busy = true
+      expect(await session.dispatcher.runForAgent({ type: 'project.analyze_render' }, 'agent:a')).toMatchObject({ status: 'unavailable' })
+      expect(analyzer.run).not.toHaveBeenCalled()
+    })
+  })
+
   it('runs at once what can be undone, track.delete included: one undo brings it back', async () => {
     const session = await started()
     const result = await session.dispatcher.runForAgent({ type: 'track.delete', track: SINGLE_SYNTH.track } as Command, 'agent:a')
