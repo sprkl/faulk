@@ -160,7 +160,7 @@ Depuis BO-1 (#102), la page tient le projet dans les deux modes. Le helper ne ti
 
 - **Le son ne traverse pas le lien.** Le helper reçoit les octets du moteur (`ControlMsg`) et les fichiers texte du projet à écrire. Ni les blobs, ni les caches PCM, ni les échantillons importés ne passent par le WebSocket (mesuré : un import d'une heure en Boost envoie 32 octets au helper, § 5.9).
 - **L'import (AU-1) tourne dans la page, dans les deux modes.** Le pipeline est dans le Worker du magasin de projet (`web/src/lib/audio/import/`, `web/src/lib/storage/worker.ts`) et écrit `blobs/` et `.faulk/cache/pcm/` dans le dossier que la page tient. Le helper n'intervient pas.
-- **Les lectures disque (AU-3) tournent dans la page.** Le planificateur et ses lectures sont dans le Worker de préparation de la page (`web/src/lib/audio/stream/executor.ts`, `web/src/lib/engine/prepare-worker.ts`), qui lit `blobs/<sha256>` et le cache PCM du dossier qui lui a été remis. En Boost, le moteur Web est suspendu (`web/src/lib/stores/dispatcher.ts`, `web.suspend()`) : le son vient du moteur du helper.
+- **Les lectures disque (AU-3) tournent dans la page.** Le planificateur et ses lectures sont dans le Worker de préparation de la page (`web/src/lib/audio/stream/executor.ts`, `web/src/lib/engine/prepare-worker.ts`), qui lit `blobs/<sha256>` et le cache PCM du dossier qui lui a été remis. En Boost, le moteur Web est suspendu (`web/src/lib/stores/dispatcher.ts`, `web.suspend()`) et le son vient du moteur du helper ; ce qu'advient alors du Worker de préparation de la page n'est pas vérifié ici.
 - **La lecture native n'est pas encore faite (AU-7, #116).** Le moteur du helper n'a pas de dossier : ses sources restent hors ligne (comptées dans `offline_sources`) et ses clips audio sont muets en Boost. Le helper ne lit aucun fichier audio.
 - **Les écritures.** En Boost, c'est la page qui écrit le dossier ; le helper n'en a pas. L'implémentation « helper » de `ProjectStore` n'existe pas encore.
 - **Les projets du navigateur (OPFS).** Un projet OPFS reste dans le navigateur. Son ouverture par le helper, par un export `.faulkpack` puis un dossier, est à AU-7 ([découpage du MVP](../specs/02-decoupage-mvp.md), SV-3).
@@ -175,7 +175,7 @@ Reste à AU-7 ([découpage du MVP](../specs/02-decoupage-mvp.md)) : le choix de 
 | --- | --- |
 | Chrome / Edge bureau | **Dossier réel** choisi par l'utilisateur (défaut, décision du 2026-10-14), poignée en IndexedDB, permission « à chaque visite » encouragée. Caches en OPFS ou dans `.faulk/cache/`. Tâche SV-2. |
 | Firefox / Safari, ou dossier refusé | **OPFS** + `navigator.storage.persist()` + export/import `.faulkpack` (archive zip du dossier). Avertissement clair : « vos projets sont dans le navigateur ; exportez-les ». Tâche SV-3. |
-| Mode Boost (tous navigateurs) | Dossier réel, ouvert et écrit par le helper pour le compte de la page. Tâche AU-7. |
+| Mode Boost (tous navigateurs) | Pas encore livré : depuis BO-1 le helper ne tient aucun dossier (la page l'écrit). Le helper lira les blobs du dossier pour la lecture native. Tâche AU-7 (voir § 4). |
 
 Une **seule abstraction de stockage** dans le Worker disque (`ProjectStore` : lister, lire une plage, écrire atomiquement, observer), avec trois implémentations : dossier File System Access, OPFS, helper. Le format du dossier est identique dans les trois cas : un projet OPFS exporté est un dossier de projet ordinaire.
 
