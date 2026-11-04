@@ -147,6 +147,13 @@ pub fn examples() -> Vec<(Command, State)> {
             length: None,
             offset: None,
         }),
+        // An audio clip of the audio track, whole.
+        on(arrangement::Command::Place {
+            clip: f.audio_clip.clone(),
+            start: Tick(3840),
+            length: None,
+            offset: None,
+        }),
         // Over A (cut on its right) and B (trimmed at the front).
         on(arrangement::Command::Place {
             clip: f.straight.clone(),
@@ -336,5 +343,35 @@ pub fn examples() -> Vec<(Command, State)> {
         let (state, restore) = after(f.state.clone(), &a(command));
         all.push((restore, state));
     }
+    // An audio placement: its delete, with a MIDI one in the same command, and the restore
+    // that brings it back.
+    let (placed, audio) = with_audio_placement(&f);
+    let delete = a(arrangement::Command::Delete {
+        placements: vec![audio, f.b.clone()],
+    });
+    all.push((delete.clone(), placed.clone()));
+    let (state, restore) = after(placed, &delete);
+    all.push((restore, state));
     all
+}
+
+/// The fixture's state with a placement of its audio clip (22 050 frames from frame
+/// 11 025, at tick 3840).
+pub fn with_audio_placement(f: &ArFx) -> (State, PlacementId) {
+    let mut state = f.state.clone();
+    let mut ids = ::project::IdGenerator::new(1_680_000_000_000, 0x00DD_3333_0000_0000_0000);
+    let id = PlacementId::generate(&mut ids);
+    track_mut(&mut state, &f.audio_track).placements.insert(
+        id.clone(),
+        Placement {
+            clip: f.audio_clip.clone(),
+            start: Tick(3840),
+            span: Span::Frames {
+                length: ::project::Frame::new(22_050),
+                offset: ::project::Frame::new(11_025),
+            },
+        },
+    );
+    state.project.validate().unwrap();
+    (state, id)
 }

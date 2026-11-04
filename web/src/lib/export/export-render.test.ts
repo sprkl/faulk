@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { SINGLE_SYNTH, type Command } from '../generated/protocol'
 import { coreModule, ProjectCore, type ExportRequest } from '../project/core'
+import type { Dir } from '../audio/stream/executor'
 import { renderExport, type FromExport, type ToExport } from './export-render'
 
 const engine = new Uint8Array(readFileSync(new URL('../engine/wasm/engine.wasm', import.meta.url))).buffer
@@ -32,7 +33,7 @@ function song(): ProjectCore {
 }
 
 /** Runs the render as the Worker does and returns what it posted. */
-async function render(core: ProjectCore, request: ExportRequest, room?: () => Promise<void>) {
+async function render(core: ProjectCore, request: ExportRequest, room?: () => Promise<void>, folder: Dir | null = null) {
   const job = core.exportJob(request)
   if (job.status !== 'ready') throw new Error(`not ready: ${JSON.stringify(job)}`)
   const messages: FromExport[] = []
@@ -43,7 +44,9 @@ async function render(core: ProjectCore, request: ExportRequest, room?: () => Pr
     bits: { pcm16: 16, pcm24: 24, float32: 32 }[job.plan.settings.bit_depth],
     bodyFrames: job.plan.body_frames,
     setup: job.setup.slice().buffer,
+    start: job.start.slice().buffer,
     stop: job.stop.slice().buffer,
+    folder: folder as unknown as FileSystemDirectoryHandle | null,
   }
   await renderExport(start, (message) => messages.push(message), room)
   return { job, messages }
@@ -96,6 +99,8 @@ describe('the export render', () => {
     expect(done.clipped).toBe(0)
     // A mix under the ceiling never engages the output limiter, so the gain reduction is 0 (#402).
     expect(done.reduction).toBe(0)
+    // The shipped module's count of frames the output protection silenced for a non-finite sample: a number, 0 on a clean song.
+    expect(done.silenced).toBe(0)
   })
 
   it('reports its progress up to the end of the song, then the tail', async () => {
@@ -136,7 +141,9 @@ describe('the export render', () => {
         bits: 24,
         bodyFrames: job.plan.body_frames,
         setup: job.setup.slice().buffer,
+        start: job.start.slice().buffer,
         stop: job.stop.slice().buffer,
+        folder: null,
       },
       (message) => messages.push(message),
       () => (++gates <= 2 ? Promise.resolve() : new Promise<void>((resolve) => (release = resolve))),
@@ -172,6 +179,53 @@ describe('the export render', () => {
     expect(core.exportJob({ region: 'loop' }).status).toBe('refused')
   })
 
+  it('measures the content only, posts no chunk, and project.analyze_render answers with it (#665)', async () => {
+    const core = song()
+    const job = core.exportJob({ analysis: true })
+    if (job.status !== 'ready') throw new Error(`not ready: ${JSON.stringify(job)}`)
+    const messages: FromExport[] = []
+    await renderExport(
+      {
+        type: 'start',
+        module: engine.slice(0),
+        sampleRate: job.plan.settings.sample_rate,
+        bits: 24,
+        bodyFrames: job.plan.body_frames,
+        setup: job.setup.slice().buffer,
+        start: job.start.slice().buffer,
+        folder: null,
+        stop: job.stop.slice().buffer,
+        analysis: true,
+      },
+      (message) => messages.push(message),
+    )
+    expect(messages.map((m) => m.type)).toEqual(['done'])
+    const done = messages[0]
+    if (done.type !== 'done' || !done.levels) throw new Error('levels')
+    expect(done.levels.frames).toBe(job.plan.body_frames)
+    expect(done.levels.master.peak_l).toBeGreaterThan(0.01)
+    expect(done.levels.silenced).toBe(0)
+    // The core names the tracks from what the page stages.
+    core.stageAnalysis({
+      start_tick: job.plan.start_tick,
+      end_tick: job.plan.end_tick,
+      slots: job.tracks,
+      tracks: done.levels.tracks,
+      master: done.levels.master,
+      silenced_frames: done.levels.silenced,
+      reduction: done.levels.reduction,
+    })
+    const { report } = core.run({ type: 'project.analyze_render' })
+    if (report.status !== 'applied' || report.output.type !== 'project.analyze_render') throw new Error(JSON.stringify(report))
+    expect(report.output.tracks).toHaveLength(1)
+    expect(report.output.tracks[0].peak_db).toBeGreaterThan(-60)
+    expect(report.output.silenced_frames).toBe(0)
+    // Taken once.
+    expect(core.run({ type: 'project.analyze_render' }).report.status).toBe('refused')
+    // An analysis takes only the bars.
+    expect(core.exportJob({ analysis: true, region: 'loop' }).status).toBe('refused')
+  })
+
   it('posts an error, not a file, when the engine is given a stream it refuses', async () => {
     const core = song()
     const job = core.exportJob({})
@@ -186,7 +240,9 @@ describe('the export render', () => {
         bits: 24,
         bodyFrames: 192_000,
         setup: job.setup.slice(0, 30).buffer,
+        start: job.start.slice().buffer,
         stop: job.stop.slice().buffer,
+        folder: null,
       },
       (message) => messages.push(message),
     )
@@ -195,9 +251,101 @@ describe('the export render', () => {
     // A length the engine refuses.
     const refused: FromExport[] = []
     await renderExport(
-      { type: 'start', module: engine.slice(0), sampleRate: 48_000, bits: 24, bodyFrames: 0, setup: job.setup.slice().buffer, stop: job.stop.slice().buffer },
+      {
+        type: 'start',
+        module: engine.slice(0),
+        sampleRate: 48_000,
+        bits: 24,
+        bodyFrames: 0,
+        setup: job.setup.slice().buffer,
+        start: job.start.slice().buffer,
+        stop: job.stop.slice().buffer,
+        folder: null,
+      },
       (m) => refused.push(m),
     )
     expect(refused[0]).toMatchObject({ type: 'error' })
+  })
+})
+
+// #647: an audio clip, read from the project folder by the executor the live engine uses.
+const MEDIA = '47'.repeat(32)
+const TONE_RATE = 44_100
+const TONE_SECONDS = 3
+
+/** A mono 16-bit WAV of a 440 Hz sine at half scale. */
+function toneWav(): Uint8Array {
+  const frames = TONE_RATE * TONE_SECONDS
+  const view = new DataView(new ArrayBuffer(44 + frames * 2))
+  const text = (at: number, s: string) => [...s].forEach((c, i) => view.setUint8(at + i, c.charCodeAt(0)))
+  text(0, 'RIFF')
+  view.setUint32(4, 36 + frames * 2, true)
+  text(8, 'WAVEfmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, TONE_RATE, true)
+  view.setUint32(28, TONE_RATE * 2, true)
+  view.setUint16(32, 2, true)
+  view.setUint16(34, 16, true)
+  text(36, 'data')
+  view.setUint32(40, frames * 2, true)
+  for (let f = 0; f < frames; f++) view.setInt16(44 + f * 2, Math.round(Math.sin((f * 440 * 2 * Math.PI) / TONE_RATE) * 16_384), true)
+  return new Uint8Array(view.buffer)
+}
+
+/** A project folder holding `blobs/<MEDIA>`, as a directory handle gives it. */
+function folderWith(blob: Uint8Array): Dir {
+  const file = new File([blob.slice().buffer], MEDIA)
+  const dir = (entries: Record<string, Dir | File>): Dir => ({
+    getDirectoryHandle: async (name) => {
+      const entry = entries[name]
+      if (!entry || entry instanceof File) throw new DOMException(name, 'NotFoundError')
+      return entry
+    },
+    getFileHandle: async (name) => {
+      const entry = entries[name]
+      if (!(entry instanceof File)) throw new DOMException(name, 'NotFoundError')
+      return { getFile: async () => entry }
+    },
+  })
+  return dir({ blobs: dir({ [MEDIA]: file }) })
+}
+
+/** A core whose audio track has the tone placed at the start of the arrangement. */
+function audioSong(): ProjectCore {
+  const core = ProjectCore.create(module, 'single_synth', 1, seed)
+  const created = core.run({ type: 'track.create', kind: 'audio' })
+  if (created.report.status !== 'applied' || created.report.output.type !== 'track.create') throw new Error(JSON.stringify(created.report))
+  const track = created.report.output.track
+  core.stageMedia({ hash: MEDIA, sample_rate: TONE_RATE, channels: 1, frames: TONE_RATE * TONE_SECONDS, name: 'tone.wav' })
+  const placed = core.run({ type: 'clip.import_audio', track, media: MEDIA, at: { at: 'arrangement', start: 0 } })
+  if (placed.report.status !== 'applied') throw new Error(JSON.stringify(placed.report))
+  return core
+}
+
+describe('the export of audio clips (#647)', () => {
+  it('reads the clip from the project folder and renders it at its level, waiting for the reads', async () => {
+    let gates = 0
+    const { job, messages } = await render(audioSong(), { bit_depth: 'pcm16' }, async () => void gates++, folderWith(toneWav()))
+    const { done, view } = wav(messages)
+    expect(done.missing).toEqual([])
+    // Three seconds of the tone, resampled to 48 kHz.
+    expect(job.plan.body_frames).toBe(3 * 48_000)
+    const sample = (frame: number) => Math.abs(view.getInt16(44 + frame * 4, true) / 32_768)
+    const peak = (from: number, to: number) => Math.max(...Array.from({ length: to - from }, (_, i) => sample(from + i)))
+    // At half scale from its first milliseconds to its end, past the handover from the preload.
+    for (const second of [0.1, 1, 2, 2.9]) expect(peak(second * 48_000, second * 48_000 + 960)).toBeCloseTo(0.5, 1)
+    // Only the chunks with bytes, the ones the page acknowledges, take room.
+    const full = messages.filter((m) => m.type === 'chunk' && m.bytes.byteLength > 0)
+    expect(gates).toBe(full.length)
+    expect(messages.some((m) => m.type === 'chunk' && m.bytes.byteLength === 0)).toBe(true)
+  })
+
+  it('renders a clip whose file is missing as silence and names its media', async () => {
+    const { messages } = await render(audioSong(), { bit_depth: 'pcm16' }, undefined, null)
+    const { done } = wav(messages)
+    expect(done.missing).toEqual([MEDIA])
+    expect(done.peak).toBe(0)
   })
 })

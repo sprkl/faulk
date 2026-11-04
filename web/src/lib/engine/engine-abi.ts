@@ -56,6 +56,8 @@ export interface ExportExports extends EngineExports {
   fk_export_inbox(ex: number, len: number): number
   fk_export_submit(ex: number, len: number): number
   fk_export_set_stop(ex: number, len: number): number
+  /** The stream that starts the transport after the pre-roll (#647). */
+  fk_export_set_start(ex: number, len: number): number
   /** Renders up to `maxFrames`: the phase after (0 content, 1 tail, 2 done) or an error code. */
   fk_export_step(ex: number, maxFrames: number): number
   fk_export_pcm(ex: number): number
@@ -65,9 +67,24 @@ export interface ExportExports extends EngineExports {
   /**
    * 0 rendered, 1 written, 2 content frames, 3 peak (linear), 4 clipped, 5 tail cut,
    * 6 header bytes, 7 the output protection's peak gain reduction (linear, 0 = never engaged; #402),
-   * 8 the count of frames the protection silenced for a non-finite sample (0 on a clean render; #402).
+   * 8 the count of frames the protection silenced for a non-finite sample (0 on a clean render; #402),
+   * 9 the render waits for disk reads (0 or 1; #647), 10 blocks an audio clip lacked frames, 11 steps that waited for the disk,
+   * 12 the frames the content measured, 13 the frames silenced and 14 the peak gain reduction over the content only (-1 before the content is rendered; #665).
    */
   fk_export_stat(ex: number, which: number): number
+  /** The disk reads the render waits for (#647): their count, the table at `fk_export_disk_table`. */
+  fk_export_disk_jobs(ex: number): number
+  fk_export_disk_table(ex: number): number
+  fk_export_disk_inbox(ex: number, len: number): number
+  fk_export_disk_done(ex: number, id: number, len: number, fileLen: number): number
+  fk_export_disk_failed(ex: number, id: number, code: number): void
+  /** The media that could not be read (#647): their count, 32 bytes each at `fk_export_missing_table`. */
+  fk_export_missing(ex: number): number
+  fk_export_missing_table(ex: number): number
+  /** The content's levels: four f32 per strip (peak L, peak R, RMS L, RMS R, linear), the tracks by slot then the output; 0 before the content is rendered (#665). */
+  fk_export_levels(ex: number): number
+  /** The number of strips `fk_export_levels` holds (the tracks, then the output). */
+  fk_export_levels_len(ex: number): number
 }
 
 /** Roles of the two instances, for the module's allocation counters. */

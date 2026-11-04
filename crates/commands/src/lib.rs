@@ -15,6 +15,7 @@ pub mod describe;
 pub mod engine_msgs;
 pub mod export;
 pub mod host;
+pub mod levels;
 pub(crate) mod macros;
 pub mod testing;
 

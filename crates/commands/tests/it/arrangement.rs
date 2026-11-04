@@ -822,21 +822,9 @@ fn restoring_brings_back_what_the_rule_carved_with_the_same_identifiers() {
 }
 
 #[test]
-fn audio_is_refused_and_so_is_everything_that_leaves_the_timeline() {
+fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
     let f = fx();
     use arrangement::Command as C;
-    let cases = [
-        // A clip of an audio track.
-        C::Place {
-            clip: f.audio_clip.clone(),
-            start: Tick(0),
-            length: None,
-            offset: None,
-        },
-    ];
-    for command in cases {
-        assert!(matches!(refused(&f, command), CommandError::Invalid { .. }));
-    }
     // A clip of the launch grid (AR-5 copies or links it).
     let mut gridded = fx();
     let scene = gridded.state.project.scenes.keys().next().unwrap().clone();
@@ -1033,6 +1021,7 @@ fn audio_is_refused_and_so_is_everything_that_leaves_the_timeline() {
             start: Tick(start),
             length: Tick(length),
             offset: Tick(offset),
+            frames: None,
         };
     let edit = |put: Vec<arrangement::PlacementRecord>,
                 remove: Vec<PlacementId>,
@@ -1246,16 +1235,367 @@ fn audio_is_refused_and_so_is_everything_that_leaves_the_timeline() {
         }],
     };
     invalid(two(Some(scene)));
-    // An audio track has no arrangement here.
+    // An audio track takes back placements only, never clips.
     invalid(C::Restore {
         edits: vec![arrangement::TrackEdit {
             track: f.audio_track.clone(),
             put: vec![],
             remove: vec![],
             clips: vec![],
-            remove_clips: vec![],
+            remove_clips: vec![f.audio_clip.clone()],
         }],
     });
+}
+
+/// An `arrangement.restore` of one audio-track edit.
+fn audio_restore(put: Vec<arrangement::PlacementRecord>, f: &ArFx) -> arrangement::Command {
+    arrangement::Command::Restore {
+        edits: vec![arrangement::TrackEdit {
+            track: f.audio_track.clone(),
+            put,
+            remove: vec![],
+            clips: vec![],
+            remove_clips: vec![],
+        }],
+    }
+}
+
+/// The ticks 44 100 frames take at 44.1 kHz at the state's tempo.
+fn one_second_in_ticks(state: &State) -> i64 {
+    state
+        .project
+        .tempo()
+        .frames_to_ticks(
+            ::project::Frame::new(44_100),
+            ::project::SampleRate::HZ_44100,
+        )
+        .get()
+}
+
+fn place_audio(f: &ArFx, start: i64) -> arrangement::Command {
+    arrangement::Command::Place {
+        clip: f.audio_clip.clone(),
+        start: Tick(start),
+        length: None,
+        offset: None,
+    }
+}
+
+#[test]
+fn placing_an_audio_clip_puts_it_whole_and_undo_removes_it() {
+    let f = fx();
+    let before = f.state.project.clone();
+    let mut state = f.state.clone();
+    let mut ctx = fresh_context();
+    let outcome = run(&a(place_audio(&f, 3840)), &mut state, &mut ctx).unwrap();
+    state.project.validate().unwrap();
+    let Output::Arrangement(arrangement::Output::Place {
+        placement,
+        overwritten,
+    }) = outcome.output
+    else {
+        panic!("not a place output")
+    };
+    assert_eq!(overwritten, 0);
+    let track = &state.project.tracks[&f.audio_track];
+    let placed = &track.placements[&placement];
+    assert_eq!(placed.clip, f.audio_clip);
+    assert_eq!(placed.start, Tick(3840));
+    assert_eq!(
+        placed.span,
+        Span::Frames {
+            length: ::project::Frame::new(44_100),
+            offset: ::project::Frame::new(0),
+        }
+    );
+    assert!(outcome.events.iter().any(|e| matches!(
+        e,
+        ProjectEvent::ArrangementChanged { track } if *track == f.audio_track
+    )));
+    let Undo::Inverse(undo) = outcome.undo else {
+        panic!("no inverse")
+    };
+    run(&undo, &mut state, &mut ctx).unwrap();
+    assert_eq!(state.project, before);
+    // The same clip placed twice is two linked placements, side by side.
+    ok(&mut state, place_audio(&f, 3840));
+    let second = 3840 + one_second_in_ticks(&state);
+    ok(&mut state, place_audio(&f, second));
+    assert_eq!(state.project.tracks[&f.audio_track].placements.len(), 2);
+}
+
+#[test]
+fn placing_an_audio_clip_never_carves_and_refuses_an_overlap() {
+    let f = fx();
+    let (placed, _) = arrangement_examples::with_audio_placement(&f);
+    // The placement plays 22 050 frames from tick 3840: half a second.
+    let second = one_second_in_ticks(&placed);
+    let half = second / 2;
+    for start in [3840, 3840 + half - 1, 3840 - second + 1] {
+        let error = check_refusal(&a(place_audio(&f, start)), &placed, &context()).unwrap();
+        assert!(
+            matches!(&error, CommandError::Invalid { message, .. } if message.contains("overlap")),
+            "{start}: {error:?}"
+        );
+    }
+    // Edge to edge is free, before and after.
+    let mut state = placed;
+    ok(&mut state, place_audio(&f, 3840 + half));
+    ok(&mut state, place_audio(&f, 3840 - second));
+    assert_eq!(state.project.tracks[&f.audio_track].placements.len(), 3);
+}
+
+#[test]
+fn placing_an_audio_clip_is_refused_outside_the_timeline_and_with_tick_arguments() {
+    let f = fx();
+    let max = ::project::limits::MAX_TICK;
+    let second = one_second_in_ticks(&f.state);
+    for start in [-1, max, max - second + 1, i64::MAX] {
+        let error = refused(&f, place_audio(&f, start));
+        assert!(
+            matches!(error, CommandError::Invalid { .. }),
+            "{start}: {error:?}"
+        );
+    }
+    // The last start that fits.
+    let mut state = f.state.clone();
+    ok(&mut state, place_audio(&f, max - second));
+    // `length` and `offset` are ticks of a MIDI clip: the refusal says what to use.
+    for (length, offset, field) in [
+        (Some(Tick(480)), None, "length"),
+        (None, Some(Tick(480)), "offset"),
+    ] {
+        let error = refused(
+            &f,
+            arrangement::Command::Place {
+                clip: f.audio_clip.clone(),
+                start: Tick(0),
+                length,
+                offset,
+            },
+        );
+        let CommandError::Invalid {
+            field: got,
+            message,
+        } = &error
+        else {
+            panic!("{error:?}")
+        };
+        assert_eq!(got, field);
+        assert!(message.contains("clip.audio.set_range"), "{message}");
+    }
+}
+
+#[test]
+fn placing_an_audio_clip_of_the_grid_names_the_right_command() {
+    let mut f = fx();
+    let scene = f.state.project.scenes.keys().next().unwrap().clone();
+    f.state
+        .project
+        .tracks
+        .get_mut(&f.audio_track)
+        .unwrap()
+        .clips
+        .get_mut(&f.audio_clip)
+        .unwrap()
+        .slot = Some(scene);
+    let error = refused(&f, place_audio(&f, 0));
+    let CommandError::Invalid { message, .. } = &error else {
+        panic!("{error:?}")
+    };
+    assert!(message.contains("clip.import_audio"), "{message}");
+}
+
+#[test]
+fn placing_an_audio_clip_ends_where_the_project_tempo_says() {
+    let f = fx();
+    let at = |bpm: f64| {
+        let mut state = f.state.clone();
+        state.project.tempo[0].bpm = ::project::Tempo::clamped(bpm);
+        state
+    };
+    let mut slow = at(60.0);
+    let mut quick = at(240.0);
+    let (slow_ticks, quick_ticks) = (one_second_in_ticks(&slow), one_second_in_ticks(&quick));
+    assert!(quick_ticks > slow_ticks);
+    ok(&mut slow, place_audio(&f, 0));
+    ok(&mut quick, place_audio(&f, 0));
+    // The same start fits after the first placement at 60 bpm, not at 240 bpm.
+    assert!(check_refusal(&a(place_audio(&f, slow_ticks)), &slow, &context()).is_err());
+    assert!(check_refusal(&a(place_audio(&f, slow_ticks)), &quick, &context()).is_ok());
+}
+
+#[test]
+fn deleting_an_audio_placement_keeps_its_clip_and_undo_brings_it_back() {
+    let f = fx();
+    let (placed, audio) = arrangement_examples::with_audio_placement(&f);
+    let before = placed.project.clone();
+    let mut state = placed;
+    let mut ctx = fresh_context();
+    // One command deletes an audio and a MIDI placement.
+    let outcome = run(
+        &a(arrangement::Command::Delete {
+            placements: vec![audio.clone(), f.b.clone()],
+        }),
+        &mut state,
+        &mut ctx,
+    )
+    .unwrap();
+    assert_eq!(
+        outcome.output,
+        Output::Arrangement(arrangement::Output::Delete { deleted: 2 })
+    );
+    state.project.validate().unwrap();
+    let track = &state.project.tracks[&f.audio_track];
+    assert!(track.placements.is_empty());
+    assert!(
+        track.clips.contains_key(&f.audio_clip),
+        "the pool clip stays"
+    );
+    assert!(outcome.events.iter().any(|e| matches!(
+        e,
+        ProjectEvent::ArrangementChanged { track } if *track == f.audio_track
+    )));
+    assert!(
+        !outcome
+            .events
+            .iter()
+            .any(|e| matches!(e, ProjectEvent::ClipDeleted { .. })),
+        "no clip is deleted"
+    );
+    let Undo::Inverse(undo) = outcome.undo else {
+        panic!("no inverse")
+    };
+    run(&undo, &mut state, &mut ctx).unwrap();
+    assert_eq!(state.project, before);
+}
+
+#[test]
+fn deleting_the_same_audio_placement_twice_or_an_unknown_one_is_refused() {
+    let f = fx();
+    let (placed, audio) = arrangement_examples::with_audio_placement(&f);
+    for placements in [vec![audio.clone(), audio.clone()], vec![]] {
+        let error = check_refusal(
+            &a(arrangement::Command::Delete { placements }),
+            &placed,
+            &context(),
+        )
+        .unwrap();
+        assert!(matches!(error, CommandError::Invalid { .. }), "{error:?}");
+    }
+    // Once gone, it is unknown.
+    let (gone, _) = after(
+        placed,
+        &a(arrangement::Command::Delete {
+            placements: vec![audio.clone()],
+        }),
+    );
+    let error = check_refusal(
+        &a(arrangement::Command::Delete {
+            placements: vec![audio],
+        }),
+        &gone,
+        &context(),
+    )
+    .unwrap();
+    assert!(matches!(error, CommandError::NotFound { .. }), "{error:?}");
+}
+
+#[test]
+fn an_audio_restore_is_checked_like_the_audio_clip_restore() {
+    let f = fx();
+    let (placed, audio) = arrangement_examples::with_audio_placement(&f);
+    let (gone, restore) = after(
+        placed.clone(),
+        &a(arrangement::Command::Delete {
+            placements: vec![audio.clone()],
+        }),
+    );
+    // The inverse itself is fine; read it back to build the refusals from it.
+    let Command::Arrangement(arrangement::Command::Restore { edits }) = &restore else {
+        panic!("{restore:?}")
+    };
+    let record = edits[0].put[0].clone();
+    assert!(record.frames.is_some());
+    let bad = |record: arrangement::PlacementRecord| {
+        let error = check_refusal(&a(audio_restore(vec![record], &f)), &gone, &context()).unwrap();
+        assert!(
+            matches!(
+                error,
+                CommandError::Invalid { .. } | CommandError::NotFound { .. }
+            ),
+            "{error:?}"
+        );
+    };
+    let frames = record.frames.unwrap();
+    // No frames: a MIDI-shaped record in an audio track.
+    bad(arrangement::PlacementRecord {
+        frames: None,
+        length: Tick(960),
+        ..record.clone()
+    });
+    // Ticks on an audio record (they would be ignored).
+    bad(arrangement::PlacementRecord {
+        length: Tick(960),
+        ..record.clone()
+    });
+    // A MIDI clip of the other track.
+    bad(arrangement::PlacementRecord {
+        clip: f.looped.clone(),
+        ..record.clone()
+    });
+    // An empty span, an offset outside the clip, a start before 0 or past the timeline.
+    bad(arrangement::PlacementRecord {
+        frames: Some(arrangement::FrameSpan {
+            length: 0,
+            ..frames
+        }),
+        ..record.clone()
+    });
+    bad(arrangement::PlacementRecord {
+        frames: Some(arrangement::FrameSpan {
+            offset: u64::MAX / 2,
+            ..frames
+        }),
+        ..record.clone()
+    });
+    bad(arrangement::PlacementRecord {
+        start: Tick(-1),
+        ..record.clone()
+    });
+    bad(arrangement::PlacementRecord {
+        start: Tick(1 << 40),
+        ..record.clone()
+    });
+    // A `frames` record in a MIDI track.
+    let error = check_refusal(
+        &a(arrangement::Command::Restore {
+            edits: vec![arrangement::TrackEdit {
+                track: f.track.clone(),
+                put: vec![arrangement::PlacementRecord {
+                    clip: f.looped.clone(),
+                    ..record.clone()
+                }],
+                remove: vec![],
+                clips: vec![],
+                remove_clips: vec![],
+            }],
+        }),
+        &gone,
+        &context(),
+    )
+    .unwrap();
+    assert!(matches!(error, CommandError::Invalid { .. }), "{error:?}");
+    // The restore on its own, then its undo (a delete of the same placement).
+    let mut state = gone;
+    let mut ctx = fresh_context();
+    let outcome = run(&restore, &mut state, &mut ctx).unwrap();
+    assert_eq!(state.project, placed.project);
+    let Undo::Inverse(undo) = outcome.undo else {
+        panic!("no inverse")
+    };
+    run(&undo, &mut state, &mut ctx).unwrap();
+    assert!(state.project.tracks[&f.audio_track].placements.is_empty());
 }
 
 /// The identifier of a placement that exists (in the fixture's track).
@@ -1459,4 +1799,57 @@ fn a_project_edited_by_the_commands_survives_the_folder_format() {
     .unwrap();
     let opened = open(&fs, &OpenOptions::default()).unwrap();
     assert_eq!(opened.project, state.project);
+}
+
+#[test]
+fn an_audio_restore_replaces_a_placement_by_its_identifier_and_removes_one() {
+    let f = fx();
+    let (placed, audio) = arrangement_examples::with_audio_placement(&f);
+    let mut state = placed;
+    let mut ctx = fresh_context();
+    let record = arrangement::PlacementRecord {
+        id: audio.clone(),
+        clip: f.audio_clip.clone(),
+        start: Tick(7680),
+        length: Tick(0),
+        offset: Tick(0),
+        frames: Some(arrangement::FrameSpan {
+            length: 1_000,
+            offset: 0,
+        }),
+    };
+    // Same identifier: replaced in place.
+    let outcome = run(&a(audio_restore(vec![record], &f)), &mut state, &mut ctx).unwrap();
+    state.project.validate().unwrap();
+    let p = &state.project.tracks[&f.audio_track].placements[&audio];
+    assert_eq!(p.start, Tick(7680));
+    assert!(matches!(
+        p.span,
+        Span::Frames { length, offset } if length.get() == 1_000 && offset.get() == 0
+    ));
+    // Its undo puts the old one back; the remove path then empties the track.
+    let Undo::Inverse(undo) = outcome.undo else {
+        panic!("no inverse")
+    };
+    run(&undo, &mut state, &mut ctx).unwrap();
+    assert_eq!(
+        state.project.tracks[&f.audio_track].placements[&audio].start,
+        Tick(3840)
+    );
+    let remove = arrangement::Command::Restore {
+        edits: vec![arrangement::TrackEdit {
+            track: f.audio_track.clone(),
+            put: vec![],
+            remove: vec![audio.clone()],
+            clips: vec![],
+            remove_clips: vec![],
+        }],
+    };
+    run(&a(remove), &mut state, &mut ctx).unwrap();
+    assert!(state.project.tracks[&f.audio_track].placements.is_empty());
+    assert!(
+        state.project.tracks[&f.audio_track]
+            .clips
+            .contains_key(&f.audio_clip)
+    );
 }

@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::clip_examples::{ClipFx, c, fx, with_audio_placement};
-use ::project::{Frame, FrameLoop, Hash};
+use ::project::{Frame, FrameLoop, Hash, Tick};
 use commands::clip::{self, ClipTarget};
 use commands::engine_msgs::{Synced, snapshot};
 use commands::testing::{context, imported_media};
@@ -223,12 +223,23 @@ fn the_snapshot_declares_each_media_once_before_its_clips_and_sends_frame_placem
 #[test]
 fn every_audio_edit_and_its_undo_leave_the_engine_as_a_snapshot_would() {
     let f = fx();
-    let (state, _) = with_audio_placement(&f);
+    let (state, placement) = with_audio_placement(&f);
     let mut r = Rig::new(state);
     let steps = [
         c(clip::Command::AudioSetGain {
             clip: f.audio_clip.clone(),
             gain_db: Some(-6.0),
+        }),
+        // The placement goes (the clip and its source stay).
+        Command::Arrangement(commands::arrangement::Command::Delete {
+            placements: vec![placement],
+        }),
+        // The pool clip comes back to the arrangement (#666).
+        Command::Arrangement(commands::arrangement::Command::Place {
+            clip: f.audio_clip.clone(),
+            start: Tick(3840),
+            length: None,
+            offset: None,
         }),
         c(clip::Command::AudioSetGain {
             clip: f.audio_clip.clone(),
@@ -325,4 +336,26 @@ fn duplicating_a_track_and_deleting_a_scene_keep_the_engine_in_step() {
     for _ in &steps {
         r.run(&undo());
     }
+}
+
+#[test]
+fn deleting_an_audio_placement_empties_the_track_but_keeps_the_source() {
+    let f = fx();
+    let (state, placement) = with_audio_placement(&f);
+    let mut r = Rig::new(state);
+    assert_eq!(r.model.placements.values().flatten().count(), 1);
+    r.run(&Command::Arrangement(
+        commands::arrangement::Command::Delete {
+            placements: vec![placement],
+        },
+    ));
+    assert_eq!(
+        r.model.placements.values().flatten().count(),
+        0,
+        "no placement left for the engine to play"
+    );
+    assert_eq!(r.model.sources.len(), 1, "the clip still holds its source");
+    assert_eq!(r.model.clips.len(), 1, "and the clip stays in the engine");
+    r.run(&undo());
+    assert_eq!(r.model.placements.values().flatten().count(), 1);
 }

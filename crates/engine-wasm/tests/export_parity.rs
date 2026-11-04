@@ -27,6 +27,14 @@ fn same(native: &Exported, wasm: &Exported) {
     // The output protection's reported gain reduction (`fk_export_stat(…, 7)`, #402) is the
     // same in both targets.
     assert!((native.reduction - wasm.reduction).abs() < PARITY_TOLERANCE);
+    // What the content measured (#665): the same frames and, strip by strip, the same levels.
+    assert_eq!(native.measured_frames, native.body_frames);
+    assert_eq!(native.measured_frames, wasm.measured_frames);
+    assert!(!native.levels.is_empty());
+    assert_eq!(native.levels.len(), wasm.levels.len(), "the strips differ");
+    for (n, w) in native.levels.iter().zip(&wasm.levels) {
+        assert!((n - w).abs() < PARITY_TOLERANCE, "levels differ: {n} / {w}");
+    }
 }
 
 #[test]

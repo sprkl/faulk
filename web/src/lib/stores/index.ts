@@ -8,8 +8,10 @@ import { getContext, setContext } from 'svelte'
 import type { Command } from '../generated/protocol'
 import type { MainViewId, PanelViewId } from '../../views/registry'
 import { AudioImport, browserAudioPicker, browserCanAsk } from '../audio/import/audio-import.svelte'
+import { PeaksCache } from '../audio/peaks/peaks.svelte'
 import { AudioExport, type ExportDeps } from '../export/audio-export.svelte'
 import { browserExportDeps } from '../export/browser'
+import { RenderAnalyzer } from '../agents/levels'
 import { browserDeps } from '../storage/browser'
 import { ProjectStorage, type StorageDeps } from '../storage/storage.svelte'
 import { AutomatedValues } from './automated.svelte'
@@ -44,6 +46,8 @@ export interface Stores {
   audioExport: AudioExport
   /** Importing audio files into an audio track (AU-1): the dialog, the progress, the failures. */
   audioImport: AudioImport
+  /** The waveform peaks of the project's audio files (AU-2), read from its place as views ask. */
+  peaks: PeaksCache
   /** The computer keyboard as a piano, in every view (#361). */
   keys: KeyboardPlayer
   /** What the lanes drive at the play position (AM-4): the controls show it while the transport runs. */
@@ -65,6 +69,7 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
   dispatcher.storage = storage
   const audioExport = new AudioExport(dispatcher.exportHost, exportDeps)
   dispatcher.audioExport = audioExport
+  dispatcher.analyzer = new RenderAnalyzer(exportDeps)
   const audioImport = new AudioImport({
     canAsk: browserCanAsk,
     pick: browserAudioPicker,
@@ -73,6 +78,12 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
     run: (command) => dispatcher.run(command),
   })
   dispatcher.audioImport = audioImport
+  const peaks = new PeaksCache({
+    read: (hash) => storage.readPeaks(hash),
+    settled: () => storage.audioCacheDone,
+    make: (media) => storage.makePeaks(media),
+    epoch: () => storage.peaksEpoch,
+  })
   const recorder = new Recorder({
     run: (command) => dispatcher.run(command),
     mode: () => engine.mode,
@@ -136,6 +147,7 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
     storage,
     audioExport,
     audioImport,
+    peaks,
     keys: new KeyboardPlayer(project, engine, ui, dispatcher),
     automated: new AutomatedValues(project, engine, ui),
     meters: new MeterStore(project, engine),

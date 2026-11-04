@@ -18,6 +18,11 @@ export const openUrl = (url: string): Command => ({ type: 'project.open_url', ur
 export const listStored = (): Command => ({ type: 'project.list_stored' })
 /** Whether a command asks for the list of the stored projects: its answer comes from the storage, which reads first. */
 export const isListStored = (command: Command): boolean => command.type === 'project.list_stored'
+/** Whether a command reads the live levels (`mixer.levels`, #665): the page stages the meters it held first. */
+export const isMixerLevels = (command: Command): boolean => command.type === 'mixer.levels'
+/** The range of a `project.analyze_render` (#665: the page renders it offline, then the command answers); `null` for any other command. */
+export const analyzeRange = (command: Command): { from_bar?: number; to_bar?: number } | null =>
+  command.type === 'project.analyze_render' ? { from_bar: command.from_bar ?? undefined, to_bar: command.to_bar ?? undefined } : null
 /** Whether a command starts a new project: the storage asks first when changes would be lost, then runs it in the core. */
 export const isNewProject = (command: Command): boolean => command.type === 'project.new'
 /** The name a `project.new` gives the new project (an agent's), `undefined` when the page is to name it (#473). */

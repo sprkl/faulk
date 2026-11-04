@@ -3,12 +3,13 @@
    * The Clips panel (#473): the pool of the selected track, every clip it has, wherever it is used (its placements, its
    * launch-grid slot) or nowhere (a clip that lost its last placement stays in its track). A linked clip (used more than
    * once) is marked. A row is dragged onto a lane of the arrangement or a cell of the grid, or sent there by its
-   * buttons; every action is a command (`lib/clip-pool.ts` picks which, by the founder's decision 11: a copy of a clip
-   * already used, the clip itself with Alt).
+   * buttons; every action is a command (`lib/clip-pool.ts` picks which: Place sends the clip itself (linked), Alt a copy (#624); the grid and the drag keep the
+   * founder's decision 11: a copy of a clip already used, the clip itself with Alt).
    */
   import LinkMark from '../../lib/components/LinkMark.svelte'
+  import Waveform from '../../lib/components/Waveform.svelte'
   import { barStart } from '../../lib/arrangement-commands'
-  import { CLIP_DRAG_TYPE, clipTrackType, freeScene, gridCommand, placeCommand, poolOf, type PoolClip } from '../../lib/clip-pool'
+  import { CLIP_DRAG_TYPE, clipTrackType, freeScene, gridCommand, placeCommand, poolNames, poolOf, type PoolClip } from '../../lib/clip-pool'
   import { cancelAudioImport, chooseAudio, deleteClip } from '../../lib/clip-commands'
   import type { ImportFailure } from '../../lib/audio/import/audio-import.svelte'
   import type { MessageKey } from '../../lib/i18n'
@@ -16,7 +17,7 @@
   import { barTicks } from '../transport/time'
   import { trackColor } from '../../lib/project/tracks'
 
-  const { project, dispatcher, ui, engine, audioImport } = useStores()
+  const { project, dispatcher, ui, engine, audioImport, peaks } = useStores()
   const t = ui.t
 
   /** What a failed import says: by why the file was refused, or that the folder refused it. */
@@ -58,10 +59,26 @@
     return barStart(engine.started ? (engine.feedback?.playheadTick ?? 0) : 0, barTicks(signature))
   }
 
-  function place(entry: PoolClip, linked: boolean) {
-    const command = placeCommand(entry, playheadBar(), linked)
-    if (command) dispatcher.run(command)
+  /**
+   * Places a clip at the playhead: the same clip, linked, by default (#624); `copy` (Alt) makes an independent copy of a
+   * clip already used. The placements it made become the arrangement's selection and take the keyboard focus.
+   */
+  function place(entry: PoolClip, copy: boolean) {
+    const command = placeCommand(entry, playheadBar(), !copy)
+    if (!command) return
+    const placements = () => (trackId ? (project.view?.project.tracks[trackId]?.placements ?? {}) : {})
+    const before = new Set(Object.keys(placements()))
+    dispatcher.run(command)
+    // A placement that lands inside another carves it: the right-hand piece is new too but starts later, so the one placed is
+    // the new placement that starts first.
+    const fresh = Object.entries(placements() as Record<string, { start: number } | undefined>)
+      .filter(([id, p]) => !before.has(id) && p)
+      .sort(([, a], [, b]) => a!.start - b!.start)[0]
+    if (fresh && ui.view === 'arrangement') ui.showPlaced([fresh[0]])
   }
+
+  /** The name a row shows: two clips of one name get a number, so that they tell apart (#624). */
+  const names = $derived(poolNames(pool, t('clips.audio')))
 
   function toGrid(entry: PoolClip, linked: boolean) {
     if (!free) return
@@ -136,13 +153,20 @@
             tabindex="0"
             draggable={entry.midi}
             title={t('clips.dragHint')}
-            aria-label={t('clips.row', { name: entry.clip.name, where: where(entry) }) + (entry.uses > 1 ? `, ${t('clips.linked')}` : '')}
+            aria-label={t('clips.row', { name: names[entry.id], where: where(entry) }) + (entry.uses > 1 ? `, ${t('clips.linked')}` : '')}
             data-testid="pool-handle"
             ondragstart={(event) => onDragStart(event, entry)}
             onkeydown={(event) => onKey(event, entry)}
           >
             <span class="swatch" style:background={entry.clip.color ?? color} aria-hidden="true"></span>
-            <span class="name">{entry.clip.name || t('clips.audio')}</span>
+            <span class="name">{names[entry.id]}</span>
+            {#if 'audio' in entry.clip.content}
+              {@const audio = entry.clip.content.audio}
+              <!-- The part of its file the clip plays (AU-2), drawn from the file's peaks. -->
+              <span class="wave" data-testid="pool-waveform" data-media={audio.media.hash}>
+                <Waveform peaks={peaks.of(audio.media).peaks} from={audio.start} frames={audio.frames} color={entry.clip.color ?? color} />
+              </span>
+            {/if}
           </span>
           {#if entry.uses > 1}<span class="linked" title={t('clips.linkedHint')}><LinkMark />{t('clips.linked')}</span>{/if}
           <span class="where">{where(entry)}</span>
@@ -154,6 +178,14 @@
               title={t('clips.placeHint')}
               data-testid="pool-place"
               onclick={(event) => place(entry, event.altKey)}>{t('clips.place')}</button
+            >
+            <button
+              class="ghost"
+              type="button"
+              disabled={!entry.midi || entry.uses === 0}
+              title={t('clips.placeCopyHint')}
+              data-testid="pool-place-copy"
+              onclick={() => place(entry, true)}>{t('clips.placeCopy')}</button
             >
             <button
               class="ghost"
@@ -217,6 +249,12 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .wave {
+    flex: 1 1 64px;
+    min-width: 32px;
+    max-width: 240px;
+    height: 20px;
   }
   .row.unused .name {
     font-style: italic;

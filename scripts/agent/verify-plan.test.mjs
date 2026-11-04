@@ -42,7 +42,8 @@ test('the parity suites (WASM builds) run only when the engine or what embeds it
   assert.deepEqual(tested(helper), ['helper'])
   assert.equal(helper.decision.rustWasmEngine, false)
   assert.equal(helper.decision.rustWasmProject, false)
-  assert.equal(helper.decision.web, false)
+  assert.equal(helper.decision.web, true) // the browser tests drive the helper (#668)
+  assert.equal(helper.decision.e2eTier, 'area')
   assert.deepEqual(rootSteps(helper.decision).map((s) => s.name), ['fmt', 'clippy', 'cargo test'])
 })
 
