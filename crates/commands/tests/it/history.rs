@@ -420,6 +420,120 @@ fn a_group_its_author_abandons_is_closed_and_undo_works_again() {
     );
 }
 
+fn claude() -> Author {
+    Author::Agent {
+        name: "claude".into(),
+    }
+}
+
+#[test]
+fn an_agent_that_leaves_closes_its_group_and_the_user_undoes_it_at_once() {
+    // #641: the helper tells the page the agent left; the page calls `agent_left`.
+    let f = fixture();
+    let mut s = f.state.clone();
+    run(
+        &h(history::Command::BeginGroup {}),
+        &mut s,
+        &mut agent("claude"),
+    )
+    .unwrap();
+    run(&set(&f.device, "attack", 0.1), &mut s, &mut agent("claude")).unwrap();
+    run(&rename("By agent"), &mut s, &mut agent("claude")).unwrap();
+    check_refusal(&h(history::Command::Undo {}), &s, &context()).unwrap();
+    assert!(
+        !s.history.agent_left(&Author::User),
+        "the user never leaves"
+    );
+    assert!(s.history.agent_left(&claude()));
+    assert_eq!(s.history.open_group, None);
+    assert!(
+        !s.history.agent_left(&claude()),
+        "a second leave changes nothing"
+    );
+    run(&h(history::Command::Undo {}), &mut s, &mut context()).unwrap();
+    assert_eq!(
+        s.project, f.state.project,
+        "the group's edits are one entry"
+    );
+}
+
+#[test]
+fn an_agent_that_leaves_ends_its_turn_and_starts_a_new_one_when_it_comes_back() {
+    let f = fixture();
+    let mut s = f.state.clone();
+    run(&set(&f.device, "attack", 0.1), &mut s, &mut agent("claude")).unwrap();
+    assert!(s.history.turn.is_some());
+    assert!(s.history.agent_left(&claude()), "its turn ended");
+    assert_eq!(s.history.turn, None);
+    // The same name connects again within the turn's gap: its next edit is a new entry.
+    run(&set(&f.device, "attack", 0.2), &mut s, &mut agent("claude")).unwrap();
+    let rows: Vec<_> = s
+        .history
+        .undo
+        .iter()
+        .rev()
+        .take(2)
+        .map(|e| (e.author.clone(), e.edits))
+        .collect();
+    assert_eq!(rows, [(claude(), 1), (claude(), 1)]);
+    assert_ne!(
+        s.history.undo[s.history.undo.len() - 1].group,
+        s.history.undo[s.history.undo.len() - 2].group
+    );
+    run(&h(history::Command::Undo {}), &mut s, &mut context()).unwrap();
+    assert_eq!(param(&s, &f.device, "attack"), 0.1);
+}
+
+#[test]
+fn another_agent_leaving_leaves_the_group_and_the_turn_alone() {
+    let f = fixture();
+    let mut s = f.state.clone();
+    run(
+        &h(history::Command::BeginGroup {}),
+        &mut s,
+        &mut agent("claude"),
+    )
+    .unwrap();
+    run(&set(&f.device, "attack", 0.1), &mut s, &mut agent("claude")).unwrap();
+    let other = Author::Agent {
+        name: "other".into(),
+    };
+    assert!(!s.history.agent_left(&other));
+    assert!(s.history.open_group.is_some());
+    // Its owner still ends it.
+    run(
+        &h(history::Command::EndGroup {}),
+        &mut s,
+        &mut agent("claude"),
+    )
+    .unwrap();
+    // An agent's turn is left alone by another agent's leave too.
+    run(&rename("Turn"), &mut s, &mut agent("claude")).unwrap();
+    let turn = s.history.turn.clone();
+    assert!(turn.is_some());
+    assert!(!s.history.agent_left(&other));
+    assert_eq!(s.history.turn, turn);
+}
+
+#[test]
+fn every_agent_gone_closes_an_agents_group_and_turn_but_never_the_users() {
+    let f = fixture();
+    let mut s = f.state.clone();
+    assert!(!s.history.agents_gone(), "nothing to close");
+    run(&h(history::Command::BeginGroup {}), &mut s, &mut context()).unwrap();
+    assert!(!s.history.agents_gone(), "the user's group stays");
+    assert!(s.history.open_group.is_some());
+    run(&h(history::Command::EndGroup {}), &mut s, &mut context()).unwrap();
+    run(&rename("Turn"), &mut s, &mut agent("a")).unwrap();
+    run(&h(history::Command::BeginGroup {}), &mut s, &mut agent("b")).unwrap();
+    assert!(s.history.agents_gone());
+    assert_eq!(s.history.open_group, None);
+    assert_eq!(s.history.turn, None);
+    assert!(!s.history.agents_gone());
+    run(&h(history::Command::Undo {}), &mut s, &mut context()).unwrap();
+    assert_eq!(s.project.name, f.state.project.name);
+}
+
 #[test]
 fn a_redo_that_fails_halfway_leaves_the_entry_on_the_redo_stack() {
     let f = fixture();

@@ -8,7 +8,8 @@
  *
  * Each question is answered once: `confirmed` (the user allowed it), `declined`, `timeout` (the deadline passed,
  * whether its timer fired or the user answered too late, as in a hidden tab whose timers the browser slows down),
- * or `withdrawn` (the link that carried the call closed: the agent was told `page.gone`, so nothing may run). Only
+ * or `withdrawn` (the link that carried the call closed: the agent was told `page.gone`, so nothing may run; or the
+ * agent left, #641). Only
  * `confirmed` lets the call run.
  */
 
@@ -90,6 +91,14 @@ export class AgentConfirmations {
       signal?.addEventListener('abort', onAbort, { once: true })
       this.publish()
     })
+  }
+
+  /**
+   * The agent `agent` (`agent:<name>`) left (#641): its questions are withdrawn, as when their link closes. Its calls
+   * reach nobody any more, so nothing may run on its behalf.
+   */
+  withdraw(agent: string) {
+    for (const waiting of this.waiting.filter((w) => w.agent === agent)) waiting.resolve('withdrawn')
   }
 
   /** The user's answer to the question shown: allow it (`true`) or refuse it. Past its deadline, it is the timeout. */
