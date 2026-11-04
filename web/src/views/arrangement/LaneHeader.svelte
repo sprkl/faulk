@@ -11,6 +11,8 @@
   import ValueField from '../../lib/components/ValueField.svelte'
   import { formatGain, instrumentName, MAX_GAIN_DB, trackColor, trackLabel, type DragHooks, type TrackEntry } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
+  import { dropTarget as browserDrop } from '../../lib/browser/dnd'
+  import { putItem } from '../../lib/browser/put'
   import { trackMenuItems } from '../../lib/track-menu'
   import { armTrack, renameTrack, selectTrack, setMute, setSolo, setTrackHeight, setVolume } from '../../lib/track-commands'
   import { parseGainEntry } from '../../lib/value-entry'
@@ -212,13 +214,18 @@
     event.dataTransfer.effectAllowed = 'move'
     // Firefox starts no drag without data.
     event.dataTransfer.setData('text/plain', entry.id)
+    // A reorder starts: a browser drag that never ended (its source left the page) is over.
+    ui.dragged = null
     drag.start(entry.id)
   }
+  // A device or a preset dragged out of the browser (#190) is not a reorder: `dropTarget` below takes it.
   function onDragOver(event: DragEvent) {
+    if (ui.dragged) return
     event.preventDefault()
     drag.over(entry.id)
   }
   function onDrop(event: DragEvent) {
+    if (ui.dragged) return
     event.preventDefault()
     drag.drop(entry.id)
   }
@@ -245,6 +252,7 @@
   ondragover={onDragOver}
   ondrop={onDrop}
   oncontextmenu={onContextMenu}
+  use:browserDrop={{ ui, accepts: () => true, drop: (item) => putItem(stores, item, { type: 'track', track: entry.id }) }}
 >
   <span
     class="grip"
@@ -389,6 +397,11 @@
   }
   .row.drop-target {
     box-shadow: inset 0 2px 0 var(--fk-accent-fg);
+  }
+  /* A device or a preset of the browser over the row (#190). */
+  .row:global([data-drop-over]) {
+    outline: 2px solid var(--fk-accent-fg);
+    outline-offset: -2px;
   }
   /* A track the grid holds: the name is dimmed and a return button sits beside it (never the dimming alone). */
   .row.off .head {

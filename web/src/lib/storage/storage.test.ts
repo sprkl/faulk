@@ -895,6 +895,14 @@ describe('a new project', () => {
     expect(store.closed).toBe(false)
   })
 
+  it('asks nothing when the user already allowed the agent that starts it (AG-4): one question, never two', async () => {
+    const w = world()
+    w.edit()
+    expect(await w.storage.newProject(undefined, true)).toBe(true)
+    expect(w.storage.confirm).toBeNull()
+    expect(w.host.news).toBe(1)
+  })
+
   it('a second new project waits for the first question, and asks nothing once the first replaced the project', async () => {
     const w = world()
     w.edit()
@@ -954,6 +962,22 @@ describe('the folder is edited from outside', () => {
     expect(w.host.opened.length).toBe(1)
     expect(w.storage.block).toBeNull()
     expect(w.storage.unsaved).toBe(false)
+  })
+
+  it('settles a conflict without its own question once the user allowed the agent that asks (AG-4), and only in a conflict', async () => {
+    const { w, store } = await saved()
+    expect(w.storage.inConflict).toBe(false)
+    w.edit()
+    store.edit('project.json', 'from git')
+    await w.storage.wake()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(w.storage.inConflict).toBe(true)
+    expect(await w.storage.keepMine(true)).toBe(true)
+    expect(w.storage.confirm).toBeNull()
+    expect(store.files.get('project.json')).toBe('rev 2')
+    expect(w.storage.inConflict).toBe(false)
+    expect(await w.storage.loadDisk(true)).toBe(false)
+    expect(w.storage.notice).toBe('storage.noConflict')
   })
 
   it('Keep mine also removes the track files the project no longer has, so they do not come back on opening', async () => {
@@ -1823,6 +1847,13 @@ describe('deleting a project of the browser', () => {
     expect(w.locks.size).toBe(0)
   })
 
+  it('deletes without its own question once the user allowed the agent that asks (AG-4)', async () => {
+    const { w, dir } = await two()
+    expect(await w.storage.deleteBrowserProject(dir, true)).toBe(true)
+    expect(w.storage.confirm).toBeNull()
+    expect(w.browser.removed).toEqual([dir])
+  })
+
   it('never deletes the project that is open, nor one another tab has open', async () => {
     const { w, dir } = await drafted()
     expect(await w.storage.deleteBrowserProject(dir)).toBe(false)
@@ -2173,6 +2204,20 @@ describe('the commands that open a project', () => {
     expect(w.host.opened).toEqual([])
     withClick()
     expect(await w.storage.openRecent('last')).toBe(true)
+    expect(w.storage.folder).toEqual({ name: 'last' })
+  })
+
+  it('over changes it cannot keep, asks the user; once an agent was allowed (AG-4), asks nothing more', async () => {
+    const { w } = await remembered('granted')
+    w.edit()
+    const asked = w.storage.openRecent('last')
+    await settle()
+    expect(w.storage.confirm).toEqual({ action: 'open', name: null })
+    w.storage.respond(false)
+    expect(await asked).toBe(false)
+    expect(w.host.opened).toEqual([])
+    expect(await w.storage.openRecent('last', true)).toBe(true)
+    expect(w.storage.confirm).toBeNull()
     expect(w.storage.folder).toEqual({ name: 'last' })
   })
 

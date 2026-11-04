@@ -269,7 +269,8 @@ pub struct Meta {
     pub name: &'static str,
     pub kind: Kind,
     pub undo: UndoKind,
-    /// Irreversible: the interface and the MCP server ask for a confirmation first.
+    /// Irreversible: an agent's call waits for the user's confirmation in the page (AG-4); a
+    /// user's own click is its confirmation.
     pub destructive: bool,
 }
 

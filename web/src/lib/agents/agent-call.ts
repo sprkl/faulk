@@ -19,8 +19,11 @@ export function answerOnce(id: number, send: (message: ClientMessage) => void): 
  * through the dispatcher (history author `agent:<name>`, undo, refusals), and answers `agent.result`.
  */
 export interface AgentHost {
-  /** Runs `command` as `author` through the page's single entry point and says what it did. */
-  runForAgent(command: Command, author: string): Promise<AgentResult>
+  /**
+   * Runs `command` as `author` through the page's single entry point and says what it did. `signal` aborts when the
+   * call can no longer be answered (its link closed).
+   */
+  runForAgent(command: Command, author: string, signal?: AbortSignal): Promise<AgentResult>
 }
 
 /**
@@ -46,7 +49,7 @@ export function agentAuthor(agent: string): string {
 }
 
 /** Answers one agent call: runs `command` through `host` unless it is not a command or needs a click. */
-export async function answerAgentCall(host: AgentHost, agent: string, command: unknown): Promise<AgentResult> {
+export async function answerAgentCall(host: AgentHost, agent: string, command: unknown, signal?: AbortSignal): Promise<AgentResult> {
   if (typeof command !== 'object' || command === null || typeof (command as { type?: unknown }).type !== 'string') {
     return { status: 'invalid', message: 'an agent call carries a command object with its `type`' }
   }
@@ -56,7 +59,7 @@ export async function answerAgentCall(host: AgentHost, agent: string, command: u
   }
   try {
     // The project core checks the command against its schema: anything it does not know is `invalid`.
-    return await host.runForAgent(command as Command, agentAuthor(agent))
+    return await host.runForAgent(command as Command, agentAuthor(agent), signal)
   } catch (error) {
     console.error(error)
     return { status: 'unavailable', reason: `the page failed to run ${type}: ${String(error)}` }

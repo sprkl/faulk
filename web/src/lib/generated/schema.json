@@ -1,4 +1,5 @@
 {
+  "agent_confirm_ms": 45000,
   "client_message": {
     "$defs": {
       "AgentResult": {
@@ -26969,6 +26970,10 @@
     }
   },
   "control_pushed_out": 4001,
+  "destructive_commands": [
+    "project.open",
+    "project.new"
+  ],
   "device_descriptor": {
     "$defs": {
       "DeviceRole": {

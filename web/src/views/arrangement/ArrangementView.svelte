@@ -105,10 +105,14 @@
   } from './automation/gestures'
   import { CLIP_ROW, CLIP_ROW_MIN, clampClipRow, layoutOf, rowsBetween, type Row } from './automation/layout'
   import LaneHeader from './LaneHeader.svelte'
+  import { dropTarget } from '../../lib/browser/dnd'
+  import { createsTrack } from '../../lib/browser/drop'
+  import { putItem } from '../../lib/browser/put'
   import BarDialog from './BarDialog.svelte'
   import { lanesOf, optionsOf, pointAtTick, pointsOf, targetKey, valueAt, type LaneInfo, type LanePoint, type Labels } from './automation/model'
 
-  const { project, engine, ui, dispatcher, meters } = useStores()
+  const stores = useStores()
+  const { project, engine, ui, dispatcher, meters } = stores
   const t = ui.t
   const run = (command: Command) => dispatcher.run(command)
 
@@ -2121,7 +2125,14 @@
         <button type="button" class="guide-keys" data-testid="guide-shortcuts" onclick={() => (ui.helpOpen = true)}>{t('timeline.guide.shortcuts')}</button>
       </div>
     {/if}
-    <div class="heads" bind:this={heads} onscroll={onHeadsScroll} onfocusin={onHeadsFocus} data-testid="arr-heads">
+    <div
+      class="heads"
+      bind:this={heads}
+      onscroll={onHeadsScroll}
+      onfocusin={onHeadsFocus}
+      data-testid="arr-heads"
+      use:dropTarget={{ ui, accepts: createsTrack, drop: (item) => putItem(stores, item, { type: 'new-track' }) }}
+    >
       <div class="slide" style:top="{-y0}px">
         {#each layout.rows as row (row.kind === 'lane' ? `lane:${row.lane}` : `${row.kind}:${row.trackId}`)}
           {#if row.kind === 'track'}

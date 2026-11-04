@@ -11,8 +11,14 @@
   import { runHistory } from '../../lib/history-said'
   import { withShortcut } from '../../lib/shortcuts'
   import TrackInspector from './TrackInspector.svelte'
+  import { dropAudioFiles } from '../../lib/browser/audio-drop'
+  import { dropTarget } from '../../lib/browser/dnd'
+  import { createsTrack } from '../../lib/browser/drop'
+  import { putItem } from '../../lib/browser/put'
+  import type { MessageKey } from '../../lib/i18n'
 
-  const { project, engine, ui, dispatcher, keys } = useStores()
+  const stores = useStores()
+  const { project, engine, ui, dispatcher, keys } = stores
   const t = ui.t
 
   // A project that opens with no selected track selects its first, once: the computer keyboard plays the
@@ -37,6 +43,12 @@
     if (created) dispatcher.run(selectTrack(created.id))
     addButton?.focus()
   }
+
+  // The empty area (#190): an instrument or a preset dropped here starts a MIDI track with it; an audio file is the audio
+  // import's (AU-1), which says it is not there yet.
+  let over = $state(false)
+  let dropNote = $state<MessageKey | null>(null)
+  const showDrop = $derived(ui.browserOpen || ui.dragged !== null)
 
   function onMenuKey(event: KeyboardEvent) {
     if (event.key !== 'Escape') return
@@ -70,14 +82,24 @@
     >
   </div>
   <!-- Musical typing (#470): always shown, with the key that toggles it in its hint. -->
-  <button
-    class="ghost typing"
-    type="button"
-    data-testid="typing-mode"
-    data-mode={ui.typing}
-    title={t(ui.typing === 'notes' ? 'keys.typingHintNotes' : 'keys.typingHintShortcuts')}
-    onclick={() => keys.toggleTyping()}>{t(ui.typing === 'notes' ? 'keys.typingNotes' : 'keys.typingShortcuts')}</button
-  >
+  <div class="tools">
+    <button
+      class="ghost typing"
+      type="button"
+      data-testid="typing-mode"
+      data-mode={ui.typing}
+      title={t(ui.typing === 'notes' ? 'keys.typingHintNotes' : 'keys.typingHintShortcuts')}
+      onclick={() => keys.toggleTyping()}>{t(ui.typing === 'notes' ? 'keys.typingNotes' : 'keys.typingShortcuts')}</button
+    >
+    <button
+      class="ghost"
+      type="button"
+      aria-pressed={ui.browserOpen}
+      data-testid="browser-toggle"
+      title={withShortcut(t('browser.toggleHint'), ['Alt', 'B'])}
+      onclick={() => (ui.browserOpen ? ui.hideBrowser() : ui.showBrowser())}>{t('browser.toggle')}</button
+    >
+  </div>
 
   {#if !engine.started && !project.view}
     <p class="empty" data-testid="tracks-waiting">{t('tracks.waiting')}</p>
@@ -117,6 +139,26 @@
     {:else}
       <p class="empty" data-testid="inspector-empty">{t('tracks.noSelection')}</p>
     {/if}
+    {#if showDrop}
+      <div
+        class="drop"
+        class:over
+        data-testid="track-drop"
+        use:dropTarget={{
+          ui,
+          accepts: createsTrack,
+          over: (value) => {
+            over = value
+            if (value) dropNote = null
+          },
+          drop: (item) => putItem(stores, item, { type: 'new-track' }),
+          files: (files) => (dropNote = dropAudioFiles(files)),
+        }}
+      >
+        <p>{over ? t('browser.dropRelease') : t('browser.dropEmpty')}</p>
+        {#if dropNote}<p class="note" role="status" data-testid="track-drop-note">{t(dropNote)}</p>{/if}
+      </div>
+    {/if}
   {/if}
 </aside>
 
@@ -138,8 +180,37 @@
     align-items: center;
     gap: var(--fk-space-2);
   }
-  .typing {
+  .tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--fk-space-2);
+  }
+  .tools .typing {
     align-self: flex-start;
+  }
+  /* The empty area (#190): where an instrument or a preset starts a track. */
+  .drop {
+    flex: 1;
+    min-height: 88px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: var(--fk-space-2);
+    padding: var(--fk-space-3);
+    border: 1px dashed var(--fk-line);
+    border-radius: var(--fk-radius-panel);
+    color: var(--fk-text-muted);
+    text-align: center;
+  }
+  .drop.over {
+    border-style: solid;
+    border-color: var(--fk-accent);
+    background: var(--fk-accent-tint);
+    color: var(--fk-accent-fg);
+  }
+  .drop .note {
+    color: var(--fk-text);
   }
   /* Typing notes: the button is filled in the text colour (the words say it too), never a hue. */
   .typing[data-mode='notes'] {

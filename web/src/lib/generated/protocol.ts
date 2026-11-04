@@ -8,6 +8,10 @@ export const ERROR_CODES = {"audio_stream":"audio.stream","no_output":"audio.no_
 export const MAX_STREAM_BYTES = 1073741824
 /** The close code of a control link the helper pushed out for newer ones (`protocol::CONTROL_PUSHED_OUT`, #608): not tried again. */
 export const CONTROL_PUSHED_OUT = 4001
+/** How long the page waits for the user's answer to an agent's destructive call, in ms (`protocol::AGENT_CONFIRM_MS`, AG-4). */
+export const AGENT_CONFIRM_MS = 45000
+/** The `x-destructive` commands, from the catalog: an agent's call of one waits for the user's confirmation (AG-4). */
+export const DESTRUCTIVE_COMMANDS: readonly string[] = ["project.open","project.new"]
 export const PARAM_DEFAULTS = {"attack":0.005,"decay":0.2,"gain":0.8,"release":0.3,"sustain":0.7,"waveform":1} as const
 /** The law of the fader (#389), `[position, dB]` points from the bottom (silence) to the top: defined in `engine::fader`. */
 export const FADER_TAPER = [[0,-96],[0.08,-60],[0.28,-30],[0.5,-12],[0.78,0],[1,6]] as const

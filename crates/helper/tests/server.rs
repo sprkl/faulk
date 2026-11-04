@@ -1691,6 +1691,46 @@ async fn a_tool_call_runs_in_the_page_as_the_agent_and_answers_its_output() {
 }
 
 #[tokio::test]
+async fn a_destructive_call_waits_for_the_users_answer_and_a_refusal_reaches_the_agent_typed() {
+    // AG-4: the page asks the user before `project.new` runs; the MCP client's call stays open
+    // meanwhile, and the user's refusal comes back as `command.refused` with its own code.
+    let h = start().await;
+    let (mut page, _) = open_session(&h).await;
+    let mut lines = initialize();
+    lines.push(tool_call(2, "project_new", serde_json::json!({})));
+    let running = bridge(h.port, Some(MCP_TOKEN), lines);
+    let ServerMessage::AgentCall { id, command, .. } = next(&mut page).await else {
+        panic!("expected agent.call")
+    };
+    assert_eq!(command, serde_json::json!({"type":"project.new"}));
+    // The user reads the question: the call is still waiting.
+    tokio::time::sleep(AGENT_WAIT / 4).await;
+    assert!(
+        !running.is_finished(),
+        "the call waits for the page's answer"
+    );
+    let error = serde_json::json!({
+        "code": "confirmation.declined",
+        "message": "the user refused it in the page: nothing changed",
+    });
+    send(
+        &mut page,
+        &ClientMessage::AgentResult {
+            id,
+            result: AgentResult::Refused {
+                error: error.clone(),
+            },
+        },
+    )
+    .await;
+    let answers = running.await.unwrap();
+    let call = answer(&answers, 2);
+    assert_eq!(call["result"]["isError"], true);
+    assert_eq!(result_text(call)["code"], "command.refused");
+    assert_eq!(result_text(call)["error"], error);
+}
+
+#[tokio::test]
 async fn a_refusal_of_the_page_reaches_the_agent_as_a_typed_error() {
     let h = start().await;
     let (mut page, _) = open_session(&h).await;
