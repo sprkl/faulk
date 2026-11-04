@@ -64,6 +64,19 @@ fn settled() -> Fx {
 }
 
 impl Fx {
+    /// Renders `blocks` more blocks of the voice already playing.
+    fn play_on(&mut self, blocks: usize) -> Vec<f32> {
+        play(
+            &mut self.prepare,
+            &mut self.host,
+            &mut self.disk,
+            &mut self.clock,
+            None,
+            blocks,
+        )
+        .out
+    }
+
     fn play(&mut self, source: u32, path: Path, blocks: usize) -> (Vec<f32>, usize) {
         let run = play(
             &mut self.prepare,
@@ -207,9 +220,10 @@ fn a_stalled_disk_is_counted_as_underruns_and_plays_silence() {
     }
     assert!(underruns(&f.host) > 0, "the dry ring counts");
     assert_eq!(f.host.probe().position(), before + 400 * BLOCK as u64);
-    // A request that never gets data counts too, once past the grace.
+    // A request whose ring never gets data (the disk stopped answering) counts too, once
+    // past the grace.
     let mut g = settled();
-    g.disk.files.clear();
+    g.disk.stall();
     g.host.pump();
     assert!(g.host.probe_start(
         TrackSlot(0),
@@ -220,6 +234,10 @@ fn a_stalled_disk_is_counted_as_underruns_and_plays_silence() {
     for _ in 0..40 {
         g.host.pump();
         g.host.probe_read(BLOCK);
+        g.clock += BLOCK as u64;
+        g.disk
+            .step(&mut g.prepare, g.clock * 1000 / u64::from(RATE));
+        g.prepare.flush();
     }
     assert!(
         underruns(&g.host) > 0,
@@ -334,7 +352,9 @@ fn the_budget_holds_when_the_sources_ask_for_more() {
 }
 
 #[test]
-fn rings_that_do_not_fit_are_refused_and_flagged_not_allocated() {
+fn rings_over_the_budget_are_kept_and_flagged_never_cut() {
+    // § 5.4: the buffers of the voices that play are never evicted; over the budget, the
+    // report says so instead of cutting the sound.
     let (mut prepare, mut host) = rig();
     let ring = u64::from(RATE) * RING_MS / 1000 * 2 * 4;
     prepare.disk_mut().set_budget(ring + ring / 2);
@@ -342,16 +362,114 @@ fn rings_that_do_not_fit_are_refused_and_flagged_not_allocated() {
     let mut clock = 0;
     settle(&mut prepare, &mut host, &mut disk, &mut clock, 50);
     let path = |at| Path::new(at, LONG_FRAMES, None, LONG_FRAMES);
-    // Port 0 gets a ring; port 1's does not fit beside it.
     host.pump();
     assert!(host.probe_start(TrackSlot(0), 0, SourceSlot(0), path(100_000)));
     settle(&mut prepare, &mut host, &mut disk, &mut clock, 5);
     assert!(host.probe_start(TrackSlot(0), 1, SourceSlot(0), path(200_000)));
     settle(&mut prepare, &mut host, &mut disk, &mut clock, 5);
-    assert!(prepare.disk().pcm_bytes() <= prepare.disk().budget());
+    let t = host.engine().state().track(TrackSlot(0)).unwrap();
+    assert!(
+        t.ports.iter().all(|p| p.ring.is_some()),
+        "both voices have their ring"
+    );
+    assert!(prepare.disk().pcm_bytes() > prepare.disk().budget());
     host.write_feedback();
     let fb = engine::host::read_feedback(host.feedback()).unwrap();
     assert_eq!(fb.pcm_flags & FLAG_OVER_BUDGET, FLAG_OVER_BUDGET);
+}
+
+#[test]
+fn a_ring_left_dry_for_long_comes_back_with_its_source() {
+    let mut f = settled();
+    let path = Path::new(100_000, LONG_FRAMES, None, LONG_FRAMES);
+    let (_, waited) = f.play(0, path, 20);
+    assert!(waited > 0);
+    // The blob goes away for 15 s (past DETACH_MS) while the voice plays on.
+    let wav = f.disk.files.remove(&(LONG, FileKind::Blob as u8)).unwrap();
+    let blocks = 15 * RATE as usize / BLOCK;
+    let run = f.play_on(blocks);
+    assert!(run.iter().rev().take(BLOCK * 2).all(|s| *s == 0.0));
+    f.disk.files.insert((LONG, FileKind::Blob as u8), wav);
+    let tail = f.play_on(5 * RATE as usize / BLOCK);
+    let at = f.host.probe().position();
+    assert!(
+        tail[tail.len() - 2..] != [0.0, 0.0],
+        "playing again at {at}"
+    );
+    let n = tail.len() / 2;
+    assert_eq!(tail[2 * (n - 1)], long_value(at - 1, 0), "on time");
+}
+
+#[test]
+fn a_port_reused_for_a_source_of_another_shape_gets_a_ring_of_that_shape() {
+    let mut f = settled();
+    let (_, _) = f.play(0, Path::new(100_000, LONG_FRAMES, None, LONG_FRAMES), 20);
+    // A mono source whose cache appears only later: the stereo ring must not stay.
+    let media = [0xd4; 32];
+    send(
+        &mut f.prepare,
+        &[ControlMsg::AudioSourceDeclare {
+            source: SourceSlot(2),
+            sample_rate: RATE,
+            channels: 1,
+            frames: Frame(LONG_FRAMES),
+            media,
+        }],
+    );
+    let mut cache = vec![0u8; 32];
+    cache[..8].copy_from_slice(engine::audio_source::CACHE_MAGIC);
+    cache[8..12].copy_from_slice(&RATE.to_le_bytes());
+    cache[12..14].copy_from_slice(&1u16.to_le_bytes());
+    cache[16..24].copy_from_slice(&LONG_FRAMES.to_le_bytes());
+    for i in 0..LONG_FRAMES {
+        cache.extend_from_slice(&((i as f32) / 1e6 + 0.25).to_le_bytes());
+    }
+    f.disk
+        .files
+        .insert((media, FileKind::Blob as u8), b"x".to_vec());
+    f.host.pump();
+    assert!(f.host.probe_start(
+        TrackSlot(0),
+        0,
+        SourceSlot(2),
+        Path::new(200_000, LONG_FRAMES, None, LONG_FRAMES)
+    ));
+    settle(&mut f.prepare, &mut f.host, &mut f.disk, &mut f.clock, 10);
+    f.disk.files.insert((media, FileKind::Cache as u8), cache);
+    let run = f.play_on(5 * RATE as usize / BLOCK);
+    assert!(run.iter().any(|s| *s > 0.2), "the mono source plays");
+    let t = f.host.engine().state().track(TrackSlot(0)).unwrap();
+    assert_eq!(t.ports[0].ring.as_deref().unwrap().channels, 1);
+}
+
+#[test]
+fn a_file_s_nan_and_subnormal_samples_never_reach_the_voice() {
+    let (mut prepare, mut host) = rig();
+    let mut disk = MemDisk::standard();
+    let cache = disk.files.get_mut(&(SHORT, FileKind::Cache as u8)).unwrap();
+    for (k, v) in [f32::NAN, f32::INFINITY, 1e-40].iter().enumerate() {
+        let at = 32 + k * 4;
+        cache[at..at + 4].copy_from_slice(&v.to_le_bytes());
+    }
+    let mut clock = 0;
+    settle(&mut prepare, &mut host, &mut disk, &mut clock, 200);
+    let run = play(
+        &mut prepare,
+        &mut host,
+        &mut disk,
+        &mut clock,
+        Some((
+            SourceSlot(1),
+            Path::new(0, SHORT_FRAMES, None, SHORT_FRAMES),
+        )),
+        4,
+    );
+    assert!(
+        run.out
+            .iter()
+            .all(|s| s.is_finite() && (*s == 0.0 || s.is_normal()))
+    );
+    assert_eq!(&run.out[..3], &[0.0, 0.0, 0.0]);
 }
 
 #[test]

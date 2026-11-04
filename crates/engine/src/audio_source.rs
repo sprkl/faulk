@@ -504,9 +504,9 @@ impl Voice {
             self.send(tx, false);
         }
         self.since_request = self.since_request.saturating_add(frames as u64);
-        if !self.on_ring
-            && self.since_request >= (self.sample_rate as u64).saturating_mul(KEEPALIVE_MS) / 1000
-        {
+        // On the segments or on the ring: the planner keeps what a playing voice uses, and
+        // gives a ring back to a voice that lost it (detached, or of the wrong shape).
+        if self.since_request >= (self.sample_rate as u64).saturating_mul(KEEPALIVE_MS) / 1000 {
             self.send(tx, true);
         }
         let mut done = 0usize;
@@ -544,7 +544,9 @@ impl Voice {
                     self.waited = self.waited.saturating_add(missing);
                 }
                 let grace = (self.sample_rate as u64).saturating_mul(START_GRACE_MS) / 1000;
-                if self.primed || self.waited > grace {
+                // Not while the port has no ring: its source is offline (counted as such) or
+                // the planner has not attached one yet.
+                if port.ring.is_some() && (self.primed || self.waited > grace) {
                     stats.underruns.fetch_add(1, Ordering::Relaxed);
                 }
                 break;
@@ -828,6 +830,8 @@ struct PortState {
     ring: Option<Shared<Ring>>,
     /// The ring was asked for and not given (budget, memory).
     starved: bool,
+    /// Its ring was detached for want of use: given back only by a request or a keepalive.
+    parked: bool,
     job: Option<u32>,
     touched: u64,
     last_read: u64,
@@ -867,6 +871,8 @@ pub struct Disk {
     budget: u64,
     now: u64,
     sources: Vec<Option<SourceState>>,
+    /// The last generation given to each source slot, kept across releases.
+    generations: Vec<u32>,
     clips: HashMap<u32, ClipInfo>,
     /// Track slot → instance, for the audio tracks of the current state.
     tracks: HashMap<u32, u32>,
@@ -903,6 +909,7 @@ impl Disk {
             budget: DEFAULT_BUDGET_BYTES,
             now: 0,
             sources: Vec::new(),
+            generations: Vec::new(),
             clips: HashMap::new(),
             tracks: HashMap::new(),
             ports: HashMap::new(),
@@ -1018,9 +1025,17 @@ impl Disk {
             self.sources.resize_with(i + 1, || None);
         }
         self.forget_segments_of(slot);
-        let generation = self.sources[i]
-            .as_ref()
-            .map_or(1, |s| s.generation.wrapping_add(1));
+        // Generations survive a release: a job for the slot's previous media is never taken
+        // for the next one.
+        if i >= self.generations.len() {
+            let more = i + 1 - self.generations.len();
+            self.generations
+                .try_reserve(more)
+                .map_err(|_| MsgError::OutOfMemory { bytes: more * 4 })?;
+            self.generations.resize(i + 1, 0);
+        }
+        let generation = self.generations[i].wrapping_add(1).max(1);
+        self.generations[i] = generation;
         self.sources[i] = Some(SourceState {
             generation,
             media,
@@ -1182,8 +1197,11 @@ impl Disk {
             source.status.ready(),
         );
         if r.keepalive {
-            if let Some(p) = self.ports.get_mut(&(r.track.0, r.port)) {
+            if let Some(p) = self.ports.get_mut(&(r.track.0, r.port))
+                && p.generation == r.generation
+            {
                 p.touched = now;
+                p.parked = false;
             }
             return;
         }
@@ -1203,6 +1221,7 @@ impl Disk {
                     cursor: 0,
                     ring: None,
                     starved: false,
+                    parked: false,
                     job: None,
                     touched: now,
                     last_read: 0,
@@ -1234,6 +1253,7 @@ impl Disk {
         p.touched = now;
         p.job = None;
         p.starved = false;
+        p.parked = false;
         if ready {
             self.attach_ring(key, rate, channels);
         }
@@ -1259,9 +1279,14 @@ impl Disk {
             .saturating_mul(4);
         let old = p.ring.as_deref().map_or(0, Ring::bytes);
         self.make_room(bytes.saturating_sub(old));
-        let ring = if self.pcm_bytes().saturating_sub(old) + bytes <= self.budget
-            && self.outbox.try_reserve(1).is_ok()
-        {
+        // A ring is never refused for the budget (§ 5.4: the buffers of the voices that play
+        // are never cut; going over it is reported), only past the hard cap the wasm32 memory
+        // reserves for PCM.
+        let after = self.pcm_bytes().saturating_sub(old) + bytes;
+        if after > self.budget {
+            self.over_budget = true;
+        }
+        let ring = if after <= limits::PCM_BUDGET_BYTES && self.outbox.try_reserve(1).is_ok() {
             Ring::try_new(channels, want_frames)
                 .ok()
                 .and_then(|r| Shared::try_new(r).ok())
@@ -1415,7 +1440,12 @@ impl Disk {
             // A port that waited for its source to become readable, or for room: its ring.
             let need = self.ports.get(&key).and_then(|p| {
                 let s = self.sources.get(p.source.0 as usize)?.as_ref()?;
-                let wants = p.ring.is_none() && p.generation != 0 && !p.path.ended(p.cursor);
+                let want_frames = (u64::from(s.rate).saturating_mul(RING_MS) / 1000).max(1);
+                let fits = p
+                    .ring
+                    .as_deref()
+                    .is_some_and(|r| r.channels == s.channels && r.frames >= want_frames);
+                let wants = !fits && !p.parked && p.generation != 0 && !p.path.ended(p.cursor);
                 (wants && s.generation == p.source_gen && s.status.ready())
                     .then_some((s.rate, s.channels))
             });
@@ -1665,8 +1695,9 @@ impl Disk {
                 self.ring_bytes = self.ring_bytes.saturating_sub(ring.bytes());
             }
             p.job = None;
-            // A later request of the voice gets a new ring.
-            p.generation = 0;
+            // Its voice stopped (a playing voice sends a keepalive every second): its next
+            // request or keepalive gets a ring again.
+            p.parked = true;
             let instance = p.instance;
             self.outbox.push_back(RtMsg::StreamAttach {
                 track: TrackSlot(key.0),
@@ -1943,7 +1974,7 @@ impl Disk {
 
 /// Sample `c` of the frame at byte `at` of `bytes`, as the source's file stores it.
 fn sample_at(status: &Status, bytes: &[u8], at: usize, c: usize) -> f32 {
-    match status {
+    let v = match status {
         Status::Direct(l) => {
             let size = l.encoding.bytes();
             let i = at + c * size;
@@ -1955,7 +1986,9 @@ fn sample_at(status: &Status, bytes: &[u8], at: usize, c: usize) -> f32 {
                 .get(i..i + 4)
                 .map_or(0.0, |b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
         }
-    }
+    };
+    // A file's NaN, infinity or subnormal never reaches the audio path.
+    if v.is_normal() { v } else { 0.0 }
 }
 
 /// Whether a PCM cache's first bytes and length are those of this media (`audio_import::cache`:

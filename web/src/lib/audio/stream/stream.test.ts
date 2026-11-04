@@ -230,6 +230,9 @@ describe('the shipped engine module streams from a folder', () => {
     // A short loop of the short source, from memory.
     const at = (i: number) => (i < 1_000 ? i : 1_000 + ((i - 1_000) % 800))
     expect(await play(1, 0, SHORT_FRAMES, [1_000, 1_800], 100, (i, c) => shortValue(at(i), c))).toBe(0)
+    // A short loop of the long source, through the ring: a wait, then every wrap on time.
+    const wrap = (i: number) => (i < 1_000 ? 299_000 + i : 300_000 + ((i - 1_000) % 1_600))
+    expect(await play(0, 299_000, LONG_FRAMES, [300_000, 301_600], 150, (i, c) => longValue(wrap(i), c))).toBeGreaterThan(0)
     // A render writes the report (about 30 per second): enough frames for one.
     for (let i = 0; i < 4; i++) r.render.fk_render(r.ch, BLOCK)
     expect([r.prepare.fk_allocs(ROLE_RENDER), r.prepare.fk_frees(ROLE_RENDER)]).toEqual(allocs)

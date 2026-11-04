@@ -290,8 +290,7 @@ pub unsafe extern "C" fn fk_prepare_counter(ch: *mut Channel, which: u32) -> u32
 /// The disk planner's poll at `now_ms` (prepare instance, the Worker's clock): sends its
 /// messages and writes its new read jobs into the table of [`fk_disk_jobs`]
 /// (`engine::audio_source::JOB_WIRE_BYTES` each). Returns how many; 0 when the table could
-/// not grow (the jobs stay in flight and fail by the host's timeout: none here, they are
-/// simply never answered, which leaves their source offline).
+/// not grow (the jobs are then failed back to the planner, which tries them again later).
 ///
 /// # Safety
 /// `ch` as in [`prepare_half`].
@@ -310,6 +309,18 @@ pub unsafe extern "C" fn fk_disk_poll(ch: *mut Channel, now_ms: f64) -> u32 {
     let bytes = n * engine::audio_source::JOB_WIRE_BYTES;
     if bytes > p.jobs.len() {
         if p.jobs.try_reserve_exact(bytes - p.jobs.len()).is_err() {
+            // The jobs go back to the planner as failed (it reads them again later), never
+            // left in flight. At most `MAX_JOBS_IN_FLIGHT` of them: a fixed array.
+            let mut ids = [0u32; engine::audio_source::MAX_JOBS_IN_FLIGHT];
+            let jobs = p.prepare.disk().jobs();
+            let n = jobs.len().min(ids.len());
+            for (id, job) in ids.iter_mut().zip(jobs) {
+                *id = job.id;
+            }
+            for id in &ids[..n] {
+                p.prepare
+                    .disk_failed(*id, engine::audio_source::Failure::Unreadable);
+            }
             return 0;
         }
         p.jobs.resize(bytes, 0);

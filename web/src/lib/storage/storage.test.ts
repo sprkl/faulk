@@ -119,6 +119,11 @@ class FakeStore implements ProjectStore {
 class FakeHost implements ProjectHost {
   prepare?: () => Promise<void>
   audioMedia?: () => MediaRef[]
+  /** The folders the engine was told about (AU-3), `null` for none. */
+  folders: (string | null)[] = []
+  folderChanged(handle: FileSystemDirectoryHandle | null) {
+    this.folders.push(handle?.name ?? null)
+  }
   revision = 0
   clean = 0
   pending = 0
@@ -2566,6 +2571,17 @@ describe('importing an audio file (AU-1)', () => {
     // A folder whose permission was withdrawn is not written by an import either.
     w.storage.block = 'permission'
     await expect(w.storage.importAudio(wav())).rejects.toMatchObject({ code: 'permission' })
+  })
+
+  it('tells the engine the folder it reads audio from on each attach, and none when the project leaves it (AU-3)', async () => {
+    const { w, handle } = await saved()
+    expect(w.host.folders.at(-1)).toBe(handle.name)
+    w.storage.sleep()
+    w.recents = [{ id: handle.name, name: handle.name, handle, at: 1 }]
+    await w.storage.newProject()
+    expect(w.host.folders.at(-1)).toBeNull()
+    expect(await w.storage.openRecent(handle.name)).toBe(true)
+    expect(w.host.folders.at(-1)).toBe(handle.name)
   })
 
   it('an opening asks the store for the PCM caches of the project media, in the background', async () => {

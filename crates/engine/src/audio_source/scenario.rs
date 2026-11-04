@@ -89,6 +89,7 @@ pub struct MemDisk {
     pub files: HashMap<([u8; 32], u8), Vec<u8>>,
     /// Jobs taken at the last poll, completed at the next.
     waiting: Vec<Job>,
+    stalled: bool,
 }
 
 impl MemDisk {
@@ -104,10 +105,17 @@ impl MemDisk {
         d
     }
 
+    /// From now on, never answers: its jobs stay in flight (a disk that hangs).
+    pub fn stall(&mut self) {
+        self.stalled = true;
+    }
+
     /// Completes the jobs of the previous poll, then polls at `now_ms` and keeps its jobs.
     pub fn step(&mut self, prepare: &mut Prepare, now_ms: u64) {
-        for job in core::mem::take(&mut self.waiting) {
-            self.serve(prepare, &job);
+        if !self.stalled {
+            for job in core::mem::take(&mut self.waiting) {
+                self.serve(prepare, &job);
+            }
         }
         self.waiting = prepare.disk_poll(now_ms).to_vec();
     }

@@ -1227,6 +1227,8 @@ impl Preparer {
                 let mut table = table;
                 table.fill(&notes);
                 value.content = ClipContent::Notes(table);
+                // A slot that held an audio clip: the disk planner no longer preloads it.
+                self.disk.clip_removed(clip.0);
                 self.finish_clip(clip, value, growth)
             }
             ControlMsg::ClipRemove { clip } => {
