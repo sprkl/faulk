@@ -25,3 +25,20 @@ describe('the lanes request', () => {
     expect(ui.takeLanesRequest()).toBe('master')
   })
 })
+
+// #624: the one-shot request from the Clips panel to select and focus the placements it just made.
+describe('the placed request', () => {
+  it('is consumed once, and the last request wins', () => {
+    const ui = new UiStore('arrangement', 'devices')
+    ui.showPlaced(['p1'])
+    ui.showPlaced(['p2', 'p3'])
+    expect(ui.takePlacedRequest()).toEqual(['p2', 'p3'])
+    expect(ui.takePlacedRequest()).toBeNull()
+  })
+
+  it('ignores an empty request', () => {
+    const ui = new UiStore('arrangement', 'devices')
+    ui.showPlaced([])
+    expect(ui.takePlacedRequest()).toBeNull()
+  })
+})
