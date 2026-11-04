@@ -101,8 +101,9 @@ domain! {
     /// track's lane) or a parameter the device lacks, with `invalid` when both or neither of
     /// `track` and `master` are given or when the owner already has a lane on that parameter,
     /// and with `limit` at the safety limit of lanes.
-    /// A lane has no point yet and does nothing; once it has points, it holds the first
-    /// point's value from the start of the timeline until that point, and the engine applies
+    /// A new lane has no point yet and has no effect on the sound until points are added
+    /// with `automation.points.add`: create the lane, then add its points. Once it has points,
+    /// it holds the first point's value from the start of the timeline until that point, and the engine applies
     /// its value at the playhead when the transport stops and at every seek, so a lane with a
     /// single point at bar 9 already sets its parameter from bar 1. A lane belongs to the
     /// track, not to its clips. Undo: `automation.lane.delete`.

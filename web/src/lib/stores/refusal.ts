@@ -25,6 +25,7 @@ export const ENTITY_KEYS: Record<string, MessageKey> = {
   'clips per track': 'refusal.entity.clipsPerTrack',
   lanes: 'refusal.entity.lanes',
   'export seconds': 'refusal.entity.exportSeconds',
+  'analyze seconds': 'refusal.entity.analyzeSeconds',
 }
 
 /** The text key of a refusal code: one text per code, never one per call site. */
