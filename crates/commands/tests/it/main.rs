@@ -14,6 +14,7 @@ mod transport_examples;
 
 mod agent_turn;
 mod arrangement;
+mod arrangement_audio;
 mod arrangement_grid;
 mod arrangement_time;
 mod arrangement_tracks;

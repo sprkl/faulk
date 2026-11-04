@@ -3668,7 +3668,12 @@ track: string
  */
 export interface TrackEdit {
 /**
- * Clips to bring back (their identifiers must be unused).
+ * Audio clips to bring back (their identifiers must be unused), as
+ * `clip.restore_audio` takes them; an audio track only.
+ */
+audio_clips?: AudioClipRecord[]
+/**
+ * MIDI clips to bring back (their identifiers must be unused); a MIDI track only.
  */
 clips: ClipRecord[]
 /**
@@ -3683,7 +3688,7 @@ put: PlacementRecord[]
  */
 remove: string[]
 /**
- * Clips of the track to remove; no placement may be left on them.
+ * Clips of the track to remove (MIDI or audio); no placement may be left on them.
  * 
  * Items: Identifier of a clip.
  */
@@ -3692,6 +3697,16 @@ remove_clips: string[]
  * Identifier of a track.
  */
 track: string
+}
+/**
+ * An audio clip that `arrangement.restore` brings back, with its identifier.
+ */
+export interface AudioClipRecord {
+/**
+ * Identifier of a clip.
+ */
+id: string
+snapshot: AudioClipSnapshot
 }
 /**
  * A MIDI clip that `arrangement.restore` brings back, with its identifier.

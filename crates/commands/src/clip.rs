@@ -332,10 +332,12 @@ domain! {
     "clip.cancel_audio_import" (kind = "live", undo = "none", destructive = false)
     CancelAudioImport {} => {};
 
-    /// Copy a MIDI clip into a new, independent clip with the same name ("Bass 2" stays
-    /// "Bass 2": a copy plays the same part), colour, length, loop and notes; editing one never changes the other. The copy always sits in a
-    /// launch-grid slot: of the source's track, or of `track` when given (another MIDI
-    /// track). `slot` when given must be free in that track, otherwise the copy takes
+    /// Copy a clip into a new, independent clip with the same name ("Bass 2" stays
+    /// "Bass 2": a copy plays the same part), colour, length, loop and notes (an audio clip:
+    /// the same file, range, gain and loop; its file is not copied); editing one never
+    /// changes the other. The copy always sits in a launch-grid slot: of the source's
+    /// track, or of `track` when given (another track of its kind: a MIDI clip to a MIDI
+    /// track, an audio clip to an audio track). `slot` when given must be free in that track, otherwise the copy takes
     /// the first free slot (below the source's scene in the same track, from the top in
     /// another). Refused, with no effect, when the track has no free slot to give. A
     /// second placement of the same clip is an option of the arrangement commands, not
@@ -1090,6 +1092,49 @@ pub(crate) fn placement_ticks(tempo: Tempo, track: &Track, p: &Placement) -> Opt
     }
 }
 
+/// The snapshot `clip.restore_audio` (and `arrangement.restore`) needs to bring an audio
+/// clip back; `None` for a MIDI clip.
+pub(crate) fn audio_snapshot(clip: &Clip) -> Option<AudioClipSnapshot> {
+    let ClipContent::Audio {
+        media,
+        start,
+        frames,
+        gain_db,
+        looping,
+    } = &clip.content
+    else {
+        return None;
+    };
+    Some(AudioClipSnapshot {
+        name: clip.name.clone(),
+        color: clip.color,
+        slot: clip.slot.clone(),
+        launch_quantize: clip.launch_quantize,
+        media: media.clone(),
+        start: *start,
+        frames: *frames,
+        gain_db: *gain_db,
+        looping: *looping,
+    })
+}
+
+/// The audio clip an [`AudioClipSnapshot`] describes.
+pub(crate) fn audio_clip_of(snap: &AudioClipSnapshot) -> Clip {
+    Clip {
+        name: snap.name.clone(),
+        color: snap.color,
+        slot: snap.slot.clone(),
+        launch_quantize: snap.launch_quantize,
+        content: ClipContent::Audio {
+            media: snap.media.clone(),
+            start: snap.start,
+            frames: snap.frames,
+            gain_db: snap.gain_db,
+            looping: snap.looping,
+        },
+    }
+}
+
 /// The snapshot `clip.restore` needs to bring a MIDI clip back.
 pub(crate) fn snapshot(clip: &Clip) -> Result<ClipSnapshot, CommandError> {
     let (length, looping, notes) = midi_ref(clip)?;
@@ -1420,7 +1465,7 @@ fn check_media(media: &AudioMedia, field: &str) -> Result<(), CommandError> {
 }
 
 /// Refuses an audio clip's content that the project's validation would refuse.
-fn check_audio(snap: &AudioClipSnapshot, field: &str) -> Result<(), CommandError> {
+pub(crate) fn check_audio(snap: &AudioClipSnapshot, field: &str) -> Result<(), CommandError> {
     check_media(&snap.media, &format!("{field}.media"))?;
     let media = &snap.media;
     let end = snap.start.get().checked_add(snap.frames.get());
@@ -2136,18 +2181,28 @@ fn duplicate(
     let from_id = locate(&state.project, clip_id)?;
     let track_id = to.cloned().unwrap_or_else(|| from_id.clone());
     let project = &state.project;
-    let from = midi_track(project, &from_id)?;
-    let track = midi_track(project, &track_id)?;
+    let from = project
+        .tracks
+        .get(&from_id)
+        .ok_or_else(|| not_found("track", &from_id))?;
     let source = from
         .clips
         .get(clip_id)
         .ok_or_else(|| not_found("clip", clip_id))?;
-    let (_, _, notes) = midi_ref(source)?;
+    // An audio clip is copied into an audio track (the same file, range, gain and loop),
+    // a MIDI clip into a MIDI track (AU-6).
+    let track = match &source.content {
+        ClipContent::Midi { notes, .. } => {
+            let track = midi_track(project, &track_id)?;
+            check_note_limits(
+                notes.len(),
+                project_notes(project).saturating_add(notes.len()),
+            )?;
+            track
+        }
+        ClipContent::Audio { .. } => audio_track(project, &track_id)?,
+    };
     check_clips(project, track)?;
-    check_note_limits(
-        notes.len(),
-        project_notes(project).saturating_add(notes.len()),
-    )?;
     let target = match slot {
         Some(scene) => {
             check_slot(project, track, scene, "slot")?;

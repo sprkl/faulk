@@ -10,7 +10,18 @@
 //!   inside `[0, 2^40]`). Two placements of the same clip are linked: editing the clip
 //!   changes both. A placement has no loop of its own: when it is longer than its clip, the
 //!   clip repeats inside it, through the clip's loop when it has one, the whole clip when
-//!   it has none (#473). Audio placements are refused here, except `arrangement.place` of an audio clip (whole, never carving, #666), `arrangement.delete` and its inverse `arrangement.restore` (#640); moving, resizing and copying them comes with AU-6.
+//!   it has none (#473).
+//! - **An audio placement (AU-6)** plays `length` frames of an audio clip of its track from
+//!   the clip's frame `offset`, from the timeline tick `start`; its end is `start` plus those
+//!   frames at the project's tempo (at least one tick). It stays inside its clip (`offset +
+//!   length` at most the clip's frames), looped or not: a looped clip's placement plays the
+//!   loop for that length. Every command below takes audio placements under the same rules,
+//!   cut in whole frames: a cut at tick `t` keeps the frames that play before `t`
+//!   (`floor(t × frames per tick)`, the player's rule) on the left, the rest from there on the
+//!   right (trimmed at the front so it never ends past where it did, through the clip's
+//!   loop), so a cut never makes an overlap or plays a frame twice; a part where not even one
+//!   frame fits goes. An edge resized past the clip stops at its first or last frame. A clip
+//!   only moves to a track of its kind (MIDI to MIDI, audio to audio).
 //! - **The overlap rule: the last one put down wins.** The placement a command places,
 //!   moves, resizes or copies keeps its span; the other placements of the track that it
 //!   covers are carved, so a track never holds two placements at the same tick after one
@@ -24,9 +35,9 @@
 //!     right part is a new placement.
 //!
 //!   The engine still cuts any table at the next start (AR-2), so a project that holds an
-//!   overlap from elsewhere plays as "the last started wins". `clip.create` into the
-//!   arrangement refuses an overlap, and `clip.set_length` stops a growing placement at
-//!   the next one: a note edit never carves.
+//!   overlap from elsewhere plays as "the last started wins". `clip.create` and
+//!   `clip.import_audio` into the arrangement refuse an overlap, and `clip.set_length`
+//!   stops a growing placement at the next one: a note edit never carves.
 //! - Moving, deleting and copying take a list, so a selection is one command, one
 //!   history entry, one undo. A group is lifted first and put down in the order of its
 //!   list: a placement may move onto the old place of another one of the group.
@@ -34,7 +45,7 @@
 //!   last placement, even with no launch-grid slot: the interface lists it (the Clips
 //!   panel), places it again or deletes it (`clip.delete`). `arrangement.place` places a
 //!   clip of the arrangement or of the pool as a linked placement of that clip (an audio
-//!   clip of the pool is placed whole and never carves: an overlap is refused); it refuses
+//!   clip is placed whole); it refuses
 //!   a clip of the grid: copying or linking it is `arrangement.place_from_slot` (AR-5,
 //!   founder's decision 11).
 //! - **Inserting and deleting time (#396).** `arrangement.insert_time` and
@@ -57,9 +68,8 @@
 //!     refuses others), so there is nothing of them to move; the playhead and the launch grid
 //!     are not on the timeline and stay.
 //!
-//!   A track that holds an audio placement refuses the whole command (audio arrangement comes
-//!   with the import, like every other arrangement command), so nothing moves. The playhead
-//!   stays at its tick.
+//!   Audio placements move, split and are cut in frames like the others (AU-6). The
+//!   playhead stays at its tick.
 //!   Everything is checked first (a placement or a point that would pass 2^40, a limit): a
 //!   refusal changes nothing. The inverse is `arrangement.restore_time`.
 //! - Every command is atomic: it is checked entirely before anything changes. A command
@@ -70,8 +80,8 @@
 
 use crate::automation::{self, Point};
 use crate::clip::{
-    ClipSnapshot, check_loop, check_name, check_note_limits, check_slot, check_total, invalid,
-    locate, midi_ref, midi_track, not_found, project_notes, snapshot,
+    AudioClipSnapshot, ClipSnapshot, check_loop, check_name, check_note_limits, check_slot,
+    check_total, invalid, locate, midi_ref, midi_track, not_found, project_notes, snapshot,
 };
 use crate::contract::{CommandError, Context, Outcome, ProjectEvent, State, Undo};
 use crate::macros::domain;
@@ -80,7 +90,8 @@ use project::limits::{
 };
 use project::{
     AutomationPoint, Clip, ClipContent, ClipId, IdGenerator, LaneId, LoopRegion, MarkerId, Note,
-    Placement, PlacementId, Project, SceneId, Span, Tick, TickLoop, Track, TrackId,
+    Placement, PlacementId, Project, SampleRate, SceneId, Span, Tempo, Tick, TickLoop, Track,
+    TrackId,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -135,7 +146,7 @@ pub struct FrameSpan {
 #[serde(deny_unknown_fields)]
 pub struct TrackMove {
     pub placement: PlacementId,
-    /// The MIDI track the placement ends in; its own track leaves it where it is.
+    /// The track the placement ends in, of its kind (MIDI or audio); its own track leaves it where it is.
     pub track: TrackId,
 }
 
@@ -157,10 +168,22 @@ pub struct TrackEdit {
     pub put: Vec<PlacementRecord>,
     /// Placements of the track to remove.
     pub remove: Vec<PlacementId>,
-    /// Clips to bring back (their identifiers must be unused).
+    /// MIDI clips to bring back (their identifiers must be unused); a MIDI track only.
     pub clips: Vec<ClipRecord>,
-    /// Clips of the track to remove; no placement may be left on them.
+    /// Audio clips to bring back (their identifiers must be unused), as
+    /// `clip.restore_audio` takes them; an audio track only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub audio_clips: Vec<AudioClipRecord>,
+    /// Clips of the track to remove (MIDI or audio); no placement may be left on them.
     pub remove_clips: Vec<ClipId>,
+}
+
+/// An audio clip that `arrangement.restore` brings back, with its identifier.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AudioClipRecord {
+    pub id: ClipId,
+    pub snapshot: AudioClipSnapshot,
 }
 
 /// The points of one automation lane, written whole by `arrangement.restore_time`.
@@ -198,8 +221,9 @@ domain! {
     /// other placements of the track that it covers are removed, shortened, trimmed at
     /// the front or split (`overwritten` counts them). An audio clip of an audio track is
     /// placed whole (from its first frame, its end computed from its frames at the project's
-    /// tempo, so `length` and `offset` are refused); there the new placement never carves:
-    /// an overlap, or a span outside `[0, 2^40]` ticks, is refused. Undo: `arrangement.restore`.
+    /// tempo, so `length` and `offset` are refused; `arrangement.resize` shortens it) and
+    /// wins on overlap the same way, the placements it covers cut in whole frames; a span
+    /// outside `[0, 2^40]` ticks is refused. Undo: `arrangement.restore`.
     "arrangement.place" (kind = "edit", undo = "inverse", destructive = false)
     Place {
         clip: ClipId,
@@ -215,7 +239,8 @@ domain! {
 
     /// Move placements in time, all by the same number of ticks (`by`, negative moves
     /// them earlier), in one command: a drag of a selection is one history entry. Each
-    /// placement stays in its own track and keeps its length and offset. The moved
+    /// placement stays in its own track and keeps its length and offset (an audio one its
+    /// frames, so its length in ticks at the project's tempo). The moved
     /// placements win on overlap (the placements of the track that they cover are
     /// carved, `overwritten` counts them); they may move onto each other's old place.
     /// Refused when one would start before tick 0 or end past 2^40, or when the list is
@@ -230,21 +255,23 @@ domain! {
         overwritten: u32,
     };
 
-    /// Move placements to other MIDI tracks, in one command and one history entry, and
+    /// Move placements to other tracks of their kind (a MIDI placement to a MIDI track, an
+    /// audio one to an audio track), in one command and one history entry, and
     /// optionally in time too (`by` ticks, default 0, negative is earlier). `moves` pairs
     /// each placement with the track it ends in (its own track keeps it there): a selection
     /// of several tracks can move one track down together, each clip to its own target.
     /// The clip of a moved placement goes with it: the target track gets a copy of the
     /// clip (one copy per source clip and target track, so placements that were linked and
-    /// move together stay linked; same name, colour, length, loop and notes, not in the
+    /// move together stay linked; same name, colour, length, loop and notes, or for an
+    /// audio clip the same file, range, gain and loop; not in the
     /// launch grid), and a source clip left with no placement and no grid slot is removed
     /// from its track (a clip in the grid, or one still placed elsewhere, stays). The
     /// moved placements get new identifiers in another track (`placements`, in the order of
     /// `moves`) and keep their length and offset; they win on overlap in the target (the
     /// placements they cover are carved, `overwritten` counts them). Refused when `moves`
     /// is empty, names a placement twice or an unknown one, names an unknown track or one
-    /// that is not a MIDI track (audio clips come from import), when a placement is an
-    /// audio one, when one would start before tick 0 or end past 2^40, or on a limit.
+    /// of the other kind, when one would start before tick 0 or end past 2^40, or on a
+    /// limit.
     /// Nothing moves (and no history entry is made) when every placement stays in its
     /// track and `by` is 0. Undo: `arrangement.restore`, which puts the placements and the
     /// removed clips back with their identifiers and removes the copies.
@@ -265,7 +292,10 @@ domain! {
     /// the end fixed, and the offset follows so the content does not slide: shortening
     /// from the left cuts the beginning of the clip (through the clip's loop), growing to
     /// the left shows earlier content and is refused beyond the clip's start (offset 0).
-    /// The resized placement wins on overlap (the others it now covers are carved,
+    /// An audio placement is resized in whole frames and stays inside its clip: its end
+    /// stops at the clip's last frame and its start at the clip's first (offset 0) instead
+    /// of being refused; its end is kept when its start moves (at most a tick earlier, the
+    /// frames being whole). The resized placement wins on overlap (the others it now covers are carved,
     /// `overwritten` counts them). Moving the edge where it is changes nothing. Undo:
     /// `arrangement.restore`.
     "arrangement.resize" (kind = "edit", undo = "inverse", destructive = false)
@@ -281,8 +311,9 @@ domain! {
     /// Split a placement in two at the timeline tick `at`, strictly inside it: the left
     /// part keeps the identifier, the right part is a new placement (the same clip, so
     /// linked) that plays on from where the left one stops (round the clip's loop, or round
-    /// the whole clip when it has none). Undo:
-    /// `arrangement.restore`.
+    /// the whole clip when it has none). An audio placement is split in whole frames (the
+    /// frames that play before `at` on the left); refused when a part would hold not even
+    /// one frame. Undo: `arrangement.restore`.
     "arrangement.split" (kind = "edit", undo = "inverse", destructive = false)
     Split { placement: PlacementId, at: Tick } => {
         /// The right part.
@@ -304,8 +335,8 @@ domain! {
     /// Copy placements, in one command. The copies start `by` ticks after the originals
     /// (default: right after the selection, one selection length later; negative copies
     /// earlier). By default each copy is independent: a new clip, a copy of the source
-    /// (same name, colour, length, loop and notes; not
-    /// in the launch grid), one per
+    /// (same name, colour, length, loop and notes, or for an audio clip the same file,
+    /// range, gain and loop: the file is not copied; not in the launch grid), one per
     /// distinct source clip, so placements that were linked stay linked among the copies
     /// and editing a copy never changes the original (founder's decision 11). With
     /// `linked: true` the copies are new placements of the same clips. The copies win
@@ -332,10 +363,11 @@ domain! {
     /// Repeat one placement end to end up to the timeline tick `until` (#555): linked
     /// copies, new placements of the same clip, each as long as the placement and with
     /// its offset, the first starting where the placement ends, the next where the last
-    /// ends; the one that would pass `until` is shortened to stop exactly there. To fill
+    /// ends; the one that would pass `until` is shortened to stop exactly there (an audio
+    /// one at the last whole frame before it). To fill
     /// up to the end of bar N, give the tick where bar N ends. The copies win on overlap
     /// (`overwritten` counts the placements they carved). Refused when the placement is
-    /// unknown or an audio one, when `until` is not after the end of the placement or
+    /// unknown, when `until` is not after the end of the placement or
     /// passes 2^40, or when the copies would pass the limit of placements. One history
     /// entry; undo: `arrangement.restore`, which removes the copies and brings back what
     /// they carved.
@@ -350,17 +382,18 @@ domain! {
         overwritten: u32,
     };
 
-    /// Put a MIDI clip of the launch grid in the arrangement, on its own track, as a
+    /// Put a clip of the launch grid in the arrangement, on its own track, as a
     /// placement at the timeline tick `start` that plays the whole clip once (offset 0,
-    /// the clip's length). By default the placement plays an independent copy: a new
-    /// clip, a copy of the grid clip (same name, colour, length, loop and notes, not in
+    /// the clip's length; an audio clip's frames from its first). By default the placement plays an independent copy: a new
+    /// clip, a copy of the grid clip (same name, colour, length, loop and notes, or the same
+    /// file, range, gain and loop; not in
     /// the launch grid), so editing one never changes the other (founder's decision 11).
     /// With `linked: true` the placement references the grid clip itself: editing the
     /// clip in the grid changes what the arrangement plays. The placement wins on overlap
     /// (`overwritten` counts the placements it carved). Refused for a clip that is not in
-    /// the launch grid (use `arrangement.place` or `arrangement.duplicate`), for an audio
-    /// clip, or when the clip would leave the timeline. Undo: `arrangement.restore`,
-    /// which removes the placement and the copy.
+    /// the launch grid (use `arrangement.place` or `arrangement.duplicate`), or when the
+    /// clip would leave the timeline. Undo: `arrangement.restore`, which removes the
+    /// placement and the copy.
     "arrangement.place_from_slot" (kind = "edit", undo = "inverse", destructive = false)
     PlaceFromSlot {
         clip: ClipId,
@@ -377,9 +410,9 @@ domain! {
     };
 
     /// `arrangement.place_from_slot` for a whole scene of the launch grid, in one command
-    /// and one history entry: every MIDI clip of the scene is placed on its own track at
-    /// the same tick `start`, as a copy (default) or linked to the grid clip. Empty slots
-    /// place nothing; audio clips are skipped. Refused when the scene has no MIDI clip.
+    /// and one history entry: every clip of the scene (MIDI and audio) is placed on its own
+    /// track at the same tick `start`, as a copy (default) or linked to the grid clip. Empty
+    /// slots place nothing. Refused when the scene has no clip.
     /// The placements win on overlap. Undo: `arrangement.restore`.
     "arrangement.place_scene" (kind = "edit", undo = "inverse", destructive = false)
     PlaceScene {
@@ -407,9 +440,9 @@ domain! {
     /// signature hold one point at tick 0 and do not move; the playhead and the launch grid
     /// do not move. Refused with `invalid` when `at` is not in [0, 2^40], `length` is less
     /// than 1 or the cut would pass 2^40, or when a placement or a point would pass 2^40,
-    /// and with `limit` when the splits pass the placement limits. Refused too, for the
-    /// whole project, while any track holds an audio placement (`clip.import_audio` into
-    /// the arrangement makes one): audio placements do not move in time yet. Changes nothing
+    /// and with `limit` when the splits pass the placement limits. An audio placement moves
+    /// and splits like the others, in whole frames (a part where not even one frame fits
+    /// goes). Changes nothing
     /// (no history entry) when nothing lies at or after `at`. Undo: `arrangement.restore_time`.
     "arrangement.insert_time" (kind = "edit", undo = "inverse", destructive = false)
     InsertTime { at: Tick, length: Tick } => {
@@ -437,10 +470,9 @@ domain! {
     /// a loop left empty is cleared and switched off). Tempo and time signature hold one
     /// point at tick 0 and do not move; the playhead and the launch grid do not move.
     /// Refused with `invalid` when `from` is not in [0, 2^40], `to` is not after `from` or
-    /// passes 2^40, and with `limit` when the cuts pass the placement limits. Refused too, for
-    /// the whole project, while any track holds an audio placement (audio placements do not
-    /// move in time yet). Changes nothing (no history entry) when nothing lies at or after
-    /// `from`. Undo:
+    /// passes 2^40, and with `limit` when the cuts pass the placement limits. An audio
+    /// placement is cut and moves like the others, in whole frames. Changes nothing (no
+    /// history entry) when nothing lies at or after `from`. Undo:
     /// `arrangement.restore_time`.
     "arrangement.delete_time" (kind = "edit", undo = "inverse", destructive = false)
     DeleteTime { from: Tick, to: Tick } => {
@@ -487,10 +519,11 @@ domain! {
     /// Refused when a placement is outside the timeline or its offset outside its clip,
     /// when a placement is left on a removed clip or names an unknown clip, when an
     /// identifier to create is in use, or when a rule of the clip commands is broken (a
-    /// note outside the length, a limit). In an audio track only `put` and `remove` of
-    /// audio placements (a record with `frames`) are taken, never `clips` or `remove_clips`;
-    /// an audio placement must end inside its clip (`offset + length` at most the clip's
-    /// frames) and never overlap another placement of the track.
+    /// note outside the length, a limit). In an audio track the placements are audio ones
+    /// (a record with `frames`) and the clips it brings back are audio ones (`audio_clips`,
+    /// a snapshot as `clip.restore_audio` takes; `clips` is refused there, and `audio_clips`
+    /// in a MIDI track); an audio placement must end inside its clip (`offset + length` at
+    /// most the clip's frames) and never overlap another placement of the track.
     /// Undo: the restore of what it changed.
     "arrangement.restore" (kind = "edit", undo = "inverse", destructive = false)
     Restore { edits: Vec<TrackEdit> } => {};
@@ -576,12 +609,106 @@ impl Geo {
     }
 }
 
+/// An audio clip's geometry, in frames of its file: what cutting its placements needs.
+#[derive(Clone, Copy)]
+struct AudioGeo {
+    /// The clip's length in frames.
+    frames: i64,
+    rate: SampleRate,
+    /// Its loop, clip-relative, when it has a valid one.
+    looping: Option<(i64, i64)>,
+}
+
+impl AudioGeo {
+    fn of(content: &ClipContent) -> Option<Self> {
+        let ClipContent::Audio {
+            media,
+            frames,
+            looping,
+            ..
+        } = content
+        else {
+            return None;
+        };
+        let frames = frame_i64(*frames);
+        Some(Self {
+            frames,
+            rate: media.sample_rate,
+            looping: looping
+                .map(|l| (frame_i64(l.start), frame_i64(l.end)))
+                .filter(|&(s, e)| s < e && e <= frames),
+        })
+    }
+
+    /// The frame of the clip reached `f` frames into a read from frame 0: straight up to the
+    /// loop's end, then round the loop, the way the audio clip player reads it
+    /// (`engine::devices::clip_player`).
+    fn position(self, f: i64) -> i64 {
+        match self.looping {
+            Some((ls, le)) if f >= le => ls + (f - le).rem_euclid(le - ls),
+            _ => f,
+        }
+    }
+}
+
+fn frame_i64(f: project::Frame) -> i64 {
+    i64::try_from(f.get()).unwrap_or(i64::MAX)
+}
+
+fn frame_of(f: i64) -> project::Frame {
+    project::Frame::new(u64::try_from(f.max(0)).unwrap_or(0))
+}
+
+/// The ticks `frames` frames at `rate` take at `tempo`, at least one: the rule of
+/// [`crate::clip::placement_ticks`].
+fn audio_ticks(tempo: Tempo, rate: SampleRate, frames: i64) -> i64 {
+    tempo.frames_to_ticks(frame_of(frames), rate).get().max(1)
+}
+
+/// The frames that play in the first `ticks` ticks of a read: `floor(ticks × frames per
+/// tick)` (the player starts a read at the floor of its sample, TR-1), at most `cap`, and
+/// never so many that their ticks pass `ticks`.
+fn frames_before(tempo: Tempo, rate: SampleRate, ticks: i64, cap: i64) -> i64 {
+    if ticks < 1 || cap < 1 {
+        return 0;
+    }
+    let exact = tempo.tick_to_sample(Tick(ticks), rate).floor();
+    // `as` saturates and sends NaN to 0.
+    let mut n = (exact as i64).clamp(0, cap);
+    // The float product is off by a frame at most: the ticks of the result never pass.
+    while n > 0 && audio_ticks(tempo, rate, n) > ticks {
+        n -= 1;
+    }
+    n
+}
+
+/// The most frames, at most `cap`, whose ticks fit in `ticks` (0 when not even one does).
+/// The ticks of a frame count never shrink as it grows, so this is a binary search.
+fn frames_within(tempo: Tempo, rate: SampleRate, ticks: i64, cap: i64) -> i64 {
+    if ticks < 1 || cap < 1 {
+        return 0;
+    }
+    let (mut low, mut high) = (0i64, cap);
+    while low < high {
+        let mid = low + (high - low + 1) / 2;
+        if audio_ticks(tempo, rate, mid) <= ticks {
+            low = mid;
+        } else {
+            high = mid - 1;
+        }
+    }
+    low
+}
+
 /// One track while a command works on it: the placements as they will be, the clips it
-/// creates or removes, and the geometry of its clips.
+/// creates or removes, and the geometry of its clips (a MIDI clip's in ticks, an audio
+/// clip's in frames of its file, read at the project's tempo).
 struct TrackWork {
     track: TrackId,
     placements: Placements,
     geo: BTreeMap<ClipId, Geo>,
+    audio: BTreeMap<ClipId, AudioGeo>,
+    tempo: Tempo,
     new_clips: BTreeMap<ClipId, Clip>,
     gone_clips: Vec<ClipId>,
 }
@@ -589,22 +716,18 @@ struct TrackWork {
 type Works = BTreeMap<TrackId, TrackWork>;
 
 impl TrackWork {
+    /// The work on a track of either kind: MIDI placements in ticks, audio ones in frames.
     fn new(project: &Project, id: &TrackId) -> Result<Self, CommandError> {
-        Ok(Self::of(midi_track(project, id)?, id))
-    }
-
-    /// The work on a track of either kind: an audio track holds no MIDI geometry, so only
-    /// the commands that never read it (a delete, a restore of audio placements) take it.
-    fn of_any(project: &Project, id: &TrackId) -> Result<Self, CommandError> {
         let track = project
             .tracks
             .get(id)
             .ok_or_else(|| not_found("track", id))?;
-        Ok(Self::of(track, id))
+        Ok(Self::of(track, id, project.tempo()))
     }
 
-    fn of(track: &Track, id: &TrackId) -> Self {
+    fn of(track: &Track, id: &TrackId, tempo: Tempo) -> Self {
         let mut geo = BTreeMap::new();
+        let mut audio = BTreeMap::new();
         for (clip_id, clip) in &track.clips {
             if let ClipContent::Midi {
                 length, looping, ..
@@ -617,54 +740,183 @@ impl TrackWork {
                         looping: looping.map(|l| (l.start.get(), l.end.get())),
                     },
                 );
+            } else if let Some(g) = AudioGeo::of(&clip.content) {
+                audio.insert(clip_id.clone(), g);
             }
         }
         Self {
             track: id.clone(),
             placements: track.placements.clone(),
             geo,
+            audio,
+            tempo,
             new_clips: BTreeMap::new(),
             gone_clips: Vec::new(),
         }
     }
 
+    /// The ticks `[start, end)` a placement covers: its length for a MIDI one, its frames
+    /// at the project's tempo for an audio one (at least one tick).
+    fn span(&self, p: &Placement) -> Result<(i64, i64), CommandError> {
+        let start = p.start.get();
+        match p.span {
+            Span::Ticks { length, .. } => Ok((start, start.saturating_add(length.get()))),
+            Span::Frames { length, .. } => {
+                let g = self
+                    .audio
+                    .get(&p.clip)
+                    .ok_or_else(|| not_found("clip", &p.clip))?;
+                Ok((
+                    start,
+                    start.saturating_add(audio_ticks(self.tempo, g.rate, frame_i64(length))),
+                ))
+            }
+        }
+    }
+
+    /// The span of a placement a command puts down, checked to lie on the timeline.
+    fn checked_span(&self, p: &Placement, field: &str) -> Result<(i64, i64), CommandError> {
+        let (s, e) = self.span(p)?;
+        check_extent(s, e - s, field)?;
+        Ok((s, e))
+    }
+
+    /// The part of `p` that plays in the ticks `[a, b)`, as a placement that starts at
+    /// `a` (clamped to `p`'s span); `None` when nothing of the clip is left there.
+    ///
+    /// A MIDI part resumes the clip where the cut falls, round its loop or round the whole
+    /// clip. An audio part keeps whole frames: it skips the frames that play before `a`
+    /// ([`frames_before`]), stops at those that play before `b` (or at the placement's last
+    /// frame when `b` is its end), and is trimmed at the front while it would end after
+    /// `b`. So the two parts of one cut never overlap and never play a frame twice, and a
+    /// part never ends after the placement it comes from; a part where not even one frame
+    /// fits is `None`. Its offset goes round the clip's loop, as the player reads it.
+    fn part(&self, p: &Placement, a: i64, b: i64) -> Option<Placement> {
+        let (s, e) = self.span(p).ok()?;
+        let (a, b) = (a.max(s), b.min(e));
+        if a >= b {
+            return None;
+        }
+        match p.span {
+            Span::Ticks { offset, .. } => {
+                let o = offset.get();
+                let offset = if a == s {
+                    o
+                } else {
+                    self.geo.get(&p.clip)?.position(o.saturating_add(a - s))?
+                };
+                Some(shaped(&p.clip, a, b - a, offset))
+            }
+            Span::Frames { length, offset } => {
+                let g = *self.audio.get(&p.clip)?;
+                let (len, o) = (frame_i64(length), frame_i64(offset));
+                let skip = if a == s {
+                    0
+                } else {
+                    frames_before(self.tempo, g.rate, a - s, len)
+                };
+                let until = if b == e {
+                    len
+                } else {
+                    frames_before(self.tempo, g.rate, b - s, len)
+                };
+                if until <= skip {
+                    return None;
+                }
+                let kept = frames_within(self.tempo, g.rate, b - a, until - skip);
+                if kept < 1 {
+                    return None;
+                }
+                let from = until - kept;
+                let offset = if from == 0 {
+                    o
+                } else {
+                    g.position(o.saturating_add(from))
+                };
+                Some(Placement {
+                    clip: p.clip.clone(),
+                    start: Tick(a),
+                    span: Span::Frames {
+                        length: frame_of(kept),
+                        offset: frame_of(offset),
+                    },
+                })
+            }
+        }
+    }
+
     /// Carves the placements that overlap `[start, end)`; returns how many it touched.
     fn carve(&mut self, ids: &mut IdGenerator, start: i64, end: i64) -> Result<u32, CommandError> {
-        let hit: Vec<PlacementId> = self
-            .placements
-            .iter()
-            .filter_map(|(id, p)| {
-                let (s, l, _) = extent(p).ok()?;
-                (s < end && start < s.saturating_add(l)).then(|| id.clone())
-            })
-            .collect();
+        let mut hit = Vec::new();
+        for (id, p) in &self.placements {
+            let (s, e) = self.span(p)?;
+            if s < end && start < e {
+                hit.push(id.clone());
+            }
+        }
         for id in &hit {
             let Some(p) = self.placements.remove(id) else {
                 continue;
             };
-            let (s, l, o) = extent(&p)?;
-            let e = s + l;
-            if s < start {
-                self.placements
-                    .insert(id.clone(), shaped(&p.clip, s, start - s, o));
+            let (s, e) = self.span(&p)?;
+            let left = if s < start {
+                self.part(&p, s, start)
+            } else {
+                None
+            };
+            let right = if e > end { self.part(&p, end, e) } else { None };
+            let had_left = left.is_some();
+            if let Some(left) = left {
+                self.placements.insert(id.clone(), left);
             }
-            if e > end {
-                let offset = self
-                    .geo
-                    .get(&p.clip)
-                    .and_then(|g| g.position(o.saturating_add(end - s)));
-                if let Some(offset) = offset {
-                    let right = if s < start {
-                        PlacementId::generate(ids)
-                    } else {
-                        id.clone()
-                    };
-                    self.placements
-                        .insert(right, shaped(&p.clip, end, e - end, offset));
-                }
+            if let Some(right) = right {
+                let at = if had_left {
+                    PlacementId::generate(ids)
+                } else {
+                    id.clone()
+                };
+                self.placements.insert(at, right);
             }
         }
         Ok(count(hit.len()))
+    }
+
+    /// A clip the command makes in this track, with its geometry.
+    fn add_clip(&mut self, id: ClipId, clip: Clip) {
+        if let ClipContent::Midi {
+            length, looping, ..
+        } = &clip.content
+        {
+            self.geo.insert(
+                id.clone(),
+                Geo {
+                    length: length.get(),
+                    looping: looping.map(|l| (l.start.get(), l.end.get())),
+                },
+            );
+        } else if let Some(g) = AudioGeo::of(&clip.content) {
+            self.audio.insert(id.clone(), g);
+        }
+        self.new_clips.insert(id, clip);
+    }
+
+    /// Whether the work knows the geometry of `clip` (it is a clip of the track, or one the
+    /// command makes).
+    fn knows(&self, clip: &ClipId) -> bool {
+        self.geo.contains_key(clip) || self.audio.contains_key(clip)
+    }
+
+    /// `p` moved `by` ticks; refused when its start leaves the tick range.
+    fn shifted(p: &Placement, by: i64, field: &str) -> Result<Placement, CommandError> {
+        let start = p
+            .start
+            .get()
+            .checked_add(by)
+            .ok_or_else(|| invalid(field, "the placement leaves the timeline"))?;
+        Ok(Placement {
+            start: Tick(start),
+            ..p.clone()
+        })
     }
 
     /// Opens `length` ticks at `at`: a placement that straddles `at` is split there (the
@@ -680,27 +932,33 @@ impl TrackWork {
         let (mut split, mut shifted) = (0usize, 0usize);
         let mut out = Placements::new();
         for (id, p) in std::mem::take(&mut self.placements) {
-            let (s, l, o) = extent(&p)?;
-            let e = s.saturating_add(l);
+            let (s, e) = self.span(&p)?;
             if e <= at {
                 out.insert(id, p);
             } else if s >= at {
-                check_extent(s.saturating_add(length), l, "length")?;
-                out.insert(id, shaped(&p.clip, s + length, l, o));
+                let moved = Self::shifted(&p, length, "length")?;
+                self.checked_span(&moved, "length")?;
+                out.insert(id, moved);
                 shifted += 1;
             } else {
-                out.insert(id, shaped(&p.clip, s, at - s, o));
+                // The left part keeps the identifier (an audio one where not even a frame
+                // fits before `at` is the right part only).
+                let left = self.part(&p, s, at);
+                let right = self.part(&p, at, e);
+                let had_left = left.is_some();
+                if let Some(left) = left {
+                    out.insert(id.clone(), left);
+                }
                 split += 1;
-                let resume = self
-                    .geo
-                    .get(&p.clip)
-                    .and_then(|g| g.position(o.saturating_add(at - s)));
-                if let Some(offset) = resume {
-                    check_extent(at.saturating_add(length), e - at, "length")?;
-                    out.insert(
-                        PlacementId::generate(ids),
-                        shaped(&p.clip, at + length, e - at, offset),
-                    );
+                if let Some(right) = right {
+                    let moved = Self::shifted(&right, length, "length")?;
+                    self.checked_span(&moved, "length")?;
+                    let at = if had_left {
+                        PlacementId::generate(ids)
+                    } else {
+                        id.clone()
+                    };
+                    out.insert(at, moved);
                     shifted += 1;
                 }
             }
@@ -761,7 +1019,7 @@ fn extent(p: &Placement) -> Result<(i64, i64, i64), CommandError> {
         Span::Ticks { length, offset } => Ok((p.start.get(), length.get(), offset.get())),
         Span::Frames { .. } => Err(invalid(
             "placement",
-            "an audio placement is not edited in ticks; audio arrangement comes with the import",
+            "an audio placement is measured in frames, not in ticks",
         )),
     }
 }
@@ -910,12 +1168,20 @@ fn commit_time(
             .cloned()
             .collect();
         let mut clips = Vec::new();
+        let mut audio_clips = Vec::new();
         for id in &work.gone_clips {
             let clip = track.clips.get(id).ok_or_else(|| not_found("clip", id))?;
-            clips.push(ClipRecord {
-                id: id.clone(),
-                snapshot: snapshot(clip)?,
-            });
+            if let Some(snapshot) = crate::clip::audio_snapshot(clip) {
+                audio_clips.push(AudioClipRecord {
+                    id: id.clone(),
+                    snapshot,
+                });
+            } else {
+                clips.push(ClipRecord {
+                    id: id.clone(),
+                    snapshot: snapshot(clip)?,
+                });
+            }
             deleted.push(ProjectEvent::ClipDeleted {
                 track: work.track.clone(),
                 clip: id.clone(),
@@ -944,11 +1210,13 @@ fn commit_time(
             put,
             remove,
             clips,
+            audio_clips,
             remove_clips: work.new_clips.keys().cloned().collect(),
         };
         if edit.put.is_empty()
             && edit.remove.is_empty()
             && edit.clips.is_empty()
+            && edit.audio_clips.is_empty()
             && edit.remove_clips.is_empty()
         {
             continue;
@@ -1254,9 +1522,8 @@ fn place(
 
 /// `arrangement.place` for an audio clip of an audio track: a placement of the whole clip
 /// (offset 0, its frames), starting at the tick `start`, as `clip.import_audio` with
-/// `at: arrangement` puts one. Its end is the clip's frames at the project's tempo. Unlike a
-/// MIDI placement it never carves: an overlap is refused (moving, resizing and cutting audio
-/// placements come with AU-6).
+/// `at: arrangement` puts one. Its end is the clip's frames at the project's tempo. It wins
+/// on overlap like a MIDI placement (AU-6): the placements it covers are carved in frames.
 fn place_audio(
     state: &mut State,
     ctx: &mut Context,
@@ -1275,56 +1542,39 @@ fn place_audio(
         .clips
         .get(clip)
         .ok_or_else(|| not_found("clip", clip))?;
-    let ClipContent::Audio { media, frames, .. } = &source.content else {
+    let ClipContent::Audio { frames, .. } = &source.content else {
         return Err(not_found("clip", clip));
     };
     if length.is_some() || offset.is_some() {
         return Err(invalid(
             if length.is_some() { "length" } else { "offset" },
-            "an audio clip is placed whole, from its first frame: `length` and `offset` are ticks, for a MIDI clip; the range an audio clip plays is `clip.audio.set_range`",
+            "an audio clip is placed whole, from its first frame: `length` and `offset` are ticks, for a MIDI clip; the range an audio clip plays is `clip.audio.set_range`, and `arrangement.resize` shortens a placement",
         ));
     }
     if source.slot.is_some() {
         return Err(invalid(
             "clip",
-            "the clip sits in the launch grid: sending a grid audio clip to the arrangement comes with AU-6; meanwhile `clip.import_audio` with `at: arrangement` places its file again, and a clip of the pool (no slot) is placed by arrangement.place",
+            "the clip sits in the launch grid: copying or linking it into the arrangement is arrangement.place_from_slot (AR-5)",
         ));
     }
-    let tempo = project.tempo();
-    let ticks = tempo
-        .frames_to_ticks(*frames, media.sample_rate)
-        .get()
-        .max(1);
-    check_extent(start.get(), ticks, "start")?;
-    let end = start.get() + ticks;
-    let mut work = TrackWork::of_any(project, track_id)?;
-    for other in work.placements.values() {
-        if let Some((s, e)) = crate::clip::placement_ticks(tempo, track, other)
-            && s < end
-            && start.get() < e
-        {
-            return Err(invalid(
-                "start",
-                "the placement would overlap another placement of the track: an audio placement never carves; `arrangement.delete` the other one or choose another start",
-            ));
-        }
-    }
-    let id = PlacementId::generate(&mut ctx.ids);
-    work.placements.insert(
-        id.clone(),
-        Placement {
-            clip: clip.clone(),
-            start,
-            span: Span::Frames {
-                length: *frames,
-                offset: project::Frame::new(0),
-            },
+    let mut work = TrackWork::new(project, track_id)?;
+    let placed = Placement {
+        clip: clip.clone(),
+        start,
+        span: Span::Frames {
+            length: *frames,
+            offset: project::Frame::new(0),
         },
-    );
+    };
+    let (s, e) = work.checked_span(&placed, "start")?;
+    // The last one put down wins, as for a MIDI placement (AU-6).
+    let overwritten = work.carve(&mut ctx.ids, s, e)?;
+    let id = PlacementId::generate(&mut ctx.ids);
+    work.placements.insert(id.clone(), placed);
     commit(state, BTreeMap::from([(track_id.clone(), work)]), || {
         Output::Place {
             placement: id,
-            overwritten: 0,
+            overwritten,
         }
     })
 }
@@ -1337,7 +1587,7 @@ struct Sent {
     overwritten: u32,
 }
 
-/// The MIDI clips of a scene, one per track, in the order of the tracks.
+/// The clips of a scene (MIDI and audio ones), one per track, in the order of the tracks.
 fn scene_clips(project: &Project, scene: &SceneId) -> Result<Vec<ClipId>, CommandError> {
     if !project.scenes.contains_key(scene) {
         return Err(not_found("scene", scene));
@@ -1346,21 +1596,55 @@ fn scene_clips(project: &Project, scene: &SceneId) -> Result<Vec<ClipId>, Comman
     // In the order the tracks are shown.
     let mut ordered: Vec<_> = project.tracks.iter().collect();
     ordered.sort_by(|a, b| a.1.order.cmp(&b.1.order).then_with(|| a.0.cmp(b.0)));
-    for (track_id, track) in ordered {
-        if midi_track(project, track_id).is_err() {
-            continue;
-        }
+    for (_, track) in ordered {
         for (id, clip) in &track.clips {
-            if clip.slot.as_ref() == Some(scene) && matches!(clip.content, ClipContent::Midi { .. })
-            {
+            if clip.slot.as_ref() == Some(scene) && fits(track, clip) {
                 out.push(id.clone());
             }
         }
     }
     if out.is_empty() {
-        return Err(invalid("scene", "the scene holds no MIDI clip to place"));
+        return Err(invalid("scene", "the scene holds no clip to place"));
     }
     Ok(out)
+}
+
+/// Whether a clip is of its track's kind (a MIDI clip in a MIDI track, an audio clip in an
+/// audio track): the only clips the arrangement places.
+fn fits(track: &Track, clip: &Clip) -> bool {
+    matches!(
+        (&track.kind, &clip.content),
+        (project::TrackKind::Midi, ClipContent::Midi { .. })
+            | (project::TrackKind::Audio, ClipContent::Audio { .. })
+    )
+}
+
+/// The notes a copy of `clip` adds (none for an audio clip).
+fn notes_of(clip: &Clip) -> usize {
+    match &clip.content {
+        ClipContent::Midi { notes, .. } => notes.len(),
+        ClipContent::Audio { .. } => 0,
+    }
+}
+
+/// A placement of the whole clip from `start`: its length from offset 0 for a MIDI clip,
+/// its frames from frame 0 for an audio one.
+fn whole(clip_id: &ClipId, clip: &Clip, start: Tick) -> Placement {
+    let span = match &clip.content {
+        ClipContent::Midi { length, .. } => Span::Ticks {
+            length: *length,
+            offset: Tick(0),
+        },
+        ClipContent::Audio { frames, .. } => Span::Frames {
+            length: *frames,
+            offset: project::Frame::new(0),
+        },
+    };
+    Placement {
+        clip: clip_id.clone(),
+        start,
+        span,
+    }
 }
 
 /// Puts each clip of the grid in the arrangement of its own track at `start`, whole, as
@@ -1386,28 +1670,36 @@ fn send_from_grid(
             return Err(invalid("clip", format!("clip {id} is listed twice")));
         }
         let track_id = locate(project, id)?;
-        let track = midi_track(project, &track_id)?;
+        let track = project
+            .tracks
+            .get(&track_id)
+            .ok_or_else(|| not_found("track", &track_id))?;
         let clip = track.clips.get(id).ok_or_else(|| not_found("clip", id))?;
-        let (clip_length, _, notes) = midi_ref(clip)?;
+        if !fits(track, clip) {
+            return Err(invalid(
+                "clip",
+                "a MIDI clip is placed in a MIDI track, an audio clip in an audio track",
+            ));
+        }
+        let notes = notes_of(clip);
         if clip.slot.is_none() {
             return Err(invalid(
                 "clip",
                 "the clip does not sit in the launch grid: use arrangement.place or arrangement.duplicate",
             ));
         }
-        let length = clip_length.get();
-        check_extent(start.get(), length, "start")?;
         if !works.contains_key(&track_id) {
             works.insert(track_id.clone(), TrackWork::new(project, &track_id)?);
         }
         let work = works
             .get_mut(&track_id)
             .ok_or_else(|| not_found("track", &track_id))?;
+        let (s, e) = work.checked_span(&whole(id, clip, start), "start")?;
         let mut copy = None;
         let target = if linked {
             id.clone()
         } else {
-            notes_added = notes_added.saturating_add(notes.len());
+            notes_added = notes_added.saturating_add(notes);
             check_total(
                 "clips per track",
                 track.clips.len(),
@@ -1420,21 +1712,19 @@ fn send_from_grid(
                 new_clips + 1,
                 project::limits::MAX_CLIPS,
             )?;
-            check_note_limits(notes.len(), notes_in_project.saturating_add(notes_added))?;
+            check_note_limits(notes, notes_in_project.saturating_add(notes_added))?;
             new_clips += 1;
             let copy_id = ClipId::generate(&mut ctx.ids);
             let mut copied = clip.clone();
             copied.slot = None;
-            work.new_clips.insert(copy_id.clone(), copied);
-            if let Some(geo) = work.geo.get(id).copied() {
-                work.geo.insert(copy_id.clone(), geo);
-            }
+            work.add_clip(copy_id.clone(), copied);
             copy = Some(copy_id.clone());
             copy_id
         };
-        overwritten += work.carve(&mut ctx.ids, start.get(), start.get() + length)?;
+        overwritten += work.carve(&mut ctx.ids, s, e)?;
         let placement = PlacementId::generate(&mut ctx.ids);
-        work.put(placement.clone(), &target, start.get(), length, 0);
+        work.placements
+            .insert(placement.clone(), whole(&target, clip, start));
         placed.push((placement, copy));
     }
     Ok(Sent {
@@ -1461,13 +1751,11 @@ fn move_placements(
             .filter_map(|id| work.placements.remove(id).map(|p| (id.clone(), p)))
             .collect();
         for (id, p) in lifted {
-            let (start, length, offset) = extent(&p)?;
-            let start = start
-                .checked_add(by.get())
-                .ok_or_else(|| invalid("by", "the placement leaves the timeline"))?;
-            check_extent(start, length, "by")?;
-            overwritten += work.carve(&mut ctx.ids, start, start + length)?;
-            work.put(id, &p.clip, start, length, offset);
+            // A placement keeps its span (an audio one its frames): only its start moves.
+            let moved = TrackWork::shifted(&p, by.get(), "by")?;
+            let (s, e) = work.checked_span(&moved, "by")?;
+            overwritten += work.carve(&mut ctx.ids, s, e)?;
+            work.placements.insert(id, moved);
         }
         works.insert(track_id, work);
     }
@@ -1487,18 +1775,6 @@ fn move_to_track(
     let groups = group_by_track(project, &ids, "moves")?;
     let mut works = Works::new();
     for track_id in groups.keys() {
-        let track = project
-            .tracks
-            .get(track_id)
-            .ok_or_else(|| not_found("track", track_id))?;
-        if track.kind != project::TrackKind::Midi {
-            return Err(invalid(
-                "moves",
-                format!(
-                    "track {track_id} is an audio track: its placements are not moved until the audio import supports it"
-                ),
-            ));
-        }
         works.insert(track_id.clone(), TrackWork::new(project, track_id)?);
     }
     for m in moves {
@@ -1506,11 +1782,17 @@ fn move_to_track(
             .tracks
             .get(&m.track)
             .ok_or_else(|| not_found("track", &m.track))?;
-        if target.kind != project::TrackKind::Midi {
+        let source = track_of(project, &m.placement)?;
+        let kind = project
+            .tracks
+            .get(&source)
+            .ok_or_else(|| not_found("track", &source))?
+            .kind;
+        if target.kind != kind {
             return Err(invalid(
                 "moves",
                 format!(
-                    "track {} is not a MIDI track: a MIDI clip only moves to a MIDI track",
+                    "track {} is not of the clip's kind: a MIDI clip only moves to a MIDI track, an audio clip to an audio track",
                     m.track
                 ),
             ));
@@ -1537,11 +1819,7 @@ fn move_to_track(
     let mut notes_added = 0usize;
     let notes_in_project = project_notes(project);
     for (m, source, p) in lifted {
-        let (start, length, offset) = extent(&p)?;
-        let start = start
-            .checked_add(by)
-            .ok_or_else(|| invalid("by", "the placement leaves the timeline"))?;
-        check_extent(start, length, "by")?;
+        let moved = TrackWork::shifted(&p, by, "by")?;
         let stays = m.track == source;
         let clip = if stays {
             p.clip.clone()
@@ -1553,14 +1831,13 @@ fn move_to_track(
                 .get(&source)
                 .and_then(|t| t.clips.get(&p.clip))
                 .ok_or_else(|| not_found("clip", &p.clip))?;
-            let (_, _, notes) = midi_ref(from)?;
-            notes_added = notes_added.saturating_add(notes.len());
-            check_note_limits(notes.len(), notes_in_project.saturating_add(notes_added))?;
+            let notes = notes_of(from);
+            notes_added = notes_added.saturating_add(notes);
+            check_note_limits(notes, notes_in_project.saturating_add(notes_added))?;
             let target = project
                 .tracks
                 .get(&m.track)
                 .ok_or_else(|| not_found("track", &m.track))?;
-            let geo = works.get(&source).and_then(|w| w.geo.get(&p.clip)).copied();
             let work = works
                 .get_mut(&m.track)
                 .ok_or_else(|| not_found("track", &m.track))?;
@@ -1580,10 +1857,7 @@ fn move_to_track(
             let copy = ClipId::generate(&mut ctx.ids);
             let mut copied = from.clone();
             copied.slot = None;
-            work.new_clips.insert(copy.clone(), copied);
-            if let Some(geo) = geo {
-                work.geo.insert(copy.clone(), geo);
-            }
+            work.add_clip(copy.clone(), copied);
             copies.insert((m.track.clone(), p.clip.clone()), copy.clone());
             left.push((source.clone(), p.clip.clone()));
             copy
@@ -1591,13 +1865,15 @@ fn move_to_track(
         let work = works
             .get_mut(&m.track)
             .ok_or_else(|| not_found("track", &m.track))?;
-        overwritten += work.carve(&mut ctx.ids, start, start + length)?;
+        let moved = Placement { clip, ..moved };
+        let (s, e) = work.checked_span(&moved, "by")?;
+        overwritten += work.carve(&mut ctx.ids, s, e)?;
         let id = if stays {
             m.placement.clone()
         } else {
             PlacementId::generate(&mut ctx.ids)
         };
-        work.put(id.clone(), &clip, start, length, offset);
+        work.placements.insert(id.clone(), moved);
         moved_ids.push(id);
     }
     // A clip that no placement uses any more and that no slot holds goes with its placements.
@@ -1617,6 +1893,7 @@ fn move_to_track(
             continue;
         }
         work.geo.remove(&clip);
+        work.audio.remove(&clip);
         work.gone_clips.push(clip);
     }
     commit(state, works, || Output::MoveToTrack {
@@ -1639,6 +1916,15 @@ fn resize(
         .placements
         .remove(id)
         .ok_or_else(|| not_found("placement", id))?;
+    if let Span::Frames { .. } = p.span {
+        let resized = resize_audio(&work, &p, edge, to.get())?;
+        let (s, e) = work.checked_span(&resized, "to")?;
+        let overwritten = work.carve(&mut ctx.ids, s, e)?;
+        work.placements.insert(id.clone(), resized);
+        return commit(state, BTreeMap::from([(track_id, work)]), || {
+            Output::Resize { overwritten }
+        });
+    }
     let (start, length, offset) = extent(&p)?;
     let end = start + length;
     let to = to.get();
@@ -1685,6 +1971,85 @@ fn resize(
     })
 }
 
+/// An audio placement with one edge moved to the tick `to`, in frames of its clip and kept
+/// inside the clip: the end edge stops at the clip's last frame, the start edge at its first
+/// (offset 0). The start edge keeps the end where it is: shortening skips the frames whose
+/// ticks fit before `to`, growing shows earlier frames (as many as end by the old end).
+fn resize_audio(
+    work: &TrackWork,
+    p: &Placement,
+    edge: Edge,
+    to: i64,
+) -> Result<Placement, CommandError> {
+    let Span::Frames { length, offset } = p.span else {
+        return Err(invalid("placement", "not an audio placement"));
+    };
+    let g = *work
+        .audio
+        .get(&p.clip)
+        .ok_or_else(|| not_found("clip", &p.clip))?;
+    let (s, e) = work.span(p)?;
+    let (len, o) = (frame_i64(length), frame_i64(offset));
+    match edge {
+        Edge::End => {
+            if to <= s {
+                return Err(invalid("to", "the end must stay after the start"));
+            }
+            let kept = frames_before(work.tempo, g.rate, to - s, g.frames - o);
+            if kept < 1 {
+                return Err(invalid(
+                    "to",
+                    "not even one frame of the clip fits before that tick",
+                ));
+            }
+            Ok(Placement {
+                span: Span::Frames {
+                    length: frame_of(kept),
+                    offset,
+                },
+                ..p.clone()
+            })
+        }
+        Edge::Start => {
+            if to >= e {
+                return Err(invalid("to", "the start must stay before the end"));
+            }
+            if to < 0 {
+                return Err(invalid("to", "the start lies inside the timeline"));
+            }
+            if to >= s {
+                return work.part(p, to, e).ok_or_else(|| {
+                    invalid(
+                        "to",
+                        "not even one frame of the clip fits between that tick and the end",
+                    )
+                });
+            }
+            // Growing to the left: the frames that play between `to` and the old start, at
+            // most the ones before the offset, and never so many that the end moves on.
+            let mut grow = frames_before(work.tempo, g.rate, s - to, o);
+            while grow > 0 && to + audio_ticks(work.tempo, g.rate, len + grow) > e {
+                grow -= 1;
+            }
+            let start = if grow == o && o > 0 {
+                // Back to the clip's first frame: it starts where that frame falls, the end
+                // kept.
+                (e - audio_ticks(work.tempo, g.rate, len + o)).max(to)
+            } else {
+                to
+            };
+            Ok(Placement {
+                clip: p.clip.clone(),
+                start: Tick(start),
+                span: Span::Frames {
+                    length: frame_of(len + grow),
+                    offset: frame_of(o - grow),
+                },
+            })
+        }
+    }
+}
+
 fn split(
     state: &mut State,
     ctx: &mut Context,
@@ -1702,6 +2067,27 @@ fn split(
         id,
     )?
     .clone();
+    if let Span::Frames { .. } = p.span {
+        let (s, e) = work.span(&p)?;
+        let at = at.get();
+        if !(s + 1..e).contains(&at) {
+            return Err(invalid("at", "split strictly inside the placement"));
+        }
+        let (Some(left), Some(right)) = (work.part(&p, s, at), work.part(&p, at, e)) else {
+            return Err(invalid(
+                "at",
+                "a part would hold not even one frame of the clip: split further from the edges",
+            ));
+        };
+        let right_id = PlacementId::generate(&mut ctx.ids);
+        work.placements.insert(id.clone(), left);
+        work.placements.insert(right_id.clone(), right);
+        return commit(state, BTreeMap::from([(track_id, work)]), || {
+            Output::Split {
+                placement: right_id,
+            }
+        });
+    }
     let (start, length, offset) = extent(&p)?;
     let at = at.get();
     if !(start + 1..start + length).contains(&at) {
@@ -1735,7 +2121,7 @@ fn delete(state: &mut State, ids: &[PlacementId]) -> Result<Out, CommandError> {
     let mut works = Works::new();
     for (track_id, gone) in groups {
         // An audio placement goes like a MIDI one: its clip and its blob stay.
-        let mut work = TrackWork::of_any(project, &track_id)?;
+        let mut work = TrackWork::new(project, &track_id)?;
         for id in &gone {
             work.placements.remove(id);
         }
@@ -1758,11 +2144,15 @@ fn duplicate(
     // The selection's extent, for the default shift.
     let (mut first, mut last) = (i64::MAX, i64::MIN);
     for (track_id, list) in &groups {
-        let track = midi_track(project, track_id)?;
+        let track = project
+            .tracks
+            .get(track_id)
+            .ok_or_else(|| not_found("track", track_id))?;
+        let work = TrackWork::of(track, track_id, project.tempo());
         for id in list {
-            let (s, l, _) = extent(placement_of(track, id)?)?;
+            let (s, e) = work.span(placement_of(track, id)?)?;
             first = first.min(s);
-            last = last.max(s + l);
+            last = last.max(e);
         }
     }
     let by = by.map_or(last - first, Tick::get);
@@ -1774,7 +2164,10 @@ fn duplicate(
     let mut notes_added = 0usize;
     let notes_in_project = project_notes(project);
     for (track_id, list) in groups {
-        let track = midi_track(project, &track_id)?;
+        let track = project
+            .tracks
+            .get(&track_id)
+            .ok_or_else(|| not_found("track", &track_id))?;
         let mut work = TrackWork::new(project, &track_id)?;
         // One copy per distinct source clip of the track, in order of first use.
         let mut copies: BTreeMap<ClipId, ClipId> = BTreeMap::new();
@@ -1788,8 +2181,8 @@ fn duplicate(
                     .clips
                     .get(source)
                     .ok_or_else(|| not_found("clip", source))?;
-                let (_, _, notes) = midi_ref(clip)?;
-                notes_added = notes_added.saturating_add(notes.len());
+                let notes = notes_of(clip);
+                notes_added = notes_added.saturating_add(notes);
                 check_total(
                     "clips per track",
                     track.clips.len(),
@@ -1802,29 +2195,25 @@ fn duplicate(
                     new_clip_ids.len() + 1,
                     project::limits::MAX_CLIPS,
                 )?;
-                check_note_limits(notes.len(), notes_in_project.saturating_add(notes_added))?;
+                check_note_limits(notes, notes_in_project.saturating_add(notes_added))?;
                 let copy_id = ClipId::generate(&mut ctx.ids);
                 let mut copy = clip.clone();
                 copy.slot = None;
-                work.new_clips.insert(copy_id.clone(), copy);
-                if let Some(geo) = work.geo.get(source).copied() {
-                    work.geo.insert(copy_id.clone(), geo);
-                }
+                work.add_clip(copy_id.clone(), copy);
                 new_clip_ids.push(copy_id.clone());
                 copies.insert(source.clone(), copy_id);
             }
         }
         for id in &list {
             let p = placement_of(track, id)?;
-            let (start, length, offset) = extent(p)?;
-            let start = start
-                .checked_add(by)
-                .ok_or_else(|| invalid("by", "the copy leaves the timeline"))?;
-            check_extent(start, length, "by")?;
-            let clip = copies.get(&p.clip).unwrap_or(&p.clip).clone();
-            overwritten += work.carve(&mut ctx.ids, start, start + length)?;
+            let copy = Placement {
+                clip: copies.get(&p.clip).unwrap_or(&p.clip).clone(),
+                ..TrackWork::shifted(p, by, "by")?
+            };
+            let (s, e) = work.checked_span(&copy, "by")?;
+            overwritten += work.carve(&mut ctx.ids, s, e)?;
             let new_id = PlacementId::generate(&mut ctx.ids);
-            work.put(new_id.clone(), &clip, start, length, offset);
+            work.placements.insert(new_id.clone(), copy);
             new_placements.insert(id.clone(), new_id);
         }
         works.insert(track_id, work);
@@ -1849,11 +2238,14 @@ fn repeat(
 ) -> Result<Out, CommandError> {
     let project = &state.project;
     let track_id = track_of(project, id)?;
-    let track = midi_track(project, &track_id)?;
-    let (start, length, offset) = extent(placement_of(track, id)?)?;
-    let clip = placement_of(track, id)?.clip.clone();
-    // `extent` of a stored placement is valid, so `start + length` cannot overflow.
-    let end = start + length;
+    let track = project
+        .tracks
+        .get(&track_id)
+        .ok_or_else(|| not_found("track", &track_id))?;
+    let mut work = TrackWork::new(project, &track_id)?;
+    let source = placement_of(track, id)?.clone();
+    let (start, end) = work.span(&source)?;
+    let length = end - start;
     if until <= end || until > MAX_TICK {
         return Err(invalid(
             "until",
@@ -1868,19 +2260,34 @@ fn repeat(
         usize::try_from(copies).unwrap_or(usize::MAX),
         MAX_PLACEMENTS_PER_TRACK,
     )?;
-    let mut work = TrackWork::new(project, &track_id)?;
     let mut made = Vec::new();
     // The copies tile `[end, until)`: one carve for the whole range (a carve per copy would
     // scan the track once for each of up to a hundred thousand copies).
     let overwritten = work.carve(&mut ctx.ids, end, until)?;
     let mut at = end;
     while at < until {
-        let len = length.min(until - at);
-        check_extent(at, len, "until")?;
+        let copy = Placement {
+            start: Tick(at),
+            ..source.clone()
+        };
+        // The last one stops at `until` (an audio one at the last whole frame before it).
+        let last = at + length > until;
+        let copy = if last {
+            match work.part(&copy, at, until) {
+                Some(part) => part,
+                None => break,
+            }
+        } else {
+            copy
+        };
+        let (_, e) = work.checked_span(&copy, "until")?;
         let new_id = PlacementId::generate(&mut ctx.ids);
-        work.put(new_id.clone(), &clip, at, len, offset);
+        work.placements.insert(new_id.clone(), copy);
         made.push(new_id);
-        at += len;
+        if last {
+            break;
+        }
+        at = e;
     }
     let mut works = Works::new();
     works.insert(track_id, work);
@@ -1913,16 +2320,22 @@ fn restore_works(project: &Project, edits: &[TrackEdit]) -> Result<Works, Comman
             .tracks
             .get(&edit.track)
             .ok_or_else(|| not_found("track", &edit.track))?;
-        // An audio track takes back only audio placements of the clips it holds: the
-        // inverse of `arrangement.delete`. Its clips come and go with the clip commands.
+        // A MIDI track takes back MIDI clips (`clips`), an audio track audio ones
+        // (`audio_clips`, AU-6: the copies the arrangement commands make).
         let audio = track.kind == project::TrackKind::Audio;
-        if audio && (!edit.clips.is_empty() || !edit.remove_clips.is_empty()) {
+        if audio && !edit.clips.is_empty() {
             return Err(invalid(
-                format!("{at}.track"),
-                "an audio track's clips are not restored here; only its placements are",
+                format!("{at}.clips"),
+                "an audio track takes back audio clips: give them in `audio_clips`",
             ));
         }
-        let mut work = TrackWork::of_any(project, &edit.track)?;
+        if !audio && !edit.audio_clips.is_empty() {
+            return Err(invalid(
+                format!("{at}.audio_clips"),
+                "a MIDI track holds no audio clip",
+            ));
+        }
+        let mut work = TrackWork::new(project, &edit.track)?;
         let mut removed = HashSet::new();
         for id in &edit.remove {
             if !removed.insert(id) || work.placements.remove(id).is_none() {
@@ -1941,9 +2354,44 @@ fn restore_works(project: &Project, edits: &[TrackEdit]) -> Result<Works, Comman
                 ));
             }
             work.geo.remove(id);
+            work.audio.remove(id);
             work.gone_clips.push(id.clone());
         }
         let mut slots: BTreeSet<&SceneId> = BTreeSet::new();
+        for (k, rec) in edit.audio_clips.iter().enumerate() {
+            let field = format!("{at}.audio_clips[{k}]");
+            let snap = &rec.snapshot;
+            if project.contains_id(&rec.id.0) || !fresh.insert(rec.id.0.clone()) {
+                return Err(invalid(
+                    format!("{field}.id"),
+                    format!("the identifier {} is already in use", rec.id),
+                ));
+            }
+            check_name(&snap.name, &format!("{field}.snapshot.name"))?;
+            crate::clip::check_audio(snap, &format!("{field}.snapshot"))?;
+            check_total(
+                "clips per track",
+                track.clips.len() - gone.len() + k,
+                1,
+                MAX_CLIPS_PER_TRACK,
+            )?;
+            check_total(
+                "clips",
+                project.counts().clips + k,
+                1,
+                project::limits::MAX_CLIPS,
+            )?;
+            if let Some(scene) = &snap.slot {
+                check_slot(project, track, scene, &format!("{field}.snapshot.slot"))?;
+                if !slots.insert(scene) {
+                    return Err(invalid(
+                        format!("{field}.snapshot.slot"),
+                        "two clips sit in the same slot",
+                    ));
+                }
+            }
+            work.add_clip(rec.id.clone(), crate::clip::audio_clip_of(snap));
+        }
         let mut notes_added = 0usize;
         for (k, rec) in edit.clips.iter().enumerate() {
             let field = format!("{at}.clips[{k}]");
@@ -2029,7 +2477,14 @@ fn restore_works(project: &Project, edits: &[TrackEdit]) -> Result<Works, Comman
                 ));
             }
             if audio {
-                let placement = audio_placement(project, track, rec, &field)?;
+                // A clip of the track that stays, or one this restore brings back.
+                let clip = work.new_clips.get(&rec.clip).or_else(|| {
+                    track
+                        .clips
+                        .get(&rec.clip)
+                        .filter(|_| !gone.contains(&rec.clip))
+                });
+                let placement = audio_placement(project, clip, rec, &field)?;
                 work.placements.insert(rec.id.clone(), placement);
                 audio_put.push((rec.id.clone(), field));
                 continue;
@@ -2056,34 +2511,24 @@ fn restore_works(project: &Project, edits: &[TrackEdit]) -> Result<Works, Comman
                 rec.offset.get(),
             );
         }
-        // An audio placement never carves: a restored one may not overlap another one of the
-        // track, restored or already there (the same refusal as `arrangement.place`).
-        let tempo = project.tempo();
+        // A restored audio placement may not overlap another one of the track, restored or
+        // already there: the arrangement commands never leave an overlap, so an undo never
+        // brings one.
         for (id, field) in &audio_put {
-            let Some((s, e)) = work
-                .placements
-                .get(id)
-                .and_then(|p| crate::clip::placement_ticks(tempo, track, p))
-            else {
+            let Some((s, e)) = work.placements.get(id).and_then(|p| work.span(p).ok()) else {
                 continue;
             };
             let clash = work.placements.iter().any(|(other, p)| {
-                other != id
-                    && crate::clip::placement_ticks(tempo, track, p)
-                        .is_some_and(|(os, oe)| os < e && s < oe)
+                other != id && work.span(p).is_ok_and(|(os, oe)| os < e && s < oe)
             });
             if clash {
                 return Err(invalid(
                     field,
-                    "the placement would overlap another placement of the track: an audio placement never carves",
+                    "the placement would overlap another placement of the track",
                 ));
             }
         }
-        if let Some(p) = work
-            .placements
-            .values()
-            .find(|p| !audio && !work.geo.contains_key(&p.clip))
-        {
+        if let Some(p) = work.placements.values().find(|p| !work.knows(&p.clip)) {
             return Err(invalid(
                 format!("{at}.remove_clips"),
                 format!("a placement is left on the removed clip {}", p.clip),
@@ -2095,11 +2540,11 @@ fn restore_works(project: &Project, edits: &[TrackEdit]) -> Result<Works, Comman
 }
 
 /// The audio placement a restore record describes, checked like `clip.restore_audio`
-/// checks one: a clip of the track, a span of at least one frame that ends on the timeline,
-/// an offset inside the clip.
+/// checks one: an audio clip of the track (`clip`, one it keeps or one the restore brings
+/// back), a span of at least one frame that ends on the timeline, inside the clip.
 fn audio_placement(
     project: &Project,
-    track: &Track,
+    clip: Option<&Clip>,
     rec: &PlacementRecord,
     field: &str,
 ) -> Result<Placement, CommandError> {
@@ -2109,9 +2554,7 @@ fn audio_placement(
             "an audio track holds audio placements: give `frames`",
         ));
     };
-    let Some(ClipContent::Audio { media, frames, .. }) =
-        track.clips.get(&rec.clip).map(|c| &c.content)
-    else {
+    let Some(ClipContent::Audio { media, frames, .. }) = clip.map(|c| &c.content) else {
         return Err(invalid(
             format!("{field}.clip"),
             format!("clip {} is not an audio clip of the track", rec.clip),
@@ -2174,14 +2617,6 @@ fn time_works(
     for (id, track) in &project.tracks {
         if track.placements.is_empty() {
             continue;
-        }
-        if track.kind != project::TrackKind::Midi {
-            return Err(invalid(
-                "track",
-                format!(
-                    "track {id} holds audio placements: insert or delete time is refused for the whole project until the audio import supports it"
-                ),
-            ));
         }
         let mut work = TrackWork::new(project, id)?;
         edit(&mut work)?;
