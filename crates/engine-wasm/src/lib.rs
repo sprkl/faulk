@@ -816,6 +816,36 @@ pub mod stream_exports {
     }
 }
 
+/// The non-finite test scenario (`engine::host::testing::nonfinite_scenario`, #667), as
+/// [`events_exports`]: only in the test build (`--features nonfinite-scenario`), never in the
+/// worklet's module.
+#[cfg(feature = "nonfinite-scenario")]
+pub mod nonfinite_exports {
+    use std::sync::OnceLock;
+
+    fn scenario() -> &'static [u8] {
+        static OUT: OnceLock<Box<[u8]>> = OnceLock::new();
+        OUT.get_or_init(|| engine::host::testing::nonfinite_scenario().into_boxed_slice())
+    }
+
+    /// Address of the scenario's bytes, null when it is empty.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fk_nonfinite_scenario() -> *const u8 {
+        let out = scenario();
+        if out.is_empty() {
+            core::ptr::null()
+        } else {
+            out.as_ptr()
+        }
+    }
+
+    /// Number of bytes [`fk_nonfinite_scenario`] points to.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fk_nonfinite_len() -> u32 {
+        scenario().len() as u32
+    }
+}
+
 // ---------------------------------------------------------------- the offline export
 
 /// The offline render of a project to a WAV file (`engine::offline`, issue #297): its own

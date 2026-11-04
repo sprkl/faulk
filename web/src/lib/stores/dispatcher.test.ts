@@ -516,6 +516,61 @@ describe('running commands through the project core', () => {
     expect(session.project.params[firstParam]).toBe(0.5)
   })
 
+  it('shows the frames silenced by the engine that plays: from 0 in Web, from its first report for a helper (#667)', async () => {
+    const report = (silencedFrames: number) =>
+      ({
+        seq: 2,
+        epoch: 1,
+        transport: 'stopped',
+        cpuLoad: null,
+        cpuPeak: null,
+        liveOverflows: 0,
+        silencedFrames,
+        voices: 0,
+        tracks: [],
+        master: { peakL: 0, peakR: 0, rmsL: 0, rmsR: 0, gainReductionDb: 0 },
+        clips: [],
+        held: [],
+        recordTake: 0,
+        recordTotal: 0,
+        recordDropped: 0,
+        recordCapturing: false,
+        recorded: [],
+      }) as never
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
+      close: vi.fn(() => Promise.resolve()),
+    }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    const web = webEvents!
+    // The page's own engine counts from 0: its first report already counts.
+    web.onFeedback(report(3))
+    expect(session.engine.silencedFrames).toBe(3)
+    // The helper's engine silenced 500 frames for an earlier page: not this one's.
+    await session.dispatcher.enterBoost()
+    const native = nativeEvents!
+    native.onFeedback(report(500))
+    expect(session.engine.silencedFrames).toBe(0)
+    native.onFeedback(report(503))
+    expect(session.engine.silencedFrames).toBe(3)
+    // A report of the suspended Web engine changes nothing while the helper plays.
+    web.onFeedback(report(9))
+    expect(session.engine.silencedFrames).toBe(3)
+    // A count below the base: the helper built a new engine, counted from 0.
+    native.onFeedback(report(2))
+    expect(session.engine.silencedFrames).toBe(2)
+    // Back to Web: the same Web engine, its own count (3 silenced in it before Boost, 9 since).
+    await session.dispatcher.enterWeb()
+    web.onFeedback(report(9))
+    expect(session.engine.silencedFrames).toBe(9)
+  })
+
   it("keeps the helper's update state while its session is current, and forgets it in Web mode (#515)", async () => {
     const first = { current: '0.1.11', checkedAt: null, status: { state: 'checking' as const } }
     nativeEngine = {

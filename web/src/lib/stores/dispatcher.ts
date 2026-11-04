@@ -136,6 +136,9 @@ export class Dispatcher {
     const current = () => this.engine?.kind === kind && generation === (kind === 'native' ? this.boosts : this.webGeneration)
     // Each engine's load is smoothed from its own first report (#486).
     const load = new LoadMeter()
+    // The frames the output protection silenced (#667) count from 0 for the page's own engine, and from the first
+    // report of a helper session: the helper's engine outlives a page, an earlier page's silence is not this one's.
+    let silencedBase: number | null = kind === 'web' ? 0 : null
     return {
       onStatus: (status) => {
         if (current()) this.state.status = status
@@ -143,6 +146,11 @@ export class Dispatcher {
       onFeedback: (report) => {
         if (!current()) return
         this.state.feedback = report
+        silencedBase ??= report.silencedFrames
+        // A count below the base: the helper built a new engine (another output), whose count starts at 0.
+        if (report.silencedFrames < silencedBase) silencedBase = 0
+        const silenced = report.silencedFrames - silencedBase
+        if (this.state.silencedFrames !== silenced) this.state.silencedFrames = silenced
         const shown = load.update(report.cpuLoad, report.cpuPeak, performance.now())
         if (!sameLoad(this.state.load, shown)) this.state.load = shown
         this.state.peak = peakOf(report.master)
@@ -477,6 +485,7 @@ export class Dispatcher {
     this.state.status = null
     this.state.peak = 0
     this.state.voices = 0
+    this.state.silencedFrames = 0
     this.state.activeNotes = []
     await web.close().catch((error: unknown) => console.error(error))
   }

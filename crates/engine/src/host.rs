@@ -764,7 +764,8 @@ impl Host {
     /// prepare side published, the most voices sounding during the period, the meters of
     /// every track slot up to the last track and the output's, then the active clips (GR-1),
     /// then the take's number, count and last notes (RE-2), the disk's underruns, offline
-    /// sources, budget flag and PCM in memory (AU-3).
+    /// sources, budget flag and PCM in memory (AU-3), and the frames the output protection
+    /// silenced because a sample was non-finite (#667).
     /// No allocation.
     pub fn write_feedback(&mut self) {
         let seq = self.feedback_seq.wrapping_add(1) | 1;
@@ -805,6 +806,7 @@ impl Host {
             84,
             (disk.pcm_bytes.load(Ordering::Relaxed) / 1024).min(u64::from(u32::MAX)) as u32,
         );
+        put(88, silenced_word(self.engine.limiter_silenced()));
         put(40, tracks as u32);
         put(52, self.period_voices);
         let mut at = FEEDBACK_HEADER_BYTES;
@@ -874,6 +876,12 @@ impl Host {
         }
         self.feedback_seq = done;
     }
+}
+
+/// The report's word for the protection's silenced-frame count (offset 88): the count,
+/// saturated at `u32::MAX` (at 48 kHz, about a day of frames silenced).
+pub fn silenced_word(frames: u64) -> u32 {
+    frames.min(u64::from(u32::MAX)) as u32
 }
 
 /// The voices word of a report region (offset 52), as [`read_feedback`] reads it.
@@ -1022,6 +1030,7 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
         offline_sources: u32_at(76)?,
         pcm_flags: u32_at(80)?,
         pcm_kib: u32_at(84)?,
+        silenced_frames: u32_at(88)?,
         meters,
         master: meter(tracks as usize)?,
         voices: u32_at(52)?,
@@ -1032,4 +1041,42 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
         record_dropped: u32_at(64)?,
         record_capturing: u32_at(68)? & 1 == 1,
     })
+}
+
+/// Test scenarios of the host (test builds only).
+#[cfg(feature = "testing")]
+pub mod testing {
+    use super::{channel, copy_feedback};
+
+    /// The non-finite scenario (#667): a host at 48 kHz renders clean blocks and writes a
+    /// report, then 3 frames turned NaN before the output protection and a report, then a whole
+    /// block of 128 and a report. Returns the three reports' bytes, end to end, then the left
+    /// and right output of the last block as little-endian `f32` bytes: the reports carry 0, 3
+    /// and 131 silenced frames, the output is finite. Empty if the channel could not be built.
+    pub fn nonfinite_scenario() -> Vec<u8> {
+        let Ok((_prepare, mut host)) = channel(48_000.0) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        let mut report = Vec::new();
+        let mut take = |host: &mut super::Host, out: &mut Vec<u8>| {
+            host.write_feedback();
+            if copy_feedback(host.feedback(), &mut report) {
+                out.extend_from_slice(&report);
+            }
+        };
+        host.render(128);
+        host.render(128);
+        take(&mut host, &mut out);
+        host.engine_mut().poison_next_frames(3);
+        host.render(128);
+        take(&mut host, &mut out);
+        host.engine_mut().poison_next_frames(128);
+        host.render(128);
+        take(&mut host, &mut out);
+        for s in host.left()[..128].iter().chain(&host.right()[..128]) {
+            out.extend_from_slice(&s.to_le_bytes());
+        }
+        out
+    }
 }
