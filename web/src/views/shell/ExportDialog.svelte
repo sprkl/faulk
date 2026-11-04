@@ -58,6 +58,7 @@
       data-testid="export-dialog"
       data-phase={exporter.phase}
       data-render-ms={exporter.result?.renderMs ?? ''}
+      data-silenced-frames={exporter.result?.silencedFrames ?? ''}
     >
       <h2 id="export-title">{t('export.title')}</h2>
 

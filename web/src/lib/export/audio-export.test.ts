@@ -124,6 +124,7 @@ const done = (over: Partial<Extract<FromExport, { type: 'done' }>> = {}): FromEx
   peak: 0.5,
   clipped: 0,
   reduction: 0,
+  silenced: 0,
   tailCut: false,
   ...over,
 })
@@ -207,6 +208,7 @@ describe('an export', () => {
       peakDb: expect.closeTo(-6.02, 1),
       clipped: 0,
       reductionDb: 0,
+      silencedFrames: 0,
       tailCut: false,
     })
     expect(exporter.result!.renderMs).toBeGreaterThan(0)
@@ -222,6 +224,16 @@ describe('an export', () => {
     await flush()
     expect(exporter.result).toMatchObject({ tailCut: true, peakDb: -Infinity })
     expect(exporter.result!.reductionDb).toBeCloseTo(6.02, 1)
+  })
+
+  it('carries the frames the output protection silenced for a non-finite sample', async () => {
+    const { exporter, worker } = setup()
+    exporter.show()
+    exporter.start()
+    await flush()
+    worker.say(done({ silenced: 128 }))
+    await flush()
+    expect(exporter.result!.silencedFrames).toBe(128)
   })
 
   it('reports no gain reduction as 0 dB, not -Infinity', async () => {
