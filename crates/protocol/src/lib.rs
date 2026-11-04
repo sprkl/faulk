@@ -14,7 +14,8 @@
 //! `agent.call` (a command, with an `id`); the page runs it through its own dispatcher, as a
 //! user's action, and answers `agent.result` with the same `id`. Since version 29 (#608) a
 //! paired page also holds a control link (`/control`) that carries only these two messages,
-//! `agent.left` and `control.front`, in Web mode as in Boost, with or without an audio output.
+//! `agent.left`, `control.front` and, since version 33 (#658), the helper's opening
+//! `control.hello`, in Web mode as in Boost, with or without an audio output.
 //! Since version 32 (#641) the helper says when an agent left (`agent.left`), so that the page
 //! closes the history group that agent left open.
 
