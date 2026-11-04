@@ -1913,9 +1913,50 @@ fn an_audio_restore_never_overlaps_audio_placements() {
     assert!(matches!(error, CommandError::Invalid { .. }), "{error:?}");
     // The same identifier moved in place does not clash with itself.
     let same = record(audio.clone(), existing.start + Tick(1));
-    let mut state = placed;
+    let mut state = placed.clone();
     run(
         &a(audio_restore(vec![same], &f)),
+        &mut state,
+        &mut fresh_context(),
+    )
+    .unwrap();
+    assert_eq!(
+        state.project.tracks[&f.audio_track].placements[&audio].start,
+        existing.start + Tick(1)
+    );
+    // A `remove` of the overlapped placement in the same edit frees its slot.
+    let over = record(
+        PlacementId::generate(&mut ctx.ids),
+        existing.start + Tick(1),
+    );
+    let swap = arrangement::Command::Restore {
+        edits: vec![arrangement::TrackEdit {
+            track: f.audio_track.clone(),
+            put: vec![over.clone()],
+            remove: vec![audio.clone()],
+            clips: vec![],
+            remove_clips: vec![],
+        }],
+    };
+    let mut state = placed.clone();
+    run(&a(swap), &mut state, &mut fresh_context()).unwrap();
+    let held = &state.project.tracks[&f.audio_track].placements;
+    assert!(held.contains_key(&over.id) && !held.contains_key(&audio));
+    // A span that ends exactly at the clip's last frame is accepted.
+    let clip_frames = match &placed.project.tracks[&f.audio_track].clips[&f.audio_clip].content {
+        ::project::ClipContent::Audio { frames, .. } => frames.get(),
+        other => panic!("{other:?}"),
+    };
+    let exact = arrangement::PlacementRecord {
+        frames: Some(arrangement::FrameSpan {
+            length: clip_frames - 1,
+            offset: 1,
+        }),
+        ..record(audio.clone(), existing.start)
+    };
+    let mut state = placed;
+    run(
+        &a(audio_restore(vec![exact], &f)),
         &mut state,
         &mut fresh_context(),
     )
