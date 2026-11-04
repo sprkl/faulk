@@ -124,6 +124,8 @@ async function run(message: ToStart, post: Post, room?: () => Promise<void>) {
     // The step stopped before a block whose reads are not served: serve them, then step again.
     while (ex.fk_export_stat(handle, 9) > 0) {
       disk.tick()
+      // Jobs the engine could not hand over were failed back (it no longer waits): step again.
+      if (disk.inFlight.size === 0 && ex.fk_export_stat(handle, 9) === 0) break
       // A wait with no read to make would never end: a failure, not a hang.
       if (disk.inFlight.size === 0) throw new ExportFailure('the render waits for a read it never gave', null)
       await Promise.all([...disk.inFlight])
