@@ -297,6 +297,54 @@ for (const lang of ['en', 'fr'] as const) {
   })
 }
 
+// #645: the storage's question is a native modal dialog, so it opens above another one (the shortcut list) instead of
+// going under it and becoming inert.
+test('the storage question opens above the shortcut list: focus on Cancel, Tab stays inside, Escape and the buttons answer', async ({ page }) => {
+  const { errors } = watch(page)
+  await simulate(page, 'cmd-new-modal', { browserStorage: false })
+  await page.goto('/app')
+  await start(page)
+  await addTrack(page, 'Drums')
+  await expect(tracks(page)).toHaveCount(2)
+  const asked = page.getByTestId('confirm')
+  const shortcuts = page.getByTestId('shortcuts-dialog')
+
+  await page.getByTestId('shortcuts-open').click()
+  await expect(shortcuts).toBeVisible()
+
+  // Escape: answers no, the shortcut list stays open behind it and is usable again.
+  await runWithoutClick(page, { type: 'project.new' })
+  await expect(asked).toBeVisible()
+  await expect(asked).toHaveJSProperty('open', true)
+  await expect(page.getByTestId('confirm-cancel')).toBeFocused()
+  // Tab and Shift+Tab stay in the question: the page behind is inert.
+  for (const key of ['Tab', 'Tab', 'Tab', 'Shift+Tab']) {
+    await page.keyboard.press(key)
+    expect(await asked.evaluate((el) => el.contains(document.activeElement))).toBe(true)
+  }
+  await page.keyboard.press('Escape')
+  await expect(asked).toHaveCount(0)
+  await expect(shortcuts).toBeVisible()
+  await expect(tracks(page)).toHaveCount(2)
+  await expect(page.getByTestId('shortcuts-close')).toBeEnabled()
+
+  // Cancel button, then Replace, both above the open shortcut list.
+  await runWithoutClick(page, { type: 'project.new' })
+  await page.getByTestId('confirm-cancel').click()
+  await expect(asked).toHaveCount(0)
+  await expect(tracks(page)).toHaveCount(2)
+  await runWithoutClick(page, { type: 'project.new' })
+  await page.getByTestId('confirm-discard').click()
+  await expect(asked).toHaveCount(0)
+  await expect(tracks(page)).toHaveCount(1)
+
+  // The shortcut list is still there and closes by its own button.
+  await expect(shortcuts).toBeVisible()
+  await page.getByTestId('shortcuts-close').click()
+  await expect(shortcuts).toBeHidden()
+  expect(errors).toEqual([])
+})
+
 test.describe('the conflict and the permission, by command', () => {
   test('keep_mine and load_folder_version change nothing without a conflict, and ask before they lose anything', async ({ page }) => {
     const { errors } = watch(page)
