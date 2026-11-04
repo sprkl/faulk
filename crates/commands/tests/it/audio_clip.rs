@@ -17,7 +17,7 @@ fn code(command: &Command, state: &State) -> String {
         .to_owned()
 }
 
-fn import_at(f: &ClipFx, at: Option<ClipTarget>) -> Command {
+pub(crate) fn import_at(f: &ClipFx, at: Option<ClipTarget>) -> Command {
     c(clip::Command::ImportAudio {
         track: f.audio_track.clone(),
         media: imported_media().hash,
@@ -26,7 +26,7 @@ fn import_at(f: &ClipFx, at: Option<ClipTarget>) -> Command {
     })
 }
 
-fn range(f: &ClipFx, start: u64, frames: u64) -> Command {
+pub(crate) fn range(f: &ClipFx, start: u64, frames: u64) -> Command {
     c(clip::Command::AudioSetRange {
         clip: f.audio_clip.clone(),
         start: Frame::new(start),
@@ -43,7 +43,7 @@ fn audio(state: &State, f: &ClipFx) -> ClipContent {
 
 /// The fixture with a placement of its audio clip that plays it whole (44 100 frames at
 /// 44.1 kHz, one second: 1 920 ticks at 120 BPM) from `start`.
-fn with_whole(f: &ClipFx, state: State, start: i64, seed: u128) -> (State, PlacementId) {
+pub(crate) fn with_whole(f: &ClipFx, state: State, start: i64, seed: u128) -> (State, PlacementId) {
     let mut state = state;
     let mut ids = ::project::IdGenerator::new(1_690_000_000_000, seed);
     let id = PlacementId::generate(&mut ids);
@@ -68,7 +68,7 @@ fn with_whole(f: &ClipFx, state: State, start: i64, seed: u128) -> (State, Place
     (state, id)
 }
 
-fn span_of(state: &State, f: &ClipFx, id: &PlacementId) -> Span {
+pub(crate) fn span_of(state: &State, f: &ClipFx, id: &PlacementId) -> Span {
     state.project.tracks[&f.audio_track].placements[id].span
 }
 

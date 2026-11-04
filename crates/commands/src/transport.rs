@@ -67,8 +67,9 @@ domain! {
     /// a number is refused, and so is a tempo at which an audio placement (whose length is
     /// in frames of its file, so its end in ticks follows the tempo) would end past 2^40.
     /// A faster tempo lengthens audio placements in ticks, so one may then reach into the
-    /// next placement of its track: the project allows it, and the later one plays from its
-    /// start. Undo: set the previous tempo back.
+    /// next placement of its track: an audio placement never overlaps another, so a tempo
+    /// that would make two placements of a track overlap is refused, naming them (move or
+    /// shorten one first). Undo: set the previous tempo back.
     "transport.set_tempo" (kind = "edit", undo = "inverse", destructive = false)
     SetTempo {
         #[schemars(range(min = 20.0, max = 999.0))]
@@ -290,6 +291,39 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
     }
 }
 
+/// Two audio placements of a track that overlap at tempo `new` and did not at `old`
+/// (an overlap the project already held does not block a tempo change).
+fn new_audio_overlap(
+    project: &project::Project,
+    old: project::Tempo,
+    new: project::Tempo,
+) -> Option<(project::PlacementId, project::PlacementId)> {
+    for t in project.tracks.values() {
+        let audio: Vec<_> = t
+            .placements
+            .iter()
+            .filter(|(_, p)| matches!(p.span, project::Span::Frames { .. }))
+            .collect();
+        for (i, (a, pa)) in audio.iter().enumerate() {
+            for (b, pb) in &audio[i + 1..] {
+                let clash = |tempo| {
+                    matches!(
+                        (
+                            crate::clip::placement_ticks(tempo, t, pa),
+                            crate::clip::placement_ticks(tempo, t, pb),
+                        ),
+                        (Some((s, e)), Some((os, oe))) if os < e && s < oe
+                    )
+                };
+                if clash(new) && !clash(old) {
+                    return Some(((*a).clone(), (*b).clone()));
+                }
+            }
+        }
+    }
+    None
+}
+
 fn set_tempo(state: &mut State, bpm: f64) -> Result<Out, CommandError> {
     let new = Tempo::new(bpm).ok_or_else(|| {
         invalid(
@@ -319,6 +353,15 @@ fn set_tempo(state: &mut State, bpm: f64) -> Result<Out, CommandError> {
         return Err(invalid(
             "bpm",
             format!("audio placement {id} would end past {MAX_TICK} ticks at {bpm} BPM"),
+        ));
+    }
+    if let Some((a, b)) = new_audio_overlap(&state.project, previous, new) {
+        return Err(invalid(
+            "bpm",
+            format!(
+                "at {bpm} BPM audio placement {a} would overlap placement {b}: an audio \
+                 placement never carves; move or shorten one of them first"
+            ),
         ));
     }
     let point = state

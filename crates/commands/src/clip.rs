@@ -246,8 +246,10 @@ domain! {
     /// that plays the clip whole (offset 0, length equal to its old length in frames) takes
     /// the new length in the same command; a growing placement stops at the start of the
     /// next placement of its track; a placement that plays only part of the clip is left
-    /// alone. Refused for a MIDI clip. Undo: set the range back, with the lengths of the
-    /// placements.
+    /// alone, and the command is refused when that would leave one ending past the new
+    /// length (an audio placement always ends inside its clip) or overlapping another
+    /// placement of the track: move or resize it first. Refused for a MIDI clip. Undo: set
+    /// the range back, with the lengths of the placements.
     "clip.audio.set_range" (kind = "edit", undo = "inverse", destructive = false)
     AudioSetRange {
         clip: ClipId,
@@ -304,7 +306,8 @@ domain! {
     /// frames of the file. Refused when the track is not an audio track, when the clip's
     /// identifier or a placement's already exists in the project, when the slot is taken
     /// or its scene is gone, or when the snapshot breaks a rule of the project (a range
-    /// outside the file, a loop outside the range, a gain that is not a number). Undo:
+    /// outside the file, a loop outside the range, a gain that is not a number, a
+    /// placement ending past the clip: `offset + length` at most the clip's frames). Undo:
     /// `clip.delete`.
     "clip.restore_audio" (kind = "edit", undo = "inverse", destructive = false)
     RestoreAudio {
@@ -1651,6 +1654,7 @@ fn audio_set_range(
         Some(list) => explicit_frames(tempo, old.rate, track, clip_id, list)?,
         None => following_frames(tempo, old.rate, track, clip_id, old.frames, frames),
     };
+    check_audio_placements(tempo, track, clip_id, old.frames, frames, &follow)?;
     let output = Output::AudioSetRange {
         previous_start: old.start,
         previous_frames: old.frames,
@@ -1682,6 +1686,80 @@ fn audio_set_range(
     *s = start;
     *f = frames;
     Ok(edited(output, inverse, changed(clip_id, ClipPart::Length)))
+}
+
+/// What `clip.audio.set_range` must never leave behind: an audio placement of the clip
+/// ending past the clip (`offset + length > frames`), or one of the placements it changes
+/// overlapping another placement of the track. Only what the command newly breaks is
+/// refused: a state the project already held (an older file) does not block the command.
+fn check_audio_placements(
+    tempo: Tempo,
+    track: &Track,
+    clip_id: &ClipId,
+    old_frames: Frame,
+    frames: Frame,
+    follow: &[(PlacementId, Frame, Frame)],
+) -> Result<(), CommandError> {
+    let new_length = |id: &PlacementId, length: Frame| {
+        follow
+            .iter()
+            .find(|(f, _, _)| f == id)
+            .map_or(length, |(_, _, new)| *new)
+    };
+    for (id, p) in &track.placements {
+        let Span::Frames { length, offset } = p.span else {
+            continue;
+        };
+        if p.clip != *clip_id {
+            continue;
+        }
+        let end = offset.get().saturating_add(new_length(id, length).get());
+        if end > frames.get() && offset.get().saturating_add(length.get()) <= old_frames.get() {
+            return Err(invalid(
+                "frames",
+                format!(
+                    "placement {id} would end past the clip's {} frames; resize or move the \
+                     placement first",
+                    frames.get()
+                ),
+            ));
+        }
+    }
+    let spans = |changed: bool| -> Vec<(&PlacementId, Option<(i64, i64)>)> {
+        track
+            .placements
+            .iter()
+            .map(|(id, p)| {
+                let mut q = p.clone();
+                if let (true, Span::Frames { offset, length }) = (changed, p.span) {
+                    q.span = Span::Frames {
+                        offset,
+                        length: new_length(id, length),
+                    };
+                }
+                (id, placement_ticks(tempo, track, &q))
+            })
+            .collect()
+    };
+    let (before, after) = (spans(false), spans(true));
+    for (i, (id, new)) in after.iter().enumerate() {
+        if !follow.iter().any(|(f, _, _)| f == *id) {
+            continue;
+        }
+        for (j, (other, other_new)) in after.iter().enumerate() {
+            let clash = |a: &Option<(i64, i64)>, b: &Option<(i64, i64)>| matches!((a, b), (Some((s, e)), Some((os, oe))) if os < e && s < oe);
+            if i == j || !clash(new, other_new) || clash(&before[i].1, &before[j].1) {
+                continue;
+            }
+            return Err(invalid(
+                "frames",
+                format!(
+                    "placement {id} would overlap placement {other}: an audio placement never                      carves; move or resize one of them first"
+                ),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// The placements of an audio clip that play it whole (offset 0, length `old` frames),
@@ -2014,6 +2092,12 @@ fn restore_audio(
         }
         if p.offset >= snap.frames {
             return Err(invalid(field, "a placement's offset is inside the clip"));
+        }
+        if p.offset.saturating_add(p.length) > snap.frames {
+            return Err(invalid(
+                field,
+                "a placement ends inside the clip: `offset + length` is at most the clip's frames",
+            ));
         }
     }
     insert_audio(state, track_id, clip_id, snap, placements)?;
