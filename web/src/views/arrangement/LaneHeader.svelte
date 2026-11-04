@@ -4,7 +4,7 @@
    * case with its kind and instrument, M, S and In, its meter, and the handle that sets its height. This row is the list
    * of tracks; the left column is the inspector of the selected one (`TrackInspector`), where volume, pan and the
    * devices are. The volume shows here on hover and on focus, and is typed here: on the selected track's head, a digit
-   * opens the field with that digit, Enter or F2 on the current value (`lane-keys.ts`). Every action is a command.
+   * opens the field with that digit, Enter on the current value (F2 renames the track, #625) (`lane-keys.ts`). Every action is a command.
    */
   import { tick, untrack, type Snippet } from 'svelte'
   import LevelMeter from '../../lib/components/LevelMeter.svelte'
@@ -74,6 +74,12 @@
 
   function onHeadKey(event: KeyboardEvent) {
     if (renaming || typing) return
+    // F2 renames the track, as the row's menu says (#625); on any row, selected or not.
+    if (event.key === 'F2' && !event.repeat && !event.altKey && !event.ctrlKey && !event.metaKey && !event.isComposing) {
+      event.preventDefault()
+      void startRename()
+      return
+    }
     const action = volumeKey(event, selected)
     if (!action) return
     // The key opens the field and is not typed a second time into it, nor does Enter press the button.
@@ -112,7 +118,7 @@
   }
   $effect(() => () => clearTimeout(noteTimer))
 
-  // --- rename, by a double click on the name (the inspector's F2 and menu do it from the keyboard) -----------
+  // --- rename: a double click on the name, F2 on the row, the row's menu (the inspector's F2 does it too) -----------
   let renaming = $state(false)
   let draft = $state('')
   let field = $state<HTMLInputElement | null>(null)

@@ -2079,6 +2079,34 @@ describe("an agent's calls in Boost (AG-1)", () => {
     expect(session.dispatcher.history().undo.at(-1)?.author).toBe('user')
   })
 
+  it("makes an agent's consecutive calls one turn that one undo undoes, and keeps a user's gesture out of it (AG-3)", async () => {
+    const session = await boosted()
+    const second = Object.keys(DEFAULT_PARAMS)[1] as keyof typeof DEFAULT_PARAMS
+    const before = session.dispatcher.history().undo.length
+    await call('claude-code', setParamCommand(firstParam, 0.3))
+    await call('claude-code', setParamCommand(second, 0.4))
+    const turn = session.dispatcher.history().undo.slice(before)
+    expect(turn).toHaveLength(1)
+    expect(turn[0]).toMatchObject({ author: 'agent:claude-code', edits: 2 })
+    expect(turn[0]!.group).not.toBeNull()
+    // The user's gesture in the middle of a turn is its own entry, and the agent's next call starts a new turn.
+    session.dispatcher.run(setParamCommand(firstParam, 0.5))
+    await call('claude-code', setParamCommand(second, 0.6))
+    const rows = session.dispatcher.history().undo.slice(before)
+    expect(rows.map((e) => [e.author, e.edits])).toEqual([
+      ['agent:claude-code', 2],
+      ['user', 1],
+      ['agent:claude-code', 1],
+    ])
+    expect(rows[2]!.group).not.toBe(rows[0]!.group)
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam]).toBe(0.3)
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+    expect(session.project.params[second]).toBe(DEFAULT_PARAMS[second])
+  })
+
   it('answers a refusal with the command error, without a toast for the user', async () => {
     const session = await boosted()
     vi.spyOn(console, 'warn').mockImplementation(() => {})

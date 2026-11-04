@@ -35,13 +35,19 @@ async function start(page: Page) {
 /** The picker of the page returns the OPFS directory `name` (made if need be); `mode` can make it fail. */
 async function simulatePicker(page: Page, name: string) {
   await page.addInitScript((folder) => {
-    const w = window as unknown as { __pick: string; __pickError?: string; showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+    const w = window as unknown as { __pick: string; __saving?: boolean; __pickError?: string; showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
     w.__pick = folder
     // These checks are about folders: no drafts in the browser's storage (browser-storage.spec.ts covers those).
     ;(window as unknown as { __faulkNoBrowserStorage: boolean }).__faulkNoBrowserStorage = true
     w.showDirectoryPicker = async () => {
       if (w.__pickError) throw new DOMException('simulated', w.__pickError)
-      return (await navigator.storage.getDirectory()).getDirectoryHandle(w.__pick, { create: true })
+      const root = await navigator.storage.getDirectory()
+      // Save as picks the folder that will hold the project's folder (#627): the root, where the page makes `__pick`.
+      if (w.__saving) {
+        w.__saving = false
+        return root
+      }
+      return root.getDirectoryHandle(w.__pick, { create: true })
     }
   }, name)
 }
@@ -114,6 +120,11 @@ async function leaveAsks(page: Page): Promise<boolean> {
 const saveAs = async (page: Page) => {
   await page.getByTestId('project-menu').click()
   await page.getByTestId('menu-save-as').click()
+  // Save as asks the project's name first (#627), then the folder: the check names the project after the folder it simulates,
+  // and the picker hands back the root, where the page makes that folder.
+  await page.evaluate(() => ((window as unknown as { __saving: boolean }).__saving = true))
+  await page.getByTestId('save-as-field').fill(await page.evaluate(() => (window as unknown as { __pick: string }).__pick))
+  await page.getByTestId('save-as-submit').click()
 }
 
 test.describe('the project in a folder', () => {
@@ -507,6 +518,9 @@ test.describe('the project in a folder', () => {
     await page.getByTestId('project-menu').click()
     await expect(page.getByTestId('menu-save-as')).toContainText('Enregistrer sous')
     await page.getByTestId('menu-save-as').click()
+    await expect(page.getByTestId('save-as-dialog')).toContainText('Nom du projet')
+    await page.evaluate(() => ((window as unknown as { __saving: boolean }).__saving = true))
+    await page.getByTestId('save-as-submit').click()
     await expect(state(page)).toHaveText(/^Enregistré à/)
   })
 })

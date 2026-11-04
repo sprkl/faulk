@@ -9,12 +9,12 @@ const key = (k: string, over: Partial<KeyboardEvent> = {}) =>
 describe('typing a volume on a track row (#471)', () => {
   it('opens the field with the key typed for a digit, a sign or a decimal point, on the selected row only', () => {
     for (const k of ['0', '5', '9', '-', '+', '.', ',']) expect(volumeKey(key(k), true), k).toEqual({ open: 'typed', text: k })
-    for (const k of ['0', '-', 'Enter', 'F2']) expect(volumeKey(key(k), false), k).toBeNull()
+    for (const k of ['0', '-', 'Enter']) expect(volumeKey(key(k), false), k).toBeNull()
   })
 
-  it('opens it on the value with Enter or F2, not on a held Enter', () => {
+  it('opens it on the value with Enter, not on a held Enter, and F2 is left to the rename (#625)', () => {
     expect(volumeKey(key('Enter'), true)).toEqual({ open: 'value' })
-    expect(volumeKey(key('F2'), true)).toEqual({ open: 'value' })
+    expect(volumeKey(key('F2'), true)).toBeNull()
     expect(volumeKey(key('Enter', { repeat: true }), true)).toBeNull()
   })
 

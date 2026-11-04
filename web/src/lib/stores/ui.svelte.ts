@@ -114,6 +114,24 @@ export class UiStore {
   sayBrowser(key: MessageKey, vars: Record<string, string | number> = {}) {
     this.browserSaid = { n: (this.browserSaid?.n ?? 0) + 1, key, vars }
   }
+  /** Save as is asking for the project's name (#627): the dialog shows it; `settle` answers (null when cancelled). Page state, not project state. */
+  saveAsPrompt = $state.raw<{ initial: string; settle(name: string | null): void } | null>(null)
+
+  /** Asks the user for the project's name before Save as picks a folder; `null` when cancelled (or another ask replaced this one). */
+  askProjectName(initial: string): Promise<string | null> {
+    this.saveAsPrompt?.settle(null)
+    return new Promise((resolve) => {
+      const prompt = {
+        initial,
+        settle: (name: string | null) => {
+          if (this.saveAsPrompt === prompt) this.saveAsPrompt = null
+          resolve(name)
+        },
+      }
+      this.saveAsPrompt = prompt
+    })
+  }
+
   /** The context menu that is open (#524): one at a time, drawn by the shell. Page state, not project state. */
   contextMenu = $state.raw<OpenMenu | null>(null)
 

@@ -17,19 +17,19 @@ type Hooks = {
   __faulkWrite: () => { coreMs: number; writeMs: number; files: number; bytes: number } | null
 }
 
-async function simulatePicker(page: Page, name: string) {
-  await page.addInitScript((folder) => {
+async function simulatePicker(page: Page) {
+  await page.addInitScript(() => {
     // The cost measured is that of a folder; a draft in the browser's storage would write the project first.
     ;(window as unknown as { __faulkNoBrowserStorage: boolean }).__faulkNoBrowserStorage = true
-    ;(window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker = async () =>
-      (await navigator.storage.getDirectory()).getDirectoryHandle(folder, { create: true })
-  }, name)
+    // Save as picks the folder that will hold the project's folder (#627): the root, where the page makes the project's folder.
+    ;(window as unknown as { showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }).showDirectoryPicker = async () => navigator.storage.getDirectory()
+  })
 }
 
 test('the automatic save of a medium project: its cost, and the page and the audio meanwhile @full', async ({ page }) => {
   test.setTimeout(120_000)
   const { errors } = watch(page)
-  await simulatePicker(page, 'song-medium')
+  await simulatePicker(page)
   await page.goto('/app')
   await page.getByTestId('engine-state').getByRole('button').click()
   await engineUp(page)
@@ -61,6 +61,8 @@ test('the automatic save of a medium project: its cost, and the page and the aud
 
   await page.getByTestId('project-menu').click()
   await page.getByTestId('menu-save-as').click()
+  await page.getByTestId('save-as-field').fill('song-medium')
+  await page.getByTestId('save-as-submit').click()
   await expect(page.getByTestId('save-state')).toHaveText(/^Saved at/, { timeout: 60_000 })
   const first = await page.evaluate(() => (window as unknown as Hooks).__faulkWrite())
   console.log(`save as, whole project: ${JSON.stringify(first)}`)

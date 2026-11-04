@@ -190,11 +190,16 @@ test('the inspector follows the selection, and the volume is typed on the select
   await expect(page.getByTestId('arr-track').nth(2)).toBeFocused()
   await expect(inspector.getByTestId('track-gain-readout')).toHaveText('−12.0')
   await expect(volume).toHaveText('−12.0 dB')
-  // Enter opens it on the value; Escape leaves it unchanged; F2 opens it too.
+  // Enter opens it on the value; Escape leaves it unchanged; F2 does not open it, it renames (#625).
   await page.keyboard.press('Enter')
   await expect(page.getByTestId('value-input')).toHaveValue('−12.0 dB')
   await page.keyboard.press('Escape')
   await page.keyboard.press('F2')
+  await expect(page.getByTestId('value-field')).toHaveCount(0)
+  await expect(rows.nth(2).getByRole('textbox')).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('arr-track').nth(2)).toBeFocused()
+  await page.keyboard.press('Enter')
   await page.keyboard.type('-6')
   await page.keyboard.press('Enter')
   await expect(inspector.getByTestId('track-gain-readout')).toHaveText('−6.0')

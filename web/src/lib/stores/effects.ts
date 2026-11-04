@@ -19,7 +19,7 @@ export interface EffectPorts {
   clearNotes(): void
   /** `project.save`: write the project to its folder now (or ask for one). */
   save(): void
-  /** `project.save_as`: the user picks an empty folder and the project moves into it. */
+  /** `project.save_as`: the user names the project and picks a folder, and the project moves into a folder of that name inside it. */
   saveAs(): void
   /** `project.export_pack`: hand the project to the user as a `.faulkpack` download. */
   exportPack(): void
