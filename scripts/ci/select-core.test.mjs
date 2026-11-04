@@ -315,7 +315,7 @@ test('tier for crates: the contracts run all, the engine and the project an area
   for (const f of ['crates/helper/src/tray.rs', 'crates/helper/src/mcp/server.rs', 'crates/helper/Cargo.toml']) {
     const h = pr([f])
     assert.deepEqual([h.e2e, h.e2eTier, h.e2eAll, h.web], ['dev', 'area', false, true], f)
-    assert.ok(h.e2eSpecs.includes('agent-scenario'), f)
+    assert.ok(h.e2eSpecs.includes('agent-scenario') && h.e2eCore.length > 0, f)
   }
   // helper with the engine: both areas run.
   const both = pr(['crates/helper/src/tray.rs', 'crates/engine/src/devices/reverb.rs'])
