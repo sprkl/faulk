@@ -1,5 +1,5 @@
-// What an agent without ears reads of the sound (#665): the live meters held between two calls of the mixer levels query
-// calls, and the offline measure of `project.analyze_render`. The numbers are the page's; the commands
+// What an agent without ears reads of the sound (#665): the live meters held between two calls of the mixer levels query,
+// and the offline measure of `project.analyze_render`. The numbers are the page's; the commands
 // (`crates/commands/src/levels.rs`) turn them into dBFS and name the tracks.
 import type { FeedbackReport, Meter } from '../engine/feedback'
 import type { ContentLevels, FromExport, ToExport } from '../export/export-render'
