@@ -1,11 +1,12 @@
 // A drop with several steps against the real project core, while a history group is already open (#643): the fake host
 // of `drop.test.ts` knows neither groups nor authors.
 import { readFileSync } from 'node:fs'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import type { Command } from '../generated/protocol'
 import { coreModule, ProjectCore } from '../project/core'
 import type { BrowserItem } from './catalog'
 import { applyItem, type DropHost } from './drop'
+import { hostOf } from './put'
 
 let module: WebAssembly.Module
 
@@ -56,10 +57,21 @@ describe('a drop while a history group is open', () => {
     expect(host.tracks()).toHaveLength(0)
   })
 
-  it('no group open: the drop opens and closes its own, one undo entry', () => {
+  it('no group open: the drop opens and closes its own, one undo entry (the extra end_group is refused)', () => {
     const { core, host, as } = setup()
     expect(applyItem(host, reverb, { type: 'new-track' }).ok).toBe(true)
     expect(core.history().undo).toHaveLength(1)
     expect(as('user', { type: 'history.end_group' })).toBe('refused')
+  })
+})
+
+describe('the page host', () => {
+  it('runs history.begin_group quietly (no refusal toast when a group is open), and every other command as usual', () => {
+    const run = vi.fn(() => true)
+    const host = hostOf({ dispatcher: { run }, project: { tracks: [], view: null, selected: null }, ui: { masterSelection: null } } as never)
+    host.run({ type: 'history.begin_group' })
+    host.run({ type: 'history.end_group' })
+    expect(run).toHaveBeenNthCalledWith(1, { type: 'history.begin_group' }, { quiet: true })
+    expect(run).toHaveBeenNthCalledWith(2, { type: 'history.end_group' }, {})
   })
 })
