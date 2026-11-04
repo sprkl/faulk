@@ -3,7 +3,8 @@ import { engineUp, watch } from './support'
 
 // #627: the project is named from the interface: the project menu, a double click or F2 on its name in the top bar. Each way
 // goes through `project.rename`, so the name is one entry of the history and Ctrl+Z gives the old one back. No dev hook is
-// used, the specs run the same in the `dev` and the `preview` projects.
+// used by the first three tests, which run the same in the `dev` and the `preview` projects; the fourth (a field left open
+// while another project replaces this one) goes through `__faulkRun` and runs in `dev` only.
 
 const name = (page: Page) => page.getByTestId('project-name')
 
