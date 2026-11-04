@@ -8,9 +8,10 @@
 //! `Origin` again. Stdio is `faulk-helper mcp`, a bridge to this server ([`crate::mcp_stdio`]).
 //!
 //! The helper runs no command (the page owns the project in both modes): a tool call becomes an
-//! `agent.call` on the page's session, which the page runs through its dispatcher like a user's
-//! action, as `agent:<client name>`, and answers with `agent.result`
-//! ([`crate::server::Shared::agent_call`]). No page connected → the tool answers the error
+//! `agent.call` to the page (its Boost session, else its control link: #608, in Web mode as in
+//! Boost, with or without an audio output), which the page runs through its dispatcher like a
+//! user's action, as `agent:<client name>`, and answers with `agent.result`
+//! ([`crate::server::Shared::agent_call`]). No paired page open → the tool answers the error
 //! `page.absent` at once.
 
 use crate::security::McpRefusal;
@@ -162,9 +163,10 @@ pub fn tool_result(result: Result<AgentResult, RelayError>) -> CallToolResult {
 }
 
 const INSTRUCTIONS: &str = "Faulk's commands, one tool per command. Each call runs in the Faulk \
-page open in the browser, connected to this helper (Boost mode), exactly as if the user did it: \
-it appears in the page's history and can be undone there. Without a connected page every tool \
-answers the error `page.absent`.";
+page open in the browser and paired with this helper (whether the browser or the helper plays \
+the sound), exactly as if the user did it: it appears in the page's history and can be undone \
+there. Without a paired page open every tool answers the error `page.absent`: ask the user to \
+open Faulk in the browser.";
 
 /// The MCP handler of one MCP session: lists the tools, relays their calls to the page.
 #[derive(Clone)]
