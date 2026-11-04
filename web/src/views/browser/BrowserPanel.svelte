@@ -173,7 +173,9 @@
       </div>
     {/each}
   </div>
-  <p class="said" role="status" data-testid="browser-said">{said}</p>
+  <p class="said" role="status" data-testid="browser-said">
+    {#key ui.browserSaid?.n}{said}{/key}
+  </p>
 </aside>
 
 <style>
