@@ -33,6 +33,12 @@ pub const MAX_STREAM_BYTES: usize = 1 << 30;
 /// so that many pages never push each other out in a loop.
 pub const CONTROL_PUSHED_OUT: u16 = 4001;
 
+/// How long the page waits for the user to answer an agent's destructive call (AG-4, #100), in
+/// milliseconds, before it answers the agent `refused` with the code `confirmation.timeout`.
+/// Well under the helper's own wait for the page (`AGENT_TIMEOUT` in `crates/helper`, tested):
+/// the agent learns the page's answer, not a bare `page.timeout`.
+pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
 // Version 30 (#114, 29 is #619's): audio clip commands (AU-5). `clip.import_audio` takes an
 // optional target `at` and answers its `placement`; new `clip.audio.set_range`,
 // `clip.audio.set_gain`, `clip.audio.set_loop`; `clip.move` takes audio clips; clip summaries
@@ -353,6 +359,14 @@ pub fn schema_bundle() -> serde_json::Value {
         "error_codes": { "no_output": errors::NO_OUTPUT, "audio_stream": errors::AUDIO_STREAM },
         "max_stream_bytes": MAX_STREAM_BYTES,
         "control_pushed_out": CONTROL_PUSHED_OUT,
+        "agent_confirm_ms": AGENT_CONFIRM_MS,
+        // The commands whose call by an agent waits for the user's confirmation in the page
+        // (`x-destructive`, AG-4): the page reads the list from here, never from the schema.
+        "destructive_commands": commands::catalog()
+            .into_iter()
+            .filter(|spec| spec.destructive)
+            .map(|spec| spec.name)
+            .collect::<Vec<_>>(),
         "param_defaults": param_defaults,
         // The fader's law (#389): `[position, dB]` points, from the bottom (silence) to the top.
         // The page's fader, the axis of a volume lane and the engine's reading of a lane all

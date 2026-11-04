@@ -26,6 +26,8 @@ import type { ProjectHost, ProjectStorage } from '../storage/storage.svelte'
 import { releaseAllNotes, requestMidiInputs } from './housekeeping'
 import { takePairLink } from '../pair-link'
 import { answerAgentCall } from '../agents/agent-call'
+import { AgentConfirmations } from '../agents/confirm.svelte'
+import { agentQuestion, confirmDeadline, notConfirmed, type GuardView } from '../agents/guard'
 import { ControlLink, ControlTimeout } from '../agents/control-link'
 import { applyEffects } from './effects'
 import type { EngineStore, HelperState } from './engine.svelte'
@@ -39,7 +41,29 @@ import { refusalOf } from './refusal'
 import { storage, TOKEN_KEY } from './storage'
 
 /** How `run` runs a command: `quiet` shows no refusal, `author` is the history's (`user` by default). */
-type RunOptions = { quiet?: boolean; author?: string; playedByHelper?: boolean }
+type RunOptions = {
+  quiet?: boolean
+  author?: string
+  playedByHelper?: boolean
+  /** The user already allowed the agent that sends it (AG-4): the storage asks nothing more. */
+  allowed?: boolean
+  /** Told the storage action the command started, for an agent's answer to wait for it. */
+  storageRun?: StorageRun
+}
+
+/** The storage action a command started (`project.open_recent`, `project.delete_browser_project`…), `null` for none. */
+type StorageRun = { done: Promise<boolean> | null }
+
+/** What the agents' questions need from the storage (`GuardView`). */
+function guardView(storage: ProjectStorage): GuardView {
+  return {
+    recent: storage.recent,
+    browserProjects: storage.browserProjects,
+    reopenTarget: storage.reopen ?? storage.failedReopen,
+    folderName: storage.folder?.name ?? null,
+    inConflict: storage.inConflict,
+  }
+}
 
 /** What running a command did: an agent's answer, or `started` for a command the page answers later. */
 type Ran = AgentResult | { status: 'started' }
@@ -139,14 +163,14 @@ export class Dispatcher {
       onHelperUpdate: (update) => {
         if (kind === 'native' && current()) this.state.helperUpdate = update
       },
-      onAgentCall: (agent, command, answer) => {
+      onAgentCall: (agent, command, answer, signal) => {
         // An agent's call runs only on the session the page plays: one that is not (yet) current, or no
         // longer, answers at once rather than leaving the agent to wait (AG-1).
         if (kind !== 'native' || !current()) {
           answer({ status: 'unavailable', reason: 'the page is switching between its own engine and the helper: retry' })
           return
         }
-        void answerAgentCall(this, agent, command).then(answer)
+        void answerAgentCall(this, agent, command, signal).then(answer)
       },
       onStreamRefused: (code, at, epoch) => {
         if (!current()) return
@@ -569,27 +593,67 @@ export class Dispatcher {
    * Runs an agent's command (AG-1) through the same path as a user's (`run`): the history records it as
    * `author`, its refusals go back to the agent (no toast), its undo is the user's. The commands the page
    * answers asynchronously are awaited: `project.list_stored` answers its lists, `project.new` its name once
-   * the storage made it (a refusal when the user cancelled).
+   * the storage made it, and the storage actions an agent must have allowed (`STORAGE_GUARDED`) once the storage
+   * did them, or a refusal when it did not.
+   *
+   * A destructive command, or a storage action that replaces or deletes a project or settles a conflict, first waits
+   * for the user's answer in the page (AG-4, `agentQuestion`): until `AGENT_CONFIRM_MS` after the call reached the
+   * page. Anything but "allow" answers a typed refusal (`confirmation.declined`, `confirmation.timeout`) and nothing
+   * runs; `signal` (the call's link closed) withdraws the question. Once allowed, the storage asks nothing more.
    */
-  async runForAgent(command: Command, author: string): Promise<AgentResult> {
+  async runForAgent(command: Command, author: string, signal?: AbortSignal): Promise<AgentResult> {
+    const deadline = confirmDeadline(this.confirmations.clock.now())
     if (isListStored(command)) {
       const lists = await this.listStored()
       return { status: 'applied', output: lists }
     }
+    const question = agentQuestion(command, this.storage ? guardView(this.storage) : null)
+    // Without a core, `execute` would make one and run the command later: nothing an agent can be told. Not asked
+    // for either. `project.new` makes its own project.
+    const noCore = !this.core && !isNewProject(command)
+    if (noCore) return { status: 'unavailable', reason: 'the page has no project yet: start audio in the page first' }
+    if (question) {
+      const answer = await this.confirmations.ask(author, question, deadline, signal)
+      if (answer !== 'confirmed') return notConfirmed(answer)
+    }
+    const allowed = question !== null
     if (isNewProject(command)) {
       const name = newProjectName(command)
-      const made = await (this.storage ? this.storage.newProject(name) : this.newProject(name))
-      if (!made) return { status: 'refused', error: { code: 'cancelled', message: 'the user kept the current project' } }
+      const made = await (this.storage ? this.storage.newProject(name, allowed) : this.newProject(name))
+      if (!made) return { status: 'refused', error: { code: 'not_done', message: 'the page did not start a new project: nothing changed' } }
       const view = this.core?.project()
       return { status: 'applied', output: { name: view?.project.name ?? name ?? '' } }
     }
-    // Without a core, `execute` would make one and run the command later: nothing an agent can be told.
-    if (!this.core) return { status: 'unavailable', reason: 'the page has no project yet: start audio in the page first' }
-    const ran = this.execute(command, { quiet: true, author })
-    // Only the commands answered above start without answering; none reaches here with a core.
-    if (ran.status === 'started') return { status: 'unavailable', reason: 'the page answers this command later' }
-    return ran
+    // The storage action an allowed call starts: awaited, so that the agent learns whether it was done.
+    const storageRun: StorageRun = { done: null }
+    const notices: string[] = []
+    const stopWatching = this.storage?.watchNotices((key) => notices.push(key))
+    try {
+      const ran = this.execute(command, { quiet: true, author, allowed, storageRun })
+      // Only the commands answered above start without answering; none reaches here with a core.
+      if (ran.status === 'started') return { status: 'unavailable', reason: 'the page answers this command later' }
+      if (ran.status !== 'applied' || !storageRun.done) return ran
+      let done: boolean
+      try {
+        done = await storageRun.done
+      } catch (error) {
+        console.error(error)
+        return { status: 'unavailable', reason: `the page failed to do it: ${String(error)}` }
+      }
+      if (done) return ran
+      // What the storage said meanwhile (a project gone, locked, no conflict…): a hint for the agent, the page's own
+      // notice key; nothing changed either way.
+      return {
+        status: 'refused',
+        error: { code: 'not_done', message: 'the page did not do it: nothing changed', notice: notices.at(-1) ?? null },
+      }
+    } finally {
+      stopWatching?.()
+    }
   }
+
+  /** The page's questions before an agent's destructive call runs (AG-4), shown by `views/confirm/`. */
+  readonly confirmations = new AgentConfirmations()
 
   /** `run`, saying what happened: what an agent is answered (`runForAgent`). */
   private execute(command: Command, options: RunOptions): Ran {
@@ -663,6 +727,12 @@ export class Dispatcher {
     // Any command may change where the live input goes (selection, arming, a track created or deleted, an
     // undo): the helper gets the table again when it changed (#598).
     if (this.native) this.routeNative(this.native)
+    // A storage action an agent's answer waits for (AG-4); a user's runs on its own, as before.
+    const allowed = options.allowed ?? false
+    const track = (run: Promise<boolean> | undefined) => {
+      if (run && options.storageRun) options.storageRun.done = run
+      else void run
+    }
     applyEffects(command, {
       mode: this.state.mode,
       midi: this.midi,
@@ -673,14 +743,14 @@ export class Dispatcher {
       saveAs: () => void this.storage?.saveAs(),
       exportPack: () => void this.storage?.exportPack(),
       importPack: () => void this.storage?.importPack(),
-      openUrl: (url) => void this.storage?.openUrl(url),
-      reopenLast: () => void this.storage?.reopenLast(),
+      openUrl: (url) => track(this.storage?.openUrl(url, allowed)),
+      reopenLast: () => track(this.storage?.reopenLast(allowed)),
       openFolder: () => void this.storage?.openFolder(),
-      openRecent: (id) => void this.storage?.openRecent(id),
-      openBrowserProject: (dir) => void this.storage?.openBrowserProject(dir),
-      deleteBrowserProject: (dir) => void this.storage?.deleteBrowserProject(dir),
-      keepMine: () => void this.storage?.keepMine(),
-      loadFolderVersion: () => void this.storage?.loadDisk(),
+      openRecent: (id) => track(this.storage?.openRecent(id, allowed)),
+      openBrowserProject: (dir) => track(this.storage?.openBrowserProject(dir, allowed)),
+      deleteBrowserProject: (dir) => track(this.storage?.deleteBrowserProject(dir, allowed)),
+      keepMine: () => track(this.storage?.keepMine(allowed)),
+      loadFolderVersion: () => track(this.storage?.loadDisk(allowed)),
       allowAccess: () => void this.storage?.resume(),
       exportAudio: (request) => this.audioExport?.request(request),
       chooseAudio: (track) => this.audioImport?.choose(track),
@@ -908,7 +978,7 @@ export class Dispatcher {
     let link: ControlLink
     try {
       link = await ControlLink.open(token, {
-        onAgentCall: (agent, command, answer) => void answerAgentCall(this, agent, command).then(answer),
+        onAgentCall: (agent, command, answer, signal) => void answerAgentCall(this, agent, command, signal).then(answer),
         onClosed: (pushedOut) => {
           if (this.control !== link) return
           this.control = null

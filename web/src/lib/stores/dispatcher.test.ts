@@ -2,7 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { NativeEngine, NoOutputError } from '../engine/native-engine'
 import type { EngineEvents } from '../engine/engine'
-import { SINGLE_SYNTH, type Command } from '../generated/protocol'
+import { AGENT_CONFIRM_MS, DESTRUCTIVE_COMMANDS, SINGLE_SYNTH, type Command } from '../generated/protocol'
+import { STORAGE_GUARDED } from '../agents/guard'
 import { DEFAULT_PARAMS } from '../params'
 import { CoreError, ProjectCore, type FolderEntry } from '../project/core'
 import { readFolder, SONG_FOLDER } from '../project/reference-folder'
@@ -1703,9 +1704,9 @@ describe('the commands for the projects the page keeps (#323)', () => {
     session.dispatcher.run({ type: 'project.allow_access' })
     expect(spies.reopenLast).toHaveBeenCalledTimes(1)
     expect(spies.openFolder).toHaveBeenCalledTimes(1)
-    expect(spies.openRecent).toHaveBeenCalledWith('r-id')
-    expect(spies.openBrowserProject).toHaveBeenCalledWith('d-id')
-    expect(spies.deleteBrowserProject).toHaveBeenCalledWith('x-id')
+    expect(spies.openRecent).toHaveBeenCalledWith('r-id', false)
+    expect(spies.openBrowserProject).toHaveBeenCalledWith('d-id', false)
+    expect(spies.deleteBrowserProject).toHaveBeenCalledWith('x-id', false)
     expect(spies.keepMine).toHaveBeenCalledTimes(1)
     expect(spies.loadDisk).toHaveBeenCalledTimes(1)
     expect(spies.resume).toHaveBeenCalledTimes(1)
@@ -1733,7 +1734,7 @@ describe('the commands for the projects the page keeps (#323)', () => {
     session.dispatcher.run({ type: 'project.reopen_last' })
     session.dispatcher.run({ type: 'project.delete_browser_project', dir: 'draft' })
     await vi.waitFor(() => expect(reopen).toHaveBeenCalledTimes(1))
-    await vi.waitFor(() => expect(remove).toHaveBeenCalledWith('draft'))
+    await vi.waitFor(() => expect(remove).toHaveBeenCalledWith('draft', false))
     expect(session.dispatcher.host.dirty()).toBe(false)
     // A command that needs a project is still dropped by a page that has none.
     const fresh = newSession()
@@ -1748,7 +1749,7 @@ describe('the commands for the projects the page keeps (#323)', () => {
     const open = vi.spyOn(session.storage, 'openUrl').mockResolvedValue(true)
     const link = 'https://cdn.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/a/project.faulkpack'
     session.dispatcher.run({ type: 'project.open_url', url: link })
-    await vi.waitFor(() => expect(open).toHaveBeenCalledWith(link))
+    await vi.waitFor(() => expect(open).toHaveBeenCalledWith(link, false))
     for (const url of ['', 'ftp://example.org/a.faulkpack', 'http://example.org/a.faulkpack', 'https://user:pw@example.org/a']) {
       session.dispatcher.run({ type: 'project.open_url', url }, { quiet: true })
     }
@@ -2059,7 +2060,7 @@ describe("an agent's calls in Boost (AG-1)", () => {
   /** Hands the helper's `agent.call` to the page and waits for its answer. */
   async function call(agent: string, command: unknown) {
     const answer = vi.fn()
-    nativeEvents!.onAgentCall!(agent, command, answer)
+    nativeEvents!.onAgentCall!(agent, command, answer, new AbortController().signal)
     await vi.waitFor(() => expect(answer).toHaveBeenCalledTimes(1))
     return answer.mock.calls[0][0]
   }
@@ -2146,7 +2147,7 @@ describe("an agent's calls in Boost (AG-1)", () => {
     const events = nativeEvents!
     await session.dispatcher.enterWeb()
     const answer = vi.fn()
-    events.onAgentCall!('a', setParamCommand(firstParam, 0.3), answer)
+    events.onAgentCall!('a', setParamCommand(firstParam, 0.3), answer, new AbortController().signal)
     expect(answer).toHaveBeenCalledWith(expect.objectContaining({ status: 'unavailable' }))
     expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
   })
@@ -2181,7 +2182,7 @@ describe("an agent's calls on the control link, in Web mode and without an outpu
 
   async function call(link: FakeControl, agent: string, command: unknown) {
     const answer = vi.fn()
-    link.events.onAgentCall(agent, command, answer)
+    link.events.onAgentCall(agent, command, answer, new AbortController().signal)
     await vi.waitFor(() => expect(answer).toHaveBeenCalledTimes(1))
     return answer.mock.calls[0][0]
   }
@@ -2443,5 +2444,172 @@ describe('audio files imported by the page (AU-1)', () => {
     // Undo takes the clip away; the file stays where the store put it (no store call).
     session.dispatcher.run({ type: 'history.undo' })
     expect(Object.values(session.project.view!.project.tracks[track]!.clips)).toHaveLength(0)
+  })
+})
+
+describe("an agent's destructive calls wait for the user's answer in the page (AG-4)", () => {
+  beforeEach(() => {
+    webs = []
+    nativeEngine = null
+    midiOn = false
+    midiReleaseAll = () => Promise.resolve()
+    localStorage.clear()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  async function started() {
+    const session = newSession()
+    await session.dispatcher.start()
+    return session
+  }
+
+  /** The storage actions, mocked to say they were done: none may be called before the user allows it. */
+  function storageSpies(session: ReturnType<typeof newSession>) {
+    return {
+      newProject: vi.spyOn(session.storage, 'newProject'),
+      openRecent: vi.spyOn(session.storage, 'openRecent').mockResolvedValue(true),
+      openBrowserProject: vi.spyOn(session.storage, 'openBrowserProject').mockResolvedValue(true),
+      reopenLast: vi.spyOn(session.storage, 'reopenLast').mockResolvedValue(true),
+      openUrl: vi.spyOn(session.storage, 'openUrl').mockResolvedValue(true),
+      deleteBrowserProject: vi.spyOn(session.storage, 'deleteBrowserProject').mockResolvedValue(true),
+      keepMine: vi.spyOn(session.storage, 'keepMine').mockResolvedValue(true),
+      loadDisk: vi.spyOn(session.storage, 'loadDisk').mockResolvedValue(true),
+    }
+  }
+
+  /** A valid call of each command an agent must be allowed to run: every destructive command and every guarded storage action. */
+  function guardedCalls(): Command[] {
+    const calls: Record<string, Command> = {
+      'project.new': { type: 'project.new' },
+      'project.open': { type: 'project.open', folder: 'elsewhere' },
+      'project.open_recent': { type: 'project.open_recent', id: 'r1' },
+      'project.open_browser_project': { type: 'project.open_browser_project', dir: 'd1' },
+      'project.reopen_last': { type: 'project.reopen_last' },
+      'project.open_url': { type: 'project.open_url', url: 'https://cdn.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/a/project.faulkpack' },
+      'project.delete_browser_project': { type: 'project.delete_browser_project', dir: 'd1' },
+      'project.keep_mine': { type: 'project.keep_mine' },
+      'project.load_folder_version': { type: 'project.load_folder_version' },
+    }
+    // Enumerated from the generated lists, never from memory: a command added to either must get a call here.
+    const types = [...new Set([...DESTRUCTIVE_COMMANDS, ...Object.keys(STORAGE_GUARDED)])]
+    expect(types.filter((type) => !(type in calls))).toEqual([])
+    return types.map((type) => calls[type]!)
+  }
+
+  it('asks before every destructive command and every guarded storage action; a refusal runs nothing', async () => {
+    const session = await started()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    vi.spyOn(session.storage, 'inConflict', 'get').mockReturnValue(true)
+    const spies = storageSpies(session)
+    session.dispatcher.run(setParamCommand(firstParam, 0.6))
+    const history = session.dispatcher.history().undo.length
+    const id = session.project.view!.project.id
+    for (const command of guardedCalls()) {
+      const answer = session.dispatcher.runForAgent(command, 'agent:claude-code')
+      await vi.waitFor(() => expect(session.dispatcher.confirmations.current, command.type).not.toBeNull())
+      expect(session.dispatcher.confirmations.current?.agent).toBe('agent:claude-code')
+      session.dispatcher.confirmations.answer(false)
+      expect(await answer, command.type).toMatchObject({ status: 'refused', error: { code: 'confirmation.declined' } })
+    }
+    for (const [name, spy] of Object.entries(spies)) expect(spy, name).not.toHaveBeenCalled()
+    expect(session.project.view!.project.id).toBe(id)
+    expect(session.project.params[firstParam]).toBe(0.6)
+    expect(session.dispatcher.history().undo).toHaveLength(history)
+    expect(session.storage.confirm).toBeNull()
+  })
+
+  it('runs at once what can be undone, track.delete included: one undo brings it back', async () => {
+    const session = await started()
+    const result = await session.dispatcher.runForAgent({ type: 'track.delete', track: SINGLE_SYNTH.track } as Command, 'agent:a')
+    expect(result).toMatchObject({ status: 'applied' })
+    expect(session.dispatcher.confirmations.pending).toEqual([])
+  })
+
+  it('asks project.new once: allowed, it replaces the project even with changes the page cannot keep, with no second question', async () => {
+    const session = await started()
+    session.dispatcher.run(setParamCommand(firstParam, 0.6))
+    const id = session.project.view!.project.id
+    const answer = session.dispatcher.runForAgent({ type: 'project.new', name: 'Night drive' }, 'agent:a')
+    await vi.waitFor(() => expect(session.dispatcher.confirmations.current?.question).toEqual({ kind: 'new' }))
+    // Nothing replaced while the question waits.
+    expect(session.project.view!.project.id).toBe(id)
+    session.dispatcher.confirmations.answer(true)
+    expect(await answer).toEqual({ status: 'applied', output: { name: 'Night drive' } })
+    expect(session.project.view!.project.id).not.toBe(id)
+    expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+    expect(session.storage.confirm).toBeNull()
+  })
+
+  it("leaves the user's own project.new as it was: no agent question", async () => {
+    const session = await started()
+    session.dispatcher.run({ type: 'project.new' })
+    await vi.waitFor(() => expect(session.project.view?.project.name).toMatch(/^Sketch /))
+    expect(session.dispatcher.confirmations.pending).toEqual([])
+  })
+
+  it('answers confirmation.timeout when nobody answers within AGENT_CONFIRM_MS, and nothing runs', async () => {
+    const session = await started()
+    const spies = storageSpies(session)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    const answer = session.dispatcher.runForAgent({ type: 'project.new' }, 'agent:a')
+    expect(session.dispatcher.confirmations.current).not.toBeNull()
+    vi.advanceTimersByTime(AGENT_CONFIRM_MS)
+    expect(await answer).toMatchObject({ status: 'refused', error: { code: 'confirmation.timeout' } })
+    expect(session.dispatcher.confirmations.pending).toEqual([])
+    expect(spies.newProject).not.toHaveBeenCalled()
+  })
+
+  it('withdraws the question when the call can no longer be answered, and runs nothing', async () => {
+    const session = await started()
+    const spies = storageSpies(session)
+    const link = new AbortController()
+    const answer = session.dispatcher.runForAgent({ type: 'project.reopen_last' }, 'agent:a', link.signal)
+    await vi.waitFor(() => expect(session.dispatcher.confirmations.current).not.toBeNull())
+    link.abort()
+    expect(await answer).toMatchObject({ status: 'unavailable' })
+    expect(session.dispatcher.confirmations.pending).toEqual([])
+    expect(spies.reopenLast).not.toHaveBeenCalled()
+  })
+
+  it('answers an allowed storage action once the storage did it, told it was allowed', async () => {
+    const session = await started()
+    let finish: (done: boolean) => void = () => {}
+    const remove = vi.spyOn(session.storage, 'deleteBrowserProject').mockImplementation(() => new Promise((resolve) => (finish = resolve)))
+    session.storage.browserProjects = [{ dir: 'd1', id: 'p1', name: 'Old draft', modified: 1 }]
+    let answered: unknown = null
+    void session.dispatcher.runForAgent({ type: 'project.delete_browser_project', dir: 'd1' }, 'agent:a').then((r) => (answered = r))
+    await vi.waitFor(() => expect(session.dispatcher.confirmations.current?.question).toEqual({ kind: 'delete', target: 'Old draft' }))
+    session.dispatcher.confirmations.answer(true)
+    await vi.waitFor(() => expect(remove).toHaveBeenCalledWith('d1', true))
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(answered).toBeNull()
+    finish(true)
+    await vi.waitFor(() => expect(answered).toMatchObject({ status: 'applied' }))
+  })
+
+  it('answers not_done, with the notice as a hint, an allowed storage action the storage did not do', async () => {
+    const session = await started()
+    vi.spyOn(session.storage, 'openRecent').mockImplementation(async () => {
+      session.storage.notice = 'storage.recentGone'
+      return false
+    })
+    const answer = session.dispatcher.runForAgent({ type: 'project.open_recent', id: 'r1' }, 'agent:a')
+    await vi.waitFor(() => expect(session.dispatcher.confirmations.current).not.toBeNull())
+    session.dispatcher.confirmations.answer(true)
+    expect(await answer).toEqual({
+      status: 'refused',
+      error: { code: 'not_done', message: expect.any(String), notice: 'storage.recentGone' },
+    })
+  })
+
+  it('asks nothing for a way out of a conflict when there is none: the storage refuses it', async () => {
+    const session = await started()
+    const result = await session.dispatcher.runForAgent({ type: 'project.keep_mine' }, 'agent:a')
+    expect(session.dispatcher.confirmations.pending).toEqual([])
+    expect(result).toMatchObject({ status: 'refused', error: { code: 'not_done', notice: 'storage.noConflict' } })
   })
 })
