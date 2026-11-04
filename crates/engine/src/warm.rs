@@ -187,12 +187,15 @@ pub fn messages() -> Vec<Phase> {
             sample_rate: 48_000,
             channels: 1,
             frames: Frame::new(BLOCK as u64),
+            media: [0; 32],
         },
         M::ClipAudioSet {
             clip: ClipSlot(1),
             source: SourceSlot(0),
             start: Frame::ZERO,
             length: Frame::new(BLOCK as u64),
+            gain: 1.0,
+            looping: None,
         },
         M::TrackPlacementsUpload {
             track: synth_track,

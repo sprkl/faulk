@@ -7,7 +7,7 @@ use helper::live::LiveInput;
 use helper::midi::{MidiManager, MidiSink};
 use helper::security::Policy;
 use helper::server::{Shared, serve};
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 const ORIGIN: &str = "http://localhost:5173";
@@ -19,6 +19,15 @@ fn origins(list: &[&str]) -> Vec<String> {
 /// Binds a port now and starts a Faulk server on it after `delay`, on its own thread,
 /// like a helper that is still opening its audio output.
 fn faulk_helper(allowed: &str, delay: Duration) -> u16 {
+    faulk_helper_signalling(allowed, delay).0
+}
+
+/// [`faulk_helper`] and a receiver that gets a message when the server is built, just before
+/// `serve` (which spawns a few small tasks before it accepts): until then the thread is still
+/// creating its runtime, its engine and its MIDI manager, which takes as long as the machine
+/// lets it (#605).
+fn faulk_helper_signalling(allowed: &str, delay: Duration) -> (u16, mpsc::Receiver<()>) {
+    let (ready, serving) = mpsc::channel();
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     listener.set_nonblocking(true).unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -41,6 +50,7 @@ fn faulk_helper(allowed: &str, delay: Duration) -> u16 {
                     port,
                     allowed_origins: vec![allowed],
                     token: "0123456789abcdef0123456789abcdef".into(),
+                    mcp_token: helper::security::McpToken::Fixed(String::new()),
                 },
                 engine,
                 midi,
@@ -49,10 +59,11 @@ fn faulk_helper(allowed: &str, delay: Duration) -> u16 {
                 Box::new(|_| {}),
             ));
             let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+            let _ = ready.send(());
             serve(listener, shared).await;
         });
     });
-    port
+    (port, serving)
 }
 
 #[test]
@@ -101,7 +112,10 @@ fn a_faulk_helper_with_other_origins_is_found_through_the_next_origin() {
 
 #[test]
 fn a_faulk_helper_that_allows_none_of_the_origins_is_still_found_at_once() {
-    let port = faulk_helper("http://localhost:4173", Duration::ZERO);
+    let (port, serving) = faulk_helper_signalling("http://localhost:4173", Duration::ZERO);
+    // The clock starts when the server is up: what is measured is the probe deciding, not a
+    // loaded machine starting a thread, a runtime and an engine (#605).
+    serving.recv_timeout(Duration::from_secs(60)).unwrap();
     let start = Instant::now();
     let startup = claim(port, &origins(&[ORIGIN]), Duration::from_secs(5));
     assert!(matches!(startup, Startup::AlreadyRunning), "{startup:?}");

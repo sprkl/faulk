@@ -19,7 +19,7 @@
 //! The report (MO-5): the track meters (peak and RMS after each fader), the output meter
 //! after the master, the voices of the tracks' devices, the transport state and playhead
 //! (`Engine::report_transport`), the counters the prepare side published and, when the
-//! caller times its renders ([`Host::add_render_time`]), the CPU load. Not produced yet,
+//! caller times its renders ([`Host::add_render_time`]), the CPU load and its peak. Not produced yet,
 //! written as zero: the disk underruns (AU-3). The active clips of the launch grid (GR-1)
 //! follow the meters, then the last notes of the take ([`crate::recorder`], RE-2).
 //!
@@ -95,6 +95,32 @@ impl Prepare {
     /// The prepare/apply cycle's prepare side.
     pub fn preparer(&self) -> &Preparer {
         &self.preparer
+    }
+
+    /// The disk planner's poll at `now_ms` (AU-3, [`crate::audio_source::Disk::poll`]): its
+    /// messages are sent, its new read jobs returned.
+    pub fn disk_poll(&mut self, now_ms: u64) -> &[crate::audio_source::Job] {
+        self.preparer.disk_poll(now_ms)
+    }
+
+    /// A read job's bytes ([`crate::audio_source::Disk::done`]).
+    pub fn disk_done(&mut self, id: u32, bytes: &[u8], file_len: u64) {
+        self.preparer.disk_done(id, bytes, file_len);
+    }
+
+    /// A read job failed ([`crate::audio_source::Disk::failed`]).
+    pub fn disk_failed(&mut self, id: u32, why: crate::audio_source::Failure) {
+        self.preparer.disk_failed(id, why);
+    }
+
+    /// The disk planner.
+    pub fn disk(&self) -> &crate::audio_source::Disk {
+        self.preparer.disk()
+    }
+
+    /// The disk planner, to set its budget.
+    pub fn disk_mut(&mut self) -> &mut crate::audio_source::Disk {
+        self.preparer.disk_mut()
     }
 
     fn publish(&self) {
@@ -294,8 +320,102 @@ fn feedback_words() -> usize {
     Feedback::max_size_for(limits::MAX_TRACKS as usize).div_ceil(4)
 }
 
-/// The CPU load of a report whose period was not timed (no clock on the host).
+/// The CPU load of a report whose host never timed a block (no clock on the host).
 pub const NOT_MEASURED: f32 = -1.0;
+
+/// A peak window lasts at least this many steps of the caller's clock
+/// ([`Host::set_clock_resolution`]): a clock of 1 ms (the web worklet's `Date.now()`) reads
+/// a 2.7 ms quantum as 0, 1 or 2 ms, so its peak is taken over about 100 ms, where that error
+/// is a few percent of the budget; with a fine clock (the helper's) a window is one block.
+pub const PEAK_WINDOW_STEPS: f32 = 100.0;
+
+/// The CPU load accounting of [`Host`] (#486): the caller times each block it renders with its
+/// own clock and hands the time and the block's frames to [`Host::add_render_time`]. Plain
+/// numbers: no allocation, no lock.
+#[derive(Debug, Clone, Copy)]
+struct Load {
+    /// The caller timed a block once: from then on a report carries a load (0 for a period
+    /// with no timed block), before it [`NOT_MEASURED`].
+    clocked: bool,
+    /// Seconds of render and frames timed since the last report.
+    busy: f32,
+    frames: u32,
+    /// The peak window being filled: seconds and frames.
+    window_busy: f32,
+    window_frames: u32,
+    /// The largest load of a window closed since the last report, [`NOT_MEASURED`] while none
+    /// closed.
+    peak: f32,
+    /// The load of the last window closed, [`NOT_MEASURED`] before the first: the peak of a
+    /// period shorter than a window (a coarse clock), so that it is never one noisy period.
+    last_window: f32,
+    /// Seconds of one step of the caller's clock (0: fine).
+    resolution: f32,
+}
+
+impl Load {
+    fn new() -> Self {
+        Load {
+            clocked: false,
+            busy: 0.0,
+            frames: 0,
+            window_busy: 0.0,
+            window_frames: 0,
+            peak: NOT_MEASURED,
+            last_window: NOT_MEASURED,
+            resolution: 0.0,
+        }
+    }
+
+    fn add(&mut self, seconds: f32, frames: u32, sample_rate: f32) {
+        self.clocked = true;
+        let seconds = if seconds.is_finite() && seconds > 0.0 {
+            seconds
+        } else {
+            0.0
+        };
+        self.busy += seconds;
+        self.frames = self.frames.saturating_add(frames);
+        self.window_busy += seconds;
+        self.window_frames = self.window_frames.saturating_add(frames);
+        if sample_rate.is_nan() || sample_rate <= 0.0 || self.window_frames == 0 {
+            return;
+        }
+        let window = self.window_frames as f32 / sample_rate;
+        if window >= PEAK_WINDOW_STEPS * self.resolution {
+            let load = (self.window_busy / window).clamp(0.0, 1.0);
+            self.peak = self.peak.max(load);
+            self.last_window = load;
+            self.window_busy = 0.0;
+            self.window_frames = 0;
+        }
+    }
+
+    /// The load and peak of the period, then a new period (the open window carries over).
+    /// The peak is the largest window closed in the period; with none, the last window
+    /// closed; before any, the period's load.
+    fn take(&mut self, sample_rate: f32) -> (f32, f32) {
+        if !self.clocked {
+            return (NOT_MEASURED, NOT_MEASURED);
+        }
+        let load = if sample_rate > 0.0 && self.frames > 0 {
+            (self.busy / (self.frames as f32 / sample_rate)).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let peak = if self.peak >= 0.0 {
+            self.peak
+        } else if self.last_window >= 0.0 {
+            self.last_window
+        } else {
+            load
+        };
+        self.busy = 0.0;
+        self.frames = 0;
+        self.peak = NOT_MEASURED;
+        (load, peak)
+    }
+}
 
 /// Reports that still carry a take's notes after its capture ended: about 3 s, longer than the
 /// page waits for them, so that a finished take does not ride in every report until the next.
@@ -313,10 +433,8 @@ pub struct Host {
     right: Box<[f32]>,
     /// Frames rendered since the last report: the meters' period.
     meter_frames: u32,
-    /// Seconds the caller spent rendering since the last report ([`Host::add_render_time`]).
-    busy_secs: f32,
-    /// Whether the caller timed a render since the last report: else the load is not measured.
-    timed: bool,
+    /// The CPU load accounting ([`Host::add_render_time`]).
+    load: Load,
     /// Where the engine puts the track meters of a report.
     meters: Box<[TrackMeter]>,
     /// Scalar fields of the report the engine fills (`Engine::report_transport`); its
@@ -334,6 +452,11 @@ pub struct Host {
     /// The clock's rate the host last saw (#236): a change makes the report period and the
     /// load follow it.
     clock_rate: u32,
+    /// A test voice ([`Host::probe_start`]): the consumer of the disk rings until AU-4's clip
+    /// player, so the web build's two instances are exercised end to end.
+    probe: crate::audio_source::Voice,
+    probe_port: (crate::msg::TrackSlot, u8),
+    probe_out: Box<[f32]>,
 }
 
 impl core::fmt::Debug for Host {
@@ -377,8 +500,7 @@ pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
         left: try_slice(frames, 0.0)?,
         right: try_slice(frames, 0.0)?,
         meter_frames: 0,
-        busy_secs: 0.0,
-        timed: false,
+        load: Load::new(),
         meters: try_slice(limits::MAX_TRACKS as usize, TrackMeter::default())?,
         scratch: Feedback::default(),
         voices: 0,
@@ -388,6 +510,9 @@ pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
         feedback: Arc::from(feedback.into_boxed_slice()),
         feedback_seq: 0,
         clock_rate: 0,
+        probe: crate::audio_source::Voice::default(),
+        probe_port: (TrackSlot(0), 0),
+        probe_out: try_slice(frames * crate::audio_source::MAX_CHANNELS, 0.0)?,
     };
     let prepare = Prepare { preparer, status };
     prepare.publish();
@@ -410,6 +535,94 @@ fn word(bytes: [u8; 4]) -> u32 {
 }
 
 impl Host {
+    /// Starts the test voice on `port` of `track`, playing `path` of `source` (AU-3, until
+    /// AU-4's clip player). `false` when the track or the source does not exist. No
+    /// allocation.
+    pub fn probe_start(
+        &mut self,
+        track: TrackSlot,
+        port: u8,
+        source: crate::msg::SourceSlot,
+        path: crate::audio_source::Path,
+    ) -> bool {
+        let (state, tx, _) = self.engine.streams();
+        let Some(src) = state
+            .sources
+            .as_slice()
+            .get(source.0 as usize)
+            .and_then(|s| s.as_deref())
+        else {
+            return false;
+        };
+        let Some(t) = state
+            .tracks
+            .as_mut_slice()
+            .get_mut(track.0 as usize)
+            .and_then(|t| t.as_deref_mut())
+        else {
+            return false;
+        };
+        let instance = t.instance;
+        let Some(p) = t.ports.get_mut(port as usize) else {
+            return false;
+        };
+        let path = crate::audio_source::Path::new(path.start, path.end, path.looping, src.frames.0);
+        self.probe.start(
+            crate::audio_source::PortId {
+                track,
+                instance,
+                port,
+            },
+            p,
+            source,
+            src.sample_rate,
+            u16::from(src.channels),
+            &src.segments,
+            path,
+            tx,
+        );
+        self.probe_port = (track, port);
+        true
+    }
+
+    /// Reads `frames` frames of the test voice into [`Host::probe_out`]; returns how many
+    /// came from the source. No allocation.
+    pub fn probe_read(&mut self, frames: usize) -> usize {
+        let (track, port) = self.probe_port;
+        let source = self.probe.source();
+        let (state, tx, stats) = self.engine.streams();
+        let Some(t) = state
+            .tracks
+            .as_mut_slice()
+            .get_mut(track.0 as usize)
+            .and_then(|t| t.as_deref_mut())
+        else {
+            self.probe.stop();
+            return 0;
+        };
+        let Some(p) = t.ports.get_mut(port as usize) else {
+            return 0;
+        };
+        let segments = state
+            .sources
+            .as_slice()
+            .get(source.0 as usize)
+            .and_then(|s| s.as_deref())
+            .map_or(&[][..], |s| &s.segments[..]);
+        self.probe
+            .read(p, segments, tx, stats, &mut self.probe_out, frames)
+    }
+
+    /// The test voice's last frames, interleaved ([`crate::audio_source::Voice::channels`]).
+    pub fn probe_out(&self) -> &[f32] {
+        &self.probe_out
+    }
+
+    /// The test voice.
+    pub fn probe(&self) -> &crate::audio_source::Voice {
+        &self.probe
+    }
+
     /// The audio side of the cycle.
     pub fn engine(&self) -> &Engine {
         &self.engine
@@ -469,15 +682,28 @@ impl Host {
         frames
     }
 
-    /// Adds `seconds` of render time to the reporting period: the caller (the helper's audio
-    /// callback) times its renders with its own clock, the engine has none. The report's CPU
-    /// load is this time over the period's duration. A host without a clock (the web
-    /// worklet) never calls it and the load reads [`NOT_MEASURED`].
-    pub fn add_render_time(&mut self, seconds: f32) {
-        self.timed = true;
-        if seconds.is_finite() && seconds > 0.0 {
-            self.busy_secs += seconds;
-        }
+    /// One timed block (#486): the caller (the helper's audio callback, the web worklet)
+    /// timed the render of `frames` with its own clock, the engine has none, and it took
+    /// `seconds` (a time that is not finite or not positive counts as 0 with its frames).
+    /// The report's CPU load is the time over the duration of the frames timed in its period,
+    /// its peak the largest load of a peak window: consecutive timed blocks lasting at least
+    /// [`PEAK_WINDOW_STEPS`] steps of the clock ([`Host::set_clock_resolution`]), one block
+    /// with a fine clock. A block timed after the render that wrote a report counts in the
+    /// next one, with its frames. A host that never calls it reports [`NOT_MEASURED`].
+    /// No allocation.
+    pub fn add_render_time(&mut self, seconds: f32, frames: u32) {
+        self.load.add(seconds, frames, self.sample_rate);
+    }
+
+    /// The step of the caller's clock, in seconds (0, the default, for a fine clock; the web
+    /// worklet's `Date.now()` steps by 1 ms): it sets the length of the peak windows
+    /// ([`Host::add_render_time`]). Not finite or negative: 0.
+    pub fn set_clock_resolution(&mut self, seconds: f32) {
+        self.load.resolution = if seconds.is_finite() && seconds > 0.0 {
+            seconds
+        } else {
+            0.0
+        };
     }
 
     /// Voices sounding in the tracks' devices after the last block (releasing ones
@@ -518,11 +744,11 @@ impl Host {
     /// [`REPORTS_PER_SECOND`] times per second). The `seq` word is odd while the body is
     /// written: a reader takes an even `seq`, the body, then the same `seq` again.
     ///
-    /// Written: version, transport state and playhead, CPU load, epoch and the counters the
+    /// Written: version, transport state and playhead, CPU load and peak, epoch and the counters the
     /// prepare side published, the most voices sounding during the period, the meters of
     /// every track slot up to the last track and the output's, then the active clips (GR-1),
-    /// then the take's number, count and last notes (RE-2). Not produced yet, written as
-    /// zero: the disk underruns (AU-3).
+    /// then the take's number, count and last notes (RE-2), the disk's underruns, offline
+    /// sources, budget flag and PCM in memory (AU-3).
     /// No allocation.
     pub fn write_feedback(&mut self) {
         let seq = self.feedback_seq.wrapping_add(1) | 1;
@@ -538,14 +764,7 @@ impl Host {
         let frames = self.meter_frames;
         let (tracks, master) = self.engine.take_meters(frames, &mut self.meters);
         self.engine.report_transport(&mut self.scratch);
-        let load = if !self.timed {
-            NOT_MEASURED
-        } else if self.sample_rate > 0.0 && frames > 0 {
-            let period = frames as f32 / self.sample_rate;
-            (self.busy_secs / period).clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
+        let (load, peak) = self.load.take(self.sample_rate);
 
         let epoch = self.status.epoch.load(Ordering::Relaxed) as u16;
         let [e0, e1] = epoch.to_le_bytes();
@@ -562,7 +781,14 @@ impl Host {
         put(24, load.to_bits());
         put(28, self.status.live_overflows.load(Ordering::Relaxed));
         put(32, self.status.rejected.load(Ordering::Relaxed));
-        put(36, 0);
+        let disk = self.engine.disk_stats();
+        put(36, disk.underruns.load(Ordering::Relaxed));
+        put(76, disk.offline.load(Ordering::Relaxed));
+        put(80, disk.flags.load(Ordering::Relaxed));
+        put(
+            84,
+            (disk.pcm_bytes.load(Ordering::Relaxed) / 1024).min(u64::from(u32::MAX)) as u32,
+        );
         put(40, tracks as u32);
         put(52, self.period_voices);
         let mut at = FEEDBACK_HEADER_BYTES;
@@ -622,9 +848,8 @@ impl Host {
         put(60, recorder.total());
         put(64, recorder.dropped());
         put(68, u32::from(recorder.capturing()));
+        put(72, peak.to_bits());
         self.meter_frames = 0;
-        self.busy_secs = 0.0;
-        self.timed = false;
         self.period_voices = self.voices;
 
         let done = seq.wrapping_add(1);
@@ -774,9 +999,13 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
         playhead_tick: crate::time::Tick(u64_at(8)? as i64),
         playhead_frame: crate::time::Frame(u64_at(16)?),
         cpu_load: f32::from_bits(u32_at(24)?),
+        cpu_peak: f32::from_bits(u32_at(72)?),
         live_overflows: u32_at(28)?,
         rejected: u32_at(32)?,
         disk_underruns: u32_at(36)?,
+        offline_sources: u32_at(76)?,
+        pcm_flags: u32_at(80)?,
+        pcm_kib: u32_at(84)?,
         meters,
         master: meter(tracks as usize)?,
         voices: u32_at(52)?,

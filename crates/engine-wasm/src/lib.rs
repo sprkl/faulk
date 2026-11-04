@@ -132,10 +132,13 @@ pub struct Channel {
     host: Host,
 }
 
-/// The prepare instance's half: the prepare side and its inbox.
+/// The prepare instance's half: the prepare side and its inbox, and the disk planner's job
+/// table and read inbox (AU-3).
 pub struct PrepareHalf {
     prepare: Prepare,
     inbox: Vec<u8>,
+    jobs: Vec<u8>,
+    disk_inbox: Vec<u8>,
 }
 
 /// The prepare half, or `None` when null.
@@ -174,6 +177,8 @@ pub extern "C" fn fk_channel_new(sample_rate: f32) -> *mut Channel {
             prepare: PrepareHalf {
                 prepare,
                 inbox: Vec::new(),
+                jobs: Vec::new(),
+                disk_inbox: Vec::new(),
             },
             host,
         })
@@ -280,6 +285,207 @@ pub unsafe extern "C" fn fk_prepare_counter(ch: *mut Channel, which: u32) -> u32
     }
 }
 
+// ---------------------------------------------------------------- the disk (AU-3)
+
+/// The disk planner's poll at `now_ms` (prepare instance, the Worker's clock): sends its
+/// messages and writes its new read jobs into the table of [`fk_disk_jobs`]
+/// (`engine::audio_source::JOB_WIRE_BYTES` each). Returns how many; 0 when the table could
+/// not grow (the jobs are then failed back to the planner, which tries them again later).
+///
+/// # Safety
+/// `ch` as in [`prepare_half`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_disk_poll(ch: *mut Channel, now_ms: f64) -> u32 {
+    // SAFETY: forwarded from this function's contract.
+    let Some(p) = (unsafe { prepare_half(ch) }) else {
+        return 0;
+    };
+    let now = if now_ms.is_finite() && now_ms > 0.0 {
+        now_ms as u64
+    } else {
+        0
+    };
+    let n = p.prepare.disk_poll(now).len();
+    let bytes = n * engine::audio_source::JOB_WIRE_BYTES;
+    if bytes > p.jobs.len() {
+        if p.jobs.try_reserve_exact(bytes - p.jobs.len()).is_err() {
+            // The jobs go back to the planner as failed (it reads them again later), never
+            // left in flight. At most `MAX_JOBS_IN_FLIGHT` of them: a fixed array.
+            let mut ids = [0u32; engine::audio_source::MAX_JOBS_IN_FLIGHT];
+            let jobs = p.prepare.disk().jobs();
+            let n = jobs.len().min(ids.len());
+            for (id, job) in ids.iter_mut().zip(jobs) {
+                *id = job.id;
+            }
+            for id in &ids[..n] {
+                p.prepare
+                    .disk_failed(*id, engine::audio_source::Failure::Unreadable);
+            }
+            return 0;
+        }
+        p.jobs.resize(bytes, 0);
+    }
+    p.prepare.disk().encode_jobs(&mut p.jobs[..bytes]) as u32
+}
+
+/// The job table the last [`fk_disk_poll`] wrote (prepare instance).
+///
+/// # Safety
+/// `ch` as in [`prepare_half`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_disk_jobs(ch: *mut Channel) -> *const u8 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { prepare_half(ch) }.map_or(core::ptr::null(), |p| p.jobs.as_ptr())
+}
+
+/// The address of an inbox of at least `len` bytes for a job's bytes (prepare instance; as
+/// [`fk_inbox`]).
+///
+/// # Safety
+/// `ch` as in [`prepare_half`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_disk_inbox(ch: *mut Channel, len: u32) -> *mut u8 {
+    // SAFETY: forwarded from this function's contract.
+    let Some(p) = (unsafe { prepare_half(ch) }) else {
+        return core::ptr::null_mut();
+    };
+    let len = len as usize;
+    if len > p.disk_inbox.len() {
+        if p.disk_inbox
+            .try_reserve_exact(len - p.disk_inbox.len())
+            .is_err()
+        {
+            return core::ptr::null_mut();
+        }
+        p.disk_inbox.resize(len, 0);
+    }
+    p.disk_inbox.as_mut_ptr()
+}
+
+/// Job `id` read the first `len` bytes of the disk inbox from a file of `file_len` bytes
+/// (prepare instance). Returns 0, or -1 when `len` is beyond the inbox.
+///
+/// # Safety
+/// `ch` as in [`prepare_half`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_disk_done(ch: *mut Channel, id: u32, len: u32, file_len: f64) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    let Some(p) = (unsafe { prepare_half(ch) }) else {
+        return -1;
+    };
+    let len = len as usize;
+    if len > p.disk_inbox.len() || !(0.0..=MAX_SAFE_FRAME).contains(&file_len) {
+        return -1;
+    }
+    p.prepare
+        .disk_done(id, &p.disk_inbox[..len], file_len as u64);
+    0
+}
+
+/// Job `id` failed: 1 not found, 2 unreadable, 3 the file changed (prepare instance).
+///
+/// # Safety
+/// `ch` as in [`prepare_half`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_disk_failed(ch: *mut Channel, id: u32, code: u32) {
+    // SAFETY: forwarded from this function's contract.
+    if let Some(p) = unsafe { prepare_half(ch) } {
+        p.prepare
+            .disk_failed(id, engine::audio_source::Failure::from_code(code));
+    }
+}
+
+/// Sets the budget of PCM in memory, in bytes (prepare instance; at most 1 GiB).
+///
+/// # Safety
+/// `ch` as in [`prepare_half`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_disk_set_budget(ch: *mut Channel, bytes: f64) {
+    // SAFETY: forwarded from this function's contract.
+    if let Some(p) = unsafe { prepare_half(ch) }
+        && bytes.is_finite()
+        && bytes >= 0.0
+    {
+        p.prepare.disk_mut().set_budget(bytes as u64);
+    }
+}
+
+/// Starts the host's test voice (render instance; until AU-4's clip player, the consumer of
+/// the disk rings): `port` of `track`, `source` from `start` to `end`, looping in
+/// `[loop_start, loop_end)` when `loop_end > loop_start`. Frames as JavaScript numbers.
+/// Returns 1 when it started, 0 when the track or source does not exist. No allocation.
+///
+/// # Safety
+/// `ch` as in [`host`].
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn fk_probe_start(
+    ch: *mut Channel,
+    track: u32,
+    port: u32,
+    source: u32,
+    start: f64,
+    end: f64,
+    loop_start: f64,
+    loop_end: f64,
+) -> i32 {
+    let frame = |v: f64| {
+        if (0.0..=MAX_SAFE_FRAME).contains(&v) {
+            v as u64
+        } else {
+            0
+        }
+    };
+    let looping = (loop_end > loop_start).then(|| (frame(loop_start), frame(loop_end)));
+    let path = engine::audio_source::Path {
+        start: frame(start),
+        end: frame(end),
+        looping,
+    };
+    // SAFETY: forwarded from this function's contract.
+    unsafe { host(ch) }.map_or(0, |h| {
+        i32::from(h.probe_start(
+            engine::msg::TrackSlot(track),
+            port.min(255) as u8,
+            engine::msg::SourceSlot(source),
+            path,
+        ))
+    })
+}
+
+/// Reads `frames` frames (clamped to [`MAX_FRAMES`]) of the test voice into
+/// [`fk_probe_out`] (render instance). Returns the frames that came from the source.
+///
+/// # Safety
+/// `ch` as in [`host`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_probe_read(ch: *mut Channel, frames: u32) -> u32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { host(ch) }.map_or(0, |h| {
+        h.probe_read((frames as usize).min(MAX_FRAMES)) as u32
+    })
+}
+
+/// The test voice's output, interleaved, [`fk_probe_channels`] per frame (render instance).
+///
+/// # Safety
+/// `ch` as in [`host`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_probe_out(ch: *mut Channel) -> *const f32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { host(ch) }.map_or(core::ptr::null(), |h| h.probe_out().as_ptr())
+}
+
+/// Channels of the test voice's frames.
+///
+/// # Safety
+/// `ch` as in [`host`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_probe_channels(ch: *mut Channel) -> u32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { host(ch) }.map_or(0, |h| u32::from(h.probe().channels()))
+}
+
 /// Applies what arrived on the rt ring and takes the live events (render instance; the
 /// first half of [`fk_render`]). Returns the rt messages applied.
 ///
@@ -334,6 +540,34 @@ pub unsafe extern "C" fn fk_render_at(ch: *mut Channel, frames: u32, host_frame:
 
 /// The largest frame a JavaScript number holds exactly (`2^53`).
 const MAX_SAFE_FRAME: f64 = 9_007_199_254_740_992.0;
+
+/// One timed block (render instance, #486, `Host::add_render_time`): the worklet timed the
+/// render of `frames` with its clock and it took `seconds`; the report's CPU load and peak
+/// follow. A time that is not finite or not positive counts as 0 with its frames.
+///
+/// # Safety
+/// `ch` as in [`host`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_add_render_time(ch: *mut Channel, seconds: f64, frames: u32) {
+    // SAFETY: forwarded from this function's contract.
+    if let Some(h) = unsafe { host(ch) } {
+        h.add_render_time(seconds as f32, frames);
+    }
+}
+
+/// The step of the worklet's clock in seconds (render instance, #486,
+/// `Host::set_clock_resolution`): `Date.now()` steps by 1 ms, which sets the length of the
+/// peak windows. Not finite or negative: a fine clock.
+///
+/// # Safety
+/// `ch` as in [`host`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_set_clock_resolution(ch: *mut Channel, seconds: f64) {
+    // SAFETY: forwarded from this function's contract.
+    if let Some(h) = unsafe { host(ch) } {
+        h.set_clock_resolution(seconds as f32);
+    }
+}
 
 /// Warms the apply path (#355): runs every message of the engine once on a throwaway channel
 /// of its own at `sample_rate`, so that V8, which compiles a WebAssembly function at its first
@@ -602,6 +836,35 @@ pub mod events_exports {
     /// Number of `f32` values [`fk_events_scenario`] points to.
     #[unsafe(no_mangle)]
     pub extern "C" fn fk_events_len() -> u32 {
+        scenario().len() as u32
+    }
+}
+
+/// The disk streaming test scenario (`engine::audio_source::scenario`, AU-3), as
+/// [`events_exports`]: only in the test build (`--features stream-scenario`).
+#[cfg(feature = "stream-scenario")]
+pub mod stream_exports {
+    use std::sync::OnceLock;
+
+    fn scenario() -> &'static [f32] {
+        static OUT: OnceLock<Box<[f32]>> = OnceLock::new();
+        OUT.get_or_init(|| engine::audio_source::scenario::scenario().into_boxed_slice())
+    }
+
+    /// Address of the scenario's output, null when it is empty.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fk_stream_scenario() -> *const f32 {
+        let out = scenario();
+        if out.is_empty() {
+            core::ptr::null()
+        } else {
+            out.as_ptr()
+        }
+    }
+
+    /// Number of `f32` values [`fk_stream_scenario`] points to.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fk_stream_len() -> u32 {
         scenario().len() as u32
     }
 }

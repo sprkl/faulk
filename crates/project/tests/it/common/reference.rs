@@ -77,6 +77,7 @@ pub fn song() -> Project {
             },
             params: BTreeMap::from([("attack".into(), 0.01), ("wave".into(), 2.0)]),
             state: None,
+            preset: None,
         },
     );
     bass.devices.insert(
@@ -91,6 +92,12 @@ pub fn song() -> Project {
             },
             params: BTreeMap::from([("cutoff".into(), 800.0)]),
             state: None,
+            // Set from a preset of the project (#191), kept in `presets/`.
+            preset: Some(Box::new(project::preset::DevicePreset {
+                location: project::preset::PresetLocation::Project,
+                id: id(60).to_string(),
+                name: "Warm".into(),
+            })),
         },
     );
     let riff = ClipId(id(20));
@@ -211,6 +218,7 @@ pub fn song() -> Project {
             },
             params: BTreeMap::new(),
             state: None,
+            preset: None,
         },
     );
     let take = ClipId(id(22));
@@ -251,6 +259,16 @@ pub fn song() -> Project {
         },
     );
     p.tracks.insert(TrackId(id(51)), audio);
+    p.presets.insert(
+        project::preset::PresetId(id(60)),
+        project::preset::Preset {
+            device: "faulk.filter".into(),
+            version: 1,
+            name: "Warm".into(),
+            category: Some("Tone".into()),
+            params: BTreeMap::from([("cutoff".into(), 800.0), ("resonance".into(), 0.3)]),
+        },
+    );
     p
 }
 

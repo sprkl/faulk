@@ -248,6 +248,10 @@ pub fn before(command: &Command, p: &Project) -> Option<Subject> {
             }
             _ => None,
         },
+        Command::Preset(
+            crate::preset::Command::Save { device: id, .. }
+            | crate::preset::Command::Load { device: id, .. },
+        ) => device_subject(p, id),
         Command::Scene(c) => match c {
             sc::Command::Delete { scene: id } | sc::Command::Move { scene: id, .. } => {
                 Some(Subject::one(scene(p, id), None))

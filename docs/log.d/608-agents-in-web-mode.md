@@ -1,0 +1,2 @@
+2026-11-03
+* **Update** (#608): `architecture/01-architecture.md` describes the page's control link of protocol 29 (`/control`: the agents' relay in Web mode as in Boost and with a helper without an audio output; the Boost session first, else the front link; `control.front`; at most 8 links; the page's retries) and `page.absent` only without a paired page; `constraints/01-contraintes.md` says the pairing token also guards the control link; `agents/verification.md` checks agents in both modes and without an output.

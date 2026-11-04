@@ -1,4 +1,4 @@
-import type { Command, HelperUpdate, MidiInput } from '../generated/protocol'
+import type { AgentResult, Command, HelperUpdate, MidiInput } from '../generated/protocol'
 import type { FeedbackReport } from './feedback'
 
 export type EngineKind = 'web' | 'native'
@@ -34,6 +34,12 @@ export interface EngineEvents {
   onMidiMessage?(data: number[], played: boolean): void
   /** Native engine only: the helper's self-update (`update.status`), at session start and on change. */
   onHelperUpdate?(update: HelperUpdateState): void
+  /**
+   * Native engine only: an agent's tool call the helper relays (AG-1, `agent.call`): the command it
+   * sent, as JSON, and its name. `answer` sends the page's `agent.result` back on the session the call
+   * came from, once. `signal` aborts when that session ends: the call can no longer be answered (AG-4).
+   */
+  onAgentCall?(agent: string, command: unknown, answer: (result: AgentResult) => void, signal: AbortSignal): void
   onError(code: string): void
   /**
    * The engine stopped taking the message stream (`MsgError::code`: out of memory, engine busy,

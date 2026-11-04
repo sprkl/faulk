@@ -4,6 +4,7 @@ import { COLLAPSED_KEY, HEIGHTS_KEY, parseHeights } from '../../views/shell/pane
 import { storage } from './storage'
 import { readLayout, writeLayout, type Layout } from './layout'
 import type { KeyLayout } from '../shortcuts'
+import type { BrowserItem } from '../browser/catalog'
 import { keepsBrowserMenu, type MenuItem, type OpenMenu } from '../context-menu'
 
 /** A preference of the page; a browser that refuses storage (private window, quota) just forgets it. */
@@ -91,6 +92,46 @@ export class UiStore {
   helpOpen = $state(false)
   /** The "Go to" field (#554) is open: a bar, or a bar and a beat, to put the playhead on. Page state, not project state. */
   gotoOpen = $state(false)
+  /** The device browser (#190) is open: a column beside the track list. Page state, not project state, not kept. */
+  browserOpen = $state(false)
+  /** Bumped when the browser is asked for (its key): it takes the focus on its search field. */
+  browserFocus = $state(0)
+  /** The device or preset being dragged out of the browser, for the drop targets (a drag's data cannot be read before the drop). */
+  dragged = $state.raw<BrowserItem | null>(null)
+  /** What the last drop or insertion did, for the browser's live region (said once, then replaced). */
+  browserSaid = $state.raw<{ n: number; key: MessageKey; vars: Record<string, string | number> } | null>(null)
+  /** Opens the browser and puts the focus in its search field. */
+  showBrowser() {
+    this.browserOpen = true
+    this.browserFocus++
+  }
+  /** Closes the browser; what it last said goes with it. */
+  hideBrowser() {
+    this.browserOpen = false
+    this.browserSaid = null
+  }
+  /** Says what a drop did; the browser's live region reads it. */
+  sayBrowser(key: MessageKey, vars: Record<string, string | number> = {}) {
+    this.browserSaid = { n: (this.browserSaid?.n ?? 0) + 1, key, vars }
+  }
+  /** Save as is asking for the project's name (#627): the dialog shows it; `settle` answers (null when cancelled). Page state, not project state. */
+  saveAsPrompt = $state.raw<{ initial: string; settle(name: string | null): void } | null>(null)
+
+  /** Asks the user for the project's name before Save as picks a folder; `null` when cancelled (or another ask replaced this one). */
+  askProjectName(initial: string): Promise<string | null> {
+    this.saveAsPrompt?.settle(null)
+    return new Promise((resolve) => {
+      const prompt = {
+        initial,
+        settle: (name: string | null) => {
+          if (this.saveAsPrompt === prompt) this.saveAsPrompt = null
+          resolve(name)
+        },
+      }
+      this.saveAsPrompt = prompt
+    })
+  }
+
   /** The context menu that is open (#524): one at a time, drawn by the shell. Page state, not project state. */
   contextMenu = $state.raw<OpenMenu | null>(null)
 

@@ -45,7 +45,7 @@
 //! | `AutomationLaneUpload` (last chunk) | `LanePut`, paged like the clips |
 //! | `TrackPlacementsUpload` (last chunk) | `PlacementsSet`: the whole arrangement of the track |
 //! | `SceneSetSlot` | `SceneSet`, and the grown scene row of the track |
-//! | `AudioSourceDeclare` | `SourcePut` (AU-3 adds the streaming buffers) |
+//! | `AudioSourceDeclare` | `SourcePut` (its resident segments come later, `SegmentPut`, from the disk planner: [`crate::audio_source`]) |
 //! | `ClipRemove`, `AutomationLaneRemove`, `AudioSourceRelease` | `ClipRemove`, `LaneRemove`, `SourceRemove` |
 //! | `LaunchClip/Scene`, `StopTrack/All`, `BackToArrangement`, `BackTrackToArrangement` | `Launch(…)` |
 //! | `Play`, `Stop`, `Seek`, `SetLoop`, `SetRecording` | `Transport(…)` |
@@ -215,7 +215,7 @@ pub use codec::{
 pub const MSG_VERSION: u8 = 1;
 
 /// Version of the [`Feedback`] layout.
-pub const FEEDBACK_VERSION: u8 = 5;
+pub const FEEDBACK_VERSION: u8 = 7;
 
 /// Size of a [`Header`] in bytes.
 pub const HEADER_BYTES: usize = 16;
@@ -320,7 +320,7 @@ pub struct SceneSlot(pub u16);
 pub struct LaneSlot(pub u32);
 
 /// Index of an audio source (a file's PCM, streamed by AU-3) in the engine.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct SourceSlot(pub u32);
 
 /// Identifier of a parameter inside a device (`Param::id` for the synth).
@@ -561,22 +561,29 @@ pub enum ControlMsg {
         clip: ClipSlot,
     },
     // audio clips and sources
-    /// Declares a source whose PCM AU-3 streams into the engine's buffers.
+    /// Declares a source whose PCM the disk side reads into the engine's buffers
+    /// ([`crate::audio_source`], AU-3). `media` is the SHA-256 of its blob: the disk side's
+    /// key to the file (`blobs/<hash>` or its PCM cache); the audio side ignores it.
     AudioSourceDeclare {
         source: SourceSlot,
         sample_rate: u32,
         channels: u8,
         frames: Frame,
+        media: [u8; 32],
     },
     AudioSourceRelease {
         source: SourceSlot,
     },
-    /// Makes a clip an audio clip: a range of a source.
+    /// Makes a clip an audio clip: a range `[start, start + length)` of a source, its gain
+    /// (linear, `0.0` for silence) and its loop (`[start, end)` in source frames relative to
+    /// the clip's start, within `[0, length]`; `None`: played once).
     ClipAudioSet {
         clip: ClipSlot,
         source: SourceSlot,
         start: Frame,
         length: Frame,
+        gain: f32,
+        looping: Option<(Frame, Frame)>,
     },
     // arrangement
     /// The arrangement of one track, in chunks like the notes.
@@ -1404,6 +1411,10 @@ pub enum Garbage {
     Clips(PagedSpare<Box<Clip>>),
     Lanes(PagedSpare<Box<Lane>>),
     Sources(Spare<Box<Source>>),
+    /// A replaced or evicted resident segment, or a refused one (AU-3).
+    Segment(Option<Box<crate::audio_source::Segment>>),
+    /// A replaced or detached ring, or a refused one (AU-3).
+    Ring(Option<crate::audio_source::Shared<crate::audio_source::Ring>>),
     /// A replaced arrangement of a track (or the refused new one).
     Placements(Table<Placement>),
     /// A replaced (grown) scene row of a track.
@@ -1512,6 +1523,21 @@ pub enum RtMsg {
     ClipRemove(ClipSlot),
     SourcePut(Put<Box<Source>>),
     SourceRemove(SourceSlot),
+    /// A resident segment of a source (AU-3, [`crate::audio_source`]): put in its place
+    /// `index`, or removed (`None`, an eviction). Only complete segments travel.
+    SegmentPut {
+        source: SourceSlot,
+        index: u8,
+        segment: Option<Box<crate::audio_source::Segment>>,
+    },
+    /// The ring of a port of a track (AU-3): attached, replaced or detached (`None`). A track
+    /// whose `instance` is not this one (the slot was given to another track) keeps its own.
+    StreamAttach {
+        track: TrackSlot,
+        instance: u32,
+        port: u8,
+        ring: Option<crate::audio_source::Shared<crate::audio_source::Ring>>,
+    },
     /// The arrangement of a track (a completed upload), swapped by pointer.
     PlacementsSet {
         track: TrackSlot,
@@ -1676,7 +1702,7 @@ pub struct RecordedNote {
 }
 
 /// Size of the fixed part of a [`Feedback`] on the wire.
-pub const FEEDBACK_HEADER_BYTES: usize = 72;
+pub const FEEDBACK_HEADER_BYTES: usize = 88;
 
 /// What the engine reports to the page, about 30 times per second. Fixed little-endian
 /// layout, written by the audio thread into a region sized by [`Feedback::size_for`]:
@@ -1690,11 +1716,13 @@ pub const FEEDBACK_HEADER_BYTES: usize = 72;
 ///             a reader takes an even seq, the body, then the same seq again, or re-reads)
 ///      8    8 playhead_tick (i64)
 ///     16    8 playhead_frame (u64)
-///     24    4 cpu_load (f32, 0..1, render time over block time; -1 where the host has no clock,
-///             the web worklet)
+///     24    4 cpu_load (f32, 0..1: the render time the host timed over the duration of the
+///             blocks it timed in the period (`crate::host`, #486); -1 until the host timed a
+///             block)
 ///     28    4 live_overflows (u32, cumulative)
 ///     32    4 rejected (u32, cumulative: unknown tags, stale epochs, bad chunks)
-///     36    4 disk_underruns (u32, cumulative, AU-3)
+///     36    4 disk_underruns (u32, cumulative: blocks in which a voice had fewer frames from
+///             disk than it needed, `crate::audio_source`, AU-3, version 7)
 ///     40    4 tracks (u32)
 ///     44    4 active_clips (u32, at most 2 per track: one playing or, with none to show, one held by the grid ([`ClipState::Held`]); one queued)
 ///     48    4 recorded (u32, the recorded notes this report carries: the last
@@ -1709,7 +1737,15 @@ pub const FEEDBACK_HEADER_BYTES: usize = 72;
 ///             table was full; version 5)
 ///     68    4 record_flags (u32, bit 0: the recorder captures; once it is 0 with this
 ///             record_take, the take's notes are all in the report; version 5)
-///     72      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
+///     72    4 cpu_peak (f32, 0..1: the largest load of one peak window closed in the period;
+///             with none closed (a coarse clock's window outlasts a period), the last window
+///             closed, which can be under cpu_load; before any, cpu_load; -1 like cpu_load;
+///             version 6, #486)
+///     76    4 offline_sources (u32, declared audio sources the engine cannot read: blob
+///             missing, PCM cache not ready, no disk; version 7, AU-3)
+///     80    4 pcm_flags (u32, bit 0: something did not fit the PCM budget; version 7)
+///     84    4 pcm_kib (u32, PCM in memory, rings and resident segments, in KiB; version 7)
+///     88      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
 ///             largest gain reduction in decibels of the strip's devices over the period, version 4):
 ///             one per track slot below `tracks` (zeros for an empty slot; peak and RMS after the
 ///             track's fader), then the output's meter after the master (version 2); the master's
@@ -1727,9 +1763,19 @@ pub struct Feedback {
     pub playhead_tick: Tick,
     pub playhead_frame: Frame,
     pub cpu_load: f32,
+    /// The largest load of one peak window closed in the period (`crate::host`); with a
+    /// coarse clock a period may close none and carry the last window, which can be under
+    /// `cpu_load`. -1 like it.
+    pub cpu_peak: f32,
     pub live_overflows: u32,
     pub rejected: u32,
     pub disk_underruns: u32,
+    /// Declared audio sources the engine cannot read (AU-3).
+    pub offline_sources: u32,
+    /// Bit 0: something did not fit the PCM budget (AU-3).
+    pub pcm_flags: u32,
+    /// PCM in memory, in KiB (AU-3).
+    pub pcm_kib: u32,
     pub meters: Vec<TrackMeter>,
     /// The output's meter after the master, last of the meters section on the wire.
     pub master: TrackMeter,

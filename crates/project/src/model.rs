@@ -11,6 +11,7 @@ use crate::ids::{
     ClipId, DeviceId, Id, LaneId, MarkerId, PlacementId, ProjectId, SceneId, TrackId,
 };
 use crate::order::{OrderKey, by_order};
+use crate::preset::{DevicePreset, Preset, PresetId};
 use crate::serde_util::{Rgb, db, finite, finite_map, unique_map, unique_set, unique_tick_map};
 use engine::time::{Frame, LoopRegion, Quantize, SampleRate, Tempo, Tick, TimeSignature};
 use schemars::JsonSchema;
@@ -21,7 +22,10 @@ use std::collections::{BTreeMap, BTreeSet};
 /// placement longer than a MIDI clip without a loop repeats the clip (format 1: silence).
 /// Format 3 (#490): a track may hold a row `height`, so that a build of format 2, which
 /// would refuse the field as corrupt, says the folder is from a newer build instead.
-pub const FORMAT_VERSION: u32 = 3;
+/// Format 4 (#191): a device may name the preset it was set from (`preset`), and the folder
+/// may hold presets (`presets/<id>.json`); a build of format 3 would refuse the device field
+/// as corrupt.
+pub const FORMAT_VERSION: u32 = 4;
 
 /// The built-in instrument of audio tracks: the clip player.
 pub const CLIP_PLAYER: &str = "faulk.clip_player";
@@ -82,6 +86,15 @@ pub struct Project {
         skip_serializing_if = "BTreeMap::is_empty"
     )]
     pub markers: BTreeMap<MarkerId, Marker>,
+    // The presets saved in the project (#191): one file each under `presets/`, so they travel
+    // with the project. Absent from a project that has none, so its file is unchanged. Not a
+    // doc comment, like `master_devices`: a description beside the map would inline a copy.
+    #[serde(
+        default,
+        deserialize_with = "unique_map",
+        skip_serializing_if = "BTreeMap::is_empty"
+    )]
+    pub presets: BTreeMap<PresetId, Preset>,
 }
 
 /// A named section marker: a point of the timeline the arrangement shows on its ruler and
@@ -269,6 +282,10 @@ pub struct Device {
     pub params: BTreeMap<String, f64>,
     /// Opaque instrument state, stored as a blob.
     pub state: Option<Hash>,
+    /// The preset the device was last set from (#191), by `preset.load` or `preset.save`;
+    /// absent when none, so that a device without one writes the same file as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset: Option<Box<DevicePreset>>,
 }
 
 /// What a device does in the chain.
@@ -558,6 +575,7 @@ impl Project {
             master_automation: BTreeMap::new(),
             tracks: BTreeMap::new(),
             markers: BTreeMap::new(),
+            presets: BTreeMap::new(),
         }
     }
 
@@ -582,6 +600,7 @@ impl Project {
     pub fn contains_id(&self, id: &Id) -> bool {
         self.id.0 == *id
             || self.scenes.keys().any(|k| k.0 == *id)
+            || self.presets.keys().any(|k| k.0 == *id)
             || self.markers.keys().any(|k| k.0 == *id)
             || self.master_devices.keys().any(|k| k.0 == *id)
             || self.master_automation.keys().any(|k| k.0 == *id)

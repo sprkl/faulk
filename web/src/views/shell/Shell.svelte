@@ -8,7 +8,7 @@
   import { onMount } from 'svelte'
   import { watchLocalAccess } from '../../lib/engine/local-access'
   import { isMenuKey, menuPointOf, unhandledContextMenu } from '../../lib/context-menu'
-  import { gotoShortcut, historyShortcut, isTextTarget, layoutShortcut, saveShortcut } from '../../lib/keyboard'
+  import { browserShortcut, gotoShortcut, historyShortcut, isTextTarget, layoutShortcut, saveShortcut } from '../../lib/keyboard'
   import { takeOpenLink } from '../../lib/open-link'
   import { isPairHash } from '../../lib/pair-link'
   import { helpShortcut, readKeyLayout } from '../../lib/shortcuts'
@@ -18,12 +18,15 @@
   import { DEFAULT_PANEL, DEFAULT_VIEW, startView, viewById, viewsIn, type MainViewId } from '../registry'
   import ContextMenu from '../../lib/components/ContextMenu.svelte'
   import BottomPanel from './BottomPanel.svelte'
+  import BrowserPanel from '../browser/BrowserPanel.svelte'
   import { clampHeight, panelMax } from './panel-size'
   import EngineDialog from './EngineDialog.svelte'
   import ExportDialog from './ExportDialog.svelte'
   import GoToDialog from './GoToDialog.svelte'
+  import SaveAsDialog from './SaveAsDialog.svelte'
   import ShortcutsDialog from './ShortcutsDialog.svelte'
   import StorageBanners from './StorageBanners.svelte'
+  import AgentConfirm from '../confirm/AgentConfirm.svelte'
   import TopBar from './TopBar.svelte'
   import TrackList from '../tracks/TrackList.svelte'
 
@@ -76,6 +79,12 @@
     if (link !== null) storage.offerLink(link)
     const onHashChange = () => dispatcher.takePairLink(location, clearAddress)
     window.addEventListener('hashchange', onHashChange)
+    // With several pages open, the agents drive the one the user last brought to the front (#608).
+    const toFront = () => {
+      if (document.visibilityState === 'visible') dispatcher.toFront()
+    }
+    window.addEventListener('focus', toFront)
+    document.addEventListener('visibilitychange', toFront)
     // A reload or a closed tab keeps the layout of the moment.
     const keepLayout = () => ui.keepNow()
     window.addEventListener('pagehide', keepLayout)
@@ -83,6 +92,8 @@
       stopMeters()
       stopLocalAccess()
       window.removeEventListener('hashchange', onHashChange)
+      window.removeEventListener('focus', toFront)
+      document.removeEventListener('visibilitychange', toFront)
       window.removeEventListener('pagehide', keepLayout)
     }
   })
@@ -137,6 +148,12 @@
     }
   })
 
+  /** Closes the device browser; the focus goes back to its button in the track list. */
+  function closeBrowser() {
+    ui.hideBrowser()
+    queueMicrotask(() => document.querySelector<HTMLElement>('[data-testid="browser-toggle"]')?.focus())
+  }
+
   function onKeyDown(event: KeyboardEvent) {
     if (isMenuKey(event)) return askMenu(event)
     const save = saveShortcut(event)
@@ -156,6 +173,18 @@
         const view = viewsIn('main')[layout.view]
         if (view) ui.show(view.id)
       }
+      return
+    }
+    // Alt+B opens the device browser (its search field takes the focus), and closes it when the focus is in it (#190).
+    if (
+      browserShortcut(event) &&
+      !ui.helpOpen &&
+      !document.querySelector('[aria-modal="true"]') &&
+      !(event.target as Element | null)?.closest?.('[role="menu"]')
+    ) {
+      event.preventDefault()
+      if (ui.browserOpen && (event.target as Element | null)?.closest?.('[data-testid="browser-panel"]')) closeBrowser()
+      else ui.showBrowser()
       return
     }
     // `?` opens the shortcut list, and closes it again; no other dialog or menu has to be open (#474).
@@ -234,6 +263,7 @@
   oncontextmenu={onContextMenu}
   onkeydown={onKeyDown}
   onkeyup={(event) => keys.keyUp(event)}
+  ondragend={() => (ui.dragged = null)}
   onbeforeunload={onBeforeUnload}
   onfocus={() => void storage.wake()}
 />
@@ -243,6 +273,7 @@
   <a class="skip" href="#fk-main" data-testid="skip-link" onclick={skipToMain}>{ui.t(ui.view === 'arrangement' ? 'shell.skipTimeline' : 'shell.skipMain')}</a>
   <TopBar />
   <StorageBanners />
+  <AgentConfirm />
   {#if ui.contextMenu}
     {#key ui.contextMenu}
       <ContextMenu x={ui.contextMenu.x} y={ui.contextMenu.y} items={ui.contextMenu.items} label={ui.contextMenu.label} onclose={() => ui.closeMenu()} />
@@ -252,6 +283,7 @@
   <EngineDialog />
   <ShortcutsDialog />
   <GoToDialog />
+  <SaveAsDialog />
   {#if engine.notice}
     <p class="notice" role="status">{ui.t(engine.notice)}</p>
   {/if}
@@ -269,8 +301,9 @@
     {@const text = ui.t(engine.refusal.key, { ...engine.refusal.vars, what: engine.refusal.whatKey ? ui.t(engine.refusal.whatKey) : '' })}
     <p class="toast" role="status" data-testid="refusal-toast">{engine.refusal.count > 1 ? ui.t('refusal.count', { text, n: engine.refusal.count }) : text}</p>
   {/if}
-  <div class="body" data-panel={ui.panel} bind:clientHeight={bodyHeight} style:--panel-row={panelRow}>
+  <div class="body" data-panel={ui.panel} data-browser={ui.browserOpen ? '' : undefined} bind:clientHeight={bodyHeight} style:--panel-row={panelRow}>
     <TrackList />
+    {#if ui.browserOpen}<BrowserPanel onclose={closeBrowser} />{/if}
     <main class="main" id="fk-main" tabindex="-1" bind:this={mainArea} aria-label={ui.t(current.label)} data-testid="view" data-view={current.id}>
       {#key ui.layoutRev}<current.component />{/key}
     </main>
@@ -347,6 +380,13 @@
     /* In fr, not %: a percentage track resolves to its content height here and pushes the roll's lane off the screen. */
     grid-template-rows: minmax(0, 1fr) var(--panel-row, minmax(392px, 1.2fr));
   }
+  /* The device browser (#190) is a column of its own between the track list and the views, over both rows. */
+  .body[data-browser] {
+    grid-template-columns: 272px 296px minmax(0, 1fr);
+    grid-template-areas:
+      'tracks browser main'
+      'tracks browser panel';
+  }
   .main {
     grid-area: main;
     min-width: 0;
@@ -363,6 +403,10 @@
       grid-template-columns: minmax(0, 1fr);
       grid-template-rows: auto auto auto;
       grid-template-areas: 'main' 'panel' 'tracks';
+    }
+    .body[data-browser] {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: 'main' 'panel' 'browser' 'tracks';
     }
     .main {
       overflow: visible;

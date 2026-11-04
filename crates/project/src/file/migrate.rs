@@ -27,7 +27,33 @@ pub const MIGRATIONS: &[Migration] = &[
         from: 2,
         apply: v2_to_v3,
     },
+    Migration {
+        from: 3,
+        apply: v3_to_v4,
+    },
 ];
+
+/// Format 4 (#191): a device may name its preset and the folder may hold `presets/`. Nothing
+/// in the files changes; the number does, so that a build of format 3 reports the folder as
+/// made by a newer build.
+fn v3_to_v4(mem: &mut MemFs) -> Result<(), String> {
+    set_format(mem, 4)
+}
+
+/// Sets `format` in `project.json` and changes nothing else.
+fn set_format(mem: &mut MemFs, format: u32) -> Result<(), String> {
+    use serde_json::Value;
+    let mut project: Value = serde_json::from_slice(
+        mem.files()
+            .get("project.json")
+            .ok_or("project.json is missing")?,
+    )
+    .map_err(|e| format!("project.json: {e}"))?;
+    project["format"] = Value::from(format);
+    let bytes = serde_json::to_vec_pretty(&project).map_err(|e| e.to_string())?;
+    mem.insert("project.json", bytes);
+    Ok(())
+}
 
 /// Format 3 (#490): tracks may hold a `height`. Nothing in the files changes; the number
 /// does, so that a build of format 2 reports the folder as made by a newer build.

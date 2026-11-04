@@ -41,6 +41,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       },
       { label: 'shortcut.save', chords: [['Mod', 'S']] },
       { label: 'shortcut.saveAs', chords: [['Mod', 'Shift', 'S']] },
+      { label: 'shortcut.renameProject', chords: [['F2']] },
       {
         label: 'shortcut.views',
         chords: [
@@ -50,6 +51,8 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         ],
       },
       { label: 'shortcut.panel', chords: [['Alt', 'M']] },
+      { label: 'shortcut.tap', chords: [['Alt', 'T']] },
+      { label: 'shortcut.browser', chords: [['Alt', 'B']] },
       { label: 'shortcut.help', chords: [['?']] },
       { label: 'shortcut.goTo', chords: [['Mod', 'G']] },
       { label: 'shortcut.tab', chords: [['Tab'], ['Shift', 'Tab']], covers: ['Tab'] },
@@ -98,6 +101,13 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
           ['Alt', '↓'],
         ],
       },
+      {
+        label: 'shortcut.clipResize',
+        chords: [
+          ['Alt', 'Shift', '←'],
+          ['Alt', 'Shift', '→'],
+        ],
+      },
       { label: 'shortcut.clipOpen', chords: [['Enter']], covers: ['Enter'] },
       { label: 'shortcut.clipDuplicate', chords: [['Mod', 'D']] },
       { label: 'shortcut.clipDuplicateLinked', chords: [['Mod', 'Shift', 'D']] },
@@ -123,7 +133,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       },
       { label: 'shortcut.remove', chords: [['Delete'], ['Backspace']], covers: ['Delete', 'Backspace'] },
       { label: 'shortcut.rename', chords: [['F2']], covers: ['F2'] },
-      { label: 'shortcut.laneVolume', chords: [['Enter'], ['F2'], ['0-9']] },
+      { label: 'shortcut.laneVolume', chords: [['Enter'], ['0-9']] },
       { label: 'shortcut.laneHeight', chords: [['↑'], ['↓'], ['Home'], ['End']], covers: ['End'] },
     ],
   },
@@ -151,6 +161,13 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         chords: [
           ['Alt', '←'],
           ['Alt', '→'],
+        ],
+      },
+      {
+        label: 'shortcut.noteResize',
+        chords: [
+          ['Alt', 'Shift', '←'],
+          ['Alt', 'Shift', '→'],
         ],
       },
       {
@@ -200,7 +217,10 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       { label: 'shortcut.sliderBig', chords: [['Page Up'], ['Page Down'], ['Home'], ['End']], covers: ['PageUp', 'PageDown'] },
       { label: 'shortcut.sliderDefault', chords: [['Delete']] },
       { label: 'shortcut.sliderType', chords: [['Enter']] },
-      { label: 'shortcut.tempo', chords: [['↑'], ['↓'], ['Enter']] },
+      {
+        label: 'shortcut.tempo',
+        chords: [['↑'], ['↓'], ['Shift', '↑'], ['Shift', '↓'], ['Enter']],
+      },
     ],
   },
 ]

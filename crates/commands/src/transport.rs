@@ -64,7 +64,11 @@ domain! {
     } => {};
 
     /// Set the project's tempo in BPM, from 20 to 999. A value outside the range or not
-    /// a number is refused. Undo: set the previous tempo back.
+    /// a number is refused, and so is a tempo at which an audio placement (whose length is
+    /// in frames of its file, so its end in ticks follows the tempo) would end past 2^40.
+    /// A faster tempo lengthens audio placements in ticks, so one may then reach into the
+    /// next placement of its track: the project allows it, and the later one plays from its
+    /// start. Undo: set the previous tempo back.
     "transport.set_tempo" (kind = "edit", undo = "inverse", destructive = false)
     SetTempo {
         #[schemars(range(min = 20.0, max = 999.0))]
@@ -305,6 +309,23 @@ fn set_tempo(state: &mut State, bpm: f64) -> Result<Out, CommandError> {
     if previous == new {
         return Ok(unchanged(output));
     }
+    let past = state.project.tracks.values().find_map(|t| {
+        t.placements.iter().find_map(|(id, p)| {
+            let (_, end) = crate::clip::placement_ticks(new, t, p)?;
+            (matches!(p.span, project::Span::Frames { .. }) && end > MAX_TICK).then_some(id)
+        })
+    });
+    if let Some(id) = past {
+        return Err(invalid(
+            "bpm",
+            format!("audio placement {id} would end past {MAX_TICK} ticks at {bpm} BPM"),
+        ));
+    }
+    let point = state
+        .project
+        .tempo
+        .first_mut()
+        .ok_or_else(|| invalid("bpm", "the project has no tempo point".into()))?;
     point.bpm = new;
     Ok(edited(
         output,

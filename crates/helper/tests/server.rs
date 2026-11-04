@@ -8,7 +8,7 @@ use helper::midi::{MidiManager, MidiSink};
 use helper::security::Policy;
 use helper::server::{HelperEvent, NO_OUTPUT, Shared, serve};
 use helper::updater::{Backend, UpdateStatus, UpdateWatch, Updater};
-use protocol::{ClientMessage, HelperUpdate, PROTOCOL_VERSION, ServerMessage};
+use protocol::{AgentResult, ClientMessage, HelperUpdate, PROTOCOL_VERSION, ServerMessage};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
 use std::time::Duration;
@@ -19,6 +19,9 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 
 const ORIGIN: &str = "http://localhost:5173";
 const TOKEN: &str = "0123456789abcdef0123456789abcdef";
+const MCP_TOKEN: &str = "fedcba9876543210fedcba9876543210";
+/// How long an agent's call waits for the page in these tests.
+const AGENT_WAIT: Duration = Duration::from_secs(2);
 
 type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -56,6 +59,7 @@ async fn start_with_updates(updates: Option<UpdateWatch>) -> Harness {
             port,
             allowed_origins: vec![ORIGIN.into()],
             token: TOKEN.into(),
+            mcp_token: helper::security::McpToken::Fixed(MCP_TOKEN.into()),
         },
         engine.clone(),
         midi,
@@ -67,7 +71,8 @@ async fn start_with_updates(updates: Option<UpdateWatch>) -> Harness {
             }
             seen.lock().unwrap().push(event);
         }),
-    );
+    )
+    .with_agent_timeout(AGENT_WAIT);
     let shared = Arc::new(match updates {
         Some(watch) => shared.with_updates(watch),
         None => shared,
@@ -648,7 +653,13 @@ async fn the_session_receives_the_engine_report_as_binary_frames() {
     }
     assert_eq!(report.voices, 1);
     assert_eq!(report.epoch, page.0.epoch(), "the page's epoch");
-    assert_eq!(report.cpu_load, engine::host::NOT_MEASURED);
+    // The helper times its render (#486): a load in 0..1, its peak at least as high.
+    assert!(
+        (0.0..=1.0).contains(&report.cpu_load),
+        "{}",
+        report.cpu_load
+    );
+    assert!(report.cpu_peak >= report.cpu_load && report.cpu_peak <= 1.0);
     // Reports keep coming only when the engine wrote a new one: another second of audio,
     // another frame, with a newer sequence number.
     play(&mut h.core, 1_000);
@@ -1295,4 +1306,875 @@ async fn a_page_connecting_inside_the_gap_does_not_check_again() {
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(checks.load(Ordering::SeqCst), 1);
     updater.shutdown();
+}
+
+// The MCP server (AG-1): `/mcp` on the same port, checked before the MCP library sees a
+// request, and each tool call relayed to the page's session.
+
+/// An MCP `initialize` as an HTTP request to `path`, with `host` and the `extra` header lines.
+fn mcp_request(path: &str, host: &str, extra: &str) -> String {
+    let body = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"probe","version":"1"}}}"#;
+    format!(
+        "POST {path} HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    )
+}
+
+/// Sends a raw HTTP request and returns the status code of its answer.
+async fn http_status(port: u16, request: String) -> u16 {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut buf = vec![0u8; 256];
+    let n = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut buf))
+        .await
+        .expect("an answer within 5 s")
+        .unwrap();
+    let head = String::from_utf8_lossy(&buf[..n]);
+    head.split(' ')
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0)
+}
+
+#[tokio::test]
+async fn mcp_refuses_another_host_any_origin_and_any_other_token_before_the_mcp_server() {
+    let h = start().await;
+    let host = format!("127.0.0.1:{}", h.port);
+    let bearer = format!("Authorization: Bearer {MCP_TOKEN}\r\n");
+    // The door: the helper's host, the MCP token, no Origin.
+    assert_eq!(
+        http_status(h.port, mcp_request("/mcp", &host, &bearer)).await,
+        200
+    );
+    let localhost = format!("localhost:{}", h.port);
+    assert_eq!(
+        http_status(h.port, mcp_request("/mcp", &localhost, &bearer)).await,
+        200
+    );
+    let attacks: Vec<(&str, String, String, u16)> = vec![
+        ("no token", "/mcp".into(), String::new(), 401),
+        (
+            "wrong token",
+            "/mcp".into(),
+            "Authorization: Bearer ffffffffffffffffffffffffffffffff\r\n".into(),
+            401,
+        ),
+        (
+            "the page's token",
+            "/mcp".into(),
+            format!("Authorization: Bearer {TOKEN}\r\n"),
+            401,
+        ),
+        (
+            "empty bearer",
+            "/mcp".into(),
+            "Authorization: Bearer \r\n".into(),
+            401,
+        ),
+        (
+            "token in the query",
+            format!("/mcp?token={MCP_TOKEN}"),
+            String::new(),
+            401,
+        ),
+        (
+            "allowed page origin",
+            "/mcp".into(),
+            format!("{bearer}Origin: {ORIGIN}\r\n"),
+            403,
+        ),
+        (
+            "evil origin",
+            "/mcp".into(),
+            format!("{bearer}Origin: https://evil.example\r\n"),
+            403,
+        ),
+        (
+            "null origin",
+            "/mcp".into(),
+            format!("{bearer}Origin: null\r\n"),
+            403,
+        ),
+    ];
+    for (what, path, extra, status) in attacks {
+        assert_eq!(
+            http_status(h.port, mcp_request(&path, &host, &extra)).await,
+            status,
+            "{what}"
+        );
+    }
+    // DNS rebinding: a name that resolves to 127.0.0.1, or another port.
+    for bad in [
+        format!("evil.example:{}", h.port),
+        "127.0.0.1:80".into(),
+        "127.0.0.1".into(),
+    ] {
+        assert_eq!(
+            http_status(h.port, mcp_request("/mcp", &bad, &bearer)).await,
+            403,
+            "{bad}"
+        );
+    }
+    // A session the MCP server does not know (the helper restarted): 404, which the stdio bridge
+    // turns into "restart the agent".
+    let body = r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#;
+    let unknown = format!(
+        "POST /mcp HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\nAccept: application/json, text/event-stream\r\n{bearer}Mcp-Session-Id: no-such-session\r\nMCP-Protocol-Version: 2025-06-18\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+        body.len()
+    );
+    assert_eq!(http_status(h.port, unknown).await, 404);
+    // The page's routes still answer on the same port.
+    let mut ws = connect(h.port, "/probe", Some(ORIGIN)).await.unwrap();
+    assert!(matches!(next(&mut ws).await, ServerMessage::Probe { .. }));
+}
+
+/// Where the stdio bridge writes, read back by the test.
+#[derive(Clone, Default)]
+struct Captured(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for Captured {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+/// Runs `faulk-helper mcp`'s bridge on `lines` (each a JSON-RPC message) against the helper on
+/// `port`; its answers, one JSON-RPC message per line.
+fn bridge(
+    port: u16,
+    token: Option<&str>,
+    lines: Vec<serde_json::Value>,
+) -> tokio::task::JoinHandle<Vec<serde_json::Value>> {
+    let input: String = lines.iter().map(|l| format!("{l}\n")).collect();
+    let token = token.map(str::to_owned);
+    tokio::task::spawn_blocking(move || {
+        let out = Captured::default();
+        helper::mcp_stdio::run(port, token, std::io::Cursor::new(input), out.clone());
+        let text = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();
+        text.lines()
+            .map(|l| serde_json::from_str(l).unwrap())
+            .collect()
+    })
+}
+
+fn initialize() -> Vec<serde_json::Value> {
+    vec![
+        serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+            "protocolVersion":"2025-06-18","capabilities":{},
+            "clientInfo":{"name":"test-agent","version":"1"}}}),
+        serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized"}),
+    ]
+}
+
+fn tool_call(id: u64, name: &str, arguments: serde_json::Value) -> serde_json::Value {
+    serde_json::json!({"jsonrpc":"2.0","id":id,"method":"tools/call","params":{"name":name,"arguments":arguments}})
+}
+
+fn answer(answers: &[serde_json::Value], id: u64) -> &serde_json::Value {
+    answers
+        .iter()
+        .find(|a| a["id"] == id)
+        .unwrap_or_else(|| panic!("no answer {id} in {answers:?}"))
+}
+
+/// The JSON of a tool result's text (an error's `code`, `message`...).
+fn result_text(result: &serde_json::Value) -> serde_json::Value {
+    let text = result["result"]["content"][0]["text"].as_str().unwrap();
+    serde_json::from_str(text).unwrap_or(serde_json::Value::String(text.into()))
+}
+
+/// The tools the MCP server really serves: `tools/list` through the stdio bridge, against the
+/// helper's HTTP MCP endpoint (so a filter or a dropped tool anywhere in the server shows).
+async fn served_tools(h: &Harness) -> Vec<serde_json::Value> {
+    let mut lines = initialize();
+    lines.push(serde_json::json!({"jsonrpc":"2.0","id":2,"method":"tools/list"}));
+    let answers = bridge(h.port, Some(MCP_TOKEN), lines).await.unwrap();
+    assert_eq!(answer(&answers, 1)["result"]["serverInfo"]["name"], "faulk");
+    assert!(answer(&answers, 1)["result"]["capabilities"]["tools"].is_object());
+    answer(&answers, 2)["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .clone()
+}
+
+/// Every difference between the commands of `catalog` and the `served` tools, matched by name
+/// (not by position): a command with no tool, a tool with no command, a tool listed twice, and
+/// a description, input schema, output schema or hint that differs. Empty means parity.
+fn parity_gaps(catalog: &[commands::ToolSpec], served: &[serde_json::Value]) -> Vec<String> {
+    let mut gaps = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for tool in served {
+        let name = tool["name"].as_str().unwrap_or_default();
+        if !seen.insert(name) {
+            gaps.push(format!("tool {name} listed twice"));
+        }
+        if !catalog
+            .iter()
+            .any(|spec| helper::mcp::tool_name(&spec.name) == name)
+        {
+            gaps.push(format!("tool {name} has no command"));
+        }
+    }
+    for spec in catalog {
+        let name = helper::mcp::tool_name(&spec.name);
+        let Some(tool) = served.iter().find(|t| t["name"] == name.as_str()) else {
+            gaps.push(format!("command {} has no tool", spec.name));
+            continue;
+        };
+        if tool["description"] != spec.description.as_str() {
+            gaps.push(format!("{}: description differs", spec.name));
+        }
+        if tool["inputSchema"] != spec.input_schema {
+            gaps.push(format!("{}: input schema differs", spec.name));
+        }
+        if tool["outputSchema"] != spec.output_schema {
+            gaps.push(format!("{}: output schema differs", spec.name));
+        }
+        if tool["annotations"]["destructiveHint"] != spec.destructive {
+            gaps.push(format!("{}: destructive hint differs", spec.name));
+        }
+        if tool["annotations"]["readOnlyHint"] != (spec.kind == commands::Kind::Query) {
+            gaps.push(format!("{}: read-only hint differs", spec.name));
+        }
+    }
+    gaps
+}
+
+#[tokio::test]
+async fn the_mcp_server_lists_one_tool_per_command_of_the_catalog() {
+    let h = start().await;
+    let catalog = commands::catalog();
+    let served = served_tools(&h).await;
+    assert!(!catalog.is_empty());
+    assert_eq!(served.len(), catalog.len());
+    assert_eq!(parity_gaps(&catalog, &served), Vec::<String>::new());
+}
+
+#[tokio::test]
+async fn the_parity_check_fails_on_a_command_without_a_tool_or_any_other_gap() {
+    let h = start().await;
+    let catalog = commands::catalog();
+    let served = served_tools(&h).await;
+    assert!(parity_gaps(&catalog, &served).is_empty());
+
+    // A served list missing one tool: the command it stood for has no tool.
+    for index in [0, served.len() / 2, served.len() - 1] {
+        let mut missing = served.clone();
+        let removed = missing.remove(index);
+        let gaps = parity_gaps(&catalog, &missing);
+        assert_eq!(gaps.len(), 1, "{gaps:?}");
+        assert!(gaps[0].contains("has no tool"), "{gaps:?}");
+        let tool = removed["name"].as_str().unwrap();
+        assert_eq!(
+            gaps[0].replace('.', "_"),
+            format!("command {tool} has no tool")
+        );
+    }
+
+    // A command the catalog gains while the server does not serve it.
+    let mut longer = catalog.clone();
+    let mut extra = longer[0].clone();
+    extra.name = "zz.not_served".into();
+    longer.push(extra);
+    assert_eq!(
+        parity_gaps(&longer, &served),
+        ["command zz.not_served has no tool"]
+    );
+
+    // A tool without a command and a duplicate.
+    let mut stray = served.clone();
+    stray.push(serde_json::json!({"name": "zz_stray"}));
+    stray.push(served[0].clone());
+    assert_eq!(
+        parity_gaps(&catalog, &stray),
+        [
+            "tool zz_stray has no command".to_string(),
+            format!("tool {} listed twice", served[0]["name"].as_str().unwrap()),
+        ]
+    );
+
+    // Each field that may drift.
+    for (field, value) in [
+        ("description", serde_json::json!("changed")),
+        ("inputSchema", serde_json::json!({"type": "null"})),
+        ("outputSchema", serde_json::json!({"type": "null"})),
+    ] {
+        let mut drifted = served.clone();
+        drifted[0][field] = value;
+        let gaps = parity_gaps(&catalog, &drifted);
+        assert_eq!(gaps.len(), 1, "{field}: {gaps:?}");
+    }
+    for hint in ["destructiveHint", "readOnlyHint"] {
+        let mut drifted = served.clone();
+        let current = drifted[0]["annotations"][hint].as_bool().unwrap();
+        drifted[0]["annotations"][hint] = serde_json::json!(!current);
+        assert_eq!(parity_gaps(&catalog, &drifted).len(), 1, "{hint}");
+    }
+}
+
+#[tokio::test]
+async fn without_a_page_every_tool_answers_page_absent_at_once() {
+    let h = start().await;
+    let mut lines = initialize();
+    lines.push(tool_call(
+        2,
+        "track_create",
+        serde_json::json!({"kind":"midi"}),
+    ));
+    let started = std::time::Instant::now();
+    let answers = bridge(h.port, Some(MCP_TOKEN), lines).await.unwrap();
+    assert!(
+        started.elapsed() < AGENT_WAIT,
+        "no wait for a page that is not there"
+    );
+    let call = answer(&answers, 2);
+    assert_eq!(call["result"]["isError"], true);
+    assert_eq!(result_text(call)["code"], "page.absent");
+}
+
+#[tokio::test]
+async fn a_tool_call_runs_in_the_page_as_the_agent_and_answers_its_output() {
+    let h = start().await;
+    let (mut page, _) = open_session(&h).await;
+    let mut lines = initialize();
+    lines.push(tool_call(
+        2,
+        "track_rename",
+        serde_json::json!({"track":"t1","name":"Lead"}),
+    ));
+    let running = bridge(h.port, Some(MCP_TOKEN), lines);
+    let (id, agent, command) = match next(&mut page).await {
+        ServerMessage::AgentCall { id, agent, command } => (id, agent, command),
+        other => panic!("expected agent.call, got {other:?}"),
+    };
+    assert_eq!(
+        agent, "test-agent",
+        "the client's name, the history's author"
+    );
+    assert_eq!(
+        command,
+        serde_json::json!({"type":"track.rename","track":"t1","name":"Lead"})
+    );
+    // An answer for no waiting call changes nothing.
+    send(
+        &mut page,
+        &ClientMessage::AgentResult {
+            id: id + 1000,
+            result: AgentResult::Invalid {
+                message: "not this one".into(),
+            },
+        },
+    )
+    .await;
+    send(
+        &mut page,
+        &ClientMessage::AgentResult {
+            id,
+            result: AgentResult::Applied {
+                output: serde_json::json!({"type":"track.rename","previous":"Synth"}),
+            },
+        },
+    )
+    .await;
+    let answers = running.await.unwrap();
+    let call = answer(&answers, 2);
+    assert_eq!(call["result"]["isError"], false, "{call}");
+    assert_eq!(
+        call["result"]["structuredContent"],
+        serde_json::json!({"previous":"Synth"})
+    );
+}
+
+#[tokio::test]
+async fn a_destructive_call_waits_for_the_users_answer_and_a_refusal_reaches_the_agent_typed() {
+    // AG-4: the page asks the user before `project.new` runs; the MCP client's call stays open
+    // meanwhile, and the user's refusal comes back as `command.refused` with its own code.
+    let h = start().await;
+    let (mut page, _) = open_session(&h).await;
+    let mut lines = initialize();
+    lines.push(tool_call(2, "project_new", serde_json::json!({})));
+    let running = bridge(h.port, Some(MCP_TOKEN), lines);
+    let ServerMessage::AgentCall { id, command, .. } = next(&mut page).await else {
+        panic!("expected agent.call")
+    };
+    assert_eq!(command, serde_json::json!({"type":"project.new"}));
+    // The user reads the question: the call is still waiting.
+    tokio::time::sleep(AGENT_WAIT / 4).await;
+    assert!(
+        !running.is_finished(),
+        "the call waits for the page's answer"
+    );
+    let error = serde_json::json!({
+        "code": "confirmation.declined",
+        "message": "the user refused it in the page: nothing changed",
+    });
+    send(
+        &mut page,
+        &ClientMessage::AgentResult {
+            id,
+            result: AgentResult::Refused {
+                error: error.clone(),
+            },
+        },
+    )
+    .await;
+    let answers = running.await.unwrap();
+    let call = answer(&answers, 2);
+    assert_eq!(call["result"]["isError"], true);
+    assert_eq!(result_text(call)["code"], "command.refused");
+    assert_eq!(result_text(call)["error"], error);
+}
+
+#[tokio::test]
+async fn a_refusal_of_the_page_reaches_the_agent_as_a_typed_error() {
+    let h = start().await;
+    let (mut page, _) = open_session(&h).await;
+    let mut lines = initialize();
+    lines.push(tool_call(
+        2,
+        "track_delete",
+        serde_json::json!({"track":"nope"}),
+    ));
+    let running = bridge(h.port, Some(MCP_TOKEN), lines);
+    let ServerMessage::AgentCall { id, .. } = next(&mut page).await else {
+        panic!("expected agent.call")
+    };
+    let error = serde_json::json!({"code":"not_found","entity":"track","id":"nope"});
+    send(
+        &mut page,
+        &ClientMessage::AgentResult {
+            id,
+            result: AgentResult::Refused {
+                error: error.clone(),
+            },
+        },
+    )
+    .await;
+    let answers = running.await.unwrap();
+    let call = answer(&answers, 2);
+    assert_eq!(call["result"]["isError"], true);
+    assert_eq!(result_text(call)["code"], "command.refused");
+    assert_eq!(result_text(call)["error"], error);
+}
+
+#[tokio::test]
+async fn a_page_that_goes_away_before_it_answers_ends_the_call_with_page_gone() {
+    let h = start().await;
+    let (mut page, _) = open_session(&h).await;
+    let mut lines = initialize();
+    lines.push(tool_call(2, "history_undo", serde_json::json!({})));
+    let running = bridge(h.port, Some(MCP_TOKEN), lines);
+    assert!(matches!(
+        next(&mut page).await,
+        ServerMessage::AgentCall { .. }
+    ));
+    page.close(None).await.unwrap();
+    let answers = running.await.unwrap();
+    assert_eq!(result_text(answer(&answers, 2))["code"], "page.gone");
+}
+
+#[tokio::test]
+async fn a_replaced_pages_call_ends_with_page_gone_and_the_new_page_cannot_answer_it() {
+    let h = start().await;
+    let (mut first, _) = open_session(&h).await;
+    let mut lines = initialize();
+    lines.push(tool_call(2, "history_undo", serde_json::json!({})));
+    let running = bridge(h.port, Some(MCP_TOKEN), lines);
+    let ServerMessage::AgentCall { id, .. } = next(&mut first).await else {
+        panic!("expected agent.call")
+    };
+    let (mut second, _) = open_session(&h).await;
+    // The new page answers a call that was never its own: ignored.
+    send(
+        &mut second,
+        &ClientMessage::AgentResult {
+            id,
+            result: AgentResult::Applied {
+                output: serde_json::json!({}),
+            },
+        },
+    )
+    .await;
+    let answers = running.await.unwrap();
+    assert_eq!(result_text(answer(&answers, 2))["code"], "page.gone");
+}
+
+#[tokio::test]
+async fn a_page_that_never_answers_ends_the_call_with_page_timeout() {
+    let h = start().await;
+    let (mut page, _) = open_session(&h).await;
+    let mut lines = initialize();
+    lines.push(tool_call(2, "history_undo", serde_json::json!({})));
+    let running = bridge(h.port, Some(MCP_TOKEN), lines);
+    let ServerMessage::AgentCall { id, .. } = next(&mut page).await else {
+        panic!("expected agent.call")
+    };
+    let answers = running.await.unwrap();
+    assert_eq!(result_text(answer(&answers, 2))["code"], "page.timeout");
+    // A late answer finds no call: the session goes on.
+    send(
+        &mut page,
+        &ClientMessage::AgentResult {
+            id,
+            result: AgentResult::Applied {
+                output: serde_json::json!({}),
+            },
+        },
+    )
+    .await;
+    send(&mut page, &ClientMessage::MidiListInputs).await;
+    assert!(matches!(
+        next(&mut page).await,
+        ServerMessage::MidiInputs { .. }
+    ));
+}
+
+#[tokio::test]
+async fn an_unknown_tool_or_a_type_in_the_arguments_is_an_invalid_call() {
+    let h = start().await;
+    let (_page, _) = open_session(&h).await;
+    let mut lines = initialize();
+    lines.push(tool_call(2, "track.create", serde_json::json!({})));
+    lines.push(tool_call(
+        3,
+        "history_undo",
+        serde_json::json!({"type":"project.new"}),
+    ));
+    let answers = bridge(h.port, Some(MCP_TOKEN), lines).await.unwrap();
+    for id in [2, 3] {
+        assert_eq!(answer(&answers, id)["error"]["code"], -32602, "{id}");
+    }
+}
+
+#[tokio::test]
+async fn the_stdio_bridge_says_what_to_do_without_a_token_or_a_helper() {
+    let h = start().await;
+    let answers = bridge(h.port, None, initialize()).await.unwrap();
+    assert_eq!(answers.len(), 1, "the notification gets no answer");
+    let message = answer(&answers, 1)["error"]["message"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(message.contains("faulk-helper mcp-token"), "{message}");
+    let wrong = bridge(
+        h.port,
+        Some("ffffffffffffffffffffffffffffffff"),
+        initialize(),
+    )
+    .await
+    .unwrap();
+    let message = answer(&wrong, 1)["error"]["message"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(message.contains("refused the MCP token"), "{message}");
+    // No helper on this port.
+    let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = closed.local_addr().unwrap().port();
+    drop(closed);
+    let answers = bridge(port, Some(MCP_TOKEN), initialize()).await.unwrap();
+    let message = answer(&answers, 1)["error"]["message"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert!(message.contains("not running"), "{message}");
+}
+
+// --- #608: the control link, for agents in Web mode and without an output --------------------
+
+/// Opens a page's control link (#608).
+async fn open_control(h: &Harness) -> Ws {
+    connect(h.port, &format!("/control?token={TOKEN}"), Some(ORIGIN))
+        .await
+        .unwrap()
+}
+
+/// Runs one agent's tool call through the stdio bridge; its answer once the page answered.
+fn call_tool(
+    h: &Harness,
+    name: &str,
+    arguments: serde_json::Value,
+) -> tokio::task::JoinHandle<serde_json::Value> {
+    let mut lines = initialize();
+    lines.push(tool_call(2, name, arguments));
+    let running = bridge(h.port, Some(MCP_TOKEN), lines);
+    tokio::spawn(async move { answer(&running.await.unwrap(), 2).clone() })
+}
+
+/// The next `agent.call` on `ws`: its id and command.
+async fn next_call(ws: &mut Ws) -> (u64, serde_json::Value) {
+    match next(ws).await {
+        ServerMessage::AgentCall { id, command, .. } => (id, command),
+        other => panic!("expected agent.call, got {other:?}"),
+    }
+}
+
+async fn applied(ws: &mut Ws, id: u64) {
+    send(
+        ws,
+        &ClientMessage::AgentResult {
+            id,
+            result: AgentResult::Applied {
+                output: serde_json::json!({}),
+            },
+        },
+    )
+    .await;
+}
+
+/// Waits until `n` control links are open, or fails after 5 s.
+async fn control_links(h: &Harness, n: usize) {
+    for _ in 0..500 {
+        if h.shared.control_links() == n {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!(
+        "{n} control links expected, {} open",
+        h.shared.control_links()
+    );
+}
+
+/// One tool call answered by `page`, which must be the link it goes to.
+async fn served_by(h: &Harness, page: &mut Ws) {
+    let running = call_tool(h, "history_undo", serde_json::json!({}));
+    let (id, command) = next_call(page).await;
+    assert_eq!(command, serde_json::json!({"type":"history.undo"}));
+    applied(page, id).await;
+    let call = running.await.unwrap();
+    assert_eq!(call["result"]["isError"], false, "{call}");
+}
+
+#[tokio::test]
+async fn the_control_link_asks_for_the_token_origin_and_host_like_the_session() {
+    let h = start().await;
+    assert!(refused(connect(h.port, "/control", Some(ORIGIN)).await));
+    assert!(refused(
+        connect(
+            h.port,
+            "/control?token=ffffffffffffffffffffffffffffffff",
+            Some(ORIGIN)
+        )
+        .await
+    ));
+    assert!(refused(
+        connect(h.port, &format!("/control?token={TOKEN}"), None).await
+    ));
+    assert!(refused(
+        connect(
+            h.port,
+            &format!("/control?token={TOKEN}"),
+            Some("https://evil.example")
+        )
+        .await
+    ));
+    assert_eq!(h.shared.control_links(), 0);
+}
+
+/// A helper without an audio output refuses the session (#525) but serves the agents through
+/// the page's control link, the page playing itself in Web mode.
+#[tokio::test]
+async fn without_an_output_a_paired_page_takes_the_agents_calls_on_its_control_link() {
+    let h = start().await;
+    h.engine.remove();
+    let mut page = open_control(&h).await;
+    control_links(&h, 1).await;
+    let running = call_tool(
+        &h,
+        "track_rename",
+        serde_json::json!({"track":"t1","name":"Lead"}),
+    );
+    let (id, command) = next_call(&mut page).await;
+    assert_eq!(
+        command,
+        serde_json::json!({"type":"track.rename","track":"t1","name":"Lead"})
+    );
+    send(
+        &mut page,
+        &ClientMessage::AgentResult {
+            id,
+            result: AgentResult::Applied {
+                output: serde_json::json!({"type":"track.rename","previous":"Synth"}),
+            },
+        },
+    )
+    .await;
+    let call = running.await.unwrap();
+    assert_eq!(call["result"]["isError"], false, "{call}");
+    assert_eq!(
+        call["result"]["structuredContent"],
+        serde_json::json!({"previous":"Synth"})
+    );
+    // A control link is not a session: the tray was told nothing.
+    assert!(
+        !h.events
+            .lock()
+            .unwrap()
+            .contains(&HelperEvent::Session(true))
+    );
+}
+
+#[tokio::test]
+async fn the_boost_session_takes_the_call_before_a_control_link_which_takes_the_next() {
+    let h = start().await;
+    let mut link = open_control(&h).await;
+    control_links(&h, 1).await;
+    let (mut session, _) = open_session(&h).await;
+    served_by(&h, &mut session).await;
+
+    // The session ends (back to Web): the control link takes the next call.
+    session.close(None).await.unwrap();
+    for _ in 0..500 {
+        if h.events
+            .lock()
+            .unwrap()
+            .contains(&HelperEvent::Session(false))
+        {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    served_by(&h, &mut link).await;
+}
+
+#[tokio::test]
+async fn the_newest_or_front_control_link_takes_the_call() {
+    let h = start().await;
+    let mut first = open_control(&h).await;
+    control_links(&h, 1).await;
+    let mut second = open_control(&h).await;
+    control_links(&h, 2).await;
+    // The newest page.
+    served_by(&h, &mut second).await;
+
+    // The first page comes to the front: the next call is its own.
+    send(&mut first, &ClientMessage::ControlFront).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    served_by(&h, &mut first).await;
+
+    // It closes: the other page takes the next.
+    first.close(None).await.unwrap();
+    control_links(&h, 1).await;
+    served_by(&h, &mut second).await;
+
+    // The last one closes: no paired page open, `page.absent` at once, saying what to do.
+    second.close(None).await.unwrap();
+    control_links(&h, 0).await;
+    let call = call_tool(&h, "history_undo", serde_json::json!({}))
+        .await
+        .unwrap();
+    assert_eq!(result_text(&call)["code"], "page.absent");
+    let message = result_text(&call)["message"].as_str().unwrap().to_owned();
+    assert!(message.contains("open Faulk in the browser"), "{message}");
+}
+
+#[tokio::test]
+async fn a_control_link_that_goes_away_ends_its_call_and_another_cannot_answer_it() {
+    let h = start().await;
+    let mut other = open_control(&h).await;
+    control_links(&h, 1).await;
+    let mut page = open_control(&h).await;
+    control_links(&h, 2).await;
+    let running = call_tool(&h, "history_undo", serde_json::json!({}));
+    let (id, _) = next_call(&mut page).await;
+    // Another page answers a call it was not sent: ignored.
+    applied(&mut other, id).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!running.is_finished(), "another link's answer is not taken");
+    page.close(None).await.unwrap();
+    assert_eq!(result_text(&running.await.unwrap())["code"], "page.gone");
+}
+
+#[tokio::test]
+async fn a_control_link_that_never_answers_ends_the_call_with_page_timeout() {
+    let h = start().await;
+    let mut page = open_control(&h).await;
+    control_links(&h, 1).await;
+    let running = call_tool(&h, "history_undo", serde_json::json!({}));
+    let (id, _) = next_call(&mut page).await;
+    assert_eq!(result_text(&running.await.unwrap())["code"], "page.timeout");
+    // A late answer finds no call: the link goes on and takes the next.
+    applied(&mut page, id).await;
+    served_by(&h, &mut page).await;
+}
+
+#[tokio::test]
+async fn a_link_past_the_limit_closes_the_oldest_whose_call_ends() {
+    let h = start().await;
+    let mut oldest = open_control(&h).await;
+    control_links(&h, 1).await;
+    let running = call_tool(&h, "history_undo", serde_json::json!({}));
+    let _ = next_call(&mut oldest).await;
+    let mut others = Vec::new();
+    for n in 2..=helper::server::MAX_CONTROLS {
+        others.push(open_control(&h).await);
+        control_links(&h, n).await;
+    }
+    // One more than the limit: the oldest is closed, its waiting call ends.
+    others.push(open_control(&h).await);
+    assert_eq!(result_text(&running.await.unwrap())["code"], "page.gone");
+    // It is told why, so its page does not come back and push another out in turn.
+    let code = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            match oldest.next().await {
+                Some(Ok(Message::Close(frame))) => return frame.map(|f| u16::from(f.code)),
+                Some(Err(_)) | None => return None,
+                Some(Ok(_)) => {}
+            }
+        }
+    })
+    .await
+    .expect("the oldest link is closed");
+    assert_eq!(code, Some(protocol::CONTROL_PUSHED_OUT));
+    // The limit holds, and the newest takes the next call.
+    control_links(&h, helper::server::MAX_CONTROLS).await;
+    let mut newest = others.pop().unwrap();
+    served_by(&h, &mut newest).await;
+}
+
+#[tokio::test]
+async fn anything_else_on_a_control_link_is_invalid_and_the_link_goes_on() {
+    let h = start().await;
+    let mut page = open_control(&h).await;
+    control_links(&h, 1).await;
+    send(&mut page, &ClientMessage::MidiListInputs).await;
+    assert_eq!(next_error(&mut page).await, "protocol.invalid");
+    page.send(Message::binary(vec![1, 2, 3])).await.unwrap();
+    assert_eq!(next_error(&mut page).await, "protocol.invalid");
+    page.send(Message::text("not json")).await.unwrap();
+    assert_eq!(next_error(&mut page).await, "protocol.invalid");
+    // No stream reached the engine, and the link still takes calls.
+    assert_eq!(h.engine.with(|s| s.received()), Some(0));
+    served_by(&h, &mut page).await;
+}
+
+#[tokio::test]
+async fn a_control_link_leaves_the_session_alone() {
+    let h = start().await;
+    let (mut session, _) = open_session(&h).await;
+    let _link = open_control(&h).await;
+    control_links(&h, 1).await;
+    // The session was not replaced: it still answers.
+    send(&mut session, &ClientMessage::MidiListInputs).await;
+    assert!(matches!(
+        next(&mut session).await,
+        ServerMessage::MidiInputs { .. }
+    ));
+    let sessions = h
+        .events
+        .lock()
+        .unwrap()
+        .iter()
+        .filter(|e| matches!(e, HelperEvent::Session(_)))
+        .count();
+    assert_eq!(sessions, 1, "only the session's start");
+    // The control link's own message is refused on a session.
+    send(&mut session, &ClientMessage::ControlFront).await;
+    assert_eq!(next_error(&mut session).await, "protocol.invalid");
 }

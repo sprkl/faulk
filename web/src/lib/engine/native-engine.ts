@@ -1,6 +1,7 @@
 import { ERROR_CODES, MAX_STREAM_BYTES, PROTOCOL_VERSION, type Capabilities, type ClientMessage, type Command, type LiveRouting } from '../generated/protocol'
 import type { Engine, EngineEvents, EngineStatus, HelperUpdateState } from './engine'
 import { decodeFeedback } from './feedback'
+import { answerOnce } from '../agents/agent-call'
 import { HELPER_URL, parseServerMessage } from './helper-client'
 
 /** The helper answered the session with `audio.no_output`: it runs and the token is good, but it has no audio output to play on yet. */
@@ -42,6 +43,8 @@ export class NativeEngine implements Engine {
   epoch = 0
   /** What the helper said it can do in its hello (MIDI inputs, the project's folder). */
   capabilities: Capabilities | null = null
+  /** Aborted when the session ends: the agents' calls it carried can no longer be answered (AG-4). */
+  readonly calls = new AbortController()
 
   private constructor(
     private readonly ws: WebSocket,
@@ -100,6 +103,13 @@ export class NativeEngine implements Engine {
           case 'stream_refused':
             events.onStreamRefused?.(message.code, message.at, message.epoch)
             break
+          case 'agent.call': {
+            // Answered once, on this session: the helper takes an answer only from the link it asked.
+            const answer = answerOnce(message.id, (m) => engine.message(m))
+            if (events.onAgentCall) events.onAgentCall(message.agent, message.command, answer, engine.calls.signal)
+            else answer({ status: 'unavailable', reason: 'this page does not take agent calls' })
+            break
+          }
           case 'update.status':
             engine.update = { current: message.current ?? null, checkedAt: message.checked_at ?? null, status: message.status }
             events.onHelperUpdate?.(engine.update)
@@ -119,6 +129,8 @@ export class NativeEngine implements Engine {
       }
       ws.onclose = () => {
         clearTimeout(timer)
+        // The agents' calls of this session can no longer be answered: their questions are withdrawn (AG-4).
+        engine.calls.abort()
         if (!opened) reject(new Error('helper refused the session'))
         else if (!engine.closing) events.onClosed()
       }

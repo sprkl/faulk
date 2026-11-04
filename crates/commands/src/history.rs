@@ -6,6 +6,24 @@
 //! (contract, `contract.rs`). An entry gathers the inverses of one command, or of every
 //! command of one history group (a mouse drag, an agent turn): undoing it undoes them
 //! all, in reverse order.
+//!
+//! An agent's turn (AG-3) is a group the history gives on its own: MCP carries no turn
+//! boundary, so [`run`] puts an agent's consecutive edits in one group ([`History::turn`])
+//! until anything else reaches the undo history. The rule:
+//!
+//! - an agent's undoable edit continues its current turn when (1) the turn is that agent's,
+//!   (2) the top of the undo stack is still the turn's entry and (3) at most
+//!   [`TURN_GAP_MS`] passed since the turn's last edit; otherwise it starts a new turn;
+//! - a user's gesture during a turn is never swallowed into it: the user's edit is an entry
+//!   of its own (the user's edits are never in a turn), and since it is now on top, the
+//!   agent's next edit starts a new turn. The history stays in the order the edits were
+//!   applied, so one undo undoes the agent's edits after the gesture, the next one the
+//!   gesture, the next one the agent's edits before it. Another agent's edit, an undo or a
+//!   redo (by anyone) and an irreversible edit (which empties the stacks) end the turn too;
+//! - what records nothing (an edit that changed nothing, a refusal, `live`, `query`, a
+//!   `setting`, which only the activity log lists) leaves the turn as it is;
+//! - a host's [`Context::group`] wins, then the group its author opened with
+//!   `history.begin_group` (an agent that bounds its turn itself), then the turn.
 
 use crate::contract::{
     Author, CommandError, Context, ControlMsg, GroupId, Kind, Meta, Outcome, ProjectEvent, State,
@@ -79,6 +97,9 @@ pub struct Entry {
     pub others: u32,
     pub author: Author,
     pub group: Option<GroupId>,
+    /// How many commands the entry holds (an agent's turn: "3 edits"), counted as they are
+    /// recorded and kept by an undo and a redo.
+    pub edits: u32,
     /// What undoes (on the undo stack) or redoes (on the redo stack) the entry, in
     /// the order the commands were applied; applied in reverse order.
     pub commands: Vec<crate::Command>,
@@ -100,6 +121,20 @@ pub struct Activity {
 /// The most rows the activity log keeps; the oldest goes first.
 pub const MAX_ACTIVITY: usize = 200;
 
+/// The longest pause, in milliseconds of the host's clock, between two edits of one agent's
+/// turn: an edit after a longer pause starts a new turn (two requests to the agent stay two
+/// undos). MCP gives no turn boundary; this is the lead's choice of 2026-11-04 (#99).
+pub const TURN_GAP_MS: u64 = 30_000;
+
+/// An agent's turn (AG-3): the group [`run`] gives that agent's consecutive edits.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Turn {
+    pub group: GroupId,
+    pub author: Author,
+    /// When the turn's last edit was recorded (`Context::now_ms`).
+    pub last_ms: u64,
+}
+
 /// The undo and redo stacks, the open group and the activity log. Kept in the [`State`];
 /// changed only by [`run`] and the `history.*` commands.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -114,6 +149,10 @@ pub struct History {
     pub open_group: Option<(GroupId, Author)>,
     /// The number of the next group this history gives out.
     pub next_group: u64,
+    /// The agent's turn going on, if any (the rule: the module's doc). Ended by an undo or
+    /// a redo; another author's edit or an irreversible edit ends it by changing the top
+    /// of the undo stack.
+    pub turn: Option<Turn>,
     /// The id of the next entry this history records.
     pub next_entry: u64,
 }
@@ -124,6 +163,30 @@ impl History {
     pub fn new_group(&mut self) -> GroupId {
         self.next_group += 1;
         GroupId(self.next_group)
+    }
+
+    /// The group of an agent's edit that [`run`] is about to record: its current turn's
+    /// when the edit continues it (the module's rule), else a new turn's. Remembers the turn
+    /// and the edit's time.
+    pub fn turn_group(&mut self, author: &Author, now_ms: u64) -> GroupId {
+        let top = self.undo.last().and_then(|entry| entry.group);
+        let current = self
+            .turn
+            .as_ref()
+            .filter(|turn| {
+                turn.author == *author
+                    && top == Some(turn.group)
+                    // A clock that goes back measures no pause.
+                    && now_ms.saturating_sub(turn.last_ms) <= TURN_GAP_MS
+            })
+            .map(|turn| turn.group);
+        let group = current.unwrap_or_else(|| self.new_group());
+        self.turn = Some(Turn {
+            group,
+            author: author.clone(),
+            last_ms: now_ms,
+        });
+        group
     }
 
     /// Closes the group `author` left open, if any: what a host calls when that author
@@ -153,6 +216,7 @@ impl History {
                     others: entry.others,
                     author: entry.author.clone(),
                     group: entry.group,
+                    edits: entry.edits,
                 })
                 .collect()
         };
@@ -238,6 +302,7 @@ impl History {
                 match self.undo.last_mut() {
                     Some(top) if group.is_some() && top.group == group => {
                         top.commands.push((**inverse).clone());
+                        top.edits = top.edits.saturating_add(1);
                         if top.name == meta.name {
                             match (&mut top.subject, subject) {
                                 (Some(mine), Some(theirs)) => mine.merge(&theirs),
@@ -258,6 +323,7 @@ impl History {
                             others: 0,
                             author: author.clone(),
                             group,
+                            edits: 1,
                             commands: vec![(**inverse).clone()],
                         });
                     }
@@ -301,14 +367,23 @@ pub fn run(
         Kind::Edit | Kind::Setting => crate::describe::after(&outcome.output, &state.project),
         _ => None,
     });
-    let group = ctx.group.or_else(|| {
-        state
-            .history
-            .open_group
-            .as_ref()
-            .filter(|(_, opener)| *opener == ctx.author)
-            .map(|(group, _)| *group)
-    });
+    let group = ctx
+        .group
+        .or_else(|| {
+            state
+                .history
+                .open_group
+                .as_ref()
+                .filter(|(_, opener)| *opener == ctx.author)
+                .map(|(group, _)| *group)
+        })
+        .or_else(|| {
+            // An agent's turn: only for what becomes an entry, so that nothing else
+            // touches the turn (the module's rule).
+            let entry = meta.kind == Kind::Edit && matches!(outcome.undo, Undo::Inverse(_));
+            (entry && matches!(ctx.author, Author::Agent { .. }))
+                .then(|| state.history.turn_group(&ctx.author, ctx.now_ms))
+        });
     // A setting that changed nothing (no event) is not logged.
     if meta.kind == Kind::Setting && outcome.events.is_empty() {
         return Ok(outcome);
@@ -432,6 +507,9 @@ fn step(
         Direction::Undo => state.history.redo.push(reversed),
         Direction::Redo => state.history.undo.push(reversed),
     }
+    // An undo or a redo ends the agent's turn: its next edit never joins what was undone
+    // or redone, even when the same entry is back on top.
+    state.history.turn = None;
     events.push(state.history.changed_event());
     Ok(Outcome {
         output: out,

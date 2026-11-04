@@ -1,5 +1,81 @@
 {
+  "agent_confirm_ms": 45000,
   "client_message": {
+    "$defs": {
+      "AgentResult": {
+        "description": "What running an agent's command in the page did (`agent.result`).",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "The command applied. `output` is its typed output (the helper drops its `type` tag: the\ntool's name carries it). For the commands the page answers once its own work is done, the\noutput it builds then: `project.list_stored` its lists, `project.new` the new project's\n`name`; `null` when the report of an applied command was lost.",
+            "properties": {
+              "output": true,
+              "status": {
+                "const": "applied",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "output"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The project refused it (a `CommandError`, `code` first), or the page did (a recording in\nprogress: `{ \"code\": <the page's notice> }`): nothing changed.",
+            "properties": {
+              "error": true,
+              "status": {
+                "const": "refused",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "error"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The JSON is not a command this page knows: nothing changed.",
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "status": {
+                "const": "invalid",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "message"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The page cannot run it now (no project yet, no engine, a session it no longer plays, or a\ncommand that opens a picker or a permission prompt, which needs a click in the page):\nnothing changed.",
+            "properties": {
+              "reason": {
+                "type": "string"
+              },
+              "status": {
+                "const": "unavailable",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "reason"
+            ],
+            "type": "object"
+          }
+        ]
+      }
+    },
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "description": "A JSON message from the page to the helper (the engine streams are binary frames).",
     "oneOf": [
@@ -82,6 +158,44 @@
           "type",
           "epoch",
           "tracks"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The page's answer to the helper's `agent.call` of the same `id` (AG-1): what running\nthe agent's command did. The helper takes it only from the link (session or control\nlink) the call went to. On a session or a control link.",
+        "properties": {
+          "id": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "result": {
+            "$ref": "#/$defs/AgentResult"
+          },
+          "type": {
+            "const": "agent.result",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "result"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The page came to the front (shown, or focused) (#608): its control link becomes the one\nthe agents' calls go to while no session is greeted, so with several pages open an agent\ndrives the one the user last looked at. Only on a control link.",
+        "properties": {
+          "type": {
+            "const": "control.front",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
         ],
         "type": "object"
       }
@@ -228,7 +342,7 @@
         "undo": "none"
       },
       {
-        "description": "Choose an empty folder and write the whole project into it; the project then lives\nin that folder, and the automatic save keeps writing there. The folder is chosen by\nthe user (a browser needs a click for it), so an agent that is not driven by one gets\na notice in the page instead, and nothing is chosen. The old folder is left as it is. Changes nothing in the\nproject, so it never enters the history.",
+        "description": "Ask the user for the project's name (a field prefilled with the current one), then for\na folder, and write the whole project into a folder of that name inside it; the project\ntakes that name (a `project.rename`, undoable) and then lives in that folder, and the\nautomatic save keeps writing there. The name and the folder are chosen by the user (a\nbrowser needs a click for it), so an agent that is not driven by one gets a notice in the\npage instead, and nothing is chosen. A folder of that name that already holds files is\nrefused. The old folder is left as it is. Changes nothing else in the project, so the save\nitself never enters the history.",
         "destructive": false,
         "input_schema": {
           "additionalProperties": false,
@@ -1495,6 +1609,17 @@
                   "description": "Parameter id → value in the unit the device declares.",
                   "type": "object"
                 },
+                "preset": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/DevicePreset"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The preset the device was last set from (#191), by `preset.load` or `preset.save`;\nabsent when none, so that a device without one writes the same file as before."
+                },
                 "role": {
                   "$ref": "#/$defs/DeviceRole"
                 },
@@ -1525,6 +1650,30 @@
             "DeviceId": {
               "$ref": "#/$defs/Id",
               "description": "Identifier of a device in a track's chain or in the master's."
+            },
+            "DevicePreset": {
+              "additionalProperties": false,
+              "description": "The preset a device was last set from, kept on the device so that its panel names it\nafter a reload and on another computer (where a library preset may be absent).",
+              "properties": {
+                "id": {
+                  "description": "The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a\nULID.",
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where the preset lives: `factory`, `project` or `library`."
+                },
+                "name": {
+                  "description": "The preset's name when the device was set from it.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "location",
+                "id",
+                "name"
+              ],
+              "type": "object"
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -1746,6 +1895,26 @@
                 "span"
               ],
               "type": "object"
+            },
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
             },
             "Quantize": {
               "description": "The launch quantization: the grid a launch snaps to. Global to the project at the MVP,\none bar by default (founder's decision 8).\n\nThe grid is anchored at tick 0; [`Quantize::Sixteenth`] is a sixteenth note whatever\nthe signature, [`Quantize::Beat`] and the bars follow the [`TimeSignature`].",
@@ -2476,6 +2645,17 @@
                   "description": "Parameter id → value in the unit the device declares.",
                   "type": "object"
                 },
+                "preset": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/DevicePreset"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The preset the device was last set from (#191), by `preset.load` or `preset.save`;\nabsent when none, so that a device without one writes the same file as before."
+                },
                 "role": {
                   "$ref": "#/$defs/DeviceRole"
                 },
@@ -2506,6 +2686,30 @@
             "DeviceId": {
               "$ref": "#/$defs/Id",
               "description": "Identifier of a device in a track's chain or in the master's."
+            },
+            "DevicePreset": {
+              "additionalProperties": false,
+              "description": "The preset a device was last set from, kept on the device so that its panel names it\nafter a reload and on another computer (where a library preset may be absent).",
+              "properties": {
+                "id": {
+                  "description": "The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a\nULID.",
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where the preset lives: `factory`, `project` or `library`."
+                },
+                "name": {
+                  "description": "The preset's name when the device was set from it.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "location",
+                "id",
+                "name"
+              ],
+              "type": "object"
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -2595,6 +2799,26 @@
             "OrderKey": {
               "description": "A fractional order key: elements sort by it.",
               "type": "string"
+            },
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
             },
             "Shape": {
               "description": "The shape of the transition from a point to the next one.",
@@ -3109,6 +3333,13 @@
                     }
                   ],
                   "description": "The length in ticks (960 per quarter note) of a MIDI clip; `null` for an audio clip\n(its length depends on the tempo)."
+                },
+                "media_missing": {
+                  "description": "For an audio clip, whether its file was missing from the project's folder when the\nproject was opened (\"média absent\": the clip stays in the project, silent); `null`\nfor a MIDI clip.",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 },
                 "name": {
                   "description": "The clip's name.",
@@ -3727,6 +3958,17 @@
                   "description": "Parameter id → value in the unit the device declares.",
                   "type": "object"
                 },
+                "preset": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/DevicePreset"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The preset the device was last set from (#191), by `preset.load` or `preset.save`;\nabsent when none, so that a device without one writes the same file as before."
+                },
                 "role": {
                   "$ref": "#/$defs/DeviceRole"
                 },
@@ -3757,6 +3999,30 @@
             "DeviceId": {
               "$ref": "#/$defs/Id",
               "description": "Identifier of a device in a track's chain or in the master's."
+            },
+            "DevicePreset": {
+              "additionalProperties": false,
+              "description": "The preset a device was last set from, kept on the device so that its panel names it\nafter a reload and on another computer (where a library preset may be absent).",
+              "properties": {
+                "id": {
+                  "description": "The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a\nULID.",
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where the preset lives: `factory`, `project` or `library`."
+                },
+                "name": {
+                  "description": "The preset's name when the device was set from it.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "location",
+                "id",
+                "name"
+              ],
+              "type": "object"
             },
             "DeviceRole": {
               "description": "What a device does in the chain.",
@@ -3846,6 +4112,26 @@
             "OrderKey": {
               "description": "A fractional order key: elements sort by it.",
               "type": "string"
+            },
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
             },
             "Shape": {
               "description": "The shape of the transition from a point to the next one.",
@@ -4506,6 +4792,1010 @@
         "undo": "none"
       },
       {
+        "description": "Save a device's current settings as a new preset named `name` (trimmed, 1 to 200\ncharacters), with an optional `category` (1 to 64 characters), in the `project` (saved\nin the project's folder, it travels with the project) or in the user's `library`\n(available in every project). The device then shows this preset, not modified. Only a\nbuilt-in device with parameters has presets (not the clip player, not a module).\nRefused with `invalid` for the `factory` location (read-only), a name already used by\na preset of that device kind in that location, an empty or too long name or category,\nand with `limit` when the location is full (1 024 presets in a project, 4 096 in the\nlibrary). Undo: `preset.restore` takes the preset out and gives the device its\nprevious preset back.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "DeviceId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a device in a track's chain or in the master's."
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            },
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "category": {
+              "description": "A category to group it by, such as `Bass`; leave out for none.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "device": {
+              "$ref": "#/$defs/DeviceId"
+            },
+            "location": {
+              "$ref": "#/$defs/PresetLocation",
+              "description": "`project` or `library`."
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "device",
+            "name",
+            "location"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "preset.save",
+        "output_schema": {
+          "$defs": {
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
+            },
+            "PresetRef": {
+              "additionalProperties": false,
+              "description": "A preset, by where it lives and its id there.",
+              "properties": {
+                "id": {
+                  "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where it lives: `factory`, `project` or `library`."
+                }
+              },
+              "required": [
+                "location",
+                "id"
+              ],
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "preset": {
+              "$ref": "#/$defs/PresetRef",
+              "description": "The new preset."
+            }
+          },
+          "required": [
+            "preset"
+          ],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
+        "description": "Load a preset into a device: every parameter of the device takes the preset's value\nat once (a parameter the preset has no value for takes its default, a value the device\nhas no parameter for is ignored, a value out of range is clamped), and the device\nshows the preset. One undo takes the whole load back. Refused with `not_found` for an\nunknown device or preset, with `invalid` for a preset of another device kind, one made\nwith a newer version of the device than this Faulk has (the message names both\nversions), and a device without presets (the clip player, a module). An older preset\nis migrated (`migrated_from`). Undo: `preset.restore_device` puts every previous value\nand the previous preset back.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "DeviceId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a device in a track's chain or in the master's."
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            },
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
+            },
+            "PresetRef": {
+              "additionalProperties": false,
+              "description": "A preset, by where it lives and its id there.",
+              "properties": {
+                "id": {
+                  "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where it lives: `factory`, `project` or `library`."
+                }
+              },
+              "required": [
+                "location",
+                "id"
+              ],
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "device": {
+              "$ref": "#/$defs/DeviceId"
+            },
+            "preset": {
+              "$ref": "#/$defs/PresetRef"
+            }
+          },
+          "required": [
+            "device",
+            "preset"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "preset.load",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "clamped": {
+              "description": "The values that were out of range or between steps: clamped or rounded.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "defaulted": {
+              "description": "The parameters the preset had no value for: set to their default.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "ignored": {
+              "description": "The values the device has no parameter for: ignored.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "migrated_from": {
+              "description": "The device version the preset was made with, when older than this Faulk's.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "ignored",
+            "clamped",
+            "defaulted"
+          ],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
+        "description": "Delete a preset of the project or of the library. A factory preset cannot be deleted\n(`invalid`); an unknown one is `not_found`. The devices that show it keep its name.\nUndo: `preset.restore` brings it back under the same id.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
+            },
+            "PresetRef": {
+              "additionalProperties": false,
+              "description": "A preset, by where it lives and its id there.",
+              "properties": {
+                "id": {
+                  "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where it lives: `factory`, `project` or `library`."
+                }
+              },
+              "required": [
+                "location",
+                "id"
+              ],
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "preset": {
+              "$ref": "#/$defs/PresetRef"
+            }
+          },
+          "required": [
+            "preset"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "preset.delete",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
+        "description": "Rename a preset of the project or of the library (trimmed, 1 to 200 characters). The\ndevices that show it keep the name they had until it is loaded again. Refused with\n`invalid` for a factory preset or a name used by another preset of that device kind in\nthat location, `not_found` for an unknown one. Undo: `preset.restore` puts the preset\nback as it was.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
+            },
+            "PresetRef": {
+              "additionalProperties": false,
+              "description": "A preset, by where it lives and its id there.",
+              "properties": {
+                "id": {
+                  "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where it lives: `factory`, `project` or `library`."
+                }
+              },
+              "required": [
+                "location",
+                "id"
+              ],
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "preset": {
+              "$ref": "#/$defs/PresetRef"
+            }
+          },
+          "required": [
+            "preset",
+            "name"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "preset.rename",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "previous": {
+              "description": "The name before the command.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "previous"
+          ],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
+        "description": "Copy a preset (from any location, factory included) into the `project` or the\n`library`, as a new preset with the same values, under its own name or `name` when\ngiven. The devices are left as they are: this is how a preset of a project goes into\nthe library for every project. Refused like `preset.save` (factory location, a name in\nuse there, a full location), and with `not_found` for an unknown preset. Undo:\n`preset.restore` takes the copy out.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
+            },
+            "PresetRef": {
+              "additionalProperties": false,
+              "description": "A preset, by where it lives and its id there.",
+              "properties": {
+                "id": {
+                  "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where it lives: `factory`, `project` or `library`."
+                }
+              },
+              "required": [
+                "location",
+                "id"
+              ],
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "location": {
+              "$ref": "#/$defs/PresetLocation",
+              "description": "`project` or `library`."
+            },
+            "name": {
+              "description": "The copy's name; leave out to keep the preset's.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "preset": {
+              "$ref": "#/$defs/PresetRef"
+            }
+          },
+          "required": [
+            "preset",
+            "location"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "preset.copy",
+        "output_schema": {
+          "$defs": {
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
+            },
+            "PresetRef": {
+              "additionalProperties": false,
+              "description": "A preset, by where it lives and its id there.",
+              "properties": {
+                "id": {
+                  "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where it lives: `factory`, `project` or `library`."
+                }
+              },
+              "required": [
+                "location",
+                "id"
+              ],
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "preset": {
+              "$ref": "#/$defs/PresetRef",
+              "description": "The copy."
+            }
+          },
+          "required": [
+            "preset"
+          ],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
+        "description": "List presets: those of the device kind of `device` (a device's id) or of `kind` (a\nbuilt-in kind such as `faulk.filter`), or every preset when both are left out (giving\nboth is `invalid`). Factory presets come first, then the project's, then the\nlibrary's, each by name. Each entry has the preset's reference, name, category, device\nkind and version, whether it is read-only (factory) or made with a newer version of\nthe device (`newer`: it cannot be loaded), and the values a load would give the device.\nWith `device`, the answer also names the preset the device shows (`current`) and\nwhether its values differ from that preset's (`modified`; `null` when the device shows\nno preset or its preset is not here, such as a library preset of another computer). A\nquery: changes nothing.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "DeviceId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a device in a track's chain or in the master's."
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "device": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DeviceId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A device whose presets to list; leave out to give `kind` or to list all."
+            },
+            "kind": {
+              "description": "A device kind whose presets to list; leave out to give `device` or to list all.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "kind": "query",
+        "name": "preset.list",
+        "output_schema": {
+          "$defs": {
+            "DevicePreset": {
+              "additionalProperties": false,
+              "description": "The preset a device was last set from, kept on the device so that its panel names it\nafter a reload and on another computer (where a library preset may be absent).",
+              "properties": {
+                "id": {
+                  "description": "The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a\nULID.",
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where the preset lives: `factory`, `project` or `library`."
+                },
+                "name": {
+                  "description": "The preset's name when the device was set from it.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "location",
+                "id",
+                "name"
+              ],
+              "type": "object"
+            },
+            "PresetEntry": {
+              "additionalProperties": false,
+              "description": "One preset as `preset.list` gives it.",
+              "properties": {
+                "category": {
+                  "description": "Its category, `null` when it has none.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kind": {
+                  "description": "The device kind it is for.",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Its name.",
+                  "type": "string"
+                },
+                "newer": {
+                  "description": "Made with a newer version of the device than this Faulk has: it cannot be loaded.",
+                  "type": "boolean"
+                },
+                "params": {
+                  "additionalProperties": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "description": "The values a load would give the device, by parameter key: every parameter of the\ndevice, migrated, clamped and completed with defaults. For a preset that cannot be\nloaded (`newer`, or a device kind this Faulk does not have), the values it holds.",
+                  "type": "object"
+                },
+                "preset": {
+                  "$ref": "#/$defs/PresetRef",
+                  "description": "What `preset.load`, `preset.copy`, `preset.rename` and `preset.delete` take."
+                },
+                "read_only": {
+                  "description": "A factory preset: it cannot be renamed nor deleted.",
+                  "type": "boolean"
+                },
+                "version": {
+                  "description": "The version of the device kind it was made with.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "preset",
+                "name",
+                "kind",
+                "version",
+                "read_only",
+                "newer",
+                "params"
+              ],
+              "type": "object"
+            },
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
+            },
+            "PresetRef": {
+              "additionalProperties": false,
+              "description": "A preset, by where it lives and its id there.",
+              "properties": {
+                "id": {
+                  "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where it lives: `factory`, `project` or `library`."
+                }
+              },
+              "required": [
+                "location",
+                "id"
+              ],
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "current": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DevicePreset"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The preset `device` shows; `null` without `device` or when it shows none."
+            },
+            "modified": {
+              "description": "Whether `device`'s values differ from its preset's; `null` when unknown.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "presets": {
+              "description": "The presets, factory then project then library, each by name.",
+              "items": {
+                "$ref": "#/$defs/PresetEntry"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "presets"
+          ],
+          "type": "object"
+        },
+        "undo": "none"
+      },
+      {
+        "description": "Put a preset of the project or of the library back as it was: `snapshot` is the whole\npreset (absent or `null` to take it out), under `preset`'s id. With `device`, that\ndevice shows `device.preset` again. The inverse of `preset.save`, `preset.delete`,\n`preset.rename` and `preset.copy`; it does not check names against the other presets\n(it puts back exactly what was there). Refused with `invalid` for the factory\nlocation, an id that is not a preset id or that another part of the project uses, a\nsnapshot that breaks the preset format, and with `limit` when the location is full;\n`not_found` for an unknown device. Undo: `preset.restore` with what was there before.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "DeviceId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a device in a track's chain or in the master's."
+            },
+            "DevicePreset": {
+              "additionalProperties": false,
+              "description": "The preset a device was last set from, kept on the device so that its panel names it\nafter a reload and on another computer (where a library preset may be absent).",
+              "properties": {
+                "id": {
+                  "description": "The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a\nULID.",
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where the preset lives: `factory`, `project` or `library`."
+                },
+                "name": {
+                  "description": "The preset's name when the device was set from it.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "location",
+                "id",
+                "name"
+              ],
+              "type": "object"
+            },
+            "DeviceRestore": {
+              "additionalProperties": false,
+              "description": "The preset a device shows, as `preset.restore` puts it back.",
+              "properties": {
+                "device": {
+                  "$ref": "#/$defs/DeviceId"
+                },
+                "preset": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/DevicePreset"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The preset the device shows; absent or `null` for none."
+                }
+              },
+              "required": [
+                "device"
+              ],
+              "type": "object"
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            },
+            "Preset": {
+              "additionalProperties": false,
+              "description": "A preset: the values of a device's parameters under a name.",
+              "properties": {
+                "category": {
+                  "description": "A category to group it by (such as `Bass`), at most 64 characters; absent when none.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "device": {
+                  "description": "The device kind the values are for, such as `faulk.osc_synth`.",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "Its name: trimmed, not empty, at most 200 characters.",
+                  "type": "string"
+                },
+                "params": {
+                  "additionalProperties": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "description": "Parameter id -> value, in the unit the device declares.",
+                  "type": "object"
+                },
+                "version": {
+                  "description": "The version of that device kind the values were made with.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "device",
+                "version",
+                "name",
+                "params"
+              ],
+              "type": "object"
+            },
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
+            },
+            "PresetRef": {
+              "additionalProperties": false,
+              "description": "A preset, by where it lives and its id there.",
+              "properties": {
+                "id": {
+                  "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where it lives: `factory`, `project` or `library`."
+                }
+              },
+              "required": [
+                "location",
+                "id"
+              ],
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "device": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DeviceRestore"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A device whose shown preset to put back as well."
+            },
+            "preset": {
+              "$ref": "#/$defs/PresetRef"
+            },
+            "snapshot": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Preset"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The preset to put back; absent or `null` to take it out."
+            }
+          },
+          "required": [
+            "preset"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "preset.restore",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
+        "description": "Set several parameters of a built-in device at once, by key (each clamped and rounded\nas `device.set_param` does), and the preset the device shows (`preset`, absent or\n`null` for none). The inverse of `preset.load`. Refused with `not_found` for an\nunknown device or parameter, `invalid` for a value that is not finite, a malformed\n`preset` and a device without presets. Undo: `preset.restore_device` with the previous\nvalues and preset.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "DeviceId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a device in a track's chain or in the master's."
+            },
+            "DevicePreset": {
+              "additionalProperties": false,
+              "description": "The preset a device was last set from, kept on the device so that its panel names it\nafter a reload and on another computer (where a library preset may be absent).",
+              "properties": {
+                "id": {
+                  "description": "The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a\nULID.",
+                  "type": "string"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "Where the preset lives: `factory`, `project` or `library`."
+                },
+                "name": {
+                  "description": "The preset's name when the device was set from it.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "location",
+                "id",
+                "name"
+              ],
+              "type": "object"
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            },
+            "PresetLocation": {
+              "description": "Where a preset lives.",
+              "oneOf": [
+                {
+                  "const": "factory",
+                  "description": "Built into Faulk, read-only.",
+                  "type": "string"
+                },
+                {
+                  "const": "project",
+                  "description": "In the project's folder: it travels with the project.",
+                  "type": "string"
+                },
+                {
+                  "const": "library",
+                  "description": "In the user's library: available in every project.",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "device": {
+              "$ref": "#/$defs/DeviceId"
+            },
+            "params": {
+              "additionalProperties": {
+                "format": "double",
+                "type": "number"
+              },
+              "type": "object"
+            },
+            "preset": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DevicePreset"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The preset the device shows; absent or `null` for none."
+            }
+          },
+          "required": [
+            "device",
+            "params"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "preset.restore_device",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
         "description": "Create an empty MIDI clip in a MIDI track, in the launch grid (`{\"at\": \"slot\",\n\"scene\": <scene id>}`: the slot must exist and be free) or in the arrangement\n(`{\"at\": \"arrangement\", \"start\": <tick>}`: also places the whole clip there, and\nis refused when it would overlap another placement of the track). `length` is in\nticks (960 per quarter note), one bar of the project's time signature by default.\n`name` is optional (trimmed, at most 200 characters): without one the clip gets the\nnext default name of its track, the track's name and the first number no clip of\nthe track has with it (\"Bass 3\"); it is stored and never changes when other clips\nmove, are copied or deleted, nor when the track is renamed. Undo:\n`clip.delete`.",
         "destructive": false,
         "input_schema": {
@@ -4645,7 +5935,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Delete a MIDI clip and its placements in the arrangement. Undo: `clip.restore`\nbrings back the clip, its notes and its placements with their identifiers.",
+        "description": "Delete a clip (MIDI or audio) and its placements in the arrangement. Undo:\n`clip.restore` brings back a MIDI clip, its notes and its placements with their\nidentifiers; `clip.restore_audio` an audio clip and its placements. The file of an\naudio clip stays in the project's `blobs/` (blobs are removed on request only).",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -4971,6 +6261,724 @@
         "undo": "inverse"
       },
       {
+        "description": "Make an audio clip in an audio track from an imported audio file (AU-1). `media` is\nthe SHA-256 of the file (64 lower-case hexadecimal characters, the name of its blob):\neither a file the page has just imported (the page reads the file the user chose,\nstores its bytes in the project's `blobs/` and stages its metadata before running\nthis command), or a file an audio clip of the project already uses (`clip.get` shows\nits `media.hash`), so another clip of the same file needs no new import. The clip\nplays the whole file, at 0 dB, without a loop. `at` is optional: without it (or\n`null`) the clip sits in the track's pool (no launch-grid slot, no placement); with\n`{\"at\": \"slot\", \"scene\": <scene id>}` it sits in that launch-grid slot (the scene must\nexist and the slot be free in the track); with `{\"at\": \"arrangement\", \"start\": <tick>}`\nit is also placed whole in the arrangement from that tick (its end is computed from\nthe file's duration at the project's tempo), refused when that placement would\noverlap another placement of the track or end past 2^40. `name` is optional (trimmed,\nat most 200 characters): without one the clip takes the file's name without its\nextension. Refused when the track is not an audio track or the media is unknown.\nUndo: `clip.delete` of the clip (and of its placement); the file stays in the\nproject's `blobs/` (blobs are removed on request only).",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "ClipTarget": {
+              "description": "Where `clip.create` puts the new clip.",
+              "oneOf": [
+                {
+                  "additionalProperties": false,
+                  "description": "In the launch grid, at the intersection of the track and a scene.",
+                  "properties": {
+                    "at": {
+                      "const": "slot",
+                      "type": "string"
+                    },
+                    "scene": {
+                      "$ref": "#/$defs/SceneId"
+                    }
+                  },
+                  "required": [
+                    "at",
+                    "scene"
+                  ],
+                  "type": "object"
+                },
+                {
+                  "additionalProperties": false,
+                  "description": "In the arrangement: a placement of the whole clip from `start` (in ticks).",
+                  "properties": {
+                    "at": {
+                      "const": "arrangement",
+                      "type": "string"
+                    },
+                    "start": {
+                      "$ref": "#/$defs/Tick"
+                    }
+                  },
+                  "required": [
+                    "at",
+                    "start"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "Hash": {
+              "description": "The SHA-256 of a blob, 64 lower-case hexadecimal characters.",
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            },
+            "SceneId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a scene."
+            },
+            "Tick": {
+              "description": "A musical position or duration, in ticks ([`PPQ`] per quarter note).\n\nArithmetic saturates instead of overflowing. The inner value is public so that the\nproject and the UI read it as a plain integer.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "TrackId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a track."
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "at": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ClipTarget"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "media": {
+              "$ref": "#/$defs/Hash"
+            },
+            "name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "track": {
+              "$ref": "#/$defs/TrackId"
+            }
+          },
+          "required": [
+            "track",
+            "media"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "clip.import_audio",
+        "output_schema": {
+          "$defs": {
+            "ClipId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a clip."
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            },
+            "PlacementId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a placement in a track's arrangement."
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "clip": {
+              "$ref": "#/$defs/ClipId",
+              "description": "The clip created."
+            },
+            "placement": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PlacementId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Its placement, when it was imported into the arrangement."
+            }
+          },
+          "required": [
+            "clip"
+          ],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
+        "description": "Set the range of the file an audio clip plays: the frames `[start, start + frames)`\nof its file (frames of the file, at its own sample rate). Refused when the range is\nempty or leaves the file, when the clip's loop would end past the new length (clear\nor move the loop first with `clip.audio.set_loop`: nothing is cut silently), and when\na placement of the clip starts inside it at or past the new length. Every placement\nthat plays the clip whole (offset 0, length equal to its old length in frames) takes\nthe new length in the same command; a growing placement stops at the start of the\nnext placement of its track; a placement that plays only part of the clip is left\nalone. Refused for a MIDI clip. Undo: set the range back, with the lengths of the\nplacements.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "ClipId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a clip."
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "clip": {
+              "$ref": "#/$defs/ClipId"
+            },
+            "frames": {
+              "description": "How many frames are played, at least 1.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "start": {
+              "description": "First frame of the file played.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "clip",
+            "start",
+            "frames"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "clip.audio.set_range",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "previous_frames": {
+              "description": "The length in frames before the command.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "previous_start": {
+              "description": "The first frame before the command.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "previous_start",
+            "previous_frames"
+          ],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
+        "description": "Set an audio clip's gain in dB, from -96 to +6; `null` is silence. A value outside\nthe range or not a number is refused, and so is a MIDI clip. Undo: set the previous\ngain back.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "ClipId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a clip."
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "clip": {
+              "$ref": "#/$defs/ClipId"
+            },
+            "gain_db": {
+              "description": "Required: `null` is silence, a missing field is an error.",
+              "format": "double",
+              "maximum": 6,
+              "minimum": -96,
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "clip",
+            "gain_db"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "clip.audio.set_gain",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "previous": {
+              "description": "The gain before the command, in dB; `null` was silence.",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "previous"
+          ],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
+        "description": "Set an audio clip's loop: `{\"start\": <frame>, \"end\": <frame>}` in frames from the\nclip's start (not from the file's), with `0 <= start < end <= frames` (the clip's\nlength in frames), or `null` for no loop. Refused for a MIDI clip (`clip.set_loop`\nsets its loop in ticks). Undo: set the previous loop back.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "ClipId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a clip."
+            },
+            "FrameLoop": {
+              "additionalProperties": false,
+              "description": "An audio clip's loop `[start, end)` in source frames, relative to the clip's start,\nwithin `[0, frames]`.",
+              "properties": {
+                "end": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "start": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "start",
+                "end"
+              ],
+              "type": "object"
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "clip": {
+              "$ref": "#/$defs/ClipId"
+            },
+            "looping": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/FrameLoop"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "clip"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "clip.audio.set_loop",
+        "output_schema": {
+          "$defs": {
+            "FrameLoop": {
+              "additionalProperties": false,
+              "description": "An audio clip's loop `[start, end)` in source frames, relative to the clip's start,\nwithin `[0, frames]`.",
+              "properties": {
+                "end": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "start": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "start",
+                "end"
+              ],
+              "type": "object"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "previous": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/FrameLoop"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The loop before the command."
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
+        "description": "Bring back an audio clip with its identifier, as `clip.delete` removed it: the\ninverse of deleting an audio clip. Its placements give their length and offset in\nframes of the file. Refused when the track is not an audio track, when the clip's\nidentifier or a placement's already exists in the project, when the slot is taken\nor its scene is gone, or when the snapshot breaks a rule of the project (a range\noutside the file, a loop outside the range, a gain that is not a number). Undo:\n`clip.delete`.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "AudioClipSnapshot": {
+              "additionalProperties": false,
+              "description": "An audio clip as `clip.restore_audio` brings it back (everything but its identifier).",
+              "properties": {
+                "color": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Rgb"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "frames": {
+                  "description": "How many frames it plays.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "gain_db": {
+                  "description": "Clip gain in dB; `null` for silence.",
+                  "format": "double",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "launch_quantize": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Quantize"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A per-clip launch quantization, when one was set (the MVP never sets one)."
+                },
+                "looping": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/FrameLoop"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Loop in frames, relative to `start`."
+                },
+                "media": {
+                  "$ref": "#/$defs/AudioMedia",
+                  "description": "The audio file it plays, with its metadata."
+                },
+                "name": {
+                  "type": "string"
+                },
+                "slot": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SceneId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The scene of its launch-grid slot, when it sits in one."
+                },
+                "start": {
+                  "description": "First frame of the file the clip plays.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "name",
+                "media",
+                "start",
+                "frames"
+              ],
+              "type": "object"
+            },
+            "AudioMedia": {
+              "additionalProperties": false,
+              "description": "An audio file referenced by its blob, with its metadata in clear so the project reads,\nvalidates and merges without decoding the audio (§ 2.2).",
+              "properties": {
+                "channels": {
+                  "format": "uint16",
+                  "maximum": 65535,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "frames": {
+                  "description": "Length of the whole file in frames.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "hash": {
+                  "$ref": "#/$defs/Hash"
+                },
+                "name": {
+                  "description": "The file's original name.",
+                  "type": "string"
+                },
+                "sample_rate": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "hash",
+                "sample_rate",
+                "channels",
+                "frames",
+                "name"
+              ],
+              "type": "object"
+            },
+            "AudioPlacementSnapshot": {
+              "additionalProperties": false,
+              "description": "A placement of an audio clip, with its identifier, as `clip.restore_audio` brings it\nback: it starts at a tick of the arrangement and plays `length` frames of the clip from\n`offset`.",
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/PlacementId"
+                },
+                "length": {
+                  "description": "Length played, in frames of the file.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "offset": {
+                  "description": "Where in the clip the placement starts, in frames.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "start": {
+                  "$ref": "#/$defs/Tick",
+                  "description": "Start in the arrangement, in ticks."
+                }
+              },
+              "required": [
+                "id",
+                "start",
+                "length",
+                "offset"
+              ],
+              "type": "object"
+            },
+            "ClipId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a clip."
+            },
+            "FrameLoop": {
+              "additionalProperties": false,
+              "description": "An audio clip's loop `[start, end)` in source frames, relative to the clip's start,\nwithin `[0, frames]`.",
+              "properties": {
+                "end": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "start": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "start",
+                "end"
+              ],
+              "type": "object"
+            },
+            "Hash": {
+              "description": "The SHA-256 of a blob, 64 lower-case hexadecimal characters.",
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            },
+            "PlacementId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a placement in a track's arrangement."
+            },
+            "Quantize": {
+              "description": "The launch quantization: the grid a launch snaps to. Global to the project at the MVP,\none bar by default (founder's decision 8).\n\nThe grid is anchored at tick 0; [`Quantize::Sixteenth`] is a sixteenth note whatever\nthe signature, [`Quantize::Beat`] and the bars follow the [`TimeSignature`].",
+              "oneOf": [
+                {
+                  "const": "none",
+                  "description": "No quantization: a launch happens at once.",
+                  "type": "string"
+                },
+                {
+                  "const": "sixteenth",
+                  "description": "A sixteenth note (240 ticks).",
+                  "type": "string"
+                },
+                {
+                  "const": "beat",
+                  "description": "One beat of the time signature.",
+                  "type": "string"
+                },
+                {
+                  "const": "bar",
+                  "description": "One bar.",
+                  "type": "string"
+                },
+                {
+                  "const": "bars_2",
+                  "description": "Two bars.",
+                  "type": "string"
+                },
+                {
+                  "const": "bars_4",
+                  "description": "Four bars.",
+                  "type": "string"
+                },
+                {
+                  "const": "bars_8",
+                  "description": "Eight bars.",
+                  "type": "string"
+                }
+              ]
+            },
+            "Rgb": {
+              "description": "A colour, written #rrggbb.",
+              "pattern": "^#[0-9a-fA-F]{6}$",
+              "type": "string"
+            },
+            "SceneId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a scene."
+            },
+            "Tick": {
+              "description": "A musical position or duration, in ticks ([`PPQ`] per quarter note).\n\nArithmetic saturates instead of overflowing. The inner value is public so that the\nproject and the UI read it as a plain integer.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "TrackId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a track."
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "clip": {
+              "$ref": "#/$defs/ClipId"
+            },
+            "placements": {
+              "items": {
+                "$ref": "#/$defs/AudioPlacementSnapshot"
+              },
+              "type": "array"
+            },
+            "snapshot": {
+              "$ref": "#/$defs/AudioClipSnapshot"
+            },
+            "track": {
+              "$ref": "#/$defs/TrackId"
+            }
+          },
+          "required": [
+            "track",
+            "clip",
+            "snapshot",
+            "placements"
+          ],
+          "type": "object"
+        },
+        "kind": "edit",
+        "name": "clip.restore_audio",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "undo": "inverse"
+      },
+      {
+        "description": "Ask the user for audio files to import into an audio track (AU-1): the page opens\nits file dialog, then imports each file chosen (its bytes are kept in the project's\n`blobs/`, its decoded audio checked) and makes a clip of it with `clip.import_audio`.\nA file dialog needs a click by the user, so an agent that is not driven by one gets a\nnotice in the page instead. Formats: WAV, AIFF, CAF, FLAC, MP3, AAC (MP4, M4A, ADTS),\nALAC, Ogg Vorbis; Opus is not supported yet. The answer only says the request was\naccepted; the clips arrive with `clip.import_audio`, one history entry each. Refused\nwhen the track is not an audio track. Not undoable itself.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            },
+            "TrackId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a track."
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "track": {
+              "$ref": "#/$defs/TrackId"
+            }
+          },
+          "required": [
+            "track"
+          ],
+          "type": "object"
+        },
+        "kind": "live",
+        "name": "clip.choose_audio",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "undo": "none"
+      },
+      {
+        "description": "Stop the audio import under way in the page (the files chosen by `clip.choose_audio`):\nthe file being imported is dropped (nothing of it is kept) and the files after it are\nnot imported; the clips of the files already imported stay. Does nothing when no import\nruns. Not undoable itself.",
+        "destructive": false,
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "kind": "live",
+        "name": "clip.cancel_audio_import",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "undo": "none"
+      },
+      {
         "description": "Copy a MIDI clip into a new, independent clip with the same name (\"Bass 2\" stays\n\"Bass 2\": a copy plays the same part), colour, length, loop and notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot: of the source's track, or of `track` when given (another MIDI\ntrack). `slot` when given must be free in that track, otherwise the copy takes\nthe first free slot (below the source's scene in the same track, from the top in\nanother). Refused, with no effect, when the track has no free slot to give. A\nsecond placement of the same clip is an option of the arrangement commands, not\nof this one. Undo: `clip.delete` of the copy.",
         "destructive": false,
         "input_schema": {
@@ -5053,7 +7061,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid (with no placement, it stays in its track's pool, #473). A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
+        "description": "Move a clip to another launch-grid slot, of the same track or of `track` (another\ntrack of its kind: a MIDI clip to a MIDI track, an audio clip to an audio track),\nkeeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid (with no placement, it stays in its track's pool, #473). A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -6450,6 +8458,13 @@
                     }
                   ],
                   "description": "The length in ticks (960 per quarter note) of a MIDI clip; `null` for an audio clip\n(its length depends on the tempo)."
+                },
+                "media_missing": {
+                  "description": "For an audio clip, whether its file was missing from the project's folder when the\nproject was opened (\"média absent\": the clip stays in the project, silent); `null`\nfor a MIDI clip.",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 },
                 "name": {
                   "description": "The clip's name.",
@@ -8841,7 +10856,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Insert `length` ticks of empty time at the timeline tick `at`, in every track and in\nthe master, in one history entry (bar-level editing: a bar is 3840 ticks in 4/4).\nA placement that starts at or after `at` moves `length` ticks later; one that\nstraddles `at` is split there, the right part (a new placement of the same clip, so\nlinked) moving later and resuming the clip where the left part stops, round the clip.\nThe points of every automation lane at or after `at` move too (a ramp that straddles\n`at` stretches), so do the section markers at or after `at` (#473), and so do the\nloop region's boundaries after `at` (a loop that contains `at` grows). Tempo and time\nsignature hold one point at tick 0 and do not move; the playhead and the launch grid\ndo not move. Refused with `invalid` when `at` is not in [0, 2^40], `length` is less\nthan 1 or the cut would pass 2^40, or when a placement or a point would pass 2^40,\nand with `limit` when the splits pass the placement limits. Changes nothing (no\nhistory entry) when nothing lies at or after `at`. Undo: `arrangement.restore_time`.",
+        "description": "Insert `length` ticks of empty time at the timeline tick `at`, in every track and in\nthe master, in one history entry (bar-level editing: a bar is 3840 ticks in 4/4).\nA placement that starts at or after `at` moves `length` ticks later; one that\nstraddles `at` is split there, the right part (a new placement of the same clip, so\nlinked) moving later and resuming the clip where the left part stops, round the clip.\nThe points of every automation lane at or after `at` move too (a ramp that straddles\n`at` stretches), so do the section markers at or after `at` (#473), and so do the\nloop region's boundaries after `at` (a loop that contains `at` grows). Tempo and time\nsignature hold one point at tick 0 and do not move; the playhead and the launch grid\ndo not move. Refused with `invalid` when `at` is not in [0, 2^40], `length` is less\nthan 1 or the cut would pass 2^40, or when a placement or a point would pass 2^40,\nand with `limit` when the splits pass the placement limits. Refused too, for the\nwhole project, while any track holds an audio placement (`clip.import_audio` into\nthe arrangement makes one): audio placements do not move in time yet. Changes nothing\n(no history entry) when nothing lies at or after `at`. Undo: `arrangement.restore_time`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -8905,7 +10920,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Delete the time `[from, to)` ticks from every track and from the master,\nand close the gap, in one history entry. Placements are cut at both edges: what lies\ninside is removed (a placement that straddles the whole range is split in two, the\nright part a new placement resuming the clip where the range ends), what starts at or\nafter `to` moves `to - from` ticks earlier; a clip that loses its last placement stays\nin its track's pool. The points of every automation lane inside the range are removed and the\nlater ones move back, so the last point before the cut links straight to the first\none after it (a `step` point keeps holding its value up to the cut, then the next\nvalue applies: the lane is not smoothed). The section markers after the range move\nback, one inside it goes to `from` (#473). The loop region follows (a boundary inside\nthe range falls to `from`;\na loop left empty is cleared and switched off). Tempo and time signature hold one\npoint at tick 0 and do not move; the playhead and the launch grid do not move.\nRefused with `invalid` when `from` is not in [0, 2^40], `to` is not after `from` or\npasses 2^40, and with `limit` when the cuts pass the placement limits.\nChanges nothing (no history entry) when nothing lies at or after `from`. Undo:\n`arrangement.restore_time`.",
+        "description": "Delete the time `[from, to)` ticks from every track and from the master,\nand close the gap, in one history entry. Placements are cut at both edges: what lies\ninside is removed (a placement that straddles the whole range is split in two, the\nright part a new placement resuming the clip where the range ends), what starts at or\nafter `to` moves `to - from` ticks earlier; a clip that loses its last placement stays\nin its track's pool. The points of every automation lane inside the range are removed and the\nlater ones move back, so the last point before the cut links straight to the first\none after it (a `step` point keeps holding its value up to the cut, then the next\nvalue applies: the lane is not smoothed). The section markers after the range move\nback, one inside it goes to `from` (#473). The loop region follows (a boundary inside\nthe range falls to `from`;\na loop left empty is cleared and switched off). Tempo and time signature hold one\npoint at tick 0 and do not move; the playhead and the launch grid do not move.\nRefused with `invalid` when `from` is not in [0, 2^40], `to` is not after `from` or\npasses 2^40, and with `limit` when the cuts pass the placement limits. Refused too, for\nthe whole project, while any track holds an audio placement (audio placements do not\nmove in time yet). Changes nothing (no history entry) when nothing lies at or after\n`from`. Undo:\n`arrangement.restore_time`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -11445,7 +13460,7 @@
         "undo": "none"
       },
       {
-        "description": "Set the project's tempo in BPM, from 20 to 999. A value outside the range or not\na number is refused. Undo: set the previous tempo back.",
+        "description": "Set the project's tempo in BPM, from 20 to 999. A value outside the range or not\na number is refused, and so is a tempo at which an audio placement (whose length is\nin frames of its file, so its end in ticks follows the tempo) would end past 2^40.\nA faster tempo lengthens audio placements in ticks, so one may then reach into the\nnext placement of its track: the project allows it, and the later one plays from its\nstart. Undo: set the previous tempo back.",
         "destructive": false,
         "input_schema": {
           "additionalProperties": false,
@@ -14098,7 +16113,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Insert `length` ticks of empty time at the timeline tick `at`, in every track and in\nthe master, in one history entry (bar-level editing: a bar is 3840 ticks in 4/4).\nA placement that starts at or after `at` moves `length` ticks later; one that\nstraddles `at` is split there, the right part (a new placement of the same clip, so\nlinked) moving later and resuming the clip where the left part stops, round the clip.\nThe points of every automation lane at or after `at` move too (a ramp that straddles\n`at` stretches), so do the section markers at or after `at` (#473), and so do the\nloop region's boundaries after `at` (a loop that contains `at` grows). Tempo and time\nsignature hold one point at tick 0 and do not move; the playhead and the launch grid\ndo not move. Refused with `invalid` when `at` is not in [0, 2^40], `length` is less\nthan 1 or the cut would pass 2^40, or when a placement or a point would pass 2^40,\nand with `limit` when the splits pass the placement limits. Changes nothing (no\nhistory entry) when nothing lies at or after `at`. Undo: `arrangement.restore_time`.",
+              "description": "Insert `length` ticks of empty time at the timeline tick `at`, in every track and in\nthe master, in one history entry (bar-level editing: a bar is 3840 ticks in 4/4).\nA placement that starts at or after `at` moves `length` ticks later; one that\nstraddles `at` is split there, the right part (a new placement of the same clip, so\nlinked) moving later and resuming the clip where the left part stops, round the clip.\nThe points of every automation lane at or after `at` move too (a ramp that straddles\n`at` stretches), so do the section markers at or after `at` (#473), and so do the\nloop region's boundaries after `at` (a loop that contains `at` grows). Tempo and time\nsignature hold one point at tick 0 and do not move; the playhead and the launch grid\ndo not move. Refused with `invalid` when `at` is not in [0, 2^40], `length` is less\nthan 1 or the cut would pass 2^40, or when a placement or a point would pass 2^40,\nand with `limit` when the splits pass the placement limits. Refused too, for the\nwhole project, while any track holds an audio placement (`clip.import_audio` into\nthe arrangement makes one): audio placements do not move in time yet. Changes nothing\n(no history entry) when nothing lies at or after `at`. Undo: `arrangement.restore_time`.",
               "properties": {
                 "at": {
                   "$ref": "#/$defs/Tick"
@@ -14123,7 +16138,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Delete the time `[from, to)` ticks from every track and from the master,\nand close the gap, in one history entry. Placements are cut at both edges: what lies\ninside is removed (a placement that straddles the whole range is split in two, the\nright part a new placement resuming the clip where the range ends), what starts at or\nafter `to` moves `to - from` ticks earlier; a clip that loses its last placement stays\nin its track's pool. The points of every automation lane inside the range are removed and the\nlater ones move back, so the last point before the cut links straight to the first\none after it (a `step` point keeps holding its value up to the cut, then the next\nvalue applies: the lane is not smoothed). The section markers after the range move\nback, one inside it goes to `from` (#473). The loop region follows (a boundary inside\nthe range falls to `from`;\na loop left empty is cleared and switched off). Tempo and time signature hold one\npoint at tick 0 and do not move; the playhead and the launch grid do not move.\nRefused with `invalid` when `from` is not in [0, 2^40], `to` is not after `from` or\npasses 2^40, and with `limit` when the cuts pass the placement limits.\nChanges nothing (no history entry) when nothing lies at or after `from`. Undo:\n`arrangement.restore_time`.",
+              "description": "Delete the time `[from, to)` ticks from every track and from the master,\nand close the gap, in one history entry. Placements are cut at both edges: what lies\ninside is removed (a placement that straddles the whole range is split in two, the\nright part a new placement resuming the clip where the range ends), what starts at or\nafter `to` moves `to - from` ticks earlier; a clip that loses its last placement stays\nin its track's pool. The points of every automation lane inside the range are removed and the\nlater ones move back, so the last point before the cut links straight to the first\none after it (a `step` point keeps holding its value up to the cut, then the next\nvalue applies: the lane is not smoothed). The section markers after the range move\nback, one inside it goes to `from` (#473). The loop region follows (a boundary inside\nthe range falls to `from`;\na loop left empty is cleared and switched off). Tempo and time signature hold one\npoint at tick 0 and do not move; the playhead and the launch grid do not move.\nRefused with `invalid` when `from` is not in [0, 2^40], `to` is not after `from` or\npasses 2^40, and with `limit` when the cuts pass the placement limits. Refused too, for\nthe whole project, while any track holds an audio placement (audio placements do not\nmove in time yet). Changes nothing (no history entry) when nothing lies at or after\n`from`. Undo:\n`arrangement.restore_time`.",
               "properties": {
                 "from": {
                   "$ref": "#/$defs/Tick"
@@ -14364,6 +16379,89 @@
             }
           ]
         },
+        "AudioClipSnapshot": {
+          "additionalProperties": false,
+          "description": "An audio clip as `clip.restore_audio` brings it back (everything but its identifier).",
+          "properties": {
+            "color": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Rgb"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "frames": {
+              "description": "How many frames it plays.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "gain_db": {
+              "description": "Clip gain in dB; `null` for silence.",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "launch_quantize": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Quantize"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A per-clip launch quantization, when one was set (the MVP never sets one)."
+            },
+            "looping": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/FrameLoop"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Loop in frames, relative to `start`."
+            },
+            "media": {
+              "$ref": "#/$defs/AudioMedia",
+              "description": "The audio file it plays, with its metadata."
+            },
+            "name": {
+              "type": "string"
+            },
+            "slot": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SceneId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The scene of its launch-grid slot, when it sits in one."
+            },
+            "start": {
+              "description": "First frame of the file the clip plays.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "name",
+            "media",
+            "start",
+            "frames"
+          ],
+          "type": "object"
+        },
         "AudioMedia": {
           "additionalProperties": false,
           "description": "An audio file referenced by its blob, with its metadata in clear so the project reads,\nvalidates and merges without decoding the audio (§ 2.2).",
@@ -14399,6 +16497,38 @@
             "channels",
             "frames",
             "name"
+          ],
+          "type": "object"
+        },
+        "AudioPlacementSnapshot": {
+          "additionalProperties": false,
+          "description": "A placement of an audio clip, with its identifier, as `clip.restore_audio` brings it\nback: it starts at a tick of the arrangement and plays `length` frames of the clip from\n`offset`.",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/PlacementId"
+            },
+            "length": {
+              "description": "Length played, in frames of the file.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "offset": {
+              "description": "Where in the clip the placement starts, in frames.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "start": {
+              "$ref": "#/$defs/Tick",
+              "description": "Start in the arrangement, in ticks."
+            }
+          },
+          "required": [
+            "id",
+            "start",
+            "length",
+            "offset"
           ],
           "type": "object"
         },
@@ -14924,7 +17054,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Delete a MIDI clip and its placements in the arrangement. Undo: `clip.restore`\nbrings back the clip, its notes and its placements with their identifiers.",
+              "description": "Delete a clip (MIDI or audio) and its placements in the arrangement. Undo:\n`clip.restore` brings back a MIDI clip, its notes and its placements with their\nidentifiers; `clip.restore_audio` an audio clip and its placements. The file of an\naudio clip stays in the project's `blobs/` (blobs are removed on request only).",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
@@ -14981,6 +17111,220 @@
             },
             {
               "additionalProperties": false,
+              "description": "Make an audio clip in an audio track from an imported audio file (AU-1). `media` is\nthe SHA-256 of the file (64 lower-case hexadecimal characters, the name of its blob):\neither a file the page has just imported (the page reads the file the user chose,\nstores its bytes in the project's `blobs/` and stages its metadata before running\nthis command), or a file an audio clip of the project already uses (`clip.get` shows\nits `media.hash`), so another clip of the same file needs no new import. The clip\nplays the whole file, at 0 dB, without a loop. `at` is optional: without it (or\n`null`) the clip sits in the track's pool (no launch-grid slot, no placement); with\n`{\"at\": \"slot\", \"scene\": <scene id>}` it sits in that launch-grid slot (the scene must\nexist and the slot be free in the track); with `{\"at\": \"arrangement\", \"start\": <tick>}`\nit is also placed whole in the arrangement from that tick (its end is computed from\nthe file's duration at the project's tempo), refused when that placement would\noverlap another placement of the track or end past 2^40. `name` is optional (trimmed,\nat most 200 characters): without one the clip takes the file's name without its\nextension. Refused when the track is not an audio track or the media is unknown.\nUndo: `clip.delete` of the clip (and of its placement); the file stays in the\nproject's `blobs/` (blobs are removed on request only).",
+              "properties": {
+                "at": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/ClipTarget"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "default": null
+                },
+                "media": {
+                  "$ref": "#/$defs/Hash"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "track": {
+                  "$ref": "#/$defs/TrackId"
+                },
+                "type": {
+                  "const": "clip.import_audio",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "track",
+                "media"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Set the range of the file an audio clip plays: the frames `[start, start + frames)`\nof its file (frames of the file, at its own sample rate). Refused when the range is\nempty or leaves the file, when the clip's loop would end past the new length (clear\nor move the loop first with `clip.audio.set_loop`: nothing is cut silently), and when\na placement of the clip starts inside it at or past the new length. Every placement\nthat plays the clip whole (offset 0, length equal to its old length in frames) takes\nthe new length in the same command; a growing placement stops at the start of the\nnext placement of its track; a placement that plays only part of the clip is left\nalone. Refused for a MIDI clip. Undo: set the range back, with the lengths of the\nplacements.",
+              "properties": {
+                "clip": {
+                  "$ref": "#/$defs/ClipId"
+                },
+                "frames": {
+                  "description": "How many frames are played, at least 1.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "start": {
+                  "description": "First frame of the file played.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "clip.audio.set_range",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "clip",
+                "start",
+                "frames"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Set an audio clip's gain in dB, from -96 to +6; `null` is silence. A value outside\nthe range or not a number is refused, and so is a MIDI clip. Undo: set the previous\ngain back.",
+              "properties": {
+                "clip": {
+                  "$ref": "#/$defs/ClipId"
+                },
+                "gain_db": {
+                  "description": "Required: `null` is silence, a missing field is an error.",
+                  "format": "double",
+                  "maximum": 6,
+                  "minimum": -96,
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "clip.audio.set_gain",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "clip",
+                "gain_db"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Set an audio clip's loop: `{\"start\": <frame>, \"end\": <frame>}` in frames from the\nclip's start (not from the file's), with `0 <= start < end <= frames` (the clip's\nlength in frames), or `null` for no loop. Refused for a MIDI clip (`clip.set_loop`\nsets its loop in ticks). Undo: set the previous loop back.",
+              "properties": {
+                "clip": {
+                  "$ref": "#/$defs/ClipId"
+                },
+                "looping": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/FrameLoop"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "type": {
+                  "const": "clip.audio.set_loop",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "clip"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Bring back an audio clip with its identifier, as `clip.delete` removed it: the\ninverse of deleting an audio clip. Its placements give their length and offset in\nframes of the file. Refused when the track is not an audio track, when the clip's\nidentifier or a placement's already exists in the project, when the slot is taken\nor its scene is gone, or when the snapshot breaks a rule of the project (a range\noutside the file, a loop outside the range, a gain that is not a number). Undo:\n`clip.delete`.",
+              "properties": {
+                "clip": {
+                  "$ref": "#/$defs/ClipId"
+                },
+                "placements": {
+                  "items": {
+                    "$ref": "#/$defs/AudioPlacementSnapshot"
+                  },
+                  "type": "array"
+                },
+                "snapshot": {
+                  "$ref": "#/$defs/AudioClipSnapshot"
+                },
+                "track": {
+                  "$ref": "#/$defs/TrackId"
+                },
+                "type": {
+                  "const": "clip.restore_audio",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "track",
+                "clip",
+                "snapshot",
+                "placements"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Ask the user for audio files to import into an audio track (AU-1): the page opens\nits file dialog, then imports each file chosen (its bytes are kept in the project's\n`blobs/`, its decoded audio checked) and makes a clip of it with `clip.import_audio`.\nA file dialog needs a click by the user, so an agent that is not driven by one gets a\nnotice in the page instead. Formats: WAV, AIFF, CAF, FLAC, MP3, AAC (MP4, M4A, ADTS),\nALAC, Ogg Vorbis; Opus is not supported yet. The answer only says the request was\naccepted; the clips arrive with `clip.import_audio`, one history entry each. Refused\nwhen the track is not an audio track. Not undoable itself.",
+              "properties": {
+                "track": {
+                  "$ref": "#/$defs/TrackId"
+                },
+                "type": {
+                  "const": "clip.choose_audio",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "track"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "live",
+              "x-undo": "none"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Stop the audio import under way in the page (the files chosen by `clip.choose_audio`):\nthe file being imported is dropped (nothing of it is kept) and the files after it are\nnot imported; the clips of the files already imported stay. Does nothing when no import\nruns. Not undoable itself.",
+              "properties": {
+                "type": {
+                  "const": "clip.cancel_audio_import",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "live",
+              "x-undo": "none"
+            },
+            {
+              "additionalProperties": false,
               "description": "Copy a MIDI clip into a new, independent clip with the same name (\"Bass 2\" stays\n\"Bass 2\": a copy plays the same part), colour, length, loop and notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot: of the source's track, or of `track` when given (another MIDI\ntrack). `slot` when given must be free in that track, otherwise the copy takes\nthe first free slot (below the source's scene in the same track, from the top in\nanother). Refused, with no effect, when the track has no free slot to give. A\nsecond placement of the same clip is an option of the arrangement commands, not\nof this one. Undo: `clip.delete` of the copy.",
               "properties": {
                 "clip": {
@@ -15022,7 +17366,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Move a MIDI clip to another launch-grid slot, of the same track or of `track`\n(another MIDI track), keeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid (with no placement, it stays in its track's pool, #473). A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
+              "description": "Move a clip to another launch-grid slot, of the same track or of `track` (another\ntrack of its kind: a MIDI clip to a MIDI track, an audio clip to an audio track),\nkeeping its identifier, its name and its content. `slot`\nis the scene of the target slot, which must be free; `null` takes the clip out of\nthe grid (with no placement, it stays in its track's pool, #473). A clip\nthat has placements stays in its track: moving it to another track is refused.\nA move that changes nothing does nothing and leaves no history entry. Leaving\n`slot` out is the same as `null`. The engine frees the clip and takes it again, so\na clip that is playing stops, and so does the arrangement's playback of its\nplacements (they play again from the next note). Undo: move it back.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
@@ -15738,6 +18082,17 @@
               "description": "Parameter id → value in the unit the device declares.",
               "type": "object"
             },
+            "preset": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DevicePreset"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The preset the device was last set from (#191), by `preset.load` or `preset.save`;\nabsent when none, so that a device without one writes the same file as before."
+            },
             "role": {
               "$ref": "#/$defs/DeviceRole"
             },
@@ -16028,6 +18383,54 @@
         "DeviceId": {
           "$ref": "#/$defs/Id",
           "description": "Identifier of a device in a track's chain or in the master's."
+        },
+        "DevicePreset": {
+          "additionalProperties": false,
+          "description": "The preset a device was last set from, kept on the device so that its panel names it\nafter a reload and on another computer (where a library preset may be absent).",
+          "properties": {
+            "id": {
+              "description": "The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a\nULID.",
+              "type": "string"
+            },
+            "location": {
+              "$ref": "#/$defs/PresetLocation",
+              "description": "Where the preset lives: `factory`, `project` or `library`."
+            },
+            "name": {
+              "description": "The preset's name when the device was set from it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "location",
+            "id",
+            "name"
+          ],
+          "type": "object"
+        },
+        "DeviceRestore": {
+          "additionalProperties": false,
+          "description": "The preset a device shows, as `preset.restore` puts it back.",
+          "properties": {
+            "device": {
+              "$ref": "#/$defs/DeviceId"
+            },
+            "preset": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DevicePreset"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The preset the device shows; absent or `null` for none."
+            }
+          },
+          "required": [
+            "device"
+          ],
+          "type": "object"
         },
         "DeviceRole": {
           "description": "What a device does in the chain.",
@@ -17123,6 +19526,353 @@
           ],
           "type": "object"
         },
+        "Preset": {
+          "additionalProperties": false,
+          "description": "A preset: the values of a device's parameters under a name.",
+          "properties": {
+            "category": {
+              "description": "A category to group it by (such as `Bass`), at most 64 characters; absent when none.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "device": {
+              "description": "The device kind the values are for, such as `faulk.osc_synth`.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Its name: trimmed, not empty, at most 200 characters.",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": {
+                "format": "double",
+                "type": "number"
+              },
+              "description": "Parameter id -> value, in the unit the device declares.",
+              "type": "object"
+            },
+            "version": {
+              "description": "The version of that device kind the values were made with.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "device",
+            "version",
+            "name",
+            "params"
+          ],
+          "type": "object"
+        },
+        "PresetCommand": {
+          "description": "The commands of this domain, tagged by `type`.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "description": "Save a device's current settings as a new preset named `name` (trimmed, 1 to 200\ncharacters), with an optional `category` (1 to 64 characters), in the `project` (saved\nin the project's folder, it travels with the project) or in the user's `library`\n(available in every project). The device then shows this preset, not modified. Only a\nbuilt-in device with parameters has presets (not the clip player, not a module).\nRefused with `invalid` for the `factory` location (read-only), a name already used by\na preset of that device kind in that location, an empty or too long name or category,\nand with `limit` when the location is full (1 024 presets in a project, 4 096 in the\nlibrary). Undo: `preset.restore` takes the preset out and gives the device its\nprevious preset back.",
+              "properties": {
+                "category": {
+                  "description": "A category to group it by, such as `Bass`; leave out for none.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "device": {
+                  "$ref": "#/$defs/DeviceId"
+                },
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "`project` or `library`."
+                },
+                "name": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "preset.save",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "device",
+                "name",
+                "location"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Load a preset into a device: every parameter of the device takes the preset's value\nat once (a parameter the preset has no value for takes its default, a value the device\nhas no parameter for is ignored, a value out of range is clamped), and the device\nshows the preset. One undo takes the whole load back. Refused with `not_found` for an\nunknown device or preset, with `invalid` for a preset of another device kind, one made\nwith a newer version of the device than this Faulk has (the message names both\nversions), and a device without presets (the clip player, a module). An older preset\nis migrated (`migrated_from`). Undo: `preset.restore_device` puts every previous value\nand the previous preset back.",
+              "properties": {
+                "device": {
+                  "$ref": "#/$defs/DeviceId"
+                },
+                "preset": {
+                  "$ref": "#/$defs/PresetRef"
+                },
+                "type": {
+                  "const": "preset.load",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "device",
+                "preset"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Delete a preset of the project or of the library. A factory preset cannot be deleted\n(`invalid`); an unknown one is `not_found`. The devices that show it keep its name.\nUndo: `preset.restore` brings it back under the same id.",
+              "properties": {
+                "preset": {
+                  "$ref": "#/$defs/PresetRef"
+                },
+                "type": {
+                  "const": "preset.delete",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "preset"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Rename a preset of the project or of the library (trimmed, 1 to 200 characters). The\ndevices that show it keep the name they had until it is loaded again. Refused with\n`invalid` for a factory preset or a name used by another preset of that device kind in\nthat location, `not_found` for an unknown one. Undo: `preset.restore` puts the preset\nback as it was.",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "preset": {
+                  "$ref": "#/$defs/PresetRef"
+                },
+                "type": {
+                  "const": "preset.rename",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "preset",
+                "name"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Copy a preset (from any location, factory included) into the `project` or the\n`library`, as a new preset with the same values, under its own name or `name` when\ngiven. The devices are left as they are: this is how a preset of a project goes into\nthe library for every project. Refused like `preset.save` (factory location, a name in\nuse there, a full location), and with `not_found` for an unknown preset. Undo:\n`preset.restore` takes the copy out.",
+              "properties": {
+                "location": {
+                  "$ref": "#/$defs/PresetLocation",
+                  "description": "`project` or `library`."
+                },
+                "name": {
+                  "description": "The copy's name; leave out to keep the preset's.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "preset": {
+                  "$ref": "#/$defs/PresetRef"
+                },
+                "type": {
+                  "const": "preset.copy",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "preset",
+                "location"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "List presets: those of the device kind of `device` (a device's id) or of `kind` (a\nbuilt-in kind such as `faulk.filter`), or every preset when both are left out (giving\nboth is `invalid`). Factory presets come first, then the project's, then the\nlibrary's, each by name. Each entry has the preset's reference, name, category, device\nkind and version, whether it is read-only (factory) or made with a newer version of\nthe device (`newer`: it cannot be loaded), and the values a load would give the device.\nWith `device`, the answer also names the preset the device shows (`current`) and\nwhether its values differ from that preset's (`modified`; `null` when the device shows\nno preset or its preset is not here, such as a library preset of another computer). A\nquery: changes nothing.",
+              "properties": {
+                "device": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/DeviceId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A device whose presets to list; leave out to give `kind` or to list all."
+                },
+                "kind": {
+                  "description": "A device kind whose presets to list; leave out to give `device` or to list all.",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "preset.list",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "query",
+              "x-undo": "none"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Put a preset of the project or of the library back as it was: `snapshot` is the whole\npreset (absent or `null` to take it out), under `preset`'s id. With `device`, that\ndevice shows `device.preset` again. The inverse of `preset.save`, `preset.delete`,\n`preset.rename` and `preset.copy`; it does not check names against the other presets\n(it puts back exactly what was there). Refused with `invalid` for the factory\nlocation, an id that is not a preset id or that another part of the project uses, a\nsnapshot that breaks the preset format, and with `limit` when the location is full;\n`not_found` for an unknown device. Undo: `preset.restore` with what was there before.",
+              "properties": {
+                "device": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/DeviceRestore"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A device whose shown preset to put back as well."
+                },
+                "preset": {
+                  "$ref": "#/$defs/PresetRef"
+                },
+                "snapshot": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Preset"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The preset to put back; absent or `null` to take it out."
+                },
+                "type": {
+                  "const": "preset.restore",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "preset"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Set several parameters of a built-in device at once, by key (each clamped and rounded\nas `device.set_param` does), and the preset the device shows (`preset`, absent or\n`null` for none). The inverse of `preset.load`. Refused with `not_found` for an\nunknown device or parameter, `invalid` for a value that is not finite, a malformed\n`preset` and a device without presets. Undo: `preset.restore_device` with the previous\nvalues and preset.",
+              "properties": {
+                "device": {
+                  "$ref": "#/$defs/DeviceId"
+                },
+                "params": {
+                  "additionalProperties": {
+                    "format": "double",
+                    "type": "number"
+                  },
+                  "type": "object"
+                },
+                "preset": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/DevicePreset"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The preset the device shows; absent or `null` for none."
+                },
+                "type": {
+                  "const": "preset.restore_device",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "device",
+                "params"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "edit",
+              "x-undo": "inverse"
+            }
+          ]
+        },
+        "PresetLocation": {
+          "description": "Where a preset lives.",
+          "oneOf": [
+            {
+              "const": "factory",
+              "description": "Built into Faulk, read-only.",
+              "type": "string"
+            },
+            {
+              "const": "project",
+              "description": "In the project's folder: it travels with the project.",
+              "type": "string"
+            },
+            {
+              "const": "library",
+              "description": "In the user's library: available in every project.",
+              "type": "string"
+            }
+          ]
+        },
+        "PresetRef": {
+          "additionalProperties": false,
+          "description": "A preset, by where it lives and its id there.",
+          "properties": {
+            "id": {
+              "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "location": {
+              "$ref": "#/$defs/PresetLocation",
+              "description": "Where it lives: `factory`, `project` or `library`."
+            }
+          },
+          "required": [
+            "location",
+            "id"
+          ],
+          "type": "object"
+        },
         "ProjectCommand": {
           "description": "The commands of this domain, tagged by `type`.",
           "oneOf": [
@@ -17210,7 +19960,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Choose an empty folder and write the whole project into it; the project then lives\nin that folder, and the automatic save keeps writing there. The folder is chosen by\nthe user (a browser needs a click for it), so an agent that is not driven by one gets\na notice in the page instead, and nothing is chosen. The old folder is left as it is. Changes nothing in the\nproject, so it never enters the history.",
+              "description": "Ask the user for the project's name (a field prefilled with the current one), then for\na folder, and write the whole project into a folder of that name inside it; the project\ntakes that name (a `project.rename`, undoable) and then lives in that folder, and the\nautomatic save keeps writing there. The name and the folder are chosen by the user (a\nbrowser needs a click for it), so an agent that is not driven by one gets a notice in the\npage instead, and nothing is chosen. A folder of that name that already holds files is\nrefused. The old folder is left as it is. Changes nothing else in the project, so the save\nitself never enters the history.",
               "properties": {
                 "type": {
                   "const": "project.save_as",
@@ -18981,7 +21731,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Set the project's tempo in BPM, from 20 to 999. A value outside the range or not\na number is refused. Undo: set the previous tempo back.",
+              "description": "Set the project's tempo in BPM, from 20 to 999. A value outside the range or not\na number is refused, and so is a tempo at which an audio placement (whose length is\nin frames of its file, so its end in ticks follows the tempo) would end past 2^40.\nA faster tempo lengthens audio placements in ticks, so one may then reach into the\nnext placement of its track: the project allows it, and the later one plays from its\nstart. Undo: set the previous tempo back.",
               "properties": {
                 "bpm": {
                   "format": "double",
@@ -19213,6 +21963,9 @@
         },
         {
           "$ref": "#/$defs/DeviceCommand"
+        },
+        {
+          "$ref": "#/$defs/PresetCommand"
         },
         {
           "$ref": "#/$defs/ClipCommand"
@@ -20233,6 +22986,147 @@
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId",
+                  "description": "The clip created."
+                },
+                "placement": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/PlacementId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Its placement, when it was imported into the arrangement."
+                },
+                "type": {
+                  "const": "clip.import_audio",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "clip"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous_frames": {
+                  "description": "The length in frames before the command.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "previous_start": {
+                  "description": "The first frame before the command.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "clip.audio.set_range",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous_start",
+                "previous_frames"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "description": "The gain before the command, in dB; `null` was silence.",
+                  "format": "double",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "clip.audio.set_gain",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/FrameLoop"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The loop before the command."
+                },
+                "type": {
+                  "const": "clip.audio.set_loop",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "clip.restore_audio",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "clip.choose_audio",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "clip.cancel_audio_import",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "clip": {
+                  "$ref": "#/$defs/ClipId",
                   "description": "The new clip."
                 },
                 "type": {
@@ -20589,6 +23483,13 @@
               ],
               "description": "The length in ticks (960 per quarter note) of a MIDI clip; `null` for an audio clip\n(its length depends on the tempo)."
             },
+            "media_missing": {
+              "description": "For an audio clip, whether its file was missing from the project's folder when the\nproject was opened (\"média absent\": the clip stays in the project, silent); `null`\nfor a MIDI clip.",
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
             "name": {
               "description": "The clip's name.",
               "type": "string"
@@ -20867,6 +23768,30 @@
               "type": "object"
             }
           ]
+        },
+        "DevicePreset": {
+          "additionalProperties": false,
+          "description": "The preset a device was last set from, kept on the device so that its panel names it\nafter a reload and on another computer (where a library preset may be absent).",
+          "properties": {
+            "id": {
+              "description": "The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a\nULID.",
+              "type": "string"
+            },
+            "location": {
+              "$ref": "#/$defs/PresetLocation",
+              "description": "Where the preset lives: `factory`, `project` or `library`."
+            },
+            "name": {
+              "description": "The preset's name when the device was set from it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "location",
+            "id",
+            "name"
+          ],
+          "type": "object"
         },
         "DeviceRole": {
           "description": "What a device does in the chain.",
@@ -21913,6 +24838,287 @@
           "required": [
             "tick",
             "value"
+          ],
+          "type": "object"
+        },
+        "PresetEntry": {
+          "additionalProperties": false,
+          "description": "One preset as `preset.list` gives it.",
+          "properties": {
+            "category": {
+              "description": "Its category, `null` when it has none.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "description": "The device kind it is for.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Its name.",
+              "type": "string"
+            },
+            "newer": {
+              "description": "Made with a newer version of the device than this Faulk has: it cannot be loaded.",
+              "type": "boolean"
+            },
+            "params": {
+              "additionalProperties": {
+                "format": "double",
+                "type": "number"
+              },
+              "description": "The values a load would give the device, by parameter key: every parameter of the\ndevice, migrated, clamped and completed with defaults. For a preset that cannot be\nloaded (`newer`, or a device kind this Faulk does not have), the values it holds.",
+              "type": "object"
+            },
+            "preset": {
+              "$ref": "#/$defs/PresetRef",
+              "description": "What `preset.load`, `preset.copy`, `preset.rename` and `preset.delete` take."
+            },
+            "read_only": {
+              "description": "A factory preset: it cannot be renamed nor deleted.",
+              "type": "boolean"
+            },
+            "version": {
+              "description": "The version of the device kind it was made with.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "preset",
+            "name",
+            "kind",
+            "version",
+            "read_only",
+            "newer",
+            "params"
+          ],
+          "type": "object"
+        },
+        "PresetLocation": {
+          "description": "Where a preset lives.",
+          "oneOf": [
+            {
+              "const": "factory",
+              "description": "Built into Faulk, read-only.",
+              "type": "string"
+            },
+            {
+              "const": "project",
+              "description": "In the project's folder: it travels with the project.",
+              "type": "string"
+            },
+            {
+              "const": "library",
+              "description": "In the user's library: available in every project.",
+              "type": "string"
+            }
+          ]
+        },
+        "PresetOutput": {
+          "description": "The outputs of this domain's commands, tagged by the command's `type`.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "preset": {
+                  "$ref": "#/$defs/PresetRef",
+                  "description": "The new preset."
+                },
+                "type": {
+                  "const": "preset.save",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "preset"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "clamped": {
+                  "description": "The values that were out of range or between steps: clamped or rounded.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "defaulted": {
+                  "description": "The parameters the preset had no value for: set to their default.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "ignored": {
+                  "description": "The values the device has no parameter for: ignored.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "migrated_from": {
+                  "description": "The device version the preset was made with, when older than this Faulk's.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "preset.load",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "ignored",
+                "clamped",
+                "defaulted"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "preset.delete",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "description": "The name before the command.",
+                  "type": "string"
+                },
+                "type": {
+                  "const": "preset.rename",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "preset": {
+                  "$ref": "#/$defs/PresetRef",
+                  "description": "The copy."
+                },
+                "type": {
+                  "const": "preset.copy",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "preset"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "current": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/DevicePreset"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The preset `device` shows; `null` without `device` or when it shows none."
+                },
+                "modified": {
+                  "description": "Whether `device`'s values differ from its preset's; `null` when unknown.",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "presets": {
+                  "description": "The presets, factory then project then library, each by name.",
+                  "items": {
+                    "$ref": "#/$defs/PresetEntry"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "preset.list",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "presets"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "preset.restore",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "preset.restore_device",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "PresetRef": {
+          "additionalProperties": false,
+          "description": "A preset, by where it lives and its id there.",
+          "properties": {
+            "id": {
+              "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "location": {
+              "$ref": "#/$defs/PresetLocation",
+              "description": "Where it lives: `factory`, `project` or `library`."
+            }
+          },
+          "required": [
+            "location",
+            "id"
           ],
           "type": "object"
         },
@@ -23717,6 +26923,9 @@
           "$ref": "#/$defs/DeviceOutput"
         },
         {
+          "$ref": "#/$defs/PresetOutput"
+        },
+        {
           "$ref": "#/$defs/ClipOutput"
         },
         {
@@ -23760,6 +26969,11 @@
       "title": "CommandOutput"
     }
   },
+  "control_pushed_out": 4001,
+  "destructive_commands": [
+    "project.open",
+    "project.new"
+  ],
   "device_descriptor": {
     "$defs": {
       "DeviceRole": {
@@ -25324,6 +28538,12 @@
               "$ref": "#/$defs/Author",
               "description": "Who ran it."
             },
+            "edits": {
+              "description": "How many commands it holds: \"3 edits in one turn\" (AG-3).",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
             "group": {
               "anyOf": [
                 {
@@ -25333,7 +28553,7 @@
                   "type": "null"
                 }
               ],
-              "description": "The history group it belongs to, if any."
+              "description": "The history group it belongs to, if any: an agent's entry with a group is a turn\nof that agent (AG-3)."
             },
             "id": {
               "description": "Identifies the entry for as long as it is in the history, whichever stack holds it.",
@@ -25368,7 +28588,8 @@
             "at",
             "name",
             "others",
-            "author"
+            "author",
+            "edits"
           ],
           "type": "object"
         },
@@ -25784,6 +29005,17 @@
               "description": "Parameter id → value in the unit the device declares.",
               "type": "object"
             },
+            "preset": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DevicePreset"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The preset the device was last set from (#191), by `preset.load` or `preset.save`;\nabsent when none, so that a device without one writes the same file as before."
+            },
             "role": {
               "$ref": "#/$defs/DeviceRole"
             },
@@ -25814,6 +29046,30 @@
         "DeviceId": {
           "$ref": "#/$defs/Id",
           "description": "Identifier of a device in a track's chain or in the master's."
+        },
+        "DevicePreset": {
+          "additionalProperties": false,
+          "description": "The preset a device was last set from, kept on the device so that its panel names it\nafter a reload and on another computer (where a library preset may be absent).",
+          "properties": {
+            "id": {
+              "description": "The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a\nULID.",
+              "type": "string"
+            },
+            "location": {
+              "$ref": "#/$defs/PresetLocation",
+              "description": "Where the preset lives: `factory`, `project` or `library`."
+            },
+            "name": {
+              "description": "The preset's name when the device was set from it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "location",
+            "id",
+            "name"
+          ],
+          "type": "object"
         },
         "DeviceRole": {
           "description": "What a device does in the chain.",
@@ -26140,6 +29396,68 @@
           ],
           "type": "object"
         },
+        "Preset": {
+          "additionalProperties": false,
+          "description": "A preset: the values of a device's parameters under a name.",
+          "properties": {
+            "category": {
+              "description": "A category to group it by (such as `Bass`), at most 64 characters; absent when none.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "device": {
+              "description": "The device kind the values are for, such as `faulk.osc_synth`.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Its name: trimmed, not empty, at most 200 characters.",
+              "type": "string"
+            },
+            "params": {
+              "additionalProperties": {
+                "format": "double",
+                "type": "number"
+              },
+              "description": "Parameter id -> value, in the unit the device declares.",
+              "type": "object"
+            },
+            "version": {
+              "description": "The version of that device kind the values were made with.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "device",
+            "version",
+            "name",
+            "params"
+          ],
+          "type": "object"
+        },
+        "PresetLocation": {
+          "description": "Where a preset lives.",
+          "oneOf": [
+            {
+              "const": "factory",
+              "description": "Built into Faulk, read-only.",
+              "type": "string"
+            },
+            {
+              "const": "project",
+              "description": "In the project's folder: it travels with the project.",
+              "type": "string"
+            },
+            {
+              "const": "library",
+              "description": "In the user's library: available in every project.",
+              "type": "string"
+            }
+          ]
+        },
         "Project": {
           "additionalProperties": false,
           "description": "The project document: what makes the music, saved and versioned.",
@@ -26196,6 +29514,15 @@
             "name": {
               "description": "Display name: trimmed, not empty.",
               "type": "string"
+            },
+            "presets": {
+              "additionalProperties": false,
+              "patternProperties": {
+                "^[0-7][0-9A-HJKMNP-TV-Z]{25}$": {
+                  "$ref": "#/$defs/Preset"
+                }
+              },
+              "type": "object"
             },
             "scenes": {
               "additionalProperties": false,
@@ -27727,6 +31054,147 @@
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId",
+                  "description": "The clip created."
+                },
+                "placement": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/PlacementId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Its placement, when it was imported into the arrangement."
+                },
+                "type": {
+                  "const": "clip.import_audio",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "clip"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous_frames": {
+                  "description": "The length in frames before the command.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "previous_start": {
+                  "description": "The first frame before the command.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "type": {
+                  "const": "clip.audio.set_range",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous_start",
+                "previous_frames"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "description": "The gain before the command, in dB; `null` was silence.",
+                  "format": "double",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "clip.audio.set_gain",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/FrameLoop"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The loop before the command."
+                },
+                "type": {
+                  "const": "clip.audio.set_loop",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "clip.restore_audio",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "clip.choose_audio",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "clip.cancel_audio_import",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "clip": {
+                  "$ref": "#/$defs/ClipId",
                   "description": "The new clip."
                 },
                 "type": {
@@ -28065,6 +31533,11 @@
               "const": "content",
               "description": "Length, loop and notes at once.",
               "type": "string"
+            },
+            {
+              "const": "gain",
+              "description": "An audio clip's gain.",
+              "type": "string"
             }
           ]
         },
@@ -28101,6 +31574,13 @@
                 }
               ],
               "description": "The length in ticks (960 per quarter note) of a MIDI clip; `null` for an audio clip\n(its length depends on the tempo)."
+            },
+            "media_missing": {
+              "description": "For an audio clip, whether its file was missing from the project's folder when the\nproject was opened (\"média absent\": the clip stays in the project, silent); `null`\nfor a MIDI clip.",
+              "type": [
+                "boolean",
+                "null"
+              ]
             },
             "name": {
               "description": "The clip's name.",
@@ -28253,6 +31733,9 @@
             },
             {
               "$ref": "#/$defs/DeviceOutput"
+            },
+            {
+              "$ref": "#/$defs/PresetOutput"
             },
             {
               "$ref": "#/$defs/ClipOutput"
@@ -28542,6 +32025,30 @@
               "type": "object"
             }
           ]
+        },
+        "DevicePreset": {
+          "additionalProperties": false,
+          "description": "The preset a device was last set from, kept on the device so that its panel names it\nafter a reload and on another computer (where a library preset may be absent).",
+          "properties": {
+            "id": {
+              "description": "The preset's id in its location: a factory id (`faulk.osc_synth/round-bass`) or a\nULID.",
+              "type": "string"
+            },
+            "location": {
+              "$ref": "#/$defs/PresetLocation",
+              "description": "Where the preset lives: `factory`, `project` or `library`."
+            },
+            "name": {
+              "description": "The preset's name when the device was set from it.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "location",
+            "id",
+            "name"
+          ],
+          "type": "object"
         },
         "DeviceRole": {
           "description": "What a device does in the chain.",
@@ -29817,6 +33324,287 @@
           ],
           "type": "object"
         },
+        "PresetEntry": {
+          "additionalProperties": false,
+          "description": "One preset as `preset.list` gives it.",
+          "properties": {
+            "category": {
+              "description": "Its category, `null` when it has none.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "description": "The device kind it is for.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Its name.",
+              "type": "string"
+            },
+            "newer": {
+              "description": "Made with a newer version of the device than this Faulk has: it cannot be loaded.",
+              "type": "boolean"
+            },
+            "params": {
+              "additionalProperties": {
+                "format": "double",
+                "type": "number"
+              },
+              "description": "The values a load would give the device, by parameter key: every parameter of the\ndevice, migrated, clamped and completed with defaults. For a preset that cannot be\nloaded (`newer`, or a device kind this Faulk does not have), the values it holds.",
+              "type": "object"
+            },
+            "preset": {
+              "$ref": "#/$defs/PresetRef",
+              "description": "What `preset.load`, `preset.copy`, `preset.rename` and `preset.delete` take."
+            },
+            "read_only": {
+              "description": "A factory preset: it cannot be renamed nor deleted.",
+              "type": "boolean"
+            },
+            "version": {
+              "description": "The version of the device kind it was made with.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "preset",
+            "name",
+            "kind",
+            "version",
+            "read_only",
+            "newer",
+            "params"
+          ],
+          "type": "object"
+        },
+        "PresetLocation": {
+          "description": "Where a preset lives.",
+          "oneOf": [
+            {
+              "const": "factory",
+              "description": "Built into Faulk, read-only.",
+              "type": "string"
+            },
+            {
+              "const": "project",
+              "description": "In the project's folder: it travels with the project.",
+              "type": "string"
+            },
+            {
+              "const": "library",
+              "description": "In the user's library: available in every project.",
+              "type": "string"
+            }
+          ]
+        },
+        "PresetOutput": {
+          "description": "The outputs of this domain's commands, tagged by the command's `type`.",
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "preset": {
+                  "$ref": "#/$defs/PresetRef",
+                  "description": "The new preset."
+                },
+                "type": {
+                  "const": "preset.save",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "preset"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "clamped": {
+                  "description": "The values that were out of range or between steps: clamped or rounded.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "defaulted": {
+                  "description": "The parameters the preset had no value for: set to their default.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "ignored": {
+                  "description": "The values the device has no parameter for: ignored.",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "migrated_from": {
+                  "description": "The device version the preset was made with, when older than this Faulk's.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "type": {
+                  "const": "preset.load",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "ignored",
+                "clamped",
+                "defaulted"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "preset.delete",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "previous": {
+                  "description": "The name before the command.",
+                  "type": "string"
+                },
+                "type": {
+                  "const": "preset.rename",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "previous"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "preset": {
+                  "$ref": "#/$defs/PresetRef",
+                  "description": "The copy."
+                },
+                "type": {
+                  "const": "preset.copy",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "preset"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "current": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/DevicePreset"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The preset `device` shows; `null` without `device` or when it shows none."
+                },
+                "modified": {
+                  "description": "Whether `device`'s values differ from its preset's; `null` when unknown.",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "presets": {
+                  "description": "The presets, factory then project then library, each by name.",
+                  "items": {
+                    "$ref": "#/$defs/PresetEntry"
+                  },
+                  "type": "array"
+                },
+                "type": {
+                  "const": "preset.list",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "presets"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "preset.restore",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "preset.restore_device",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "PresetRef": {
+          "additionalProperties": false,
+          "description": "A preset, by where it lives and its id there.",
+          "properties": {
+            "id": {
+              "description": "A factory id (`faulk.osc_synth/round-bass`) or, in the project or the library, the\npreset's ULID.",
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            "location": {
+              "$ref": "#/$defs/PresetLocation",
+              "description": "Where it lives: `factory`, `project` or `library`."
+            }
+          },
+          "required": [
+            "location",
+            "id"
+          ],
+          "type": "object"
+        },
         "ProjectEvent": {
           "description": "What the interface learns from an applied command: its mirror of the project is fed\nby these events only (spec § 2.6). Each task adds the events its commands emit, next\nto them in this enum.",
           "oneOf": [
@@ -30591,6 +34379,46 @@
                 "type",
                 "can_undo",
                 "can_redo"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "A preset of the project or of the user's library was saved, copied, renamed, deleted\nor brought back (#191); `preset` is its id. The page reads the project's from its own\ncopy of the project; for the library it writes the preset's file, or removes it when\nthe preset is gone. A change of the library is not a change of the project.",
+              "properties": {
+                "location": {
+                  "$ref": "#/$defs/PresetLocation"
+                },
+                "preset": {
+                  "type": "string"
+                },
+                "type": {
+                  "const": "preset_changed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "location",
+                "preset"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "description": "The preset a device shows changed (a load, a save, their undo).",
+              "properties": {
+                "device": {
+                  "$ref": "#/$defs/DeviceId"
+                },
+                "type": {
+                  "const": "device_preset_changed",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "device"
               ],
               "type": "object"
             },
@@ -32628,7 +36456,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 24,
+  "protocol_version": 31,
   "server_message": {
     "$defs": {
       "Capabilities": {
@@ -33039,6 +36867,32 @@
         "required": [
           "type",
           "status"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "An agent's tool call (AG-1): the command to run, as JSON (`{\"type\": \"<domain.verb>\",\n...}`), and the agent's name, the history's author `agent:<name>`. The page runs it\nthrough its dispatcher like a user's action and answers `agent.result` with this `id`;\nthe helper gives up on it when the link it went on ends or after its timeout. Sent on\nthe greeted session (Boost) if there is one, else on the newest control link (#608).",
+        "properties": {
+          "agent": {
+            "type": "string"
+          },
+          "command": true,
+          "id": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "agent.call",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "agent",
+          "command"
         ],
         "type": "object"
       },

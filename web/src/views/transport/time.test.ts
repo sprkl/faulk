@@ -72,6 +72,18 @@ describe('stepTempo', () => {
     expect(stepTempo(20.5, -1)).toBe(20)
     expect(stepTempo(20, -1)).toBe(20)
   })
+
+  it('fine: moves by 0.1 BPM without float noise, inside the range', () => {
+    expect(stepTempo(120, 1, true)).toBe(120.1)
+    expect(stepTempo(120.3, 1, true)).toBe(120.4)
+    expect(stepTempo(120, -1, true)).toBe(119.9)
+    expect(stepTempo(120.45, 1, true)).toBe(120.5)
+    expect(stepTempo(120.45, -1, true)).toBe(120.4)
+    expect(stepTempo(120.3, -1, true)).toBe(120.2)
+    expect(stepTempo(998.95, 1, true)).toBe(999)
+    expect(stepTempo(999, 1, true)).toBe(999)
+    expect(stepTempo(20, -1, true)).toBe(20)
+  })
 })
 
 describe('parseNumerator', () => {

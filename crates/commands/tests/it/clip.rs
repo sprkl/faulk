@@ -382,9 +382,6 @@ fn duplicate_is_independent_and_audio_clips_are_refused() {
             slot: None,
             track: None,
         },
-        clip::Command::Delete {
-            clip: f.audio_clip.clone(),
-        },
         clip::Command::SetLoop {
             clip: f.audio_clip.clone(),
             looping: None,
@@ -1384,7 +1381,10 @@ fn move_changes_the_slot_or_the_track_keeping_the_clip_and_is_refused_where_it_c
         mv(&f.clip, Some(&f.audio_track), Some(&f.scene_free)),
         "invalid",
     ); // audio track
-    refuse(mv(&f.audio_clip, None, Some(&f.scene_free)), "invalid"); // audio clip
+    refuse(
+        mv(&f.audio_clip, Some(&f.track), Some(&f.scene_free)),
+        "invalid",
+    ); // audio clip, MIDI track
     // Out of the grid is fine for a placed clip, and undo puts it back.
     let mut state = two.clone();
     let out = run(&mv(&f.placed, None, None), &mut state, &mut context()).unwrap();

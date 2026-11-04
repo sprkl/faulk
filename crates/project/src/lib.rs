@@ -22,6 +22,7 @@ pub mod limits;
 pub mod model;
 pub mod names;
 pub mod order;
+pub mod preset;
 pub mod serde_util;
 pub mod session;
 pub mod slots;

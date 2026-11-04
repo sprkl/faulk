@@ -21,8 +21,13 @@
 //!   limits). An entity without a slot (an engine never told about it) gets no message:
 //!   nothing is sent that the engine would refuse.
 //!
-//! What is not sent yet: audio clips and their placements (AU-3 streams the PCM an
-//! `AudioSourceDeclare` needs); a device whose source is not one of the built-in devices
+//! Audio clips (AU-3): each media an audio clip on the engine uses is an audio source
+//! (`AudioSourceDeclare`, with the blob's hash, before its first clip; `AudioSourceRelease`
+//! after its last), each audio clip a `ClipAudioSet` (range, gain, loop), and their
+//! placements (`Span::Frames`) go in the track's arrangement with the MIDI ones. The engine's
+//! prepare side reads the PCM from disk (`engine::audio_source`); AU-4 plays it.
+//!
+//! What is not sent yet: a device whose source is not one of the built-in devices
 //! of the registry (the clip player, modules, plugins) has no `DeviceInsert`, its place in
 //! the chain stays empty. A clip's loop region and its notes' cents, chance and repeat
 //! are sent (CL-2, #225); the engine plays the cents, #192 the chance and the repeat.
@@ -32,8 +37,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use engine::msg::{
     AutomationPoint as EnginePoint, AutomationTarget as EngineTarget, ClipSlot, ControlMsg, Curve,
     DeviceKind, DeviceSlot, LaneSlot, MsgError, Note as EngineNote, ParamId,
-    Placement as EnginePlacement, PlacementSlot, SceneSlot, Span as EngineSpan, TrackKind,
-    TrackSlot, encode_state, limits,
+    Placement as EnginePlacement, PlacementSlot, SceneSlot, SourceSlot, Span as EngineSpan,
+    TrackKind, TrackSlot, encode_state, limits,
 };
 use engine::time::LoopRegion;
 use project::{
@@ -335,11 +340,7 @@ fn compile_event(
                 .partition(|(t, _)| t == track);
             batch.removed = kept;
             for (_, clip) in gone {
-                if let Some(clip) = sync.clips.release(&clip) {
-                    out.push(ControlMsg::ClipRemove {
-                        clip: ClipSlot(clip),
-                    });
-                }
+                release_clip(&clip, sync, out);
             }
         }
         ProjectEvent::ClipDeleted { track, clip, .. } => {
@@ -366,11 +367,7 @@ fn compile_event(
             if let Some(t) = project.tracks.get(track) {
                 placements_msgs(track, t, sync, out);
             }
-            if let Some(clip) = sync.clips.release(clip) {
-                out.push(ControlMsg::ClipRemove {
-                    clip: ClipSlot(clip),
-                });
-            }
+            release_clip(clip, sync, out);
         }
         ProjectEvent::SceneCreated { scene } => {
             // `assign` returns the slot a scene already holds (a clip restored into it
@@ -396,7 +393,7 @@ fn compile_event(
                 return;
             };
             if let Some(slot) = sync.clips.get(clip) {
-                upload_clip(ClipSlot(slot), &c.content, out);
+                upload_clip(ClipSlot(slot), &c.content, sync, out);
             }
             // The placements that play the clip whole follow its length.
             if matches!(part, ClipPart::Length | ClipPart::Content)
@@ -618,7 +615,11 @@ fn compile_event(
         | ProjectEvent::MidiInputSelected { .. }
         | ProjectEvent::HistoryChanged { .. }
         | ProjectEvent::RecordingChanged { .. }
-        | ProjectEvent::RecordSettingsChanged { .. } => {}
+        | ProjectEvent::RecordSettingsChanged { .. }
+        // A preset is the project's data (or the library's); the values a load sets come as
+        // `DeviceParamChanged`.
+        | ProjectEvent::PresetChanged { .. }
+        | ProjectEvent::DevicePresetChanged { .. } => {}
     }
 }
 
@@ -965,11 +966,7 @@ fn remove_track(id: &TrackId, sync: &mut EngineSlots, out: &mut Vec<ControlMsg>)
         return;
     };
     for clip in entry.clips.keys() {
-        if let Some(clip) = sync.clips.release(clip) {
-            out.push(ControlMsg::ClipRemove {
-                clip: ClipSlot(clip),
-            });
-        }
+        release_clip(clip, sync, out);
     }
     for lane in &entry.lanes {
         sync.lane_targets.remove(lane);
@@ -1157,14 +1154,19 @@ fn clip_msgs(
     sync: &mut EngineSlots,
     out: &mut Vec<ControlMsg>,
 ) {
-    if !clip.content.is_midi() {
-        return;
-    }
     let Some(slot) = sync.clips.assign(id, limits::MAX_CLIPS) else {
         sync.overflow += 1;
         return;
     };
-    upload_clip(ClipSlot(slot), &clip.content, out);
+    if let ClipContent::Audio { media, .. } = &clip.content
+        && !declare_source(id, media, sync, out)
+    {
+        // No source slot left: the clip is not sent.
+        sync.clips.release(id);
+        sync.overflow += 1;
+        return;
+    }
+    upload_clip(ClipSlot(slot), &clip.content, sync, out);
     let mut scene = None;
     if let Some(scene_id) = &clip.slot {
         match sync.scenes.assign(scene_id, limits::MAX_SCENES) {
@@ -1184,8 +1186,81 @@ fn clip_msgs(
     }
 }
 
-/// The notes of a MIDI clip, in chunks.
-fn upload_clip(clip: ClipSlot, content: &ClipContent, out: &mut Vec<ControlMsg>) {
+/// The source of an audio clip's media: the one it has, or a new slot and its
+/// `AudioSourceDeclare`. Records the clip's media. `false` when every source slot is taken.
+fn declare_source(
+    clip: &ClipId,
+    media: &project::AudioMedia,
+    sync: &mut EngineSlots,
+    out: &mut Vec<ControlMsg>,
+) -> bool {
+    if sync.sources.get(&media.hash).is_none() {
+        let Some(slot) = sync.sources.assign(&media.hash, limits::MAX_AUDIO_SOURCES) else {
+            return false;
+        };
+        out.push(ControlMsg::AudioSourceDeclare {
+            source: SourceSlot(slot),
+            sample_rate: media.sample_rate.hz(),
+            channels: u8::try_from(media.channels).unwrap_or(u8::MAX),
+            frames: media.frames,
+            media: media.hash.0,
+        });
+    }
+    sync.clip_media.insert(clip.clone(), media.hash);
+    true
+}
+
+/// Frees a clip's engine slot (`ClipRemove`), then its source when it was the last clip of
+/// its media on the engine (`AudioSourceRelease`).
+fn release_clip(clip: &ClipId, sync: &mut EngineSlots, out: &mut Vec<ControlMsg>) {
+    if let Some(slot) = sync.clips.release(clip) {
+        out.push(ControlMsg::ClipRemove {
+            clip: ClipSlot(slot),
+        });
+    }
+    let Some(hash) = sync.clip_media.remove(clip) else {
+        return;
+    };
+    if sync.clip_media.values().all(|h| *h != hash)
+        && let Some(source) = sync.sources.release(&hash)
+    {
+        out.push(ControlMsg::AudioSourceRelease {
+            source: SourceSlot(source),
+        });
+    }
+}
+
+/// The content of a clip: the notes of a MIDI clip, in chunks, or an audio clip's range,
+/// gain and loop.
+fn upload_clip(
+    clip: ClipSlot,
+    content: &ClipContent,
+    sync: &EngineSlots,
+    out: &mut Vec<ControlMsg>,
+) {
+    if let ClipContent::Audio {
+        media,
+        start,
+        frames,
+        gain_db,
+        looping,
+    } = content
+    {
+        let Some(source) = sync.sources.get(&media.hash) else {
+            return;
+        };
+        out.push(ControlMsg::ClipAudioSet {
+            clip,
+            source: SourceSlot(source),
+            start: *start,
+            length: *frames,
+            gain: db_to_gain(*gain_db),
+            looping: looping
+                .filter(|l| l.start < l.end && l.end <= *frames)
+                .map(|l| (l.start, l.end)),
+        });
+        return;
+    }
     let ClipContent::Midi {
         length,
         looping,
@@ -1218,7 +1293,7 @@ fn upload_clip(clip: ClipSlot, content: &ClipContent, out: &mut Vec<ControlMsg>)
     }));
 }
 
-/// The arrangement of a track: its MIDI placements whose clip the engine has, ordered by
+/// The arrangement of a track: its placements (MIDI and audio) whose clip the engine has, ordered by
 /// start, in chunks. Gives slots to new placements and frees those of the gone ones.
 fn placements_msgs(id: &TrackId, track: &Track, sync: &mut EngineSlots, out: &mut Vec<ControlMsg>) {
     let Some(slot) = track_slot(sync, id) else {
@@ -1227,7 +1302,7 @@ fn placements_msgs(id: &TrackId, track: &Track, sync: &mut EngineSlots, out: &mu
     let mut placed: Vec<(&PlacementId, &Placement)> = track
         .placements
         .iter()
-        .filter(|(_, p)| matches!(p.span, Span::Ticks { .. }) && sync.clips.get(&p.clip).is_some())
+        .filter(|(_, p)| sync.clips.get(&p.clip).is_some())
         .collect();
     placed.sort_by(|a, b| (a.1.start, a.0).cmp(&(b.1.start, b.0)));
     let previous = sync
@@ -1243,8 +1318,12 @@ fn placements_msgs(id: &TrackId, track: &Track, sync: &mut EngineSlots, out: &mu
     let mut kept = BTreeSet::new();
     let mut items = Vec::with_capacity(placed.len());
     for (pid, p) in placed {
-        let (Some(clip), Span::Ticks { length, offset }) = (sync.clips.get(&p.clip), p.span) else {
+        let Some(clip) = sync.clips.get(&p.clip) else {
             continue;
+        };
+        let span = match p.span {
+            Span::Ticks { length, offset } => EngineSpan::Ticks { offset, length },
+            Span::Frames { length, offset } => EngineSpan::Frames { offset, length },
         };
         let Some(at) = sync.placements.assign(pid, limits::MAX_PLACEMENTS) else {
             sync.overflow += 1;
@@ -1255,7 +1334,7 @@ fn placements_msgs(id: &TrackId, track: &Track, sync: &mut EngineSlots, out: &mu
             placement: PlacementSlot(at),
             clip: ClipSlot(clip),
             start: p.start,
-            span: EngineSpan::Ticks { offset, length },
+            span,
         });
     }
     if let Some(entry) = sync.track.get_mut(id) {

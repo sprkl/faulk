@@ -18,7 +18,28 @@ import {
   spaceTogglesTransport,
   trackFocusOrigin,
 } from './keyboard'
-import { arrangementShortcut, isPlainButton, layoutShortcut } from './keyboard'
+import { arrangementShortcut, isPlainButton, isTapChord, layoutShortcut, tapShortcut } from './keyboard'
+
+describe('the tap tempo key (#195)', () => {
+  const alt = { code: 'KeyT', altKey: true, ctrlKey: false, metaKey: false, shiftKey: false, repeat: false, target: null }
+  it('is Alt+T by position, alone, without repeat and outside text fields', () => {
+    expect(tapShortcut(alt)).toBe(true)
+    expect(tapShortcut({ ...alt, altKey: false })).toBe(false) // the bare T plays a note
+    for (const held of ['ctrlKey', 'metaKey', 'shiftKey', 'repeat'] as const) expect(tapShortcut({ ...alt, [held]: true }), held).toBe(false)
+    expect(tapShortcut({ ...alt, code: 'KeyY' })).toBe(false)
+    const input = document.createElement('input')
+    input.type = 'text'
+    expect(tapShortcut({ ...alt, target: input })).toBe(false)
+  })
+  it('the chord test of a series ignores repeat and target but keeps the modifiers', () => {
+    expect(isTapChord({ ...alt, repeat: true } as never)).toBe(true)
+    expect(isTapChord({ ...alt, shiftKey: true })).toBe(false)
+    expect(isTapChord({ ...alt, altKey: false })).toBe(false)
+  })
+  it('plays nothing: playing ignores every Alt event', () => {
+    expect(ignoreKeyEvent(alt as never)).toBe(true)
+  })
+})
 
 // Trackers started by a test are stopped even when it fails, so module state never leaks into the next one.
 const trackers: Array<() => void> = []
@@ -432,8 +453,10 @@ describe('playing and shortcuts never meet (UI-3)', () => {
         'Escape',
         'F2',
       ], // a section marker: F2 renames, Delete removes, Alt+arrows move it (#554), the name field takes Enter and Escape (#473); Shift+Enter on the free cursor puts the playhead there (#554)
-      'views/arrangement/LaneHeader.svelte': ['Enter', 'Enter', 'Escape'], // the rename field; the row's own keys are in lane-keys.ts (digits, signs, Enter, F2, the height handle's arrows): no letter
+      'views/browser/BrowserPanel.svelte': ['ArrowDown', 'ArrowUp', 'Enter', 'Escape'], // the search field: the arrows move the highlighted row, Enter inserts it, Escape clears then closes; a text field keeps every other key
+      'views/arrangement/LaneHeader.svelte': ['Enter', 'Enter', 'Escape', 'F2'], // the rename field and F2 on the row (#625); the row's other keys are in lane-keys.ts (digits, signs, Enter, the height handle's arrows): no letter
       'views/clips/ClipsView.svelte': ['Backspace', 'Delete', 'Enter'], // the pool row's handle: places (Enter) or deletes the clip; no letter
+      'views/devices/PresetBar.svelte': ['Escape'], // the preset name field: Escape closes it; a text field keeps every other key
       'views/grid/GridView.svelte': [
         'ArrowDown',
         'ArrowLeft',
@@ -474,7 +497,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'views/shell/BottomPanel.svelte': ['ArrowDown', 'ArrowUp', 'End', 'Enter', 'Home'],
       'views/shell/EngineDialog.svelte': ['Enter'], // the recording offset's field (#470)
       'views/shell/ExportDialog.svelte': ['Escape'],
-      'views/shell/ProjectMenu.svelte': ['Escape'],
+      'views/shell/ProjectMenu.svelte': ['Enter', 'Enter', 'Escape', 'Escape', 'F2'], // the name's field (#627): Enter and Escape; F2 on the name
       'views/shell/Shell.svelte': [],
       'views/shell/StorageBanners.svelte': ['Escape'],
       'views/tracks/TrackInspector.svelte': ['Enter', 'Enter', 'Escape', 'Escape', 'F2'],

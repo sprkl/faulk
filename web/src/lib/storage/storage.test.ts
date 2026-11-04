@@ -1,6 +1,7 @@
 // The project storage controller (SV-2) against stand-ins for the browser and the core: when it
 // writes, what it says, and what it does when the folder, the permission or the page goes away.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { CacheReport, ImportOutcome, MediaRef } from '../audio/import/pipeline'
 import type { FolderEntry, PackExport, PackImport, SaveEntry, SaveFrame, SaveMode } from '../project/core'
 import type { OpenOutcome } from '../stores/open'
 import {
@@ -50,8 +51,10 @@ class FakeStore implements ProjectStore {
   async readBlobs() {
     return [...this.media].map(([path, bytes]) => ({ path, bytes }))
   }
+  /** Files with a stamp of their own (an imported blob); the others share the folder's. */
+  stamps = new Map<string, number>()
   signature(): Signature {
-    return Object.fromEntries([...this.files.keys()].map((path) => [path, `${this.files.get(path)!.length}:${this.stamp}`]))
+    return Object.fromEntries([...this.files.keys()].map((path) => [path, `${this.files.get(path)!.length}:${this.stamps.get(path) ?? this.stamp}`]))
   }
   async apply(entries: SaveEntry[]) {
     if (this.hold) await this.hold
@@ -75,6 +78,33 @@ class FakeStore implements ProjectStore {
     this.copied.push(source)
   }
   async cleanUp() {}
+  /** The imports made (file names), what an import answers, and the caches asked for (AU-1). */
+  imports: string[] = []
+  importFails: Error | null = null
+  importHold: Promise<void> | null = null
+  caches: MediaRef[][] = []
+  async importAudio(file: File, onProgress?: (fraction: number) => void): Promise<ImportOutcome> {
+    if (this.importHold) await this.importHold
+    if (this.importFails) throw this.importFails
+    this.imports.push(file.name)
+    onProgress?.(0.5)
+    onProgress?.(1)
+    const hash = (this.imports.length % 16).toString(16).repeat(64)
+    // A blob has a stamp of its own: writing it changes no other file's.
+    this.files.set(`blobs/${hash}`, 'audio')
+    this.stamps.set(`blobs/${hash}`, 900 + this.imports.length)
+    return {
+      media: { hash, sample_rate: 44_100, channels: 2, frames: 22_050, name: file.name },
+      direct: true,
+      blob: { path: `blobs/${hash}`, stamp: `5:${900 + this.imports.length}`, created: true },
+    }
+  }
+  cacheSignals: (AbortSignal | undefined)[] = []
+  async ensureAudioCache(media: MediaRef[], _onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<CacheReport> {
+    this.caches.push(media)
+    this.cacheSignals.push(signal)
+    return { made: media.map((m) => m.hash), missing: [], failed: [] }
+  }
   close() {
     this.closed = true
   }
@@ -88,6 +118,12 @@ class FakeStore implements ProjectStore {
 /** The core, reduced to its revision counter: `save` gives one file, `project.json`, that carries the revision. */
 class FakeHost implements ProjectHost {
   prepare?: () => Promise<void>
+  audioMedia?: () => MediaRef[]
+  /** The folders the engine was told about (AU-3), `null` for none. */
+  folders: (string | null)[] = []
+  folderChanged(handle: FileSystemDirectoryHandle | null) {
+    this.folders.push(handle?.name ?? null)
+  }
   revision = 0
   clean = 0
   pending = 0
@@ -136,6 +172,16 @@ class FakeHost implements ProjectHost {
   name = 'Song'
   projectName() {
     return this.name
+  }
+  /** The names Save as gave the project (`project.rename`). */
+  renames: string[] = []
+  /** The project does not take a new name (the engine is stopped, the command is refused). */
+  refuseRename = false
+  renameProject(name: string) {
+    if (this.refuseRename) return false
+    this.renames.push(name)
+    this.name = name
+    return true
   }
   /** What the core answers to a pack export, and to an import. */
   exports: { path: string; bytes: Uint8Array }[][] = []
@@ -849,6 +895,14 @@ describe('a new project', () => {
     expect(store.closed).toBe(false)
   })
 
+  it('asks nothing when the user already allowed the agent that starts it (AG-4): one question, never two', async () => {
+    const w = world()
+    w.edit()
+    expect(await w.storage.newProject(undefined, true)).toBe(true)
+    expect(w.storage.confirm).toBeNull()
+    expect(w.host.news).toBe(1)
+  })
+
   it('a second new project waits for the first question, and asks nothing once the first replaced the project', async () => {
     const w = world()
     w.edit()
@@ -908,6 +962,22 @@ describe('the folder is edited from outside', () => {
     expect(w.host.opened.length).toBe(1)
     expect(w.storage.block).toBeNull()
     expect(w.storage.unsaved).toBe(false)
+  })
+
+  it('settles a conflict without its own question once the user allowed the agent that asks (AG-4), and only in a conflict', async () => {
+    const { w, store } = await saved()
+    expect(w.storage.inConflict).toBe(false)
+    w.edit()
+    store.edit('project.json', 'from git')
+    await w.storage.wake()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(w.storage.inConflict).toBe(true)
+    expect(await w.storage.keepMine(true)).toBe(true)
+    expect(w.storage.confirm).toBeNull()
+    expect(store.files.get('project.json')).toBe('rev 2')
+    expect(w.storage.inConflict).toBe(false)
+    expect(await w.storage.loadDisk(true)).toBe(false)
+    expect(w.storage.notice).toBe('storage.noConflict')
   })
 
   it('Keep mine also removes the track files the project no longer has, so they do not come back on opening', async () => {
@@ -1777,6 +1847,13 @@ describe('deleting a project of the browser', () => {
     expect(w.locks.size).toBe(0)
   })
 
+  it('deletes without its own question once the user allowed the agent that asks (AG-4)', async () => {
+    const { w, dir } = await two()
+    expect(await w.storage.deleteBrowserProject(dir, true)).toBe(true)
+    expect(w.storage.confirm).toBeNull()
+    expect(w.browser.removed).toEqual([dir])
+  })
+
   it('never deletes the project that is open, nor one another tab has open', async () => {
     const { w, dir } = await drafted()
     expect(await w.storage.deleteBrowserProject(dir)).toBe(false)
@@ -2130,6 +2207,20 @@ describe('the commands that open a project', () => {
     expect(w.storage.folder).toEqual({ name: 'last' })
   })
 
+  it('over changes it cannot keep, asks the user; once an agent was allowed (AG-4), asks nothing more', async () => {
+    const { w } = await remembered('granted')
+    w.edit()
+    const asked = w.storage.openRecent('last')
+    await settle()
+    expect(w.storage.confirm).toEqual({ action: 'open', name: null })
+    w.storage.respond(false)
+    expect(await asked).toBe(false)
+    expect(w.host.opened).toEqual([])
+    expect(await w.storage.openRecent('last', true)).toBe(true)
+    expect(w.storage.confirm).toBeNull()
+    expect(w.storage.folder).toEqual({ name: 'last' })
+  })
+
   it('a folder the browser still allows opens without a click', async () => {
     const { w } = await remembered('granted')
     withoutClick()
@@ -2478,5 +2569,262 @@ describe('one banner at a time (#474)', () => {
     w.storage.notice = 'pack.invalid'
     expect(w.storage.noticeVars).toBeNull()
     expect(w.storage.noticeOpen).toBeNull()
+  })
+})
+
+describe('importing an audio file (AU-1)', () => {
+  const wav = () => new File([new Uint8Array(4)], 'kick.wav')
+
+  it('goes into the folder, and the folder watcher does not take the new blob for an outside change', async () => {
+    const { w, store } = await saved()
+    const media = await w.storage.importAudio(wav())
+    expect(store.imports).toEqual(['kick.wav'])
+    expect(media.name).toBe('kick.wav')
+    // The clip the import makes is an edit: the folder now differs from the project.
+    w.edit()
+    w.watchers.forEach((f) => f())
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(w.storage.block).toBeNull()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MAX_WAIT_MS)
+    expect(store.files.get('project.json')).toBe('rev 2')
+  })
+
+  it('a project with no home gets its draft in the browser first; with no storage at all it is refused by name', async () => {
+    const w = world()
+    w.browser.available = true
+    await w.storage.importAudio(wav())
+    const dir = w.browser.only
+    expect(w.stores.get(w.browser.handles.get(dir)!)!.imports).toEqual(['kick.wav'])
+    expect(w.storage.place).toBe('browser')
+    const none = world()
+    await expect(none.storage.importAudio(wav())).rejects.toMatchObject({ name: 'ImportError', code: 'unavailable' })
+  })
+
+  it('waits for a write under way, and a save as never runs in the middle of an import', async () => {
+    const { w, store } = await saved()
+    let release = () => {}
+    store.importHold = new Promise((resolve) => (release = resolve))
+    const importing = w.storage.importAudio(wav())
+    w.edit()
+    const order: string[] = []
+    const flushed = w.storage.flush().then(() => order.push('flush'))
+    await vi.advanceTimersByTimeAsync(10)
+    expect(order).toEqual([])
+    release()
+    await importing
+    order.push('import')
+    await flushed
+    expect(order).toEqual(['import', 'flush'])
+  })
+
+  it('a refusal of the store or of the file reaches the caller as it is, and the queue goes on', async () => {
+    const { w, store } = await saved()
+    store.importFails = new StoreError('full', 'quota')
+    await expect(w.storage.importAudio(wav())).rejects.toMatchObject({ code: 'full' })
+    store.importFails = null
+    await expect(w.storage.importAudio(wav())).resolves.toMatchObject({ name: 'kick.wav' })
+    // A folder whose permission was withdrawn is not written by an import either.
+    w.storage.block = 'permission'
+    await expect(w.storage.importAudio(wav())).rejects.toMatchObject({ code: 'permission' })
+  })
+
+  it('tells the engine the folder it reads audio from on each attach, and none when the project leaves it (AU-3)', async () => {
+    const { w, handle } = await saved()
+    expect(w.host.folders.at(-1)).toBe(handle.name)
+    w.storage.sleep()
+    w.recents = [{ id: handle.name, name: handle.name, handle, at: 1 }]
+    await w.storage.newProject()
+    expect(w.host.folders.at(-1)).toBeNull()
+    expect(await w.storage.openRecent(handle.name)).toBe(true)
+    expect(w.host.folders.at(-1)).toBe(handle.name)
+  })
+
+  it('an opening asks the store for the PCM caches of the project media, in the background', async () => {
+    const { w, handle, store } = await saved()
+    const media = [{ hash: 'a'.repeat(64), sample_rate: 44_100, channels: 2, frames: 10 }]
+    w.host.audioMedia = () => media
+    store.files.set('project.json', 'rev 0')
+    w.storage.sleep()
+    w.recents = [{ id: handle.name, name: handle.name, handle, at: 1 }]
+    await w.storage.newProject()
+    expect(await w.storage.openRecent(handle.name)).toBe(true)
+    await w.storage.audioCacheDone
+    expect(store.caches.at(-1)).toEqual(media)
+    expect(w.storage.audioCache).toEqual({ made: [media[0]!.hash], missing: [], failed: [] })
+    // The project leaves the folder: what remains of that work stops.
+    const signal = store.cacheSignals.at(-1)!
+    expect(signal.aborted).toBe(false)
+    await w.storage.newProject()
+    expect(signal.aborted).toBe(true)
+  })
+
+  it('an import cancelled while it waited in the queue never reaches the store', async () => {
+    const { w, store } = await saved()
+    const abort = new AbortController()
+    abort.abort()
+    await expect(w.storage.importAudio(wav(), undefined, abort.signal)).rejects.toMatchObject({ code: 'cancelled' })
+    expect(store.imports).toEqual([])
+  })
+})
+
+describe('Save as names the project (#627)', () => {
+  /** A picked folder that holds `existing` folders, and records the folders made and removed in it. */
+  function parentOf(existing: Record<string, FolderHandle> = {}, failWith?: string) {
+    const made: string[] = []
+    const removed: string[] = []
+    const children = new Map(Object.entries(existing))
+    const handle = {
+      name: 'Music',
+      isSameEntry: async (other: unknown) => other === handle,
+      getDirectoryHandle: async (name: string, options?: { create?: boolean }) => {
+        if (failWith) throw new DOMException('no', failWith)
+        const found = children.get(name)
+        if (found) return found
+        if (!options?.create) throw new DOMException('gone', 'NotFoundError')
+        made.push(name)
+        const child = handleOf(name)
+        children.set(name, child)
+        return child
+      },
+      removeEntry: async (name: string) => void removed.push(name),
+    } as unknown as FolderHandle
+    return { handle, made, removed, children }
+  }
+
+  /** A world whose Save as asks `answers` in turn (what the user types), and records what it was offered. */
+  function asking(...answers: (string | null)[]) {
+    const w = world()
+    const offered: string[] = []
+    w.deps.askName = async (initial) => {
+      offered.push(initial)
+      return answers.shift() ?? null
+    }
+    return { w, offered, renames: w.host.renames }
+  }
+
+  it('offers the current name, then writes the project into a folder of that name inside the folder picked', async () => {
+    const { w, offered, renames } = asking('Night Drive')
+    const parent = parentOf()
+    w.picks.push({ status: 'chosen', handle: parent.handle })
+    w.edit()
+    expect(await w.storage.saveAs()).toBe(true)
+    expect(offered).toEqual(['Song'])
+    expect(parent.made).toEqual(['Night Drive'])
+    expect(w.stores.get(parent.children.get('Night Drive')!)!.files.has('project.json')).toBe(true)
+    expect(w.storage.folder).toEqual({ name: 'Night Drive' })
+    // The project takes the name through the command path, before the files are computed.
+    expect(renames).toEqual(['Night Drive'])
+  })
+
+  it('does not rename a project whose name was kept', async () => {
+    const { w, renames } = asking('Song')
+    w.picks.push({ status: 'chosen', handle: parentOf().handle })
+    w.edit()
+    expect(await w.storage.saveAs()).toBe(true)
+    expect(renames).toEqual([])
+  })
+
+  it('makes the folder name safe for a file system, and keeps the project name as typed', async () => {
+    const { w, renames } = asking('  a/b: c?  ')
+    const parent = parentOf()
+    w.picks.push({ status: 'chosen', handle: parent.handle })
+    w.edit()
+    expect(await w.storage.saveAs()).toBe(true)
+    expect(parent.made).toEqual(['a-b- c-'])
+    expect(renames).toEqual(['a/b: c?'])
+  })
+
+  it('writes into an existing empty folder of that name', async () => {
+    const { w } = asking('Song')
+    const existing = handleOf('Song')
+    const parent = parentOf({ Song: existing })
+    w.picks.push({ status: 'chosen', handle: parent.handle })
+    w.edit()
+    expect(await w.storage.saveAs()).toBe(true)
+    expect(parent.made).toEqual([])
+    expect(w.stores.get(existing)!.files.has('project.json')).toBe(true)
+  })
+
+  it('refuses a folder of that name that holds files, says which, and renames nothing', async () => {
+    const { w, renames } = asking('Song')
+    const full = handleOf('Song')
+    w.stores.set(full, Object.assign(new FakeStore('Song'), { files: new Map([['notes.txt', 'hi']]) }))
+    const parent = parentOf({ Song: full })
+    w.picks.push({ status: 'chosen', handle: parent.handle })
+    w.edit()
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(w.storage.notice).toBe('storage.nameTaken')
+    expect(w.storage.noticeVars).toEqual({ name: 'Song' })
+    expect(renames).toEqual([])
+    expect(w.host.saves).toEqual([])
+    // Nothing was made here, so nothing is removed: the user's folder stays.
+    expect(parent.removed).toEqual([])
+  })
+
+  it('gives the old name back when the write fails after the rename', async () => {
+    const { w, renames } = asking('Night Drive')
+    w.picks.push({ status: 'chosen', handle: parentOf().handle })
+    w.edit()
+    w.host.frameFails = true
+    expect(await w.storage.saveAs()).toBe(false)
+    // Renamed to write the frame, renamed back when it failed: the project is as it was.
+    expect(renames).toEqual(['Night Drive', 'Song'])
+    expect(w.host.name).toBe('Song')
+  })
+
+  it('writes nothing when the project does not take the new name', async () => {
+    const { w } = asking('Night Drive')
+    const parent = parentOf()
+    w.picks.push({ status: 'chosen', handle: parent.handle })
+    w.edit()
+    w.host.refuseRename = true
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(w.storage.notice).toBe('storage.saveFailed')
+    expect(w.host.saves).toEqual([])
+    expect(w.host.name).toBe('Song')
+    expect(parent.removed).toEqual(['Night Drive'])
+  })
+
+  it('removes the empty folder it made when the write fails', async () => {
+    const { w } = asking('Song')
+    const parent = parentOf()
+    w.picks.push({ status: 'chosen', handle: parent.handle })
+    w.edit()
+    w.host.frameFails = true
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(w.storage.notice).toBe('storage.saveFailed')
+    expect(parent.removed).toEqual(['Song'])
+  })
+
+  it('does nothing when the name is cancelled or empty, and does not open the folder dialog', async () => {
+    const { w } = asking(null, '   ')
+    w.picks.push({ status: 'chosen', handle: parentOf().handle })
+    w.edit()
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(w.picks).toHaveLength(1)
+    expect(w.storage.notice).toBeNull()
+    expect(w.host.saves).toEqual([])
+  })
+
+  it('does nothing when the folder dialog is cancelled after the name', async () => {
+    const { w, renames } = asking('Song 2')
+    w.edit()
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(renames).toEqual([])
+    expect(w.storage.folder).toBeNull()
+  })
+
+  it('says so when the browser will not make the folder', async () => {
+    const { w } = asking('Song')
+    w.picks.push({ status: 'chosen', handle: parentOf({}, 'NotAllowedError').handle })
+    w.edit()
+    expect(await w.storage.saveAs()).toBe(false)
+    expect(w.storage.notice).toBe('storage.refused')
+    const other = asking('Song')
+    other.w.picks.push({ status: 'chosen', handle: parentOf({}, 'TypeMismatchError').handle })
+    other.w.edit()
+    expect(await other.w.storage.saveAs()).toBe(false)
+    expect(other.w.storage.notice).toBe('storage.saveFailed')
   })
 })

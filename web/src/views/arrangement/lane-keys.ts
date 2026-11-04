@@ -1,7 +1,7 @@
 /**
  * The keys of a track's row in the arrangement (#471), as pure functions. On the selected track's row, a key that
- * starts a number (a digit, a sign, a decimal point) opens the volume field with that key typed in it, and Enter or F2
- * open it on the current value. On an unselected row these keys do nothing special: Enter presses the button, which
+ * starts a number (a digit, a sign, a decimal point) opens the volume field with that key typed in it, and Enter
+ * opens it on the current value. F2 is not one of them: it renames the track, on any row, like the row's menu (#625). On an unselected row these keys do nothing special: Enter presses the button, which
  * selects the track. None of them is a playing key (`keyboard.ts`): those are letters and Semicolon.
  *
  * The row's height handle (a separator) moves with the arrows, as the bottom panel's handle does.
@@ -17,7 +17,7 @@ const STARTS_NUMBER = /^[0-9.,+-]$/
 /** What a key pressed on a track row's head does to the volume field: open it on the value, open it with the key typed, or nothing. */
 export function volumeKey(event: Pick<KeyboardEvent, 'key' | 'altKey' | 'ctrlKey' | 'metaKey' | 'repeat' | 'isComposing'>, selected: boolean): VolumeKey {
   if (!selected || event.altKey || event.ctrlKey || event.metaKey || event.isComposing) return null
-  if (event.key === 'Enter' || event.key === 'F2') return event.repeat ? null : { open: 'value' }
+  if (event.key === 'Enter') return event.repeat ? null : { open: 'value' }
   if (STARTS_NUMBER.test(event.key)) return { open: 'typed', text: event.key }
   return null
 }

@@ -62,6 +62,11 @@
       <h2 id="export-title">{t('export.title')}</h2>
 
       {#if exporter.phase === 'options'}
+        <label class="name">
+          <span>{t('export.fileName')}</span>
+          <input type="text" maxlength="100" bind:value={exporter.choices.fileName} data-testid="export-file-name" />
+          <span class="ext">.wav</span>
+        </label>
         <fieldset>
           <legend>{t('export.range')}</legend>
           <label>
@@ -224,6 +229,23 @@
     flex-wrap: wrap;
     align-items: center;
     gap: var(--fk-space-1) var(--fk-space-3);
+  }
+  label.name {
+    margin-bottom: var(--fk-space-3);
+  }
+  label.name input {
+    flex: 1;
+    min-width: 0;
+    height: 24px;
+    padding: 0 var(--fk-space-2);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-sm, 4px);
+    background: var(--fk-surface-2);
+    color: var(--fk-text);
+    font: inherit;
+  }
+  .ext {
+    color: var(--fk-text-muted);
   }
   .number input {
     width: 4.5rem;

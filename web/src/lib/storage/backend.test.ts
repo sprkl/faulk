@@ -119,6 +119,7 @@ describe('FolderBackend.readFolder and scan', () => {
       .put('project.json', '{"id":"x"}')
       .put('tracks/a/track.json', '{}')
       .put('master/automation/l.tsv', 'lane')
+      .put('presets/p.json', '{}')
       .put('blobs/lane', lane)
       .put('blobs/audio', audio)
       .put('.faulk/session.json', '{"solo":[]}')
@@ -142,6 +143,7 @@ describe('FolderBackend.readFolder and scan', () => {
       'blobs/audio',
       'blobs/lane',
       'master/automation/l.tsv',
+      'presets/p.json',
       'project.json',
       'tracks/a/track.json',
     ])
@@ -154,7 +156,14 @@ describe('FolderBackend.readFolder and scan', () => {
   it('stamps only the project: never .faulk, .git, a swap file, a README, a mixdown or the .DS_Store a file manager writes', async () => {
     const { store } = song()
     const { signature } = await store.readFolder()
-    expect(Object.keys(signature).sort()).toEqual(['blobs/audio', 'blobs/lane', 'master/automation/l.tsv', 'project.json', 'tracks/a/track.json'])
+    expect(Object.keys(signature).sort()).toEqual([
+      'blobs/audio',
+      'blobs/lane',
+      'master/automation/l.tsv',
+      'presets/p.json',
+      'project.json',
+      'tracks/a/track.json',
+    ])
     expect(await store.scan()).toEqual(signature)
     await store.apply([write('project.json', '{"id":"y"}')])
     expect((await store.scan())['project.json']).not.toBe(signature['project.json'])

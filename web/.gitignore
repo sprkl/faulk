@@ -2,6 +2,7 @@ node_modules
 dist
 src/lib/engine/wasm/
 src/lib/project/wasm/
+src/lib/audio/import/wasm/
 *.local
 .svelte-kit
 src/lib/engine/proto/build/

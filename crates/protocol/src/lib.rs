@@ -8,19 +8,60 @@
 //! stream the page's project core encoded (`engine::msg`), the same bytes the page's own
 //! engine takes, which the helper submits unchanged (at most [`MAX_STREAM_BYTES`]); from the
 //! helper, each one is a report (`engine::msg::Feedback`, version 3 of this protocol). The page
-//! owns the project in both modes: no command crosses the link.
+//! owns the project in both modes: no command crosses the link on the page's initiative.
+//!
+//! Agents (AG-1, version 26): the helper serves MCP and relays each tool call to the page as
+//! `agent.call` (a command, with an `id`); the page runs it through its own dispatcher, as a
+//! user's action, and answers `agent.result` with the same `id`. Since version 29 (#608) a
+//! paired page also holds a control link (`/control`) that carries only these two messages
+//! and `control.front`, in Web mode as in Boost, with or without an audio output.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 24;
+pub const PROTOCOL_VERSION: u32 = 31;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
 /// encodes (16 Mi notes at about 21 bytes each are 352 MB). The page never sends a longer
 /// one; the helper's other routes keep the WebSocket library's default limits.
 pub const MAX_STREAM_BYTES: usize = 1 << 30;
+
+/// The WebSocket close code of a control link the helper closed because newer ones pushed it
+/// out (#608, more than its limit of links open): the page does not try it again on its own,
+/// so that many pages never push each other out in a loop.
+pub const CONTROL_PUSHED_OUT: u16 = 4001;
+
+/// How long the page waits for the user to answer an agent's destructive call (AG-4, #100), in
+/// milliseconds, before it answers the agent `refused` with the code `confirmation.timeout`.
+/// Well under the helper's own wait for the page (`AGENT_TIMEOUT` in `crates/helper`, tested):
+/// for a question nobody answers, the agent learns the page's answer, not a bare `page.timeout`.
+/// The bound covers the question only: an allowed action that takes long can still end in
+/// `page.timeout` although it ran.
+pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 31 (#112, AU-3): audio clips reach the engine. `AudioSourceDeclare` carries the
+// blob's SHA-256 and `ClipAudioSet` the clip's gain and loop (their payloads change), and the
+// report is `Feedback` version 7 (offline sources, the PCM budget flag and the PCM in memory
+// after the header, which grows from 76 to 88 bytes). A page and a helper of different
+// versions refuse each other.
+
+// Version 30 (#114, 29 is #619's): audio clip commands (AU-5). `clip.import_audio` takes an
+// optional target `at` and answers its `placement`; new `clip.audio.set_range`,
+// `clip.audio.set_gain`, `clip.audio.set_loop`; `clip.move` takes audio clips; clip summaries
+// gain `media_missing`; the clip event part `gain`. A helper of version 29 would not offer the
+// new tools.
+
+// Version 29 (#608; 28 is #191's): agents reach a paired page in Web mode and with a helper that has no audio output. A new token route, `/control`, is the page's control link: it carries only `agent.call`, `agent.result` and `control.front` (the page came to the front), never takes the audio role, never replaces the session and opens whatever the output. The helper sends an agent's call to the greeted session (Boost) first, else to the front control link (the newest, or the last that sent `control.front`); `page.absent` only when neither exists. At most 8 links: a newer one closes the oldest with close code `CONTROL_PUSHED_OUT` (4001). A page and a helper of different versions refuse each other.
+
+// Version 28 (#191, 27 is #616's): device presets. The commands gain the `preset` domain (`preset.save`, `preset.load`, `preset.delete`, `preset.rename`, `preset.copy`, `preset.list`, `preset.restore`, `preset.restore_device`), the events `preset_changed` and `device_preset_changed`, a device an optional `preset`, the project its `presets` (folder format 4). The helper's MCP tools come from the command catalogue (AG-1), so a helper of version 27 would not offer them.
+
+// Version 27 (#110, AU-1): the commands gain `clip.import_audio`, `clip.restore_audio`, `clip.choose_audio` and `clip.cancel_audio_import`, and `clip.delete` takes an audio clip; the helper generates its MCP tools from the commands, so a helper of version 26 would not offer them to an agent. No message changes: the import runs in the page in both modes, and nothing of an audio file crosses the link.
+
+// Version 26 (#97, AG-1; 25 is #594's): agents. The helper serves MCP (`/mcp` on the same port) and relays each tool call to the session as `agent.call` (`id`, the agent's name, the command as JSON); the page runs it through its dispatcher like a user's action (history author `agent:<name>`, undo, refusals) and answers `agent.result` with the same `id` and an `AgentResult`. A page and a helper of different versions refuse each other.
+
+// Version 25 (#486): the feedback layout is version 6: a 76-byte header whose new word at offset 72 is the CPU load's peak (`cpu_peak`, f32, the largest load of one peak window of the period, -1 until the host timed a block), and the helper now times its render, so `cpu_load` is measured in Boost. A page and a helper of different versions refuse each other.
 
 // Version 24 (#598): the notes of the helper's MIDI input play on the helper's engine at once, without the page's main thread. The page sends `live.routing` (`epoch`, the slots of the tracks the live input reaches) after each snapshot and whenever it changes; the helper encodes each note on in that epoch for those tracks and each note off for the tracks its note went to, and ignores a table of another epoch than its engine's. `midi.message` still carries every message to the page and gains `played`: the page runs the message in its project and sends its engine bytes only when the helper did not play it (control changes, a note before any table). A page of version 23 would double the notes, and one of version 24 would leave them unplayed with a helper of version 23.
 
@@ -96,6 +137,10 @@ pub mod paths {
     /// Requires `?token=`: the session, which takes the page's engine streams (binary frames)
     /// and the messages for the helper's MIDI inputs.
     pub const SESSION: &str = "/session";
+    /// Requires `?token=`: the page's control link (#608), which carries only the agents'
+    /// relay (`agent.call`, `agent.result`). It never takes the audio role, never replaces the
+    /// session, and opens whether or not the helper has an audio output.
+    pub const CONTROL: &str = "/control";
 }
 
 /// The ids of the page's default project (`commands::engine_msgs::single_synth`, the project
@@ -130,6 +175,36 @@ pub enum ClientMessage {
     /// track limit. Only on a session.
     #[serde(rename = "live.routing")]
     LiveRouting { epoch: u16, tracks: Vec<u32> },
+    /// The page's answer to the helper's `agent.call` of the same `id` (AG-1): what running
+    /// the agent's command did. The helper takes it only from the link (session or control
+    /// link) the call went to. On a session or a control link.
+    #[serde(rename = "agent.result")]
+    AgentResult { id: u64, result: AgentResult },
+    /// The page came to the front (shown, or focused) (#608): its control link becomes the one
+    /// the agents' calls go to while no session is greeted, so with several pages open an agent
+    /// drives the one the user last looked at. Only on a control link.
+    #[serde(rename = "control.front")]
+    ControlFront,
+}
+
+/// What running an agent's command in the page did (`agent.result`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
+pub enum AgentResult {
+    /// The command applied. `output` is its typed output (the helper drops its `type` tag: the
+    /// tool's name carries it). For the commands the page answers once its own work is done, the
+    /// output it builds then: `project.list_stored` its lists, `project.new` the new project's
+    /// `name`; `null` when the report of an applied command was lost.
+    Applied { output: serde_json::Value },
+    /// The project refused it (a `CommandError`, `code` first), or the page did (a recording in
+    /// progress: `{ "code": <the page's notice> }`): nothing changed.
+    Refused { error: serde_json::Value },
+    /// The JSON is not a command this page knows: nothing changed.
+    Invalid { message: String },
+    /// The page cannot run it now (no project yet, no engine, a session it no longer plays, or a
+    /// command that opens a picker or a permission prompt, which needs a click in the page):
+    /// nothing changed.
+    Unavailable { reason: String },
 }
 
 /// What the helper can do, announced in `hello` (BO-1).
@@ -224,6 +299,17 @@ pub enum ServerMessage {
         checked_at: Option<u64>,
         status: HelperUpdate,
     },
+    /// An agent's tool call (AG-1): the command to run, as JSON (`{"type": "<domain.verb>",
+    /// ...}`), and the agent's name, the history's author `agent:<name>`. The page runs it
+    /// through its dispatcher like a user's action and answers `agent.result` with this `id`;
+    /// the helper gives up on it when the link it went on ends or after its timeout. Sent on
+    /// the greeted session (Boost) if there is one, else on the newest control link (#608).
+    #[serde(rename = "agent.call")]
+    AgentCall {
+        id: u64,
+        agent: String,
+        command: serde_json::Value,
+    },
     /// The helper could not do something; `code` is stable, `message` is for developers.
     #[serde(rename = "error")]
     Error { code: String, message: String },
@@ -280,6 +366,15 @@ pub fn schema_bundle() -> serde_json::Value {
         "param_ids": param_ids,
         "error_codes": { "no_output": errors::NO_OUTPUT, "audio_stream": errors::AUDIO_STREAM },
         "max_stream_bytes": MAX_STREAM_BYTES,
+        "control_pushed_out": CONTROL_PUSHED_OUT,
+        "agent_confirm_ms": AGENT_CONFIRM_MS,
+        // The commands whose call by an agent waits for the user's confirmation in the page
+        // (`x-destructive`, AG-4): the page reads the list from here, never from the schema.
+        "destructive_commands": commands::catalog()
+            .into_iter()
+            .filter(|spec| spec.destructive)
+            .map(|spec| spec.name)
+            .collect::<Vec<_>>(),
         "param_defaults": param_defaults,
         // The fader's law (#389): `[position, dB]` points, from the bottom (silence) to the top.
         // The page's fader, the axis of a volume lane and the engine's reading of a lane all

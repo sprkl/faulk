@@ -19,7 +19,7 @@ export interface EffectPorts {
   clearNotes(): void
   /** `project.save`: write the project to its folder now (or ask for one). */
   save(): void
-  /** `project.save_as`: the user picks an empty folder and the project moves into it. */
+  /** `project.save_as`: the user names the project and picks a folder, and the project moves into a folder of that name inside it. */
   saveAs(): void
   /** `project.export_pack`: hand the project to the user as a `.faulkpack` download. */
   exportPack(): void
@@ -45,6 +45,10 @@ export interface EffectPorts {
   allowAccess(): void
   /** `project.export_audio`: the page renders the song to a WAV file (the dialog opens with these settings). */
   exportAudio(request: ExportRequest): void
+  /** `clip.choose_audio`: the user picks audio files, and each is imported into the track (AU-1). */
+  chooseAudio(track: string): void
+  /** `clip.cancel_audio_import`: the import under way stops. */
+  cancelAudioImport(): void
   /** `transport.stop`, `transport.seek`, `transport.pause`: the playhead is cued, even to where it already stands (the engine frees every held gesture of a lane, #394). */
   cued(): void
 }
@@ -114,6 +118,12 @@ export function applyEffects(command: Command, ports: EffectPorts) {
       return
     case 'project.allow_access':
       ports.allowAccess()
+      return
+    case 'clip.choose_audio':
+      ports.chooseAudio(command.track)
+      return
+    case 'clip.cancel_audio_import':
+      ports.cancelAudioImport()
       return
     case 'project.export_audio':
       ports.exportAudio({

@@ -1,0 +1,14 @@
+{
+  "category": "Space",
+  "device": "faulk.reverb",
+  "format": 1,
+  "name": "Large Hall",
+  "params": {
+    "damping": 0.35,
+    "mix": 0.35,
+    "predelay": 0.04,
+    "size": 0.9,
+    "time_change": 0.0
+  },
+  "version": 1
+}

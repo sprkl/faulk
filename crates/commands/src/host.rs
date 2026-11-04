@@ -123,8 +123,38 @@ pub struct HistoryEntryView {
     pub others: u32,
     /// Who ran it.
     pub author: crate::Author,
-    /// The history group it belongs to, if any.
+    /// The history group it belongs to, if any: an agent's entry with a group is a turn
+    /// of that agent (AG-3).
     pub group: Option<crate::GroupId>,
+    /// How many commands it holds: "3 edits in one turn" (AG-3).
+    pub edits: u32,
+}
+
+/// One file of the user's preset library, as the page hands it to the core (`pw_stage_library`,
+/// #191): its id (the file's name without `.json`) and its text.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LibraryFile {
+    pub id: String,
+    pub text: String,
+}
+
+/// What staging the library did: how many presets the core now holds, and the files it left
+/// out, each with why (a name that is not a preset id, a file that is not a preset, one too
+/// many). A file left out is never removed: the page leaves it where it is.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LibraryReport {
+    pub loaded: u32,
+    pub skipped: Vec<SkippedPreset>,
+}
+
+/// A library file the core left out.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SkippedPreset {
+    pub id: String,
+    pub reason: String,
 }
 
 /// The engine slots of the tracks and scenes that have one. The engine reports the state of

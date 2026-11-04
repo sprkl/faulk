@@ -110,6 +110,9 @@ describe('decodeFeedback', () => {
         v.setUint32(32, 3, true)
         v.setUint32(36, 4, true)
         v.setUint32(52, 5, true)
+        v.setUint32(76, 2, true)
+        v.setUint32(80, 1, true)
+        v.setUint32(84, 4096, true)
       }),
     )!
     expect(r).toMatchObject({
@@ -123,6 +126,9 @@ describe('decodeFeedback', () => {
       rejected: 3,
       diskUnderruns: 4,
       voices: 5,
+      offlineSources: 2,
+      pcmOverBudget: true,
+      pcmKib: 4096,
     })
     expect(r.tracks).toHaveLength(3)
     expect(r.tracks[2].peakL).toBeCloseTo(0.3)
@@ -141,7 +147,8 @@ describe('decodeFeedback', () => {
     expect(decodeFeedback(report(1, (v) => v.setFloat32(at + 16, NaN, true)))!.tracks[0].gainReductionDb).toBe(0)
   })
 
-  it('refuses a report of the previous layouts (version 4: a 56-byte header; version 3)', () => {
+  it('refuses a report of the previous layouts (version 5: a 72-byte header; version 4: 56 bytes; version 3)', () => {
+    expect(decodeFeedback(report(2, (v) => v.setUint8(0, 5)))).toBeNull()
     expect(decodeFeedback(report(2, (v) => v.setUint8(0, 4)))).toBeNull()
     expect(decodeFeedback(report(2, (v) => v.setUint8(0, 3)))).toBeNull()
   })
@@ -162,6 +169,16 @@ describe('decodeFeedback', () => {
     expect(decodeFeedback(report(0, (v) => v.setFloat32(24, -1, true)))!.cpuLoad).toBeNull()
     expect(decodeFeedback(report(0, (v) => v.setFloat32(24, 3, true)))!.cpuLoad).toBe(1)
     expect(decodeFeedback(report(0, (v) => v.setFloat32(24, 0, true)))!.cpuLoad).toBe(0)
+    expect(decodeFeedback(report(0, (v) => v.setFloat32(24, NaN, true)))!.cpuLoad).toBeNull()
+  })
+
+  it('reads the peak of the period at offset 72 (version 6, #486), not measured and clamped like the load', () => {
+    expect(decodeFeedback(report(0, (v) => v.setFloat32(72, 0.6, true)))!.cpuPeak).toBeCloseTo(0.6)
+    expect(decodeFeedback(report(0, (v) => v.setFloat32(72, -1, true)))!.cpuPeak).toBeNull()
+    expect(decodeFeedback(report(0, (v) => v.setFloat32(72, NaN, true)))!.cpuPeak).toBeNull()
+    expect(decodeFeedback(report(0, (v) => v.setFloat32(72, 2, true)))!.cpuPeak).toBe(1)
+    // The meters start after it.
+    expect(FEEDBACK_HEADER_BYTES).toBe(88)
   })
 
   it('refuses another version, a short buffer and a track count beyond the bytes', () => {

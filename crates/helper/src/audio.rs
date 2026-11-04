@@ -26,7 +26,7 @@ use engine::msg::{ControlMsg, Header, MsgError, Tag};
 use engine::time::SampleRate;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Frames rendered per chunk; a longer callback is rendered in several chunks.
 pub const CHUNK_FRAMES: usize = engine::msg::limits::MAX_BLOCK_FRAMES;
@@ -437,6 +437,18 @@ impl AudioCore {
     /// Fills an interleaved output buffer of `channels` channels.
     /// Channel 0 gets the left signal, channel 1 the right one, others silence.
     pub fn process(&mut self, out: &mut [f32], channels: usize) {
+        self.process_with(out, channels, &mut Instant::now);
+    }
+
+    /// [`process`](Self::process) with the clock that times the renders injected (#611): `now`
+    /// is read twice per render chunk, before and after. A test passes a synthetic clock, so the
+    /// CPU load it checks does not depend on the machine's load.
+    fn process_with(
+        &mut self,
+        out: &mut [f32],
+        channels: usize,
+        now: &mut impl FnMut() -> Instant,
+    ) {
         let channels = channels.max(1);
         let frames = out.len() / channels;
         self.meter
@@ -445,7 +457,15 @@ impl AudioCore {
         let mut peak = 0.0f32;
         let mut done = 0;
         while done < frames {
+            // The CPU load (#486): each chunk's render timed with the monotonic clock (a
+            // user-mode counter read on the supported systems; no allocation, no lock), its
+            // time added with its frames. The copy below is not counted.
+            let start = now();
             let n = self.host.render((frames - done).min(CHUNK_FRAMES));
+            self.host.add_render_time(
+                now().saturating_duration_since(start).as_secs_f32(),
+                n as u32,
+            );
             let (left, right) = (self.host.left(), self.host.right());
             for i in 0..n {
                 let frame = &mut out[(done + i) * channels..(done + i + 1) * channels];

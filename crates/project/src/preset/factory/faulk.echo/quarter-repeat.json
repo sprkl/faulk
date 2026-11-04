@@ -1,0 +1,15 @@
+{
+  "category": "Delay",
+  "device": "faulk.echo",
+  "format": 1,
+  "name": "Quarter Repeat",
+  "params": {
+    "division": 6.0,
+    "feedback": 0.55,
+    "mix": 0.4,
+    "mode": 1.0,
+    "time": 0.3,
+    "time_change": 0.0
+  },
+  "version": 1
+}

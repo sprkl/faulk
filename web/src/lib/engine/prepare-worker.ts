@@ -2,6 +2,7 @@
 // engine module on the shared memory. It creates the channel, gives the worklet's instance
 // its stack and thread-local block, and submits the ControlMsg byte streams the page sends.
 // It allocates freely: it is off the audio path.
+import { DiskExecutor, type Dir } from '../audio/stream/executor'
 import { createChannel, instantiate } from './engine-abi'
 import { PushQueue } from './push-queue'
 
@@ -9,6 +10,8 @@ export type ToPrepare =
   | { type: 'init'; bytes: ArrayBuffer; memory: WebAssembly.Memory; sampleRate: number }
   /** A stream of encoded ControlMsg (the page's command layer made it, never this Worker). */
   | { type: 'push'; bytes: ArrayBuffer }
+  /** The project's folder, where the disk side reads the audio files (AU-3); `null`: none. */
+  | { type: 'folder'; handle: FileSystemDirectoryHandle | null }
 
 export type FromPrepare =
   | { type: 'ready'; channel: number; stackTop: number; tls: number; feedback: number; feedbackLen: number }
@@ -18,6 +21,8 @@ export type FromPrepare =
 
 /** How often the prepare side pushes what waited and drops the garbage, in ms. */
 export const FLUSH_MS = 5
+/** How often the disk side plans and starts its reads, in ms (AU-3). */
+export const DISK_MS = 10
 
 declare const self: {
   onmessage: ((event: MessageEvent<ToPrepare>) => void) | null
@@ -25,6 +30,9 @@ declare const self: {
 }
 
 let queue: PushQueue | null = null
+let disk: DiskExecutor | null = null
+/** A folder given before the engine was ready. */
+let folder: Dir | null = null
 
 self.onmessage = (event) => {
   const message = event.data
@@ -35,6 +43,9 @@ self.onmessage = (event) => {
       const channel = setup.channel
       queue = new PushQueue(exports, message.memory, channel, (code, at) => self.postMessage({ type: 'pushed', code, at }))
       setInterval(() => queue?.flush(), FLUSH_MS)
+      disk = new DiskExecutor(exports, message.memory, channel)
+      disk.folder(folder)
+      setInterval(() => disk?.tick(), DISK_MS)
       self.postMessage({
         type: 'ready',
         ...setup,
@@ -43,6 +54,9 @@ self.onmessage = (event) => {
       })
     } else if (message.type === 'push' && queue) {
       queue.push(new Uint8Array(message.bytes))
+    } else if (message.type === 'folder') {
+      folder = message.handle as unknown as Dir | null
+      disk?.folder(folder)
     }
   } catch (error) {
     self.postMessage({ type: 'error', message: String(error) })
