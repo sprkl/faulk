@@ -82,6 +82,11 @@ impl Presence {
         left
     }
 
+    /// How many MCP sessions of `name` are open.
+    pub fn sessions(&self, name: &str) -> usize {
+        self.by_name.get(name).map_or(0, |seen| seen.sessions)
+    }
+
     /// Whether `name` is here at `now`.
     pub fn is_here(&self, name: &str, now: Instant) -> bool {
         self.by_name.get(name).is_some_and(|seen| seen.here(now))

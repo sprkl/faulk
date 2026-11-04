@@ -176,7 +176,8 @@ there. Your consecutive edits are one entry of that history, your turn, which on
 whole; the turn ends when the user or another agent edits, after an undo or a redo, and after \
 30 s without an edit of yours. A history group you open with `history_begin_group` blocks undo \
 for everyone until you end it with `history_end_group`; the page closes it for you when you \
-leave: your MCP session ends, or 5 minutes pass without a request of yours. A destructive tool (annotation `destructiveHint`: it cannot be \
+leave (your MCP session ends, or 5 minutes pass without a request of yours) and when the page \
+loses its link to this helper. A destructive tool (annotation `destructiveHint`: it cannot be \
 undone) and the tools that replace the open project, delete a project kept in the browser or \
 settle a conflict with the project's folder (`project_open_recent`, \
 `project_open_browser_project`, `project_reopen_last`, `project_open_url`, \

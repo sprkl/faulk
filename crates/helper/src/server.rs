@@ -286,6 +286,11 @@ impl Shared {
             .is_ok_and(|a| a.is_here(name, Instant::now()))
     }
 
+    /// How many MCP sessions of the agent `name` are open (#641).
+    pub fn agent_sessions(&self, name: &str) -> usize {
+        self.agents.lock().map_or(0, |a| a.sessions(name))
+    }
+
     /// The agents whose stateless calls stopped for `agent_idle` left (#641): the ticker's.
     fn expire_agents(&self) {
         let left = self
@@ -301,7 +306,9 @@ impl Shared {
     /// Tells the page that the agent `name` left (#641): on the greeted session and on every
     /// control link, whichever its calls went to (another page it drove may hold its group). The
     /// session gets it too, after any call it carried for that agent: the page runs that call
-    /// before it learns the agent left, so a group the call opened is closed, not left open.
+    /// before it learns the agent left, so a group the call opened is closed, not left open. A
+    /// copy on another link may come later than a new session of the same name opened a group
+    /// there: that group is then closed early, never left open (the user keeps undo).
     fn agent_left(&self, name: &str) {
         crate::log!("agent {name:?} left");
         let message = ServerMessage::AgentLeft {

@@ -2327,19 +2327,20 @@ async fn a_name_leaves_with_its_last_session_and_another_names_leave_is_its_own(
     let (second, second_done) = live_bridge(h.port, "test-agent");
     let (other, other_done) = live_bridge(h.port, "other");
     agent_here(&h, "other", true).await;
-    agent_here(&h, "test-agent", true).await;
-
-    drop(first);
-    let answers = first_done.await.unwrap();
-    assert_eq!(answer(&answers, 1)["result"]["serverInfo"]["name"], "faulk");
-    // The second session of the name may still be initializing: wait for its count.
-    second.line(serde_json::json!({"jsonrpc":"2.0","id":5,"method":"ping"}));
+    // Both sessions of the name counted before the first ends.
     for _ in 0..500 {
-        if h.shared.agent_here("test-agent") {
+        if h.shared.agent_sessions("test-agent") == 2 {
             break;
         }
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
+    assert_eq!(h.shared.agent_sessions("test-agent"), 2);
+
+    drop(first);
+    let answers = first_done.await.unwrap();
+    assert_eq!(answer(&answers, 1)["result"]["serverInfo"]["name"], "faulk");
+    assert_eq!(h.shared.agent_sessions("test-agent"), 1);
+    nothing_before_the_next(&mut page).await;
 
     drop(other);
     other_done.await.unwrap();
