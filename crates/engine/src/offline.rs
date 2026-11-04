@@ -6,6 +6,11 @@
 //! small state machine that the host steps from its own loop (a Worker in the page, a
 //! thread in the helper, a test):
 //!
+//! 0. **Pre-roll**: when the host gave a start stream ([`Offline::set_start`]: the `Play`),
+//!    the engine first renders [`PREROLL_SECONDS`] with the transport stopped, written
+//!    nowhere, so that the fade in of every new track and device (`graph::FADE_SECONDS`) is
+//!    over before the first frame: the song starts as it does when the user presses play on a
+//!    project already open. Then the start stream goes in.
 //! 1. **Body**: [`Plan::body_frames`] frames, the content of the song (the host computes
 //!    the length from the project). Every frame is written. The last block is cut short so
 //!    that the content ends on its last frame, and the transport stops there.
@@ -20,7 +25,31 @@
 //! page, the helper and the tests read PCM from [`Offline::pcm`] and the header from
 //! [`Offline::header`]. Nothing here runs on an audio thread; the engine's `process` path
 //! it drives is the one the allocation detector watches.
+//!
+//! # Audio clips: the render waits for the disk (#647)
+//!
+//! The engine reads the audio clips' files through its disk planner
+//! ([`crate::audio_source::Disk`]), whose read jobs the host serves (the page's export Worker
+//! from the project's folder, with the executor the live engine uses; a test from memory).
+//! Before each block, [`Offline::step`] applies what the planner sent, polls it with the
+//! render's own clock (the frames rendered so far) and renders the block only once the
+//! planner is idle: no read in flight or waiting, nothing left to send. While reads are under
+//! way the step returns early ([`Offline::waiting`]): the host takes the jobs
+//! ([`Offline::take_disk_jobs`]), answers each ([`Offline::disk_done`],
+//! [`Offline::disk_failed`]) and steps again. So every segment is loaded before the first
+//! block and every ring is filled to its look-ahead before the block after its voice asked
+//! for it: a voice never underruns in an export, and the file is what playback gives when the
+//! disk keeps up, sample for sample (same planner, same files, same clip player and
+//! resampling).
+//!
+//! A file that cannot be read (a missing blob, a cache not made) does not stop the render:
+//! the planner marks its source offline, its clips are silent as they are when playing, and
+//! the render keeps the media's hash once one of its clips played ([`Offline::missing`]) for
+//! the host to name it. A start that no preloaded segment covers (a placement at an offset into
+//! a long source) waits for its ring one block, with the clip player's 2 ms gate, as it does
+//! when playing.
 
+use crate::audio_source::{Failure, Job};
 use crate::host::{Host, Prepare, channel};
 use crate::msg::{MsgError, limits};
 
@@ -34,6 +63,9 @@ pub const SILENCE_SECS: f32 = 1.0;
 /// The longest tail rendered after the body, in seconds (a self-oscillating effect never
 /// falls silent).
 pub const MAX_TAIL_SECS: f32 = 30.0;
+/// What the engine renders, stopped and written nowhere, before the start stream: twice the
+/// fade in of a new track or device ([`crate::graph::FADE_SECONDS`]).
+pub const PREROLL_SECONDS: f64 = 2.0 * crate::graph::FADE_SECONDS;
 /// The longest body accepted, in seconds: thirty minutes, which is 518 MB of 24-bit
 /// stereo at 48 kHz, well under the 4 GiB a WAV file can hold.
 pub const MAX_BODY_SECS: f64 = 30.0 * 60.0;
@@ -42,6 +74,10 @@ pub const MAX_STEP_FRAMES: usize = 16_384;
 /// Rounds of "apply what arrived, push what waited" a stream may take before the engine is
 /// declared stuck.
 const MAX_DRAIN_ROUNDS: usize = 1_000_000;
+/// Polls of the disk planner before one block while it is busy without any read under way
+/// (its messages waiting for room on the engine's queue). Past it the block is rendered
+/// anyway: a voice may underrun, the render never hangs.
+const MAX_SETTLE_ROUNDS: usize = 10_000;
 
 /// How the samples are written.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -162,6 +198,11 @@ pub struct Offline {
     plan: Plan,
     stop: Vec<u8>,
     stopped: bool,
+    start: Vec<u8>,
+    started: bool,
+    /// Frames of the pre-roll rendered so far, and how many it has.
+    preroll: u64,
+    preroll_frames: u64,
     phase: Phase,
     /// Frames rendered, written or not.
     rendered: u64,
@@ -181,6 +222,15 @@ pub struct Offline {
     inbox: Vec<u8>,
     /// Times a stream stopped on a full engine and went on after the engine applied some.
     busy: u32,
+    /// The disk planner's read jobs the host has not taken yet.
+    disk_jobs: Vec<Job>,
+    /// The media of every source found offline during the render, once each.
+    missing: Vec<[u8; 32]>,
+    /// Times a step stopped before a block to wait for the disk.
+    disk_waits: u64,
+    /// Runs each block's render (the allocation detector of a test).
+    #[cfg(feature = "testing")]
+    render_guard: Option<fn(&mut dyn FnMut())>,
 }
 
 impl core::fmt::Debug for Offline {
@@ -225,6 +275,11 @@ impl Offline {
             plan,
             stop: Vec::new(),
             stopped: false,
+            start: Vec::new(),
+            started: false,
+            preroll: 0,
+            preroll_frames: ((PREROLL_SECONDS * rate) as u64).div_ceil(QUANTUM as u64)
+                * QUANTUM as u64,
             phase: Phase::Body,
             rendered: 0,
             written: 0,
@@ -240,6 +295,11 @@ impl Offline {
             pcm,
             inbox: Vec::new(),
             busy: 0,
+            disk_jobs: Vec::new(),
+            missing: Vec::new(),
+            disk_waits: 0,
+            #[cfg(feature = "testing")]
+            render_guard: None,
         })
     }
 
@@ -255,6 +315,20 @@ impl Offline {
         let len = len.min(self.inbox.len());
         self.stop.clear();
         self.stop.extend_from_slice(&self.inbox[..len]);
+    }
+
+    /// The stream (already encoded in the render's epoch) that starts the transport after the
+    /// pre-roll (module doc). Without one, the setup starts it and there is no pre-roll.
+    pub fn set_start(&mut self, stream: &[u8]) {
+        self.start.clear();
+        self.start.extend_from_slice(stream);
+    }
+
+    /// [`Offline::set_start`] with the first `len` bytes of the inbox.
+    pub fn set_start_from_inbox(&mut self, len: usize) {
+        let len = len.min(self.inbox.len());
+        self.start.clear();
+        self.start.extend_from_slice(&self.inbox[..len]);
     }
 
     /// Bytes of the file's header.
@@ -298,6 +372,116 @@ impl Offline {
             }
         }
         Err(OfflineError::Stuck)
+    }
+
+    /// The render's clock for the disk planner: the time rendered so far, in milliseconds.
+    fn clock_ms(&self) -> u64 {
+        (self.preroll + self.rendered).saturating_mul(1000) / u64::from(self.sample_rate.max(1))
+    }
+
+    /// Renders the pre-roll and submits the start stream (module doc). `Ok(false)` while it
+    /// waits for the disk.
+    fn start(&mut self) -> Result<bool, OfflineError> {
+        if self.started {
+            return Ok(true);
+        }
+        if !self.start.is_empty() {
+            while self.preroll < self.preroll_frames {
+                self.prepare.flush();
+                if !self.settle()? {
+                    return Ok(false);
+                }
+                self.preroll += self.render(QUANTUM) as u64;
+            }
+            let start = std::mem::take(&mut self.start);
+            self.submit(&start)?;
+            self.start = start;
+        }
+        self.started = true;
+        Ok(true)
+    }
+
+    /// Gets the disk planner idle before a block (module doc): `Ok(true)` when the block can
+    /// be rendered, `Ok(false)` when reads are under way and the host must serve them first.
+    fn settle(&mut self) -> Result<bool, OfflineError> {
+        // A project without audio clips has nothing to wait for: its render is as before.
+        if self.prepare.disk().no_sources() && self.prepare.disk().idle() && !self.waiting() {
+            return Ok(true);
+        }
+        for _ in 0..MAX_SETTLE_ROUNDS {
+            // What the planner sent (segments, rings) is applied before it is asked again.
+            self.drain()?;
+            let now = self.clock_ms();
+            let n = self.prepare.disk_poll(now).len();
+            if self.disk_jobs.try_reserve(n).is_err() {
+                // Never left in flight unseen by the host (the render would wait for them
+                // forever): failed back, the planner reads them again later.
+                for i in 0..n {
+                    let id = self.prepare.disk().jobs()[i].id;
+                    self.prepare.disk_failed(id, Failure::Unreadable);
+                }
+                continue;
+            }
+            self.disk_jobs.extend_from_slice(self.prepare.disk().jobs());
+            for media in self.prepare.disk().offline_media() {
+                if !self.missing.contains(&media) {
+                    self.missing.push(media);
+                }
+            }
+            if self.waiting() {
+                return Ok(false);
+            }
+            if self.prepare.disk().idle() && self.prepare.preparer().pending() == 0 {
+                // The poll's last messages reach the engine before the block.
+                self.drain()?;
+                return Ok(true);
+            }
+        }
+        Ok(true)
+    }
+
+    /// Whether the render waits for read jobs: some not taken by the host yet
+    /// ([`Offline::take_disk_jobs`]) or not answered yet.
+    pub fn waiting(&self) -> bool {
+        !self.disk_jobs.is_empty() || self.prepare.disk().in_flight() > 0
+    }
+
+    /// The read jobs the host has not taken yet, taken: each must be answered with
+    /// [`Offline::disk_done`] or [`Offline::disk_failed`].
+    pub fn take_disk_jobs(&mut self) -> Vec<Job> {
+        std::mem::take(&mut self.disk_jobs)
+    }
+
+    /// Job `id` read `bytes` of a file of `file_len` bytes.
+    pub fn disk_done(&mut self, id: u32, bytes: &[u8], file_len: u64) {
+        self.prepare.disk_done(id, bytes, file_len);
+    }
+
+    /// Job `id` could not be read.
+    pub fn disk_failed(&mut self, id: u32, why: Failure) {
+        self.prepare.disk_failed(id, why);
+    }
+
+    /// The media (SHA-256 of the blob) of every audio source found offline during the render
+    /// once a clip of it played (a voice asked for it: `Disk::offline_media`): those clips are
+    /// silent in the file. A source whose clips are outside the rendered range is not named.
+    pub fn missing(&self) -> &[[u8; 32]] {
+        &self.missing
+    }
+
+    /// Times a step stopped before a block to wait for the disk.
+    pub fn disk_waits(&self) -> u64 {
+        self.disk_waits
+    }
+
+    /// Blocks in which an audio clip's voice lacked frames (`DiskStats::underruns`): 0 in an
+    /// export whose reads were all served.
+    pub fn underruns(&self) -> u32 {
+        self.host
+            .engine()
+            .disk_stats()
+            .underruns
+            .load(core::sync::atomic::Ordering::Relaxed)
     }
 
     /// The address-stable inbox of at least `len` bytes, for a host that writes a stream
@@ -398,7 +582,9 @@ impl Offline {
 
     /// Renders up to `max_frames` (clamped to [`MAX_STEP_FRAMES`], at least one block)
     /// and encodes what is to be written into [`Offline::pcm`], replacing the last step's.
-    /// Returns the phase after the step. Cheap to call again once [`Phase::Done`].
+    /// Returns the phase after the step. Cheap to call again once [`Phase::Done`]. Stops
+    /// before a block, possibly the first, while the disk planner has reads under way
+    /// ([`Offline::waiting`]: module doc).
     pub fn step(&mut self, max_frames: usize) -> Result<Phase, OfflineError> {
         self.pcm.clear();
         if self.phase == Phase::Done {
@@ -406,6 +592,10 @@ impl Offline {
         }
         let budget = max_frames.clamp(QUANTUM, MAX_STEP_FRAMES);
         let mut used = 0;
+        if !self.start()? {
+            self.disk_waits += 1;
+            used = budget;
+        }
         while used < budget && self.phase != Phase::Done {
             if self.phase == Phase::Body && self.rendered >= self.plan.body_frames {
                 self.phase = Phase::Tail;
@@ -419,13 +609,17 @@ impl Offline {
                 }
             }
             self.prepare.flush();
+            if !self.settle()? {
+                self.disk_waits += 1;
+                break;
+            }
             // The last block of the content ends on its last frame, so that the stop lands there
             // and not up to a block later (what follows the range must not be heard).
             let block = match self.phase {
                 Phase::Body => (self.plan.body_frames - self.rendered).min(QUANTUM as u64) as usize,
                 _ => QUANTUM,
             };
-            let n = self.host.render(block);
+            let n = self.render(block);
             used += n;
             self.take_block(n);
         }
@@ -437,6 +631,26 @@ impl Offline {
             return Err(OfflineError::Messages { rejected, skipped });
         }
         Ok(self.phase)
+    }
+
+    /// Renders one block of the engine: the audio path, the only part of a step a test's
+    /// allocation detector may watch ([`Offline::set_render_guard`]).
+    fn render(&mut self, frames: usize) -> usize {
+        #[cfg(feature = "testing")]
+        if let Some(guard) = self.render_guard {
+            let mut n = 0;
+            let host = &mut self.host;
+            guard(&mut || n = host.render(frames));
+            return n;
+        }
+        self.host.render(frames)
+    }
+
+    /// Runs every block's render through `guard` (a test wraps it in its allocation detector:
+    /// the disk planner and the encoding around it allocate, the audio path must not).
+    #[cfg(feature = "testing")]
+    pub fn set_render_guard(&mut self, guard: fn(&mut dyn FnMut())) {
+        self.render_guard = Some(guard);
     }
 
     /// Writes or holds the `n` frames just rendered.

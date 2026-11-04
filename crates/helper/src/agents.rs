@@ -12,6 +12,11 @@
 //! - or it made a stateless call (an MCP revision without sessions) less than [`AGENT_IDLE`] ago:
 //!   such a client never says it left, so its silence does.
 //!
+//! A stdio bridge whose session expired or whose helper restarted opens a new session by itself
+//! (#657, [`crate::mcp_stdio`]) with the same `initialize`: the same name comes back, as a new
+//! session of it. If the old one had ended, the name left and the page was told; nothing is
+//! counted for the time in between.
+//!
 //! The name leaves when the last of these ends. Two sessions of one name (two windows of the same
 //! client) are one author in the page's history: the name leaves with the last one. Agents of
 //! different names never affect each other.

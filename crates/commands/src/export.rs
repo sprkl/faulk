@@ -12,9 +12,14 @@
 //!   matter: the region is what the user marked, and a render is never looped.
 //! - **What is not played.** The metronome (a click is not the song) and the loop. The
 //!   session is kept: a solo left on is heard, as it is when playing.
-//! - **Not yet**: audio clips play in the live engine since AU-4, but the offline render's
-//!   engine has no disk host to read their files (#647): they do not sound in the render,
-//!   though a placement of one counts for the song's length.
+//! - **Audio clips** (#647): the render's engine reads their files through its disk planner,
+//!   and the host serves its reads from the project's folder (the page's export Worker, in
+//!   both modes): `engine::offline` renders a block only once the reads it needs are served,
+//!   so the file is what playback gives. A file that cannot be read leaves its clips silent;
+//!   the render reports its media (`Offline::missing`).
+//! - **The start.** The setup holds no `Play`: [`ExportJob::start`] goes in after the
+//!   engine's pre-roll (`engine::offline::PREROLL_SECONDS`), once the fade in of the new
+//!   tracks and devices is over, so the first frame is heard as when playing.
 
 use engine::msg::{ControlMsg, MsgError};
 use engine::offline::{self, MAX_BODY_SECS, SampleFormat};
@@ -269,15 +274,17 @@ pub fn plan(project: &Project, settings: ExportSettings) -> Result<ExportPlan, C
     })
 }
 
-/// A render ready to run: its plan and the two streams `engine::offline::Offline` takes.
+/// A render ready to run: its plan and the three streams `engine::offline::Offline` takes,
+/// encoded one after the other in the same stream: `setup`, `start`, `stop`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExportJob {
     pub plan: ExportPlan,
-    /// A `Reset`, the snapshot of the project (no metronome, no loop) and the `Play` from
-    /// the start of the range.
+    /// A `Reset` and the snapshot of the project (no metronome, no loop).
     pub setup: Vec<u8>,
-    /// The `Stop` sent when the content has been rendered (it follows `setup` in the same
-    /// stream).
+    /// The `Play` from the start of the range, sent after the pre-roll
+    /// (`Offline::set_start`).
+    pub start: Vec<u8>,
+    /// The `Stop` sent when the content has been rendered (`Offline::set_stop`).
     pub stop: Vec<u8>,
 }
 
@@ -292,18 +299,25 @@ pub fn job(
     project.transport.metronome.enabled = false;
     project.transport.loop_enabled = false;
     let (snapshot, _) = snapshot(&project, session);
-    let mut msgs = Vec::with_capacity(snapshot.len() + 2);
+    let mut msgs = Vec::with_capacity(snapshot.len() + 1);
     msgs.push(ControlMsg::Reset { epoch: EPOCH });
     msgs.extend(snapshot);
-    msgs.push(ControlMsg::Play {
-        from: plan.start_tick,
-    });
     let mut stream = EngineStream::new(EPOCH);
     let setup = stream.encode(&msgs).map_err(ExportError::Stream)?;
+    let start = stream
+        .encode(&[ControlMsg::Play {
+            from: plan.start_tick,
+        }])
+        .map_err(ExportError::Stream)?;
     let stop = stream
         .encode(&[ControlMsg::Stop])
         .map_err(ExportError::Stream)?;
-    Ok(ExportJob { plan, setup, stop })
+    Ok(ExportJob {
+        plan,
+        setup,
+        start,
+        stop,
+    })
 }
 
 /// Why no render could be prepared.
