@@ -47,12 +47,24 @@ export async function skipWithoutDevHooks(page: Page) {
   test.skip(run !== 'function', 'the dev hooks exist in the dev server only')
 }
 
-/** Collects console errors and uncaught exceptions, and every request the page makes. */
+/**
+ * The browser reports "ResizeObserver loop completed with undelivered notifications" as an `error` event of the window, which
+ * neither the console nor `pageerror` carries; it means an observer's callback changed a layout that another observer then had
+ * to see again in the same frame (#674). This listener turns it into a console error that `watch` collects.
+ */
+const RESIZE_LOOP = /ResizeObserver loop/
+
+/** Collects console errors and uncaught exceptions (a ResizeObserver loop included), and every request the page makes. */
 export function watch(page: Page) {
   const errors: string[] = []
   const requests: string[] = []
+  void page.addInitScript((source) => {
+    window.addEventListener('error', (event) => {
+      if (new RegExp(source).test(event.message)) console.error(`window error: ${event.message}`)
+    })
+  }, RESIZE_LOOP.source)
   page.on('console', (message) => {
-    if (message.type() === 'error' && !REFUSED_PROBE.test(message.text())) errors.push(message.text())
+    if ((message.type() === 'error' || RESIZE_LOOP.test(message.text())) && !REFUSED_PROBE.test(message.text())) errors.push(message.text())
   })
   page.on('pageerror', (error) => errors.push(String(error)))
   page.on('request', (request) => requests.push(request.url()))
