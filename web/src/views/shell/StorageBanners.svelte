@@ -8,6 +8,7 @@
    */
   import {
     allowAccess,
+    cancelExportPack,
     exportPack,
     importPack,
     keepMine,
@@ -115,7 +116,7 @@
 {:else if storage.banner === 'exporting'}
   <p class="banner" role="status" data-testid="export-banner">
     <span>{t('pack.exporting', { percent: Math.floor((storage.exporting ?? 0) * 100) })}</span>
-    <button data-testid="export-cancel" onclick={() => storage.cancelExport()}>{t('pack.cancelExport')}</button>
+    <button data-testid="export-cancel" onclick={() => dispatcher.run(cancelExportPack())}>{t('pack.cancelExport')}</button>
   </p>
 {:else if storage.banner === 'downloading'}
   <p class="banner" role="status" data-testid="download-banner">

@@ -760,6 +760,7 @@ export class Dispatcher {
       save: () => void this.storage?.save(),
       saveAs: () => void this.storage?.saveAs(),
       exportPack: () => void this.storage?.exportPack(),
+      cancelExportPack: () => this.storage?.cancelExport(),
       importPack: () => void this.storage?.importPack(),
       openUrl: (url) => track(this.storage?.openUrl(url, allowed)),
       reopenLast: () => track(this.storage?.reopenLast(allowed)),

@@ -96,6 +96,12 @@ domain! {
     "project.export_pack" (kind = "live", undo = "none", destructive = false)
     ExportPack {} => {};
 
+    /// Stop the `.faulkpack` export under way: the file being written is removed and nothing is
+    /// handed over. Nothing happens when no export is running. Changes nothing in the project, so
+    /// it never enters the history.
+    "project.cancel_export_pack" (kind = "live", undo = "none", destructive = false)
+    CancelExportPack {} => {};
+
     /// Open a `.faulkpack` the user chooses: its project replaces the current one and is kept
     /// in the browser as a new project of its own (an import never overwrites a project that
     /// is already there). A file is chosen by the user (a browser needs a click for it), so
@@ -350,6 +356,7 @@ pub fn apply(
         Command::Save {} => Ok(nothing(Output::Save {})),
         Command::SaveAs {} => Ok(nothing(Output::SaveAs {})),
         Command::ExportPack {} => Ok(nothing(Output::ExportPack {})),
+        Command::CancelExportPack {} => Ok(nothing(Output::CancelExportPack {})),
         Command::ImportPack {} => Ok(nothing(Output::ImportPack {})),
         // The download and the pack belong to the page (the core checks the pack itself when the
         // page hands it over): the command only checks that the link may be fetched at all.

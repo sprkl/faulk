@@ -2031,11 +2031,40 @@ describe('export a .faulkpack', () => {
     let release!: () => void
     w.host.exportHold = new Promise<void>((resolve) => (release = resolve))
     const first = w.storage.exportPack()
+    // At once, before anything is chosen or read: the dialog is part of the export.
+    expect(await w.storage.exportPack()).toBe(false)
     await vi.advanceTimersByTimeAsync(0)
     expect(await w.storage.exportPack()).toBe(false)
     release()
     expect(await first).toBe(true)
     expect(w.host.exports).toHaveLength(1)
+    // And the next one is not refused for it.
+    w.host.exportHold = null
+    expect(await w.storage.exportPack()).toBe(true)
+  })
+
+  it('opens the file dialog before it waits for the save queue, and drops the file when there is nothing to export', async () => {
+    const { w, store } = await drafted()
+    store.bigMedia.set('blobs/big', 700 << 20)
+    w.host.bigSizes = true
+    w.saveFile = 'chosen'
+    // A write holds the queue: the dialog does not wait behind it.
+    let release!: () => void
+    store.hold = new Promise<void>((resolve) => (release = resolve))
+    w.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
+    expect(w.storage.status).toBe('saving')
+    const done = w.storage.exportPack()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.saved).toHaveLength(1)
+    release()
+    expect(await done).toBe(true)
+    // A frame that fails: the file the user chose was made, and is aborted.
+    w.host.frameFails = true
+    expect(await w.storage.exportPack()).toBe(false)
+    expect(w.saved).toHaveLength(2)
+    expect(w.saved[1]!.aborted).toBe(true)
+    expect(w.saved[1]!.closed).toBe(false)
   })
 
   it('says when the project could not be exported, or lacks media, and downloads nothing for the first', async () => {

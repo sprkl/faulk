@@ -73,6 +73,7 @@ fn saving_changes_nothing_in_the_project_and_is_never_recorded() {
         cmd::Command::Save {},
         cmd::Command::SaveAs {},
         cmd::Command::ExportPack {},
+        cmd::Command::CancelExportPack {},
         cmd::Command::ImportPack {},
         cmd::Command::OpenUrl {
             url: "https://example.org/song.faulkpack".into(),

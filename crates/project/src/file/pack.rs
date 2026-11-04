@@ -109,7 +109,8 @@ const LARGE_FILE_BYTES: u64 = 1 << 30;
 
 /// Writes a pack one file at a time, in whatever pieces they come in, to a writer that need not
 /// seek: the memory it holds is the compressor's buffers and the central directory, whatever the
-/// size of the files. The bytes are the same for the same files, whatever the pieces.
+/// size of the files. The same files cut in the same pieces give the same bytes (the compressor may
+/// cut its blocks where the pieces end, so other pieces can give other bytes, never other files).
 pub struct PackWriter<W: Write> {
     zip: ZipWriter<StreamWriter<W>>,
 }

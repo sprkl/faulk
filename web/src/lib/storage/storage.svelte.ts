@@ -277,6 +277,8 @@ export class ProjectStorage {
   private current: Attached | null = null
   /** Stops the export under way, if any. */
   private exportAbort: AbortController | null = null
+  /** An export is under way, from the click on: the file dialog and the preparation included. */
+  private exportBusy = false
   private queue: Promise<unknown> = Promise.resolve()
   /** The downloads of `openUrl`, one at a time, outside `queue` so a slow host never holds a save back. */
   private downloads: Promise<unknown> = Promise.resolve()
@@ -1525,11 +1527,49 @@ export class ProjectStorage {
    * where the browser has no such dialog, to a download.
    */
   async exportPack(): Promise<boolean> {
-    if (this.exporting !== null) return false
-    const prepared = await this.enqueue(() => this.prepareExport())
-    if (!prepared) return false
-    // Outside the queue: a long export never holds a save back.
-    return this.writePack(prepared)
+    // One at a time, from the click to the end: the file dialog is part of it.
+    if (this.exportBusy) return false
+    this.exportBusy = true
+    try {
+      // The place of the pack first, before anything waits (the queue, a store): the browser opens its file
+      // dialog only for a call that follows a click closely.
+      const target = await this.packTarget(`${this.packFileName()}.faulkpack`, await this.mediaBytes())
+      if (target === 'cancelled') return false
+      if (target === 'noRoom') {
+        this.notice = 'pack.noRoom'
+        return false
+      }
+      const prepared = await this.enqueue(() => this.prepareExport())
+      if (!prepared) {
+        await target.abort().catch(() => undefined)
+        return false
+      }
+      // Outside the queue: a long export never holds a save back.
+      return await this.writePack(prepared, target)
+    } finally {
+      this.exportBusy = false
+    }
+  }
+
+  /** A file name for the pack: what the systems refuse in one (and control characters) becomes an underscore. */
+  private packFileName(): string {
+    return (
+      [...(this.host.projectName() ?? '')]
+        .map((ch) => (ch.charCodeAt(0) < 32 || '\\/:*?"<>|'.includes(ch) ? '_' : ch))
+        .join('')
+        .trim() || 'project'
+    )
+  }
+
+  /** The bytes of media the home holds (what an export reads), `0` when it cannot say. */
+  private async mediaBytes(): Promise<number> {
+    try {
+      let bytes = 0
+      for (const entry of (await this.current?.store.listBlobs()) ?? []) if ('size' in entry) bytes += entry.size
+      return bytes
+    } catch {
+      return 0
+    }
   }
 
   /** Stops the export under way (the file it was making is removed). */
@@ -1538,7 +1578,7 @@ export class ProjectStorage {
   }
 
   /** What the export writes: the project as it is now, as a folder. `null` when there is nothing to export. */
-  private async prepareExport(): Promise<{ entries: FolderEntry[]; store: ProjectStore | null; blobBytes: number } | null> {
+  private async prepareExport(): Promise<{ entries: FolderEntry[]; store: ProjectStore | null } | null> {
     const current = this.current
     let frame: SaveFrame | null
     try {
@@ -1561,10 +1601,7 @@ export class ProjectStorage {
       const files: Record<string, FolderEntry> = {}
       if (current) for (const entry of await current.store.listBlobs()) files[entry.path] = entry
       for (const entry of frame.entries) if (entry.type === 'write') files[entry.path] = { path: entry.path, bytes: entry.bytes }
-      const entries = Object.values(files)
-      let blobBytes = 0
-      for (const entry of entries) if ('size' in entry) blobBytes += entry.size
-      return { entries, store: current?.store ?? null, blobBytes }
+      return { entries: Object.values(files), store: current?.store ?? null }
     } catch (error) {
       this.errorDetail = error instanceof Error ? error.message : String(error)
       this.notice = 'pack.exportFailed'
@@ -1596,26 +1633,7 @@ export class ProjectStorage {
     }
   }
 
-  private async writePack(prepared: { entries: FolderEntry[]; store: ProjectStore | null; blobBytes: number }): Promise<boolean> {
-    // A file name: what the systems refuse in one (and control characters) becomes an underscore.
-    const name =
-      [...(this.host.projectName() ?? '')]
-        .map((ch) => (ch.charCodeAt(0) < 32 || '\\/:*?"<>|'.includes(ch) ? '_' : ch))
-        .join('')
-        .trim() || 'project'
-    let target: PackTarget | 'cancelled' | 'noRoom'
-    try {
-      target = await this.packTarget(`${name}.faulkpack`, prepared.blobBytes)
-    } catch (error) {
-      this.errorDetail = error instanceof Error ? error.message : String(error)
-      this.notice = 'pack.exportFailed'
-      return false
-    }
-    if (target === 'cancelled') return false
-    if (target === 'noRoom') {
-      this.notice = 'pack.noRoom'
-      return false
-    }
+  private async writePack(prepared: { entries: FolderEntry[]; store: ProjectStore | null }, target: PackTarget): Promise<boolean> {
     const abort = new AbortController()
     this.exportAbort = abort
     this.exporting = 0

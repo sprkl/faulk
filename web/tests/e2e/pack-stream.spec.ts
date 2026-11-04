@@ -111,7 +111,7 @@ async function projectWithAudio(page: Page, wav: string) {
   await expect(page.getByTestId('pool-clip')).toHaveCount(1, { timeout: 120_000 })
 }
 
-test('a project with 90 MiB of audio is exported to a chosen file in a stream, and an export can be cancelled', async ({ page }, testInfo) => {
+test('a project with 90 MiB of audio is exported to a chosen file in a stream, and an export can be cancelled @full', async ({ page }, testInfo) => {
   const { errors } = watch(page)
   const wav = testInfo.outputPath('noise.wav')
   noiseWav(wav, WAV_BYTES)
@@ -133,6 +133,8 @@ test('a project with 90 MiB of audio is exported to a chosen file in a stream, a
     description: `${(peak / (1 << 20)).toFixed(1)} MiB for a ${WAV_BYTES >> 20} MiB audio file, zip ${(fileSize / (1 << 20)).toFixed(1)} MiB`,
   })
   console.log(`peak JS heap ${(peak / (1 << 20)).toFixed(1)} MiB; zip ${(fileSize / (1 << 20)).toFixed(1)} MiB`)
+  // `performance.memory` is Chromium's; without it nothing was measured, which must not pass.
+  expect(peak).toBeGreaterThan(0)
   expect(peak).toBeLessThan(WAV_BYTES * 0.8)
 
   // A slow disk: the banner shows, Cancel stops the export, and no file is left.

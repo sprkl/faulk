@@ -81,7 +81,7 @@ export interface PackIO {
 }
 
 /** The bytes of a blob an export reads at once. */
-export const PACK_CHUNK_BYTES = 4 << 20
+export const PACK_CHUNK_BYTES = 1 << 20
 
 /** The files of a `.faulkpack` read by `ProjectCore.packImport`, in the order of a save frame. */
 export type PackImport = { status: 'ok'; files: { path: string; bytes: Uint8Array }[] } | { status: 'failed'; message: string }

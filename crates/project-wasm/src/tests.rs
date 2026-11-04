@@ -1446,15 +1446,28 @@ fn a_save_that_renames_and_removes_cut_short_at_any_file_still_opens() {
 }
 
 #[test]
-fn the_pack_is_the_same_whatever_the_size_of_the_pieces() {
+fn the_pack_holds_the_same_files_whatever_the_size_of_the_pieces() {
+    // The compressor may cut its blocks where the pieces end, so the bytes of the zip can differ
+    // (the page always cuts at the same place, so its packs are the same each time); the files in
+    // it are the same.
+    let contents = |zip: &[u8]| {
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(zip)).unwrap();
+        (0..zip.len())
+            .map(|i| {
+                let mut file = zip.by_index(i).unwrap();
+                let mut bytes = Vec::new();
+                std::io::Read::read_to_end(&mut file, &mut bytes).unwrap();
+                (file.name().unwrap().into_owned(), bytes)
+            })
+            .collect::<std::collections::BTreeMap<_, _>>()
+    };
     let fs = reference_song();
     let whole = export_chunked(&fs, usize::MAX >> 1).unwrap();
+    assert_eq!(export_chunked(&fs, usize::MAX >> 1).unwrap(), whole);
     for chunk in [1, 3, 7, 4096] {
-        assert_eq!(
-            export_chunked(&fs, chunk).unwrap(),
-            whole,
-            "pieces of {chunk}"
-        );
+        let pieces = export_chunked(&fs, chunk).unwrap();
+        assert_eq!((pieces.0, pieces.1), (whole.0, whole.1));
+        assert_eq!(contents(&pieces.2), contents(&whole.2), "pieces of {chunk}");
     }
 }
 
@@ -1506,6 +1519,40 @@ fn a_listed_blob_that_does_not_add_up_ends_the_export() {
     pw_pack_cancel();
     assert_eq!(pack_next()[0], 1);
     assert!(export_of(&fs).0 > 0, "the next export works");
+}
+
+#[test]
+fn an_export_refuses_what_the_format_does_not_take_and_calls_out_of_order() {
+    // A blob over the format's limit is refused when its turn comes, and the session is over.
+    let mut fs = reference_song();
+    let path = format!("blobs/{}", "ab".repeat(32));
+    fs.insert(path.as_str(), vec![7u8; 10]);
+    let mut frame = listed_frame_of("pack", &fs);
+    // The same folder with the blob's listed size changed: its entry is the last 8 bytes of the frame.
+    let at = frame
+        .windows(path.len())
+        .position(|w| w == path.as_bytes())
+        .expect("the blob is in the frame")
+        + path.len();
+    assert_eq!(frame[at], 1, "listed");
+    frame[at + 1..at + 9].copy_from_slice(&(3u64 << 30).to_le_bytes());
+    put_inbox(&frame);
+    assert_eq!(pack_step(|| pw_pack_begin(frame.len() as u32))[0], 0);
+    let refused = loop {
+        let out = pack_next();
+        match out[0] {
+            2 => panic!("a blob over the limit was asked for"),
+            1 => break String::from_utf8_lossy(&out[1..]).into_owned(),
+            _ => {}
+        }
+    };
+    assert!(refused.contains("bigger than"), "{refused}");
+    assert_eq!(pack_next()[0], 1, "the session is over");
+    // Out of order: bytes with no export, a step after the end.
+    put_inbox(&[1]);
+    assert_eq!(pack_step(|| pw_pack_feed(1))[0], 1);
+    let (_, _, _) = export_chunked(&fs, 4).expect("an export");
+    assert_eq!(pack_next()[0], 1, "after the end there is no session");
 }
 
 #[test]
