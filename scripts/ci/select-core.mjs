@@ -37,6 +37,7 @@ const NONE = Object.freeze({
 // The crates whose code ends up in the web page (WASM builds) or in its generated types.
 export const WEB_CRATES = ['engine-wasm', 'project-wasm', 'protocol', 'audio-import-wasm']
 const HELPER = 'helper'
+const HELPER_DIR = `crates/${HELPER}`
 // The prototype crate (web/src/lib/engine/proto/crate) depends on these by path but is not a workspace member.
 const PROTO_DEPS = ['engine']
 
@@ -214,11 +215,16 @@ export function select({ event, base, files, packages, specs, table }) {
     out.helperWindows = tested.has(HELPER)
     if (PROTO_DEPS.some((n) => built.has(n))) out.rustProto = true
     if (WEB_CRATES.some((n) => built.has(n))) web = true
+    // The helper's own change reaches no page code, but the browser tests drive the real helper (the
+    // agent scenario, AG-5; the stand-in of helper.spec.ts): its files go to the e2e table (#668).
+    if (changedDirs.has(HELPER_DIR)) web = true
     // A crate whose own change reaches the page hands its files to the e2e table, which tells the
     // contracts (protocol, commands, engine sync: the whole suite) from the rest (an area plus the core).
-    // A crate that does not reach the page (helper, test-support) adds no browser test.
+    // The helper is the exception: the page talks to it over the link, so the table gives it the
+    // `helper` area (#668). A crate that reaches neither (test-support) adds no browser test.
     for (const p of all) {
-      if (changedDirs.has(p.dir) && WEB_CRATES.some((n) => affectedPackages(all, [p.name]).built.has(n))) e2eFiles.push(...crateFiles.get(p.dir))
+      const reachesPage = p.dir === HELPER_DIR || WEB_CRATES.some((n) => affectedPackages(all, [p.name]).built.has(n))
+      if (changedDirs.has(p.dir) && reachesPage) e2eFiles.push(...crateFiles.get(p.dir))
     }
   }
   out.web = web
