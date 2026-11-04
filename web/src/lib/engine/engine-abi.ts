@@ -36,6 +36,18 @@ export interface EngineExports {
   fk_feedback(channel: number): number
   fk_feedback_len(channel: number): number
   fk_host_counter(channel: number, which: number): number
+  /** The disk planner's poll (AU-3, prepare instance): how many jobs it wrote into `fk_disk_jobs`. */
+  fk_disk_poll(channel: number, nowMs: number): number
+  fk_disk_jobs(channel: number): number
+  fk_disk_inbox(channel: number, len: number): number
+  fk_disk_done(channel: number, id: number, len: number, fileLen: number): number
+  fk_disk_failed(channel: number, id: number, code: number): void
+  fk_disk_set_budget(channel: number, bytes: number): void
+  /** The test voice (AU-3, render instance), until AU-4's clip player: 1 when it started. */
+  fk_probe_start(channel: number, track: number, port: number, source: number, start: number, end: number, loopStart: number, loopEnd: number): number
+  fk_probe_read(channel: number, frames: number): number
+  fk_probe_out(channel: number): number
+  fk_probe_channels(channel: number): number
 }
 
 /**

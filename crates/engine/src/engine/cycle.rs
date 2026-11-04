@@ -282,6 +282,7 @@ pub fn scenario() -> Result<Vec<Step>, MsgError> {
         sample_rate: 48_000,
         channels: 2,
         frames: Frame(48_000),
+        media: [0; 32],
     });
     submit(&msgs, &mut steps)?;
     steps.push(Step::Render(8));

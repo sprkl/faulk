@@ -217,6 +217,7 @@ fn the_other_puts() {
             sample_rate: 48_000,
             channels: 2,
             frames: Frame(1),
+            media: [0; 32],
         },
         |e| assert!(e.state().source(SourceSlot(40)).is_some()),
     );
@@ -227,6 +228,8 @@ fn the_other_puts() {
             source: SourceSlot(0),
             start: Frame(0),
             length: Frame(1),
+            gain: 1.0,
+            looping: None,
         },
         |e| assert!(e.state().clip(ClipSlot(5000)).is_some()),
     );

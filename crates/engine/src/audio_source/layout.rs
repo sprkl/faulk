@@ -1,14 +1,13 @@
-//! Files whose samples are read straight from the blob: WAV and AIFF holding 16, 24 or 32-bit
+//! Files whose samples are read straight from the blob (moved from `audio-import` by AU-3, so
+//! the engine's disk side reads them with the same code the import checks): WAV and AIFF holding 16, 24 or 32-bit
 //! integers or 32-bit floats. Their samples are a fixed-size array at a known offset, so the
 //! disk Worker (AU-3) reads any range of frames with one ranged read and converts it, and no
-//! decoded copy is kept. Every other file is decoded into the PCM cache ([`crate::cache`]).
+//! decoded copy is kept. Every other file is decoded into the PCM cache (`audio_import::cache`).
 //!
 //! The conversion to `f32` is symphonia's own (`i16 / 32 768`, `i24 / 8 388 608`,
 //! `i32 / 2^31` through `f64`), so reading the blob through a layout gives exactly the samples
 //! decoding gives; a test checks it on every direct fixture, and [`PcmLayout::matches`] keeps
 //! a layout only when it agrees with the decoder on rate, channels and length.
-
-use crate::MediaInfo;
 
 /// How many bytes of the start of a file [`PcmLayout::parse`] needs: the sample data must
 /// begin within them (metadata chunks larger than this before it send the file to the cache).
@@ -293,10 +292,8 @@ impl PcmLayout {
 
     /// Whether the decoder read the same audio: same rate, channels and length. A layout that
     /// disagrees is not used (the file goes to the PCM cache).
-    pub fn matches(&self, info: &MediaInfo) -> bool {
-        self.sample_rate == info.sample_rate
-            && self.channels == info.channels
-            && self.frames == info.frames
+    pub fn matches(&self, sample_rate: u32, channels: u16, frames: u64) -> bool {
+        self.sample_rate == sample_rate && self.channels == channels && self.frames == frames
     }
 
     /// Converts whole frames of raw sample bytes (as read from `data_offset + k × frame_bytes`)

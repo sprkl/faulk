@@ -110,6 +110,9 @@ describe('decodeFeedback', () => {
         v.setUint32(32, 3, true)
         v.setUint32(36, 4, true)
         v.setUint32(52, 5, true)
+        v.setUint32(76, 2, true)
+        v.setUint32(80, 1, true)
+        v.setUint32(84, 4096, true)
       }),
     )!
     expect(r).toMatchObject({
@@ -123,6 +126,9 @@ describe('decodeFeedback', () => {
       rejected: 3,
       diskUnderruns: 4,
       voices: 5,
+      offlineSources: 2,
+      pcmOverBudget: true,
+      pcmKib: 4096,
     })
     expect(r.tracks).toHaveLength(3)
     expect(r.tracks[2].peakL).toBeCloseTo(0.3)
@@ -172,7 +178,7 @@ describe('decodeFeedback', () => {
     expect(decodeFeedback(report(0, (v) => v.setFloat32(72, NaN, true)))!.cpuPeak).toBeNull()
     expect(decodeFeedback(report(0, (v) => v.setFloat32(72, 2, true)))!.cpuPeak).toBe(1)
     // The meters start after it.
-    expect(FEEDBACK_HEADER_BYTES).toBe(76)
+    expect(FEEDBACK_HEADER_BYTES).toBe(88)
   })
 
   it('refuses another version, a short buffer and a track count beyond the bytes', () => {
