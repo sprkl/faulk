@@ -8,6 +8,8 @@ import {
   blocksOf,
   clampScrollY,
   copyShift,
+  blocksInBox,
+  drawnSpan,
   hitBlock,
   isFree,
   laneTop,
@@ -398,5 +400,40 @@ describe('sections and zoom (#473)', () => {
     expect(bars(wholeSongView(bar * 40, bar, 1000))).toBe(41)
     expect(bars(wholeSongView(bar * 3, bar, 1000))).toBe(17)
     expect(wholeSongView(bar * 40, bar, Number.NaN)).toBeNull()
+  })
+})
+
+describe('drawing a clip (#615)', () => {
+  // Lane 0 holds p1 (0..3840), p2 (3840..7680) and p3 (8000..8960); lane 1 holds q1 (960..2880); lane 2 is empty.
+  it('draws rightwards and leftwards from the press, on the step', () => {
+    expect(drawnSpan(blocks, 2, 1000, 3000, 480)).toEqual({ start: 960, length: 1920 })
+    expect(drawnSpan(blocks, 2, 3000, 1000, 480)).toEqual({ start: 960, length: 1920 })
+    // Free: the ticks as they are.
+    expect(drawnSpan(blocks, 2, 1000, 1500, null)).toEqual({ start: 1000, length: 500 })
+    // A span of one tick is a clip (`clip.create` takes 1 to 2^40 ticks).
+    expect(drawnSpan(blocks, 2, 1000, 1001, null)).toEqual({ start: 1000, length: 1 })
+  })
+
+  it('draws nothing for a click or a span under the step', () => {
+    expect(drawnSpan(blocks, 2, 1000, 1000, 480)).toBeNull()
+    expect(drawnSpan(blocks, 2, 1000, 1100, 480)).toBeNull()
+  })
+
+  it('stops at the neighbouring clips and at the first tick', () => {
+    expect(drawnSpan(blocks, 0, 7800, 12000, 480)).toEqual({ start: 7680, length: 320 })
+    expect(drawnSpan(blocks, 0, 7800, 0, 480)).toBeNull()
+    expect(drawnSpan(blocks, 1, 100, 100000, null)).toEqual({ start: 100, length: 860 })
+    expect(drawnSpan(blocks, 1, 3000, -500, null)).toEqual({ start: 2880, length: 120 })
+    expect(drawnSpan(blocks, 2, 500, -500, null)).toEqual({ start: 0, length: 500 })
+  })
+
+  it('finds the clips a box touches, whichever corner it starts from', () => {
+    const view = { pxPerTick: 0.1, scrollTick: 0 }
+    const y = RULER_HEIGHT + LANE_HEIGHT / 2
+    const box = { x0: 500, y0: y + LANE_HEIGHT, x1: 20, y1: y - 5 }
+    // x 20..500 is ticks 200..5000: p1 and p2 of lane 0, q1 of lane 1.
+    expect(blocksInBox(blocks, plain(3), view, 0, box).map((b) => b.id)).toEqual(['p1', 'p2', 'q1'])
+    expect(blocksInBox(blocks, plain(3), view, 0, { x0: 20, y0: y, x1: 30, y1: y + 1 }).map((b) => b.id)).toEqual(['p1'])
+    expect(blocksInBox(blocks, plain(3), view, 0, { x0: 900, y0: y, x1: 990, y1: y + 1 })).toEqual([])
   })
 })
