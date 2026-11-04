@@ -18,6 +18,7 @@ import {
   listStored as listStoredCommand,
   newProject as newProjectCommand,
   newProjectName,
+  renameProject as renameProjectCommand,
 } from '../project-commands'
 import type { AudioExport, ExportHost } from '../export/audio-export.svelte'
 import type { AudioImport } from '../audio/import/audio-import.svelte'
@@ -349,6 +350,7 @@ export class Dispatcher {
     newProject: (name?: string) => this.newProject(name),
     projectId: () => this.project.view?.project.id ?? null,
     projectName: () => this.project.view?.project.name ?? null,
+    renameProject: (name) => void this.run(renameProjectCommand(name), { quiet: true }),
     packExport: async (files) => (await this.ensureCore()).packExport(files),
     packImport: async (zip) => (await this.ensureCore()).packImport(zip),
     prepare: async () => void (await this.ensureCore()),

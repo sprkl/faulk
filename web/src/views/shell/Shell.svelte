@@ -22,6 +22,7 @@
   import EngineDialog from './EngineDialog.svelte'
   import ExportDialog from './ExportDialog.svelte'
   import GoToDialog from './GoToDialog.svelte'
+  import SaveAsDialog from './SaveAsDialog.svelte'
   import ShortcutsDialog from './ShortcutsDialog.svelte'
   import StorageBanners from './StorageBanners.svelte'
   import TopBar from './TopBar.svelte'
@@ -260,6 +261,7 @@
   <EngineDialog />
   <ShortcutsDialog />
   <GoToDialog />
+  <SaveAsDialog />
   {#if engine.notice}
     <p class="notice" role="status">{ui.t(engine.notice)}</p>
   {/if}
