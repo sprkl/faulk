@@ -279,7 +279,7 @@
     overflow: auto;
   }
   .engine-dialog::backdrop {
-    background: rgb(0 0 0 / 0.5);
+    background: var(--fk-scrim);
   }
   header {
     display: flex;
@@ -362,7 +362,7 @@
   button.primary {
     background: var(--fk-accent);
     border-color: var(--fk-accent);
-    color: #fff;
+    color: var(--fk-on-accent);
     font-weight: 600;
   }
   button.primary:hover {

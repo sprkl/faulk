@@ -125,6 +125,7 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
     })
   }
   const ui = new UiStore(view, panel)
+  dispatcher.theme = ui.theme
   // A new project is named in the page's language, when it starts (#473).
   dispatcher.nameNew = () => draftName(ui.lang, new Date())
   dispatcher.onIdentityCopied = (id) => ui.carryLayout(id)

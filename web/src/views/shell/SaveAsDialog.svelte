@@ -98,7 +98,7 @@
     box-shadow: var(--fk-shadow-float);
   }
   .save-as-dialog::backdrop {
-    background: rgb(0 0 0 / 0.5);
+    background: var(--fk-scrim);
   }
   form {
     display: flex;
@@ -120,7 +120,7 @@
     color: var(--fk-text-muted);
   }
   .error {
-    color: var(--fk-danger, var(--fk-text));
+    color: var(--fk-danger);
   }
   .actions {
     display: flex;

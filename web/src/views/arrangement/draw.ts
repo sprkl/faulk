@@ -5,11 +5,14 @@
  */
 
 import { tickToX } from '../../lib/components/timegrid/grid'
-import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
+import { RULER_HEIGHT, trackInk, type BodyFrame } from '../../lib/components/timegrid/render'
 import type { LoopRegion, Note } from '../../lib/generated/protocol'
 import { drawHandles, type HandleSide } from '../../lib/components/timegrid/handles'
 import { BLOCK_INSET, cycleOf, edgeZone, laneHeight, laneTop, passCount, passesOf, type Block } from './arrangement'
 import type { Layout } from './automation/layout'
+
+/** How opaque a clip's fill of its track hue is, over the background (the contrast test reads it, #687). */
+export const CLIP_FILL_ALPHA = 0.32
 
 export interface ArrangementFrame {
   /** The rows of the tracks and of their lanes. */
@@ -100,12 +103,14 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
     if (y + h < RULER_HEIGHT || y > height) return
     const w = Math.max(2, x1 - x0)
     const k = scene.silent.has(block.track) ? SILENT_ALPHA : 1
+    // The hue fills the clip; its lines (outline, notes, repeat marks) take the theme's ink (#687).
+    const ink = trackInk(block.color, colors)
     ctx.globalAlpha = (ghost ? 0.7 : 1) * k
     ctx.fillStyle = block.color
-    ctx.globalAlpha *= 0.32
+    ctx.globalAlpha *= CLIP_FILL_ALPHA
     ctx.fillRect(x0, y, w, h)
     ctx.globalAlpha = (ghost ? 0.7 : 1) * k
-    ctx.strokeStyle = selected ? colors.text : block.color
+    ctx.strokeStyle = selected ? colors.text : ink
     ctx.lineWidth = selected ? 2 : 1
     ctx.strokeRect(x0 + 0.5, y + 0.5, w - 1, h - 1)
 
@@ -122,7 +127,7 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
       const top = y + (roomy ? 16 : 2)
       const span = Math.max(1, h - (roomy ? 20 : 4))
       const rowH = Math.min(4, span / (high - low + 1))
-      ctx.fillStyle = block.color
+      ctx.fillStyle = ink
       ctx.globalAlpha = (ghost ? 0.7 : 0.95) * k
       // The clip is shown from its offset and goes round its loop, or round the whole clip, where the block
       // outlasts it (#473; a few passes at most: a long block of a short loop is a texture, not a score).
@@ -149,7 +154,7 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
     if (passCount(block) > 1 && w > 6) {
       ctx.save()
       ctx.globalAlpha = (ghost ? 0.5 : 0.75) * k
-      ctx.fillStyle = block.color
+      ctx.fillStyle = ink
       for (const { at } of passes) {
         if (at === block.start) continue
         const bx = Math.round(tickToX(at, view))
@@ -179,7 +184,7 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
     ctx.globalAlpha = 1
   }
 
-  ctx.font = `500 11px ${getComputedStyle(document.documentElement).getPropertyValue('--fk-font-sans').trim() || 'sans-serif'}`
+  ctx.font = `500 11px ${getComputedStyle(document.documentElement).getPropertyValue('--fk-font-ui').trim() || 'sans-serif'}`
   for (const block of scene.blocks) {
     if (hidden.has(block.id)) continue
     drawBlock(block, scene.selected.has(block.id), false)

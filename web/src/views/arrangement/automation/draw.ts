@@ -7,7 +7,7 @@
  */
 
 import { tickToX, xToTick } from '../../../lib/components/timegrid/grid'
-import { RULER_HEIGHT, type BodyFrame } from '../../../lib/components/timegrid/render'
+import { RULER_HEIGHT, trackInk, type BodyFrame } from '../../../lib/components/timegrid/render'
 import { yOfPos } from './gestures'
 import { lowerBound, type Axis, type LanePoint } from './model'
 
@@ -89,8 +89,8 @@ export function drawLane(ctx: CanvasRenderingContext2D, frame: BodyFrame, lane: 
     stats.visible = count
     const xOf = (i: number) => tickToX(points[i]!.tick, view)
     const yOf = (i: number) => yOfPos(axis.pos(points[i]!.value), geo)
-    ctx.strokeStyle = lane.color
-    ctx.fillStyle = lane.color
+    ctx.strokeStyle = trackInk(lane.color, colors)
+    ctx.fillStyle = trackInk(lane.color, colors)
     ctx.lineWidth = 1.5
     ctx.lineJoin = 'round'
     if (count > width) {
@@ -171,7 +171,7 @@ export function drawLane(ctx: CanvasRenderingContext2D, frame: BodyFrame, lane: 
         ctx.fillStyle = colors.text
         ctx.fill()
         ctx.lineWidth = 1.5
-        ctx.strokeStyle = lane.color
+        ctx.strokeStyle = trackInk(lane.color, colors)
         ctx.stroke()
       }
     }
@@ -191,7 +191,7 @@ export function drawLane(ctx: CanvasRenderingContext2D, frame: BodyFrame, lane: 
     ctx.globalAlpha = 0.92
     ctx.fillRect(left, by, w, 16)
     ctx.globalAlpha = 1
-    ctx.strokeStyle = lane.color
+    ctx.strokeStyle = trackInk(lane.color, colors)
     ctx.lineWidth = 1
     ctx.strokeRect(left + 0.5, by + 0.5, w - 1, 15)
     ctx.fillStyle = colors.text

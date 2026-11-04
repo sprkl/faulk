@@ -99,7 +99,7 @@
     overflow: auto;
   }
   .shortcuts-dialog::backdrop {
-    background: rgb(0 0 0 / 0.5);
+    background: var(--fk-scrim);
   }
   header {
     position: sticky;

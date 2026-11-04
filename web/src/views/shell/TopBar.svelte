@@ -326,7 +326,7 @@
   }
   .mode.boost {
     background: var(--fk-accent);
-    color: #fff;
+    color: var(--fk-on-accent);
   }
   /* The load changes about 30 times a second: fixed-width digits keep the pill still while its digit count stays. */
   .mode .load {
@@ -408,7 +408,7 @@
     border: 1px solid var(--fk-accent);
     border-radius: var(--fk-radius-pill);
     background: var(--fk-accent);
-    color: #fff;
+    color: var(--fk-on-accent);
     font-weight: 600;
     cursor: pointer;
     white-space: nowrap;

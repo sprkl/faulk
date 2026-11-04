@@ -154,11 +154,11 @@
     text-align: center;
   }
   input[aria-invalid='true'] {
-    outline: 2px solid var(--fk-danger, #d33);
+    outline: 2px solid var(--fk-danger);
   }
   .error {
     margin: var(--fk-space-1) 0 0;
     font-size: 11px;
-    color: var(--fk-danger, #d33);
+    color: var(--fk-danger);
   }
 </style>

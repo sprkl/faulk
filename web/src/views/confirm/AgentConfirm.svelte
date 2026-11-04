@@ -88,7 +88,7 @@
     color: var(--fk-text);
   }
   .dialog::backdrop {
-    background: rgb(0 0 0 / 0.5);
+    background: var(--fk-scrim);
   }
   .eyebrow {
     margin: 0 0 var(--fk-space-1, 4px);
@@ -133,7 +133,7 @@
   button.primary {
     border-color: var(--fk-accent);
     background: var(--fk-accent);
-    color: #fff;
+    color: var(--fk-on-accent);
     font-weight: 600;
   }
   button.primary:hover {
