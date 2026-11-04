@@ -1913,9 +1913,17 @@ async fn the_stdio_bridge_says_what_to_do_without_a_token_or_a_helper() {
 
 /// Opens a page's control link (#608).
 async fn open_control(h: &Harness) -> Ws {
-    connect(h.port, &format!("/control?token={TOKEN}"), Some(ORIGIN))
+    let mut ws = connect(h.port, &format!("/control?token={TOKEN}"), Some(ORIGIN))
         .await
-        .unwrap()
+        .unwrap();
+    // The link opens with the helper's protocol (#658).
+    assert_eq!(
+        next(&mut ws).await,
+        ServerMessage::ControlHello {
+            protocol: PROTOCOL_VERSION
+        }
+    );
+    ws
 }
 
 /// Runs one agent's tool call through the stdio bridge; its answer once the page answered.

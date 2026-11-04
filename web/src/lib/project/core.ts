@@ -28,6 +28,8 @@ interface CoreExports {
   pw_export_job(core: number, len: number): number
   pw_stage(core: number, len: number): number
   pw_stage_stored(core: number, len: number): number
+  pw_stage_levels(core: number, len: number): number
+  pw_stage_analysis(core: number, len: number): number
   pw_stage_library(core: number, len: number): number
   pw_preset_file(core: number, location: number, len: number): number
   pw_stage_media(core: number, len: number): number
@@ -48,6 +50,37 @@ export interface StoredProjects {
   recent: { id: string; name: string }[]
   /** The projects kept in the browser's storage, newest first. */
   browser: { dir: string; name: string }[]
+}
+
+/** One meter, linear amplitude (`MeterReading` in `crates/commands/src/levels.rs`). */
+export interface MeterReading {
+  peak_l: number
+  peak_r: number
+  rms_l: number
+  rms_r: number
+}
+
+/** The live meters `mixer.levels` answers with (`LevelsStage`, #665): by engine track slot. */
+export interface LevelsStage {
+  playing: boolean
+  tracks: MeterReading[]
+  master: MeterReading
+  /** Frames the output protection silenced for a non-finite sample since the engine that plays started (#667); 0 when left out. */
+  silenced_frames?: number
+}
+
+/** The measures of an offline render `project.analyze_render` answers with (`AnalysisStage`, #665). */
+export interface AnalysisStage {
+  start_tick: number
+  end_tick: number
+  /** The tracks by engine slot of the render, as the job named them. */
+  slots: string[]
+  /** The readings by engine slot of the render. */
+  tracks: MeterReading[]
+  master: MeterReading
+  silenced_frames: number
+  /** The output protection's peak gain reduction, linear in [0, 1]. */
+  reduction: number
 }
 
 /** What staging the preset library did (`LibraryReport` in `crates/commands/src/host.rs`, #191). */
@@ -247,11 +280,13 @@ export interface ExportRequest {
   sample_rate?: number
   from_bar?: number
   to_bar?: number
+  /** The render of `project.analyze_render`: only `from_bar` and `to_bar` go with it; the range is bounded (10 minutes). */
+  analysis?: boolean
 }
 
 /** An export the core prepared: its plan and the two streams of the engine that renders it. */
 export type ExportJob =
-  | { status: 'ready'; plan: Extract<ExportReport, { status: 'ready' }>['plan']; setup: Uint8Array; start: Uint8Array; stop: Uint8Array }
+  | { status: 'ready'; plan: Extract<ExportReport, { status: 'ready' }>['plan']; tracks: string[]; setup: Uint8Array; start: Uint8Array; stop: Uint8Array }
   | Exclude<ExportReport, { status: 'ready' }>
 
 /** What running a command means for the engine. */
@@ -430,6 +465,7 @@ export class ProjectCore {
     return {
       status: 'ready',
       plan: report.plan,
+      tracks: report.tracks,
       setup: bytes.slice(0, report.setup_len),
       start: bytes.slice(report.setup_len, started),
       stop: bytes.slice(started),
@@ -457,6 +493,20 @@ export class ProjectCore {
     const len = this.input(JSON.stringify(list))
     const code = this.exports.pw_stage_stored(this.live(), len)
     if (code !== 0) throw new CoreError('stage_stored', code)
+  }
+
+  /** Stages the live meters (linear, by engine slot) for the next `mixer.levels` to answer with (once). */
+  stageLevels(stage: LevelsStage) {
+    const len = this.input(JSON.stringify(stage))
+    const code = this.exports.pw_stage_levels(this.live(), len)
+    if (code !== 0) throw new CoreError('stage_levels', code)
+  }
+
+  /** Stages the measures of an offline render for the next `project.analyze_render` to answer with (once); `null` clears them. */
+  stageAnalysis(stage: AnalysisStage | null) {
+    const len = this.input(JSON.stringify(stage))
+    const code = this.exports.pw_stage_analysis(this.live(), len)
+    if (code !== 0) throw new CoreError('stage_analysis', code)
   }
 
   /**

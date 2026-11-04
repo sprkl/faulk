@@ -13,6 +13,7 @@
 // the OPFS is "browser" in this file, a project in a folder the user chose is "folder".
 import { ImportError } from '../audio/import/abi'
 import type { CacheReport, ImportedMedia, MediaRef } from '../audio/import/pipeline'
+import { peaksPath } from '../audio/peaks/format'
 import type { MessageKey } from '../i18n'
 import { needsBytes, type FolderEntry, type SaveEntry, type SaveFrame, type SaveMode } from '../project/core'
 import type { PackExport, PackImport, PackIO } from '../project/core'
@@ -1122,10 +1123,15 @@ export class ProjectStorage {
   private refreshAudioCache(current: Attached) {
     const media = this.host.audioMedia?.() ?? []
     this.audioCache = null
-    if (media.length === 0) return
-    // Stopped when the project leaves this place (`detach`): it would make caches for nothing.
+    // Stopped when the project leaves this place (`detach`): it would make caches for nothing. The
+    // waveform peaks asked for later in this attach (`makePeaks`) stop with it.
     const abort = new AbortController()
     this.audioCacheAbort = abort
+    this.peaksEpoch++
+    if (media.length === 0) {
+      this.audioCacheDone = Promise.resolve()
+      return
+    }
     this.audioCacheDone = current.store
       .ensureAudioCache(media, undefined, abort.signal)
       .then((report) => {
@@ -1138,6 +1144,46 @@ export class ProjectStorage {
   }
 
   private audioCacheAbort: AbortController | null = null
+
+  // ------------------------------------------------------------------ waveform peaks (AU-2)
+
+  /** Counts the attaches: a waveform whose peaks this place lacked is tried again in the next one. */
+  peaksEpoch = $state(0)
+
+  /**
+   * The peaks file of `hash` in the project's place (`.faulk/cache/peaks/`, read by the store's
+   * Worker), or `null` when there is none, or no place.
+   */
+  async readPeaks(hash: string): Promise<Uint8Array | null> {
+    const current = this.current
+    if (!current) return null
+    try {
+      return await current.store.read(peaksPath(hash))
+    } catch {
+      return null
+    }
+  }
+
+  /** The media whose peaks a view asked for, waiting for the one run at a time (`makePeaks`). */
+  private peaksQueue: Promise<void> = Promise.resolve()
+
+  /**
+   * Has the peaks of `media` made in the project's place, in the background: one media at a time
+   * (each is a whole decode of its blob in the Worker; `PeaksCache` asks only once the opening's own
+   * work is over), and stopped
+   * when the project leaves this place. Never rejects: a media it cannot make stays without peaks.
+   */
+  makePeaks(media: MediaRef): Promise<void> {
+    const current = this.current
+    const signal = this.audioCacheAbort?.signal
+    if (!current || !signal || signal.aborted) return Promise.resolve()
+    const run = this.peaksQueue.then(async () => {
+      if (this.current !== current || signal.aborted) return
+      await current.store.ensureAudioCache([media], undefined, signal)
+    })
+    this.peaksQueue = run.catch(() => undefined)
+    return this.peaksQueue
+  }
 
   /**
    * Imports an audio file into the project's home (AU-1): its bytes into `blobs/`, its decoded audio
@@ -1160,6 +1206,8 @@ export class ProjectStorage {
       try {
         const outcome = await current.store.importAudio(file, onProgress, signal)
         if (this.current === current) current.expected[outcome.blob.path] = outcome.blob.stamp
+        // Its peaks are on disk now: a waveform of that file left without them is tried again.
+        if (this.current === current && outcome.peaks) this.peaksEpoch++
         return outcome.media
       } finally {
         // What waited behind the import (an edit made meanwhile) is written now.
@@ -1226,6 +1274,8 @@ export class ProjectStorage {
       this.block = null
       // The notice that told an agent to click is answered by the click.
       this.notice = null
+      // The folder reads again: a waveform left without its peaks is tried again.
+      this.peaksEpoch++
     }
     return this.autosave().then(() => !this.dirty)
   }
@@ -1236,6 +1286,7 @@ export class ProjectStorage {
     if (!current || current.kind === 'browser') return
     if (this.block === 'permission' && (await this.deps.permission(current.handle)) === 'granted') {
       this.block = null
+      this.peaksEpoch++
       void this.autosave()
       return
     }

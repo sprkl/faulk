@@ -151,3 +151,46 @@ fn the_cache_header_and_its_check_are_the_librarys() {
     assert!(ai_cache_header(44_100, 2, -1.0).is_null());
     assert_eq!(ai_layout(0, 0, 0, 44_100, 2, 0.5), ERR_BAD_INPUT);
 }
+
+fn peaks_file() -> Vec<u8> {
+    // SAFETY: `ai_peaks` holds `ai_peaks_len` bytes until the next job.
+    unsafe { core::slice::from_raw_parts(ai_peaks(), ai_peaks_len() as usize) }.to_vec()
+}
+
+#[test]
+fn the_steps_give_the_peaks_of_the_library_and_a_failed_job_none() {
+    for (name, hint) in [
+        ("sine-s16.wav", "wav"),
+        ("sine.mp3", "mp3"),
+        ("sine.m4a", "m4a"),
+        ("sine.ogg", "ogg"),
+        ("sine-48k-mono.flac", "flac"),
+    ] {
+        let bytes = fixture(name);
+        let imported =
+            audio_import::import(std::io::Cursor::new(bytes.clone()), Some(hint), |_| ()).unwrap();
+        decode(&bytes, hint).unwrap();
+        let file = peaks_file();
+        assert_eq!(Some(&file), imported.peaks.as_ref(), "{name}");
+        let (rate, channels, frames) = (ai_rate(), ai_channels(), ai_frames());
+        let len = file.len() as f64;
+        to_inbox(&file[..32]);
+        assert_eq!(ai_peaks_valid(32, len, rate, channels, frames), 1, "{name}");
+        assert_eq!(ai_peaks_valid(32, len - 1.0, rate, channels, frames), 0);
+        assert_eq!(ai_peaks_valid(31, len, rate, channels, frames), 0);
+        assert_eq!(ai_peaks_valid(32, len, rate, channels, 1.5), 0);
+        assert_eq!(ai_peaks_valid(32, len, rate + 1, channels, frames), 0);
+    }
+    // A job that fails leaves no peaks of the job before it.
+    let wav = fixture("sine-s16.wav");
+    assert!(decode(&wav, "wav").is_ok());
+    assert!(ai_peaks_len() > 0);
+    assert_eq!(
+        decode(&wav[..wav.len() / 2 + 1], "wav").map(|_| ()),
+        Err(-3)
+    );
+    assert_eq!(ai_peaks_len(), 0);
+    assert!(decode(&wav, "wav").is_ok());
+    assert_eq!(decode(&fixture("not-audio.txt"), "txt"), Err(-1));
+    assert_eq!(ai_peaks_len(), 0);
+}

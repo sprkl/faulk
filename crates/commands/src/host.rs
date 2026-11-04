@@ -47,6 +47,8 @@ pub enum RunReport {
 pub enum ExportReport {
     Ready {
         plan: crate::export::ExportPlan,
+        /// The tracks by the engine slot the render gives them (what a measure is of).
+        tracks: Vec<project::TrackId>,
         setup_len: u32,
         start_len: u32,
     },

@@ -113,6 +113,21 @@ fn examples() -> Vec<(Command, State)> {
             param: "attack".into(),
             value: 0.25,
         })),
+        on(Command::Mixer(mixer::Command::Levels {})),
+        (
+            Command::Project(project::Command::AnalyzeRender {
+                from_bar: None,
+                to_bar: None,
+            }),
+            arrangement_examples::fx().state,
+        ),
+        (
+            Command::Project(project::Command::AnalyzeRender {
+                from_bar: Some(2),
+                to_bar: Some(3),
+            }),
+            arrangement_examples::fx().state,
+        ),
         on(Command::Midi(midi::Command::ListInputs {})),
         on(Command::Midi(midi::Command::SelectInput {
             id: Some("in-1".into()),
@@ -201,10 +216,30 @@ fn examples() -> Vec<(Command, State)> {
     .collect()
 }
 
+/// The context an example runs in: the default one, and for `project.analyze_render` the
+/// measures a host would have staged for the range the command asks for.
+fn context_for(command: &Command, state: &State) -> commands::Context {
+    let mut ctx = context();
+    if let Command::Project(project::Command::AnalyzeRender { from_bar, to_bar }) = command {
+        let plan = commands::export::analysis_plan(&state.project, *from_bar, *to_bar).unwrap();
+        ctx.analysis = Some(commands::levels::AnalysisStage {
+            start_tick: plan.start_tick,
+            end_tick: plan.end_tick,
+            slots: commands::export::track_slots(&state.project, &state.session),
+            tracks: Vec::new(),
+            master: commands::levels::MeterReading::default(),
+            silenced_frames: 0,
+            reduction: 0.0,
+        });
+    }
+    ctx
+}
+
 #[test]
 fn every_example_meets_the_contract() {
     for (command, state) in examples() {
-        check(&command, &state, &context()).unwrap();
+        let ctx = context_for(&command, &state);
+        check(&command, &state, &ctx).unwrap();
     }
 }
 
@@ -384,7 +419,9 @@ fn examples_round_trip_through_json_and_answer_with_their_name() {
         assert_eq!(value["type"], command.name(), "{json}");
         let back: Command = serde_json::from_str(&json).unwrap();
         assert_eq!(back, command, "{json}");
-        let outcome = command.apply(&mut from.clone(), &mut context()).unwrap();
+        let outcome = command
+            .apply(&mut from.clone(), &mut context_for(&command, &from))
+            .unwrap();
         assert_eq!(outcome.output.name(), command.name());
         let out = serde_json::to_value(&outcome.output).unwrap();
         assert_eq!(out["type"], command.name(), "{out}");
@@ -1123,7 +1160,9 @@ fn trimmed_tool_schemas_validate_the_examples_as_the_whole_definitions_did() {
     for (command, from) in examples() {
         let name = command.name();
         let tool = &tools[name];
-        let outcome = command.apply(&mut from.clone(), &mut context()).unwrap();
+        let outcome = command
+            .apply(&mut from.clone(), &mut context_for(&command, &from))
+            .unwrap();
         let mut input = serde_json::to_value(&command).unwrap();
         let mut output = serde_json::to_value(&outcome.output).unwrap();
         for value in [&mut input, &mut output] {

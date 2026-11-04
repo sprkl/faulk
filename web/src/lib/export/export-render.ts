@@ -31,6 +31,24 @@ export interface ToStart {
   stop: ArrayBuffer
   /** The project's folder, where the audio clips' files are read (#647); `null`: none (they are silent). */
   folder: FileSystemDirectoryHandle | null
+  /**
+   * Measure only (`project.analyze_render`, #665): the render stops once the content is rendered, posts no chunk and
+   * answers `done` with the levels of the content. The file's header and bytes are not made.
+   */
+  analysis?: boolean
+}
+
+/** The content's levels (linear amplitude), as the engine measured them (`Offline::measure`). */
+export interface ContentLevels {
+  /** Frames measured: the content's length. */
+  frames: number
+  /** By track slot, up to the last occupied one. */
+  tracks: { peak_l: number; peak_r: number; rms_l: number; rms_r: number }[]
+  master: { peak_l: number; peak_r: number; rms_l: number; rms_r: number }
+  /** Frames the output protection silenced for a non-finite sample, over the content. */
+  silenced: number
+  /** The output protection's peak gain reduction over the content (linear, 0 = never engaged). */
+  reduction: number
 }
 
 export type FromExport =
@@ -48,6 +66,8 @@ export type FromExport =
       /** Frames the output protection silenced for a non-finite sample (a NaN or an infinity; 0 on a clean render, #402). */
       silenced: number
       tailCut: boolean
+      /** What the content measured; `null` if the engine reported none. */
+      levels?: ContentLevels | null
       /** The media (blob hashes, hex) of the audio clips whose file could not be read: silent in the file (#647). */
       missing: string[]
     }
@@ -107,22 +127,28 @@ async function run(message: ToStart, post: Post, room?: () => Promise<void>) {
   for (;;) {
     const phase = ex.fk_export_step(handle, STEP_FRAMES)
     if (phase < 0) throw new ExportFailure(`the render failed (${phase})`, phase)
-    const len = ex.fk_export_pcm_len(handle)
-    // Copied out of the engine's memory: the next step reuses it, and a shared buffer cannot be transferred.
-    const bytes = len > 0 ? new Uint8Array(memory.buffer, ex.fk_export_pcm(handle), len).slice().buffer : new ArrayBuffer(0)
-    post(
-      {
-        type: 'chunk',
-        bytes,
-        rendered: ex.fk_export_stat(handle, 0),
-        body: ex.fk_export_stat(handle, 2),
-        tail: phase !== 0,
-      },
-      [bytes],
-    )
-    if (phase === 2) break
-    // Only a chunk with bytes is acknowledged by the page once written: an empty one takes no room.
-    if (len > 0) await room?.()
+    if (message.analysis) {
+      // A measure writes nothing and ends with the content: the tail is neither written nor measured. It still serves
+      // the disk reads its audio clips wait for (below).
+      if (phase !== 0) break
+    } else {
+      const len = ex.fk_export_pcm_len(handle)
+      // Copied out of the engine's memory: the next step reuses it, and a shared buffer cannot be transferred.
+      const bytes = len > 0 ? new Uint8Array(memory.buffer, ex.fk_export_pcm(handle), len).slice().buffer : new ArrayBuffer(0)
+      post(
+        {
+          type: 'chunk',
+          bytes,
+          rendered: ex.fk_export_stat(handle, 0),
+          body: ex.fk_export_stat(handle, 2),
+          tail: phase !== 0,
+        },
+        [bytes],
+      )
+      if (phase === 2) break
+      // Only a chunk with bytes is acknowledged by the page once written: an empty one takes no room.
+      if (len > 0) await room?.()
+    }
     // The step stopped before a block whose reads are not served: serve them, then step again.
     while (ex.fk_export_stat(handle, 9) > 0) {
       disk.tick()
@@ -133,6 +159,7 @@ async function run(message: ToStart, post: Post, room?: () => Promise<void>) {
       await Promise.all([...disk.inFlight])
     }
   }
+  const levels = readLevels(ex, handle, memory)
   const at = ex.fk_export_header(handle)
   const header = new Uint8Array(memory.buffer, at, ex.fk_export_header_len(handle)).slice().buffer
   post(
@@ -145,6 +172,7 @@ async function run(message: ToStart, post: Post, room?: () => Promise<void>) {
       reduction: ex.fk_export_stat(handle, 7),
       silenced: ex.fk_export_stat(handle, 8),
       tailCut: ex.fk_export_stat(handle, 5) > 0.5,
+      levels,
       missing: missingOf(ex, memory, handle),
     },
     [header],
@@ -170,4 +198,22 @@ function missingOf(ex: ExportExports, memory: WebAssembly.Memory, handle: number
   const at = ex.fk_export_missing_table(handle)
   const bytes = new Uint8Array(memory.buffer, at, count * 32)
   return Array.from({ length: count }, (_, i) => Array.from(bytes.subarray(i * 32, i * 32 + 32), (b) => b.toString(16).padStart(2, '0')).join(''))
+}
+
+/** The levels the engine measured over the content, copied out of its memory; `null` before the content is rendered. */
+function readLevels(ex: ExportExports, handle: number, memory: WebAssembly.Memory): ContentLevels | null {
+  const frames = ex.fk_export_stat(handle, 12)
+  const strips = ex.fk_export_levels_len(handle)
+  if (frames < 0 || strips < 1) return null
+  const at = ex.fk_export_levels(handle)
+  if (!at) return null
+  const values = new Float32Array(memory.buffer, at, strips * 4).slice()
+  const strip = (i: number) => ({ peak_l: values[i * 4], peak_r: values[i * 4 + 1], rms_l: values[i * 4 + 2], rms_r: values[i * 4 + 3] })
+  return {
+    frames,
+    tracks: Array.from({ length: strips - 1 }, (_, i) => strip(i)),
+    master: strip(strips - 1),
+    silenced: ex.fk_export_stat(handle, 13),
+    reduction: ex.fk_export_stat(handle, 14),
+  }
 }

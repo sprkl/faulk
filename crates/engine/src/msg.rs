@@ -215,7 +215,7 @@ pub use codec::{
 pub const MSG_VERSION: u8 = 1;
 
 /// Version of the [`Feedback`] layout.
-pub const FEEDBACK_VERSION: u8 = 7;
+pub const FEEDBACK_VERSION: u8 = 8;
 
 /// Size of a [`Header`] in bytes.
 pub const HEADER_BYTES: usize = 16;
@@ -1702,7 +1702,7 @@ pub struct RecordedNote {
 }
 
 /// Size of the fixed part of a [`Feedback`] on the wire.
-pub const FEEDBACK_HEADER_BYTES: usize = 88;
+pub const FEEDBACK_HEADER_BYTES: usize = 92;
 
 /// What the engine reports to the page, about 30 times per second. Fixed little-endian
 /// layout, written by the audio thread into a region sized by [`Feedback::size_for`]:
@@ -1745,7 +1745,10 @@ pub const FEEDBACK_HEADER_BYTES: usize = 88;
 ///             missing, PCM cache not ready, no disk; version 7, AU-3)
 ///     80    4 pcm_flags (u32, bit 0: something did not fit the PCM budget; version 7)
 ///     84    4 pcm_kib (u32, PCM in memory, rings and resident segments, in KiB; version 7)
-///     88      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
+///     88    4 silenced_frames (u32, cumulative since the channel was built, saturating: stereo
+///             frames the output protection turned to silence because a sample was non-finite,
+///             `Engine::limiter_silenced`; version 8, #667)
+///     92      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
 ///             largest gain reduction in decibels of the strip's devices over the period, version 4):
 ///             one per track slot below `tracks` (zeros for an empty slot; peak and RMS after the
 ///             track's fader), then the output's meter after the master (version 2); the master's
@@ -1776,6 +1779,9 @@ pub struct Feedback {
     pub pcm_flags: u32,
     /// PCM in memory, in KiB (AU-3).
     pub pcm_kib: u32,
+    /// Stereo frames the output protection silenced because a sample was non-finite, since the
+    /// channel was built (#667); the meters measure before the protection and skip such samples.
+    pub silenced_frames: u32,
     pub meters: Vec<TrackMeter>,
     /// The output's meter after the master, last of the meters section on the wire.
     pub master: TrackMeter,
