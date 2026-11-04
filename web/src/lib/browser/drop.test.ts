@@ -256,6 +256,22 @@ describe('a refused step', () => {
   })
 })
 
+describe('a group already open', () => {
+  it('a refused begin_group: the steps still run in that group, and no end_group is sent', () => {
+    const f = fake((c) => c.type === 'history.begin_group')
+    const result = applyItem(f.host, item('faulk.osc_synth', 'instrument', 'Round Bass'), { type: 'new-track' })
+    expect(result.ok).toBe(true)
+    expect(f.types()).toEqual(['history.begin_group', 'track.create', 'preset.load'])
+  })
+
+  it('a refused begin_group and a refused step: still no end_group', () => {
+    const f = fake((c) => c.type === 'history.begin_group' || c.type === 'preset.load')
+    const result = applyItem(f.host, item('faulk.osc_synth', 'instrument', 'Round Bass'), { type: 'new-track' })
+    expect(result.ok).toBe(false)
+    expect(f.types()).not.toContain('history.end_group')
+  })
+})
+
 describe('what makes a track', () => {
   it('only an instrument or a preset of one', () => {
     expect(createsTrack(synth)).toBe(true)

@@ -62,15 +62,19 @@ export const createsTrack = (item: Pick<BrowserItem, 'category'>): boolean => it
 
 const idsOf = (chain: readonly ChainEntry[]): Set<string> => new Set(chain.map((entry) => entry.id))
 
-/** Runs `steps` as one history group when there are several; a refused step ends the sequence, the group is closed either way. */
+/**
+ * Runs `steps` as one history group when there are several; a refused step ends the sequence, the group is closed either
+ * way. A refused `history.begin_group` (a group is already open: an agent's turn, an author's gesture) is not an error:
+ * the steps join that group, and its owner closes it, so `end_group` is sent only when this drop opened the group (#643).
+ */
 function grouped(host: DropHost, steps: ((host: DropHost) => boolean)[]): boolean {
   if (steps.length === 1) return steps[0]!(host)
-  host.run(beginGroup())
+  const opened = host.run(beginGroup())
   try {
     for (const step of steps) if (!step(host)) return false
     return true
   } finally {
-    host.run(endGroup())
+    if (opened) host.run(endGroup())
   }
 }
 
