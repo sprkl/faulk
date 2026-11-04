@@ -16,6 +16,7 @@ mod arrangement;
 mod arrangement_grid;
 mod arrangement_time;
 mod arrangement_tracks;
+mod audio_clip;
 mod audio_import;
 mod automation;
 mod clip;

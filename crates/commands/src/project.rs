@@ -579,6 +579,7 @@ fn new_project(
     ctx.opened = None;
     // The files imported into the old project are in its folder, not in the new one's.
     ctx.media.clear();
+    ctx.missing_media.clear();
     Outcome {
         output: Output::New { name: name.clone() },
         undo: Undo::None,
@@ -634,6 +635,7 @@ fn open_folder(
     ctx.group = None;
     ctx.engine = EngineSlots::default();
     ctx.media.clear();
+    ctx.missing_media = opened.report.missing_blobs.iter().copied().collect();
     ctx.opened = Some(OpenedFolder {
         state: opened.state,
         blobs,

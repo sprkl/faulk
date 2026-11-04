@@ -380,6 +380,8 @@ impl Core {
     pub fn stage_media(&mut self, json: &[u8]) -> Result<(), StoredJsonError> {
         let media: project::AudioMedia =
             serde_json::from_slice(json).map_err(|_| StoredJsonError)?;
+        // The page writes the blob before it stages the media: the file is there now.
+        self.synced.ctx.missing_media.remove(&media.hash);
         self.synced.ctx.media.insert(media.hash, media);
         Ok(())
     }
