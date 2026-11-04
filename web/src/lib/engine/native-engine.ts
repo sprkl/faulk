@@ -43,6 +43,8 @@ export class NativeEngine implements Engine {
   epoch = 0
   /** What the helper said it can do in its hello (MIDI inputs, the project's folder). */
   capabilities: Capabilities | null = null
+  /** Aborted when the session ends: the agents' calls it carried can no longer be answered (AG-4). */
+  readonly calls = new AbortController()
 
   private constructor(
     private readonly ws: WebSocket,
@@ -104,7 +106,7 @@ export class NativeEngine implements Engine {
           case 'agent.call': {
             // Answered once, on this session: the helper takes an answer only from the link it asked.
             const answer = answerOnce(message.id, (m) => engine.message(m))
-            if (events.onAgentCall) events.onAgentCall(message.agent, message.command, answer)
+            if (events.onAgentCall) events.onAgentCall(message.agent, message.command, answer, engine.calls.signal)
             else answer({ status: 'unavailable', reason: 'this page does not take agent calls' })
             break
           }
@@ -127,6 +129,8 @@ export class NativeEngine implements Engine {
       }
       ws.onclose = () => {
         clearTimeout(timer)
+        // The agents' calls of this session can no longer be answered: their questions are withdrawn (AG-4).
+        engine.calls.abort()
         if (!opened) reject(new Error('helper refused the session'))
         else if (!engine.closing) events.onClosed()
       }
