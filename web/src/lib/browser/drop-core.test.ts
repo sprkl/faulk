@@ -21,8 +21,8 @@ function setup() {
   core.setup()
   const host: DropHost = {
     run: (command: Command) => core.run(command, 'user').report.status === 'applied',
-    tracks: () => Object.entries(core.project().project.tracks).map(([id, track]) => ({ id, track })),
-    masterDevices: () => core.project().project.master?.devices,
+    tracks: () => Object.entries(core.project().project.tracks).flatMap(([id, track]) => (track ? [{ id, track }] : [])),
+    masterDevices: () => core.project().project.master_devices,
     selectedTrack: () => null,
     masterSelected: () => false,
   }
