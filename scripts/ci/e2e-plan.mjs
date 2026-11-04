@@ -55,7 +55,8 @@ export const AREA = {
   journey: ['journey'],
   // The shared time grid is drawn by the arrangement and the piano roll: both areas.
   timegrid: ['arrangement', 'arrangement-time', 'arrangement-view', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'timegrid', 'lane-rows'],
-  helper: ['big-project', 'helper', 'local-access'],
+  // The helper link; the agent scenario (AG-5) drives the real helper's MCP server and the page's control link.
+  helper: ['agent-scenario', 'big-project', 'helper', 'local-access'],
   // Typed values in the continuous controls.
   valueEntry: ['value-entry'],
   refusal: ['refused-commands'],

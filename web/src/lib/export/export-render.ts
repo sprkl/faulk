@@ -35,6 +35,8 @@ export type FromExport =
       clipped: number
       /** The output protection's peak gain reduction (linear, 0 = never engaged; #402). */
       reduction: number
+      /** Frames the output protection silenced for a non-finite sample (a NaN or an infinity; 0 on a clean render, #402). */
+      silenced: number
       tailCut: boolean
     }
   | { type: 'error'; message: string; code: number | null }
@@ -116,6 +118,7 @@ async function run(message: ToStart, post: Post, room?: () => Promise<void>) {
       peak: ex.fk_export_stat(handle, 3),
       clipped: ex.fk_export_stat(handle, 4),
       reduction: ex.fk_export_stat(handle, 7),
+      silenced: ex.fk_export_stat(handle, 8),
       tailCut: ex.fk_export_stat(handle, 5) > 0.5,
     },
     [header],
