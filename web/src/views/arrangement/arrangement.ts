@@ -344,3 +344,47 @@ export function copyShift(selection: readonly Block[]): number | null {
   const last = selection.reduce((high, b) => Math.max(high, b.end), 0)
   return last + (last - first) <= MAX_TICK ? last - first : null
 }
+
+// --- drawing a clip and the box (#615) ------------------------------------------------------------
+
+/**
+ * The span a drag on an empty part of a lane draws: from where it was pressed (`pressTick`, which sits in free ground) to the
+ * pointer (`tick`), rightwards or leftwards, each end on the snap `step` (`null`: free). It stops at the neighbouring clips and
+ * at tick 0, so the clip it asks `clip.create` for never overlaps one. `null` when nothing is left (a click, or a span under
+ * a tick once snapped).
+ */
+export function drawnSpan(
+  blocks: readonly Block[],
+  row: number,
+  pressTick: number,
+  tick: number,
+  step: number | null,
+): { start: number; length: number } | null {
+  const lane = blocks.filter((b) => b.row === row)
+  const floor = lane.reduce((low, b) => (b.end <= pressTick ? Math.max(low, b.end) : low), 0)
+  const ceiling = lane.reduce((high, b) => (b.start >= pressTick ? Math.min(high, b.start) : high), MAX_TICK)
+  const a = snapTick(pressTick, step)
+  const b = snapTick(tick, step)
+  const start = Math.round(Math.max(floor, Math.min(a, b)))
+  const end = Math.round(Math.min(ceiling, Math.max(a, b)))
+  return end > start ? { start, length: end - start } : null
+}
+
+/** The blocks that a box (stage coordinates, any corner order) touches. */
+export function blocksInBox(
+  blocks: readonly Block[],
+  layout: Layout,
+  view: View,
+  scrollY: number,
+  box: { x0: number; y0: number; x1: number; y1: number },
+): Block[] {
+  const left = Math.min(box.x0, box.x1)
+  const right = Math.max(box.x0, box.x1)
+  const top = Math.min(box.y0, box.y1)
+  const bottom = Math.max(box.y0, box.y1)
+  return blocks.filter((b) => {
+    const rowTop = laneTop(layout, b.row, scrollY) + BLOCK_INSET
+    const rowBottom = rowTop + laneHeight(layout, b.row) - 2 * BLOCK_INSET
+    return tickToX(b.end, view) >= left && tickToX(b.start, view) <= right && rowBottom >= top && rowTop <= bottom
+  })
+}
