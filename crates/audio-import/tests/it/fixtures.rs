@@ -284,7 +284,8 @@ fn only_wav_and_aiff_of_plain_samples_are_read_directly() {
     let (imported, _) = import(bytes, Some("wav")).unwrap();
     let mut other = imported.info;
     other.frames -= 1;
-    assert!(layout.matches(&imported.info) && !layout.matches(&other));
+    let m = |i: &audio_import::MediaInfo| layout.matches(i.sample_rate, i.channels, i.frames);
+    assert!(m(&imported.info) && !m(&other));
 }
 
 #[test]

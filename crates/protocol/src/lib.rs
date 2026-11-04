@@ -20,7 +20,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 30;
+pub const PROTOCOL_VERSION: u32 = 31;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -40,6 +40,12 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 31 (#112, AU-3): audio clips reach the engine. `AudioSourceDeclare` carries the
+// blob's SHA-256 and `ClipAudioSet` the clip's gain and loop (their payloads change), and the
+// report is `Feedback` version 7 (offline sources, the PCM budget flag and the PCM in memory
+// after the header, which grows from 76 to 88 bytes). A page and a helper of different
+// versions refuse each other.
 
 // Version 30 (#114, 29 is #619's): audio clip commands (AU-5). `clip.import_audio` takes an
 // optional target `at` and answers its `placement`; new `clip.audio.set_range`,

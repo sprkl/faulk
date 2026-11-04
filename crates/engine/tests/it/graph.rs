@@ -697,6 +697,8 @@ fn a_track_put_beyond_the_table_is_garbage_not_a_retiring_track() {
             back: false,
             graph: Default::default(),
             player: Default::default(),
+            instance: 0,
+            ports: Default::default(),
         }),
         grown: None,
     });
