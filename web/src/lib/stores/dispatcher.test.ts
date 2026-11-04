@@ -2718,6 +2718,14 @@ describe("an agent's destructive calls wait for the user's answer in the page (A
     // Taken: nothing heard since.
     const second = await session.dispatcher.runForAgent({ type: 'mixer.levels' }, 'agent:a')
     expect(second).toMatchObject({ status: 'applied', output: { playing: true, master: { peak_db: null } } })
+    expect((first.output as { silenced_frames: number }).silenced_frames).toBe(0)
+  })
+
+  it('tells an agent through mixer.levels how many frames the output protection silenced (#667)', async () => {
+    const session = await started()
+    session.engine.silencedFrames = 131
+    const answer = await session.dispatcher.runForAgent({ type: 'mixer.levels' }, 'agent:a')
+    expect(answer).toMatchObject({ status: 'applied', output: { silenced_frames: 131 } })
   })
 
   describe('project.analyze_render (#665)', () => {

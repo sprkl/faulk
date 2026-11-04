@@ -14518,7 +14518,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Read how loud the project sounds now, per track and for the master, from the\nmeters of the playing engine: how an agent without ears learns whether a song\nsounds. Call it while the transport plays (`transport.play`): the meters keep the\nlargest peak and the loudest RMS since the previous call (at most the last 10\nseconds), so a call right after a passage covers it. That RMS is the loudest of\nthe engine's short windows (about 30 ms), so it reads higher than the RMS of a\nwhole passage, which is what `project.analyze_render` gives. Levels are in dBFS (0 is\nfull scale; the master is measured before the output protection, so it can read\nabove 0), `null` is silence; a peak is the larger of the two channels, an RMS the\npower mean of both. `playing` says whether the transport ran: when it did not (or\nthe audio is not started, or the engine has stopped reporting), every level is\n`null`. Tracks come in display order, after their fader and mute. To measure a\nstretch without playing it, use `project.analyze_render`. A query: changes nothing\nand never enters the history.",
+        "description": "Read how loud the project sounds now, per track and for the master, from the\nmeters of the playing engine: how an agent without ears learns whether a song\nsounds. Call it while the transport plays (`transport.play`): the meters keep the\nlargest peak and the loudest RMS since the previous call (at most the last 10\nseconds), so a call right after a passage covers it. That RMS is the loudest of\nthe engine's short windows (about 30 ms), so it reads higher than the RMS of a\nwhole passage, which is what `project.analyze_render` gives. Levels are in dBFS (0 is\nfull scale; the master is measured before the output protection, so it can read\nabove 0), `null` is silence; a peak is the larger of the two channels, an RMS the\npower mean of both. `playing` says whether the transport ran: when it did not (or\nthe audio is not started, or the engine has stopped reporting), every level is\n`null`. Tracks come in display order, after their fader and mute. To measure a\nstretch without playing it, use `project.analyze_render`. `silenced_frames` above 0\nsays the output protection silenced an invalid (non-finite) signal since the engine\nstarted, which the levels cannot show. A query: changes nothing\nand never enters the history.",
         "destructive": false,
         "input_schema": {
           "additionalProperties": false,
@@ -14612,6 +14612,12 @@
               "description": "Whether the transport was playing or recording at the last reading.",
               "type": "boolean"
             },
+            "silenced_frames": {
+              "description": "Frames the output protection turned to silence because a sample was not a number\n(NaN or infinite), since the engine that plays started: above 0, a device produced an\ninvalid signal, which the levels above do not show. Counted whether or not the\ntransport runs.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
             "tracks": {
               "description": "The level of each track, in display order.",
               "items": {
@@ -14623,7 +14629,8 @@
           "required": [
             "playing",
             "tracks",
-            "master"
+            "master",
+            "silenced_frames"
           ],
           "type": "object"
         },
@@ -19680,7 +19687,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Read how loud the project sounds now, per track and for the master, from the\nmeters of the playing engine: how an agent without ears learns whether a song\nsounds. Call it while the transport plays (`transport.play`): the meters keep the\nlargest peak and the loudest RMS since the previous call (at most the last 10\nseconds), so a call right after a passage covers it. That RMS is the loudest of\nthe engine's short windows (about 30 ms), so it reads higher than the RMS of a\nwhole passage, which is what `project.analyze_render` gives. Levels are in dBFS (0 is\nfull scale; the master is measured before the output protection, so it can read\nabove 0), `null` is silence; a peak is the larger of the two channels, an RMS the\npower mean of both. `playing` says whether the transport ran: when it did not (or\nthe audio is not started, or the engine has stopped reporting), every level is\n`null`. Tracks come in display order, after their fader and mute. To measure a\nstretch without playing it, use `project.analyze_render`. A query: changes nothing\nand never enters the history.",
+              "description": "Read how loud the project sounds now, per track and for the master, from the\nmeters of the playing engine: how an agent without ears learns whether a song\nsounds. Call it while the transport plays (`transport.play`): the meters keep the\nlargest peak and the loudest RMS since the previous call (at most the last 10\nseconds), so a call right after a passage covers it. That RMS is the loudest of\nthe engine's short windows (about 30 ms), so it reads higher than the RMS of a\nwhole passage, which is what `project.analyze_render` gives. Levels are in dBFS (0 is\nfull scale; the master is measured before the output protection, so it can read\nabove 0), `null` is silence; a peak is the larger of the two channels, an RMS the\npower mean of both. `playing` says whether the transport ran: when it did not (or\nthe audio is not started, or the engine has stopped reporting), every level is\n`null`. Tracks come in display order, after their fader and mute. To measure a\nstretch without playing it, use `project.analyze_render`. `silenced_frames` above 0\nsays the output protection silenced an invalid (non-finite) signal since the engine\nstarted, which the levels cannot show. A query: changes nothing\nand never enters the history.",
               "properties": {
                 "type": {
                   "const": "mixer.levels",
@@ -25039,6 +25046,12 @@
                   "description": "Whether the transport was playing or recording at the last reading.",
                   "type": "boolean"
                 },
+                "silenced_frames": {
+                  "description": "Frames the output protection turned to silence because a sample was not a number\n(NaN or infinite), since the engine that plays started: above 0, a device produced an\ninvalid signal, which the levels above do not show. Counted whether or not the\ntransport runs.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
                 "tracks": {
                   "description": "The level of each track, in display order.",
                   "items": {
@@ -25055,7 +25068,8 @@
                 "type",
                 "playing",
                 "tracks",
-                "master"
+                "master",
+                "silenced_frames"
               ],
               "type": "object"
             }
@@ -33693,6 +33707,12 @@
                   "description": "Whether the transport was playing or recording at the last reading.",
                   "type": "boolean"
                 },
+                "silenced_frames": {
+                  "description": "Frames the output protection turned to silence because a sample was not a number\n(NaN or infinite), since the engine that plays started: above 0, a device produced an\ninvalid signal, which the levels above do not show. Counted whether or not the\ntransport runs.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
                 "tracks": {
                   "description": "The level of each track, in display order.",
                   "items": {
@@ -33709,7 +33729,8 @@
                 "type",
                 "playing",
                 "tracks",
-                "master"
+                "master",
+                "silenced_frames"
               ],
               "type": "object"
             }
@@ -37201,7 +37222,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 33,
+  "protocol_version": 34,
   "server_message": {
     "$defs": {
       "Capabilities": {

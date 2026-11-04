@@ -1146,7 +1146,6 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
     })
 }
 
-<<<<<<< HEAD
 /// Test scenarios of the host (test builds only).
 #[cfg(feature = "testing")]
 pub mod testing {
@@ -1182,7 +1181,9 @@ pub mod testing {
             out.extend_from_slice(&s.to_le_bytes());
         }
         out
-=======
+    }
+}
+
 #[cfg(test)]
 mod tally_tests {
     use super::*;
@@ -1220,6 +1221,5 @@ mod tally_tests {
         let levels = tally.levels();
         assert_eq!(levels.frames, 0);
         assert!(levels.master.rms_l == 0.0 && levels.master.peak_l == 0.0);
->>>>>>> origin/develop
     }
 }

@@ -708,7 +708,9 @@ export class Dispatcher {
   /** Stages what the meters held since the last `mixer.levels` for the core to answer with. */
   private stageLevels(core: ProjectCore) {
     const slots = this.project.view?.slots
-    core.stageLevels(this.levelHold.take(performance.now(), this.state.started ? slots?.epoch : undefined))
+    const held = this.levelHold.take(performance.now(), this.state.started ? slots?.epoch : undefined)
+    // What the output protection silenced (#667) is the engine's count, playing or not.
+    core.stageLevels({ ...held, silenced_frames: this.state.silencedFrames })
   }
 
   /**
