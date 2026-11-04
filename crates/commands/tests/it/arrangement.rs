@@ -825,9 +825,6 @@ fn restoring_brings_back_what_the_rule_carved_with_the_same_identifiers() {
 fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
     let f = fx();
     use arrangement::Command as C;
-    // An audio clip is placed by `arrangement.place` since #666: see
-    // `placing_an_audio_clip_*`.
-    let _ = &f;
     // A clip of the launch grid (AR-5 copies or links it).
     let mut gridded = fx();
     let scene = gridded.state.project.scenes.keys().next().unwrap().clone();
