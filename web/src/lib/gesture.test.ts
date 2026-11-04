@@ -6,7 +6,7 @@ const types = (run: ReturnType<typeof vi.fn>) => run.mock.calls.map(([command]) 
 
 describe('a fader gesture', () => {
   it('opens one history group and closes it once, whatever the number of begins and ends', () => {
-    const run = vi.fn()
+    const run = vi.fn(() => true)
     const gesture = createGesture(run)
     gesture.end()
     expect(run).not.toHaveBeenCalled()
@@ -21,7 +21,7 @@ describe('a fader gesture', () => {
 
   it('ends when the pointer is released anywhere, or cancelled', () => {
     for (const release of ['pointerup', 'pointercancel']) {
-      const run = vi.fn()
+      const run = vi.fn(() => true)
       const gesture = createGesture(run)
       gesture.begin()
       window.dispatchEvent(new Event(release))
@@ -33,12 +33,22 @@ describe('a fader gesture', () => {
   })
 
   it('can open again after it ended', () => {
-    const run = vi.fn()
+    const run = vi.fn(() => true)
     const gesture = createGesture(run)
     gesture.begin()
     gesture.end()
     gesture.begin()
     gesture.end()
     expect(types(run)).toEqual(['history.begin_group', 'history.end_group', 'history.begin_group', 'history.end_group'])
+  })
+
+  it('a refused begin_group (another author group is open): the gesture runs on and never closes that group', () => {
+    const run = vi.fn((command: { type: string }) => command.type !== 'history.begin_group')
+    const gesture = createGesture(run)
+    gesture.begin()
+    expect(run).toHaveBeenCalledWith({ type: 'history.begin_group' }, { quiet: true })
+    gesture.end()
+    expect(types(run)).toEqual(['history.begin_group'])
+    expect(gesture.open).toBe(false)
   })
 })
