@@ -7,6 +7,9 @@
 use crate::device::{DeviceDescriptor, Factory};
 use crate::msg::DeviceKind;
 
+/// The audio clip player (AU-4): the instrument stage of an audio track, held by the track
+/// and run by the graph, not a registry device (its module doc says why).
+pub mod clip_player;
 pub mod compressor;
 pub mod drums;
 pub mod echo;

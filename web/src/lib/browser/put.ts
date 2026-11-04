@@ -11,7 +11,8 @@ import { applyItem, type DropHost, type DropResult, type DropTarget } from './dr
 
 /** The host of the page: its dispatcher to run commands, its project store to read the tracks back after each one. */
 export const hostOf = ({ project, ui, dispatcher }: DropStores): DropHost => ({
-  run: (command) => dispatcher.run(command),
+  // A refused `history.begin_group` (a group is already open: an agent's turn) is expected, `grouped()` carries on: no toast (#643).
+  run: (command) => dispatcher.run(command, command.type === 'history.begin_group' ? { quiet: true } : {}),
   tracks: () => project.tracks,
   masterDevices: () => project.view?.project.master_devices,
   selectedTrack: () => project.selected?.id ?? null,

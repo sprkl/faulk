@@ -110,6 +110,11 @@ impl MemDisk {
         self.stalled = true;
     }
 
+    /// Answers again: the jobs still in flight complete at the next step.
+    pub fn unstall(&mut self) {
+        self.stalled = false;
+    }
+
     /// Completes the jobs of the previous poll, then polls at `now_ms` and keeps its jobs.
     pub fn step(&mut self, prepare: &mut Prepare, now_ms: u64) {
         if !self.stalled {
@@ -290,5 +295,237 @@ pub fn scenario() -> Vec<f32> {
             .underruns
             .load(core::sync::atomic::Ordering::Relaxed) as f32,
     );
+    all
+}
+
+// ---------------------------------------------------------------- the audio clip player (AU-4)
+
+/// A 16-bit WAV of `channels` channels at `rate`, `frames` frames, sample `(f, c)` given.
+pub fn wav16(rate: u32, channels: u16, frames: u64, sample: impl Fn(u64, usize) -> i16) -> Vec<u8> {
+    let block = u32::from(channels) * 2;
+    let data = frames as usize * block as usize;
+    let mut w = Vec::with_capacity(44 + data);
+    w.extend_from_slice(b"RIFF");
+    w.extend_from_slice(&(36 + data as u32).to_le_bytes());
+    w.extend_from_slice(b"WAVEfmt ");
+    w.extend_from_slice(&16u32.to_le_bytes());
+    w.extend_from_slice(&1u16.to_le_bytes());
+    w.extend_from_slice(&channels.to_le_bytes());
+    w.extend_from_slice(&rate.to_le_bytes());
+    w.extend_from_slice(&(rate * block).to_le_bytes());
+    w.extend_from_slice(&(block as u16).to_le_bytes());
+    w.extend_from_slice(&16u16.to_le_bytes());
+    w.extend_from_slice(b"data");
+    w.extend_from_slice(&(data as u32).to_le_bytes());
+    for f in 0..frames {
+        for c in 0..usize::from(channels) {
+            w.extend_from_slice(&sample(f, c).to_le_bytes());
+        }
+    }
+    w
+}
+
+/// An engine with a disk in memory, rendering whole blocks of [`BLOCK`] frames and stepping
+/// the disk after each (its clock is the rendered time): what the player's tests and the
+/// parity scenario drive.
+pub struct Rig {
+    pub prepare: Prepare,
+    pub host: Host,
+    pub disk: MemDisk,
+    /// Frames rendered.
+    pub frames: u64,
+    pub rate: u32,
+}
+
+impl Rig {
+    /// An engine at `rate` with `disk`, after a `Reset` (epoch 1) and `setup`.
+    pub fn new(rate: u32, disk: MemDisk, setup: &[ControlMsg]) -> Rig {
+        let (prepare, host) = channel(rate as f32).expect("a channel");
+        let mut rig = Rig {
+            prepare,
+            host,
+            disk,
+            frames: 0,
+            rate,
+        };
+        rig.send(&[ControlMsg::Reset { epoch: 1 }]);
+        rig.send(setup);
+        rig
+    }
+
+    /// Submits `msgs` (epoch 1).
+    pub fn send(&mut self, msgs: &[ControlMsg]) {
+        let stream = encode_stream(1, 0, msgs).expect("encodes");
+        self.prepare.submit(&stream).expect("accepted");
+    }
+
+    /// Renders `blocks` blocks; returns the left and right channels.
+    pub fn render(&mut self, blocks: usize) -> (Vec<f32>, Vec<f32>) {
+        let mut left = Vec::with_capacity(blocks * BLOCK);
+        let mut right = Vec::with_capacity(blocks * BLOCK);
+        for _ in 0..blocks {
+            let n = self.host.render(BLOCK);
+            left.extend_from_slice(&self.host.left()[..n]);
+            right.extend_from_slice(&self.host.right()[..n]);
+            self.frames += n as u64;
+            let now = self.frames * 1000 / u64::from(self.rate.max(1));
+            self.disk.step(&mut self.prepare, now);
+            self.prepare.flush();
+        }
+        (left, right)
+    }
+}
+
+/// Where clip 2 starts in the long source.
+pub const LONG_LOOP_CLIP: u64 = 280_000;
+/// Clip 2's loop, relative to its start: from 3 s in (past its preload of 1.5 s), 0.2 s long.
+pub const LONG_LOOP: (u64, u64) = (3 * RATE as u64, 3 * RATE as u64 + 1_600);
+/// Clip 1's gain.
+pub const SHORT_GAIN: f32 = 0.5;
+
+/// The player's standard setup at [`RATE`]: [`rig_stream`]'s audio track, sources and clips
+/// (clip 0 on the long source from [`CLIP_START`], played once; clip 1 the short source with
+/// a loop, at [`SHORT_GAIN`]), clip 2 a loop of the long source that its preload does not
+/// cover, the three in scenes 0, 1 and 2 of the grid, a transport at 120 BPM that launches at
+/// once.
+pub fn player_setup() -> Vec<ControlMsg> {
+    use crate::msg::SceneSlot;
+    use crate::time::{Quantize, Tempo, TimeSignature};
+    let mut msgs = vec![
+        ControlMsg::SetTransport {
+            tempo: Tempo::new(120.0).expect("a tempo"),
+            signature: TimeSignature::default(),
+            launch_quantize: Quantize::None,
+        },
+        ControlMsg::TrackCreate {
+            track: TrackSlot(0),
+            kind: TrackKind::Audio,
+        },
+        ControlMsg::AudioSourceDeclare {
+            source: SourceSlot(0),
+            sample_rate: RATE,
+            channels: 2,
+            frames: Frame(LONG_FRAMES),
+            media: LONG,
+        },
+        ControlMsg::AudioSourceDeclare {
+            source: SourceSlot(1),
+            sample_rate: RATE,
+            channels: 2,
+            frames: Frame(SHORT_FRAMES),
+            media: SHORT,
+        },
+        ControlMsg::ClipAudioSet {
+            clip: ClipSlot(0),
+            source: SourceSlot(0),
+            start: Frame(CLIP_START),
+            length: Frame(30 * RATE as u64),
+            gain: 1.0,
+            looping: None,
+        },
+        ControlMsg::ClipAudioSet {
+            clip: ClipSlot(1),
+            source: SourceSlot(1),
+            start: Frame(0),
+            length: Frame(SHORT_FRAMES),
+            gain: SHORT_GAIN,
+            looping: Some((Frame(1_000), Frame(1_800))),
+        },
+        ControlMsg::ClipAudioSet {
+            clip: ClipSlot(2),
+            source: SourceSlot(0),
+            start: Frame(LONG_LOOP_CLIP),
+            length: Frame(4 * RATE as u64),
+            gain: 1.0,
+            looping: Some((Frame(LONG_LOOP.0), Frame(LONG_LOOP.1))),
+        },
+    ];
+    for (scene, clip) in [(0, 0), (1, 1), (2, 2)] {
+        msgs.push(ControlMsg::SceneSetSlot {
+            track: TrackSlot(0),
+            scene: SceneSlot(scene),
+            clip: Some(ClipSlot(clip)),
+        });
+    }
+    msgs
+}
+
+/// The launch of the grid cell of `scene` on track 0.
+pub fn launch(scene: u16) -> ControlMsg {
+    ControlMsg::LaunchClip {
+        track: TrackSlot(0),
+        scene: crate::msg::SceneSlot(scene),
+    }
+}
+
+/// Clip 0 placed whole at tick 0 of track 0's arrangement.
+pub fn placement() -> ControlMsg {
+    use crate::msg::{Placement, PlacementSlot, Span};
+    ControlMsg::TrackPlacementsUpload {
+        track: TrackSlot(0),
+        first: 0,
+        total: 1,
+        placements: vec![Placement {
+            placement: PlacementSlot(0),
+            clip: ClipSlot(0),
+            start: crate::time::Tick(0),
+            span: Span::Frames {
+                offset: Frame(0),
+                length: Frame(30 * RATE as u64),
+            },
+        }],
+    }
+}
+
+/// The player's scenario, for the parity test: clip 0 launched from the grid; clip 1 (a short
+/// loop from memory); clip 0's placement entered by a seek into a spot its preload does not
+/// cover (the ring's wait, then the gate); clip 2 (a loop through the ring); a stop. Returns
+/// the interleaved output, then the underruns.
+pub fn player_scenario() -> Vec<f32> {
+    use crate::time::{PPQ, Tick};
+    let mut rig = Rig::new(RATE, MemDisk::standard(), &player_setup());
+    rig.render(200);
+    let mut all = Vec::new();
+    let mut take = |rig: &mut Rig, blocks: usize| {
+        let (l, r) = rig.render(blocks);
+        for (a, b) in l.iter().zip(&r) {
+            all.push(*a);
+            all.push(*b);
+        }
+    };
+    rig.send(&[ControlMsg::Play { from: Tick(0) }, launch(0)]);
+    take(&mut rig, 250);
+    rig.send(&[launch(1)]);
+    take(&mut rig, 100);
+    // 12 s into the placement (120 BPM: 2 beats a second).
+    rig.send(&[
+        placement(),
+        ControlMsg::BackToArrangement,
+        ControlMsg::Seek {
+            tick: Tick(24 * PPQ),
+        },
+    ]);
+    take(&mut rig, 150);
+    rig.send(&[launch(2)]);
+    take(&mut rig, 250);
+    rig.send(&[ControlMsg::StopTrack {
+        track: TrackSlot(0),
+    }]);
+    take(&mut rig, 20);
+    let underruns = rig
+        .host
+        .engine()
+        .disk_stats()
+        .underruns
+        .load(core::sync::atomic::Ordering::Relaxed);
+    // Resampled: the same sources in an engine at 11 025 Hz, clip 1 (a loop from memory)
+    // then clip 0 through its preload and its ring.
+    let mut rig = Rig::new(11_025, MemDisk::standard(), &player_setup());
+    rig.render(200);
+    rig.send(&[ControlMsg::Play { from: Tick(0) }, launch(1)]);
+    take(&mut rig, 100);
+    rig.send(&[launch(0)]);
+    take(&mut rig, 200);
+    all.push(underruns as f32);
     all
 }

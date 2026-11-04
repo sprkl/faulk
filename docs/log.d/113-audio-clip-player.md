@@ -1,0 +1,2 @@
+2026-11-04
+* **Update** (#113): AU-4 done. `specs/02-decoupage-mvp.md`: AU-4 "Réalisé" (the audio clip player as built: a stage of the audio track, not a registry device; resampling, fades, gate, loop declick; Boost silent until AU-7; the export left silent for a follow-up), the device contract's line on `faulk.clip_player` and the CL-2/AR-2 lines that named AU-4 brought up to date. `architecture/03-stockage-local.md` § 5.11: the probe voice leaves the shipped module, the player's reading and its added latency (0 frame from a resident start).

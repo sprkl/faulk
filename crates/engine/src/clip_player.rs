@@ -121,7 +121,7 @@ use crate::events::{
     ALIAS_ROOM, Aliases, Cursor, Events, Read, SCHEDULE_FIRST_VOICE, Sink, Timed, TimedKind,
     check_voices, try_boxed,
 };
-use crate::msg::{ClipSlot, MsgError, Note, Placement, SceneSlot, Slots, TrackSlot};
+use crate::msg::{ClipSlot, MsgError, Note, Placement, SceneSlot, Slots, TrackKind, TrackSlot};
 use crate::time::{LoopRegion, Quantize, Tick, TimeSignature};
 use crate::transport::Segment;
 
@@ -634,6 +634,26 @@ pub struct Queued {
     pub at: Option<Tick>,
 }
 
+/// Who holds the track and what the grid plays (AU-4: what the audio clip player follows).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Owner {
+    /// The grid holds the track ([`ClipPlayer::taken`]); else its arrangement plays.
+    pub taken: bool,
+    /// The clip the grid plays.
+    pub playing: Option<Playing>,
+}
+
+/// A change of [`Owner`] in a read, at a frame of the block (AU-4).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Handover {
+    pub frame: u32,
+    pub owner: Owner,
+}
+
+/// Changes one read records at most: `BackToArrangement`, an order at its boundary, the end
+/// of a clip played once, and one more for safety (a full list keeps the last change).
+pub const HANDOVER_ROOM: usize = 4;
+
 /// What the player reads besides the track's own state.
 pub struct Env<'a> {
     pub track: TrackSlot,
@@ -646,6 +666,9 @@ pub struct Env<'a> {
     pub back: &'a mut bool,
     pub quantize: Quantize,
     pub signature: TimeSignature,
+    /// The track's kind: an audio clip plays on an audio track only
+    /// ([`crate::launcher::plays_on`]).
+    pub kind: TrackKind,
 }
 
 /// A cut piece: the frames the sub-block keeps, and the transport tick to read again from.
@@ -674,6 +697,10 @@ pub struct ClipPlayer {
     /// The `to` of the last segment read to its end: the next one continues it when it
     /// starts there.
     last: Option<Tick>,
+    /// The owner at the start of the last read, and its changes in that read (AU-4).
+    entry: Owner,
+    handovers: [Handover; HANDOVER_ROOM],
+    handover_len: usize,
 }
 
 impl ClipPlayer {
@@ -824,6 +851,64 @@ impl ClipPlayer {
             .or_else(|| self.arrangement.clip())
     }
 
+    /// Who holds the track now.
+    pub fn owner(&self) -> Owner {
+        Owner {
+            taken: self.taken,
+            playing: self.playing,
+        }
+    }
+
+    /// The owner at the start of the last read (or stop) and the changes it made, at their
+    /// frames of the block (AU-4).
+    pub fn handovers(&self) -> (Owner, &[Handover]) {
+        (self.entry, &self.handovers[..self.handover_len])
+    }
+
+    /// The audio clip player played the last frame of the audio clip this player started at
+    /// `anchor` (AU-4: audio is not warped, so its end is not a tick): when it still plays it,
+    /// it stops and gives the clip back; the grid keeps the track (silent), as at the end of
+    /// a MIDI clip played once. Between two reads: no handover to record.
+    pub fn audio_ended(
+        &mut self,
+        clips: &mut Paged<Box<Clip>>,
+        track: TrackSlot,
+        clip: ClipSlot,
+        anchor: Tick,
+    ) {
+        if self
+            .playing
+            .is_some_and(|p| p.clip == clip && p.anchor == anchor)
+        {
+            if let Some(c) = clips.get_mut(clip.0)
+                && c.on_track == Some(track)
+            {
+                c.on_track = None;
+            }
+            self.forget();
+        }
+    }
+
+    /// Starts recording the changes of a read.
+    fn begin_read(&mut self) {
+        self.entry = self.owner();
+        self.handover_len = 0;
+    }
+
+    /// Records the owner as it is now, from frame `frame` of the block.
+    fn handover(&mut self, frame: u32) {
+        let h = Handover {
+            frame,
+            owner: self.owner(),
+        };
+        if self.handover_len < HANDOVER_ROOM {
+            self.handovers[self.handover_len] = h;
+            self.handover_len += 1;
+        } else {
+            self.handovers[HANDOVER_ROOM - 1] = h;
+        }
+    }
+
     /// Takes a new launch order from the track.
     fn take_launch(&mut self, env: &mut Env<'_>) {
         // `BackToArrangement` first, whatever the transport does: the order waiting for its
@@ -840,6 +925,7 @@ impl ClipPlayer {
     /// The clock is stopped for this block: releases the held notes at offset 0 and stops
     /// the clip (what does not fit goes on at the next block); a launch order waits.
     pub fn stop(&mut self, env: &mut Env<'_>, sink: &mut Sink) {
+        self.begin_read();
         self.take_launch(env);
         self.cut = None;
         self.last = None;
@@ -850,6 +936,9 @@ impl ClipPlayer {
         if self.halt_all(env, 0, sink) && self.back_pending {
             self.back_pending = false;
             self.taken = false;
+        }
+        if self.owner() != self.entry {
+            self.handover(0);
         }
     }
 
@@ -896,6 +985,7 @@ impl ClipPlayer {
         start: usize,
         sink: &mut Sink,
     ) -> Read {
+        self.begin_read();
         self.take_launch(env);
         let rel = |tick: Tick| (segment.offset_of(tick).max(start) - start) as u32;
         let cut = self.cut.take();
@@ -919,6 +1009,7 @@ impl ClipPlayer {
             // The grid lets go: the arrangement plays again from this read on.
             self.back_pending = false;
             self.taken = false;
+            self.handover(start as u32);
         }
         if let Some(q) = &mut self.queued {
             q.at = match q.at {
@@ -965,23 +1056,27 @@ impl ClipPlayer {
                     self.start(env, scene, p);
                 }
             }
+            self.handover(start as u32 + at);
         }
         self.last = Some(segment.to);
-        // A clip played once ends after its last tick.
+        // A MIDI clip played once ends after its last tick (an audio clip ends with its last
+        // frame: [`ClipPlayer::audio_ended`]).
         if let Some(pl) = self.playing
             && let Some(clip) = env.clips.get(pl.clip.0)
-            && clip.looping.is_none()
-            && segment.to.0.saturating_sub(pl.anchor.0) > clip.length.0
+            && let Some(end) = once_end(clip)
+            && segment.to.0.saturating_sub(pl.anchor.0) > end.0
         {
-            let at = rel(Tick(pl.anchor.0.saturating_add(clip.length.0)));
+            let at = rel(Tick(pl.anchor.0.saturating_add(end.0)));
             // What does not fit is released at the next read (the clip stays until then).
-            self.halt(env, at, sink);
+            if self.halt(env, at, sink) {
+                self.handover(start as u32 + at);
+            }
         }
         Read::Done
     }
 
-    /// Starts the clip of `scene` at transport tick `at`, if it is a MIDI clip no other
-    /// track plays.
+    /// Starts the clip of `scene` at transport tick `at`, if the track plays it (a MIDI clip,
+    /// or an audio clip on an audio track since AU-4) and no other track does.
     fn start(&mut self, env: &mut Env<'_>, scene: SceneSlot, at: Tick) {
         let Some(slot) = env
             .scenes
@@ -995,8 +1090,8 @@ impl ClipPlayer {
         let Some(clip) = env.clips.get_mut(slot.0) else {
             return;
         };
-        if !matches!(clip.content, ClipContent::Notes(_))
-            || clip.on_track.is_some_and(|t| t != env.track)
+        if clip.on_track.is_some_and(|t| t != env.track)
+            || !crate::launcher::plays_on(env.kind, &clip.content)
         {
             return;
         }
@@ -1050,6 +1145,16 @@ impl ClipPlayer {
             start,
             sink,
         )
+    }
+}
+
+/// The length in ticks of a MIDI clip played once, from its anchor; `None` for a looped clip,
+/// which plays until stopped, and for an audio clip, whose end is its last frame (audio is not
+/// warped: the audio clip player ends it, [`ClipPlayer::audio_ended`]).
+fn once_end(clip: &Clip) -> Option<Tick> {
+    match &clip.content {
+        ClipContent::Notes(_) => clip.looping.is_none().then_some(clip.length),
+        ClipContent::Audio(_) => None,
     }
 }
 

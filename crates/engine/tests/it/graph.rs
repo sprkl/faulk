@@ -699,6 +699,7 @@ fn a_track_put_beyond_the_table_is_garbage_not_a_retiring_track() {
             player: Default::default(),
             instance: 0,
             ports: Default::default(),
+            audio: Default::default(),
         }),
         grown: None,
     });
