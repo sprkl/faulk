@@ -30,6 +30,7 @@ mod device;
 mod engine_sync;
 mod gesture;
 mod history;
+mod levels;
 mod live_input;
 mod marker;
 mod mixer;
