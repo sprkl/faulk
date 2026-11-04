@@ -7139,7 +7139,7 @@
         "undo": "none"
       },
       {
-        "description": "Copy a MIDI clip into a new, independent clip with the same name (\"Bass 2\" stays\n\"Bass 2\": a copy plays the same part), colour, length, loop and notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot: of the source's track, or of `track` when given (another MIDI\ntrack). `slot` when given must be free in that track, otherwise the copy takes\nthe first free slot (below the source's scene in the same track, from the top in\nanother). Refused, with no effect, when the track has no free slot to give. A\nsecond placement of the same clip is an option of the arrangement commands, not\nof this one. Undo: `clip.delete` of the copy.",
+        "description": "Copy a clip into a new, independent clip with the same name (\"Bass 2\" stays\n\"Bass 2\": a copy plays the same part), colour, length, loop and notes (an audio clip:\nthe same file, range, gain and loop; its file is not copied); editing one never\nchanges the other. The copy always sits in a launch-grid slot: of the source's\ntrack, or of `track` when given (another track of its kind: a MIDI clip to a MIDI\ntrack, an audio clip to an audio track). `slot` when given must be free in that track, otherwise the copy takes\nthe first free slot (below the source's scene in the same track, from the top in\nanother). Refused, with no effect, when the track has no free slot to give. A\nsecond placement of the same clip is an option of the arrangement commands, not\nof this one. Undo: `clip.delete` of the copy.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -10232,7 +10232,7 @@
         "undo": "none"
       },
       {
-        "description": "Put a clip of the track in the arrangement, as a new placement of the same clip\n(a linked clip: editing the clip changes every placement of it); a clip of the\ntrack's pool, with no placement and no slot, comes back this way (#473). A clip that\nsits in the launch grid is refused: copying or linking it is\n`arrangement.place_from_slot` (founder's decision 11). `start` is in\nticks; `offset` (default 0, before the clip's length) is where in the clip the\nplacement starts; `length` (default: what is left of the clip after `offset`) is\nits length on the timeline, which may exceed the clip (the clip repeats: its loop\nwhen it has one, the whole clip when it has none). The new placement wins on overlap: the\nother placements of the track that it covers are removed, shortened, trimmed at\nthe front or split (`overwritten` counts them). An audio clip of an audio track is\nplaced whole (from its first frame, its end computed from its frames at the project's\ntempo, so `length` and `offset` are refused); there the new placement never carves:\nan overlap, or a span outside `[0, 2^40]` ticks, is refused. Undo: `arrangement.restore`.",
+        "description": "Put a clip of the track in the arrangement, as a new placement of the same clip\n(a linked clip: editing the clip changes every placement of it); a clip of the\ntrack's pool, with no placement and no slot, comes back this way (#473). A clip that\nsits in the launch grid is refused: copying or linking it is\n`arrangement.place_from_slot` (founder's decision 11). `start` is in\nticks; `offset` (default 0, before the clip's length) is where in the clip the\nplacement starts; `length` (default: what is left of the clip after `offset`) is\nits length on the timeline, which may exceed the clip (the clip repeats: its loop\nwhen it has one, the whole clip when it has none). The new placement wins on overlap: the\nother placements of the track that it covers are removed, shortened, trimmed at\nthe front or split (`overwritten` counts them). An audio clip of an audio track is\nplaced whole (from its first frame, its end computed from its frames at the project's\ntempo, so `length` and `offset` are refused; `arrangement.resize` shortens it) and\nwins on overlap the same way, the placements it covers cut in whole frames; a span\noutside `[0, 2^40]` ticks is refused. Undo: `arrangement.restore`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -10322,7 +10322,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Move placements in time, all by the same number of ticks (`by`, negative moves\nthem earlier), in one command: a drag of a selection is one history entry. Each\nplacement stays in its own track and keeps its length and offset. The moved\nplacements win on overlap (the placements of the track that they cover are\ncarved, `overwritten` counts them); they may move onto each other's old place.\nRefused when one would start before tick 0 or end past 2^40, or when the list is\nempty, names a placement twice or an unknown one. A move by 0 changes nothing.\nUndo: `arrangement.restore`.",
+        "description": "Move placements in time, all by the same number of ticks (`by`, negative moves\nthem earlier), in one command: a drag of a selection is one history entry. Each\nplacement stays in its own track and keeps its length and offset (an audio one its\nframes, so its length in ticks at the project's tempo). The moved\nplacements win on overlap (the placements of the track that they cover are\ncarved, `overwritten` counts them); they may move onto each other's old place.\nRefused when one would start before tick 0 or end past 2^40, or when the list is\nempty, names a placement twice or an unknown one. A move by 0 changes nothing.\nUndo: `arrangement.restore`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -10379,7 +10379,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Move placements to other MIDI tracks, in one command and one history entry, and\noptionally in time too (`by` ticks, default 0, negative is earlier). `moves` pairs\neach placement with the track it ends in (its own track keeps it there): a selection\nof several tracks can move one track down together, each clip to its own target.\nThe clip of a moved placement goes with it: the target track gets a copy of the\nclip (one copy per source clip and target track, so placements that were linked and\nmove together stay linked; same name, colour, length, loop and notes, not in the\nlaunch grid), and a source clip left with no placement and no grid slot is removed\nfrom its track (a clip in the grid, or one still placed elsewhere, stays). The\nmoved placements get new identifiers in another track (`placements`, in the order of\n`moves`) and keep their length and offset; they win on overlap in the target (the\nplacements they cover are carved, `overwritten` counts them). Refused when `moves`\nis empty, names a placement twice or an unknown one, names an unknown track or one\nthat is not a MIDI track (audio clips come from import), when a placement is an\naudio one, when one would start before tick 0 or end past 2^40, or on a limit.\nNothing moves (and no history entry is made) when every placement stays in its\ntrack and `by` is 0. Undo: `arrangement.restore`, which puts the placements and the\nremoved clips back with their identifiers and removes the copies.",
+        "description": "Move placements to other tracks of their kind (a MIDI placement to a MIDI track, an\naudio one to an audio track), in one command and one history entry, and\noptionally in time too (`by` ticks, default 0, negative is earlier). `moves` pairs\neach placement with the track it ends in (its own track keeps it there): a selection\nof several tracks can move one track down together, each clip to its own target.\nThe clip of a moved placement goes with it: the target track gets a copy of the\nclip (one copy per source clip and target track, so placements that were linked and\nmove together stay linked; same name, colour, length, loop and notes, or for an\naudio clip the same file, range, gain and loop; not in the\nlaunch grid), and a source clip left with no placement and no grid slot is removed\nfrom its track (a clip in the grid, or one still placed elsewhere, stays). The\nmoved placements get new identifiers in another track (`placements`, in the order of\n`moves`) and keep their length and offset; they win on overlap in the target (the\nplacements they cover are carved, `overwritten` counts them). Refused when `moves`\nis empty, names a placement twice or an unknown one, names an unknown track or one\nof the other kind, when one would start before tick 0 or end past 2^40, or on a\nlimit.\nNothing moves (and no history entry is made) when every placement stays in its\ntrack and `by` is 0. Undo: `arrangement.restore`, which puts the placements and the\nremoved clips back with their identifiers and removes the copies.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -10410,7 +10410,7 @@
                 },
                 "track": {
                   "$ref": "#/$defs/TrackId",
-                  "description": "The MIDI track the placement ends in; its own track leaves it where it is."
+                  "description": "The track the placement ends in, of its kind (MIDI or audio); its own track leaves it where it is."
                 }
               },
               "required": [
@@ -10483,7 +10483,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Move one edge of a placement to the timeline tick `to`. `edge: \"end\"` changes the\nlength (the end must stay after the start); `edge: \"start\"` moves the start with\nthe end fixed, and the offset follows so the content does not slide: shortening\nfrom the left cuts the beginning of the clip (through the clip's loop), growing to\nthe left shows earlier content and is refused beyond the clip's start (offset 0).\nThe resized placement wins on overlap (the others it now covers are carved,\n`overwritten` counts them). Moving the edge where it is changes nothing. Undo:\n`arrangement.restore`.",
+        "description": "Move one edge of a placement to the timeline tick `to`. `edge: \"end\"` changes the\nlength (the end must stay after the start); `edge: \"start\"` moves the start with\nthe end fixed, and the offset follows so the content does not slide: shortening\nfrom the left cuts the beginning of the clip (through the clip's loop), growing to\nthe left shows earlier content and is refused beyond the clip's start (offset 0).\nAn audio placement is resized in whole frames and stays inside its clip: its end\nstops at the clip's last frame and its start at the clip's first (offset 0) instead\nof being refused; its end is kept when its start moves (at most a tick earlier, the\nframes being whole). The resized placement wins on overlap (the others it now covers are carved,\n`overwritten` counts them). Moving the edge where it is changes nothing. Undo:\n`arrangement.restore`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -10556,7 +10556,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Split a placement in two at the timeline tick `at`, strictly inside it: the left\npart keeps the identifier, the right part is a new placement (the same clip, so\nlinked) that plays on from where the left one stops (round the clip's loop, or round\nthe whole clip when it has none). Undo:\n`arrangement.restore`.",
+        "description": "Split a placement in two at the timeline tick `at`, strictly inside it: the left\npart keeps the identifier, the right part is a new placement (the same clip, so\nlinked) that plays on from where the left one stops (round the clip's loop, or round\nthe whole clip when it has none). An audio placement is split in whole frames (the\nframes that play before `at` on the left); refused when a part would hold not even\none frame. Undo: `arrangement.restore`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -10667,7 +10667,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Copy placements, in one command. The copies start `by` ticks after the originals\n(default: right after the selection, one selection length later; negative copies\nearlier). By default each copy is independent: a new clip, a copy of the source\n(same name, colour, length, loop and notes; not\nin the launch grid), one per\ndistinct source clip, so placements that were linked stay linked among the copies\nand editing a copy never changes the original (founder's decision 11). With\n`linked: true` the copies are new placements of the same clips. The copies win\non overlap (`overwritten` counts the placements they carved). Refused when the\nlist is empty, names a placement twice or an unknown one, or when a copy would\nleave the timeline. Undo: `arrangement.restore`, which removes the copies and\nthe clips created.",
+        "description": "Copy placements, in one command. The copies start `by` ticks after the originals\n(default: right after the selection, one selection length later; negative copies\nearlier). By default each copy is independent: a new clip, a copy of the source\n(same name, colour, length, loop and notes, or for an audio clip the same file,\nrange, gain and loop: the file is not copied; not in the launch grid), one per\ndistinct source clip, so placements that were linked stay linked among the copies\nand editing a copy never changes the original (founder's decision 11). With\n`linked: true` the copies are new placements of the same clips. The copies win\non overlap (`overwritten` counts the placements they carved). Refused when the\nlist is empty, names a placement twice or an unknown one, or when a copy would\nleave the timeline. Undo: `arrangement.restore`, which removes the copies and\nthe clips created.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -10765,7 +10765,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Repeat one placement end to end up to the timeline tick `until` (#555): linked\ncopies, new placements of the same clip, each as long as the placement and with\nits offset, the first starting where the placement ends, the next where the last\nends; the one that would pass `until` is shortened to stop exactly there. To fill\nup to the end of bar N, give the tick where bar N ends. The copies win on overlap\n(`overwritten` counts the placements they carved). Refused when the placement is\nunknown or an audio one, when `until` is not after the end of the placement or\npasses 2^40, or when the copies would pass the limit of placements. One history\nentry; undo: `arrangement.restore`, which removes the copies and brings back what\nthey carved.",
+        "description": "Repeat one placement end to end up to the timeline tick `until` (#555): linked\ncopies, new placements of the same clip, each as long as the placement and with\nits offset, the first starting where the placement ends, the next where the last\nends; the one that would pass `until` is shortened to stop exactly there (an audio\none at the last whole frame before it). To fill\nup to the end of bar N, give the tick where bar N ends. The copies win on overlap\n(`overwritten` counts the placements they carved). Refused when the placement is\nunknown, when `until` is not after the end of the placement or\npasses 2^40, or when the copies would pass the limit of placements. One history\nentry; undo: `arrangement.restore`, which removes the copies and brings back what\nthey carved.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -10838,7 +10838,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Put a MIDI clip of the launch grid in the arrangement, on its own track, as a\nplacement at the timeline tick `start` that plays the whole clip once (offset 0,\nthe clip's length). By default the placement plays an independent copy: a new\nclip, a copy of the grid clip (same name, colour, length, loop and notes, not in\nthe launch grid), so editing one never changes the other (founder's decision 11).\nWith `linked: true` the placement references the grid clip itself: editing the\nclip in the grid changes what the arrangement plays. The placement wins on overlap\n(`overwritten` counts the placements it carved). Refused for a clip that is not in\nthe launch grid (use `arrangement.place` or `arrangement.duplicate`), for an audio\nclip, or when the clip would leave the timeline. Undo: `arrangement.restore`,\nwhich removes the placement and the copy.",
+        "description": "Put a clip of the launch grid in the arrangement, on its own track, as a\nplacement at the timeline tick `start` that plays the whole clip once (offset 0,\nthe clip's length; an audio clip's frames from its first). By default the placement plays an independent copy: a new\nclip, a copy of the grid clip (same name, colour, length, loop and notes, or the same\nfile, range, gain and loop; not in\nthe launch grid), so editing one never changes the other (founder's decision 11).\nWith `linked: true` the placement references the grid clip itself: editing the\nclip in the grid changes what the arrangement plays. The placement wins on overlap\n(`overwritten` counts the placements it carved). Refused for a clip that is not in\nthe launch grid (use `arrangement.place` or `arrangement.duplicate`), or when the\nclip would leave the timeline. Undo: `arrangement.restore`, which removes the\nplacement and the copy.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -10927,7 +10927,7 @@
         "undo": "inverse"
       },
       {
-        "description": "`arrangement.place_from_slot` for a whole scene of the launch grid, in one command\nand one history entry: every MIDI clip of the scene is placed on its own track at\nthe same tick `start`, as a copy (default) or linked to the grid clip. Empty slots\nplace nothing; audio clips are skipped. Refused when the scene has no MIDI clip.\nThe placements win on overlap. Undo: `arrangement.restore`.",
+        "description": "`arrangement.place_from_slot` for a whole scene of the launch grid, in one command\nand one history entry: every clip of the scene (MIDI and audio) is placed on its own\ntrack at the same tick `start`, as a copy (default) or linked to the grid clip. Empty\nslots place nothing. Refused when the scene has no clip.\nThe placements win on overlap. Undo: `arrangement.restore`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -11016,7 +11016,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Insert `length` ticks of empty time at the timeline tick `at`, in every track and in\nthe master, in one history entry (bar-level editing: a bar is 3840 ticks in 4/4).\nA placement that starts at or after `at` moves `length` ticks later; one that\nstraddles `at` is split there, the right part (a new placement of the same clip, so\nlinked) moving later and resuming the clip where the left part stops, round the clip.\nThe points of every automation lane at or after `at` move too (a ramp that straddles\n`at` stretches), so do the section markers at or after `at` (#473), and so do the\nloop region's boundaries after `at` (a loop that contains `at` grows). Tempo and time\nsignature hold one point at tick 0 and do not move; the playhead and the launch grid\ndo not move. Refused with `invalid` when `at` is not in [0, 2^40], `length` is less\nthan 1 or the cut would pass 2^40, or when a placement or a point would pass 2^40,\nand with `limit` when the splits pass the placement limits. Refused too, for the\nwhole project, while any track holds an audio placement (`clip.import_audio` into\nthe arrangement makes one): audio placements do not move in time yet. Changes nothing\n(no history entry) when nothing lies at or after `at`. Undo: `arrangement.restore_time`.",
+        "description": "Insert `length` ticks of empty time at the timeline tick `at`, in every track and in\nthe master, in one history entry (bar-level editing: a bar is 3840 ticks in 4/4).\nA placement that starts at or after `at` moves `length` ticks later; one that\nstraddles `at` is split there, the right part (a new placement of the same clip, so\nlinked) moving later and resuming the clip where the left part stops, round the clip.\nThe points of every automation lane at or after `at` move too (a ramp that straddles\n`at` stretches), so do the section markers at or after `at` (#473), and so do the\nloop region's boundaries after `at` (a loop that contains `at` grows). Tempo and time\nsignature hold one point at tick 0 and do not move; the playhead and the launch grid\ndo not move. Refused with `invalid` when `at` is not in [0, 2^40], `length` is less\nthan 1 or the cut would pass 2^40, or when a placement or a point would pass 2^40,\nand with `limit` when the splits pass the placement limits. An audio placement moves\nand splits like the others, in whole frames (a part where not even one frame fits\ngoes). Changes nothing\n(no history entry) when nothing lies at or after `at`. Undo: `arrangement.restore_time`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -11080,7 +11080,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Delete the time `[from, to)` ticks from every track and from the master,\nand close the gap, in one history entry. Placements are cut at both edges: what lies\ninside is removed (a placement that straddles the whole range is split in two, the\nright part a new placement resuming the clip where the range ends), what starts at or\nafter `to` moves `to - from` ticks earlier; a clip that loses its last placement stays\nin its track's pool. The points of every automation lane inside the range are removed and the\nlater ones move back, so the last point before the cut links straight to the first\none after it (a `step` point keeps holding its value up to the cut, then the next\nvalue applies: the lane is not smoothed). The section markers after the range move\nback, one inside it goes to `from` (#473). The loop region follows (a boundary inside\nthe range falls to `from`;\na loop left empty is cleared and switched off). Tempo and time signature hold one\npoint at tick 0 and do not move; the playhead and the launch grid do not move.\nRefused with `invalid` when `from` is not in [0, 2^40], `to` is not after `from` or\npasses 2^40, and with `limit` when the cuts pass the placement limits. Refused too, for\nthe whole project, while any track holds an audio placement (audio placements do not\nmove in time yet). Changes nothing (no history entry) when nothing lies at or after\n`from`. Undo:\n`arrangement.restore_time`.",
+        "description": "Delete the time `[from, to)` ticks from every track and from the master,\nand close the gap, in one history entry. Placements are cut at both edges: what lies\ninside is removed (a placement that straddles the whole range is split in two, the\nright part a new placement resuming the clip where the range ends), what starts at or\nafter `to` moves `to - from` ticks earlier; a clip that loses its last placement stays\nin its track's pool. The points of every automation lane inside the range are removed and the\nlater ones move back, so the last point before the cut links straight to the first\none after it (a `step` point keeps holding its value up to the cut, then the next\nvalue applies: the lane is not smoothed). The section markers after the range move\nback, one inside it goes to `from` (#473). The loop region follows (a boundary inside\nthe range falls to `from`;\na loop left empty is cleared and switched off). Tempo and time signature hold one\npoint at tick 0 and do not move; the playhead and the launch grid do not move.\nRefused with `invalid` when `from` is not in [0, 2^40], `to` is not after `from` or\npasses 2^40, and with `limit` when the cuts pass the placement limits. An audio\nplacement is cut and moves like the others, in whole frames. Changes nothing (no\nhistory entry) when nothing lies at or after `from`. Undo:\n`arrangement.restore_time`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -11162,6 +11162,144 @@
         "destructive": false,
         "input_schema": {
           "$defs": {
+            "AudioClipRecord": {
+              "additionalProperties": false,
+              "description": "An audio clip that `arrangement.restore` brings back, with its identifier.",
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/ClipId"
+                },
+                "snapshot": {
+                  "$ref": "#/$defs/AudioClipSnapshot"
+                }
+              },
+              "required": [
+                "id",
+                "snapshot"
+              ],
+              "type": "object"
+            },
+            "AudioClipSnapshot": {
+              "additionalProperties": false,
+              "description": "An audio clip as `clip.restore_audio` brings it back (everything but its identifier).",
+              "properties": {
+                "color": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Rgb"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "frames": {
+                  "description": "How many frames it plays.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "gain_db": {
+                  "description": "Clip gain in dB; `null` for silence.",
+                  "format": "double",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "launch_quantize": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Quantize"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A per-clip launch quantization, when one was set (the MVP never sets one)."
+                },
+                "looping": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/FrameLoop"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Loop in frames, relative to `start`."
+                },
+                "media": {
+                  "$ref": "#/$defs/AudioMedia",
+                  "description": "The audio file it plays, with its metadata."
+                },
+                "name": {
+                  "type": "string"
+                },
+                "slot": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SceneId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The scene of its launch-grid slot, when it sits in one."
+                },
+                "start": {
+                  "description": "First frame of the file the clip plays.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "name",
+                "media",
+                "start",
+                "frames"
+              ],
+              "type": "object"
+            },
+            "AudioMedia": {
+              "additionalProperties": false,
+              "description": "An audio file referenced by its blob, with its metadata in clear so the project reads,\nvalidates and merges without decoding the audio (§ 2.2).",
+              "properties": {
+                "channels": {
+                  "format": "uint16",
+                  "maximum": 65535,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "frames": {
+                  "description": "Length of the whole file in frames.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "hash": {
+                  "$ref": "#/$defs/Hash"
+                },
+                "name": {
+                  "description": "The file's original name.",
+                  "type": "string"
+                },
+                "sample_rate": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "hash",
+                "sample_rate",
+                "channels",
+                "frames",
+                "name"
+              ],
+              "type": "object"
+            },
             "ClipId": {
               "$ref": "#/$defs/Id",
               "description": "Identifier of a clip."
@@ -11250,6 +11388,27 @@
               ],
               "type": "object"
             },
+            "FrameLoop": {
+              "additionalProperties": false,
+              "description": "An audio clip's loop `[start, end)` in source frames, relative to the clip's start,\nwithin `[0, frames]`.",
+              "properties": {
+                "end": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "start": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "start",
+                "end"
+              ],
+              "type": "object"
+            },
             "FrameSpan": {
               "additionalProperties": false,
               "description": "The span of an audio placement, in frames of the clip's file.",
@@ -11272,6 +11431,11 @@
                 "offset"
               ],
               "type": "object"
+            },
+            "Hash": {
+              "description": "The SHA-256 of a blob, 64 lower-case hexadecimal characters.",
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
             },
             "Id": {
               "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
@@ -11562,8 +11726,15 @@
               "additionalProperties": false,
               "description": "What `arrangement.restore` changes in one track.",
               "properties": {
+                "audio_clips": {
+                  "description": "Audio clips to bring back (their identifiers must be unused), as\n`clip.restore_audio` takes them; an audio track only.",
+                  "items": {
+                    "$ref": "#/$defs/AudioClipRecord"
+                  },
+                  "type": "array"
+                },
                 "clips": {
-                  "description": "Clips to bring back (their identifiers must be unused).",
+                  "description": "MIDI clips to bring back (their identifiers must be unused); a MIDI track only.",
                   "items": {
                     "$ref": "#/$defs/ClipRecord"
                   },
@@ -11584,7 +11755,7 @@
                   "type": "array"
                 },
                 "remove_clips": {
-                  "description": "Clips of the track to remove; no placement may be left on them.",
+                  "description": "Clips of the track to remove (MIDI or audio); no placement may be left on them.",
                   "items": {
                     "$ref": "#/$defs/ClipId"
                   },
@@ -11656,10 +11827,148 @@
         "undo": "inverse"
       },
       {
-        "description": "Write the placements of one or more tracks exactly as given, without the overlap\nrule: the inverse of every arrangement command, which brings back what it carved,\nwith the identifiers. Per track: `put` creates or replaces placements by\nidentifier, `remove` removes placements, `clips` brings back MIDI clips (new\nidentifiers, a snapshot as `clip.restore` takes) and `remove_clips` removes clips.\nRefused when a placement is outside the timeline or its offset outside its clip,\nwhen a placement is left on a removed clip or names an unknown clip, when an\nidentifier to create is in use, or when a rule of the clip commands is broken (a\nnote outside the length, a limit). In an audio track only `put` and `remove` of\naudio placements (a record with `frames`) are taken, never `clips` or `remove_clips`;\nan audio placement must end inside its clip (`offset + length` at most the clip's\nframes) and never overlap another placement of the track.\nUndo: the restore of what it changed.",
+        "description": "Write the placements of one or more tracks exactly as given, without the overlap\nrule: the inverse of every arrangement command, which brings back what it carved,\nwith the identifiers. Per track: `put` creates or replaces placements by\nidentifier, `remove` removes placements, `clips` brings back MIDI clips (new\nidentifiers, a snapshot as `clip.restore` takes) and `remove_clips` removes clips.\nRefused when a placement is outside the timeline or its offset outside its clip,\nwhen a placement is left on a removed clip or names an unknown clip, when an\nidentifier to create is in use, or when a rule of the clip commands is broken (a\nnote outside the length, a limit). In an audio track the placements are audio ones\n(a record with `frames`) and the clips it brings back are audio ones (`audio_clips`,\na snapshot as `clip.restore_audio` takes; `clips` is refused there, and `audio_clips`\nin a MIDI track); an audio placement must end inside its clip (`offset + length` at\nmost the clip's frames) and never overlap another placement of the track.\nUndo: the restore of what it changed.",
         "destructive": false,
         "input_schema": {
           "$defs": {
+            "AudioClipRecord": {
+              "additionalProperties": false,
+              "description": "An audio clip that `arrangement.restore` brings back, with its identifier.",
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/ClipId"
+                },
+                "snapshot": {
+                  "$ref": "#/$defs/AudioClipSnapshot"
+                }
+              },
+              "required": [
+                "id",
+                "snapshot"
+              ],
+              "type": "object"
+            },
+            "AudioClipSnapshot": {
+              "additionalProperties": false,
+              "description": "An audio clip as `clip.restore_audio` brings it back (everything but its identifier).",
+              "properties": {
+                "color": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Rgb"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "frames": {
+                  "description": "How many frames it plays.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "gain_db": {
+                  "description": "Clip gain in dB; `null` for silence.",
+                  "format": "double",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "launch_quantize": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Quantize"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A per-clip launch quantization, when one was set (the MVP never sets one)."
+                },
+                "looping": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/FrameLoop"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Loop in frames, relative to `start`."
+                },
+                "media": {
+                  "$ref": "#/$defs/AudioMedia",
+                  "description": "The audio file it plays, with its metadata."
+                },
+                "name": {
+                  "type": "string"
+                },
+                "slot": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/SceneId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The scene of its launch-grid slot, when it sits in one."
+                },
+                "start": {
+                  "description": "First frame of the file the clip plays.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "name",
+                "media",
+                "start",
+                "frames"
+              ],
+              "type": "object"
+            },
+            "AudioMedia": {
+              "additionalProperties": false,
+              "description": "An audio file referenced by its blob, with its metadata in clear so the project reads,\nvalidates and merges without decoding the audio (§ 2.2).",
+              "properties": {
+                "channels": {
+                  "format": "uint16",
+                  "maximum": 65535,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "frames": {
+                  "description": "Length of the whole file in frames.",
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "hash": {
+                  "$ref": "#/$defs/Hash"
+                },
+                "name": {
+                  "description": "The file's original name.",
+                  "type": "string"
+                },
+                "sample_rate": {
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "hash",
+                "sample_rate",
+                "channels",
+                "frames",
+                "name"
+              ],
+              "type": "object"
+            },
             "ClipId": {
               "$ref": "#/$defs/Id",
               "description": "Identifier of a clip."
@@ -11748,6 +12057,27 @@
               ],
               "type": "object"
             },
+            "FrameLoop": {
+              "additionalProperties": false,
+              "description": "An audio clip's loop `[start, end)` in source frames, relative to the clip's start,\nwithin `[0, frames]`.",
+              "properties": {
+                "end": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "start": {
+                  "format": "uint64",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "start",
+                "end"
+              ],
+              "type": "object"
+            },
             "FrameSpan": {
               "additionalProperties": false,
               "description": "The span of an audio placement, in frames of the clip's file.",
@@ -11770,6 +12100,11 @@
                 "offset"
               ],
               "type": "object"
+            },
+            "Hash": {
+              "description": "The SHA-256 of a blob, 64 lower-case hexadecimal characters.",
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
             },
             "Id": {
               "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
@@ -11955,8 +12290,15 @@
               "additionalProperties": false,
               "description": "What `arrangement.restore` changes in one track.",
               "properties": {
+                "audio_clips": {
+                  "description": "Audio clips to bring back (their identifiers must be unused), as\n`clip.restore_audio` takes them; an audio track only.",
+                  "items": {
+                    "$ref": "#/$defs/AudioClipRecord"
+                  },
+                  "type": "array"
+                },
                 "clips": {
-                  "description": "Clips to bring back (their identifiers must be unused).",
+                  "description": "MIDI clips to bring back (their identifiers must be unused); a MIDI track only.",
                   "items": {
                     "$ref": "#/$defs/ClipRecord"
                   },
@@ -11977,7 +12319,7 @@
                   "type": "array"
                 },
                 "remove_clips": {
-                  "description": "Clips of the track to remove; no placement may be left on them.",
+                  "description": "Clips of the track to remove (MIDI or audio); no placement may be left on them.",
                   "items": {
                     "$ref": "#/$defs/ClipId"
                   },
@@ -16154,7 +16496,7 @@
           "oneOf": [
             {
               "additionalProperties": false,
-              "description": "Put a clip of the track in the arrangement, as a new placement of the same clip\n(a linked clip: editing the clip changes every placement of it); a clip of the\ntrack's pool, with no placement and no slot, comes back this way (#473). A clip that\nsits in the launch grid is refused: copying or linking it is\n`arrangement.place_from_slot` (founder's decision 11). `start` is in\nticks; `offset` (default 0, before the clip's length) is where in the clip the\nplacement starts; `length` (default: what is left of the clip after `offset`) is\nits length on the timeline, which may exceed the clip (the clip repeats: its loop\nwhen it has one, the whole clip when it has none). The new placement wins on overlap: the\nother placements of the track that it covers are removed, shortened, trimmed at\nthe front or split (`overwritten` counts them). An audio clip of an audio track is\nplaced whole (from its first frame, its end computed from its frames at the project's\ntempo, so `length` and `offset` are refused); there the new placement never carves:\nan overlap, or a span outside `[0, 2^40]` ticks, is refused. Undo: `arrangement.restore`.",
+              "description": "Put a clip of the track in the arrangement, as a new placement of the same clip\n(a linked clip: editing the clip changes every placement of it); a clip of the\ntrack's pool, with no placement and no slot, comes back this way (#473). A clip that\nsits in the launch grid is refused: copying or linking it is\n`arrangement.place_from_slot` (founder's decision 11). `start` is in\nticks; `offset` (default 0, before the clip's length) is where in the clip the\nplacement starts; `length` (default: what is left of the clip after `offset`) is\nits length on the timeline, which may exceed the clip (the clip repeats: its loop\nwhen it has one, the whole clip when it has none). The new placement wins on overlap: the\nother placements of the track that it covers are removed, shortened, trimmed at\nthe front or split (`overwritten` counts them). An audio clip of an audio track is\nplaced whole (from its first frame, its end computed from its frames at the project's\ntempo, so `length` and `offset` are refused; `arrangement.resize` shortens it) and\nwins on overlap the same way, the placements it covers cut in whole frames; a span\noutside `[0, 2^40]` ticks is refused. Undo: `arrangement.restore`.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
@@ -16199,7 +16541,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Move placements in time, all by the same number of ticks (`by`, negative moves\nthem earlier), in one command: a drag of a selection is one history entry. Each\nplacement stays in its own track and keeps its length and offset. The moved\nplacements win on overlap (the placements of the track that they cover are\ncarved, `overwritten` counts them); they may move onto each other's old place.\nRefused when one would start before tick 0 or end past 2^40, or when the list is\nempty, names a placement twice or an unknown one. A move by 0 changes nothing.\nUndo: `arrangement.restore`.",
+              "description": "Move placements in time, all by the same number of ticks (`by`, negative moves\nthem earlier), in one command: a drag of a selection is one history entry. Each\nplacement stays in its own track and keeps its length and offset (an audio one its\nframes, so its length in ticks at the project's tempo). The moved\nplacements win on overlap (the placements of the track that they cover are\ncarved, `overwritten` counts them); they may move onto each other's old place.\nRefused when one would start before tick 0 or end past 2^40, or when the list is\nempty, names a placement twice or an unknown one. A move by 0 changes nothing.\nUndo: `arrangement.restore`.",
               "properties": {
                 "by": {
                   "$ref": "#/$defs/Tick"
@@ -16227,7 +16569,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Move placements to other MIDI tracks, in one command and one history entry, and\noptionally in time too (`by` ticks, default 0, negative is earlier). `moves` pairs\neach placement with the track it ends in (its own track keeps it there): a selection\nof several tracks can move one track down together, each clip to its own target.\nThe clip of a moved placement goes with it: the target track gets a copy of the\nclip (one copy per source clip and target track, so placements that were linked and\nmove together stay linked; same name, colour, length, loop and notes, not in the\nlaunch grid), and a source clip left with no placement and no grid slot is removed\nfrom its track (a clip in the grid, or one still placed elsewhere, stays). The\nmoved placements get new identifiers in another track (`placements`, in the order of\n`moves`) and keep their length and offset; they win on overlap in the target (the\nplacements they cover are carved, `overwritten` counts them). Refused when `moves`\nis empty, names a placement twice or an unknown one, names an unknown track or one\nthat is not a MIDI track (audio clips come from import), when a placement is an\naudio one, when one would start before tick 0 or end past 2^40, or on a limit.\nNothing moves (and no history entry is made) when every placement stays in its\ntrack and `by` is 0. Undo: `arrangement.restore`, which puts the placements and the\nremoved clips back with their identifiers and removes the copies.",
+              "description": "Move placements to other tracks of their kind (a MIDI placement to a MIDI track, an\naudio one to an audio track), in one command and one history entry, and\noptionally in time too (`by` ticks, default 0, negative is earlier). `moves` pairs\neach placement with the track it ends in (its own track keeps it there): a selection\nof several tracks can move one track down together, each clip to its own target.\nThe clip of a moved placement goes with it: the target track gets a copy of the\nclip (one copy per source clip and target track, so placements that were linked and\nmove together stay linked; same name, colour, length, loop and notes, or for an\naudio clip the same file, range, gain and loop; not in the\nlaunch grid), and a source clip left with no placement and no grid slot is removed\nfrom its track (a clip in the grid, or one still placed elsewhere, stays). The\nmoved placements get new identifiers in another track (`placements`, in the order of\n`moves`) and keep their length and offset; they win on overlap in the target (the\nplacements they cover are carved, `overwritten` counts them). Refused when `moves`\nis empty, names a placement twice or an unknown one, names an unknown track or one\nof the other kind, when one would start before tick 0 or end past 2^40, or on a\nlimit.\nNothing moves (and no history entry is made) when every placement stays in its\ntrack and `by` is 0. Undo: `arrangement.restore`, which puts the placements and the\nremoved clips back with their identifiers and removes the copies.",
               "properties": {
                 "by": {
                   "anyOf": [
@@ -16261,7 +16603,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Move one edge of a placement to the timeline tick `to`. `edge: \"end\"` changes the\nlength (the end must stay after the start); `edge: \"start\"` moves the start with\nthe end fixed, and the offset follows so the content does not slide: shortening\nfrom the left cuts the beginning of the clip (through the clip's loop), growing to\nthe left shows earlier content and is refused beyond the clip's start (offset 0).\nThe resized placement wins on overlap (the others it now covers are carved,\n`overwritten` counts them). Moving the edge where it is changes nothing. Undo:\n`arrangement.restore`.",
+              "description": "Move one edge of a placement to the timeline tick `to`. `edge: \"end\"` changes the\nlength (the end must stay after the start); `edge: \"start\"` moves the start with\nthe end fixed, and the offset follows so the content does not slide: shortening\nfrom the left cuts the beginning of the clip (through the clip's loop), growing to\nthe left shows earlier content and is refused beyond the clip's start (offset 0).\nAn audio placement is resized in whole frames and stays inside its clip: its end\nstops at the clip's last frame and its start at the clip's first (offset 0) instead\nof being refused; its end is kept when its start moves (at most a tick earlier, the\nframes being whole). The resized placement wins on overlap (the others it now covers are carved,\n`overwritten` counts them). Moving the edge where it is changes nothing. Undo:\n`arrangement.restore`.",
               "properties": {
                 "edge": {
                   "$ref": "#/$defs/Edge"
@@ -16290,7 +16632,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Split a placement in two at the timeline tick `at`, strictly inside it: the left\npart keeps the identifier, the right part is a new placement (the same clip, so\nlinked) that plays on from where the left one stops (round the clip's loop, or round\nthe whole clip when it has none). Undo:\n`arrangement.restore`.",
+              "description": "Split a placement in two at the timeline tick `at`, strictly inside it: the left\npart keeps the identifier, the right part is a new placement (the same clip, so\nlinked) that plays on from where the left one stops (round the clip's loop, or round\nthe whole clip when it has none). An audio placement is split in whole frames (the\nframes that play before `at` on the left); refused when a part would hold not even\none frame. Undo: `arrangement.restore`.",
               "properties": {
                 "at": {
                   "$ref": "#/$defs/Tick"
@@ -16339,7 +16681,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Copy placements, in one command. The copies start `by` ticks after the originals\n(default: right after the selection, one selection length later; negative copies\nearlier). By default each copy is independent: a new clip, a copy of the source\n(same name, colour, length, loop and notes; not\nin the launch grid), one per\ndistinct source clip, so placements that were linked stay linked among the copies\nand editing a copy never changes the original (founder's decision 11). With\n`linked: true` the copies are new placements of the same clips. The copies win\non overlap (`overwritten` counts the placements they carved). Refused when the\nlist is empty, names a placement twice or an unknown one, or when a copy would\nleave the timeline. Undo: `arrangement.restore`, which removes the copies and\nthe clips created.",
+              "description": "Copy placements, in one command. The copies start `by` ticks after the originals\n(default: right after the selection, one selection length later; negative copies\nearlier). By default each copy is independent: a new clip, a copy of the source\n(same name, colour, length, loop and notes, or for an audio clip the same file,\nrange, gain and loop: the file is not copied; not in the launch grid), one per\ndistinct source clip, so placements that were linked stay linked among the copies\nand editing a copy never changes the original (founder's decision 11). With\n`linked: true` the copies are new placements of the same clips. The copies win\non overlap (`overwritten` counts the placements they carved). Refused when the\nlist is empty, names a placement twice or an unknown one, or when a copy would\nleave the timeline. Undo: `arrangement.restore`, which removes the copies and\nthe clips created.",
               "properties": {
                 "by": {
                   "anyOf": [
@@ -16377,7 +16719,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Repeat one placement end to end up to the timeline tick `until` (#555): linked\ncopies, new placements of the same clip, each as long as the placement and with\nits offset, the first starting where the placement ends, the next where the last\nends; the one that would pass `until` is shortened to stop exactly there. To fill\nup to the end of bar N, give the tick where bar N ends. The copies win on overlap\n(`overwritten` counts the placements they carved). Refused when the placement is\nunknown or an audio one, when `until` is not after the end of the placement or\npasses 2^40, or when the copies would pass the limit of placements. One history\nentry; undo: `arrangement.restore`, which removes the copies and brings back what\nthey carved.",
+              "description": "Repeat one placement end to end up to the timeline tick `until` (#555): linked\ncopies, new placements of the same clip, each as long as the placement and with\nits offset, the first starting where the placement ends, the next where the last\nends; the one that would pass `until` is shortened to stop exactly there (an audio\none at the last whole frame before it). To fill\nup to the end of bar N, give the tick where bar N ends. The copies win on overlap\n(`overwritten` counts the placements they carved). Refused when the placement is\nunknown, when `until` is not after the end of the placement or\npasses 2^40, or when the copies would pass the limit of placements. One history\nentry; undo: `arrangement.restore`, which removes the copies and brings back what\nthey carved.",
               "properties": {
                 "placement": {
                   "$ref": "#/$defs/PlacementId"
@@ -16402,7 +16744,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Put a MIDI clip of the launch grid in the arrangement, on its own track, as a\nplacement at the timeline tick `start` that plays the whole clip once (offset 0,\nthe clip's length). By default the placement plays an independent copy: a new\nclip, a copy of the grid clip (same name, colour, length, loop and notes, not in\nthe launch grid), so editing one never changes the other (founder's decision 11).\nWith `linked: true` the placement references the grid clip itself: editing the\nclip in the grid changes what the arrangement plays. The placement wins on overlap\n(`overwritten` counts the placements it carved). Refused for a clip that is not in\nthe launch grid (use `arrangement.place` or `arrangement.duplicate`), for an audio\nclip, or when the clip would leave the timeline. Undo: `arrangement.restore`,\nwhich removes the placement and the copy.",
+              "description": "Put a clip of the launch grid in the arrangement, on its own track, as a\nplacement at the timeline tick `start` that plays the whole clip once (offset 0,\nthe clip's length; an audio clip's frames from its first). By default the placement plays an independent copy: a new\nclip, a copy of the grid clip (same name, colour, length, loop and notes, or the same\nfile, range, gain and loop; not in\nthe launch grid), so editing one never changes the other (founder's decision 11).\nWith `linked: true` the placement references the grid clip itself: editing the\nclip in the grid changes what the arrangement plays. The placement wins on overlap\n(`overwritten` counts the placements it carved). Refused for a clip that is not in\nthe launch grid (use `arrangement.place` or `arrangement.duplicate`), or when the\nclip would leave the timeline. Undo: `arrangement.restore`, which removes the\nplacement and the copy.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
@@ -16431,7 +16773,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "`arrangement.place_from_slot` for a whole scene of the launch grid, in one command\nand one history entry: every MIDI clip of the scene is placed on its own track at\nthe same tick `start`, as a copy (default) or linked to the grid clip. Empty slots\nplace nothing; audio clips are skipped. Refused when the scene has no MIDI clip.\nThe placements win on overlap. Undo: `arrangement.restore`.",
+              "description": "`arrangement.place_from_slot` for a whole scene of the launch grid, in one command\nand one history entry: every clip of the scene (MIDI and audio) is placed on its own\ntrack at the same tick `start`, as a copy (default) or linked to the grid clip. Empty\nslots place nothing. Refused when the scene has no clip.\nThe placements win on overlap. Undo: `arrangement.restore`.",
               "properties": {
                 "linked": {
                   "default": false,
@@ -16460,7 +16802,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Insert `length` ticks of empty time at the timeline tick `at`, in every track and in\nthe master, in one history entry (bar-level editing: a bar is 3840 ticks in 4/4).\nA placement that starts at or after `at` moves `length` ticks later; one that\nstraddles `at` is split there, the right part (a new placement of the same clip, so\nlinked) moving later and resuming the clip where the left part stops, round the clip.\nThe points of every automation lane at or after `at` move too (a ramp that straddles\n`at` stretches), so do the section markers at or after `at` (#473), and so do the\nloop region's boundaries after `at` (a loop that contains `at` grows). Tempo and time\nsignature hold one point at tick 0 and do not move; the playhead and the launch grid\ndo not move. Refused with `invalid` when `at` is not in [0, 2^40], `length` is less\nthan 1 or the cut would pass 2^40, or when a placement or a point would pass 2^40,\nand with `limit` when the splits pass the placement limits. Refused too, for the\nwhole project, while any track holds an audio placement (`clip.import_audio` into\nthe arrangement makes one): audio placements do not move in time yet. Changes nothing\n(no history entry) when nothing lies at or after `at`. Undo: `arrangement.restore_time`.",
+              "description": "Insert `length` ticks of empty time at the timeline tick `at`, in every track and in\nthe master, in one history entry (bar-level editing: a bar is 3840 ticks in 4/4).\nA placement that starts at or after `at` moves `length` ticks later; one that\nstraddles `at` is split there, the right part (a new placement of the same clip, so\nlinked) moving later and resuming the clip where the left part stops, round the clip.\nThe points of every automation lane at or after `at` move too (a ramp that straddles\n`at` stretches), so do the section markers at or after `at` (#473), and so do the\nloop region's boundaries after `at` (a loop that contains `at` grows). Tempo and time\nsignature hold one point at tick 0 and do not move; the playhead and the launch grid\ndo not move. Refused with `invalid` when `at` is not in [0, 2^40], `length` is less\nthan 1 or the cut would pass 2^40, or when a placement or a point would pass 2^40,\nand with `limit` when the splits pass the placement limits. An audio placement moves\nand splits like the others, in whole frames (a part where not even one frame fits\ngoes). Changes nothing\n(no history entry) when nothing lies at or after `at`. Undo: `arrangement.restore_time`.",
               "properties": {
                 "at": {
                   "$ref": "#/$defs/Tick"
@@ -16485,7 +16827,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Delete the time `[from, to)` ticks from every track and from the master,\nand close the gap, in one history entry. Placements are cut at both edges: what lies\ninside is removed (a placement that straddles the whole range is split in two, the\nright part a new placement resuming the clip where the range ends), what starts at or\nafter `to` moves `to - from` ticks earlier; a clip that loses its last placement stays\nin its track's pool. The points of every automation lane inside the range are removed and the\nlater ones move back, so the last point before the cut links straight to the first\none after it (a `step` point keeps holding its value up to the cut, then the next\nvalue applies: the lane is not smoothed). The section markers after the range move\nback, one inside it goes to `from` (#473). The loop region follows (a boundary inside\nthe range falls to `from`;\na loop left empty is cleared and switched off). Tempo and time signature hold one\npoint at tick 0 and do not move; the playhead and the launch grid do not move.\nRefused with `invalid` when `from` is not in [0, 2^40], `to` is not after `from` or\npasses 2^40, and with `limit` when the cuts pass the placement limits. Refused too, for\nthe whole project, while any track holds an audio placement (audio placements do not\nmove in time yet). Changes nothing (no history entry) when nothing lies at or after\n`from`. Undo:\n`arrangement.restore_time`.",
+              "description": "Delete the time `[from, to)` ticks from every track and from the master,\nand close the gap, in one history entry. Placements are cut at both edges: what lies\ninside is removed (a placement that straddles the whole range is split in two, the\nright part a new placement resuming the clip where the range ends), what starts at or\nafter `to` moves `to - from` ticks earlier; a clip that loses its last placement stays\nin its track's pool. The points of every automation lane inside the range are removed and the\nlater ones move back, so the last point before the cut links straight to the first\none after it (a `step` point keeps holding its value up to the cut, then the next\nvalue applies: the lane is not smoothed). The section markers after the range move\nback, one inside it goes to `from` (#473). The loop region follows (a boundary inside\nthe range falls to `from`;\na loop left empty is cleared and switched off). Tempo and time signature hold one\npoint at tick 0 and do not move; the playhead and the launch grid do not move.\nRefused with `invalid` when `from` is not in [0, 2^40], `to` is not after `from` or\npasses 2^40, and with `limit` when the cuts pass the placement limits. An audio\nplacement is cut and moves like the others, in whole frames. Changes nothing (no\nhistory entry) when nothing lies at or after `from`. Undo:\n`arrangement.restore_time`.",
               "properties": {
                 "from": {
                   "$ref": "#/$defs/Tick"
@@ -16557,7 +16899,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Write the placements of one or more tracks exactly as given, without the overlap\nrule: the inverse of every arrangement command, which brings back what it carved,\nwith the identifiers. Per track: `put` creates or replaces placements by\nidentifier, `remove` removes placements, `clips` brings back MIDI clips (new\nidentifiers, a snapshot as `clip.restore` takes) and `remove_clips` removes clips.\nRefused when a placement is outside the timeline or its offset outside its clip,\nwhen a placement is left on a removed clip or names an unknown clip, when an\nidentifier to create is in use, or when a rule of the clip commands is broken (a\nnote outside the length, a limit). In an audio track only `put` and `remove` of\naudio placements (a record with `frames`) are taken, never `clips` or `remove_clips`;\nan audio placement must end inside its clip (`offset + length` at most the clip's\nframes) and never overlap another placement of the track.\nUndo: the restore of what it changed.",
+              "description": "Write the placements of one or more tracks exactly as given, without the overlap\nrule: the inverse of every arrangement command, which brings back what it carved,\nwith the identifiers. Per track: `put` creates or replaces placements by\nidentifier, `remove` removes placements, `clips` brings back MIDI clips (new\nidentifiers, a snapshot as `clip.restore` takes) and `remove_clips` removes clips.\nRefused when a placement is outside the timeline or its offset outside its clip,\nwhen a placement is left on a removed clip or names an unknown clip, when an\nidentifier to create is in use, or when a rule of the clip commands is broken (a\nnote outside the length, a limit). In an audio track the placements are audio ones\n(a record with `frames`) and the clips it brings back are audio ones (`audio_clips`,\na snapshot as `clip.restore_audio` takes; `clips` is refused there, and `audio_clips`\nin a MIDI track); an audio placement must end inside its clip (`offset + length` at\nmost the clip's frames) and never overlap another placement of the track.\nUndo: the restore of what it changed.",
               "properties": {
                 "edits": {
                   "items": {
@@ -16725,6 +17067,23 @@
               "x-undo": "none"
             }
           ]
+        },
+        "AudioClipRecord": {
+          "additionalProperties": false,
+          "description": "An audio clip that `arrangement.restore` brings back, with its identifier.",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/ClipId"
+            },
+            "snapshot": {
+              "$ref": "#/$defs/AudioClipSnapshot"
+            }
+          },
+          "required": [
+            "id",
+            "snapshot"
+          ],
+          "type": "object"
         },
         "AudioClipSnapshot": {
           "additionalProperties": false,
@@ -17672,7 +18031,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Copy a MIDI clip into a new, independent clip with the same name (\"Bass 2\" stays\n\"Bass 2\": a copy plays the same part), colour, length, loop and notes; editing one never changes the other. The copy always sits in a\nlaunch-grid slot: of the source's track, or of `track` when given (another MIDI\ntrack). `slot` when given must be free in that track, otherwise the copy takes\nthe first free slot (below the source's scene in the same track, from the top in\nanother). Refused, with no effect, when the track has no free slot to give. A\nsecond placement of the same clip is an option of the arrangement commands, not\nof this one. Undo: `clip.delete` of the copy.",
+              "description": "Copy a clip into a new, independent clip with the same name (\"Bass 2\" stays\n\"Bass 2\": a copy plays the same part), colour, length, loop and notes (an audio clip:\nthe same file, range, gain and loop; its file is not copied); editing one never\nchanges the other. The copy always sits in a launch-grid slot: of the source's\ntrack, or of `track` when given (another track of its kind: a MIDI clip to a MIDI\ntrack, an audio clip to an audio track). `slot` when given must be free in that track, otherwise the copy takes\nthe first free slot (below the source's scene in the same track, from the top in\nanother). Refused, with no effect, when the track has no free slot to give. A\nsecond placement of the same clip is an option of the arrangement commands, not\nof this one. Undo: `clip.delete` of the copy.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
@@ -22005,8 +22364,15 @@
           "additionalProperties": false,
           "description": "What `arrangement.restore` changes in one track.",
           "properties": {
+            "audio_clips": {
+              "description": "Audio clips to bring back (their identifiers must be unused), as\n`clip.restore_audio` takes them; an audio track only.",
+              "items": {
+                "$ref": "#/$defs/AudioClipRecord"
+              },
+              "type": "array"
+            },
             "clips": {
-              "description": "Clips to bring back (their identifiers must be unused).",
+              "description": "MIDI clips to bring back (their identifiers must be unused); a MIDI track only.",
               "items": {
                 "$ref": "#/$defs/ClipRecord"
               },
@@ -22027,7 +22393,7 @@
               "type": "array"
             },
             "remove_clips": {
-              "description": "Clips of the track to remove; no placement may be left on them.",
+              "description": "Clips of the track to remove (MIDI or audio); no placement may be left on them.",
               "items": {
                 "$ref": "#/$defs/ClipId"
               },
@@ -22074,7 +22440,7 @@
             },
             "track": {
               "$ref": "#/$defs/TrackId",
-              "description": "The MIDI track the placement ends in; its own track leaves it where it is."
+              "description": "The track the placement ends in, of its kind (MIDI or audio); its own track leaves it where it is."
             }
           },
           "required": [
@@ -37222,7 +37588,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 34,
+  "protocol_version": 37,
   "server_message": {
     "$defs": {
       "Capabilities": {
