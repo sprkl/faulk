@@ -177,7 +177,7 @@ test('no core test is tagged @full: the core run never loses one to --grep-inver
 
 test('the @full tests are the ones the lead chose: performance ceilings, second languages, extra widths', () => {
   const tagged = EXISTING.filter((s) => source(s).includes(FULL_TAG)).sort()
-  assert.deepEqual(tagged, ['all-sound-off', 'arrangement-time', 'audio-import', 'automation', 'browser-storage', 'grid', 'history-cost', 'keyboard', 'layout-4', 'mixer', 'pack-longtasks', 'pack-stream', 'project-save', 'project-store', 'refused-commands', 'toolbar-overflow', 'tracks', 'transport'])
+  assert.deepEqual(tagged, ['all-sound-off', 'arrangement-time', 'audio-import', 'automation', 'browser-storage', 'grid', 'history-cost', 'keyboard', 'layout-4', 'mixer', 'pack-import', 'pack-longtasks', 'pack-stream', 'project-save', 'project-store', 'refused-commands', 'toolbar-overflow', 'tracks', 'transport'])
   // A spec whose only test is tagged still has a run that passes: the area run passes --pass-with-no-tests.
   assert.ok(!['isolation', 'space-bar'].some((s) => source(s).includes(FULL_TAG)), 'isolation and space-bar stay as they are')
 })
