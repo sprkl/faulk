@@ -56,9 +56,16 @@
 //! # Fades in and out
 //!
 //! A new track's levels start at 0: it **fades in** over [`FADE_SECONDS`] from its first
-//! rendered block. A track that leaves its slot (`TrackRemove`, a `TrackPut` on an
-//! occupied slot, every track of the old state on a `Reset`) is not sent to the garbage by
-//! `apply`: it joins the **retiring** list, an intrusive list linked through
+//! block, rendered or not: a block in which a track renders nothing (no device sounds, no
+//! clip plays or waits: an audio track without a device before its first launch, an empty
+//! MIDI track) moves its strip's ramps on as a block of silence would
+//! ([`crate::mixer::Mixer::advance`], #759). A track's sound therefore never depends on
+//! whether a device kept it rendered: one that exists 5 ms before the transport starts (the
+//! export's pre-roll, a project already open) starts at its levels, the only fade at the
+//! start of its audio clip being the clip player's own, and a mute, solo or fader change made
+//! while it renders nothing ramps from when it was made. A track that leaves its slot
+//! (`TrackRemove`, a `TrackPut` on an occupied slot, every track of the old state on a
+//! `Reset`) is not sent to the garbage by `apply`: it joins the **retiring** list, an intrusive list linked through
 //! [`TrackGraph`] (moving a `Box`: no allocation, no bound), and **fades out**: it keeps
 //! rendering, with a target of silence, until both its levels are 0 and still. It is then
 //! unlinked and pushed on the **retire ring**, which the prepare side drains
@@ -1292,6 +1299,10 @@ fn render_track(
     if !chain_sounds(track) && !player_runs && !audio_runs {
         // Not rendered: the next stopped block it renders applies its lanes again.
         track.graph.stopped_at = None;
+        // Its strip's ramps move on as over a block of silence (module doc > Fades in and
+        // out, #759), so that its next sound does not depend on whether a device kept it
+        // rendered meanwhile.
+        track.graph.mixer.advance(ctx.frames);
         return false;
     }
     let frames = ctx.frames as usize;

@@ -211,6 +211,18 @@ impl Mixer {
         self.gate.aim(0.0, fade);
     }
 
+    /// Moves every ramp `frames` frames on, as mixing a block of silence does (#759): for a
+    /// strip whose track renders nothing in the block. Its ramps then stand where they would
+    /// had a device kept the track rendered, so the track's next sound does not depend on its
+    /// chain. Constant time.
+    pub fn advance(&mut self, frames: u32) {
+        self.gate.advance(frames);
+        self.left.advance(frames);
+        self.right.advance(frames);
+        self.glide_gain = self.glide_gain.saturating_sub(frames);
+        self.glide_pan = self.glide_pan.saturating_sub(frames);
+    }
+
     /// Forgets the message values: the next [`Mixer::sync`] takes them again, so that a
     /// strip a lane drove goes back to the faders when the lane is gone (a schedule
     /// replaced, a `Reset`).
