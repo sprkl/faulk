@@ -1,0 +1,166 @@
+{
+  "about": "Cases of clip.notes.repeat (#710), run against the command (crates/commands/tests/it/clip_edit.rs) and against the piano roll's own copy of its rules (web/src/views/piano-roll/repeat.test.ts), so that the page selects exactly the notes the command writes. A note is [start, pitch, length, velocity]; `others` are notes of the clip outside the selection; `copies` lists every copy in time order, new or already in the clip.",
+  "cases": [
+    {
+      "name": "four sixteenths repeated to the end of the bar",
+      "clipLength": 3840,
+      "notes": [[0, 65, 240, 100], [240, 68, 240, 100], [480, 72, 240, 100], [720, 77, 240, 100]],
+      "others": [],
+      "grid": 240,
+      "until": 3840,
+      "copies": [
+        [960, 65, 240, 100], [1200, 68, 240, 100], [1440, 72, 240, 100], [1680, 77, 240, 100],
+        [1920, 65, 240, 100], [2160, 68, 240, 100], [2400, 72, 240, 100], [2640, 77, 240, 100],
+        [2880, 65, 240, 100], [3120, 68, 240, 100], [3360, 72, 240, 100], [3600, 77, 240, 100]
+      ],
+      "added": 12,
+      "atClipEnd": false
+    },
+    {
+      "name": "a figure written shorter than its grid repeats every whole step",
+      "clipLength": 3840,
+      "notes": [[0, 60, 200, 90], [240, 62, 200, 90], [480, 64, 200, 90], [720, 65, 200, 90]],
+      "others": [],
+      "grid": 240,
+      "until": 1920,
+      "copies": [[960, 60, 200, 90], [1200, 62, 200, 90], [1440, 64, 200, 90], [1680, 65, 200, 90]],
+      "added": 4,
+      "atClipEnd": false
+    },
+    {
+      "name": "without a grid the period is the exact span",
+      "clipLength": 3840,
+      "notes": [[0, 60, 200, 100], [300, 62, 100, 100]],
+      "others": [],
+      "grid": null,
+      "until": 1200,
+      "copies": [[400, 60, 200, 100], [700, 62, 100, 100], [800, 60, 200, 100], [1100, 62, 100, 100]],
+      "added": 4,
+      "atClipEnd": false
+    },
+    {
+      "name": "a copy that would end after until is shortened, one that would start after it is left out",
+      "clipLength": 3840,
+      "notes": [[0, 60, 480, 100], [480, 62, 480, 100]],
+      "others": [],
+      "grid": 240,
+      "until": 2200,
+      "copies": [[960, 60, 480, 100], [1440, 62, 480, 100], [1920, 60, 280, 100]],
+      "added": 3,
+      "atClipEnd": false
+    },
+    {
+      "name": "until past the end of the clip: the copies stop at its end and say so",
+      "clipLength": 1920,
+      "notes": [[0, 60, 720, 100]],
+      "others": [],
+      "grid": 240,
+      "until": 3840,
+      "copies": [[720, 60, 720, 100], [1440, 60, 480, 100]],
+      "added": 2,
+      "atClipEnd": true
+    },
+    {
+      "name": "until past the end of the clip with no copy reaching it: not said",
+      "clipLength": 7680,
+      "notes": [[2880, 60, 10, 100]],
+      "others": [],
+      "grid": 3840,
+      "until": 8640,
+      "copies": [[6720, 60, 10, 100]],
+      "added": 1,
+      "atClipEnd": false
+    },
+    {
+      "name": "until past the end of the clip, a copy left out there but none shortened: said",
+      "clipLength": 3840,
+      "notes": [[0, 60, 240, 100]],
+      "others": [],
+      "grid": 960,
+      "until": 4800,
+      "copies": [[960, 60, 240, 100], [1920, 60, 240, 100], [2880, 60, 240, 100]],
+      "added": 3,
+      "atClipEnd": true
+    },
+    {
+      "name": "the last copy may be one tick long",
+      "clipLength": 3840,
+      "notes": [[0, 60, 240, 100]],
+      "others": [],
+      "grid": 240,
+      "until": 481,
+      "copies": [[240, 60, 240, 100], [480, 60, 1, 100]],
+      "added": 2,
+      "atClipEnd": false
+    },
+    {
+      "name": "a figure off the grid keeps its place in each period",
+      "clipLength": 3840,
+      "notes": [[100, 60, 240, 100]],
+      "others": [],
+      "grid": 240,
+      "until": 960,
+      "copies": [[340, 60, 240, 100], [580, 60, 240, 100], [820, 60, 140, 100]],
+      "added": 3,
+      "atClipEnd": false
+    },
+    {
+      "name": "a copy already in the clip is kept and not counted",
+      "clipLength": 3840,
+      "notes": [[0, 65, 240, 100], [240, 68, 240, 100], [480, 72, 240, 100], [720, 77, 240, 100]],
+      "others": [[960, 65, 240, 100]],
+      "grid": 240,
+      "until": 1920,
+      "copies": [[960, 65, 240, 100], [1200, 68, 240, 100], [1440, 72, 240, 100], [1680, 77, 240, 100]],
+      "added": 3,
+      "atClipEnd": false
+    },
+    {
+      "name": "notes of the same start and pitch that the end cuts to one length merge",
+      "clipLength": 3840,
+      "notes": [[0, 60, 300, 100], [0, 60, 400, 100]],
+      "others": [],
+      "grid": 480,
+      "until": 600,
+      "copies": [[480, 60, 120, 100]],
+      "added": 1,
+      "atClipEnd": false
+    },
+    {
+      "name": "a grid of zero is refused",
+      "clipLength": 3840,
+      "notes": [[0, 60, 240, 100]],
+      "others": [],
+      "grid": 0,
+      "until": 3840,
+      "refused": "invalid"
+    },
+    {
+      "name": "a negative grid is refused",
+      "clipLength": 3840,
+      "notes": [[0, 60, 240, 100]],
+      "others": [],
+      "grid": -240,
+      "until": 3840,
+      "refused": "invalid"
+    },
+    {
+      "name": "until at the start of the first copy is refused",
+      "clipLength": 3840,
+      "notes": [[0, 60, 240, 100]],
+      "others": [],
+      "grid": 240,
+      "until": 240,
+      "refused": "invalid"
+    },
+    {
+      "name": "no room after the notes before the end of the clip is refused",
+      "clipLength": 3840,
+      "notes": [[0, 60, 3840, 100]],
+      "others": [],
+      "grid": 240,
+      "until": 7680,
+      "refused": "invalid"
+    }
+  ]
+}
