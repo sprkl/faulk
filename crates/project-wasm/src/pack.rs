@@ -296,7 +296,7 @@ const UNPACK_DONE: u8 = 5;
 pub(crate) fn unpack_limits() -> PackLimits {
     PackLimits {
         max_entries: 200_000,
-        max_text_total: 384 << 20,
+        max_text_total: 128 << 20,
         ..PackLimits::default()
     }
 }

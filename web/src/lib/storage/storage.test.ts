@@ -50,12 +50,15 @@ class FakeStore implements ProjectStore {
   unpacks: { source: Blob | string; textOnly: boolean }[] = []
   /** Waits here in the middle of an import in pieces, so a test can cancel it; then this error, if set. */
   unpackHold: Promise<void> | null = null
+  /** Waits here in the pass that reads the project's own files alone. */
+  textHold: Promise<void> | null = null
   unpackFails: StoreError | null = null
   async unpack(source: Blob | string, io: { onProgress?: (fraction: number) => void; signal?: AbortSignal; textOnly?: boolean }): Promise<PackUnpack> {
     this.unpacks.push({ source, textOnly: io.textOnly ?? false })
     if (typeof source === 'string' && !this.written.has(source)) throw new StoreError('missing', `${source}: not found`)
     const pack = this.host?.unpacked ?? { status: 'failed' as const, message: 'no pack' }
     if (pack.status !== 'ok') return pack
+    if (io.textOnly && this.textHold) await this.textHold
     if (!io.textOnly) {
       io.onProgress?.(0.5)
       if (this.unpackHold) await this.unpackHold
@@ -3003,6 +3006,33 @@ describe('open a .faulkpack by its link (#497)', () => {
     // The next link is not touched by that cancel.
     w.deps.fetch = async () => new Response(text('zip'))
     expect(await w.storage.openUrl(LINK)).toBe(true)
+  })
+
+  it('keeps the current project when a link whose project the browser keeps is cancelled while its project is read', async () => {
+    const w = world()
+    w.browser.available = true
+    w.served.set(LINK, text('zip'))
+    w.host.unpacked = packOf('pack-1')
+    expect(await w.storage.openUrl(LINK)).toBe(true)
+    await w.storage.newProject()
+    w.storage.dismissNotice()
+    const opened = w.host.opened.length
+    let release!: () => void
+    const hold = new Promise<void>((resolve) => (release = resolve))
+    const original = w.deps.openStore
+    w.deps.openStore = async (handle) => {
+      const store = (await original(handle)) as FakeStore
+      store.textHold = hold
+      return store
+    }
+    const opening = w.storage.openUrl(LINK)
+    await vi.waitFor(() => expect(w.storage.banner).toBe('importing'))
+    w.storage.cancelImport()
+    release()
+    expect(await opening).toBe(false)
+    expect(w.storage.notice).toBe('pack.importCancelled')
+    // The kept copy was not opened in place of the current project.
+    expect(w.host.opened.length).toBe(opened)
   })
 
   it('removes the directory of a download the browser had no room for', async () => {

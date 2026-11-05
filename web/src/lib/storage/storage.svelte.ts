@@ -2037,6 +2037,8 @@ export class ProjectStorage {
       // The blobs take what the pack's directory declares (a download is counted in the browser's use already).
       const free = this.deps.freeSpace ? await this.deps.freeSpace() : null
       if (free !== null && free < head.blobBytes) return await stop('storage.browserFull')
+      // A cancel holds until a project starts opening, the copy the browser keeps too.
+      if (signal.aborted) return await stop('pack.importCancelled')
       const known = await this.knownProject(head.files, name, options)
       if (known) {
         await this.dropImportDir(target)
