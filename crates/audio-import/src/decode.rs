@@ -1,6 +1,8 @@
-//! Decoding a file with symphonia, packet by packet, to interleaved `f32`.
+//! Decoding a file with symphonia, packet by packet, to interleaved `f32` (Opus with
+//! `opuscule`, behind symphonia's demuxers: `opus`).
 
 use crate::ImportError;
+use crate::opus::{self, OpusStream};
 use project::limits::{MAX_CHANNELS, MAX_FRAME, SAMPLE_RATES};
 use std::io::{Read, Seek, SeekFrom};
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -8,6 +10,7 @@ use symphonia::core::codecs::audio::well_known::CODEC_ID_OPUS;
 use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
 use symphonia::core::errors::Error;
 use symphonia::core::formats::probe::Hint;
+use symphonia::core::formats::well_known::{FORMAT_ID_MKV, FORMAT_ID_OGG};
 use symphonia::core::formats::{FormatOptions, FormatReader, TrackType};
 use symphonia::core::io::{MediaSource, MediaSourceStream, MediaSourceStreamOptions};
 use symphonia::core::meta::MetadataOptions;
@@ -60,7 +63,7 @@ pub struct MediaInfo {
 /// packet at a time; [`Decoding::finish`] checks what was decoded and gives the metadata.
 pub struct Decoding {
     format: Box<dyn FormatReader>,
-    decoder: Box<dyn AudioDecoder>,
+    decoder: Codec,
     track: u32,
     sample_rate: u32,
     channels: u16,
@@ -73,6 +76,17 @@ pub struct Decoding {
     skip: u64,
     /// Frames still to keep, when the file says where the audio ends (before the padding).
     keep: Option<u64>,
+    /// Frames to cut from the last block (a WebM's `DiscardPadding`: `webm`); while it is not
+    /// 0, one decoded block is held back in `held` until the next shows it was not the last.
+    tail: u64,
+    held: Option<Vec<f32>>,
+    spare: Vec<f32>,
+}
+
+/// What decodes the packets: one of symphonia's decoders, or the Opus one.
+enum Codec {
+    Symphonia(Box<dyn AudioDecoder>),
+    Opus(OpusStream),
 }
 
 /// Runs `f`, turning a panic of a dependency into [`ImportError::Corrupt`] (natively; in
@@ -113,6 +127,8 @@ impl Decoding {
         }
         let edit = crate::mp4::edit(&mut source, len);
         source.seek(SeekFrom::Start(0)).map_err(ImportError::io)?;
+        let paddings = crate::webm::paddings(&mut source, len);
+        source.seek(SeekFrom::Start(0)).map_err(ImportError::io)?;
         let stream = MediaSourceStream::new(
             Box::new(Media(source)),
             MediaSourceStreamOptions {
@@ -144,19 +160,55 @@ impl Decoding {
             .ok_or(ImportError::Empty)?
             .clone();
         let id = track.id;
-        let decoder = symphonia::default::get_codecs()
-            .make_audio_decoder(&params, &AudioDecoderOptions::default())
-            .map_err(|e| match e {
-                Error::Unsupported(_) if params.codec == CODEC_ID_OPUS => {
-                    ImportError::UnsupportedCodec("Opus".into())
-                }
-                Error::Unsupported(_) => {
-                    ImportError::UnsupportedCodec(format!("codec {}", params.codec))
-                }
-                e => decode_error(e, "the codec's setup"),
-            })?;
-        let sample_rate = params.sample_rate.unwrap_or(0);
-        let channels = params.channels.as_ref().map(|c| c.count()).unwrap_or(0);
+        let container = format.format_info().format;
+        // Matroska and WebM are read for Opus only (#609): another codec there is refused by
+        // name (no fixture checks its encoder delay and padding in that container).
+        if container == FORMAT_ID_MKV && params.codec != CODEC_ID_OPUS {
+            return Err(ImportError::UnsupportedCodec(format!(
+                "codec {} in Matroska",
+                params.codec
+            )));
+        }
+        let (decoder, sample_rate, channels, skip, tail) = if params.codec == CODEC_ID_OPUS {
+            if container != FORMAT_ID_OGG && container != FORMAT_ID_MKV {
+                return Err(ImportError::UnsupportedCodec(format!(
+                    "Opus in {}",
+                    format.format_info().short_name
+                )));
+            }
+            let head = opus::Head::parse(params.extra_data.as_deref().unwrap_or_default())?;
+            // The pre-skip, in both containers: symphonia marks it on no packet. The end: the
+            // last packet's trim (Ogg's last granule position, which symphonia applies), or the
+            // last block's `DiscardPadding` (WebM, which symphonia drops).
+            let tail = if container == FORMAT_ID_MKV {
+                paddings.map_or(0, |p| p.of(u64::from(id)))
+            } else {
+                0
+            };
+            (
+                Codec::Opus(OpusStream::new(head)),
+                opus::RATE,
+                usize::from(head.channels),
+                u64::from(head.pre_skip),
+                tail,
+            )
+        } else {
+            let decoder = symphonia::default::get_codecs()
+                .make_audio_decoder(&params, &AudioDecoderOptions::default())
+                .map_err(|e| match e {
+                    Error::Unsupported(_) => {
+                        ImportError::UnsupportedCodec(format!("codec {}", params.codec))
+                    }
+                    e => decode_error(e, "the codec's setup"),
+                })?;
+            (
+                Codec::Symphonia(decoder),
+                params.sample_rate.unwrap_or(0),
+                params.channels.as_ref().map(|c| c.count()).unwrap_or(0),
+                0,
+                0,
+            )
+        };
         if sample_rate != 0 && !SAMPLE_RATES.contains(&sample_rate) {
             return Err(ImportError::BadSampleRate(sample_rate));
         }
@@ -172,8 +224,11 @@ impl Decoding {
             frames: 0,
             failed: false,
             edit,
-            skip: 0,
+            skip,
             keep: None,
+            tail,
+            held: None,
+            spare: Vec::new(),
         })
     }
 
@@ -200,12 +255,53 @@ impl Decoding {
         if self.failed {
             return Err(ImportError::Corrupt("decoding already failed".into()));
         }
-        let result = guarded("a packet", || self.next_inner(out));
+        let result = guarded("a packet", || self.next_held(out));
         if result.is_err() {
             self.failed = true;
             out.clear();
         }
         result
+    }
+
+    /// [`Self::next_inner`], one block late while a tail is to be cut from the last block: the
+    /// last block is the one after which the stream ends.
+    fn next_held(&mut self, out: &mut Vec<f32>) -> Result<bool, ImportError> {
+        if self.tail == 0 && self.held.is_none() {
+            return self.next_inner(out);
+        }
+        loop {
+            // The buffers go round: `out` (the caller's), `held` and `spare`.
+            let mut fresh = std::mem::take(&mut self.spare);
+            fresh.clear();
+            let more = self.next_inner(&mut fresh)?;
+            if more && fresh.is_empty() {
+                // A block of no frame (all pre-skip) is not the one to cut from.
+                self.spare = fresh;
+                continue;
+            }
+            match (more, self.held.take()) {
+                (true, None) => self.held = Some(fresh),
+                (true, Some(previous)) => {
+                    self.spare = std::mem::replace(out, previous);
+                    self.held = Some(fresh);
+                    return Ok(true);
+                }
+                (false, Some(mut last)) => {
+                    let channels = usize::from(self.channels.max(1));
+                    let frames = last.len() / channels;
+                    let cut = usize::try_from(self.tail).unwrap_or(usize::MAX).min(frames);
+                    last.truncate((frames - cut) * channels);
+                    self.frames -= cut as u64;
+                    self.tail = 0;
+                    self.spare = std::mem::replace(out, last);
+                    return Ok(true);
+                }
+                (false, None) => {
+                    self.spare = fresh;
+                    return Ok(false);
+                }
+            }
+        }
     }
 
     fn next_inner(&mut self, out: &mut Vec<f32>) -> Result<bool, ImportError> {
@@ -218,13 +314,30 @@ impl Decoding {
             if packet.track_id != self.track {
                 continue;
             }
-            let buffer = self
-                .decoder
-                .decode(&packet)
-                .map_err(|e| decode_error(e, "a packet"))?;
-            let spec = buffer.spec();
-            let rate = spec.rate();
-            let channels = spec.channels().count();
+            let (rate, channels) = match &mut self.decoder {
+                Codec::Symphonia(decoder) => {
+                    let buffer = decoder
+                        .decode(&packet)
+                        .map_err(|e| decode_error(e, "a packet"))?;
+                    let spec = buffer.spec();
+                    let channels = spec.channels().count();
+                    out.resize(buffer.frames() * channels, 0.0);
+                    buffer.copy_to_slice_interleaved(&mut out[..]);
+                    (spec.rate(), channels)
+                }
+                Codec::Opus(stream) => {
+                    stream.decode(&packet.data, out)?;
+                    // The padding the last granule position names (Ogg); never more than
+                    // the packet holds.
+                    let channels = usize::from(self.channels);
+                    let frames = out.len() / channels;
+                    let cut = usize::try_from(packet.trim_end.get())
+                        .unwrap_or(usize::MAX)
+                        .min(frames);
+                    out.truncate((frames - cut) * channels);
+                    (opus::RATE, channels)
+                }
+            };
             if self.sample_rate == 0 {
                 if !SAMPLE_RATES.contains(&rate) {
                     return Err(ImportError::BadSampleRate(rate));
@@ -252,10 +365,9 @@ impl Decoding {
             if self.keep == Some(0) {
                 return Ok(false);
             }
-            let frames = buffer.frames();
-            out.resize(frames * channels, 0.0);
-            buffer.copy_to_slice_interleaved(&mut out[..]);
-            // The encoder's delay and padding an MP4 edit list names (`mp4`).
+            let frames = out.len() / channels.max(1);
+            // The encoder's delay (an Opus pre-skip) and the padding an MP4 edit list names
+            // (`mp4`).
             let skip = self.skip.min(frames as u64) as usize;
             self.skip -= skip as u64;
             let mut kept = frames - skip;
@@ -266,7 +378,8 @@ impl Decoding {
             out.drain(..skip * channels);
             out.truncate(kept * channels);
             self.frames = self.frames.saturating_add(kept as u64);
-            if self.frames > MAX_FRAME {
+            // Less the tail still to cut: the limit is on the frames kept.
+            if self.frames.saturating_sub(self.tail) > MAX_FRAME {
                 return Err(ImportError::TooLong);
             }
             return Ok(true);
