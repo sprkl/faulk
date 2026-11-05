@@ -211,7 +211,12 @@ domain! {
     /// bar), looping over its length. With the arrangement target, a note inside a
     /// placement goes into its clip where the placement shows it; the other notes make one
     /// new clip per gap between placements, from the bar of its first note to the bar after
-    /// its last, cut at the next placement. A note that starts at most a sixteenth before
+    /// its last, cut at the next placement. "The bar of the first note" has a sixteenth of
+    /// tolerance for an early downbeat: when the first note starts less than a sixteenth
+    /// before a bar and every note of that sixteenth starts less than 30 ms after it, the
+    /// clip starts on that bar and those notes on its first tick, with their lengths; any
+    /// other note in that sixteenth (a pickup) leaves every note where it was played, the
+    /// clip starting on the bar before. A note that starts at most a sixteenth before
     /// tick 0 starts there with its length; one that starts earlier starts there, cut, when
     /// it ends after it, and is dropped and counted otherwise, as a note before its clip; a
     /// note longer than its clip is cut at the clip's end. With
@@ -589,13 +594,36 @@ enum Write {
 /// (#723): one tolerance for both.
 pub const EARLY: i64 = engine::recorder::COUNT_IN_EARLY;
 
-/// The bar a take's first note starts a clip on, with [`EARLY`] of tolerance.
-fn bar_of(first: i64, bar: i64) -> i64 {
-    floor_to(first.saturating_add(EARLY), bar)
+/// How far apart, in time, the notes of a downbeat played early may start and still be one
+/// chord (#732): the notes of the sixteenth before a bar that start less than this after the
+/// first one are that downbeat.
+pub const DOWNBEAT_CHORD_MS: f64 = 30.0;
+
+/// The bar the notes `starts` (a take, or one gap's share of it) start a clip on (#732). With
+/// [`EARLY`] of tolerance: when the first note lies in the sixteenth before a bar and every note
+/// of that sixteenth starts less than [`DOWNBEAT_CHORD_MS`] after it (a downbeat, single note or
+/// chord, played early), the clip starts on that bar and [`early`] puts those notes on its first
+/// tick. Any other note in that sixteenth (a pickup, a grace note) keeps every note where it
+/// was heard: the clip starts on the bar of the first note, the bar before. `ms_per_tick` is at
+/// the project's tempo.
+fn bar_of(starts: impl Iterator<Item = i64> + Clone, bar: i64, ms_per_tick: f64) -> i64 {
+    let first = starts.clone().min().unwrap_or(0);
+    let tolerant = floor_to(first.saturating_add(EARLY), bar);
+    if tolerant <= first {
+        return tolerant;
+    }
+    let chord = starts
+        .filter(|&s| s < tolerant)
+        .all(|s| s.saturating_sub(first) as f64 * ms_per_tick < DOWNBEAT_CHORD_MS);
+    if chord {
+        tolerant
+    } else {
+        floor_to(first, bar)
+    }
 }
 
-/// A position `e` ticks from a clip start taken from the first note: up to [`EARLY`] before it
-/// counts as the start.
+/// A position `e` ticks from a clip start that [`bar_of`] chose: up to [`EARLY`] before it
+/// counts as the start (only the notes of an early downbeat can lie there).
 fn early(e: i64) -> i64 {
     if (-EARLY..0).contains(&e) { 0 } else { e }
 }
@@ -705,6 +733,7 @@ fn plan_track(
     opts: Opts,
 ) -> (Vec<Write>, u32) {
     let bar = project.time_signature().ticks_per_bar().get().max(1);
+    let ms_per_tick = 60_000.0 / (project.tempo().bpm() * PPQ as f64);
     let Some(track) = project.tracks.get(track_id) else {
         return (vec![], 0);
     };
@@ -728,7 +757,10 @@ fn plan_track(
                 .and_then(|(id, c)| Some((id.clone(), Geo::of(c)?)));
             match cell {
                 Some((clip, geo)) => {
-                    let origin = anchor.map_or(bar_of(first, bar), Tick::get);
+                    let origin = anchor.map_or_else(
+                        || bar_of(notes.iter().map(|n| n.start.get()), bar, ms_per_tick),
+                        Tick::get,
+                    );
                     let grows = geo.looping.is_none();
                     let original = geo.length;
                     let mut length = geo.length;
@@ -766,7 +798,7 @@ fn plan_track(
                     });
                 }
                 None => {
-                    let origin = bar_of(first, bar);
+                    let origin = bar_of(notes.iter().map(|n| n.start.get()), bar, ms_per_tick);
                     let length = ceil_to(last_end - origin, bar).max(bar);
                     let out = notes
                         .iter()
@@ -893,7 +925,8 @@ fn plan_track(
                     .map(|n| n.start.get().saturating_add(n.length.get()))
                     .max()
                     .unwrap_or(first + 1);
-                let start = bar_of(first, bar).max(before);
+                let start =
+                    bar_of(group.iter().map(|n| n.start.get()), bar, ms_per_tick).max(before);
                 let mut end = ceil_to(last, bar).max(start + 1);
                 if let Some(next) = after {
                     end = end.min(next);
@@ -950,7 +983,7 @@ fn restored(track: &project::Track, clip_id: &ClipId) -> Result<RestoredClip, Co
 /// stays there instead of leaving before its start (#542). A stamp outside the loop, a move
 /// that is not backwards, a stamp exactly on the loop's start (a note pressed before the capture
 /// began is clamped to the take's first tick: it stays on the line, where the clip's early rule
-/// takes it to its first beat) and a transport that does not loop move on the line. Known limit:
+/// takes it to its first beat when it is part of an early downbeat, [`bar_of`]) and a transport that does not loop move on the line. Known limit:
 /// a command cannot tell a stamp the engine wrapped from a note anticipating the loop's start
 /// while the playhead enters the loop from before it (first pass only), which is folded too.
 /// The page's takes are moved by the engine instead, which knows the wraps (#560), and come

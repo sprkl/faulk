@@ -746,6 +746,167 @@ fn a_first_note_played_just_before_the_bar_starts_the_clip_on_that_bar() {
     assert_eq!(p.start, Tick(3840));
 }
 
+/// One target's result: its name, the clip's start (arrangement only) and the notes.
+type Landed = (&'static str, Option<i64>, Vec<(u8, i64)>);
+
+/// Where `played` (ticks around bar 2, 7680, at `bpm`; 1.92 ticks a millisecond at 120 BPM)
+/// lands in the three targets of a take (#732): an empty cell, the clip of a cell without an
+/// anchor, and a new clip of the arrangement (the same notes one bar earlier, around 3840, whose
+/// placement start is given back on the scale of the others, plus 3840). Each gives the notes'
+/// `(pitch, position)` in their clip, which tells the bar the clip counts from.
+fn downbeat_targets(bpm: f64, played: &[(i64, u8)]) -> Vec<Landed> {
+    let mut r = rec();
+    commands::run(
+        &Command::Transport(transport::Command::SetTempo {
+            bpm,
+            placements: None,
+        }),
+        &mut r.state,
+        &mut context(),
+    )
+    .unwrap();
+    let take_of = |shift: i64| {
+        take(
+            &r,
+            played
+                .iter()
+                .map(|&(start, pitch)| note(start - shift, pitch, 80))
+                .collect(),
+            None,
+        )
+    };
+    let pitches: Vec<u8> = played.iter().map(|&(_, p)| p).collect();
+    let positions = |notes: &[Note]| {
+        let mut out: Vec<_> = notes
+            .iter()
+            .filter(|n| pitches.contains(&n.pitch))
+            .map(|n| (n.pitch, n.start.get()))
+            .collect();
+        out.sort();
+        out
+    };
+    let mut out = Vec::new();
+
+    let (state, ro, _) = commit(
+        &r,
+        RecordTarget::Scene {
+            scene: r.empty.clone(),
+        },
+        0.0,
+        take_of(0),
+    );
+    let RO::CommitTake { clips, dropped, .. } = ro else {
+        panic!()
+    };
+    assert_eq!(dropped, 0);
+    out.push((
+        "empty cell",
+        None,
+        positions(&notes_of(&state, &clips[0].clip)),
+    ));
+
+    let (state, _, _) = commit(
+        &r,
+        RecordTarget::Scene {
+            scene: r.scene.clone(),
+        },
+        0.0,
+        take_of(0),
+    );
+    out.push((
+        "cell without an anchor",
+        None,
+        positions(&notes_of(&state, &r.grid_clip)),
+    ));
+
+    let (state, ro, _) = commit(&r, RecordTarget::Arrangement {}, 0.0, take_of(3840));
+    let RO::CommitTake { clips, .. } = ro else {
+        panic!()
+    };
+    let p = state.project.tracks[&r.track]
+        .placements
+        .values()
+        .find(|p| p.clip == clips[0].clip)
+        .unwrap();
+    out.push((
+        "arrangement",
+        Some(p.start.get() + 3840),
+        positions(&notes_of(&state, &clips[0].clip)),
+    ));
+    out
+}
+
+/// `played` lands in every target with the clip counting from `origin` and the notes at
+/// `expected` in it.
+fn assert_downbeat(played: &[(i64, u8)], origin: i64, expected: &[(u8, i64)]) {
+    assert_downbeat_at(120.0, played, origin, expected);
+}
+
+/// [`assert_downbeat`] at `bpm`.
+fn assert_downbeat_at(bpm: f64, played: &[(i64, u8)], origin: i64, expected: &[(u8, i64)]) {
+    for (target, start, notes) in downbeat_targets(bpm, played) {
+        if let Some(start) = start {
+            assert_eq!(start, origin, "{target}: clip start");
+        }
+        assert_eq!(notes, expected, "{target}: notes");
+    }
+}
+
+/// #732: a chord played early on the downbeat (notes 0, 10 and 25 ms after the first, all in
+/// the sixteenth before the bar) starts the clip on the bar, each note on its first tick with
+/// its length; a note after the bar stays as played.
+#[test]
+fn an_early_downbeat_chord_starts_the_clip_on_the_bar() {
+    // 7580 is 100 ticks (52 ms) before the bar; +19 ticks is 9.9 ms, +48 is 25 ms.
+    assert_downbeat(
+        &[(7580, 60), (7599, 64), (7628, 67), (7870, 72)],
+        7680,
+        &[(60, 0), (64, 0), (67, 0), (72, 190)],
+    );
+}
+
+/// #732: a single downbeat played early is put on the bar.
+#[test]
+fn a_single_early_downbeat_starts_the_clip_on_the_bar() {
+    assert_downbeat(&[(7660, 60), (8640, 62)], 7680, &[(60, 0), (62, 960)]);
+}
+
+/// #732: a pickup before an early downbeat (in the same sixteenth, 94 ms apart): nothing is
+/// moved, the clip starts on the bar before and both notes keep the place they were heard at.
+#[test]
+fn a_pickup_before_the_downbeat_keeps_every_note_where_it_was_heard() {
+    assert_downbeat(&[(7480, 59), (7660, 60)], 3840, &[(59, 3640), (60, 3820)]);
+}
+
+/// #732: a second note 31 ms after the first (60 ticks, 31.25 ms) is not the same chord:
+/// nothing is moved.
+#[test]
+fn a_note_31_ms_after_the_first_is_not_the_downbeat_chord() {
+    assert_downbeat(&[(7580, 60), (7640, 64)], 3840, &[(60, 3740), (64, 3800)]);
+}
+
+/// #732: the chord is measured in time, not ticks. At 125 BPM (2 ticks a millisecond) 59 ticks
+/// is 29.5 ms, a chord, and 60 ticks is 30 ms, not one; at 999 BPM (16 ticks a millisecond) the
+/// whole sixteenth lasts 15 ms, so two notes 200 ticks apart are still one downbeat, and so is
+/// the issue's batch, notes 10 ms (160 ticks) apart.
+#[test]
+fn the_downbeat_chord_is_measured_in_milliseconds_at_any_tempo() {
+    assert_downbeat_at(125.0, &[(7580, 60), (7639, 64)], 7680, &[(60, 0), (64, 0)]);
+    assert_downbeat_at(
+        125.0,
+        &[(7580, 60), (7640, 64)],
+        3840,
+        &[(60, 3740), (64, 3800)],
+    );
+    assert_downbeat_at(999.0, &[(7450, 60), (7650, 64)], 7680, &[(60, 0), (64, 0)]);
+    assert_downbeat_at(
+        999.0,
+        &[(7450, 60), (7610, 61), (7770, 62)],
+        7680,
+        &[(60, 0), (61, 0), (62, 90)],
+    );
+}
+
 /// #560: the engine applies the take's shift (the latency plus the session's offset), the
 /// same one `record.start` answers.
 #[test]
