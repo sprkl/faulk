@@ -1974,6 +1974,13 @@ export class ProjectStorage {
     target.release?.()
   }
 
+  /** An import cancelled once its files were written: the directory goes all the same. */
+  private async cancelledAfterWrite(target: ImportDir): Promise<boolean> {
+    await this.dropImportDir(target)
+    this.notice = 'pack.importCancelled'
+    return false
+  }
+
   /** What the page says of an import the browser's storage refused. */
   private importFailed(error: unknown) {
     this.errorDetail = error instanceof Error ? error.message : String(error)
@@ -2047,6 +2054,8 @@ export class ProjectStorage {
     } finally {
       this.importing = null
     }
+    // The last moment a cancel reaches it: once the project starts opening, it opens.
+    if (signal.aborted) return this.cancelledAfterWrite(target)
     target.store.close()
     target.release?.()
     const opened = await this.openHandle(target.handle, { kind: 'browser', dir: target.dir, allowed })

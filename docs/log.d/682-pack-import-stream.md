@@ -1,0 +1,2 @@
+2026-11-05
+* **Update** (#682): the `.faulkpack` import is read in pieces by the store's Worker (`project::file::PackReader`, the strict rule `import_pack` now rests on; `pw_unpack_*`), its blobs written into the new browser project as they come; a link is downloaded into that directory first. No 192 MiB limit where the browser keeps projects; new command `project.cancel_import_pack` (protocol 38).

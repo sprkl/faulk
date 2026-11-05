@@ -2358,6 +2358,30 @@ describe('import a .faulkpack', () => {
     expect(await w.storage.importPack()).toBe(true)
   })
 
+  it('stops an import cancelled while its files are written, before its project opens', async () => {
+    const w = world()
+    w.browser.available = true
+    w.host.unpacked = packOf('pack-1')
+    let release!: () => void
+    const hold = new Promise<void>((resolve) => (release = resolve))
+    const original = w.deps.openStore
+    w.deps.openStore = async (handle) => {
+      const store = (await original(handle)) as FakeStore
+      store.hold = hold
+      return store
+    }
+    w.packs.push(packFile())
+    const importing = w.storage.importPack()
+    await settle()
+    w.storage.cancelImport()
+    release()
+    expect(await importing).toBe(false)
+    expect(w.storage.notice).toBe('pack.importCancelled')
+    expect(w.host.opened).toEqual([])
+    expect(w.browser.handles.size).toBe(0)
+    expect(w.locks.size).toBe(0)
+  })
+
   it('removes what an import wrote when the store fails while it reads', async () => {
     const w = world()
     w.browser.available = true

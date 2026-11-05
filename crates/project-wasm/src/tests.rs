@@ -1365,7 +1365,10 @@ fn unpack_of(zip: &[u8], stop: Option<usize>) -> Result<(MemFs, usize), String> 
                 let size = u64::from_le_bytes(out[1..9].try_into().unwrap());
                 let n = u32::from_le_bytes(out[9..13].try_into().unwrap()) as usize;
                 let path = std::str::from_utf8(&out[13..13 + n]).unwrap().to_owned();
-                assert!(path.starts_with("blobs/"), "only blobs are streamed: {path}");
+                assert!(
+                    path.starts_with("blobs/"),
+                    "only blobs are streamed: {path}"
+                );
                 assert!(blob.is_none());
                 if !fs.files().keys().any(|p| p.starts_with("blobs/")) {
                     // The first blob: the project's own files are all read, and can be asked for.
@@ -1373,13 +1376,20 @@ fn unpack_of(zip: &[u8], stop: Option<usize>) -> Result<(MemFs, usize), String> 
                     assert_eq!(texts[0], 5);
                     let (_, entries) = save::parse_frame(&texts[1..]).expect("a save frame");
                     assert!(!entries.is_empty());
-                    assert!(entries.iter().all(|e| matches!(e, Entry::Write(p, _) if !p.starts_with("blobs/"))));
+                    assert!(
+                        entries
+                            .iter()
+                            .all(|e| matches!(e, Entry::Write(p, _) if !p.starts_with("blobs/")))
+                    );
                 }
                 blob = Some((path, size, Vec::new()));
                 pack_step(|| pw_unpack_step(0))
             }
             3 => {
-                blob.as_mut().expect("a blob started").2.extend_from_slice(&out[1..]);
+                blob.as_mut()
+                    .expect("a blob started")
+                    .2
+                    .extend_from_slice(&out[1..]);
                 pack_step(|| pw_unpack_step(0))
             }
             4 => {
@@ -1463,7 +1473,11 @@ fn an_import_in_pieces_cancelled_at_any_step_leaves_no_session() {
     let (_, _, zip) = export_of(&fs);
     for stop in 0..6 {
         assert_eq!(unpack_of(&zip, Some(stop)).unwrap_err(), "cancelled");
-        assert_eq!(pack_step(|| pw_unpack_step(0))[0], 1, "after a cancel at {stop}");
+        assert_eq!(
+            pack_step(|| pw_unpack_step(0))[0],
+            1,
+            "after a cancel at {stop}"
+        );
     }
     // A new import starts over, whatever was under way.
     let _ = pack_step(|| pw_unpack_begin(zip.len() as u32, 0));

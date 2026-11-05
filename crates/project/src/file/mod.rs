@@ -56,7 +56,7 @@ pub const MAX_TEXT_FILE_BYTES: u64 = 64 << 20;
 
 /// The most bytes of a blob of dense automation points: its magic, then the points of a lane
 /// at most. The reader reads such a blob when it opens the project; a bigger one is refused.
-pub const MAX_LANE_BLOB_BYTES: u64 = (text::LANE_BLOB_MAGIC.len()
-    + crate::limits::MAX_POINTS_PER_LANE * text::POINT_BYTES) as u64;
+pub const MAX_LANE_BLOB_BYTES: u64 =
+    (text::LANE_BLOB_MAGIC.len() + crate::limits::MAX_POINTS_PER_LANE * text::POINT_BYTES) as u64;
 
 pub use text::LANE_BLOB_MAGIC;

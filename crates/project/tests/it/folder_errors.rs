@@ -904,7 +904,10 @@ fn drive(bytes: &[u8], limits: PackLimits) -> Drive {
         given.clear();
         match step {
             PackStep::Need { offset, len } => {
-                assert!(len <= PACK_PIECE_BYTES || needs.len() < 4, "a piece of {len} bytes");
+                assert!(
+                    len <= PACK_PIECE_BYTES || needs.len() < 4,
+                    "a piece of {len} bytes"
+                );
                 needs.push((offset, len));
                 given = bytes[offset as usize..(offset + len) as usize].to_vec();
             }
@@ -962,8 +965,16 @@ fn a_pack_read_in_pieces_gives_the_files_of_the_pack_text_first() {
     // Every file, with its bytes, and the project's own files before the blobs.
     let got: std::collections::BTreeMap<_, _> = read.files.iter().cloned().collect();
     assert_eq!(&got, dest.files());
-    let first_blob = read.files.iter().position(|(p, _)| p.starts_with("blobs/")).unwrap();
-    assert!(read.files[first_blob..].iter().all(|(p, _)| p.starts_with("blobs/")));
+    let first_blob = read
+        .files
+        .iter()
+        .position(|(p, _)| p.starts_with("blobs/"))
+        .unwrap();
+    assert!(
+        read.files[first_blob..]
+            .iter()
+            .all(|(p, _)| p.starts_with("blobs/"))
+    );
     // The tail first, one range for the directory: a small pack is read in one go.
     assert_eq!(read.needs[0], (0, bytes.len() as u64));
 }
@@ -977,12 +988,16 @@ fn a_big_file_comes_in_pieces_and_a_big_directory_in_a_second_read() {
     let deflated = zip::write::SimpleFileOptions::default();
     zip.start_file("project.json", deflated).unwrap();
     zip.write_all(&project.files()["project.json"]).unwrap();
-    let big: Vec<u8> = (0..3u32 << 20).map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8).collect();
-    zip.start_file(format!("blobs/{}", common_sha(&big)), deflated).unwrap();
+    let big: Vec<u8> = (0..3u32 << 20)
+        .map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8)
+        .collect();
+    zip.start_file(format!("blobs/{}", common_sha(&big)), deflated)
+        .unwrap();
     zip.write_all(&big).unwrap();
     for i in 0..600u32 {
         let body = i.to_le_bytes();
-        zip.start_file(format!("blobs/{}", common_sha(&body)), deflated).unwrap();
+        zip.start_file(format!("blobs/{}", common_sha(&body)), deflated)
+            .unwrap();
         zip.write_all(&body).unwrap();
     }
     let bytes = zip.finish().unwrap().into_inner();
@@ -991,8 +1006,20 @@ fn a_big_file_comes_in_pieces_and_a_big_directory_in_a_second_read() {
     assert_eq!(read.files.len(), 602);
     let tail = read.needs[0];
     assert!(tail.0 > 0, "the tail only: {tail:?}");
-    assert_eq!(read.needs[1].0 + read.needs[1].1, tail.0, "then the rest of the directory: {:?}", read.needs[1]);
-    assert_eq!(read.files.iter().find(|(_, b)| b.len() == big.len()).unwrap().1, big);
+    assert_eq!(
+        read.needs[1].0 + read.needs[1].1,
+        tail.0,
+        "then the rest of the directory: {:?}",
+        read.needs[1]
+    );
+    assert_eq!(
+        read.files
+            .iter()
+            .find(|(_, b)| b.len() == big.len())
+            .unwrap()
+            .1,
+        big
+    );
     // And the import over the reader opens it.
     let (_, opened) = import(&bytes);
     opened.unwrap();
@@ -1000,7 +1027,10 @@ fn a_big_file_comes_in_pieces_and_a_big_directory_in_a_second_read() {
 
 fn common_sha(bytes: &[u8]) -> String {
     use sha2::Digest;
-    sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+    sha2::Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
 }
 
 #[test]
@@ -1016,7 +1046,13 @@ fn stored_and_64_bit_entries_read_back() {
         let bytes = zip_with(&[("project.json", &json), (&blob_name, &blob)], options);
         let read = drive(&bytes, PackLimits::default());
         read.result.unwrap();
-        assert_eq!(read.files, vec![("project.json".to_owned(), json.clone()), (blob_name.clone(), blob.clone())]);
+        assert_eq!(
+            read.files,
+            vec![
+                ("project.json".to_owned(), json.clone()),
+                (blob_name.clone(), blob.clone())
+            ]
+        );
         import(&bytes).1.unwrap();
     }
 }
@@ -1025,9 +1061,13 @@ fn stored_and_64_bit_entries_read_back() {
 fn a_pack_whose_headers_lie_or_whose_bytes_are_damaged_is_refused() {
     let project = saved(&Project::new(ProjectId(id(1)), "P"));
     let json = project.files()["project.json"].clone();
-    let stored = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    let stored =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
     let good_stored = zip_with(&[("project.json", &json)], stored);
-    let good = zip_with(&[("project.json", &json)], zip::write::SimpleFileOptions::default());
+    let good = zip_with(
+        &[("project.json", &json)],
+        zip::write::SimpleFileOptions::default(),
+    );
     drive(&good_stored, PackLimits::default()).result.unwrap();
     drive(&good, PackLimits::default()).result.unwrap();
     let mut cases: Vec<(&str, Vec<u8>)> = Vec::new();
@@ -1045,7 +1085,10 @@ fn a_pack_whose_headers_lie_or_whose_bytes_are_damaged_is_refused() {
     patch_u32(&mut smaller, cd + 24, |n| n - 1);
     cases.push(("size", smaller));
     // The directory says the compressed data runs further than the deflate stream.
-    let mut longer = zip_with(&[("project.json", &json), (".gitignore", b".faulk/\n")], zip::write::SimpleFileOptions::default());
+    let mut longer = zip_with(
+        &[("project.json", &json), (".gitignore", b".faulk/\n")],
+        zip::write::SimpleFileOptions::default(),
+    );
     let cd = directory_of(&longer);
     patch_u32(&mut longer, cd + 20, |n| n + 1);
     cases.push(("trailing", longer));
@@ -1066,9 +1109,16 @@ fn a_pack_whose_headers_lie_or_whose_bytes_are_damaged_is_refused() {
     cases.push(("past", past));
     for (what, bytes) in cases {
         let read = drive(&bytes, PackLimits::default());
-        assert!(matches!(read.result, Err(FileError::BadPack { .. })), "{what}: {:?}", read.result);
+        assert!(
+            matches!(read.result, Err(FileError::BadPack { .. })),
+            "{what}: {:?}",
+            read.result
+        );
         let (dest, result) = import(&bytes);
-        assert!(matches!(result, Err(FileError::BadPack { .. })), "{what}: {result:?}");
+        assert!(
+            matches!(result, Err(FileError::BadPack { .. })),
+            "{what}: {result:?}"
+        );
         assert!(dest.is_empty(), "{what}");
     }
 }
