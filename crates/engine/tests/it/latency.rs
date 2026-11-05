@@ -596,6 +596,48 @@ fn beyond_the_limit_the_compensation_is_capped_flagged_and_aligned_up_to_it() {
     rig.send(&msgs);
     rig.run(2);
     assert!(!rig.e.graph().latency_capped());
+    // The metronome on: its clicks would need 20 480 frames, more than its line holds.
+    rig.send(&[M::SetMetronome {
+        enabled: true,
+        volume: 1.0,
+        count_in_bars: 0,
+    }]);
+    rig.run(2);
+    assert!(
+        rig.e.graph().latency_capped(),
+        "the metronome's cap is flagged"
+    );
+}
+
+#[test]
+fn a_metronome_switched_off_rings_out_the_clicks_its_line_holds() {
+    // With 240 frames of latency the first click (frame 0) leaves the line at frame 240. The
+    // metronome switched off after the first block: the 128 frames of click already in the
+    // line still come out, then nothing.
+    let mut rig = Rig::new(48_000.0);
+    let mut msgs = tone_track(t(0), 0.0);
+    msgs.push(ceiling_at(t(0), 1, &[(CEILING, 0.0), (LOOKAHEAD, 0.005)]));
+    msgs.push(M::SetMetronome {
+        enabled: true,
+        volume: 1.0,
+        count_in_bars: 0,
+    });
+    rig.send(&msgs);
+    rig.run(4);
+    assert_eq!(rig.latency(), 240);
+    rig.send(&[M::Play { from: Tick(0) }]);
+    let (first, _) = rig.run(1);
+    assert_eq!(peak(&first), 0.0, "the click is still in the line");
+    rig.send(&[M::SetMetronome {
+        enabled: false,
+        volume: 1.0,
+        count_in_bars: 0,
+    }]);
+    let (after, _) = rig.run(8);
+    let at = onset(&after, 1e-4).expect("the click rings out") + BLOCK;
+    assert_eq!(at, 240);
+    assert!(peak(&after[112..240]) > 0.01, "the click held in the line");
+    assert_eq!(peak(&after[240..]), 0.0, "nothing after what the line held");
 }
 
 #[test]

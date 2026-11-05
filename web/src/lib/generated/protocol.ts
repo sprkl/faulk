@@ -2524,8 +2524,10 @@ type: "record.set_settings"
 count_in: boolean
 /**
  * How much earlier the engine places the notes: `latency_ms` plus the session's
- * offset (`record.set_settings`), in milliseconds. The notes it reports are already
- * moved: they are written with `record.commit_take`'s `shift_ms` 0.
+ * offset (`record.set_settings`), in milliseconds; the engine adds the latency of its
+ * devices on top (`mixer.levels` `latency_ms`, which this figure leaves out: the
+ * command does not know it). The notes it reports are already moved: they are
+ * written with `record.commit_take`'s `shift_ms` 0.
  */
 shift_ms: number
 /**

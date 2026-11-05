@@ -33,8 +33,8 @@ use crate::msg::{MsgError, ParamId, limits, try_box};
 /// A level under which a sample counts as silence for [`Delay::busy`] (-400 dB).
 const QUIET: f32 = 1e-20;
 
-/// A zeroed buffer of `frames` samples, off the audio path.
-fn buffer(frames: usize) -> Result<Box<[f32]>, MsgError> {
+/// A zeroed buffer of `frames` samples, off the audio path (fallible).
+pub(crate) fn buffer(frames: usize) -> Result<Box<[f32]>, MsgError> {
     let mut v = Vec::new();
     v.try_reserve_exact(frames)
         .map_err(|_| MsgError::OutOfMemory {
@@ -316,9 +316,10 @@ impl Device for Latent {
         self.inner.gain_reduction_db()
     }
 
-    /// The device's latency, bounded to its maximum and to the line.
+    /// The device's latency, as it says (the graph bounds it to [`Device::max_latency_frames`]
+    /// in one place, `graph::chain_latency`, and the line bounds a tap to its size).
     fn latency_frames(&self) -> u32 {
-        self.inner.latency_frames().min(self.max_latency_frames())
+        self.inner.latency_frames()
     }
 
     fn max_latency_frames(&self) -> u32 {
