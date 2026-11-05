@@ -8,8 +8,9 @@
 //!    transport is stopped (the engine counts in first, `count_in_bars` of the metronome).
 //!    The armed MIDI tracks record (`track.arm`); a selected track that is not armed plays
 //!    and records nothing.
-//! 2. The engine stamps the notes played on those tracks in transport ticks and returns them
-//!    in its report (`engine::recorder`). Nothing is written in the project meanwhile.
+//! 2. The engine stamps the notes played on those tracks in transport ticks, moved back by the
+//!    take's shift (the latency plus the offset, `SetRecording`, #560), and returns them in its
+//!    report (`engine::recorder`). Nothing is written in the project meanwhile.
 //! 3. `record.stop` (or `transport.stop`, `transport.pause`) ends the capture; the notes still
 //!    held are cut there. The host, which reads the report, then writes the take with
 //!    `record.commit_take` once the engine has returned its last notes, or drops it with
@@ -153,8 +154,10 @@ domain! {
     /// bars (heard, not recorded), and with a scene target it launches that scene's clip
     /// of each armed track first; on a running transport it records at once. `latency_ms`
     /// is the output latency the host estimates (0 to 1000, default 0). The notes come
-    /// back from the engine; `record.stop` ends the take, which the host then writes with
-    /// `record.commit_take`, one history entry. Not undoable itself.
+    /// back from the engine, already moved `shift_ms` earlier (the latency plus the session's
+    /// offset) on the engine's clock, so that a note heard before a loop wrap stays before it;
+    /// `record.stop` ends the take, which the host then writes with `record.commit_take`
+    /// (`shift_ms` 0), one history entry. Not undoable itself.
     "record.start" (kind = "live", undo = "none", destructive = false)
     Start {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -167,8 +170,9 @@ domain! {
         target: RecordTarget,
         /// The tracks that record.
         tracks: Vec<TrackId>,
-        /// How much earlier the notes will be placed: `latency_ms` plus the session's
-        /// offset (`record.set_settings`), in milliseconds.
+        /// How much earlier the engine places the notes: `latency_ms` plus the session's
+        /// offset (`record.set_settings`), in milliseconds. The notes it reports are already
+        /// moved: they are written with `record.commit_take`'s `shift_ms` 0.
         shift_ms: f64,
         /// Whether a count-in runs before the take.
         count_in: bool,
@@ -195,8 +199,10 @@ domain! {
     /// Write a take into the project, every track at once, as **one** history entry. Per
     /// track, `notes` are the notes as played: `start` in transport ticks, `length` in
     /// ticks. Every start is first moved `shift_ms` earlier at the project's tempo; when the
-    /// transport loops and the start is inside the loop, the move wraps round the loop (a note
-    /// that would go before the loop's start comes from its end). With a
+    /// transport loops and the start is strictly inside the loop, the move wraps round the
+    /// loop (a note that would go before the loop's start comes from its end). The notes the
+    /// engine reported for a `record.start` take are already moved: write them with
+    /// `shift_ms` 0 (the default); `shift_ms` is for notes not moved yet. With a
     /// scene target, a cell that holds a clip takes the notes on top of its own (overdub):
     /// a note lands where the clip played at that moment, from `anchor` (the transport tick
     /// of the clip's position 0) or else from the bar of the first note, round its loop;
@@ -462,7 +468,7 @@ fn start(
             take: number,
             target,
             tracks,
-            shift_ms: latency + f64::from(state.session.record.offset_ms),
+            shift_ms: take_shift_ms(Some(latency), state),
             count_in,
         },
         vec![ProjectEvent::RecordingChanged {
@@ -470,6 +476,20 @@ fn start(
             state: TakeState::Recording,
         }],
     ))
+}
+
+/// How much earlier the notes of a take that `record.start` starts are placed, in
+/// milliseconds: the host's output latency (`latency_ms`, 0 when left out) plus the session's
+/// offset. The engine applies it (`SetRecording`, #560) and `record.start` answers it.
+pub fn take_shift_ms(latency_ms: Option<f64>, state: &State) -> f64 {
+    latency_ms.unwrap_or(0.0) + f64::from(state.session.record.offset_ms)
+}
+
+/// A shift in milliseconds as the engine takes it (`SetRecording`): whole microseconds,
+/// saturating (a shift `record.start` accepts is at most 1500 ms either way).
+pub fn shift_us(shift_ms: f64) -> i32 {
+    // `as` saturates and sends NaN to zero.
+    (shift_ms * 1000.0).round() as i32
 }
 
 /// Ends the capture of a recording take, if one runs (a transport stop or pause): the
@@ -922,6 +942,8 @@ fn restored(track: &project::Track, clip_id: &ClipId) -> Result<RestoredClip, Co
 /// takes it to its first beat) and a transport that does not loop move on the line. Known limit:
 /// a command cannot tell a stamp the engine wrapped from a note anticipating the loop's start
 /// while the playhead enters the loop from before it (first pass only), which is folded too.
+/// The page's takes are moved by the engine instead, which knows the wraps (#560), and come
+/// here with a shift of 0: this fold serves the notes given with a shift of their own.
 fn shift_start(start: i64, shift: i64, looping: Option<project::LoopRegion>) -> i64 {
     let line = start.saturating_sub(shift);
     let Some(region) = looping else {

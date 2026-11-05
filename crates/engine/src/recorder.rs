@@ -40,8 +40,8 @@
 //! note crossed the page, the prepare side and the live queue), so the recorder places it
 //! behind the block, at the playhead of that sample ([`Anchors`]: across a loop wrap or a
 //! tempo change too). A stamp may also lie ahead of the block: the web page stamps the frame
-//! heard at the key press plus the estimated output latency (the take is moved back by the
-//! same estimate, `record.commit_take`'s `shift_ms`), and when the estimate is larger than
+//! heard at the key press plus the estimated output latency (the recorder moves the note back
+//! by the same estimate, the take's shift below), and when the estimate is larger than
 //! how far the rendering really runs ahead of the output (measured 31 to 42 ms against an
 //! estimate of 42 ms in Chromium on Windows, #499), the stamp is a few milliseconds ahead;
 //! it is placed there, by the current anchor. The sample it uses ([`Recorder::sample_of`]):
@@ -59,6 +59,39 @@
 //! Only the recording uses the stamp: the note sounds at the start of the block that takes
 //! it, stamped or not (`crate::graph`, `route_live`).
 //!
+//! # The take's shift (#560)
+//!
+//! `SetRecording` carries how much earlier the take's notes are placed (`shift_us`: the
+//! output latency the host estimates plus the manual offset; negative: later). The recorder
+//! takes it when a take begins (a later `SetRecording` changes the next take only) and
+//! applies it on its own clock, in whole samples at the current rate: every sample a note
+//! starts or ends at (the sample above, or the start of its block) is moved back by the
+//! shift, then placed at the playhead of that sample by the clock's anchors. The anchors know
+//! where the loop wrapped, so the shift follows the playhead as it was heard:
+//!
+//! - a note heard just before the loop's end whose stamp fell after the wrap goes back before
+//!   the loop's end, where it was heard;
+//! - a note heard just before the loop's start while the playhead enters the loop from before
+//!   it (the first pass, a count-in that ends on the loop's start included) stays before the
+//!   loop's start;
+//! - the stamp, before the shift, is never before the take's first sample (the rule above), so
+//!   a note heard less than one shift before the take began is kept where it was heard, before
+//!   the take's first tick, and one heard earlier lands one shift before that tick; the
+//!   engine drops none of them (`record.commit_take` drops a note before tick 0 or before
+//!   its clip). A moved sample older than the oldest anchor (a note heard just before the
+//!   take's `Play`, or before a seek or a sample-rate change) is placed on the line, back from
+//!   that anchor. The anchors hold the anchor in force and the one before it: a sample older
+//!   than both after two loop wraps or a wrap and a tempo change within the shift and the
+//!   note's lag (a loop shorter than about the latency) is placed back from the oldest one, on
+//!   the line, not round the loop;
+//! - a negative shift moves a sample ahead of the block, which the anchor in force places on the
+//!   line: a position it gives past the end of the loop the playhead is inside of is folded
+//!   back into the loop, where the playhead will be.
+//!
+//! A note's on and off move by the same shift, so its length does not change. A take without
+//! a shift places its notes exactly as before the shift existed, except a stamp ahead of the
+//! block past the loop's end, now folded into the loop too.
+//!
 //! # Where the notes go
 //!
 //! A finished note goes into a ring of [`RING`] notes, indexed by its number in the take.
@@ -73,8 +106,9 @@
 use crate::engine::State;
 use crate::msg::{
     LiveEvent, MAX_RECORDED_PER_REPORT, MsgError, Note, RecordedNote, Table, TrackKind, TrackSlot,
+    limits,
 };
-use crate::time::Tick;
+use crate::time::{LoopRegion, Tick};
 use crate::transport::Anchors;
 
 /// How far from its block, behind or ahead, a stamped note may have been played and still be
@@ -130,6 +164,12 @@ pub struct RecordClock {
     pub anchors: Anchors,
     /// The sample rate, in Hz: how many samples [`MAX_STAMP_DISTANCE_SECONDS`] is.
     pub rate: f64,
+    /// How much earlier the notes of a take that starts are placed, in microseconds
+    /// (`ControlMsg::SetRecording`, #560; module doc, "The take's shift").
+    pub shift_us: i32,
+    /// The loop the playhead is inside of, when the transport loops
+    /// (`Transport::armed_loop`): it wraps at its end.
+    pub looping: Option<LoopRegion>,
 }
 
 impl RecordClock {
@@ -160,6 +200,12 @@ pub struct Recorder {
     unplaced: u32,
     /// The samples per tick of the last block (0 before the first), to see a tempo or rate change.
     last_samples_per_tick: f64,
+    /// The take's shift, taken when the take began (module doc), in microseconds.
+    shift_us: i32,
+    /// [`Recorder::shift_us`] in whole samples at [`Recorder::shift_rate`].
+    shift: i64,
+    /// The sample rate `shift` was counted at.
+    shift_rate: f64,
 }
 
 impl Recorder {
@@ -176,6 +222,9 @@ impl Recorder {
             take_from: 0,
             unplaced: 0,
             last_samples_per_tick: 0.0,
+            shift_us: 0,
+            shift: 0,
+            shift_rate: 0.0,
         })
     }
 
@@ -256,6 +305,11 @@ impl Recorder {
             self.capturing = true;
             self.take_from = clock.sample;
             self.unplaced = 0;
+            self.shift_us = clock
+                .shift_us
+                .clamp(-limits::MAX_RECORD_SHIFT_US, limits::MAX_RECORD_SHIFT_US);
+            self.shift = shift_samples(self.shift_us, clock.rate);
+            self.shift_rate = clock.rate;
         } else if !on && self.capturing {
             self.close_all(None, clock);
             self.capturing = false;
@@ -292,8 +346,21 @@ impl Recorder {
 
     /// A change of the samples per tick since the last block (a tempo change, a new sample rate):
     /// the held notes keep the ticks they have run. Their elapsed samples, counted at the old
-    /// pace up to the start of this block, become the same ticks at the new pace.
+    /// pace up to the start of this block, become the same ticks at the new pace. A new sample
+    /// rate also gives the take's shift a new count of samples: the held notes' starts move by
+    /// the difference first, so that they stay on the take's clock.
     fn follow_pace(&mut self, clock: RecordClock) {
+        if self.capturing && clock.rate != self.shift_rate {
+            let shift = shift_samples(self.shift_us, clock.rate);
+            let delta = self.shift.saturating_sub(shift);
+            for held in self.held.as_mut_slice() {
+                if held.used {
+                    held.from = held.from.saturating_add(delta);
+                }
+            }
+            self.shift = shift;
+            self.shift_rate = clock.rate;
+        }
         let old = self.last_samples_per_tick;
         let new = clock.samples_per_tick;
         self.last_samples_per_tick = new;
@@ -301,7 +368,7 @@ impl Recorder {
             return;
         }
         let ratio = new / old;
-        let now = i64::try_from(clock.sample).unwrap_or(i64::MAX);
+        let now = self.heard(clock.sample);
         for held in self.held.as_mut_slice() {
             if held.used {
                 let elapsed = now.saturating_sub(held.from).max(0) as f64;
@@ -334,20 +401,66 @@ impl Recorder {
         sample
     }
 
-    /// The playhead, in fractional ticks, at the sample an event counts from: the block's
-    /// own playhead for one without a usable stamp, as before stamps existed.
-    fn position_of(at: Option<u64>, clock: RecordClock) -> f64 {
-        at.and_then(|s| clock.anchors.position_of(s))
-            .unwrap_or(clock.position)
+    /// The absolute sample `sample` on the take's clock: moved back by the take's shift
+    /// (forward for a negative one), saturating; signed, as a held note's `from`.
+    fn heard(&self, sample: u64) -> i64 {
+        i64::try_from(sample)
+            .unwrap_or(i64::MAX)
+            .saturating_sub(self.shift)
+    }
+
+    /// The sample on the take's clock of an event that counts from `at` ([`Recorder::placed`]),
+    /// or from the start of its block.
+    fn event_sample(&self, at: Option<u64>, clock: RecordClock) -> i64 {
+        self.heard(at.unwrap_or(clock.sample))
+    }
+
+    /// The playhead, in fractional ticks, where an event that counts from `at` was heard
+    /// (module doc, "The take's shift"): the block's own playhead for one without a usable
+    /// stamp in a take without a shift, as before stamps existed.
+    fn start_of(&self, at: Option<u64>, clock: RecordClock) -> f64 {
+        if at.is_none() && self.shift == 0 {
+            return clock.position;
+        }
+        let sample = self.event_sample(at, clock);
+        let anchors = clock.anchors;
+        let earliest = anchors.earliest();
+        let position = match u64::try_from(sample) {
+            Ok(s) if s >= earliest => anchors.position_of(s),
+            // Before the oldest anchor (a note heard less than one shift before the take or a
+            // `Play` began): on the line, back from it.
+            _ if clock.samples_per_tick > 0.0 => anchors.position_of(earliest).map(|p| {
+                p - (i64::try_from(earliest)
+                    .unwrap_or(i64::MAX)
+                    .saturating_sub(sample)) as f64
+                    / clock.samples_per_tick
+            }),
+            _ => None,
+        }
+        .unwrap_or(clock.position);
+        // Past the end of the loop the playhead is inside of: a sample ahead of the block (a
+        // negative shift), which the current anchor does not know will wrap.
+        match clock.looping {
+            Some(region) => {
+                let (from, to) = (region.start().0 as f64, region.end().0 as f64);
+                if to > from && position >= to {
+                    from + (position - to).rem_euclid(to - from)
+                } else {
+                    position
+                }
+            }
+            None => position,
+        }
     }
 
     fn open(&mut self, track: u32, pitch: u8, velocity: u8, at: Option<u64>, clock: RecordClock) {
-        let start = Self::position_of(at, clock).floor();
+        let start = self.start_of(at, clock).floor();
         let start = if start.is_finite() {
             start.clamp(i64::MIN as f64, i64::MAX as f64) as i64
         } else {
             0
         };
+        let from = self.event_sample(at, clock);
         match self.held.as_mut_slice().iter_mut().find(|h| !h.used) {
             Some(slot) => {
                 *slot = Held {
@@ -356,7 +469,7 @@ impl Recorder {
                     pitch,
                     velocity,
                     start,
-                    from: i64::try_from(at.unwrap_or(clock.sample)).unwrap_or(i64::MAX),
+                    from,
                 };
             }
             None => self.dropped = self.dropped.saturating_add(1),
@@ -372,7 +485,7 @@ impl Recorder {
             }
         }
         if let Some(i) = found {
-            self.finish(i, at.unwrap_or(clock.sample), clock);
+            self.finish(i, self.event_sample(at, clock), clock);
         }
     }
 
@@ -380,22 +493,20 @@ impl Recorder {
         for i in 0..self.held.len() {
             let held = self.held.as_slice().get(i).copied().unwrap_or_default();
             if held.used && track.is_none_or(|t| t == held.track) {
-                self.finish(i, clock.sample, clock);
+                self.finish(i, self.heard(clock.sample), clock);
             }
         }
     }
 
-    /// Ends the held note `i` at the absolute sample `at` and puts it in the ring.
-    fn finish(&mut self, i: usize, at: u64, clock: RecordClock) {
+    /// Ends the held note `i` at the absolute sample `at` (on the take's clock, the shift
+    /// applied) and puts it in the ring.
+    fn finish(&mut self, i: usize, at: i64, clock: RecordClock) {
         let Some(held) = self.held.as_mut_slice().get_mut(i) else {
             return;
         };
         let h = *held;
         held.used = false;
-        let samples = i64::try_from(at)
-            .unwrap_or(i64::MAX)
-            .saturating_sub(h.from)
-            .max(0) as f64;
+        let samples = at.saturating_sub(h.from).max(0) as f64;
         let ticks = if clock.samples_per_tick > 0.0 {
             (samples / clock.samples_per_tick).round()
         } else {
@@ -421,6 +532,19 @@ impl Recorder {
             *slot = note;
         }
         self.total = self.total.wrapping_add(1);
+    }
+}
+
+/// A shift in microseconds as whole samples at `rate`, clamped to
+/// [`limits::MAX_RECORD_SHIFT_US`] either way; 0 for a rate that is not a positive number.
+fn shift_samples(shift_us: i32, rate: f64) -> i64 {
+    let us = shift_us.clamp(-limits::MAX_RECORD_SHIFT_US, limits::MAX_RECORD_SHIFT_US);
+    let samples = (f64::from(us) * rate / 1_000_000.0).round();
+    if samples.is_finite() && rate > 0.0 {
+        // `as` saturates: at most 2 s of samples at any finite rate.
+        samples as i64
+    } else {
+        0
     }
 }
 

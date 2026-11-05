@@ -298,6 +298,63 @@ test('places a MIDI note where its time says it was played', async ({ page }) =>
   expect(errors).toEqual([])
 })
 
+// #560: the engine moves the notes back by the take's shift on its own clock, where it knows the loop. The playhead
+// enters a loop from before it; a sweep of short notes 10 ms apart around that entry, stamped in the past and sent at
+// once, keeps their time apart on the line (±1 ms): a note heard just before the loop's start stays before it,
+// none is folded to the loop's end.
+test('a note played just before the playhead enters a loop stays before the loop', async ({ page }) => {
+  const { errors } = watch(page)
+  await fakeWebMidi(page)
+  await start(page)
+  await chooseMidiInput(page, 'E2E Keys')
+  // A bar at 120 BPM is 3840 ticks, 2 s: the loop is the second bar, entered 2 s after the take starts.
+  expect(await run(page, { type: 'transport.set_loop', loop_region: { start: 3840, end: 7680 }, enabled: true })).toBe(true)
+  await arm(page, /^Arm .+ to record$/)
+  const v0 = await view(page)
+  const track = synth(v0)
+  const placed = Object.keys(v0.project.tracks[track]!.placements).length
+  const clicked = await page.evaluate(() => performance.now())
+  await record(page).click()
+  await expect(feedback(page)).toHaveAttribute('data-transport', 'recording')
+  const recording = await page.evaluate(() => performance.now())
+  const from = clicked + 2000 - 250
+  const to = recording + 2000 + 250
+  const times: number[] = await page.evaluate(
+    async ({ from, to }) => {
+      const midi = (window as unknown as { __fakeMidi: { send(b: number[], t?: number | null): void } }).__fakeMidi
+      while (performance.now() < to + 40) await new Promise((resolve) => setTimeout(resolve, 10))
+      const out: number[] = []
+      for (let t = from, k = 0; t <= to && k < 100; t += 10, k++) {
+        midi.send([0x90, 20 + k, 100], t)
+        midi.send([0x80, 20 + k, 0], t + 5)
+        out.push(t)
+      }
+      return out
+    },
+    { from, to },
+  )
+  await page.waitForTimeout(200)
+  await record(page).click()
+  await page.getByTestId('transport-stop').click()
+  await expect.poll(async () => Object.keys((await view(page)).project.tracks[track]!.placements).length).toBe(placed + 1)
+  const v1 = await view(page)
+  const [, placement] = Object.entries(v1.project.tracks[track]!.placements).find(([id]) => !v0.project.tracks[track]!.placements[id])!
+  const notes = notesOf(v1, track, placement.clip)
+  expect(notes.length).toBe(times.length)
+  const startOf = (k: number) => placement.start + notes.find((n) => n.pitch === 20 + k)!.start
+  const msPerTick = 500 / 960
+  const off = times.map((t, k) => (startOf(k) - startOf(0)) * msPerTick - (t - times[0]!))
+  console.log(`sweep of ${times.length} notes, worst gap to the line: ${Math.max(...off.map(Math.abs)).toFixed(2)} ms`)
+  for (const ms of off) expect(Math.abs(ms)).toBeLessThanOrEqual(1)
+  // The sweep crossed the entry: notes on both sides of the loop's start, none past its end.
+  const starts = times.map((_, k) => startOf(k))
+  expect(starts.some((t) => t < 3840)).toBe(true)
+  expect(starts.some((t) => t >= 3840)).toBe(true)
+  expect(starts.every((t) => t < 7680)).toBe(true)
+  await run(page, { type: 'history.undo' })
+  expect(errors).toEqual([])
+})
+
 /** Opens the engine dialog, runs `change` on it, and closes it again. */
 async function inDialog(page: Page, change: () => Promise<void>) {
   await page.getByTestId('engine-mode').click()
