@@ -75,7 +75,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  if (app) unmount(app)
+  if (app) void unmount(app)
   app = null
   host.remove()
   vi.restoreAllMocks()
@@ -92,7 +92,7 @@ describe('the Contour curve', () => {
     expect(host.querySelector('[data-testid="contour-spectrum"]')).toBeNull()
     expect(handle('bell2').getAttribute('aria-label')).toBe('Bell 2, 1.00 kHz, 0.0 dB, Q 1.00')
     expect(handle('hp').getAttribute('aria-label')).toBe('Low cut, 30 Hz, Q 0.71, off')
-    unmount(app!)
+    void unmount(app!)
     app = null
     mountCurve({ bands: new Float32Array(96).fill(-30), sampleRate: 48000, at: 0 })
     expect(host.querySelector('[data-testid="contour-spectrum"]')).not.toBeNull()
