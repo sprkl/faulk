@@ -2327,7 +2327,7 @@ describe('import a .faulkpack', () => {
     const hold = new Promise<void>((resolve) => (release = resolve))
     const fetched: string[] = []
     w.deps.fetch = async (input) => {
-      fetched.push(String(input))
+      fetched.push(input instanceof Request ? input.url : input.toString())
       await hold
       return new Response(text('zip'))
     }
