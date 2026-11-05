@@ -1240,3 +1240,641 @@ fn the_master_strip_holds_no_stale_level_when_the_tracks_latency_comes_back() {
     );
     assert_eq!(peak(&after), 0.0, "no stale level of the master's line");
 }
+
+// ---------------------------------------------------------------- device parameters (#765)
+
+/// A trim lane (the test gain's `TRIM`, applied at its exact offset) with hard steps and a ramp.
+fn trim_points() -> Vec<AutomationPoint> {
+    vec![
+        pt(0, 1.0, Curve::Step),
+        pt(40, 0.0, Curve::Step),
+        pt(60, 0.5, Curve::Linear),
+        pt(100, 1.8, Curve::Step),
+        pt(120, 1.0, Curve::Step),
+        pt(170, 0.3, Curve::Step),
+    ]
+}
+
+fn gain_at(track: TrackSlot, device: u16) -> M {
+    insert(track, device, GAIN.kind_id, &[])
+}
+
+fn trim_lane(lane_slot: u32, track: TrackSlot, device: u16, points: &[AutomationPoint]) -> M {
+    lane(
+        lane_slot,
+        track,
+        AutomationTarget::DeviceParam {
+            device: DeviceSlot(device),
+            param: gain::TRIM,
+        },
+        points,
+    )
+}
+
+#[test]
+fn a_device_lane_behind_a_ceiling_lands_with_the_same_lane_on_a_plain_track() {
+    // The pair, a test gain after the tone on both tracks, the right one through a Ceiling of
+    // 72 frames before its gain; the same trim lane on both gains: its steps and its ramp land
+    // on the same frame of both channels.
+    for block in [BLOCK, 97] {
+        let mut rig = Rig::new(48_000.0);
+        rig.transport();
+        pair(
+            &mut rig,
+            &[
+                ceiling_at(t(1), 1, &[(CEILING, 0.0)]),
+                gain_at(t(0), 2),
+                gain_at(t(1), 2),
+            ],
+        );
+        rig.send(&[
+            trim_lane(0, t(0), 2, &trim_points()),
+            trim_lane(1, t(1), 2, &trim_points()),
+        ]);
+        rig.run(4);
+        rig.send(&[M::Play { from: Tick(0) }]);
+        let (left, right) = rig.run_frames(200 * FPT, block);
+        assert_eq!(rig.latency(), 72);
+        assert!(peak(&left) > 0.05, "the tone sounds");
+        let off = mismatch(&left, &right);
+        println!("block {block}: trim lane after a Ceiling, left − right at most {off:e}");
+        assert_eq!(off, 0.0, "block {block}: the lane lands on the same frame");
+        // The control: the step to silence sits one latency after its tick.
+        let step = 40 * FPT + 72;
+        assert!(
+            peak(&right[step - 64..step]) > 0.05,
+            "sound before the step"
+        );
+        assert_eq!(peak(&right[step..step + 400]), 0.0, "silence after it");
+    }
+}
+
+/// One tone track, centred, `track` Ceilings after its tone, a test gain after them on the
+/// track or (`on_master`) on the master, after a Ceiling there when `master`; a trim lane and a
+/// scheduled mute of that gain; the Ceilings of `lookahead` seconds, or none; played from 0,
+/// rendered in blocks of `block`.
+fn device_render(
+    lookahead: Option<f32>,
+    track: u16,
+    master: bool,
+    on_master: bool,
+    block: usize,
+) -> (Vec<f32>, Vec<f32>) {
+    let mut rig = Rig::sized(48_000.0, 512);
+    rig.transport();
+    let mut msgs = tone_track(t(0), 0.0);
+    let mut count = 0;
+    let params = [(CEILING, 0.0), (LOOKAHEAD, lookahead.unwrap_or(0.0))];
+    if lookahead.is_some() {
+        for slot in 1..=track {
+            msgs.push(ceiling_at(t(0), slot, &params));
+            count += 1;
+        }
+        if master {
+            msgs.push(ceiling_at(TrackSlot::MASTER, 0, &params));
+            count += 1;
+        }
+    }
+    let (on, slot) = if on_master {
+        (TrackSlot::MASTER, 1)
+    } else {
+        (t(0), track + 1)
+    };
+    msgs.push(gain_at(on, slot));
+    rig.send(&msgs);
+    rig.run(8);
+    rig.send(&[note_on(t(0)), trim_lane(0, on, slot, &trim_points())]);
+    let mute = |tick: i64, value: f32| ScheduledParam {
+        tick: Tick(tick),
+        device: DeviceSlot(slot),
+        id: gain::MUTE,
+        value,
+    };
+    let schedule = Box::new(
+        Schedule::try_new(&[], &[mute(140, 1.0), mute(155, 0.0)], SCHEDULE_FIRST_VOICE).unwrap(),
+    );
+    let old = if on_master {
+        rig.e.state_mut().set_master_schedule(Some(schedule))
+    } else {
+        rig.e
+            .state_mut()
+            .track_mut(t(0))
+            .unwrap()
+            .graph
+            .set_schedule(Some(schedule))
+    };
+    drop(old);
+    rig.run(4);
+    rig.send(&[M::Play { from: Tick(0) }]);
+    let out = rig.run_frames(200 * FPT, block);
+    let expected = match lookahead {
+        Some(la) => count * ceiling::lookahead_frames(la, 48_000.0),
+        None => 0,
+    };
+    assert_eq!(rig.latency(), expected);
+    out
+}
+
+#[test]
+fn a_device_behind_a_ceiling_gives_the_same_signal_as_without_its_latency_one_latency_later() {
+    // (Ceilings on the track before the gain, a Ceiling on the master, the gain on the
+    // master): the gain after one or two Ceilings of its track, after a Ceiling of the master
+    // behind one of the track (the sum reaches the master that late), and behind both.
+    for (track, master, on_master, n) in [
+        (1, false, false, 72),
+        (2, false, false, 144),
+        (1, true, false, 144),
+        (0, true, true, 72),
+        (1, false, true, 72),
+        (1, true, true, 144),
+    ] {
+        for block in [BLOCK, 97, 1, 512] {
+            let what = format!(
+                "gain on the {}, {track} Ceiling(s) on the track, {} on the master",
+                if on_master { "master" } else { "track" },
+                u8::from(master)
+            );
+            let none = device_render(None, track, master, on_master, block);
+            let plain = device_render(Some(0.0), track, master, on_master, block);
+            let latent = device_render(Some(0.0015), track, master, on_master, block);
+            assert!(peak(&none.0) > 0.05, "the tone sounds");
+            assert_eq!(mismatch(&none.0, &plain.0), 0.0, "{what}, block {block}");
+            assert_eq!(mismatch(&none.1, &plain.1), 0.0, "{what}, block {block}");
+            let len = plain.0.len() - n;
+            let off_l = mismatch(&latent.0[n..], &plain.0[..len]);
+            let off_r = mismatch(&latent.1[n..], &plain.1[..len]);
+            println!(
+                "{what}, block {block}: a trim lane and a scheduled mute behind {n} frames of \
+                 latency, shifted back: left off by {off_l:e}, right by {off_r:e}"
+            );
+            assert_eq!(off_l, 0.0, "{what}, block {block}");
+            assert_eq!(off_r, 0.0, "{what}, block {block}");
+        }
+    }
+}
+
+/// The pair, a test gain at slot 2 of both tracks with the same trim lane, a test gain on the
+/// master with a slow trim ramp (its values wait for the tracks' timing, which the change
+/// moves); `setup` added before the play, `change` sent after 20 blocks. Both channels move
+/// without a step beyond the crossfade's bound (lanes without steps of their own), and are
+/// equal to the sample `settle` blocks after the change (from the change on when `settle` is
+/// 0).
+fn device_lanes_move_cleanly(
+    name: &str,
+    points: &[AutomationPoint],
+    setup: &[M],
+    change: &[M],
+    settle: usize,
+    latency: u32,
+) {
+    let mut rig = Rig::new(48_000.0);
+    rig.transport();
+    let mut extra = vec![
+        gain_at(t(0), 2),
+        gain_at(t(1), 2),
+        gain_at(TrackSlot::MASTER, 0),
+    ];
+    extra.extend_from_slice(setup);
+    pair(&mut rig, &extra);
+    rig.send(&[
+        trim_lane(0, t(0), 2, points),
+        trim_lane(1, t(1), 2, points),
+        trim_lane(2, TrackSlot::MASTER, 0, &trim_ramp()),
+    ]);
+    rig.run(4);
+    rig.send(&[M::Play { from: Tick(0) }]);
+    let (bl, br) = rig.run(20);
+    rig.send(change);
+    let (al, ar) = rig.run(settle + 20);
+    assert_eq!(rig.latency(), latency, "{name}");
+    let smooth = points
+        .iter()
+        .all(|p| p.curve == Curve::Linear || p == points.last().unwrap());
+    for (side, before, after) in [("left", &bl, &al), ("right", &br, &ar)] {
+        if !smooth {
+            break;
+        }
+        let steady = max_step(&before[before.len() - 8 * BLOCK..]);
+        let mut joined = before[before.len() - BLOCK..].to_vec();
+        joined.extend_from_slice(after);
+        let step = max_step(&joined);
+        let bound = crossfade_bound(steady, peak(before));
+        println!("{name}, {side}: largest step {step} (steady {steady}, bound {bound})");
+        assert!(
+            step <= bound,
+            "{name}, {side}: a step of {step}, bound {bound}"
+        );
+    }
+    let tail = settle * BLOCK;
+    let off = mismatch(&al[tail..], &ar[tail..]);
+    assert_eq!(off, 0.0, "{name}: the lanes land together");
+}
+
+/// A slow trim ramp, no step.
+fn trim_ramp() -> Vec<AutomationPoint> {
+    vec![pt(0, 1.0, Curve::Linear), pt(400, 0.3, Curve::Step)]
+}
+
+#[test]
+fn a_latent_device_changing_while_a_device_lane_plays_keeps_the_lane_on_its_sound() {
+    let ceiling = || ceiling_at(t(1), 1, &[(CEILING, 0.0)]);
+    device_lanes_move_cleanly("inserted", &trim_ramp(), &[], &[ceiling()], 10, 72);
+    device_lanes_move_cleanly(
+        "removed",
+        &trim_ramp(),
+        &[ceiling()],
+        &[remove(t(1), 1)],
+        10,
+        0,
+    );
+    device_lanes_move_cleanly(
+        "look-ahead 1.5 to 5 ms",
+        &trim_ramp(),
+        &[ceiling()],
+        &[param(t(1), 1, ParamId(LOOKAHEAD), 0.005)],
+        40,
+        240,
+    );
+    device_lanes_move_cleanly(
+        "replaced in its slot",
+        &trim_ramp(),
+        &[ceiling()],
+        &[ceiling()],
+        30,
+        72,
+    );
+    device_lanes_move_cleanly(
+        "replaced by another device of the same latency",
+        &trim_ramp(),
+        &[ceiling()],
+        &[delay_at(t(1), 1, 72)],
+        30,
+        72,
+    );
+    let bypassed = [ceiling(), enabled(t(1), 1, false)];
+    device_lanes_move_cleanly(
+        "bypassed, removed",
+        &trim_ramp(),
+        &bypassed,
+        &[remove(t(1), 1)],
+        10,
+        0,
+    );
+    device_lanes_move_cleanly(
+        "bypassed, replaced in its slot",
+        &trim_ramp(),
+        &bypassed,
+        &[ceiling(), enabled(t(1), 1, false)],
+        0,
+        72,
+    );
+    // A bypass and back keeps the latency: the steps of the lane land together all along.
+    device_lanes_move_cleanly(
+        "bypassed",
+        &trim_points(),
+        &[ceiling()],
+        &[enabled(t(1), 1, false)],
+        0,
+        72,
+    );
+    device_lanes_move_cleanly(
+        "switched back on",
+        &trim_points(),
+        &bypassed,
+        &[enabled(t(1), 1, true)],
+        0,
+        72,
+    );
+}
+
+/// One tone track, centred, Ceilings at the slots `ceilings` (the first inserted before the
+/// play, the others 20 blocks later), a test gain after them; its trim lane steps to 0.2 at
+/// tick 40 (frame 1 000) and to 0.6 at tick 60. Played from 0 for 8 blocks of 128 frames: the
+/// step to 0.2 then waits in the first Ceiling's line (due at frame 1 072).
+fn pending_rig(ceilings: &[u16], gain: u16) -> Rig {
+    let mut rig = Rig::new(48_000.0);
+    rig.transport();
+    let mut msgs = tone_track(t(0), 0.0);
+    msgs.push(ceiling_at(t(0), ceilings[0], &[(CEILING, 0.0)]));
+    msgs.push(gain_at(t(0), gain));
+    rig.send(&msgs);
+    rig.run(20);
+    let later: Vec<M> = ceilings[1..]
+        .iter()
+        .map(|&s| ceiling_at(t(0), s, &[(CEILING, 0.0)]))
+        .collect();
+    rig.send(&later);
+    rig.run(20);
+    rig.send(&[
+        note_on(t(0)),
+        trim_lane(
+            0,
+            t(0),
+            gain,
+            &[
+                pt(0, 1.0, Curve::Step),
+                pt(40, 0.2, Curve::Step),
+                pt(60, 0.6, Curve::Step),
+            ],
+        ),
+    ]);
+    rig.run(20);
+    rig.send(&[M::Play { from: Tick(0) }]);
+    rig.run(8);
+    rig
+}
+
+/// The level of the steady tone over the last `blocks` blocks of `x`, against `reference`.
+fn level(x: &[f32], blocks: usize, reference: f32) -> f32 {
+    peak(&x[x.len() - blocks * BLOCK..]) / reference
+}
+
+#[test]
+fn a_gesture_holds_its_parameter_against_the_values_still_waiting_for_the_sound() {
+    let mut rig = pending_rig(&[1], 2);
+    // The tone at a trim of 1 sounds until frame 1 072.
+    let reference = {
+        let mut r = pending_rig(&[1], 2);
+        r.send(&[param(t(0), 2, gain::TRIM, 1.0)]);
+        let (l, _) = r.run(4);
+        peak(&l)
+    };
+    assert!(reference > 0.05, "the tone sounds");
+    // The gesture before the step lands: it holds (the lane's next point, tick 60, takes over
+    // at its own sound).
+    rig.send(&[param(t(0), 2, gain::TRIM, 1.5)]);
+    let (after, _) = rig.run(3);
+    let held = level(&after, 2, reference);
+    println!("a gesture with a step pending: the level {held} of the tone (1.5 held)");
+    assert!(
+        (held - 1.5).abs() < 1e-3,
+        "the pending step does not land after the gesture: {held}"
+    );
+}
+
+#[test]
+fn a_latent_device_removed_with_values_waiting_hands_them_on() {
+    // The step to 0.2 waits in the Ceiling's line when the Ceiling leaves: it lands, and the
+    // step to 0.6 after it (a lost value would leave the trim at 1).
+    for (ceilings, gain, removed, what) in [
+        (vec![1], 2, 1, "alone"),
+        // A second Ceiling inserted 20 blocks after the first (its line on another clock): the
+        // value goes on through it, in order.
+        (vec![1, 2], 3, 1, "before a second Ceiling"),
+        // The second one leaves: what waits in it goes straight to the gain.
+        (vec![1, 2], 3, 2, "after another Ceiling"),
+    ] {
+        let reference = {
+            let mut r = pending_rig(&ceilings, gain);
+            r.send(&[param(t(0), gain, gain::TRIM, 1.0)]);
+            let (l, _) = r.run(4);
+            peak(&l)
+        };
+        let mut rig = pending_rig(&ceilings, gain);
+        rig.send(&[remove(t(0), removed)]);
+        let (mid, _) = rig.run(3);
+        // One block, shorter than the tone's period: its peak may miss the crest by a little.
+        let first = level(&mid, 1, reference);
+        let (end, _) = rig.run(12);
+        let last = level(&end, 2, reference);
+        println!("a Ceiling removed {what} with a step waiting: levels {first}, then {last}");
+        assert!(
+            (first - 0.2).abs() < 0.01,
+            "{what}: the step to 0.2 lands: {first}"
+        );
+        assert!(
+            (last - 0.6).abs() < 1e-3,
+            "{what}: then the one to 0.6: {last}"
+        );
+    }
+}
+
+#[test]
+fn values_handed_on_land_after_the_older_ones_of_their_parameter() {
+    // Two Ceilings (the second inserted 20 blocks after the first, its line on another
+    // clock), then the gain; its trim steps to 0.3 at tick 36 (frame 900) and to 0.7 at tick
+    // 39 (frame 975). When the first Ceiling leaves at frame 1 024, the 0.3 already waits in
+    // the second one's line and the 0.7 still in the first one's: handed on, the 0.7 goes after
+    // the 0.3, and the trim ends on 0.7 (put in front of it, it would end on 0.3).
+    let rig = |remove_first: bool| {
+        let mut rig = Rig::new(48_000.0);
+        rig.transport();
+        let mut msgs = tone_track(t(0), 0.0);
+        msgs.push(ceiling_at(t(0), 1, &[(CEILING, 0.0)]));
+        msgs.push(gain_at(t(0), 3));
+        rig.send(&msgs);
+        rig.run(20);
+        rig.send(&[ceiling_at(t(0), 2, &[(CEILING, 0.0)])]);
+        rig.run(20);
+        rig.send(&[
+            note_on(t(0)),
+            trim_lane(
+                0,
+                t(0),
+                3,
+                &[
+                    pt(0, 1.0, Curve::Step),
+                    pt(36, 0.3, Curve::Step),
+                    pt(39, 0.7, Curve::Step),
+                ],
+            ),
+        ]);
+        rig.run(20);
+        rig.send(&[M::Play { from: Tick(0) }]);
+        rig.run(8);
+        if remove_first {
+            rig.send(&[remove(t(0), 1)]);
+        } else {
+            rig.send(&[param(t(0), 3, gain::TRIM, 1.0)]);
+        }
+        let (out, _) = rig.run(16);
+        peak(&out[out.len() - 4 * BLOCK..])
+    };
+    let reference = rig(false);
+    let last = rig(true) / reference;
+    println!("the first of two Ceilings removed between two steps: the trim ends at {last}");
+    assert!((last - 0.7).abs() < 1e-3, "the newest step wins: {last}");
+}
+
+#[test]
+fn a_device_put_in_a_slot_gets_no_value_meant_for_the_one_it_replaced() {
+    // A scheduled mute of the gain at tick 40 waits in the Ceiling's line when another gain is
+    // put in its slot: the mute was the old gain's (as without latency), the new one sounds.
+    for lookahead in [0.0, 0.0015] {
+        let mut rig = Rig::new(48_000.0);
+        rig.transport();
+        let mut msgs = tone_track(t(0), 0.0);
+        msgs.push(ceiling_at(
+            t(0),
+            1,
+            &[(CEILING, 0.0), (LOOKAHEAD, lookahead)],
+        ));
+        msgs.push(gain_at(t(0), 2));
+        rig.send(&msgs);
+        rig.run(8);
+        rig.send(&[note_on(t(0))]);
+        let mute = ScheduledParam {
+            tick: Tick(40),
+            device: DeviceSlot(2),
+            id: gain::MUTE,
+            value: 1.0,
+        };
+        let schedule = Box::new(Schedule::try_new(&[], &[mute], SCHEDULE_FIRST_VOICE).unwrap());
+        drop(
+            rig.e
+                .state_mut()
+                .track_mut(t(0))
+                .unwrap()
+                .graph
+                .set_schedule(Some(schedule)),
+        );
+        rig.run(4);
+        rig.send(&[M::Play { from: Tick(0) }]);
+        rig.run(8);
+        rig.send(&[gain_at(t(0), 2)]);
+        let (after, _) = rig.run(20);
+        let tail = peak(&after[after.len() - 4 * BLOCK..]);
+        println!("look-ahead {lookahead}: a gain put in the slot of a muted one sounds at {tail}");
+        assert!(tail > 0.05, "look-ahead {lookahead}: the new gain sounds");
+    }
+}
+
+#[test]
+fn an_instrument_after_a_latent_device_keeps_its_values_with_its_notes() {
+    // A test delay, then the tone: the tone's notes are not delayed, its gain lane neither.
+    // The render is the same whatever the delay's latency.
+    let render = |frames: u32| {
+        let mut rig = Rig::new(48_000.0);
+        rig.transport();
+        rig.send(&[
+            M::TrackCreate {
+                track: t(0),
+                kind: TrackKind::Midi,
+            },
+            delay_at(t(0), 0, frames),
+            insert(t(0), 1, TONE.kind_id, &[]),
+        ]);
+        rig.run(8);
+        rig.send(&[
+            note_on(t(0)),
+            lane(
+                0,
+                t(0),
+                AutomationTarget::DeviceParam {
+                    device: DeviceSlot(1),
+                    param: engine::device::testing::tone::GAIN,
+                },
+                &[pt(0, 1.0, Curve::Step), pt(40, 0.2, Curve::Step)],
+            ),
+        ]);
+        rig.run(4);
+        rig.send(&[M::Play { from: Tick(0) }]);
+        let out = rig.run(40);
+        assert_eq!(rig.latency(), frames);
+        out
+    };
+    let plain = render(0);
+    let latent = render(72);
+    assert!(peak(&plain.0) > 0.05, "the tone sounds");
+    let off = mismatch(&plain.0, &latent.0);
+    println!("an instrument after a delay of 72 frames: its lane off by {off:e}");
+    assert_eq!(off, 0.0, "the instrument's lane is not delayed");
+}
+
+#[test]
+fn values_an_overflowing_line_drops_are_sent_again_by_their_lanes() {
+    // More values of distinct parameters in one sub-block than a line and its carry buffer
+    // hold (2 200 lanes, on the three parameters of 734 test gains after a Ceiling, all sending
+    // at the play, from tick 100): the oldest go out early, then are dropped. One lane, in the
+    // middle, steps a gain's trim from 1 to 0 (silence) at tick 50: stopped at 0 it sent 1, at
+    // the play its 0 is dropped, and its lane sends it again, so the track goes silent. The
+    // others hold their defaults (the gains are transparent).
+    // Then 2 200 lanes on one parameter: the line keeps the newest value, nothing is dropped.
+    for distinct in [true, false] {
+        let mut rig = Rig::sized(48_000.0, BLOCK);
+        rig.transport();
+        let mut msgs = tone_track(t(0), 0.0);
+        msgs.push(ceiling_at(t(0), 1, &[(CEILING, 0.0)]));
+        let devices = if distinct { 734 } else { 1 };
+        for d in 0..devices {
+            msgs.push(gain_at(t(0), 2 + d));
+        }
+        rig.send(&msgs);
+        rig.run(8);
+        rig.send(&[note_on(t(0))]);
+        let silencer = 1_100u32;
+        let mut lanes = Vec::new();
+        for n in 0..2_200u32 {
+            let (device, id) = if distinct {
+                (2 + (n / 3) as u16, ParamId(n % 3))
+            } else {
+                (2, gain::TRIM)
+            };
+            let value = match (distinct, id) {
+                (true, _) if n == silencer => 0.0,
+                (_, gain::MUTE) => 0.0,
+                // On one parameter the lowest lane slot is sent last and wins: it silences.
+                (false, _) if n == 0 => 0.0,
+                _ => 1.0,
+            };
+            // The value at the play; 1 (the trim's default) before tick 50.
+            let points = if value == 0.0 && id == gain::TRIM {
+                vec![pt(0, 1.0, Curve::Step), pt(50, 0.0, Curve::Step)]
+            } else {
+                vec![pt(0, value, Curve::Step)]
+            };
+            lanes.push(lane(
+                n,
+                t(0),
+                AutomationTarget::DeviceParam {
+                    device: DeviceSlot(device),
+                    param: id,
+                },
+                &points,
+            ));
+        }
+        rig.send(&lanes);
+        // The uploads are pumped over many blocks, each sending its value while stopped.
+        rig.run(200);
+        let lost = |rig: &mut Rig| {
+            rig.e
+                .state_mut()
+                .track_mut(t(0))
+                .unwrap()
+                .devices
+                .as_mut_slice()[1]
+                .as_deref_mut()
+                .unwrap()
+                .device
+                .bypass()
+                .unwrap()
+                .events()
+                .lost()
+        };
+        let before = lost(&mut rig);
+        // Stopped at tick 0, the trims sounded at 1.
+        let (stopped, _) = rig.run(4);
+        assert!(peak(&stopped) > 0.05, "the tone sounds before the play");
+        // The play is a jump: every lane sends at once.
+        rig.send(&[M::Play { from: Tick(100) }]);
+        let (after, _) = rig.run(12);
+        let lost = lost(&mut rig) - before;
+        let tail = peak(&after[after.len() - 4 * BLOCK..]);
+        println!(
+            "2 200 values at once behind a Ceiling ({}): {lost} dropped, then the tone at {tail}",
+            if distinct {
+                "distinct parameters"
+            } else {
+                "one parameter"
+            }
+        );
+        if distinct {
+            // 2 200 values: 1 024 fill the line, the next 1 024 send its oldest out early
+            // (the carry buffer's room), the last 152 drop theirs.
+            assert_eq!(lost, 152, "the line overflowed at the play");
+        } else {
+            assert_eq!(lost, 0, "the newest value of one parameter is kept");
+        }
+        assert_eq!(tail, 0.0, "the trim to 0 landed");
+    }
+}

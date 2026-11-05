@@ -521,6 +521,136 @@ fn the_strip_behind_a_ceiling_is_its_render_without_latency_one_latency_later_in
     }
 }
 
+/// Criterion 3 of #765: one centred synth track through a Ceiling of `lookahead` seconds, then
+/// a Filter whose cutoff a lane sweeps (hard steps, a ramp), on the track or (`on_master`) on
+/// the master behind the track's Ceiling; played from 0.
+fn filter_scenario(lookahead: f32, on_master: bool) -> Vec<Step> {
+    use engine::devices::filter;
+    let epoch = 1;
+    let mut seq = 0u32;
+    let mut steps = Vec::new();
+    let mut submit = |msgs: &[M], steps: &mut Vec<Step>| {
+        steps.push(Step::Submit(encode_stream(epoch, seq, msgs).unwrap()));
+        seq = seq.wrapping_add(msgs.len() as u32);
+    };
+    let a = TrackSlot(0);
+    let (on, slot) = if on_master {
+        (TrackSlot::MASTER, 0)
+    } else {
+        (a, 2)
+    };
+    let pt = |tick: i64, value: f32, curve: Curve| AutomationPoint {
+        tick: Tick(tick),
+        value,
+        curve,
+    };
+    let cutoff = [
+        pt(0, 300.0, Curve::Step),
+        pt(40, 6_000.0, Curve::Step),
+        pt(80, 250.0, Curve::Step),
+        pt(100, 400.0, Curve::Linear),
+        pt(180, 9_000.0, Curve::Step),
+    ];
+    submit(
+        &[
+            M::Reset { epoch },
+            M::SetTransport {
+                tempo: Tempo::new(120.0).unwrap(),
+                signature: TimeSignature::default(),
+                launch_quantize: Quantize::default(),
+            },
+            M::TrackCreate {
+                track: a,
+                kind: TrackKind::Midi,
+            },
+            M::DeviceInsert {
+                track: a,
+                device: DeviceSlot(0),
+                kind: OSC_SYNTH.kind_id,
+                state: encode_state(&[]),
+            },
+            M::DeviceInsert {
+                track: a,
+                device: DeviceSlot(1),
+                kind: lim::DESCRIPTOR.kind_id,
+                state: encode_state(&[
+                    (ParamId(lim::CEILING), 0.0),
+                    (ParamId(lim::LOOKAHEAD), lookahead),
+                ]),
+            },
+            M::DeviceInsert {
+                track: on,
+                device: DeviceSlot(slot),
+                kind: filter::DESCRIPTOR.kind_id,
+                state: encode_state(&[
+                    (ParamId(filter::MODE), filter::LOW_PASS as f32),
+                    (ParamId(filter::RESONANCE), 0.7),
+                ]),
+            },
+        ],
+        &mut steps,
+    );
+    steps.push(Step::Render(&[128; 8], false));
+    submit(
+        &[
+            M::NoteOn {
+                track: a,
+                pitch: 45,
+                velocity: 100,
+                at: None,
+            },
+            M::AutomationLaneUpload {
+                lane: LaneSlot(0),
+                track: on,
+                target: AutomationTarget::DeviceParam {
+                    device: DeviceSlot(slot),
+                    param: ParamId(filter::CUTOFF),
+                },
+                first: 0,
+                total: cutoff.len() as u32,
+                points: cutoff.to_vec(),
+            },
+        ],
+        &mut steps,
+    );
+    steps.push(Step::Render(&[128; 4], false));
+    submit(&[M::Play { from: Tick(0) }], &mut steps);
+    steps.push(Step::Render(
+        &[128, 37, 2048, 1, 500, 97, 1024, 128, 128, 2048],
+        false,
+    ));
+    steps
+}
+
+#[test]
+fn a_filter_swept_behind_a_ceiling_is_its_render_without_latency_one_latency_later_in_both_builds()
+{
+    let n = lim::lookahead_frames(0.0015, RATE) as usize;
+    assert_eq!(n, 72);
+    for on_master in [false, true] {
+        let latent = check_parity(&filter_scenario(0.0015, on_master));
+        let plain = check_parity(&filter_scenario(0.0, on_master));
+        let on = if on_master { "master" } else { "track" };
+        for (build, latent, plain) in [
+            ("native", &latent.0, &plain.0),
+            ("wasm", &latent.1, &plain.1),
+        ] {
+            let (ll, lr) = flatten(latent);
+            let (pl, pr) = flatten(plain);
+            let len = pl.len() - n;
+            let off =
+                |a: &[f32], b: &[f32]| a.iter().zip(b).fold(0f32, |m, (x, y)| m.max((x - y).abs()));
+            let (off_l, off_r) = (off(&ll[n..], &pl[..len]), off(&lr[n..], &pr[..len]));
+            println!(
+                "{build}, Filter on the {on}: a cutoff sweep behind {n} frames, shifted back: \
+                 left off by {off_l:e}, right by {off_r:e}"
+            );
+            assert_eq!(off_l, 0.0, "{build}, {on}");
+            assert_eq!(off_r, 0.0, "{build}, {on}");
+        }
+    }
+}
+
 /// Both channels of every block, end to end.
 fn flatten(blocks: &Blocks) -> (Vec<f32>, Vec<f32>) {
     let left = blocks

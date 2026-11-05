@@ -123,3 +123,99 @@ fn two_tracks_one_through_a_ceiling_stay_aligned_through_the_commands() {
         assert_eq!(off, 0.0, "{window:?}");
     }
 }
+
+// ---------------------------------------------------------------- #765
+
+/// A project made through the commands (#765): the fixture's synth track, a Ceiling below its
+/// ceiling with a look-ahead of `lookahead` seconds after the synth, and a Filter whose cutoff
+/// a lane sweeps with hard steps and ramps, after the Ceiling on the track or (`on_master`) on
+/// the master; played from the start, a held note, 1.5 s. The render, natively and in WASM
+/// (`parity`).
+fn filter_behind_ceiling(lookahead: f64, on_master: bool) -> test_support::Render {
+    use commands::{automation, transport};
+    use project::{AutomationTarget, Shape, Tick};
+    let f = fixture();
+    let mut s = Session::from_state(f.state.clone(), context());
+    let fx = ceiling(&mut s, Some(&f.track));
+    set(&mut s, &fx, "ceiling", 0.0);
+    set(&mut s, &fx, "lookahead", lookahead);
+    let out = s.exec(Command::Device(device::Command::Insert {
+        track: (!on_master).then(|| f.track.clone()),
+        master: on_master,
+        kind: "faulk.filter".into(),
+        index: u32::MAX,
+    }));
+    let Output::Device(device::Output::Insert { device: filter }) = out else {
+        panic!("{out:?}")
+    };
+    set(&mut s, &filter, "mode", 0.0);
+    set(&mut s, &filter, "resonance", 0.7);
+    let Output::Automation(automation::Output::LaneCreate { lane }) =
+        s.exec(Command::Automation(automation::Command::LaneCreate {
+            track: (!on_master).then(|| f.track.clone()),
+            master: on_master,
+            target: AutomationTarget::Device {
+                device: filter.clone(),
+                param: "cutoff".into(),
+            },
+        }))
+    else {
+        panic!("a lane")
+    };
+    // 1 920 ticks a second at 120 BPM: hard steps on attacks, then a ramp.
+    let point = |tick: i64, value: f64, shape: Shape| automation::Point {
+        tick: Tick(tick),
+        value,
+        shape,
+    };
+    s.run(Command::Automation(automation::Command::PointsAdd {
+        lane,
+        points: vec![
+            point(0, 300.0, Shape::Step),
+            point(480, 6_000.0, Shape::Step),
+            point(960, 250.0, Shape::Step),
+            point(1_200, 400.0, Shape::Linear),
+            point(2_400, 9_000.0, Shape::Step),
+        ],
+    }));
+    s.render_blocks(8);
+    s.run(Command::Transport(transport::Command::Play {}));
+    s.run(Command::Live(live::Command::NoteOn {
+        track: f.track.clone(),
+        note: 45,
+        velocity: 100,
+    }));
+    s.render_secs(1.5);
+    let r = parity(s.scenario());
+    r.assert_clean();
+    r
+}
+
+#[test]
+fn a_filter_swept_behind_a_ceiling_renders_without_its_latency_one_latency_later() {
+    // The Filter after the Ceiling on the track, and on the master behind the track's Ceiling
+    // (the sum reaches the master that late): its sweep lands on the sound it belongs to.
+    let n = 72;
+    for on_master in [false, true] {
+        let plain = filter_behind_ceiling(0.0, on_master);
+        let latent = filter_behind_ceiling(0.0015, on_master);
+        assert!(plain.peak() > 0.05, "the note sounds: {}", plain.peak());
+        let len = plain.frames() - n;
+        let off =
+            |a: &[f32], b: &[f32]| a.iter().zip(b).fold(0f32, |m, (x, y)| m.max((x - y).abs()));
+        let (off_l, off_r) = (
+            off(&latent.left[n..], &plain.left[..len]),
+            off(&latent.right[n..], &plain.right[..len]),
+        );
+        let on = if on_master { "master" } else { "track" };
+        println!(
+            "Filter on the {on} behind a Ceiling of {n} frames, shifted back: left off by \
+             {off_l:e}, right by {off_r:e} (native; WASM within the parity tolerance)"
+        );
+        assert_eq!(off_l, 0.0, "{on}");
+        assert_eq!(off_r, 0.0, "{on}");
+        // The control: unshifted, the sweep's steps make the two renders differ.
+        let early = off(&latent.left, &plain.left);
+        assert!(early > 0.01, "{on}: the latency moves the render: {early}");
+    }
+}

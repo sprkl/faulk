@@ -20,7 +20,11 @@
 //! `strip`: the levels of the strip after the chain (gate × gain × pan, one pair per frame),
 //! delayed as the slot's sound is, so that a timed gain, pan or mute lands on the sound it
 //! belongs to (#758). It [`Delay::follow`]s the bypass line: whether a longer tap may start
-//! depends on a line's content, and only the line of sound knows what its slot gives.
+//! depends on a line's content, and only the line of sound knows what its slot gives. Its
+//! third line, `events` ([`Events`]), holds the parameter values of the effects after it in the
+//! chain, dated at transport time, and hands them on by the delay its bypass line reads
+//! ([`Timing::delay`]), so that an automated parameter lands on the sound it belongs to
+//! (#765). The master's own [`Events`] line delays its effects' values by the tracks' latency.
 //!
 //! The [`Compensation`] ring delays the tracks: a track `D` frames early adds its sample of
 //! block frame `i` at `i + D` ahead of the ring's read point, and the graph takes the block's
@@ -32,7 +36,8 @@
 //! No allocation, no lock, no panic after the `try_new`s.
 
 use crate::device::{AudioIo, BlockCtx, Device, DeviceDescriptor, Event};
-use crate::msg::{MsgError, ParamId, limits, try_box};
+use crate::events::Sink;
+use crate::msg::{DeviceSlot, MsgError, ParamId, limits, try_box};
 
 /// A level under which a sample counts as silence for [`Delay::busy`] (-400 dB).
 const QUIET: f32 = 1e-20;
@@ -91,6 +96,13 @@ impl Timing {
         g: 1.0,
         pass: true,
     };
+
+    /// The delay a value takes through a line read with this timing (#765, [`Events`]): none
+    /// for a pass-through, else the tap read or crossfaded toward. A parameter is not blended:
+    /// it takes the new tap as soon as the crossfade starts.
+    pub fn delay(&self) -> u32 {
+        if self.pass { 0 } else { self.tap }
+    }
 }
 
 impl Delay {
@@ -283,6 +295,343 @@ impl Delay {
     }
 }
 
+// ---------------------------------------------------------------- event lines (#765)
+
+/// Values a device's event line holds ([`Events`]): about 60 moving lanes on the effects after
+/// a Ceiling of 5 ms at 192 kHz (15 control periods each). Beyond, the lanes send again
+/// ([`Lost`]).
+pub const DEVICE_EVENTS: usize = 1024;
+
+/// Values the master's event line holds (the tracks' latency `T`, up to
+/// [`limits::MAX_COMPENSATION_FRAMES`]).
+pub const MASTER_EVENTS: usize = 8192;
+
+/// How far back a full [`Events`] line looks for a value of the same parameter to give a
+/// newer one to (a bounded cost per value).
+const SUPERSEDE_SCAN: usize = 64;
+
+/// A slot no value targets: a value forgotten in its line ([`Events::forget`]).
+const DEAD: DeviceSlot = DeviceSlot(u16::MAX);
+
+/// A parameter value waiting in an [`Events`] line.
+#[derive(Clone, Copy, Debug)]
+struct Pending {
+    /// The line's frame the value was dated at before its delay.
+    stamp: u64,
+    slot: DeviceSlot,
+    id: ParamId,
+    value: f32,
+}
+
+const NOTHING: Pending = Pending {
+    stamp: 0,
+    slot: DEAD,
+    id: ParamId(0),
+    value: 0.0,
+};
+
+/// Words of a [`Lost`] set: one bit per device slot of a chain.
+const LOST_WORDS: usize = (limits::MAX_DEVICES_PER_TRACK as usize).div_ceil(64);
+
+/// The device slots an overflowing event line dropped a value of (#765): their lanes send
+/// their value again ([`crate::automation`]), so that a parameter never stays on a value older
+/// than its lane's.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Lost {
+    bits: [u64; LOST_WORDS],
+}
+
+impl Lost {
+    /// Marks `slot` (a slot beyond a chain's is ignored).
+    pub fn mark(&mut self, slot: DeviceSlot) {
+        let s = usize::from(slot.0);
+        if let Some(w) = self.bits.get_mut(s / 64) {
+            *w |= 1 << (s % 64);
+        }
+    }
+
+    /// Whether no slot is marked.
+    pub fn is_empty(&self) -> bool {
+        self.bits.iter().all(|w| *w == 0)
+    }
+
+    /// The marked slots, in order.
+    pub fn slots(&self) -> impl Iterator<Item = DeviceSlot> + '_ {
+        self.bits.iter().enumerate().flat_map(|(w, bits)| {
+            (0..64)
+                .filter(move |b| bits & (1 << b) != 0)
+                .map(move |b| DeviceSlot((w * 64 + b) as u16))
+        })
+    }
+}
+
+/// What an [`Events`] line does with a value of its source, by its slot (#765).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Way {
+    /// Not for a slot after the line: it stays in the source, read before the line.
+    Stay,
+    /// For an effect after the line: delayed by it.
+    Delay,
+    /// For another device after the line (an instrument, a MIDI effect: its values keep to
+    /// its notes, which are not delayed): handed on at its own offset.
+    Pass,
+}
+
+/// A line of parameter values (#765, [`crate::graph`] > Latency): the values of the effects
+/// after a device with a latency (or, the master's, after the tracks' latency), dated at
+/// transport time, handed on to them `delay` frames later, when the sound they belong to
+/// reaches them. First in, first out, with due times that never go down; a fixed capacity
+/// allocated off the audio path.
+#[derive(Debug)]
+pub struct Events {
+    ring: Box<[Pending]>,
+    /// Where the oldest value sits.
+    head: usize,
+    len: usize,
+    /// Frames the line ran.
+    clock: u64,
+    /// Values an overflow dropped since the line was made (tests).
+    lost: u64,
+}
+
+impl Events {
+    /// A line of `capacity` values (at least 1), off the audio path (fallible).
+    pub fn try_new(capacity: usize) -> Result<Self, MsgError> {
+        let n = capacity.max(1);
+        let mut v = Vec::new();
+        v.try_reserve_exact(n).map_err(|_| MsgError::OutOfMemory {
+            bytes: n.saturating_mul(size_of::<Pending>()),
+        })?;
+        v.resize(n, NOTHING);
+        Ok(Events {
+            ring: v.into_boxed_slice(),
+            head: 0,
+            len: 0,
+            clock: 0,
+            lost: 0,
+        })
+    }
+
+    /// Bytes a line of `capacity` values takes.
+    pub const fn bytes_for(capacity: usize) -> u64 {
+        (if capacity == 0 { 1 } else { capacity }) as u64 * size_of::<Pending>() as u64
+    }
+
+    /// Values waiting, forgotten ones included.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Whether nothing waits.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Values an overflow dropped since the line was made (tests).
+    pub fn lost(&self) -> u64 {
+        self.lost
+    }
+
+    fn at(&self, i: usize) -> usize {
+        (self.head + i) % self.ring.len()
+    }
+
+    fn pop(&mut self) -> Option<Pending> {
+        if self.len == 0 {
+            return None;
+        }
+        let p = self.ring[self.head];
+        self.head = (self.head + 1) % self.ring.len();
+        self.len -= 1;
+        Some(p)
+    }
+
+    fn push_back(&mut self, p: Pending) {
+        let i = self.at(self.len);
+        self.ring[i] = p;
+        self.len += 1;
+    }
+
+    /// Gives `value` to the newest value waiting for the same parameter, when one is among
+    /// the last [`SUPERSEDE_SCAN`] (`false` otherwise): no older value of it comes after that
+    /// one, so the parameter still ends on its newest value.
+    fn supersede(&mut self, slot: DeviceSlot, id: ParamId, value: f32) -> bool {
+        for back in 0..self.len.min(SUPERSEDE_SCAN) {
+            let k = self.at(self.len - 1 - back);
+            let p = &mut self.ring[k];
+            if p.slot == slot && p.id == id {
+                p.value = value;
+                return true;
+            }
+        }
+        false
+    }
+
+    fn drop_value(&mut self, slot: DeviceSlot, lost: &mut Lost) {
+        self.lost = self.lost.saturating_add(1);
+        lost.mark(slot);
+    }
+
+    /// Carries a sub-block of `frames` frames (#765): the values of `src` whose slot `way`
+    /// says [`Way::Delay`] go in, dated at the line's clock plus their offset; every value due
+    /// within the sub-block after `delay` frames goes into `out` (cleared first) at the offset
+    /// it is due at (0 for one overdue: a shorter delay hands on at once, in order, what it
+    /// skips), with the values `way` says [`Way::Pass`] at their own offsets. `true` when
+    /// `out` is the source of those slots from now on; `false`, `out` untouched, when nothing
+    /// waits and nothing is delayed: `src` stays theirs. No allocation.
+    ///
+    /// Full, the line hands its oldest value out at once (early) to make room, or drops it
+    /// when `out` is full too; values due beyond `out`'s room wait (late); a value dropped
+    /// has its slot marked in `lost`.
+    pub fn carry(
+        &mut self,
+        src: &Sink,
+        way: impl Fn(DeviceSlot) -> Way,
+        delay: u32,
+        frames: u32,
+        out: &mut Sink,
+        lost: &mut Lost,
+    ) -> bool {
+        let start = self.clock;
+        self.clock = start.saturating_add(u64::from(frames));
+        if self.len == 0 && (delay == 0 || !src.params().iter().any(|(d, _)| way(*d) == Way::Delay))
+        {
+            return false;
+        }
+        out.clear();
+        for (slot, event) in src.params() {
+            let Event::ParamValue { offset, id, value } = *event else {
+                continue;
+            };
+            if *slot == DEAD || way(*slot) != Way::Delay {
+                continue;
+            }
+            if self.len == self.ring.len() {
+                // Full: the newest value of the same parameter, among the last ones, takes
+                // this newer one (it lands that much earlier; nothing of the parameter is
+                // lost, the line does not grow).
+                if self.supersede(*slot, id, value) {
+                    continue;
+                }
+                if let Some(old) = self.pop()
+                    && old.slot != DEAD
+                {
+                    let early = Event::ParamValue {
+                        offset: 0,
+                        id: old.id,
+                        value: old.value,
+                    };
+                    if !out.push_param(old.slot, early) {
+                        self.drop_value(old.slot, lost);
+                    }
+                }
+            }
+            self.push_back(Pending {
+                stamp: start.saturating_add(u64::from(offset)),
+                slot: *slot,
+                id,
+                value,
+            });
+        }
+        // The values that pass, merged by offset with the ones the line hands on.
+        let mut pass = src
+            .params()
+            .iter()
+            .filter(|(d, e)| {
+                *d != DEAD && matches!(e, Event::ParamValue { .. }) && way(*d) == Way::Pass
+            })
+            .peekable();
+        let mut put = |out: &mut Sink, slot: DeviceSlot, e: Event, lines: &mut Self| {
+            if !out.push_param(slot, e) {
+                lines.drop_value(slot, lost);
+            }
+        };
+        let end = self.clock;
+        while self.len > 0 {
+            let p = self.ring[self.head];
+            if p.slot != DEAD {
+                let due = p.stamp.saturating_add(u64::from(delay));
+                if due >= end || out.param_room() == 0 {
+                    break;
+                }
+                let offset = due.saturating_sub(start).min(u64::from(frames)) as u32;
+                while let Some((d, e)) = pass.next_if(|(_, e)| e.offset() < offset) {
+                    put(out, *d, *e, self);
+                }
+                if out.param_room() == 0 {
+                    // The values that pass took the room: this one waits (late).
+                    break;
+                }
+                out.push_param(
+                    p.slot,
+                    Event::ParamValue {
+                        offset,
+                        id: p.id,
+                        value: p.value,
+                    },
+                );
+            }
+            self.pop();
+        }
+        for (d, e) in pass {
+            put(out, *d, *e, self);
+        }
+        true
+    }
+
+    /// Forgets the values waiting for `slot` (for its parameter `id` only, when given): a
+    /// gesture that holds the parameter, a device that leaves its slot. Linear in what waits,
+    /// no allocation.
+    pub fn forget(&mut self, slot: DeviceSlot, id: Option<ParamId>) {
+        for i in 0..self.len {
+            let k = self.at(i);
+            let p = &mut self.ring[k];
+            if p.slot == slot && id.is_none_or(|id| p.id == id) {
+                p.slot = DEAD;
+            }
+        }
+    }
+
+    /// The value waiting at position `i` from the oldest, when it is not forgotten, and how
+    /// long ago (in the line's frames) it was dated.
+    pub fn get(&self, i: usize) -> Option<(DeviceSlot, ParamId, f32, u64)> {
+        if i >= self.len {
+            return None;
+        }
+        let p = self.ring[self.at(i)];
+        (p.slot != DEAD).then(|| (p.slot, p.id, p.value, self.clock.saturating_sub(p.stamp)))
+    }
+
+    /// Puts a value handed on from a line that left the chain (#765, the line before this one
+    /// for its slot) after every other one: it is newer than all of them, which went through
+    /// that line before it. It is dated `age` frames ago, no earlier than the newest value, so
+    /// that due times never go down. Full, it gives the value to the newest one of its
+    /// parameter among the last ones, as [`Events::carry`] does; `false`, and nothing changes,
+    /// when there is none.
+    pub fn push_moved(&mut self, slot: DeviceSlot, id: ParamId, value: f32, age: u64) -> bool {
+        if self.len == self.ring.len() {
+            return self.supersede(slot, id, value);
+        }
+        let mut stamp = self.clock.saturating_sub(age);
+        if self.len > 0 {
+            stamp = stamp.max(self.ring[self.at(self.len - 1)].stamp);
+        }
+        self.push_back(Pending {
+            stamp,
+            slot,
+            id,
+            value,
+        });
+        true
+    }
+
+    /// Forgets everything waiting.
+    pub fn clear(&mut self) {
+        self.head = 0;
+        self.len = 0;
+    }
+}
+
 // ---------------------------------------------------------------- bypass
 
 /// The bypass line of a device with a latency (module doc), and what the graph keeps of its
@@ -294,6 +643,9 @@ pub struct Bypass {
     /// The levels of the strip after the chain, read at the device's part of the chain's
     /// latency (#758, [`crate::graph`] > Latency): fed by the graph, never by the device.
     pub(crate) strip: Delay,
+    /// The values of the devices after it in the chain, delayed by its part of the chain's
+    /// latency (#765, [`crate::graph`] > Latency): fed by the graph, never by the device.
+    pub(crate) events: Events,
     /// The device was last heard settled off (its fade at 0): its slot gives the line, and an
     /// outgoing one fades the line out, not the device.
     pub(crate) off: bool,
@@ -315,6 +667,11 @@ impl Bypass {
     /// The strip's line (tests).
     pub fn strip(&self) -> &Delay {
         &self.strip
+    }
+
+    /// The event line (tests).
+    pub fn events(&self) -> &Events {
+        &self.events
     }
 }
 
@@ -353,6 +710,7 @@ impl Latent {
             bypass: Bypass {
                 line: Delay::try_new(max, 0)?,
                 strip: Delay::try_new(max, 0)?,
+                events: Events::try_new(DEVICE_EVENTS)?,
                 off: true,
                 warm: 0,
                 mix: 0.0,
@@ -362,10 +720,12 @@ impl Latent {
     }
 
     /// Bytes a wrapped device of at most `max_latency` frames adds to its own (the wrapper, its
-    /// bypass line and its strip line): what a device with a latency counts in its
-    /// [`DeviceDescriptor::memory_bytes`].
+    /// bypass line, its strip line and its event line): what a device with a latency counts in
+    /// its [`DeviceDescriptor::memory_bytes`].
     pub const fn bytes_for(max_latency: u32) -> u64 {
-        size_of::<Latent>() as u64 + 2 * Delay::bytes_for(max_latency)
+        size_of::<Latent>() as u64
+            + 2 * Delay::bytes_for(max_latency)
+            + Events::bytes_for(DEVICE_EVENTS)
     }
 }
 
@@ -840,5 +1200,249 @@ mod tests {
         // Beyond the capacity: bounded.
         d.restart(10_000);
         assert_eq!(d.tap(), d.max_tap());
+    }
+
+    // ------------------------------------------------------------ event lines (#765)
+
+    fn value(offset: u32, id: u32, value: f32) -> Event {
+        Event::ParamValue {
+            offset,
+            id: ParamId(id),
+            value,
+        }
+    }
+
+    /// A sink of the values `(offset, slot, id, value)`.
+    fn values(list: &[(u32, u16, u32, f32)]) -> Sink {
+        let mut s = Sink::try_with_capacity(0, 64).unwrap();
+        for &(o, d, id, v) in list {
+            assert!(s.push_param(DeviceSlot(d), value(o, id, v)));
+        }
+        s
+    }
+
+    /// The values of `out` as `(offset, slot, id, value)`.
+    fn seen(out: &Sink) -> Vec<(u32, u16, u32, f32)> {
+        out.params()
+            .iter()
+            .map(|(d, e)| match *e {
+                Event::ParamValue { offset, id, value } => (offset, d.0, id.0, value),
+                _ => panic!("{e:?}"),
+            })
+            .collect()
+    }
+
+    fn delay_all(_: DeviceSlot) -> Way {
+        Way::Delay
+    }
+
+    #[test]
+    fn a_value_lands_its_delay_later_in_order() {
+        let mut line = Events::try_new(16).unwrap();
+        let mut out = Sink::try_with_capacity(0, 16).unwrap();
+        let mut lost = Lost::default();
+        let src = values(&[(1, 2, 0, 0.5), (3, 2, 0, 0.7), (3, 3, 1, 0.1)]);
+        // Delay 10 over sub-blocks of 8: due at 11, 13 and 13, the second sub-block's 3 and 5.
+        assert!(line.carry(&src, delay_all, 10, 8, &mut out, &mut lost));
+        assert!(seen(&out).is_empty());
+        let empty = values(&[]);
+        assert!(line.carry(&empty, delay_all, 10, 8, &mut out, &mut lost));
+        assert_eq!(
+            seen(&out),
+            vec![(3, 2, 0, 0.5), (5, 2, 0, 0.7), (5, 3, 1, 0.1)]
+        );
+        assert!(line.is_empty());
+        // Nothing waits and nothing goes in: the source stays the slots' own.
+        assert!(!line.carry(&empty, delay_all, 10, 8, &mut out, &mut lost));
+        assert!(lost.is_empty());
+    }
+
+    #[test]
+    fn with_no_delay_and_nothing_waiting_the_source_is_kept_without_a_copy() {
+        let mut line = Events::try_new(16).unwrap();
+        let mut out = Sink::try_with_capacity(0, 16).unwrap();
+        let mut lost = Lost::default();
+        assert!(out.push_param(DeviceSlot(9), value(0, 0, 9.0)));
+        let src = values(&[(1, 2, 0, 0.5)]);
+        assert!(!line.carry(&src, delay_all, 0, 8, &mut out, &mut lost));
+        assert_eq!(seen(&out), vec![(0, 9, 0, 9.0)], "untouched");
+        // A delay with no value for the next slots: kept too.
+        let stay = |_: DeviceSlot| Way::Stay;
+        assert!(!line.carry(&src, stay, 10, 8, &mut out, &mut lost));
+    }
+
+    #[test]
+    fn a_shorter_delay_hands_on_at_once_what_it_skips_and_a_longer_one_holds() {
+        let mut line = Events::try_new(16).unwrap();
+        let mut out = Sink::try_with_capacity(0, 16).unwrap();
+        let mut lost = Lost::default();
+        let empty = values(&[]);
+        assert!(line.carry(
+            &values(&[(0, 2, 0, 1.0), (6, 2, 0, 2.0)]),
+            delay_all,
+            20,
+            8,
+            &mut out,
+            &mut lost
+        ));
+        // The delay drops to 0: both are overdue, at offset 0, in order.
+        assert!(line.carry(&empty, delay_all, 0, 8, &mut out, &mut lost));
+        assert_eq!(seen(&out), vec![(0, 2, 0, 1.0), (0, 2, 0, 2.0)]);
+        // A value at 4 under a delay of 4 lands at 8 (the next sub-block's 0); the delay grows
+        // to 12 before it does: it lands at 16.
+        assert!(line.carry(
+            &values(&[(4, 2, 0, 3.0)]),
+            delay_all,
+            4,
+            8,
+            &mut out,
+            &mut lost
+        ));
+        assert!(seen(&out).is_empty());
+        assert!(line.carry(&empty, delay_all, 12, 8, &mut out, &mut lost));
+        assert!(seen(&out).is_empty(), "held for the longer delay");
+        assert!(line.carry(&empty, delay_all, 12, 8, &mut out, &mut lost));
+        assert_eq!(seen(&out), vec![(0, 2, 0, 3.0)]);
+    }
+
+    #[test]
+    fn the_values_of_other_roles_pass_at_their_offsets_and_the_others_stay() {
+        let mut line = Events::try_new(16).unwrap();
+        let mut out = Sink::try_with_capacity(0, 16).unwrap();
+        let mut lost = Lost::default();
+        // Slot 1 is before the line, 2 an effect after it, 3 an instrument after it.
+        let way = |d: DeviceSlot| match d.0 {
+            2 => Way::Delay,
+            3 => Way::Pass,
+            _ => Way::Stay,
+        };
+        let src = values(&[
+            (0, 1, 0, 1.0),
+            (1, 2, 0, 2.0),
+            (2, 3, 0, 3.0),
+            (7, 3, 0, 4.0),
+        ]);
+        assert!(line.carry(&src, way, 4, 8, &mut out, &mut lost));
+        // The effect's value lands at 5, between the instrument's two.
+        assert_eq!(
+            seen(&out),
+            vec![(2, 3, 0, 3.0), (5, 2, 0, 2.0), (7, 3, 0, 4.0)]
+        );
+    }
+
+    #[test]
+    fn a_full_line_keeps_the_newest_value_of_a_parameter_then_hands_out_early_then_drops() {
+        let mut line = Events::try_new(4).unwrap();
+        let mut out = Sink::try_with_capacity(0, 2).unwrap();
+        let mut lost = Lost::default();
+        // Four values fill the line; a fifth of the same parameter as the newest takes its place.
+        let src = values(&[
+            (0, 2, 0, 1.0),
+            (0, 2, 1, 1.0),
+            (0, 2, 2, 1.0),
+            (0, 2, 3, 1.0),
+            (1, 2, 3, 5.0),
+        ]);
+        assert!(line.carry(&src, delay_all, 100, 8, &mut out, &mut lost));
+        assert_eq!(line.len(), 4);
+        assert!(seen(&out).is_empty() && lost.is_empty());
+        // Three of new parameters: the two oldest go out at once (early), then `out` is full
+        // and the third oldest is dropped, its slot marked.
+        let src = values(&[(0, 4, 0, 1.0), (0, 5, 0, 1.0), (0, 6, 0, 1.0)]);
+        assert!(line.carry(&src, delay_all, 100, 8, &mut out, &mut lost));
+        assert_eq!(seen(&out), vec![(0, 2, 0, 1.0), (0, 2, 1, 1.0)]);
+        assert_eq!(line.lost(), 1);
+        assert_eq!(lost.slots().collect::<Vec<_>>(), vec![DeviceSlot(2)]);
+        // What waits: the newest of slot 2 (5.0 for parameter 3) and the three new ones.
+        let after: Vec<_> = (0..line.len()).filter_map(|i| line.get(i)).collect();
+        assert_eq!(after.len(), 4);
+        assert_eq!(
+            (after[0].0, after[0].1, after[0].2),
+            (DeviceSlot(2), ParamId(3), 5.0)
+        );
+    }
+
+    #[test]
+    fn a_forgotten_value_never_lands() {
+        let mut line = Events::try_new(8).unwrap();
+        let mut out = Sink::try_with_capacity(0, 8).unwrap();
+        let mut lost = Lost::default();
+        let src = values(&[(0, 2, 0, 1.0), (0, 2, 1, 2.0), (0, 3, 0, 3.0)]);
+        assert!(line.carry(&src, delay_all, 12, 8, &mut out, &mut lost));
+        line.forget(DeviceSlot(2), Some(ParamId(1)));
+        line.forget(DeviceSlot(3), None);
+        assert!(line.carry(&values(&[]), delay_all, 12, 8, &mut out, &mut lost));
+        assert_eq!(seen(&out), vec![(4, 2, 0, 1.0)]);
+        assert!(!line.carry(&values(&[]), delay_all, 12, 8, &mut out, &mut lost));
+        assert!(line.is_empty());
+    }
+
+    #[test]
+    fn a_value_handed_on_keeps_its_age_and_lands_after_the_older_ones() {
+        let mut line = Events::try_new(8).unwrap();
+        let mut out = Sink::try_with_capacity(0, 8).unwrap();
+        let mut lost = Lost::default();
+        let empty = values(&[]);
+        // The line ran 96 frames: its clock is not the one the value was dated on.
+        for _ in 0..12 {
+            line.carry(&empty, delay_all, 72, 8, &mut out, &mut lost);
+        }
+        // Dated 30 frames ago, under a delay of 72: due 42 frames from now (the sixth
+        // sub-block, at 2).
+        assert!(line.push_moved(DeviceSlot(2), ParamId(0), 0.5, 30));
+        let mut at = None;
+        for n in 0..8 {
+            if !line.carry(&empty, delay_all, 72, 8, &mut out, &mut lost) {
+                break;
+            }
+            if let Some(&(o, ..)) = seen(&out).first() {
+                at = Some(n * 8 + o);
+                break;
+            }
+        }
+        assert_eq!(at, Some(42), "its age is kept on the new clock");
+        // After a newer value of the line (dated 10 frames ago), one dated 50 frames ago is not
+        // due before it: due times never go down.
+        assert!(line.carry(
+            &values(&[(0, 2, 0, 1.0)]),
+            delay_all,
+            72,
+            8,
+            &mut out,
+            &mut lost
+        ));
+        assert!(line.push_moved(DeviceSlot(2), ParamId(0), 2.0, 50));
+        let mut order = Vec::new();
+        for _ in 0..12 {
+            if line.carry(&empty, delay_all, 72, 8, &mut out, &mut lost) {
+                order.extend(seen(&out).iter().map(|v| v.3));
+            }
+        }
+        assert_eq!(order, vec![1.0, 2.0], "the handed-on value comes last");
+        // Full, it gives the value to the newest one of its parameter, or refuses.
+        let mut full = Events::try_new(1).unwrap();
+        assert!(full.push_moved(DeviceSlot(2), ParamId(0), 1.0, 0));
+        assert!(full.push_moved(DeviceSlot(2), ParamId(0), 2.0, 0));
+        assert_eq!(full.len(), 1);
+        assert_eq!(full.get(0).map(|v| v.2), Some(2.0));
+        assert!(!full.push_moved(DeviceSlot(3), ParamId(0), 3.0, 0));
+    }
+
+    #[test]
+    fn a_timing_delays_by_its_tap_or_not_at_all_when_it_passes() {
+        assert_eq!(Timing::PASS.delay(), 0);
+        let mut d = Delay::try_new(64, 0).unwrap();
+        let (mut l, mut r) = (vec![1.0; 80], vec![1.0; 80]);
+        d.process(&mut l, &mut r, 0, 8);
+        assert_eq!(d.timing().delay(), 0);
+        // The pass-through kept nothing: the longer tap waits for its frames, and so do the
+        // values that follow the line.
+        d.process(&mut l, &mut r, 20, 8);
+        assert_eq!(d.timing().delay(), 0);
+        // Once the line holds them, the crossfade toward 20 starts (and ends within the
+        // block): the values take 20 from its start.
+        d.process(&mut l, &mut r, 20, 8);
+        assert_eq!(d.tap(), 20);
+        assert_eq!(d.timing().delay(), 20);
     }
 }

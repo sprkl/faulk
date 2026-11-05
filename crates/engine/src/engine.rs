@@ -2807,7 +2807,8 @@ impl Engine {
                                 // line: the slot keeps its timing (#749). It takes the strip's
                                 // levels that wait for its sound too, and the old one leaves
                                 // without them: the timing stays in the chain, an outgoing
-                                // strip line would delay the strip a second time (#758).
+                                // strip line would delay the strip a second time (#758). So
+                                // with the values of the next devices that wait (#765).
                                 if let Some(old) = spare.item.as_deref_mut()
                                     && let Some(from) = old.device.bypass()
                                     && let Some(to) = entry.device.bypass()
@@ -2815,8 +2816,18 @@ impl Engine {
                                     && to.strip.copy_from(&from.strip)
                                 {
                                     from.strip.restart(0);
+                                    core::mem::swap(&mut to.events, &mut from.events);
                                 }
                             }
+                            // The values meant for the device it replaced are forgotten; the
+                            // ones its line still delays go on without its latency (#765).
+                            leave_slot(
+                                state,
+                                &mut self.graph,
+                                track,
+                                device,
+                                spare.item.as_deref_mut(),
+                            );
                             if let Some(old) = spare.item.take() {
                                 spare.item =
                                     send_off(state, &mut self.graph, track, device, old, audible);
@@ -2845,6 +2856,8 @@ impl Engine {
                         if release && let Some(t) = state.track_mut(track) {
                             t.graph.release_notes();
                         }
+                        let mut old = old;
+                        leave_slot(state, &mut self.graph, track, device, old.as_deref_mut());
                         // A heard device fades out at its slot (#233), then comes back
                         // through the retire ring.
                         let item = old.and_then(|old| {
@@ -2890,9 +2903,11 @@ impl Engine {
                 match device_mut(state, track, device) {
                     Some(entry) => {
                         entry.device.set_param(param, value);
-                        // A gesture holds the lane that drives this parameter (AM-2).
+                        // A gesture holds the lane that drives this parameter (AM-2): none of
+                        // its values that wait for the sound lands after it (#765).
                         let target = AutomationTarget::DeviceParam { device, param };
                         hold_lanes(state, &self.graph, track, |t| t == target);
+                        forget_values(state, &mut self.graph, track, device, Some(param));
                     }
                     None => skipped = true,
                 }
@@ -3302,6 +3317,47 @@ fn send_off(
     old.enabled = false;
     old.slot = slot.0;
     list.push(old).err()
+}
+
+/// Forgets the values waiting in the event lines of `track`'s chain (and the master's own
+/// line, for the master) for `device` (its parameter `param` only, when given), #765.
+fn forget_values(
+    state: &mut State,
+    graph: &mut Graph,
+    track: TrackSlot,
+    device: DeviceSlot,
+    param: Option<ParamId>,
+) {
+    if let Some(chain) = state.chain_mut(track) {
+        crate::graph::forget_values(chain.as_mut_slice(), device, param);
+    }
+    if track.is_master() {
+        graph.master_events().forget(device, param);
+    }
+}
+
+/// A device left slot `device` of `track`'s chain (removed, or replaced by `old`'s successor),
+/// #765: the values that waited for it are forgotten, and the values its own event line still
+/// delays (`old` being a device with a latency) go on toward their devices.
+fn leave_slot(
+    state: &mut State,
+    graph: &mut Graph,
+    track: TrackSlot,
+    device: DeviceSlot,
+    old: Option<&mut DeviceEntry>,
+) {
+    let mut lost = crate::latency::Lost::default();
+    if let Some(old) = old
+        && let Some(chain) = state.chain_mut(track)
+    {
+        lost = crate::graph::hand_on(old, chain.as_mut_slice(), device.0 as usize);
+    }
+    forget_values(state, graph, track, device, None);
+    // A value a full line refused went to its device at once: older ones of it may still
+    // wait, so its lanes send their value again.
+    for slot in lost.slots() {
+        resend_lanes(state, graph, track, slot);
+    }
 }
 
 /// Hides what a device's bypass line holds and starts its warm-up again (#749): the panic cut.
