@@ -140,9 +140,10 @@ describe('the Contour curve', () => {
     vi.useFakeTimers()
     mountCurve()
     for (let i = 0; i < 3; i++) handle('bell1').dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true }))
-    expect(groups).toEqual(['begin'])
+    // Every tick asks for the group (the card's gesture opens one only when none is open), none ends it.
+    expect(groups).toEqual(['begin', 'begin', 'begin'])
     vi.advanceTimersByTime(500)
-    expect(groups).toEqual(['begin', 'end'])
+    expect(groups).toEqual(['begin', 'begin', 'begin', 'end'])
     const qs = changes.filter(([k]) => k === 'bell1_q').map(([, v]) => v)
     expect(qs).toHaveLength(3)
     expect(qs[2]).toBeCloseTo(Math.pow(2, 0.75), 2)

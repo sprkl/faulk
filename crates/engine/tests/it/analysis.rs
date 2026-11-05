@@ -380,6 +380,30 @@ fn without_a_contour_the_report_carries_no_spectrum_and_the_analysis_does_nothin
 }
 
 #[test]
+fn a_publication_read_torn_is_left_out_of_that_report_and_given_by_the_next() {
+    use std::sync::atomic::Ordering;
+    let mut s = session(1);
+    assert_eq!(s.run(4).spectra.len(), 1);
+    // A fresh publication (the windows of the last report, analysed).
+    s.prepare.flush();
+    // The prepare side is writing it again as the report reads it: the seq is odd.
+    let region = s.host.spectrum_region();
+    let seq = region[0].load(Ordering::Relaxed);
+    region[0].store(seq | 1, Ordering::Relaxed);
+    s.host.write_feedback();
+    let torn = read_feedback(s.host.feedback()).unwrap();
+    assert!(
+        torn.spectra.is_empty(),
+        "nothing read whole, nothing reported"
+    );
+    // The write ends: the next report carries the publication.
+    region[0].store(seq.wrapping_add(2) & !1, Ordering::Relaxed);
+    s.host.write_feedback();
+    let next = read_feedback(s.host.feedback()).unwrap();
+    assert_eq!(next.spectra.len(), 1);
+}
+
+#[test]
 fn a_spectrum_is_reported_once_and_a_stalled_prepare_side_lets_the_reports_go_without() {
     let mut s = session(1);
     assert_eq!(s.run(4).spectra.len(), 1);

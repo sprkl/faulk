@@ -117,4 +117,50 @@ fn cost() {
         "analysis of {MAX_SPECTRA} windows of 2048 frames: copy on the audio side {copy:.1} µs per report, \
          analysis off the audio path {analyse:.1} µs per report (about 30 per second)"
     );
+
+    // The whole report on the audio side, the walks of the chains and the copies included: 16
+    // tracks of a synth and 4 Contours each (64 devices to walk, 4 windows copied per report).
+    let (mut prepare, mut host) = engine::host::channel(SR).unwrap();
+    let mut msgs = vec![engine::msg::ControlMsg::Reset { epoch: 1 }];
+    for t in 0..16u32 {
+        let track = engine::msg::TrackSlot(t);
+        msgs.push(engine::msg::ControlMsg::TrackCreate {
+            track,
+            kind: engine::msg::TrackKind::Midi,
+        });
+        msgs.push(engine::msg::ControlMsg::DeviceInsert {
+            track,
+            device: engine::msg::DeviceSlot(0),
+            kind: engine::OSC_SYNTH.kind_id,
+            state: Vec::new(),
+        });
+        for d in 1..=4u16 {
+            msgs.push(engine::msg::ControlMsg::DeviceInsert {
+                track,
+                device: engine::msg::DeviceSlot(d),
+                kind: engine::devices::contour::DESCRIPTOR.kind_id,
+                state: Vec::new(),
+            });
+        }
+    }
+    let stream = engine::msg::encode_stream(1, 0, &msgs).unwrap();
+    prepare.submit(&stream).unwrap();
+    for _ in 0..40 {
+        host.render(128);
+        prepare.flush();
+    }
+    let (mut best, mut worst) = (f64::MAX, 0f64);
+    for _ in 0..200 {
+        host.render(128);
+        let start = Instant::now();
+        host.write_feedback();
+        let us = start.elapsed().as_secs_f64() * 1e6;
+        best = best.min(us);
+        worst = worst.max(us);
+        prepare.flush();
+    }
+    println!(
+        "a report on the audio side (Host::write_feedback, its walks and copies included), 16 tracks \
+         of a synth and 4 Contours: best {best:.1} µs, worst {worst:.1} µs of 200"
+    );
 }

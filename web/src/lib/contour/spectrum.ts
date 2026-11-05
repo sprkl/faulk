@@ -6,8 +6,10 @@
  * engine applies the edit a few milliseconds later, and a spectrum comes one report after its
  * window: for a few reports, the reports still name the devices by their old slots. So once the
  * slots of a device change (moved, inserted, a neighbour removed), its spectra are left out for
- * `SETTLE_MS` (about six reports), and a spectrum of the device that sat there before is never drawn
- * on this one's card. A device that keeps its slots is never held back.
+ * `SETTLE_MS` (about six reports), so that a spectrum of the device that sat there before is not drawn
+ * on this one's card. The hold is counted on the page's clock: an engine that applies the edit more
+ * than `SETTLE_MS` after the page (a prepare side or a link that late) can still show one such
+ * spectrum. A device that keeps its slots is never held back.
  */
 
 import type { Spectrum } from '../engine/feedback'

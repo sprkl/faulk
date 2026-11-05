@@ -1050,6 +1050,13 @@ impl Host {
         self.copy_windows();
     }
 
+    /// The spectrum region this side reads (test builds only: a test makes a publication look
+    /// torn).
+    #[cfg(feature = "testing")]
+    pub fn spectrum_region(&self) -> Arc<[AtomicU32]> {
+        Arc::clone(&self.spectrum_region)
+    }
+
     /// Copies the windows of at most [`MAX_SPECTRA`] analysing devices into the window region
     /// for the prepare side (#156, [`crate::analysis`]): the enabled devices of every chain in
     /// slot order, from the next one of the round robin, so that with more devices each one
@@ -1075,7 +1082,8 @@ impl Host {
             self.engine.enabled_devices(|track, device, entry| {
                 let mine = if pass == 0 { i >= start } else { i < start };
                 if mine && taken < MAX_SPECTRA {
-                    let n = entry.device.analysis_window(window);
+                    // A device that answers more than it was given is cut to the scratch.
+                    let n = entry.device.analysis_window(window).min(window.len());
                     if n > 0
                         && writer.push(
                             region,

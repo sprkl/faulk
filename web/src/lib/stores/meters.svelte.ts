@@ -118,6 +118,8 @@ export class MeterStore {
         const timer = setInterval(() => {
           const now = performance.now()
           if (now - this.lastReportAt > STALE_MS) this.feed(null, now)
+          // A spectrum's reader looks again every pass: a spectrum goes stale on time when the reports stop.
+          else this.spectrumTick++
         }, 100)
         return () => clearInterval(timer)
       })

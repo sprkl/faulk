@@ -166,8 +166,10 @@
   }
   function wheel(event: WheelEvent, band: Band) {
     event.preventDefault()
-    if (wheelTimer === null) onbegin()
-    else clearTimeout(wheelTimer)
+    // Every tick: a click elsewhere may have closed the group meanwhile (a release ends every gesture); `onbegin` opens
+    // one only when none is open.
+    onbegin()
+    if (wheelTimer !== null) clearTimeout(wheelTimer)
     wheelTimer = setTimeout(endWheel, WHEEL_REST_MS)
     const q = valueOf(`${band.key}_q`) * Math.pow(2, -event.deltaY / 400)
     set(`${band.key}_q`, Math.round(clamp(q, Q_MIN, Q_MAX) * 1000) / 1000)
