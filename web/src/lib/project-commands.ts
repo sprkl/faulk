@@ -9,6 +9,9 @@ export const saveAs = (): Command => ({ type: 'project.save_as' })
 export const exportPack = (): Command => ({ type: 'project.export_pack' })
 export const cancelExportPack = (): Command => ({ type: 'project.cancel_export_pack' })
 export const cancelImportPack = (): Command => ({ type: 'project.cancel_import_pack' })
+/** Whether a command is `project.cancel_import_pack`: the page answers it with what it stopped (`runForAgent`). */
+export const isCancelImportPack = (command: Command): command is Extract<Command, { type: 'project.cancel_import_pack' }> =>
+  command.type === 'project.cancel_import_pack'
 export const importPack = (): Command => ({ type: 'project.import_pack' })
 /** A `.faulkpack` hosted at a link (#497): the page downloads it and opens it as a new project. */
 export const openUrl = (url: string): Command => ({ type: 'project.open_url', url })

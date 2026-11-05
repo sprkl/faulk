@@ -1365,6 +1365,14 @@ type: "project.cancel_export_pack"
 } | {
 type: "project.import_pack"
 } | {
+/**
+ * How many imports (a pack being downloaded, read or waiting its turn) were stopped.
+ */
+cancelled: number
+/**
+ * How many imports were left to finish because their project had started to open.
+ */
+too_late: number
 type: "project.cancel_import_pack"
 } | {
 type: "project.open_url"
