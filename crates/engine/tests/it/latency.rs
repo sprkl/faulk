@@ -19,9 +19,14 @@ use engine::device::DeviceSetup;
 use engine::device::testing::{DELAY, GAIN, TONE, delay, gain};
 use engine::devices::ceiling::{self, CEILING, DESCRIPTOR as CEILING_DEVICE, LOOKAHEAD, TRUE_PEAK};
 use engine::engine::{Engine, Preparer, channel};
+use engine::events::{SCHEDULE_FIRST_VOICE, Schedule, ScheduledParam};
 use engine::graph::fade_frames;
-use engine::msg::{ControlMsg as M, DeviceSlot, ParamId, TrackKind, TrackSlot, encode_state};
-use engine::time::Tick;
+use engine::mixer::{MIXER_SLOT, MUTE};
+use engine::msg::{
+    AutomationPoint, AutomationTarget, ControlMsg as M, Curve, DeviceSlot, LaneSlot, ParamId,
+    TrackKind, TrackSlot, encode_state,
+};
+use engine::time::{Quantize, Tempo, Tick, TimeSignature};
 
 const BLOCK: usize = 128;
 /// A note of the test tone (220 Hz).
@@ -34,9 +39,14 @@ struct Rig {
 
 impl Rig {
     fn new(rate: f32) -> Rig {
+        Rig::sized(rate, BLOCK)
+    }
+
+    /// A rig whose blocks reach `max_block` frames.
+    fn sized(rate: f32, max_block: usize) -> Rig {
         let setup = DeviceSetup {
             sample_rate: rate,
-            max_block_frames: BLOCK,
+            max_block_frames: max_block,
         };
         let (p, e) = channel(setup, engine::device::testing::factory).unwrap();
         Rig { p, e }
@@ -727,4 +737,506 @@ fn twelve_distinct_latencies_are_all_compensated() {
     let off = mismatch(&left, &scaled);
     println!("twelve delays from 0 to 407 frames: left − 12 × right at most {off:e}");
     assert!(off < 1e-5, "{off}");
+}
+
+// ---------------------------------------------------------------- the strip (#758)
+
+/// Frames per tick at 120 BPM and 48 kHz.
+const FPT: usize = 25;
+
+fn pt(tick: i64, value: f32, curve: Curve) -> AutomationPoint {
+    AutomationPoint {
+        tick: Tick(tick),
+        value,
+        curve,
+    }
+}
+
+fn lane(lane: u32, track: TrackSlot, target: AutomationTarget, points: &[AutomationPoint]) -> M {
+    M::AutomationLaneUpload {
+        lane: LaneSlot(lane),
+        track,
+        target,
+        first: 0,
+        total: points.len() as u32,
+        points: points.to_vec(),
+    }
+}
+
+/// A gain lane with hard steps (to silence and back) and a ramp, in dB.
+fn gain_points() -> Vec<AutomationPoint> {
+    vec![
+        pt(0, 0.0, Curve::Step),
+        pt(40, -96.0, Curve::Step),
+        pt(60, -6.0, Curve::Linear),
+        pt(100, -30.0, Curve::Step),
+        pt(120, 0.0, Curve::Step),
+        pt(170, -12.0, Curve::Step),
+    ]
+}
+
+/// A pan lane with steps and a ramp.
+fn pan_points() -> Vec<AutomationPoint> {
+    vec![
+        pt(0, 0.0, Curve::Step),
+        pt(50, -0.7, Curve::Step),
+        pt(90, 0.5, Curve::Linear),
+        pt(130, 0.0, Curve::Step),
+    ]
+}
+
+impl Rig {
+    /// `frames` frames of both channels, in blocks of `block` (at most the rig's largest).
+    fn run_frames(&mut self, frames: usize, block: usize) -> (Vec<f32>, Vec<f32>) {
+        let (mut out_l, mut out_r) = (Vec::new(), Vec::new());
+        let (mut l, mut r) = (vec![0.0; block], vec![0.0; block]);
+        let mut todo = frames;
+        while todo > 0 {
+            let n = todo.min(block);
+            assert_no_alloc(|| self.e.process(&mut l[..n], &mut r[..n]));
+            out_l.extend_from_slice(&l[..n]);
+            out_r.extend_from_slice(&r[..n]);
+            todo -= n;
+            self.p.collect();
+        }
+        for (i, s) in out_l.iter().chain(&out_r).enumerate() {
+            assert!(*s == 0.0 || s.abs() >= f32::MIN_POSITIVE, "denormal at {i}");
+        }
+        assert_eq!(self.e.limiter_silenced(), 0, "a non-finite sample");
+        (out_l, out_r)
+    }
+
+    fn transport(&mut self) {
+        self.send(&[M::SetTransport {
+            tempo: Tempo::new(120.0).unwrap(),
+            signature: TimeSignature::COMMON,
+            launch_quantize: Quantize::default(),
+        }]);
+    }
+}
+
+#[test]
+fn a_gain_lane_on_a_track_through_a_ceiling_lands_with_the_same_lane_on_a_plain_track() {
+    // The pair (the right track through a Ceiling of 72 frames), the same gain lane on both:
+    // the steps to silence and back and the ramp land on the same frame of both channels.
+    for block in [BLOCK, 97] {
+        let mut rig = Rig::new(48_000.0);
+        rig.transport();
+        pair(&mut rig, &[ceiling_at(t(1), 1, &[(CEILING, 0.0)])]);
+        rig.send(&[
+            lane(0, t(0), AutomationTarget::MixerGain, &gain_points()),
+            lane(1, t(1), AutomationTarget::MixerGain, &gain_points()),
+        ]);
+        rig.run(4);
+        rig.send(&[M::Play { from: Tick(0) }]);
+        let (left, right) = rig.run_frames(200 * FPT, block);
+        assert_eq!(rig.latency(), 72);
+        assert!(peak(&left) > 0.05, "the tone sounds");
+        let off = mismatch(&left, &right);
+        println!("block {block}: gain lane on both tracks, left − right at most {off:e}");
+        assert_eq!(off, 0.0, "block {block}: the lane lands on the same frame");
+        // The control: the step to silence sits where the lane puts it, one latency after its
+        // tick (the tracks are delayed to the Ceiling's timing).
+        let step = 40 * FPT + 72;
+        assert!(peak(&left[step - 64..step]) > 0.05, "sound before the step");
+        assert_eq!(peak(&left[step..step + 400]), 0.0, "silence after it");
+    }
+}
+
+/// Where the Ceilings of a [`strip_render`] sit.
+#[derive(Clone, Copy, Debug)]
+enum Ceilings {
+    Track,
+    Master,
+    Both,
+}
+
+/// One tone track, centred, the strip's lanes and a scheduled mute on the track (or on the
+/// master, `master`), a Ceiling of `lookahead` seconds where `ceilings` says, or no Ceiling;
+/// played from 0, rendered in blocks of `block`.
+fn strip_render(
+    lookahead: Option<f32>,
+    ceilings: Ceilings,
+    master: bool,
+    block: usize,
+) -> (Vec<f32>, Vec<f32>) {
+    let mut rig = Rig::sized(48_000.0, 512);
+    rig.transport();
+    let mut msgs = tone_track(t(0), 0.0);
+    let on = if master { TrackSlot::MASTER } else { t(0) };
+    let mut count = 0;
+    if let Some(la) = lookahead {
+        let params = [(CEILING, 0.0), (LOOKAHEAD, la)];
+        if matches!(ceilings, Ceilings::Track | Ceilings::Both) {
+            msgs.push(ceiling_at(t(0), 1, &params));
+            count += 1;
+        }
+        if matches!(ceilings, Ceilings::Master | Ceilings::Both) {
+            msgs.push(ceiling_at(TrackSlot::MASTER, 0, &params));
+            count += 1;
+        }
+    }
+    rig.send(&msgs);
+    rig.run(8);
+    rig.send(&[
+        note_on(t(0)),
+        lane(0, on, AutomationTarget::MixerGain, &gain_points()),
+        lane(1, on, AutomationTarget::MixerPan, &pan_points()),
+    ]);
+    let mute = |tick: i64, value: f32| ScheduledParam {
+        tick: Tick(tick),
+        device: MIXER_SLOT,
+        id: MUTE,
+        value,
+    };
+    let schedule = Box::new(
+        Schedule::try_new(&[], &[mute(140, 1.0), mute(155, 0.0)], SCHEDULE_FIRST_VOICE).unwrap(),
+    );
+    let old = if master {
+        rig.e.state_mut().set_master_schedule(Some(schedule))
+    } else {
+        rig.e
+            .state_mut()
+            .track_mut(t(0))
+            .unwrap()
+            .graph
+            .set_schedule(Some(schedule))
+    };
+    drop(old);
+    rig.run(4);
+    rig.send(&[M::Play { from: Tick(0) }]);
+    let out = rig.run_frames(200 * FPT, block);
+    let expected = match lookahead {
+        Some(la) => count * ceiling::lookahead_frames(la, 48_000.0),
+        None => 0,
+    };
+    assert_eq!(rig.latency(), expected);
+    out
+}
+
+#[test]
+fn the_strip_behind_a_ceiling_gives_the_same_signal_as_without_its_latency_one_latency_later() {
+    // The track's lanes behind the track's Ceiling; the master's behind the master's, behind
+    // the track's (the sum reaches the master that late), behind both.
+    for (ceilings, master, n) in [
+        (Ceilings::Track, false, 72),
+        (Ceilings::Master, true, 72),
+        (Ceilings::Track, true, 72),
+        (Ceilings::Both, true, 144),
+        (Ceilings::Both, false, 144),
+    ] {
+        for block in [BLOCK, 97, 1, 512] {
+            let what = format!(
+                "{} lanes, Ceiling on {ceilings:?}",
+                if master { "master" } else { "track" }
+            );
+            let none = strip_render(None, ceilings, master, block);
+            let plain = strip_render(Some(0.0), ceilings, master, block);
+            let latent = strip_render(Some(0.0015), ceilings, master, block);
+            assert!(peak(&none.0) > 0.05, "the tone sounds");
+            // A Ceiling without latency below its ceiling is transparent, through the
+            // strip's delayed path as through the direct one.
+            assert_eq!(mismatch(&none.0, &plain.0), 0.0, "{what}, block {block}");
+            assert_eq!(mismatch(&none.1, &plain.1), 0.0, "{what}, block {block}");
+            // With `n` frames of latency: the same signal, `n` frames later, to the sample.
+            let len = plain.0.len() - n;
+            let off_l = mismatch(&latent.0[n..], &plain.0[..len]);
+            let off_r = mismatch(&latent.1[n..], &plain.1[..len]);
+            println!(
+                "{what}, block {block}: gain and pan lanes and a scheduled mute behind {n} frames \
+                 of latency, shifted back: left off by {off_l:e}, right by {off_r:e}"
+            );
+            assert_eq!(off_l, 0.0, "{what}, block {block}");
+            assert_eq!(off_r, 0.0, "{what}, block {block}");
+        }
+    }
+}
+
+#[test]
+fn a_track_removed_behind_a_ceiling_ends_its_fade_without_a_cut() {
+    // The right track's strip fades it out, 72 frames late with its sound: the track is handed
+    // back only once that delayed fade ended, not 72 frames before.
+    let mut rig = Rig::new(48_000.0);
+    pair(&mut rig, &[ceiling_at(t(1), 1, &[(CEILING, 0.0)])]);
+    let (_, before) = rig.run(20);
+    rig.send(&[M::TrackRemove { track: t(1) }]);
+    let (_, after) = rig.run(10);
+    let steady = max_step(&before[before.len() - 4 * BLOCK..]);
+    let mut joined = before[before.len() - BLOCK..].to_vec();
+    joined.extend_from_slice(&after);
+    let step = max_step(&joined);
+    let bound = crossfade_bound(steady, peak(&before));
+    println!(
+        "track removed behind a Ceiling: largest step {step} (steady {steady}, bound {bound})"
+    );
+    assert!(step <= bound, "a step of {step}, bound {bound}");
+    let fade = fade_frames(48_000.0) as usize;
+    assert!(
+        peak(&after[fade..fade + 64]) > 0.0,
+        "its delayed fade still sounds"
+    );
+    assert_eq!(peak(&after[fade + 72 + BLOCK..]), 0.0, "then nothing");
+}
+
+#[test]
+fn a_track_muted_behind_a_ceiling_is_not_moved_at_once_while_its_delayed_fade_sounds() {
+    // The right track behind a Ceiling of 72 frames, the left one behind a test delay of no
+    // latency (delayed by 72). The right one is muted; two blocks later (its strip silent, its
+    // delayed fade not over), the left delay grows to 240 frames at once: the right track's
+    // delay moves from 0 to 168 by a crossfade, not at once over its fade's last frames.
+    let mut rig = Rig::new(48_000.0);
+    pair(
+        &mut rig,
+        &[delay_at(t(0), 1, 0), ceiling_at(t(1), 1, &[(CEILING, 0.0)])],
+    );
+    let (_, before) = rig.run(20);
+    assert_eq!(rig.latency(), 72);
+    rig.send(&[M::TrackSetMix {
+        track: t(1),
+        gain: 1.0,
+        pan: 1.0,
+        mute: true,
+    }]);
+    let (_, muted) = rig.run(2);
+    rig.send(&[param(t(0), 1, delay::FRAMES, 240.0)]);
+    let (_, after) = rig.run(10);
+    assert_eq!(rig.latency(), 240);
+    let steady = max_step(&before[before.len() - 4 * BLOCK..]);
+    let mut joined = before[before.len() - BLOCK..].to_vec();
+    joined.extend_from_slice(&muted);
+    joined.extend_from_slice(&after);
+    let step = max_step(&joined);
+    let bound = crossfade_bound(steady, peak(&before));
+    println!("muted track moved behind a Ceiling: largest step {step} (bound {bound})");
+    assert!(step <= bound, "a step of {step}, bound {bound}");
+}
+
+/// The pair with `setup`, the clock running, the same gain lane on both tracks (`points`) and
+/// a gain ramp on the master;
+/// `change` sent after 20 blocks. Both channels move without a step beyond the crossfade's
+/// bound (a lane without steps of its own), and are equal to the sample `settle` blocks after
+/// the change (from the change on when `settle` is 0).
+fn lanes_move_cleanly(
+    name: &str,
+    points: &[AutomationPoint],
+    setup: &[M],
+    change: &[M],
+    settle: usize,
+    latency: u32,
+) {
+    let mut rig = Rig::new(48_000.0);
+    rig.transport();
+    pair(&mut rig, setup);
+    rig.send(&[
+        lane(0, t(0), AutomationTarget::MixerGain, points),
+        lane(1, t(1), AutomationTarget::MixerGain, points),
+        // The master's strip waits for the tracks' timing, which the change moves.
+        lane(
+            2,
+            TrackSlot::MASTER,
+            AutomationTarget::MixerGain,
+            &ramp_points(),
+        ),
+    ]);
+    rig.run(4);
+    rig.send(&[M::Play { from: Tick(0) }]);
+    let (bl, br) = rig.run(20);
+    rig.send(change);
+    let (al, ar) = rig.run(settle + 20);
+    assert_eq!(rig.latency(), latency, "{name}");
+    let smooth = points
+        .iter()
+        .all(|p| p.curve == Curve::Linear || p == points.last().unwrap());
+    for (side, before, after) in [("left", &bl, &al), ("right", &br, &ar)] {
+        if !smooth {
+            break;
+        }
+        let steady = max_step(&before[before.len() - 8 * BLOCK..]);
+        let mut joined = before[before.len() - BLOCK..].to_vec();
+        joined.extend_from_slice(after);
+        let step = max_step(&joined);
+        let bound = crossfade_bound(steady, peak(before));
+        println!("{name}, {side}: largest step {step} (steady {steady}, bound {bound})");
+        assert!(
+            step <= bound,
+            "{name}, {side}: a step of {step}, bound {bound}"
+        );
+    }
+    let tail = settle * BLOCK;
+    let off = mismatch(&al[tail..], &ar[tail..]);
+    assert_eq!(off, 0.0, "{name}: the lanes land together");
+}
+
+/// A slow gain ramp, no step: what a move must not break.
+fn ramp_points() -> Vec<AutomationPoint> {
+    vec![pt(0, 0.0, Curve::Linear), pt(400, -12.0, Curve::Step)]
+}
+
+#[test]
+fn a_latent_device_changing_while_a_lane_plays_keeps_the_lane_on_its_sound() {
+    let ceiling = || ceiling_at(t(1), 1, &[(CEILING, 0.0)]);
+    // The chain gains, then loses its first device with a latency: the strip goes from the
+    // direct path to the delayed one and back.
+    lanes_move_cleanly("inserted", &ramp_points(), &[], &[ceiling()], 10, 72);
+    lanes_move_cleanly(
+        "removed",
+        &ramp_points(),
+        &[ceiling()],
+        &[remove(t(1), 1)],
+        10,
+        0,
+    );
+    lanes_move_cleanly(
+        "look-ahead 1.5 to 5 ms",
+        &ramp_points(),
+        &[ceiling()],
+        &[param(t(1), 1, ParamId(LOOKAHEAD), 0.005)],
+        40,
+        240,
+    );
+    lanes_move_cleanly(
+        "replaced in its slot",
+        &ramp_points(),
+        &[ceiling()],
+        &[ceiling()],
+        30,
+        72,
+    );
+    let bypassed = [ceiling(), enabled(t(1), 1, false)];
+    lanes_move_cleanly(
+        "bypassed, removed",
+        &ramp_points(),
+        &bypassed,
+        &[remove(t(1), 1)],
+        10,
+        0,
+    );
+    lanes_move_cleanly(
+        "bypassed, replaced in its slot",
+        &ramp_points(),
+        &bypassed,
+        &[ceiling(), enabled(t(1), 1, false)],
+        0,
+        72,
+    );
+    // A bypass and back keeps the latency: the steps of the lane land together all along.
+    lanes_move_cleanly(
+        "bypassed",
+        &gain_points(),
+        &[ceiling()],
+        &[enabled(t(1), 1, false)],
+        0,
+        72,
+    );
+    lanes_move_cleanly(
+        "switched back on",
+        &gain_points(),
+        &bypassed,
+        &[enabled(t(1), 1, true)],
+        0,
+        72,
+    );
+}
+
+#[test]
+fn a_latent_device_removed_while_its_track_fades_out_leaves_no_step() {
+    // The track is muted; one block later, while its delayed fade sounds, its Ceiling leaves:
+    // the sound's timing moves from 72 frames to none over the outgoing fade, and the strip's
+    // levels with it. A strip that dropped its delay at once would jump by 72 frames of the
+    // mute's fade (about 0.3 of the level).
+    // After the removal, blocks of 128 frames, and of 512: the device's fade then ends within
+    // the first block, its strip line must still run its crossfade there.
+    for (ceiling, block) in [
+        (vec![ceiling_at(t(1), 1, &[(CEILING, 0.0)])], BLOCK),
+        (vec![ceiling_at(t(1), 1, &[(CEILING, 0.0)])], 512),
+        (
+            vec![
+                ceiling_at(t(1), 1, &[(CEILING, 0.0)]),
+                enabled(t(1), 1, false),
+            ],
+            BLOCK,
+        ),
+        (
+            vec![
+                ceiling_at(t(1), 1, &[(CEILING, 0.0)]),
+                enabled(t(1), 1, false),
+            ],
+            512,
+        ),
+    ] {
+        let mut rig = Rig::sized(48_000.0, 512);
+        pair(&mut rig, &ceiling);
+        let (_, before) = rig.run(20);
+        rig.send(&[M::TrackSetMix {
+            track: t(1),
+            gain: 1.0,
+            pan: 1.0,
+            mute: true,
+        }]);
+        let (_, fading) = rig.run(1);
+        rig.send(&[remove(t(1), 1)]);
+        let (_, after) = rig.run_frames(10 * BLOCK, block);
+        let steady = max_step(&before[before.len() - 4 * BLOCK..]);
+        let mut joined = before[before.len() - BLOCK..].to_vec();
+        joined.extend_from_slice(&fading);
+        joined.extend_from_slice(&after);
+        let step = max_step(&joined);
+        // Two fades at once (the mute's and the timing's): twice the bound of one.
+        let bound = crossfade_bound(steady, 2.0 * peak(&before));
+        println!(
+            "removed during a mute's fade, blocks of {block}: largest step {step} (steady {steady}, \
+             bound {bound})"
+        );
+        assert!(step <= bound, "a step of {step}, bound {bound}");
+        assert_eq!(peak(&after[after.len() - 4 * BLOCK..]), 0.0, "muted");
+    }
+}
+
+#[test]
+fn the_master_strip_holds_no_stale_level_when_the_tracks_latency_comes_back() {
+    // A Ceiling on the track (T = 72), removed (T = 0, the master's line idle), then the
+    // master's lane steps to silence and a Ceiling comes back during it: the master's line
+    // waits for fresh levels, the silence stays silent (a line that kept its old levels would
+    // let 72 frames of the old 0 dB through).
+    let mut rig = Rig::new(48_000.0);
+    rig.transport();
+    let mut msgs = tone_track(t(0), 0.0);
+    msgs.push(ceiling_at(t(0), 1, &[(CEILING, 0.0)]));
+    rig.send(&msgs);
+    rig.run(8);
+    rig.send(&[
+        note_on(t(0)),
+        lane(
+            0,
+            TrackSlot::MASTER,
+            AutomationTarget::MixerGain,
+            &[pt(0, 0.0, Curve::Step), pt(200, -96.0, Curve::Step)],
+        ),
+    ]);
+    rig.run(4);
+    rig.send(&[M::Play { from: Tick(0) }]);
+    rig.run(20);
+    assert_eq!(rig.latency(), 72);
+    rig.send(&[remove(t(0), 1)]);
+    rig.run(10);
+    assert_eq!(rig.latency(), 0);
+    // Tick 200 is frame 5 000 of the clock: block 40 from the play. Past it, silence.
+    let (before, _) = rig.run(15);
+    assert!(
+        peak(&before[..4 * BLOCK]) > 0.05,
+        "the tone sounds before the step"
+    );
+    assert_eq!(
+        peak(&before[12 * BLOCK..]),
+        0.0,
+        "the master's step to silence"
+    );
+    rig.send(&[ceiling_at(t(0), 1, &[(CEILING, 0.0)])]);
+    let (after, _) = rig.run(20);
+    assert_eq!(rig.latency(), 72);
+    println!(
+        "Ceiling back during the master's silence: peak {}",
+        peak(&after)
+    );
+    assert_eq!(peak(&after), 0.0, "no stale level of the master's line");
 }

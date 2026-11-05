@@ -10,9 +10,10 @@ use engine::OSC_SYNTH;
 use engine::devices::ceiling as lim;
 use engine::engine::cycle::Cycle;
 use engine::msg::{
-    ControlMsg as M, DeviceSlot, ParamId, TrackKind, TrackSlot, encode_state, encode_stream,
+    AutomationPoint, AutomationTarget, ControlMsg as M, Curve, DeviceSlot, LaneSlot, ParamId,
+    TrackKind, TrackSlot, encode_state, encode_stream,
 };
-use engine::time::{Quantize, Tempo, TimeSignature};
+use engine::time::{Quantize, Tempo, Tick, TimeSignature};
 use std::path::PathBuf;
 use std::process::Command;
 use wasmi::{Engine, Linker, Memory, Module, Store, TypedFunc};
@@ -266,10 +267,277 @@ fn misalignment(blocks: &Blocks) -> f32 {
         .fold(0f32, f32::max)
 }
 
+/// The strip behind a latent chain (#758): the pair, the right track through a Ceiling and a
+/// Ceiling on the master, the same gain lane (steps to silence and back, a ramp) on both
+/// tracks and a gain lane on the master, played from 0: the two channels are equal to the
+/// sample all along (the right track's lane lands on its delayed sound).
+fn strip_scenario() -> Vec<Step> {
+    let epoch = 1;
+    let mut seq = 0u32;
+    let mut steps = Vec::new();
+    let mut submit = |msgs: &[M], steps: &mut Vec<Step>| {
+        steps.push(Step::Submit(encode_stream(epoch, seq, msgs).unwrap()));
+        seq = seq.wrapping_add(msgs.len() as u32);
+    };
+    let (a, b) = (TrackSlot(0), TrackSlot(1));
+    let pt = |tick: i64, value: f32, curve: Curve| AutomationPoint {
+        tick: Tick(tick),
+        value,
+        curve,
+    };
+    let gain = [
+        pt(0, 0.0, Curve::Step),
+        pt(40, -96.0, Curve::Step),
+        pt(60, -6.0, Curve::Linear),
+        pt(100, -30.0, Curve::Step),
+        pt(120, 0.0, Curve::Step),
+        pt(170, -12.0, Curve::Step),
+    ];
+    let master = [
+        pt(0, 0.0, Curve::Step),
+        pt(30, -6.0, Curve::Linear),
+        pt(90, -20.0, Curve::Step),
+        pt(150, -3.0, Curve::Step),
+    ];
+    let lane = |lane: u32, track: TrackSlot, points: &[AutomationPoint]| M::AutomationLaneUpload {
+        lane: LaneSlot(lane),
+        track,
+        target: AutomationTarget::MixerGain,
+        first: 0,
+        total: points.len() as u32,
+        points: points.to_vec(),
+    };
+    let mut setup = vec![
+        M::Reset { epoch },
+        M::SetTransport {
+            tempo: Tempo::new(120.0).unwrap(),
+            signature: TimeSignature::default(),
+            launch_quantize: Quantize::default(),
+        },
+    ];
+    for (track, pan) in [(a, -1.0), (b, 1.0)] {
+        setup.push(M::TrackCreate {
+            track,
+            kind: TrackKind::Midi,
+        });
+        setup.push(M::TrackSetMix {
+            track,
+            gain: 1.0,
+            pan,
+            mute: false,
+        });
+        setup.push(M::DeviceInsert {
+            track,
+            device: DeviceSlot(0),
+            kind: OSC_SYNTH.kind_id,
+            state: encode_state(&[]),
+        });
+    }
+    setup.push(M::DeviceInsert {
+        track: b,
+        device: DeviceSlot(1),
+        kind: lim::DESCRIPTOR.kind_id,
+        state: encode_state(&[(ParamId(lim::CEILING), 0.0)]),
+    });
+    setup.push(M::DeviceInsert {
+        track: TrackSlot::MASTER,
+        device: DeviceSlot(0),
+        kind: lim::DESCRIPTOR.kind_id,
+        state: encode_state(&[(ParamId(lim::CEILING), 0.0)]),
+    });
+    submit(&setup, &mut steps);
+    steps.push(Step::Render(&[128; 8], false));
+    let note = |track: TrackSlot| M::NoteOn {
+        track,
+        pitch: 60,
+        velocity: 90,
+        at: None,
+    };
+    submit(
+        &[
+            note(a),
+            note(b),
+            lane(0, a, &gain),
+            lane(1, b, &gain),
+            lane(2, TrackSlot::MASTER, &master),
+        ],
+        &mut steps,
+    );
+    steps.push(Step::Render(&[128; 8], true));
+    submit(&[M::Play { from: Tick(0) }], &mut steps);
+    steps.push(Step::Render(&[128, 37, 2048, 1, 500, 97, 1024], true));
+    steps.push(Step::Render(&[128; 20], true));
+    steps
+}
+
+/// Criterion 3 of #758: one centred synth track through a Ceiling of `lookahead` seconds, a
+/// Ceiling of the same look-ahead on the master, a gain lane (steps to silence and back, a
+/// ramp) and a pan lane on the track and on the master, played from 0.
+fn shift_scenario(lookahead: f32) -> Vec<Step> {
+    let epoch = 1;
+    let mut seq = 0u32;
+    let mut steps = Vec::new();
+    let mut submit = |msgs: &[M], steps: &mut Vec<Step>| {
+        steps.push(Step::Submit(encode_stream(epoch, seq, msgs).unwrap()));
+        seq = seq.wrapping_add(msgs.len() as u32);
+    };
+    let a = TrackSlot(0);
+    let pt = |tick: i64, value: f32, curve: Curve| AutomationPoint {
+        tick: Tick(tick),
+        value,
+        curve,
+    };
+    let gain = [
+        pt(0, 0.0, Curve::Step),
+        pt(40, -96.0, Curve::Step),
+        pt(60, -6.0, Curve::Linear),
+        pt(100, -30.0, Curve::Step),
+        pt(120, 0.0, Curve::Step),
+        pt(170, -12.0, Curve::Step),
+    ];
+    let pan = [
+        pt(0, 0.0, Curve::Step),
+        pt(50, -0.7, Curve::Step),
+        pt(90, 0.5, Curve::Linear),
+        pt(130, 0.0, Curve::Step),
+    ];
+    let master_gain = [
+        pt(0, 0.0, Curve::Step),
+        pt(30, -6.0, Curve::Linear),
+        pt(90, -20.0, Curve::Step),
+        pt(150, -3.0, Curve::Step),
+    ];
+    let master_pan = [pt(0, 0.0, Curve::Step), pt(80, 0.6, Curve::Step)];
+    let lane =
+        |lane: u32, track: TrackSlot, target: AutomationTarget, points: &[AutomationPoint]| {
+            M::AutomationLaneUpload {
+                lane: LaneSlot(lane),
+                track,
+                target,
+                first: 0,
+                total: points.len() as u32,
+                points: points.to_vec(),
+            }
+        };
+    let ceiling = |track: TrackSlot, device: u16| M::DeviceInsert {
+        track,
+        device: DeviceSlot(device),
+        kind: lim::DESCRIPTOR.kind_id,
+        state: encode_state(&[
+            (ParamId(lim::CEILING), 0.0),
+            (ParamId(lim::LOOKAHEAD), lookahead),
+        ]),
+    };
+    submit(
+        &[
+            M::Reset { epoch },
+            M::SetTransport {
+                tempo: Tempo::new(120.0).unwrap(),
+                signature: TimeSignature::default(),
+                launch_quantize: Quantize::default(),
+            },
+            M::TrackCreate {
+                track: a,
+                kind: TrackKind::Midi,
+            },
+            M::DeviceInsert {
+                track: a,
+                device: DeviceSlot(0),
+                kind: OSC_SYNTH.kind_id,
+                state: encode_state(&[]),
+            },
+            ceiling(a, 1),
+            ceiling(TrackSlot::MASTER, 0),
+        ],
+        &mut steps,
+    );
+    steps.push(Step::Render(&[128; 8], false));
+    submit(
+        &[
+            M::NoteOn {
+                track: a,
+                pitch: 60,
+                velocity: 90,
+                at: None,
+            },
+            lane(0, a, AutomationTarget::MixerGain, &gain),
+            lane(1, a, AutomationTarget::MixerPan, &pan),
+            lane(
+                2,
+                TrackSlot::MASTER,
+                AutomationTarget::MixerGain,
+                &master_gain,
+            ),
+            lane(
+                3,
+                TrackSlot::MASTER,
+                AutomationTarget::MixerPan,
+                &master_pan,
+            ),
+        ],
+        &mut steps,
+    );
+    steps.push(Step::Render(&[128; 4], false));
+    submit(&[M::Play { from: Tick(0) }], &mut steps);
+    steps.push(Step::Render(
+        &[128, 37, 2048, 1, 500, 97, 1024, 128, 128],
+        false,
+    ));
+    steps
+}
+
 #[test]
 fn the_compensation_renders_the_same_in_native_and_wasm() {
-    let steps = scenario();
-    let native = render_native(&steps);
+    check_parity(&scenario());
+}
+
+#[test]
+fn the_strip_behind_a_latent_chain_renders_the_same_in_native_and_wasm() {
+    check_parity(&strip_scenario());
+}
+
+#[test]
+fn the_strip_behind_a_ceiling_is_its_render_without_latency_one_latency_later_in_both_builds() {
+    let latent = check_parity(&shift_scenario(0.0015));
+    let plain = check_parity(&shift_scenario(0.0));
+    // 72 frames on the track, 72 on the master.
+    let n = 2 * lim::lookahead_frames(0.0015, RATE) as usize;
+    assert_eq!(n, 144);
+    for (build, latent, plain) in [
+        ("native", &latent.0, &plain.0),
+        ("wasm", &latent.1, &plain.1),
+    ] {
+        let (ll, lr) = flatten(latent);
+        let (pl, pr) = flatten(plain);
+        let len = pl.len() - n;
+        let off =
+            |a: &[f32], b: &[f32]| a.iter().zip(b).fold(0f32, |m, (x, y)| m.max((x - y).abs()));
+        let (off_l, off_r) = (off(&ll[n..], &pl[..len]), off(&lr[n..], &pr[..len]));
+        println!(
+            "{build}: behind 144 frames, shifted back: left off by {off_l:e}, right by {off_r:e}"
+        );
+        assert_eq!(off_l, 0.0, "{build}");
+        assert_eq!(off_r, 0.0, "{build}");
+    }
+}
+
+/// Both channels of every block, end to end.
+fn flatten(blocks: &Blocks) -> (Vec<f32>, Vec<f32>) {
+    let left = blocks
+        .iter()
+        .flat_map(|(l, _, _)| l.iter().copied())
+        .collect();
+    let right = blocks
+        .iter()
+        .flat_map(|(_, r, _)| r.iter().copied())
+        .collect();
+    (left, right)
+}
+
+/// Renders `steps` natively and in the `.wasm`, checks both against each other (and the blocks
+/// that ask it aligned), and returns both renders.
+fn check_parity(steps: &[Step]) -> (Blocks, Blocks) {
+    let native = render_native(steps);
     let peak = native
         .iter()
         .flat_map(|(l, _, _)| l)
@@ -280,7 +548,7 @@ fn the_compensation_renders_the_same_in_native_and_wasm() {
     let bytes = std::fs::read(build_wasm()).expect("the wasm module exists");
     let mut wasm = Wasm::new(&bytes);
     let mut out: Blocks = Vec::new();
-    for step in &steps {
+    for step in steps {
         match step {
             Step::Submit(stream) => assert_eq!(wasm.submit(stream), 0, "accepted"),
             Step::Render(sizes, aligned) => {
@@ -305,4 +573,5 @@ fn the_compensation_renders_the_same_in_native_and_wasm() {
         }
     }
     println!("{samples} samples, largest difference {worst:e}");
+    (native, out)
 }

@@ -16,7 +16,11 @@
 //! A [`Latent`] wraps a device with a latency and holds its [`Bypass`]: a [`Delay`] the
 //! graph feeds with the signal entering the device's slot and reads at the device's latency,
 //! so that a bypassed device keeps its latency and its fades blend two signals of one timing
-//! ([`crate::graph`] > Latency).
+//! ([`crate::graph`] > Latency). The [`Bypass`] holds a second line of the same size, its
+//! `strip`: the levels of the strip after the chain (gate × gain × pan, one pair per frame),
+//! delayed as the slot's sound is, so that a timed gain, pan or mute lands on the sound it
+//! belongs to (#758). It [`Delay::follow`]s the bypass line: whether a longer tap may start
+//! depends on a line's content, and only the line of sound knows what its slot gives.
 //!
 //! The [`Compensation`] ring delays the tracks: a track `D` frames early adds its sample of
 //! block frame `i` at `i + D` ahead of the ring's read point, and the graph takes the block's
@@ -63,6 +67,30 @@ pub struct Delay {
     from: u32,
     /// The crossfade's progress toward `tap`, in `[0, 1]`; 1 when no crossfade is under way.
     g: f32,
+    /// How the line read its last block: what a line following it replays (#758).
+    last: Timing,
+}
+
+/// How a [`Delay`] read a block (#758): its taps and its crossfade's progress at the block's
+/// start, once it decided whether to start a crossfade, and whether it passed the block
+/// through. A line that [`Delay::follow`]s another one reads the same frames at the same taps
+/// with the same crossfade, whatever its own content.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Timing {
+    tap: u32,
+    from: u32,
+    g: f32,
+    pass: bool,
+}
+
+impl Timing {
+    /// A pass-through: no delay, nothing kept.
+    pub const PASS: Timing = Timing {
+        tap: 0,
+        from: 0,
+        g: 1.0,
+        pass: true,
+    };
 }
 
 impl Delay {
@@ -81,6 +109,7 @@ impl Delay {
             tap: tap.min(max),
             from: tap.min(max),
             g: 1.0,
+            last: Timing::PASS,
         })
     }
 
@@ -134,6 +163,7 @@ impl Delay {
         self.tap = other.tap;
         self.from = other.from;
         self.g = other.g;
+        self.last = other.last;
         true
     }
 
@@ -158,7 +188,6 @@ impl Delay {
     /// Delays `left` and `right` in place toward the tap `target` (bounded to
     /// [`Delay::max_tap`]), a crossfade lasting `fade` frames (at least 1).
     pub fn process(&mut self, left: &mut [f32], right: &mut [f32], target: u32, fade: u32) {
-        let frames = left.len().min(right.len());
         let target = target.min(self.max_tap());
         if !self.busy() {
             // Only silence within reach of the tap: what is older than that silence counts as
@@ -173,12 +202,52 @@ impl Delay {
                 self.g = 0.0;
             }
         }
-        if !self.crossfading() && self.tap == 0 && target == 0 {
-            // A pass-through: nothing to keep (a later tap waits for the line to fill, which
-            // it does while that tap is asked for).
+        // A pass-through: nothing to keep (a later tap waits for the line to fill, which it
+        // does while that tap is asked for).
+        let pass = !self.crossfading() && self.tap == 0 && target == 0;
+        self.last = Timing {
+            tap: self.tap,
+            from: self.from,
+            g: self.g,
+            pass,
+        };
+        if pass {
             self.clear();
             return;
         }
+        self.run(left, right, fade);
+    }
+
+    /// How the line read its last block ([`Delay::follow`]).
+    pub fn timing(&self) -> Timing {
+        self.last
+    }
+
+    /// Delays `left` and `right` in place exactly as the line that read its last block with
+    /// `timing` did (#758): the same taps and the same crossfade over the same frames, with no
+    /// decision of its own (a line of levels following a line of sound, whose content decides
+    /// when a longer tap can start). A tap beyond what this line holds reads 0, as ever; a line
+    /// fed every block its leader is fed, and cleared no more often, holds at least as much.
+    pub fn follow(&mut self, left: &mut [f32], right: &mut [f32], timing: Timing, fade: u32) {
+        let max = self.max_tap();
+        self.tap = timing.tap.min(max);
+        self.from = timing.from.min(max);
+        self.g = if timing.g.is_finite() {
+            timing.g.clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        self.last = timing;
+        if timing.pass {
+            self.clear();
+            return;
+        }
+        self.run(left, right, fade);
+    }
+
+    /// Writes a block into the line and reads it back at the taps (the crossfade advancing).
+    fn run(&mut self, left: &mut [f32], right: &mut [f32], fade: u32) {
+        let frames = left.len().min(right.len());
         let step = 1.0 / fade.max(1) as f32;
         let (mask, tap, from) = (self.mask, self.tap, self.from);
         for i in 0..frames {
@@ -222,6 +291,9 @@ impl Delay {
 pub struct Bypass {
     /// The signal entering the slot, read at the device's latency.
     pub(crate) line: Delay,
+    /// The levels of the strip after the chain, read at the device's part of the chain's
+    /// latency (#758, [`crate::graph`] > Latency): fed by the graph, never by the device.
+    pub(crate) strip: Delay,
     /// The device was last heard settled off (its fade at 0): its slot gives the line, and an
     /// outgoing one fades the line out, not the device.
     pub(crate) off: bool,
@@ -238,6 +310,11 @@ impl Bypass {
     /// The line (tests).
     pub fn line(&self) -> &Delay {
         &self.line
+    }
+
+    /// The strip's line (tests).
+    pub fn strip(&self) -> &Delay {
+        &self.strip
     }
 }
 
@@ -275,6 +352,7 @@ impl Latent {
             inner: device,
             bypass: Bypass {
                 line: Delay::try_new(max, 0)?,
+                strip: Delay::try_new(max, 0)?,
                 off: true,
                 warm: 0,
                 mix: 0.0,
@@ -283,11 +361,11 @@ impl Latent {
         Ok(latent)
     }
 
-    /// Bytes a wrapped device of at most `max_latency` frames adds to its own (the wrapper and
-    /// its line): what a device with a latency counts in its
+    /// Bytes a wrapped device of at most `max_latency` frames adds to its own (the wrapper, its
+    /// bypass line and its strip line): what a device with a latency counts in its
     /// [`DeviceDescriptor::memory_bytes`].
     pub const fn bytes_for(max_latency: u32) -> u64 {
-        size_of::<Latent>() as u64 + Delay::bytes_for(max_latency)
+        size_of::<Latent>() as u64 + 2 * Delay::bytes_for(max_latency)
     }
 }
 
@@ -589,6 +667,58 @@ mod tests {
         d.process(&mut l, &mut r, 20, 8);
         assert_eq!(d.tap(), 20);
         assert!(l.iter().all(|&s| (s - 1.0).abs() < 1e-6), "{l:?}");
+    }
+
+    #[test]
+    fn a_line_that_follows_another_reads_at_its_taps_whatever_its_own_content() {
+        // The leader carries sound with silences (its content makes a longer tap wait); the
+        // follower carries a constant level, which alone would never wait. Block by block the
+        // follower reads at the leader's taps with the leader's crossfade: fed the leader's
+        // own sound it gives the leader's output, sample for sample.
+        let mut leader = Delay::try_new(64, 0).unwrap();
+        let mut twin = Delay::try_new(64, 0).unwrap();
+        let mut level = Delay::try_new(64, 0).unwrap();
+        let mut alone = Delay::try_new(64, 0).unwrap();
+        let mut differ = false;
+        for block in 0..40usize {
+            let sound: Vec<f32> = (0..8)
+                .map(|i| {
+                    if block % 4 == 1 {
+                        0.0
+                    } else {
+                        (block * 8 + i) as f32
+                    }
+                })
+                .collect();
+            let target = match block {
+                0..10 => 0,
+                10..25 => 30,
+                _ => 12,
+            };
+            let (mut l, mut r) = (sound.clone(), sound.clone());
+            leader.process(&mut l, &mut r, target, 6);
+            let timing = leader.timing();
+            let (mut tl, mut tr) = (sound.clone(), sound.clone());
+            twin.follow(&mut tl, &mut tr, timing, 6);
+            assert_eq!(tl, l, "block {block}: the twin gives the leader's output");
+            assert_eq!(tr, r);
+            let (mut ll, mut lr) = (vec![1.0; 8], vec![1.0; 8]);
+            level.follow(&mut ll, &mut lr, timing, 6);
+            assert_eq!(level.tap(), leader.tap(), "block {block}");
+            assert_eq!(level.crossfading(), leader.crossfading(), "block {block}");
+            let (mut al, mut ar) = (vec![1.0; 8], vec![1.0; 8]);
+            alone.process(&mut al, &mut ar, target, 6);
+            differ |= alone.tap() != leader.tap();
+        }
+        assert!(
+            differ,
+            "the control: on its own content the level line moves elsewhen"
+        );
+        let mut pass = Delay::try_new(64, 0).unwrap();
+        let (mut l, mut r) = (vec![1.0; 8], vec![1.0; 8]);
+        pass.follow(&mut l, &mut r, Timing::PASS, 6);
+        assert_eq!(l, vec![1.0; 8], "a pass-through");
+        assert!(!pass.busy());
     }
 
     #[test]

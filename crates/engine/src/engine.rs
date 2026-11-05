@@ -2804,12 +2804,17 @@ impl Engine {
                             if let Some(entry) = device_mut(state, track, device) {
                                 entry.fade = if audible && fades(entry) { 0.0 } else { 1.0 };
                                 // A device put in the place of one with the same line takes its
-                                // line: the slot keeps its timing (#749).
+                                // line: the slot keeps its timing (#749). It takes the strip's
+                                // levels that wait for its sound too, and the old one leaves
+                                // without them: the timing stays in the chain, an outgoing
+                                // strip line would delay the strip a second time (#758).
                                 if let Some(old) = spare.item.as_deref_mut()
                                     && let Some(from) = old.device.bypass()
                                     && let Some(to) = entry.device.bypass()
+                                    && to.line.copy_from(&from.line)
+                                    && to.strip.copy_from(&from.strip)
                                 {
-                                    to.line.copy_from(&from.line);
+                                    from.strip.restart(0);
                                 }
                             }
                             if let Some(old) = spare.item.take() {
