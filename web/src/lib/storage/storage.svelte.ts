@@ -306,8 +306,6 @@ export class ProjectStorage {
   private current: Attached | null = null
   /** Stops the export under way, if any. */
   private exportAbort: AbortController | null = null
-  /** An export is under way, from the click on: the file dialog and the preparation included. */
-  private exportBusy = false
   /** The imports asked for and not over (#682): `cancelImport` stops them all. */
   // eslint-disable-next-line svelte/prefer-svelte-reactivity -- never read by the interface
   private readonly importAborts = new Set<AbortController>()
@@ -1451,9 +1449,11 @@ export class ProjectStorage {
     'permission' | 'full' | 'error' | 'external' | 'reopen' | 'warning' | 'notice' | 'exporting' | 'importing' | 'downloading' | 'downloadFailed' | null {
     if (this.block) return this.block
     // A pack being written (#617) or read (#682), then a pack opened by its link (#497): the download under way, then why it failed.
-    if (this.exporting !== null) return 'exporting'
+    // An import or a download first: an export clicked meanwhile waits for the queue they hold, and the banner of the
+    // one at work keeps its Cancel (#737). The export's own banner shows once they are over.
     if (this.importing !== null) return 'importing'
     if (this.downloading) return 'downloading'
+    if (this.exporting !== null) return 'exporting'
     if (this.downloadFailed) return 'downloadFailed'
     if (this.notice) return 'notice'
     if (this.reopen) return 'reopen'
@@ -1619,14 +1619,17 @@ export class ProjectStorage {
    * where the browser has no such dialog, to a download.
    */
   async exportPack(): Promise<boolean> {
-    // One at a time, from the click to the end: the file dialog is part of it.
-    if (this.exportBusy) return false
-    this.exportBusy = true
+    // One at a time, from the click to the end: the file dialog is part of it. `exporting` says one is under way.
+    if (this.exporting !== null) return false
     // A cancel counts from the click on: during the dialog and the preparation too. So does the banner, which offers
     // it: shown before the first wait, it is gone only once this call is over (#737).
     const abort = new AbortController()
     this.exportAbort = abort
     this.exporting = 0
+    // A cancel ends the wait for the queue at once (a long save or import may hold it); the queued step then does nothing.
+    const cancelled = abort.signal.aborted
+      ? Promise.resolve('cancelled' as const)
+      : new Promise<'cancelled'>((resolve) => abort.signal.addEventListener('abort', () => resolve('cancelled'), { once: true }))
     try {
       // The place of the pack first, before anything waits (the queue, a store): the browser opens its file
       // dialog only for a call that follows a click closely.
@@ -1636,10 +1639,14 @@ export class ProjectStorage {
         this.notice = 'pack.noRoom'
         return false
       }
-      const prepared = await this.enqueue(() => this.prepareExport())
-      if (!prepared || abort.signal.aborted) {
+      const prepared = await Promise.race([this.enqueue(() => (abort.signal.aborted ? Promise.resolve(null) : this.prepareExport())), cancelled])
+      if (prepared === 'cancelled' || abort.signal.aborted) {
         await target.abort().catch(() => undefined)
-        if (prepared) this.notice = 'pack.exportCancelled'
+        this.notice = 'pack.exportCancelled'
+        return false
+      }
+      if (!prepared) {
+        await target.abort().catch(() => undefined)
         return false
       }
       // Outside the queue: a long export never holds a save back.
@@ -1647,7 +1654,6 @@ export class ProjectStorage {
     } finally {
       // After `writePack`, which closes the file (or aborts it) before it returns.
       this.exporting = null
-      this.exportBusy = false
       this.exportAbort = null
     }
   }

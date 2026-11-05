@@ -45,8 +45,9 @@ const hooks = (page: Page) => page.evaluate(() => typeof (window as unknown as {
 async function chooseOutput(page: Page, delay: number, answer = 0) {
   await page.evaluate(
     ([pause, wait]) => {
-      const w = window as unknown as { showSaveFilePicker: unknown; __peakHeap: number; __saved: string[] }
+      const w = window as unknown as { showSaveFilePicker: unknown; __peakHeap: number; __saved: string[]; __written: number }
       w.__saved = []
+      w.__written = 0
       w.showSaveFilePicker = async (options: { suggestedName: string }) => {
         w.__saved.push(options.suggestedName)
         const root = await navigator.storage.getDirectory()
@@ -58,6 +59,7 @@ async function chooseOutput(page: Page, delay: number, answer = 0) {
             write: async (chunk: Uint8Array) => {
               if (pause) await new Promise((resolve) => setTimeout(resolve, pause))
               await real.write(chunk as Uint8Array<ArrayBuffer>)
+              w.__written++
             },
             close: () => real.close(),
             abort: () => real.abort(),
@@ -156,6 +158,8 @@ test('a project with 90 MiB of audio is exported to a chosen file in a stream, a
   await page.getByTestId('project-menu').click()
   await page.getByTestId('menu-export-pack').click()
   await expect(page.getByTestId('export-banner')).toBeVisible({ timeout: 30_000 })
+  // The banner is up from the click: wait for a written piece, so that the cancel stops a write under way.
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __written: number }).__written), { timeout: 30_000 }).toBeGreaterThan(0)
   await page.getByTestId('export-cancel').click()
   await expect(page.getByTestId('storage-notice')).toContainText('Export cancelled', { timeout: 30_000 })
   const left = await page.evaluate(async () => {

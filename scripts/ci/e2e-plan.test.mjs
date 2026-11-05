@@ -54,7 +54,8 @@ test('a file of the store runs the streamed pack specs whole, @full included; ot
   assert.ok(store.specs.includes('project-store'))
   for (const n of store.changed) assert.ok(!store.specs.includes(n), n)
   assert.match(store.why, /@full specs for: web\/src\/lib\/storage\/storage\.svelte\.ts/)
-  // Not for a file outside the store, even one of the same area.
+  // Not for a unit test of the store (no browser test sees it), nor for a file outside the store, even one of the same area.
+  assert.equal(plan(['web/src/lib/storage/storage.test.ts']).run, false)
   for (const f of ['web/src/views/shell/StorageBanners.svelte', 'web/src/lib/project/core.ts', 'web/src/views/mixer/M.svelte']) {
     const p = plan([f])
     assert.ok(!p.changed.includes('pack-stream'), f)
@@ -64,6 +65,8 @@ test('a file of the store runs the streamed pack specs whole, @full included; ot
   const stale = planE2e(['web/src/lib/storage/rpc.ts'], without)
   assert.equal(stale.tier, 'all')
   assert.match(stale.why, /FULL_WHEN web\/src\/lib\/storage\/rpc\.ts -> pack-longtasks/)
+  // And it does not claim the selection it did not make.
+  assert.doesNotMatch(stale.why, /@full specs for/)
 })
 
 test('every rule is a verdict or a list of specs', () => {

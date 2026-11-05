@@ -2255,6 +2255,53 @@ describe('export a .faulkpack', () => {
     expect(w.storage.exporting).toBeNull()
   })
 
+  it('ends at once when cancelled while it waits for the queue, and the queued step then does nothing (#737)', async () => {
+    const { w, store } = await drafted()
+    store.bigMedia.set('blobs/big', 700 << 20)
+    w.host.bigSizes = true
+    w.saveFile = 'chosen'
+    let free!: () => void
+    const busy = (w.storage as unknown as { enqueue(task: () => Promise<void>): Promise<void> }).enqueue(() => new Promise<void>((resolve) => (free = resolve)))
+    const saves = w.host.saves.length
+    const done = w.storage.exportPack()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.saved).toHaveLength(1)
+    expect(w.storage.banner).toBe('exporting')
+    w.storage.cancelExport()
+    // Over before the queue frees: the file is dropped, the banner gone.
+    expect(await done).toBe(false)
+    expect(w.storage.notice).toBe('pack.exportCancelled')
+    expect(w.saved[0]!.aborted).toBe(true)
+    expect(w.storage.exporting).toBeNull()
+    free()
+    await busy
+    await vi.advanceTimersByTimeAsync(0)
+    // The step it had queued did not build a frame for nothing.
+    expect(w.host.saves.length).toBe(saves)
+    expect(w.host.exports).toEqual([])
+    expect(await w.storage.exportPack()).toBe(true)
+  })
+
+  it('leaves the banner to an import or a download at work, whose Cancel stays, and shows again once they are over (#737)', async () => {
+    const { w } = await drafted()
+    let free!: () => void
+    const busy = (w.storage as unknown as { enqueue(task: () => Promise<void>): Promise<void> }).enqueue(() => new Promise<void>((resolve) => (free = resolve)))
+    w.storage.importing = 0.3
+    const done = w.storage.exportPack()
+    expect(w.storage.exporting).toBe(0)
+    expect(w.storage.banner).toBe('importing')
+    w.storage.importing = null
+    w.storage.downloading = 'example.com'
+    expect(w.storage.banner).toBe('downloading')
+    w.storage.downloading = null
+    expect(w.storage.banner).toBe('exporting')
+    await vi.advanceTimersByTimeAsync(0)
+    free()
+    await busy
+    expect(await done).toBe(true)
+    expect(w.storage.banner).toBeNull()
+  })
+
   it('does not start a second export while one is under way', async () => {
     const { w, store } = await drafted()
     store.media.set('blobs/aa', text('media'))

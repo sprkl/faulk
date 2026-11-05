@@ -311,19 +311,6 @@ export function selectSpecs(files, existing) {
       continue
     }
     const [re, what] = rule
-    for (const [when, names] of FULL_WHEN) {
-      if (!when.test(f)) continue
-      for (const n of names) {
-        if (known.has(n)) {
-          picked.add(n)
-          changed.add(n)
-        } else {
-          all = true
-          why('missing', `FULL_WHEN ${f} -> ${n}`)
-        }
-      }
-      why('full', f)
-    }
     if (what === NONE) continue
     if (what === ALL) {
       all = true
@@ -334,6 +321,21 @@ export function selectSpecs(files, existing) {
       shared = true
       why('shared', f)
       continue
+    }
+    // After the verdicts: a file no browser test sees (a unit test of the store) never runs them.
+    for (const [when, names] of FULL_WHEN) {
+      if (!when.test(f)) continue
+      const missing = names.filter((n) => !known.has(n))
+      for (const n of missing) why('missing', `FULL_WHEN ${f} -> ${n}`)
+      if (missing.length) {
+        all = true
+        continue
+      }
+      for (const n of names) {
+        picked.add(n)
+        changed.add(n)
+      }
+      why('full', f)
     }
     const own = typeof what === 'function' // a spec file: its own selection
     const names = own ? what(re.exec(f)) : what
