@@ -657,7 +657,7 @@ fn a_report_is_copied_as_bytes_and_decodes_alike() {
     assert_eq!(decoded, read_feedback(session.host.feedback()).unwrap());
     // Truncated or of another version: nothing.
     assert!(engine::host::decode_feedback(&bytes[..bytes.len() - 1]).is_none());
-    bytes[0] = 10;
+    bytes[0] = engine::msg::FEEDBACK_VERSION + 1;
     assert!(engine::host::decode_feedback(&bytes).is_none());
     // Torn (odd seq): `false`, the buffer cleared of a half copy.
     let region = session.host.feedback();

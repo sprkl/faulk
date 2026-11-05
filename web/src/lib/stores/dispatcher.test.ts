@@ -365,7 +365,7 @@ describe('running commands through the project core', () => {
   it('shows the slots the engine holds the tracks in, again after each snapshot (the launch grid reads the engine by them)', async () => {
     const session = newSession()
     await session.dispatcher.start()
-    expect(session.project.view?.slots).toEqual({ epoch: 1, tracks: { [SINGLE_SYNTH.track]: 0 }, scenes: {} })
+    expect(session.project.view?.slots).toEqual({ epoch: 1, tracks: { [SINGLE_SYNTH.track]: 0 }, scenes: {}, devices: { [SINGLE_SYNTH.device]: [0, 0] } })
     webEvents?.onStreamRefused?.(-3, 128)
     await session.dispatcher.start()
     expect(session.project.view?.slots.epoch).toBe(2)

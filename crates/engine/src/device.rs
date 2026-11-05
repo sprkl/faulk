@@ -487,6 +487,17 @@ pub trait Device: Send {
     fn gain_reduction_db(&self) -> f32 {
         0.0
     }
+
+    /// For a device whose panel draws a spectrum (#156, [`crate::analysis`]): copies the last
+    /// frames of its output, the mono sum, oldest first, into the start of `out`, and returns how
+    /// many it wrote (at most `out.len()`; [`crate::analysis::window_len`] at its rate once it
+    /// has rendered that many since it was built or reset). 0, the default, for a device that
+    /// analyses nothing or has nothing yet. Called by the host on the audio thread about 30
+    /// times a second: it copies from a buffer the factory allocated, no allocation, no lock.
+    fn analysis_window(&self, out: &mut [f32]) -> usize {
+        let _ = out;
+        0
+    }
 }
 
 /// Builds a device off the audio path, with fallible allocations only.

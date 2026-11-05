@@ -860,10 +860,19 @@ fn the_view_gives_the_engine_slots_of_tracks_and_scenes() {
         .as_str()
         .unwrap()
         .to_owned();
-    assert_eq!(
-        h.view()["slots"],
-        json!({"epoch": 1, "tracks": {first: 0, second: 1}, "scenes": {scene.clone(): 0}})
-    );
+    let slots = h.view()["slots"].clone();
+    assert_eq!(slots["epoch"], json!(1));
+    assert_eq!(slots["tracks"], json!({first: 0, second: 1}));
+    assert_eq!(slots["scenes"], json!({scene.clone(): 0}));
+    // Each track's instrument, by its track slot and its place in the chain (#156).
+    let mut devices: Vec<_> = slots["devices"]
+        .as_object()
+        .unwrap()
+        .values()
+        .cloned()
+        .collect();
+    devices.sort_by_key(|d| d[0].as_u64());
+    assert_eq!(devices, [json!([0, 0]), json!([1, 0])]);
 
     // A deleted scene gives its slot back, and the next one takes it.
     h.apply(json!({"type": "scene.delete", "scene": scene}));

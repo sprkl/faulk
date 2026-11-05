@@ -177,6 +177,30 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(page.getByTestId('device-card')).toHaveCount(1)
     await expect(filter).toHaveCount(0)
 
+    // Contour (#156): inserted from the browser, its 29 settings generated (seven switches and two
+    // slopes as choices), a bell's gain moved, the slope of the low cut switched, one undo each.
+    await panel.getByRole('button', { name: x.add('Contour'), exact: true }).click()
+    const contour = card(page, 'Contour')
+    await expect(contour.locator('[data-testid^=param-]')).toHaveCount(29)
+    await expect(contour.getByTestId('param-hp_slope').getByRole('radio')).toHaveCount(3)
+    await expect(contour.getByTestId('param-bell2_on').getByRole('radio', { name: lang === 'en' ? 'On' : 'Marche', exact: true })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    )
+    const bellGain = contour.getByTestId('param-bell2_gain').getByRole('slider')
+    await expect(bellGain).toHaveAttribute('aria-valuetext', '0.0 dB')
+    await bellGain.press('End')
+    await expect(bellGain).toHaveAttribute('aria-valuetext', '24.0 dB')
+    const steep = contour.getByTestId('param-hp_slope').getByRole('radio', { name: '48 dB/oct', exact: true })
+    await steep.click()
+    await expect(steep).toHaveAttribute('aria-checked', 'true')
+    await page.keyboard.press('Control+z')
+    await expect(steep).toHaveAttribute('aria-checked', 'false')
+    await page.keyboard.press('Control+z')
+    await expect(bellGain).toHaveAttribute('aria-valuetext', '0.0 dB')
+    await page.keyboard.press('Control+z')
+    await expect(contour).toHaveCount(0)
+
     // Switch the instrument from the browser: the panel is Drums' own, generated the same way, then back.
     await panel.getByRole('button', { name: x.use('Drums'), exact: true }).click()
     await expect(page.getByTestId('device-card')).toHaveCount(1)

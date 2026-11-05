@@ -2407,6 +2407,30 @@ impl Engine {
         launcher::active_clips(&self.state, running, push);
     }
 
+    /// Calls `f` with each enabled device of every track's chain, in track then device slot
+    /// order, then of the master's chain ([`TrackSlot::MASTER`]): its track slot, its device
+    /// slot, its entry. For the spectrum analysis (#156, [`crate::analysis`]). No allocation.
+    pub fn enabled_devices(&self, mut f: impl FnMut(TrackSlot, DeviceSlot, &DeviceEntry)) {
+        let tracks = self.state.tracks.as_slice();
+        let chains = tracks
+            .iter()
+            .enumerate()
+            .filter_map(|(i, t)| t.as_deref().map(|t| (TrackSlot(i as u32), &t.devices)))
+            .chain(core::iter::once((
+                TrackSlot::MASTER,
+                &self.state.master_devices,
+            )));
+        for (track, chain) in chains {
+            for (d, entry) in chain.as_slice().iter().enumerate() {
+                if let Some(entry) = entry.as_deref()
+                    && entry.enabled
+                {
+                    f(track, DeviceSlot(d as u16), entry);
+                }
+            }
+        }
+    }
+
     /// Voices sounding in the tracks' devices after the last rendered block (MO-5).
     pub fn voices(&self) -> u32 {
         self.graph.voices()

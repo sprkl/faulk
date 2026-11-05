@@ -8,6 +8,7 @@
   import ParamControl from '../../lib/components/ParamControl.svelte'
   import ReductionMeter from '../../lib/components/ReductionMeter.svelte'
   import PresetBar from './PresetBar.svelte'
+  import ContourCurve from './ContourCurve.svelte'
   import { setDeviceParam } from '../../lib/device-commands'
   import { createLane, createMasterLane } from '../../lib/automation-commands'
   import { createGesture } from '../../lib/gesture'
@@ -29,6 +30,11 @@
   // The Compressor shows the gain it takes off (the engine reports the largest reduction of the strip's enabled compressors).
   const reduces = $derived(entry.kind === 'faulk.compressor')
   const reduction = $derived(bypassed ? 0 : meters.snap(master ? MASTER_METER : (track ?? MASTER_METER)).reductionDb)
+  // Contour draws its response curve and the spectrum of its output above its controls (#156).
+  const curve = $derived(entry.kind === 'faulk.contour')
+  /** A parameter's value as the controls show it: an automation lane's, else the project's, else the default. */
+  const valueOf = (key: string): number =>
+    automated.device(entry.id, key) ?? entry.device.params[key] ?? descriptor?.params.find((p) => p.key === key)?.default ?? 0
 
   // A knob drag is one history group: one undo takes it back whole.
   const gesture = createGesture((command, options) => dispatcher.run(command, options))
@@ -146,6 +152,19 @@
   {/if}
   {#if reduces}
     <ReductionMeter reductionDb={reduction} label={t('devices.gainReduction')} />
+  {/if}
+  {#if curve && descriptor}
+    <ContourCurve
+      {descriptor}
+      {name}
+      {valueOf}
+      spectrum={bypassed ? null : meters.spectrum(entry.id)}
+      sampleRate={meters.spectrumRate(entry.id) ?? 48000}
+      {bypassed}
+      onchange={(key, value) => dispatcher.run(setDeviceParam(entry.id, key, value))}
+      onbegin={gesture.begin}
+      onend={gesture.end}
+    />
   {/if}
   {#if descriptor}
     <div class="params">

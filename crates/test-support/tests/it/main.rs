@@ -8,6 +8,7 @@ mod big_project;
 mod clip_edit_playback;
 mod compiler;
 mod compressor;
+mod contour;
 mod device_commands;
 mod device_fade;
 mod drums;

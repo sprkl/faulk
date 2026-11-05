@@ -457,6 +457,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'views/browser/BrowserPanel.svelte': ['ArrowDown', 'ArrowUp', 'Enter', 'Escape'], // the search field: the arrows move the highlighted row, Enter inserts it, Escape clears then closes; a text field keeps every other key
       'views/arrangement/LaneHeader.svelte': ['Enter', 'Enter', 'Escape', 'F2'], // the rename field and F2 on the row (#625); the row's other keys are in lane-keys.ts (digits, signs, Enter, the height handle's arrows): no letter
       'views/clips/ClipsView.svelte': ['Backspace', 'Delete', 'Enter'], // the pool row's handle: places (Enter) or deletes the clip; no letter
+      'views/devices/ContourCurve.svelte': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowUp', 'Enter'], // a focused handle of the curve (#156): the arrows move its band, Shift with up and down sets the Q, Enter switches it; no letter
       'views/devices/PresetBar.svelte': ['Escape'], // the preset name field: Escape closes it; a text field keeps every other key
       'views/grid/GridView.svelte': [
         'ArrowDown',

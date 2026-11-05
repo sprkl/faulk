@@ -5,6 +5,7 @@
 static ALLOCATOR: assert_no_alloc::AllocDisabler = assert_no_alloc::AllocDisabler;
 
 mod all_sound_off;
+mod analysis;
 mod arrangement;
 mod arrangement_render;
 mod audio_clip;
@@ -14,6 +15,7 @@ mod clip_edit;
 mod clip_player;
 mod clip_render;
 mod compressor;
+mod contour;
 mod cycle;
 mod device;
 mod device_fade;
