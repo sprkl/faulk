@@ -79,9 +79,13 @@ test('piano roll: quantizes with a strength, transposes, duplicates, copies, cut
   await page.getByTestId('roll-quantize-grid').selectOption('quarter')
   await page.getByTestId('roll-quantize-strength').fill('50')
   await page.getByTestId('roll-quantize-strength').blur()
+  const stageTop = (await stage(page).boundingBox())!.y
   await page.getByTestId('roll-quantize').click()
   const half = original.map((s, i) => expected(s, 960, 50, drawn[i]!.length, 3840))
   await expect.poll(() => starts(page)).toEqual(half)
+  // What the quantize says floats under its field: the toolbar keeps its lines and the grid does not move (#623).
+  await expect(page.getByTestId('roll-quantize-said')).toBeVisible()
+  expect((await stage(page).boundingBox())!.y).toBe(stageTop)
   // One undo takes the whole quantize back.
   await page.keyboard.press('Control+z')
   await expect.poll(() => starts(page)).toEqual(original)
@@ -187,6 +191,9 @@ test('piano roll: the editing controls speak French', async ({ page }) => {
   await expect(page.getByTestId('roll-quantize-strength')).toHaveAccessibleName('Force de la quantification en pourcent')
   await expect(page.getByTestId('roll-transpose-up')).toHaveAccessibleName('Transposer d’un demi-ton vers le haut')
   await expect(page.getByTestId('roll-quantize-grid').locator('option').last()).toHaveText('1/16 triolet')
+  await expect(page.getByTestId('roll-draw-length')).toHaveAccessibleName('Longueur des notes dessinées')
+  await expect(page.getByTestId('roll-draw-length').locator('option:checked')).toHaveText('Magnétisme')
+  await expect(page.getByTestId('roll-draw-length').locator('option').last()).toHaveText('4 mesures')
   await expect(page.getByTestId('roll-quantize')).toBeDisabled()
   expect(seen.errors).toEqual([])
 })
@@ -196,6 +203,9 @@ test('piano roll: the editing controls speak English', async ({ page }) => {
   await expect(page.getByTestId('roll-quantize')).toHaveText('Quantize')
   await expect(page.getByTestId('roll-duplicate')).toHaveText('Duplicate')
   await expect(page.getByTestId('roll-quantize-grid').locator('option').last()).toHaveText('1/16 triplet')
+  await expect(page.getByTestId('roll-draw-length')).toHaveAccessibleName('Length of drawn notes')
+  await expect(page.getByTestId('roll-draw-length').locator('option:checked')).toHaveText('Snap')
+  await expect(page.getByTestId('roll-draw-length').locator('option').last()).toHaveText('4 bars')
   await expect(page.getByTestId('roll-duplicate')).toBeDisabled()
   expect(seen.errors).toEqual([])
 })
@@ -500,5 +510,97 @@ test('piano roll: Alt+arrows move from the grid and the cursor, an edge refusal 
   await page.getByTestId('panel-devices').click()
   await page.getByTestId('panel-piano-roll').click()
   await expect(page.getByTestId('roll-draw-velocity')).toHaveValue('64')
+  expect(seen.errors).toEqual([])
+})
+
+// #623: the Length field gives drawn and written notes their length whatever the snap, and Alt+Shift+Left and Right
+// change the length of the focused note or of the selection from a note's cell: by one snap step, never under one step,
+// cut at the clip's end with a message; one history entry each.
+test('piano roll: the Length field sets the written length whatever the snap, and Alt+Shift+arrows resize from a note, at least a step, cut at the clip end', async ({
+  page,
+}) => {
+  test.setTimeout(120_000)
+  const { seen } = await openRoll(page)
+  await expect(page.getByTestId('roll-length')).toHaveValue('1')
+  const g = await spot(page)
+  const field = page.getByTestId('roll-draw-length')
+  const shape = async () => (await notes(page)).map((n) => [n.start, n.pitch, n.length])
+  const said = page.getByTestId('roll-said')
+  const focused = page.locator(':focus')
+
+  // A half note at the start of the bar with the snap on a beat, then the snap changes and the field stays.
+  await page.getByTestId('roll-snap').selectOption('beat')
+  await field.selectOption('half')
+  await page.mouse.click(g.x(10), g.y(60))
+  await expect.poll(shape).toEqual([[0, 60, 1920]])
+  await page.getByTestId('roll-snap').selectOption('quarter-beat')
+  await expect(field).toHaveValue('half')
+  await page.mouse.click(g.x(1930), g.y(62))
+  await expect.poll(shape).toEqual([
+    [0, 60, 1920],
+    [1920, 62, 1920],
+  ])
+
+  // From the first note's cell: one snap step (a sixteenth) longer, said, the label follows, the focus stays; one undo.
+  await page.getByTestId('roll-item').first().focus()
+  await page.keyboard.press('Alt+Shift+ArrowRight')
+  await expect.poll(shape).toEqual([
+    [0, 60, 2160],
+    [1920, 62, 1920],
+  ])
+  await expect(said).toContainText('Length 2.25 beats')
+  await expect(focused).toHaveAttribute('aria-label', /^C4, bar 1 beat 1, 2\.25 beats/)
+  await page.keyboard.press('Control+z')
+  await expect.poll(shape).toEqual([
+    [0, 60, 1920],
+    [1920, 62, 1920],
+  ])
+
+  // Shorter by beats down to one beat, never under it: the next press is refused and said.
+  await page.getByTestId('roll-snap').selectOption('beat')
+  await page.getByTestId('roll-item').first().focus()
+  await page.keyboard.press('Alt+Shift+ArrowLeft')
+  await expect.poll(shape).toEqual([
+    [0, 60, 960],
+    [1920, 62, 1920],
+  ])
+  await expect(focused).toHaveAttribute('aria-label', /, 1 beat,/)
+  await page.keyboard.press('Alt+Shift+ArrowLeft')
+  await expect(said).toContainText('Cannot resize further')
+  expect((await shape())[0]).toEqual([0, 60, 960])
+
+  // The whole selection longer: the note that ends the clip stays, the other grows, and the cut is said.
+  await focusGrid(page)
+  await page.keyboard.press('Control+a')
+  await expect(roll(page)).toHaveAttribute('data-selected-count', '2')
+  await page.keyboard.press('Alt+Shift+ArrowRight')
+  await expect.poll(shape).toEqual([
+    [0, 60, 1920],
+    [1920, 62, 1920],
+  ])
+  await expect(said).toContainText('cut at the end of the clip')
+  await page.keyboard.press('Control+z')
+  await expect.poll(shape).toEqual([
+    [0, 60, 960],
+    [1920, 62, 1920],
+  ])
+  // The note at the clip's end alone: refused, and said.
+  await page.keyboard.press('Escape')
+  await page.getByTestId('roll-item').last().focus()
+  await page.keyboard.press('Alt+Shift+ArrowRight')
+  await expect(said).toContainText('Cannot lengthen past the end of the clip')
+
+  // Enter on the free cursor writes a note of the field's length.
+  await page.getByTestId('roll-item').first().focus()
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('roll-cursor')).toBeFocused()
+  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('Enter')
+  await expect.poll(async () => (await shape()).find((n) => n[1] === 61)).toEqual([0, 61, 1920])
+
+  // The field comes back when the roll is closed and opened again.
+  await page.getByTestId('panel-devices').click()
+  await page.getByTestId('panel-piano-roll').click()
+  await expect(page.getByTestId('roll-draw-length')).toHaveValue('half')
   expect(seen.errors).toEqual([])
 })

@@ -62,10 +62,11 @@ export const shortcuts = defineFeature(
     'shortcut.noteQuantize': 'Quantize the selected notes (all notes if none is selected)',
     'shortcut.noteStep': 'On a note: go to the previous or next note in time, or the nearest note above or below (Shift: add it to the selection)',
     'shortcut.noteShift': 'Move the selected notes by the drawing step (from a note, the grid or the free cursor)',
-    'shortcut.noteResize': 'Lengthen or shorten the selected notes by the drawing step (from a note, the grid or the free cursor)',
+    'shortcut.noteResize':
+      'Lengthen or shorten the focused note or the selected notes by the snap step, never below one step, cut at the end of the clip (from a note, the grid or the free cursor)',
     'shortcut.noteTranspose': 'Transpose the selected notes by a semitone (Shift: an octave)',
     'shortcut.noteCursor': 'Move the free cursor by the drawing step or a semitone (Shift: a bar or an octave)',
-    'shortcut.noteCreate': 'Write a note at the free cursor, of the drawing length',
+    'shortcut.noteCreate': 'Write a note at the free cursor, of the length chosen in the toolbar',
     'shortcut.noteVelocity': 'Change the velocity of the selection by 10 (Shift: by 1)',
     'shortcut.gridMove': 'Move between cells',
     'shortcut.gridCopy': 'Copy a clip, then paste it into an empty cell',
@@ -145,10 +146,11 @@ export const shortcuts = defineFeature(
     'shortcut.noteStep':
       'Sur une note : aller à la note précédente ou suivante dans le temps, ou à la note la plus proche au-dessus ou en dessous (Maj : l’ajouter à la sélection)',
     'shortcut.noteShift': 'Déplacer les notes sélectionnées du pas de dessin (depuis une note, la grille ou le curseur libre)',
-    'shortcut.noteResize': 'Allonger ou raccourcir les notes sélectionnées selon le pas de dessin (depuis une note, la grille ou le curseur libre)',
+    'shortcut.noteResize':
+      'Allonger ou raccourcir la note focalisée ou les notes sélectionnées d’un pas d’aimantation, jamais sous un pas, coupées à la fin du clip (depuis une note, la grille ou le curseur libre)',
     'shortcut.noteTranspose': 'Transposer les notes sélectionnées d’un demi-ton (Maj : d’une octave)',
     'shortcut.noteCursor': 'Déplacer le curseur libre du pas de dessin ou d’un demi-ton (Maj : d’une mesure ou d’une octave)',
-    'shortcut.noteCreate': 'Écrire une note au curseur libre, de la longueur de dessin',
+    'shortcut.noteCreate': 'Écrire une note au curseur libre, de la longueur choisie dans la barre d’outils',
     'shortcut.noteVelocity': 'Changer la vélocité de la sélection de 10 (Maj : de 1)',
     'shortcut.gridMove': 'Passer d’une cellule à l’autre',
     'shortcut.gridCopy': 'Copier un clip, puis le coller dans une cellule vide',

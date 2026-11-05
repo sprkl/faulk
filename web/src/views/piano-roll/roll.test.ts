@@ -4,8 +4,12 @@ import {
   acceptable,
   clampScrollY,
   defaultLength,
+  DRAW_LENGTHS,
   drawnNote,
+  parseDrawLength,
   parseDrawVelocity,
+  stepLengths,
+  writeLength,
   fits,
   floorTick,
   hitNote,
@@ -488,5 +492,58 @@ describe('the draw velocity (#527)', () => {
   it('gives a drawn note the draw velocity it is handed, whatever other notes have', () => {
     expect(drawnNote(0, null, 60, 100, 480, 480, 3840)?.velocity).toBe(100)
     expect(drawnNote(0, null, 60, 64, 480, 480, 3840)?.velocity).toBe(64)
+  })
+})
+
+describe('the writing length (#623)', () => {
+  const BAR = 3840
+  it('follows the snap step and the last length with "snap", as before the field', () => {
+    expect(writeLength('snap', null, 480, BAR)).toBe(480)
+    expect(writeLength('snap', 1440, 480, BAR)).toBe(1440)
+    expect(writeLength('snap', null, null, BAR)).toBe(240)
+  })
+  it('is the chosen value whatever the snap or the last length', () => {
+    expect(writeLength('quarter', 1440, 240, BAR)).toBe(960)
+    expect(writeLength('thirty-second', null, 3840, BAR)).toBe(120)
+    expect(writeLength('half', null, null, BAR)).toBe(1920)
+    expect(writeLength('bar', null, 240, BAR)).toBe(3840)
+    expect(writeLength('two-bars', null, 240, 2880)).toBe(5760)
+    expect(writeLength('four-bars', null, 240, BAR)).toBe(4 * BAR)
+  })
+  it('reads a remembered setting back, and anything else as "snap"', () => {
+    for (const l of DRAW_LENGTHS) expect(parseDrawLength(l.id)).toBe(l.id)
+    expect(parseDrawLength('triplet')).toBe('snap')
+    expect(parseDrawLength(undefined)).toBe('snap')
+    expect(parseDrawLength(4)).toBe('snap')
+  })
+})
+
+describe('the keyboard resize (#623)', () => {
+  const note = (start: number, length: number, pitch = 60): Note => ({ start, pitch, length, velocity: 100 })
+  const lengths = (r: { changes: { to: Note }[] }) => r.changes.map((c) => c.to.length)
+
+  it('lengthens and shortens each note by one step', () => {
+    const r = stepLengths([note(0, 480), note(960, 960, 62)], 480, 1, 3840)
+    expect(lengths(r)).toEqual([960, 1440])
+    expect(r.cut).toBe(false)
+    expect(lengths(stepLengths([note(0, 960), note(960, 1440, 62)], 480, -1, 3840))).toEqual([480, 960])
+  })
+  it('stops at one step when shortening, and leaves a note already shorter than a step as it is', () => {
+    expect(lengths(stepLengths([note(0, 480)], 480, -1, 3840))).toEqual([480])
+    expect(lengths(stepLengths([note(0, 700)], 480, -1, 3840))).toEqual([480])
+    expect(lengths(stepLengths([note(0, 100)], 480, -1, 3840))).toEqual([100])
+  })
+  it('cuts a note at the clip end and says so, without holding the other notes back', () => {
+    const r = stepLengths([note(3600, 120), note(0, 480, 62)], 480, 1, 3840)
+    expect(lengths(r)).toEqual([240, 960])
+    expect(r.cut).toBe(true)
+    // A note already at the clip's end stays, and is still reported as cut.
+    const at = stepLengths([note(3360, 480)], 480, 1, 3840)
+    expect(lengths(at)).toEqual([480])
+    expect(at.cut).toBe(true)
+  })
+  it('takes a step that is not a usable number as a sixteenth', () => {
+    expect(lengths(stepLengths([note(0, 480)], Number.NaN, 1, 3840))).toEqual([720])
+    expect(lengths(stepLengths([note(0, 480)], 0, 1, 3840))).toEqual([481])
   })
 })

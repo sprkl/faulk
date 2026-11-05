@@ -442,3 +442,58 @@ export function duplicateOffset(selected: readonly Note[], bar: number): number 
  * picked, or no snapping, is kept as is.
  */
 export const drawStep = (auto: boolean, step: number | null): number | null => (auto && step !== null ? Math.max(step, SIXTEENTH) : step)
+
+// --- #623: the writing length and the keyboard resize -------------------------------------------
+
+/**
+ * The lengths the "Length" field offers for written notes: `snap` follows the snap step (and the last
+ * length drawn or resized), the others are fixed note values (in quarter notes) or whole bars.
+ */
+export const DRAW_LENGTHS = [
+  { id: 'snap', quarters: 0, bars: 0 },
+  { id: 'thirty-second', quarters: 1 / 8, bars: 0 },
+  { id: 'sixteenth', quarters: 1 / 4, bars: 0 },
+  { id: 'eighth', quarters: 1 / 2, bars: 0 },
+  { id: 'quarter', quarters: 1, bars: 0 },
+  { id: 'half', quarters: 2, bars: 0 },
+  { id: 'bar', quarters: 0, bars: 1 },
+  { id: 'two-bars', quarters: 0, bars: 2 },
+  { id: 'four-bars', quarters: 0, bars: 4 },
+] as const
+export type DrawLength = (typeof DRAW_LENGTHS)[number]['id']
+export const DEFAULT_DRAW_LENGTH: DrawLength = 'snap'
+
+/** A remembered setting read back: one of `DRAW_LENGTHS`, else the default. */
+export const parseDrawLength = (value: unknown): DrawLength => DRAW_LENGTHS.find((l) => l.id === value)?.id ?? DEFAULT_DRAW_LENGTH
+
+/**
+ * The length of the next written note, in ticks: with `snap`, the last length drawn or resized, else the
+ * drawing step (`defaultLength`); otherwise the field's value whatever the snap (`bar` is one bar in ticks).
+ */
+export function writeLength(setting: DrawLength, last: number | null, step: number | null, bar: number): number {
+  const entry = DRAW_LENGTHS.find((l) => l.id === setting) ?? DRAW_LENGTHS[0]
+  if (entry.id === 'snap') return defaultLength(last, step)
+  const ticks = entry.bars > 0 ? entry.bars * bar : entry.quarters * PPQ
+  return Math.max(1, Math.round(finite(ticks, SIXTEENTH)))
+}
+
+/**
+ * The keyboard's resize (#623): the end of each note moves by one `step` (`direction` -1 or 1). A note gets no shorter
+ * than one step (a note already shorter keeps its length), and one that would end past the clip ends at the clip's end
+ * instead, which `cut` reports so that it is said. Each note on its own: one note at the clip's end does not hold the others.
+ */
+export function stepLengths(selected: readonly Note[], step: number, direction: -1 | 1, clipLength: number): { changes: Change[]; cut: boolean } {
+  const s = Math.max(1, Math.round(finite(step, SIXTEENTH)))
+  let cut = false
+  const changes = selected.map((from) => {
+    let length: number
+    if (direction > 0) {
+      length = Math.min(from.length + s, Math.max(from.length, clipLength - from.start))
+      if (length < from.length + s) cut = true
+    } else {
+      length = Math.max(from.length - s, Math.min(s, from.length))
+    }
+    return { from, to: { ...from, length } }
+  })
+  return { changes, cut }
+}
