@@ -452,7 +452,10 @@ export const drawStep = (auto: boolean, step: number | null): number | null => (
 export const DRAW_LENGTHS = [
   { id: 'snap', quarters: 0, bars: 0 },
   { id: 'thirty-second', quarters: 1 / 8, bars: 0 },
+  // The triplets of the snap and the quantize grid (#711): a quarter note in six, and in three.
+  { id: 'sixteenth-triplet', quarters: 1 / 6, bars: 0 },
   { id: 'sixteenth', quarters: 1 / 4, bars: 0 },
+  { id: 'eighth-triplet', quarters: 1 / 3, bars: 0 },
   { id: 'eighth', quarters: 1 / 2, bars: 0 },
   { id: 'quarter', quarters: 1, bars: 0 },
   { id: 'half', quarters: 2, bars: 0 },

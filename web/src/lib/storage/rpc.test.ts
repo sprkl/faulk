@@ -116,9 +116,9 @@ describe('an audio import through the store worker (AU-1)', () => {
 
   it('a file the import refuses arrives as an ImportError with its code; a folder that refused a write as a StoreError', async () => {
     const { fake, store } = await importing()
-    const refused = store.importAudio(new File([], 'song.opus'))
+    const refused = store.importAudio(new File([], 'song.ac3'))
     await vi.advanceTimersByTimeAsync(0)
-    reply(fake, { id: fake.sent.at(-1)!.id, ok: false, code: 'io', message: 'Opus', importCode: 'unsupported_codec' })
+    reply(fake, { id: fake.sent.at(-1)!.id, ok: false, code: 'io', message: 'AC-3', importCode: 'unsupported_codec' })
     await expect(refused).rejects.toMatchObject({ name: 'ImportError', code: 'unsupported_codec' })
     const full = store.importAudio(new File([], 'big.wav'))
     await vi.advanceTimersByTimeAsync(0)
@@ -150,6 +150,62 @@ describe('an audio import through the store worker (AU-1)', () => {
     const sent = fake.sent.length
     abort.abort()
     expect(fake.sent.length).toBe(sent)
+  })
+
+  describe('the pack import in the Worker (#682)', () => {
+    it('asks for the import of a file or a path, hands the progress over, and a cancel names it', async () => {
+      const { fake, store } = await importing()
+      const abort = new AbortController()
+      const progress: number[] = []
+      const file = new File(['zip'], 'a.faulkpack')
+      const pending = store.unpack(file, { signal: abort.signal, onProgress: (f) => progress.push(f), textOnly: true })
+      await vi.advanceTimersByTimeAsync(0)
+      const request = fake.sent.at(-1) as unknown as { id: number; op: string; source: unknown; textOnly: boolean }
+      expect(request).toMatchObject({ op: 'unpack', source: file, textOnly: true })
+      reply(fake, { id: request.id, progress: 0.25 })
+      expect(progress).toEqual([0.25])
+      abort.abort()
+      expect(fake.sent.at(-1)).toMatchObject({ op: 'cancel', target: request.id })
+      reply(fake, { id: request.id, ok: true, value: { status: 'cancelled' } })
+      expect(await pending).toEqual({ status: 'cancelled' })
+      const byPath = store.unpack('.faulk/tmp/download.faulkpack')
+      await vi.advanceTimersByTimeAsync(0)
+      const second = fake.sent.at(-1) as unknown as { id: number; source: unknown }
+      expect(second.source).toBe('.faulk/tmp/download.faulkpack')
+      reply(fake, { id: second.id, ok: true, value: { status: 'ok', files: [] } })
+      expect(await byPath).toEqual({ status: 'ok', files: [] })
+    })
+
+    it('writes a file in pieces through the Worker, each piece handed over', async () => {
+      const fake = new FakeWorker()
+      const transfers: Transferable[][] = []
+      const post = fake.postMessage.bind(fake)
+      fake.postMessage = (message: unknown, transfer: Transferable[] = []) => {
+        transfers.push(transfer)
+        const request = message as { id: number; method?: string }
+        if (request.method === 'openWriter') {
+          fake.sent.push(request as never)
+          queueMicrotask(() => fake.onmessage?.({ data: { id: request.id, ok: true, value: 4 } } as MessageEvent<Reply>))
+          return
+        }
+        post(message)
+      }
+      const worker = new StoreWorker(fake)
+      const store = new WorkerStore(worker, (await worker.openKey(handle)).key, 'folder', handle, () => worker)
+      const writer = await store.writer('.faulk/tmp/download.faulkpack')
+      const piece = new Uint8Array([1, 2, 3])
+      await writer.write(piece)
+      await writer.close()
+      await writer.abort()
+      const calls = fake.sent.filter((m) => m.op === 'call') as unknown as { method: string; args: unknown[] }[]
+      expect(calls.map((c) => [c.method, c.args])).toEqual([
+        ['openWriter', ['.faulk/tmp/download.faulkpack']],
+        ['writePiece', [4, piece]],
+        ['closeWriter', [4]],
+        ['abortWriter', [4]],
+      ])
+      expect(transfers.some((t) => t.includes(piece.buffer))).toBe(true)
+    })
   })
 
   describe('the pack export in the Worker (#685)', () => {

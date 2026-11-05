@@ -286,10 +286,21 @@ export function gotoShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'met
 /**
  * The chord of "Repeat until" in the arrangement (#555): Ctrl or Cmd + Shift + R. The browser reloads the page on it, so the
  * arrangement cancels it whenever it is shown, whatever has the focus (a text field and an open dialog included); it opens the
- * field only outside a text field and a dialog.
+ * field only outside a text field and a dialog. In the piano roll the same chord repeats the selected notes end to end (#710):
+ * the roll takes it on its root element and stops it there, so the arrangement never sees a press made in the roll.
  */
 export function repeatShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>): boolean {
   return (event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'r'
+}
+
+/**
+ * The piano roll's "Generate" (#694): Alt+G, by position. Alt alone (never a bare letter: G plays a note), no repeat, nothing
+ * from a text field (a second press while the generator is open does nothing). Playing ignores every Alt event
+ * (`ignoreKeyEvent`), so it plays nothing.
+ */
+const GENERATE_CODE = 'KeyG'
+export function generateShortcut(event: Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'repeat' | 'target'>): boolean {
+  return event.code === GENERATE_CODE && event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.repeat && !isTextTarget(event.target)
 }
 
 /** Undo or redo asked by the keyboard (Ctrl or Cmd + Z, Shift for redo, Ctrl + Y), or null; never inside a text field. */

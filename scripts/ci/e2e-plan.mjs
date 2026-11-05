@@ -33,7 +33,7 @@ export const AREA = {
   clips: ['clip-pool'],
   grid: ['clip-names', 'clip-pool', 'grid', 'grid-clips', 'grid-to-arrangement', 'recording'],
   history: ['history', 'history-cost', 'history-names', 'keyboard-create'],
-  pianoRoll: ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard', 'keyboard-create', 'recording', 'piano-roll-follow', 'context-menu', 'scale'],
+  pianoRoll: ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-euclid', 'piano-roll-jump', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard', 'keyboard-create', 'recording', 'piano-roll-follow', 'context-menu', 'scale'],
   mixer: ['automation', 'continuous', 'layout-4', 'mixer', 'mixer-sound', 'master-chain', 'master-pan', 'track-state'],
   devices: ['automation', 'continuous', 'device-browser', 'devices', 'presets', 'layout-4', 'master-chain', 'master-pan', 'track-state', 'context-menu'],
   transport: ['all-sound-off', 'transport', 'playhead', 'space-bar', 'track-state', 'discoverability', 'recording', 'stop-to-marker', 'tap-tempo', 'scale'],
@@ -41,7 +41,7 @@ export const AREA = {
   deviceBrowser: ['device-browser', 'devices', 'tracks', 'lane-rows', 'discoverability', 'keyboard-all-views'],
   keyboard: ['keyboard', 'keyboard-all-views', 'layout-4', 'live-input', 'typing-mode', 'track-state'],
   export: ['export-audio'],
-  storage: ['project-store', 'project-save', 'project-rename', 'project-save-as-name', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability', 'open-url', 'audio-import', 'pack-stream', 'pack-longtasks'],
+  storage: ['project-store', 'project-save', 'project-rename', 'project-save-as-name', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability', 'open-url', 'audio-import', 'pack-stream', 'pack-longtasks', 'pack-import'],
   // Importing audio files (AU-1): the pipeline in the store's Worker, the Clips panel that starts it, the storage it writes; their waveforms (AU-2); audio clips in the grid and the timeline (AU-6).
   audio: ['audio-clips', 'audio-import', 'audio-play', 'clip-pool', 'browser-storage', 'project-store', 'waveform'],
   shortcuts: ['discoverability', 'keyboard-all-views'],

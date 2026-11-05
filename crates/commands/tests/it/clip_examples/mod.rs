@@ -345,6 +345,19 @@ pub fn examples() -> Vec<(Command, State)> {
             notes: vec![n(960, 64, 960, 90)],
             offset: Some(Tick(-480)),
         }),
+        // #710: a figure repeated end to end up to a tick, and past the clip's end (cut there).
+        on(clip::Command::NotesRepeat {
+            clip: f.clip.clone(),
+            notes: vec![n(0, 60, 480, 100)],
+            until: Tick(1920),
+            grid: Some(Tick(480)),
+        }),
+        on(clip::Command::NotesRepeat {
+            clip: f.clip.clone(),
+            notes: vec![n(960, 64, 960, 90)],
+            until: Tick(7680),
+            grid: None,
+        }),
     ];
     // Moves: within the track, out of the grid (placed clip only), and across tracks.
     all.push(on(clip::Command::Move {
