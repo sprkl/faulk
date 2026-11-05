@@ -120,6 +120,19 @@ export function createStores(view: MainViewId, panel: PanelViewId, deps: Storage
       __faulkStored: () => dispatcher.listStored(),
       // The storage's notice, whether or not a banner shows it: a banner of higher priority (the permission's) hides it (`storage-commands.spec.ts`).
       __faulkNotice: () => storage.notice,
+      // The Web engine's clock (`recording.spec.ts`, #733): its last report's playhead (tick, frame, and the context frame it
+      // sits at) and the context frame the output played at page instants, to place a recorded note against its stamp.
+      __faulkClock: () => {
+        const clock = dispatcher.webClock()
+        const report = engine.feedback
+        return {
+          sampleRate: clock?.sampleRate ?? null,
+          playheadTick: report?.playheadTick ?? null,
+          playheadFrame: report?.playheadFrame ?? null,
+          hostFrame: report?.hostFrame ?? null,
+          heard: (times: number[]) => times.map((t) => clock?.heardFrameAt(t) ?? null),
+        }
+      },
       // What the last write of the project cost (`project-save.spec.ts`).
       __faulkWrite: () => storage.lastWrite,
       // The PCM caches the last opening made again (AU-1), once that background work is over (`audio-import.spec.ts`).

@@ -300,16 +300,16 @@ test('places a MIDI note where its time says it was played', async ({ page }) =>
 
 // #725: RE-2 aims at +-1 ms for a simulated input with a known time. Each note of a sweep is measured against its own
 // stamp, not against the first note. The tempo is the default 120 BPM: the project floors each start to a tick (0.52 ms),
-// so the gaps spread over one tick. The take's origin on the page's clock is not known to the page, so the one constant
-// offset of the take (the median gap) is taken out: what is left is the spread of the conversion from `timeStamp` to the
-// engine's frame, note by note, plus that tick. Measured in Chromium on Windows, 40 runs of 60 notes: worst 0.42 ms with
+// so the gaps spread over one tick. First the one constant offset of the take (the median gap) is taken out: what is left
+// is the spread of the conversion from `timeStamp` to the engine's frame, note by note, plus that tick. Measured in Chromium on Windows, 40 runs of 60 notes: worst 0.42 ms with
 // the smoothed clock (`OutputClock`, #725); 10 runs of 40 beyond 1 ms (worst 3.5 ms) when each note was converted with
-// the pair of the moment. The constant bias of the take is not measured here: the test of #499 above bounds it.
+// the pair of the moment. Then the absolute error is measured with no median (#733, the engine's report carries the
+// context frame its playhead sits at): 15 runs, worst 0.52 ms.
 // The batch must not start in the sixteenth before a bar with only an early downbeat there: `record.commit_take` then
 // starts the clip on that bar and puts that downbeat on its first tick (#732; at 999 BPM, where a bar lasts 240 ms and a
 // sixteenth 15 ms, 6 takes of 30 had their first notes 3 to 14 ms late that way). Here it starts about 0.75 s into a
 // take whose first bar lasts 2 s; checked below.
-// The worst gap is printed.
+// The worst gaps are printed.
 test('each simulated MIDI note lands within 1 ms of its own time', async ({ page }) => {
   const { errors } = watch(page)
   await fakeWebMidi(page)
@@ -322,22 +322,46 @@ test('each simulated MIDI note lands within 1 ms of its own time', async ({ page
   const placed = Object.keys(v0.project.tracks[track]!.placements).length
   await record(page).click()
   await expect(feedback(page)).toHaveAttribute('data-transport', 'recording')
+  await page.evaluate(() => {
+    // The engine's playhead as each report shows it, with the context frame it sits at (#733).
+    const w = window as unknown as {
+      __faulkClock(): { playheadFrame: number | null; hostFrame: number | null }
+      __takeReports: [number, number][]
+      __takePoll: number
+    }
+    w.__takeReports = []
+    w.__takePoll = window.setInterval(() => {
+      const c = w.__faulkClock()
+      const last = w.__takeReports[w.__takeReports.length - 1]
+      if (c.playheadFrame !== null && c.hostFrame !== null && (!last || last[0] !== c.playheadFrame)) w.__takeReports.push([c.playheadFrame, c.hostFrame])
+    }, 5)
+  })
   await page.waitForTimeout(300)
   // 60 notes 10 ms apart, stamped from 300 ms ago and sent at once, in one batch.
-  const times: number[] = await page.evaluate(async () => {
-    const midi = (window as unknown as { __fakeMidi: { send(b: number[], t?: number | null): void } }).__fakeMidi
+  const { times, heard, sampleRate } = await page.evaluate(async () => {
+    const w = window as unknown as {
+      __fakeMidi: { send(b: number[], t?: number | null): void }
+      __faulkClock(): { sampleRate: number; heard(times: number[]): (number | null)[] }
+    }
     await new Promise((resolve) => setTimeout(resolve, 700))
     const from = performance.now() - 300
     const out: number[] = []
     for (let k = 0; k < 60; k++) {
       const t = from + k * 10
-      midi.send([0x90, 20 + k, 100], t)
-      midi.send([0x80, 20 + k, 0], t + 5)
+      w.__fakeMidi.send([0x90, 20 + k, 100], t)
+      w.__fakeMidi.send([0x80, 20 + k, 0], t + 5)
       out.push(t)
     }
-    return out
+    // The context frame the output played at each stamp, by the clock the stamps were converted with (no latency).
+    const clock = w.__faulkClock()
+    return { times: out, heard: clock.heard(out), sampleRate: clock.sampleRate }
   })
   await page.waitForTimeout(200)
+  const reports: [number, number][] = await page.evaluate(() => {
+    const w = window as unknown as { __takeReports: [number, number][]; __takePoll: number }
+    clearInterval(w.__takePoll)
+    return w.__takeReports
+  })
   await record(page).click()
   await page.getByTestId('transport-stop').click()
   await expect.poll(async () => Object.keys((await view(page)).project.tracks[track]!.placements).length).toBe(placed + 1)
@@ -355,6 +379,25 @@ test('each simulated MIDI note lands within 1 ms of its own time', async ({ page
     `per-note gap to its stamp, ${times.length} notes: min ${Math.min(...off).toFixed(3)}, max ${Math.max(...off).toFixed(3)}, worst |gap| ${Math.max(...off.map(Math.abs)).toFixed(3)} ms (take offset ${offset.toFixed(2)} ms)`,
   )
   for (const ms of off) expect(Math.abs(ms)).toBeLessThanOrEqual(1)
+
+  // The absolute error (#733), with no median taken. Every report pairs the playhead's frame (samples since the Play, the
+  // take's first frame at 0: no count-in, no loop, one tempo, asserted below) with the context frame it sits at, so the
+  // context frame of the take's first sample is the difference, and each note belongs at the context frame the output
+  // played at its stamp. LIMIT: both ends use the correspondence `getOutputTimestamp()` gives (`OutputClock`), so this checks
+  // the chain from the stamp to the recorded tick (latency added then taken back, rounding, the host's clock, the anchors),
+  // not the operating system's word about when a sample is heard: no browser test can, without an audio loopback.
+  expect(reports.length).toBeGreaterThanOrEqual(20) // about 35 over the take: a report every 35 ms
+  const origins = reports.map(([frame, host]) => host - frame)
+  expect(Math.max(...origins) - Math.min(...origins)).toBeLessThanOrEqual(2) // the same origin in every report
+  const takeStart = origins[0]!
+  const absolute = times.map(
+    (_, k) => (placement.start + notes.find((n) => n.pitch === 20 + k)!.start) * msPerTick - ((heard[k]! - takeStart) / sampleRate) * 1000,
+  )
+  const sorted = [...absolute].sort((a, b) => a - b)
+  console.log(
+    `absolute error to its stamp, ${times.length} notes: min ${sorted[0]!.toFixed(3)}, median ${sorted[sorted.length >> 1]!.toFixed(3)}, max ${sorted[sorted.length - 1]!.toFixed(3)} ms (${reports.length} reports, origin spread ${Math.max(...origins) - Math.min(...origins)} frames)`,
+  )
+  for (const ms of absolute) expect(Math.abs(ms)).toBeLessThanOrEqual(1)
   expect(errors).toEqual([])
 })
 

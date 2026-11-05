@@ -507,7 +507,7 @@
         "undo": "none"
       },
       {
-        "description": "Stop the `.faulkpack` imports under way: a pack being downloaded (`project.open_url`) or\nread into the browser's storage, and those waiting their turn, until their project starts\nopening. Nothing of them is kept and the current project is untouched. Nothing happens when\nno import is running. Changes nothing in the project, so it never enters the history.",
+        "description": "Stop the `.faulkpack` imports under way: a pack being downloaded (`project.open_url`) or\nread into the browser's storage, and those waiting their turn, until their project starts\nopening, wherever the browser keeps the project (its storage, or the tab alone, where the\npack is read whole). Nothing of them is kept and the current project is untouched. The\nanswer says what was stopped: `cancelled` imports, and `too_late` imports whose project had\nstarted to open (they are left to finish; when nothing could be stopped and some were too\nlate, the call is refused instead). Both are 0 when no import was running (none asked, or\nthe last one is over). Changes nothing in the project, so it never enters the history.",
         "destructive": false,
         "input_schema": {
           "additionalProperties": false,
@@ -519,8 +519,24 @@
         "name": "project.cancel_import_pack",
         "output_schema": {
           "additionalProperties": false,
-          "properties": {},
-          "required": [],
+          "properties": {
+            "cancelled": {
+              "description": "How many imports (a pack being downloaded, read or waiting its turn) were stopped.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "too_late": {
+              "description": "How many imports were left to finish because their project had started to open.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "cancelled",
+            "too_late"
+          ],
           "type": "object"
         },
         "undo": "none"
@@ -21204,7 +21220,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Stop the `.faulkpack` imports under way: a pack being downloaded (`project.open_url`) or\nread into the browser's storage, and those waiting their turn, until their project starts\nopening. Nothing of them is kept and the current project is untouched. Nothing happens when\nno import is running. Changes nothing in the project, so it never enters the history.",
+              "description": "Stop the `.faulkpack` imports under way: a pack being downloaded (`project.open_url`) or\nread into the browser's storage, and those waiting their turn, until their project starts\nopening, wherever the browser keeps the project (its storage, or the tab alone, where the\npack is read whole). Nothing of them is kept and the current project is untouched. The\nanswer says what was stopped: `cancelled` imports, and `too_late` imports whose project had\nstarted to open (they are left to finish; when nothing could be stopped and some were too\nlate, the call is refused instead). Both are 0 when no import was running (none asked, or\nthe last one is over). Changes nothing in the project, so it never enters the history.",
               "properties": {
                 "type": {
                   "const": "project.cancel_import_pack",
@@ -26700,13 +26716,27 @@
             {
               "additionalProperties": false,
               "properties": {
+                "cancelled": {
+                  "description": "How many imports (a pack being downloaded, read or waiting its turn) were stopped.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "too_late": {
+                  "description": "How many imports were left to finish because their project had started to open.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
                 "type": {
                   "const": "project.cancel_import_pack",
                   "type": "string"
                 }
               },
               "required": [
-                "type"
+                "type",
+                "cancelled",
+                "too_late"
               ],
               "type": "object"
             },
@@ -36447,13 +36477,27 @@
             {
               "additionalProperties": false,
               "properties": {
+                "cancelled": {
+                  "description": "How many imports (a pack being downloaded, read or waiting its turn) were stopped.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "too_late": {
+                  "description": "How many imports were left to finish because their project had started to open.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
                 "type": {
                   "const": "project.cancel_import_pack",
                   "type": "string"
                 }
               },
               "required": [
-                "type"
+                "type",
+                "cancelled",
+                "too_late"
               ],
               "type": "object"
             },
@@ -38443,7 +38487,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 40,
+  "protocol_version": 41,
   "scale_intervals": [
     {
       "intervals": [

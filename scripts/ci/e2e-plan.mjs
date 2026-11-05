@@ -41,7 +41,7 @@ export const AREA = {
   deviceBrowser: ['device-browser', 'devices', 'tracks', 'lane-rows', 'discoverability', 'keyboard-all-views'],
   keyboard: ['keyboard', 'keyboard-all-views', 'layout-4', 'live-input', 'typing-mode', 'track-state'],
   export: ['export-audio'],
-  storage: ['project-store', 'project-save', 'project-rename', 'project-save-as-name', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability', 'open-url', 'audio-import', 'pack-stream', 'pack-longtasks', 'pack-import'],
+  storage: ['project-store', 'project-save', 'project-rename', 'project-save-as-name', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability', 'open-url', 'audio-import', 'pack-stream', 'pack-longtasks', 'pack-import', 'pack-import-no-opfs'],
   // Importing audio files (AU-1): the pipeline in the store's Worker, the Clips panel that starts it, the storage it writes; their waveforms (AU-2); audio clips in the grid and the timeline (AU-6).
   audio: ['audio-clips', 'audio-import', 'audio-play', 'clip-pool', 'browser-storage', 'project-store', 'waveform'],
   shortcuts: ['discoverability', 'keyboard-all-views'],
@@ -228,6 +228,29 @@ export const RULES = [
 // e2e-table:end
 
 /**
+ * Specs that run whole, their `@full` tests included, when a file they prove changes, as if their own file had
+ * (#737). The 90 MiB `.faulkpack` export to a chosen file (`pack-stream`, `pack-longtasks`) is the only browser test
+ * that reads the streamed zip back (its central directory, the blob whole), and the large import (`pack-import`) the
+ * only one of the streamed import; all are `@full` for their cost (tens of MiB generated and moved, about 10 s each
+ * locally): a change of the store (`web/src/lib/storage/`, where the export, the import, their Worker and the banner's
+ * state live) ran the area without them, and a broken end of export went unseen until a whole-suite run. The banner
+ * itself (`StorageBanners.svelte`) and the zip writer and reader (`pack.rs` of `crates/project` and
+ * `crates/project-wasm`) run them too. `web/src/lib/project/core.ts` does not: it is a shared hub changed by most
+ * tasks, and its pack path (`exportPack`, which the store's Worker runs) is held by `pack-worker.test.ts`, which
+ * compares its zip with the page core's and checks that the last piece waits for the page; nor do the C entry points
+ * `pw_pack_*` and `pw_unpack_*` in `crates/project-wasm/src/lib.rs`, the same kind of hub, which that test runs through
+ * the real module. A unit test of the store (`*.test.ts`, no browser test sees it) does not run them either.
+ * The other `@full` tests of the storage area stay to the whole suite: their French variants are covered by
+ * `i18n.test.ts` and the English runs, and their performance prints by the release run (`verification.md` > `@full`).
+ */
+const PACK_SPECS = ['pack-stream', 'pack-longtasks', 'pack-import']
+export const FULL_WHEN = [
+  [/^web\/src\/lib\/storage\//, PACK_SPECS],
+  [/^web\/src\/views\/shell\/StorageBanners\.svelte$/, PACK_SPECS],
+  [/^crates\/(project\/src\/file|project-wasm\/src)\/pack\.rs$/, PACK_SPECS],
+]
+
+/**
  * The core: the app's backbone, run with every change the page can see (alone for a shared file, with
  * the area's specs otherwise), because a change in one place breaks another through the shared parts
  * the table cannot see (#377: the piano roll's view height once broke the audio export). One entry per
@@ -278,8 +301,8 @@ export const ruleFor = (raw) => RULES.find(([re]) => re.test(raw.replaceAll('\\'
  * @param {string[]} files changed files, repo-relative
  * @param {string[]} existing the spec names present on disk (without `.spec.ts`)
  * @returns {{specs: string[], changed: string[], all: boolean, shared: boolean, reasons: Record<string, string[]>}}
- *   `changed`: the specs among `specs` whose own file changed. `reasons`: per kind (`area`, `shared`,
- *   `all`, `unknown`, `missing`), the files and why.
+ *   `changed`: the specs among `specs` whose own file changed, or a file they prove (`FULL_WHEN`). `reasons`: per
+ *   kind (`area`, `full`, `shared`, `all`, `unknown`, `missing`), the files and why.
  */
 export function selectSpecs(files, existing) {
   const known = new Set(existing)
@@ -309,6 +332,21 @@ export function selectSpecs(files, existing) {
       shared = true
       why('shared', f)
       continue
+    }
+    // After the verdicts: a file no browser test sees (a unit test of the store) never runs them.
+    for (const [when, names] of FULL_WHEN) {
+      if (!when.test(f)) continue
+      const missing = names.filter((n) => !known.has(n))
+      for (const n of missing) why('missing', `FULL_WHEN ${f} -> ${n}`)
+      if (missing.length) {
+        all = true
+        continue
+      }
+      for (const n of names) {
+        picked.add(n)
+        changed.add(n)
+      }
+      why('full', f)
     }
     const own = typeof what === 'function' // a spec file: its own selection
     const names = own ? what(re.exec(f)) : what
@@ -377,7 +415,7 @@ export const shardCount = (units) => Math.min(MAX_SHARDS, Math.max(1, Math.ceil(
 
 /** One line saying why a plan was chosen (for the CI summary and verify.mjs). Lists at most `max` files per kind. */
 export function explain(reasons, max = 4) {
-  const label = { forced: 'whole suite', unreadable: 'specs unreadable', unknown: 'unknown path', missing: 'stale table', all: 'whole suite for', table: 'table only', shared: 'shared page file', area: 'area of' }
+  const label = { forced: 'whole suite', unreadable: 'specs unreadable', unknown: 'unknown path', missing: 'stale table', all: 'whole suite for', table: 'table only', shared: 'shared page file', area: 'area of', full: '@full specs for' }
   // What decided the tier comes first: the reasons for the whole suite, then the shared files, then the areas.
   const rank = (k) => (k in label ? Object.keys(label).indexOf(k) : -1)
   return Object.entries(reasons)
@@ -391,7 +429,7 @@ export function explain(reasons, max = 4) {
  * configuration): repeated variants (a second language, another width of the same flow) and the
  * performance ceilings, whose strict budgets are checked off CI anyway (#533). A tagged test has
  * `@full` in its title; the area and core runs pass `--grep-invert @full`, the whole suite does not,
- * and a spec whose own file changed runs whole, tags included.
+ * and a spec whose own file changed runs whole, tags included, as does a spec of `FULL_WHEN` for its files.
  */
 export const FULL_TAG = '@full'
 
