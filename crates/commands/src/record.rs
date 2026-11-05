@@ -731,16 +731,16 @@ fn plan_track(
     notes: &[TakeNote],
     anchor: Option<Tick>,
     opts: Opts,
-) -> (Vec<Write>, u32) {
+) -> Result<(Vec<Write>, u32), CommandError> {
     let bar = project.time_signature().ticks_per_bar().get().max(1);
     let ms_per_tick = 60_000.0 / (project.tempo().bpm() * PPQ as f64);
     let Some(track) = project.tracks.get(track_id) else {
-        return (vec![], 0);
+        return Ok((vec![], 0));
     };
     let mut dropped = 0u32;
     let mut writes = Vec::new();
     if notes.is_empty() {
-        return (writes, 0);
+        return Ok((writes, 0));
     }
     let first = notes.iter().map(|n| n.start.get()).min().unwrap_or(0);
     let last_end = notes
@@ -925,11 +925,38 @@ fn plan_track(
                     .map(|n| n.start.get().saturating_add(n.length.get()))
                     .max()
                     .unwrap_or(first + 1);
-                let start =
+                // The longest note a clip starting at `from` moves onto its first tick (#747).
+                let moved_at = |from: i64| {
+                    group
+                        .iter()
+                        .filter(|n| n.start.get() < from)
+                        .map(|n| n.length.get())
+                        .max()
+                        .unwrap_or(0)
+                };
+                // The end of a clip starting at `from`: the bar after the last note (a moved note
+                // ends where it was moved to), cut at the next placement.
+                let end_from = |from: i64| {
+                    let end = ceil_to(last.max(from + moved_at(from)), bar).max(from + 1);
+                    after.map_or(end, |next| end.min(next))
+                };
+                let snapped =
                     bar_of(group.iter().map(|n| n.start.get()), bar, ms_per_tick).max(before);
-                let mut end = ceil_to(last, bar).max(start + 1);
-                if let Some(next) = after {
-                    end = end.min(next);
+                let moved = moved_at(snapped);
+                // A snap that the next placement leaves no room for (a clip of no length, or
+                // too short for the notes it moves) is not made: the clip starts on the bar
+                // of the first note and every note keeps the place it was heard at (#747).
+                let start = if end_from(snapped) - snapped >= moved.max(1) {
+                    snapped
+                } else {
+                    floor_to(first, bar).max(before)
+                };
+                let end = end_from(start);
+                if end <= start {
+                    return Err(invalid(
+                        "tracks",
+                        "the take falls in a gap of the arrangement too short for a clip: nothing was recorded",
+                    ));
                 }
                 let length = end - start;
                 let out = group
@@ -946,7 +973,7 @@ fn plan_track(
             }
         }
     }
-    (writes, dropped)
+    Ok((writes, dropped))
 }
 
 /// A clip's snapshot with its placements, for `record.restore`.
@@ -1047,7 +1074,7 @@ fn commit(
                 ..*n
             })
             .collect();
-        let (writes, lost) = plan_track(project, target, &t.track, &shifted, t.anchor, opts);
+        let (writes, lost) = plan_track(project, target, &t.track, &shifted, t.anchor, opts)?;
         dropped += lost;
         let track = midi_track(project, &t.track)?;
         for write in writes {
@@ -1108,6 +1135,13 @@ fn commit(
                 } => {
                     if notes.is_empty() {
                         continue;
+                    }
+                    // A clip of no length is never created, whatever planned it (#747).
+                    if length < 1 {
+                        return Err(invalid(
+                            "tracks",
+                            "a recorded clip would have no length: nothing was recorded",
+                        ));
                     }
                     let id = ClipId::generate(&mut ctx.ids);
                     let name = project.next_clip_name_beside(&t.track, &names);
