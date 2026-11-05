@@ -28,6 +28,11 @@ fn command(value: serde_json::Value) -> Command {
 
 /// Replays the scenario on the native host and returns the notes the engine recorded.
 fn recorded(scenario: &Scenario) -> Vec<RecordedNote> {
+    replay(scenario).0
+}
+
+/// [`recorded`], with the notes the engine counted lost in the take.
+fn replay(scenario: &Scenario) -> (Vec<RecordedNote>, u32) {
     let (prepare, mut host) = engine::host::channel(48_000.0).expect("the channel opens");
     let mut queue = engine::host::StreamQueue::new(prepare);
     for step in &scenario.steps {
@@ -44,7 +49,7 @@ fn recorded(scenario: &Scenario) -> Vec<RecordedNote> {
     assert_eq!(host.engine().skipped(), 0);
     let mut out = vec![];
     host.engine().recorder().recent(|_, n| out.push(*n));
-    out
+    (out, host.engine().recorder().dropped())
 }
 
 #[test]
@@ -153,4 +158,121 @@ fn a_take_round_the_loop_lands_where_each_note_was_heard_within_a_millisecond() 
         "before the loop, not folded to its end"
     );
     assert!(at(64) < LOOP_END && at(64) > LOOP_END - 81);
+}
+
+/// #723: after a one-bar count-in, a downbeat heard 35 ms early whose event reaches the engine
+/// during the count-in (taken by the count-in's last whole block) is a note of the take, and
+/// `record.commit_take` writes it on beat 1; one heard 130 ms early (more than a sixteenth,
+/// 125 ms) is ignored by the engine, not counted lost.
+#[test]
+fn after_a_count_in_a_downbeat_anticipated_by_35_ms_is_written_on_beat_1() {
+    let mut s = Session::single_synth();
+    let track = s
+        .state()
+        .project
+        .tracks
+        .iter()
+        .find(|(_, t)| t.kind == TrackKind::Midi)
+        .map(|(id, _)| id.clone())
+        .expect("a MIDI track");
+    s.run(command(
+        json!({"type": "transport.set_metronome", "count_in_bars": 1}),
+    ))
+    .run(command(
+        json!({"type": "track.arm", "track": track, "armed": true}),
+    ))
+    .render_blocks(10);
+    let zero = 10 * QUANTUM as u64;
+    let Output::Record(commands::record::Output::Start { count_in, .. }) =
+        s.exec(command(json!({"type": "record.start", "latency_ms": 42.0})))
+    else {
+        panic!("record.start")
+    };
+    assert!(count_in);
+    // The count-in plays the bar before tick 0: the cue is one bar after the play.
+    let cue = zero + BAR;
+    let block = QUANTUM as u64;
+    // Heard 130 ms (6 240 samples) before the cue, stamped one latency later.
+    let too_early = cue - 6_240;
+    let mut rendered = 0;
+    let to = (too_early - zero).div_ceil(block);
+    s.render_blocks(to as u32);
+    rendered += to;
+    s.messages(&[M::NoteOn {
+        track: TrackSlot(0),
+        pitch: 59,
+        velocity: 100,
+        at: Some(too_early + LATENCY),
+    }])
+    .render_blocks(1);
+    rendered += 1;
+    // Heard 35 ms (1 680 samples) before the cue, taken by the block before the cue's: the
+    // last that ends before the cue.
+    let heard = cue - 1_680;
+    let last = (cue - zero) / block - 2;
+    s.render_blocks((last - rendered) as u32);
+    s.messages(&[M::NoteOn {
+        track: TrackSlot(0),
+        pitch: 60,
+        velocity: 100,
+        at: Some(heard + LATENCY),
+    }])
+    .render_blocks(41)
+    .messages(&[
+        M::NoteOff {
+            track: TrackSlot(0),
+            pitch: 59,
+            at: None,
+        },
+        M::NoteOff {
+            track: TrackSlot(0),
+            pitch: 60,
+            at: Some(heard + 1_000 + LATENCY),
+        },
+    ])
+    .render_blocks(2)
+    .run(command(json!({"type": "record.stop"})))
+    .render_blocks(2);
+    let (notes, dropped) = replay(s.scenario());
+    assert_eq!(
+        dropped, 0,
+        "the note heard 130 ms early is ignored, not counted lost"
+    );
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(notes[0].note.pitch, 60);
+    assert_eq!(
+        notes[0].note.start.0, -68,
+        "where it was heard, 67.2 ticks early"
+    );
+    assert_eq!(
+        notes[0].note.length.0, 40,
+        "1 000 samples, as played: a short note, ended before the cue"
+    );
+    let tracks = json!([{
+        "track": track,
+        "notes": notes.iter().map(|n| json!({
+            "start": n.note.start.0,
+            "length": n.note.length.0,
+            "pitch": n.note.pitch,
+            "velocity": n.note.velocity,
+        })).collect::<Vec<_>>(),
+    }]);
+    let Output::Record(commands::record::Output::CommitTake { clips, dropped, .. }) = s.exec(
+        command(json!({"type": "record.commit_take", "take": 1, "target": {"at": "arrangement"}, "shift_ms": 0.0, "tracks": tracks})),
+    ) else {
+        panic!("record.commit_take")
+    };
+    assert_eq!((clips.len(), dropped), (1, 0), "{clips:?}");
+    let t = &s.state().project.tracks[&track];
+    let placement = t
+        .placements
+        .values()
+        .find(|p| p.clip == clips[0].clip)
+        .expect("the take's placement");
+    let ClipContent::Midi { notes, .. } = &t.clips[&clips[0].clip].content else {
+        panic!("a MIDI clip")
+    };
+    let note = notes.iter().find(|n| n.pitch == 60).expect("the note");
+    assert_eq!(placement.start.get() + note.start.get(), 0, "on beat 1");
+    assert_eq!(note.length.get(), 40, "with its played length");
 }
