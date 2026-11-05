@@ -1216,6 +1216,21 @@ fn rms_detection_reads_a_sine_3_db_under_its_peak_and_a_square_at_it() {
 }
 
 #[test]
+fn a_switch_back_to_rms_reads_the_program_now() {
+    // RMS on a loud passage, peak on a quiet one, RMS again: the mean square ran meanwhile,
+    // so the quiet passage is not read at the loud level (no dip).
+    let mut c = with(&[(DETECTION, 1.0)]);
+    mono(&mut c, &sine(24_000, 1_000.0, 1.0));
+    c.set_param(ParamId(DETECTION), 0.0);
+    let quiet = sine(144_000, 1_000.0, undb(-40.0));
+    mono(&mut c, &quiet);
+    c.set_param(ParamId(DETECTION), 1.0);
+    let out = mono(&mut c, &quiet[..4_800]);
+    assert_eq!(out, quiet[..4_800], "nothing over the threshold: untouched");
+    assert_eq!(c.gain_reduction_db(), 0.0);
+}
+
+#[test]
 fn the_sidechain_high_pass_stops_the_lows_from_driving_the_gain() {
     // A 0 dBFS 40 Hz sine over a -30 dB threshold at 20:1.
     let (t, ratio) = (-30.0f32, 20.0f32);

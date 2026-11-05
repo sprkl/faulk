@@ -274,7 +274,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(LOOKAHEAD),
             key: "lookahead",
-            description: "How far ahead the compressor sees the sound, from 0 to 10 ms, so a short attack catches a hit whole. It delays this track by that time: the other tracks are not delayed to match. A change fades out and back in.",
+            description: "How far ahead the compressor sees the sound, from 0 to 10 ms, so a short attack catches a hit whole. It delays its track (on the master, the whole mix) by that time: no other track is delayed to match. A change fades out and back in.",
             unit: Unit::Seconds,
             min: 0.0,
             max: LOOKAHEAD_MAX_SECONDS,
@@ -621,17 +621,17 @@ impl Compressor {
     /// The detected level of the frame `(dl, dr)` (the detection signal), in decibels.
     #[inline]
     fn level_db(&mut self, dl: f32, dr: f32) -> f32 {
+        let level = dl.abs().max(dr.abs());
+        // The mean square runs in both modes, so a switch to RMS reads the program now, not
+        // what it held when RMS was last on. Under 1e-15 the square would be subnormal: it
+        // counts as silence.
+        let square = if level < 1e-15 { 0.0 } else { level * level };
+        let ms = self.rms_coefficient * self.mean_square + (1.0 - self.rms_coefficient) * square;
+        self.mean_square = flush(ms);
         if self.rms {
-            let level = dl.abs().max(dr.abs());
-            // Under 1e-15 the square would be subnormal: it counts as silence.
-            let square = if level < 1e-15 { 0.0 } else { level * level };
-            let ms =
-                self.rms_coefficient * self.mean_square + (1.0 - self.rms_coefficient) * square;
-            self.mean_square = flush(ms);
             0.5 * DB_PER_NEPER * self.mean_square.max(LEVEL_FLOOR * LEVEL_FLOOR).ln()
         } else {
-            let level = dl.abs().max(dr.abs()).max(LEVEL_FLOOR);
-            DB_PER_NEPER * level.ln()
+            DB_PER_NEPER * level.max(LEVEL_FLOOR).ln()
         }
     }
 

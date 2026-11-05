@@ -29483,7 +29483,7 @@
         },
         {
           "default": 0,
-          "description": "How far ahead the compressor sees the sound, from 0 to 10 ms, so a short attack catches a hit whole. It delays this track by that time: the other tracks are not delayed to match. A change fades out and back in.",
+          "description": "How far ahead the compressor sees the sound, from 0 to 10 ms, so a short attack catches a hit whole. It delays its track (on the master, the whole mix) by that time: no other track is delayed to match. A change fades out and back in.",
           "id": 10,
           "key": "lookahead",
           "max": 0.01,
