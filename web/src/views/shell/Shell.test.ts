@@ -138,6 +138,14 @@ describe('the shell', () => {
     stores.ui.lang = 'fr'
     body = render(Shell, { props: { stores } }).body
     expect(body).toContain('Les appareils ajoutent 1,5 ms (72 échantillons), compensés : tout reste en place')
+    // Beyond the limit (#749): the row says some tracks are no longer in time.
+    stores.engine.latencyFrames = 20_480
+    stores.engine.latencyCapped = true
+    body = render(Shell, { props: { stores } }).body
+    expect(body).toContain('Les appareils ajoutent 426,67 ms (20480 échantillons), plus que Faulk ne compense : certaines pistes ne sont plus en place')
+    stores.ui.lang = 'en'
+    body = render(Shell, { props: { stores } }).body
+    expect(body).toContain('Devices add 426.67 ms (20480 samples), more than Faulk compensates: some tracks are no longer in time')
   })
 
   it('folds the bottom panel in the mixer and gives it back on leaving, without touching the stored fold', () => {

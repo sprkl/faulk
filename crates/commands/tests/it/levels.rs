@@ -39,6 +39,7 @@ fn levels_name_the_tracks_through_the_engine_slots_and_serve_one_answer() {
         master: reading(1.0, 0.5),
         silenced_frames: 0,
         latency_frames: 72,
+        latency_capped: false,
         sample_rate: 48_000.0,
     });
     let before = state.clone();
@@ -49,10 +50,12 @@ fn levels_name_the_tracks_through_the_engine_slots_and_serve_one_answer() {
         silenced_frames,
         latency_frames,
         latency_ms,
+        latency_capped,
     }) = levels(&mut state, &mut ctx)
     else {
         panic!()
     };
+    assert!(!latency_capped);
     assert_eq!(state, before, "a query changes nothing");
     assert!(playing);
     assert_eq!(silenced_frames, 0);
@@ -200,6 +203,7 @@ fn levels_read_while_the_transport_did_not_run_are_all_silent() {
         master: reading(1.0, 0.5),
         silenced_frames: 131,
         latency_frames: 252,
+        latency_capped: true,
         sample_rate: 48_000.0,
     });
     let Output::Mixer(mixer::Output::Levels {
@@ -209,10 +213,13 @@ fn levels_read_while_the_transport_did_not_run_are_all_silent() {
         silenced_frames,
         latency_frames,
         latency_ms,
+        latency_capped,
     }) = levels(&mut state, &mut ctx)
     else {
         panic!()
     };
+    // The cap (#749) holds whether or not the transport runs.
+    assert!(latency_capped);
     assert!(!playing);
     assert!(
         tracks

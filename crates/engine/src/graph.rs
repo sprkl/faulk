@@ -614,6 +614,9 @@ pub struct Graph {
     /// the last block, in frames.
     track_latency: u32,
     master_latency: u32,
+    /// Some track would need a longer delay than [`crate::msg::limits::MAX_COMPENSATION_FRAMES`]:
+    /// it gets the limit and is no longer aligned (#749).
+    capped: bool,
 }
 
 impl core::fmt::Debug for Graph {
@@ -692,6 +695,7 @@ impl Graph {
             click_left: buffer(max_frames)?,
             click_right: buffer(max_frames)?,
             track_latency: 0,
+            capped: false,
             master_latency: 0,
         })
     }
@@ -715,13 +719,24 @@ impl Graph {
     /// recorder and the graph take the block, so both see the same latency. No allocation.
     pub(crate) fn measure_latency(&mut self, state: &mut State) {
         let mut longest = 0u32;
+        let mut shortest = u32::MAX;
         for track in state.tracks.as_mut_slice().iter_mut().flatten() {
             let latency = chain_latency(track.devices.as_mut_slice());
             track.graph.latency = latency;
             longest = longest.max(latency);
+            shortest = shortest.min(latency);
         }
         self.track_latency = longest;
+        self.capped =
+            longest.saturating_sub(shortest) > crate::msg::limits::MAX_COMPENSATION_FRAMES;
         self.master_latency = chain_latency(state.master_devices.as_mut_slice());
+    }
+
+    /// Whether the compensation is capped (#749): a track would need a longer delay than
+    /// [`crate::msg::limits::MAX_COMPENSATION_FRAMES`], gets the limit and plays early by the
+    /// rest. Every track within the limit stays aligned.
+    pub fn latency_capped(&self) -> bool {
+        self.capped
     }
 
     /// The master chain's latency at the start of the last block, in frames.
@@ -882,17 +897,18 @@ impl Graph {
                 continue;
             };
             let audible = !any_solo || track.solo;
-            track
-                .graph
-                .mixer
-                .sync(track.gain, track.pan, track.mute, audible, fade);
-            // Its delay: at once while nobody hears it, else by a move (module doc > Latency).
+            // Its delay: at once while nobody heard it (its levels at 0 and still before this
+            // block: a new track, a muted one), else by a move (module doc > Latency).
             let wanted = longest.saturating_sub(track.graph.latency);
             if track.graph.is_silent() {
                 track.graph.route.snap(wanted);
             } else {
                 track.graph.route.ask(wanted);
             }
+            track
+                .graph
+                .mixer
+                .sync(track.gain, track.pan, track.mute, audible, fade);
             let input = Input {
                 slot: TrackSlot(slot as u32),
                 live,

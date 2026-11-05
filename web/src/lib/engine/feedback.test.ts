@@ -155,10 +155,12 @@ describe('decodeFeedback', () => {
     expect(decodeFeedback(report(1, (v) => v.setFloat32(at + 16, NaN, true)))!.tracks[0].gainReductionDb).toBe(0)
   })
 
-  it('keeps the device latency in the last word of the header (#749)', () => {
+  it('keeps the device latency in the last word of the header, its high bit the cap (#749)', () => {
     expect(LATENCY_OFFSET + 4).toBe(FEEDBACK_HEADER_BYTES)
     expect(LATENCY_OFFSET % 4).toBe(0)
-    expect(decodeFeedback(report(0))!.latencyFrames).toBe(0)
+    expect(decodeFeedback(report(0))).toMatchObject({ latencyFrames: 0, latencyCapped: false })
+    const capped = decodeFeedback(report(0, (v) => v.setUint32(LATENCY_OFFSET, 0x8000_0000 + 20_480, true)))!
+    expect(capped).toMatchObject({ latencyFrames: 20_480, latencyCapped: true })
   })
 
   it('refuses a report of the previous layouts (version 9: a 100-byte header, without the device latency; version 8: a 92-byte header, without the host frame; version 7: an 88-byte header, without the silenced frames; version 5: 72 bytes; version 4: 56 bytes; version 3)', () => {

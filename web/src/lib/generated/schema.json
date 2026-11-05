@@ -15264,6 +15264,10 @@
           },
           "additionalProperties": false,
           "properties": {
+            "latency_capped": {
+              "description": "True when a chain's latency goes beyond what the engine compensates (16 383 samples\nof difference between two tracks): the tracks that would need more are delayed by\nthe limit only and play early; every other track stays aligned.",
+              "type": "boolean"
+            },
             "latency_frames": {
               "description": "The delay the devices add to what is heard, in samples at the engine's rate: the\nlongest chain of the tracks plus the master's (0 with no such device). The engine\ncompensates it: the tracks and the metronome stay aligned. Counted whether or not the\ntransport runs.",
               "format": "uint32",
@@ -15303,7 +15307,8 @@
             "master",
             "silenced_frames",
             "latency_frames",
-            "latency_ms"
+            "latency_ms",
+            "latency_capped"
           ],
           "type": "object"
         },
@@ -25971,6 +25976,10 @@
             {
               "additionalProperties": false,
               "properties": {
+                "latency_capped": {
+                  "description": "True when a chain's latency goes beyond what the engine compensates (16 383 samples\nof difference between two tracks): the tracks that would need more are delayed by\nthe limit only and play early; every other track stays aligned.",
+                  "type": "boolean"
+                },
                 "latency_frames": {
                   "description": "The delay the devices add to what is heard, in samples at the engine's rate: the\nlongest chain of the tracks plus the master's (0 with no such device). The engine\ncompensates it: the tracks and the metronome stay aligned. Counted whether or not the\ntransport runs.",
                   "format": "uint32",
@@ -26015,7 +26024,8 @@
                 "master",
                 "silenced_frames",
                 "latency_frames",
-                "latency_ms"
+                "latency_ms",
+                "latency_capped"
               ],
               "type": "object"
             }
@@ -34955,6 +34965,10 @@
             {
               "additionalProperties": false,
               "properties": {
+                "latency_capped": {
+                  "description": "True when a chain's latency goes beyond what the engine compensates (16 383 samples\nof difference between two tracks): the tracks that would need more are delayed by\nthe limit only and play early; every other track stays aligned.",
+                  "type": "boolean"
+                },
                 "latency_frames": {
                   "description": "The delay the devices add to what is heard, in samples at the engine's rate: the\nlongest chain of the tracks plus the master's (0 with no such device). The engine\ncompensates it: the tracks and the metronome stay aligned. Counted whether or not the\ntransport runs.",
                   "format": "uint32",
@@ -34999,7 +35013,8 @@
                 "master",
                 "silenced_frames",
                 "latency_frames",
-                "latency_ms"
+                "latency_ms",
+                "latency_capped"
               ],
               "type": "object"
             }

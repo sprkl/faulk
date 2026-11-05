@@ -2460,6 +2460,12 @@ previous: boolean
 type: "mixer.set_solo"
 } | {
 /**
+ * True when a chain's latency goes beyond what the engine compensates (16 383 samples
+ * of difference between two tracks): the tracks that would need more are delayed by
+ * the limit only and play early; every other track stays aligned.
+ */
+latency_capped: boolean
+/**
  * The delay the devices add to what is heard, in samples at the engine's rate: the
  * longest chain of the tracks plus the master's (0 with no such device). The engine
  * compensates it: the tracks and the metronome stay aligned. Counted whether or not the

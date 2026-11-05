@@ -1724,6 +1724,16 @@ pub const FEEDBACK_HEADER_BYTES: usize = 104;
 /// word of the header. One constant, so that the field moves in one place.
 pub const FEEDBACK_LATENCY_OFFSET: usize = 100;
 
+/// The bit of the latency word that says the compensation is capped (#749): a track needs a
+/// longer delay than [`limits::MAX_COMPENSATION_FRAMES`]. The other bits are the frames.
+pub const FEEDBACK_LATENCY_CAPPED: u32 = 1 << 31;
+
+/// The latency word of a report: `frames` (saturated under [`FEEDBACK_LATENCY_CAPPED`]) and
+/// the capped bit.
+pub fn latency_word(frames: u32, capped: bool) -> u32 {
+    frames.min(FEEDBACK_LATENCY_CAPPED - 1) | if capped { FEEDBACK_LATENCY_CAPPED } else { 0 }
+}
+
 /// What the engine reports to the page, about 30 times per second. Fixed little-endian
 /// layout, written by the audio thread into a region sized by [`Feedback::size_for`]:
 ///
@@ -1775,9 +1785,11 @@ pub const FEEDBACK_LATENCY_OFFSET: usize = 100;
 ///             It keeps counting while the transport is stopped, where `playhead_frame` stops: `host_frame -
 ///             playhead_frame` is the host frame of position 0 only while the transport runs at one tempo,
 ///             with no loop wrap and no sample-rate change since the Play.
-///    100    4 latency_frames (u32: the device latency of what is heard, in frames at the engine's rate:
-///             the largest chain latency of the tracks plus the master's, which the graph compensates
-///             (`crate::graph` > Latency); [`FEEDBACK_LATENCY_OFFSET`]; last word of the header; version 11, #749)
+///    100    4 latency (u32: bits 0 to 30, latency_frames, the device latency of what is heard, in frames at
+///             the engine's rate: the largest chain latency of the tracks plus the master's, which the graph
+///             compensates (`crate::graph` > Latency), saturated at 2^31 - 1; bit 31 ([`FEEDBACK_LATENCY_CAPPED`]),
+///             latency_capped: a track needs more than the compensation's limit and is no longer aligned;
+///             [`FEEDBACK_LATENCY_OFFSET`]; last word of the header; version 11, #749)
 ///    104      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
 ///             largest gain reduction in decibels of the strip's devices over the period, version 4):
 ///             one per track slot below `tracks` (zeros for an empty slot; peak and RMS after the
@@ -1800,6 +1812,8 @@ pub struct Feedback {
     /// The device latency of what is heard, in frames ([`FEEDBACK_LATENCY_OFFSET`], version 11,
     /// #749).
     pub latency_frames: u32,
+    /// The compensation is capped: a track is no longer aligned (bit 31 of the latency word).
+    pub latency_capped: bool,
     pub cpu_load: f32,
     /// The largest load of one peak window closed in the period (`crate::host`); with a
     /// coarse clock a period may close none and carry the last window, which can be under

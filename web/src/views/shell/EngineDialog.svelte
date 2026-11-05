@@ -38,9 +38,10 @@
     const n = engine.latencyFrames
     const rate = engine.status?.sampleRate ?? 0
     if (n === 0) return t('engine.compensationNone')
-    if (!(rate > 0)) return t('engine.compensationFrames', { n })
+    const capped = engine.latencyCapped
+    if (!(rate > 0)) return t(capped ? 'engine.compensationCappedFrames' : 'engine.compensationFrames', { n })
     const ms = ((n * 1000) / rate).toLocaleString(ui.lang, { maximumFractionDigits: 2 })
-    return t('engine.compensationValue', { ms, n })
+    return t(capped ? 'engine.compensationCapped' : 'engine.compensationValue', { ms, n })
   })
 
   // What the output protection silenced since this engine started (#667), as a duration.

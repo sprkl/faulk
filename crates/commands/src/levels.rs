@@ -46,6 +46,9 @@ pub struct LevelsStage {
     /// The device latency the engine compensates, in frames (#749): what its report carries.
     #[serde(default)]
     pub latency_frames: u32,
+    /// The compensation is capped: a track needs more than the engine compensates (#749).
+    #[serde(default)]
+    pub latency_capped: bool,
     /// The engine's sample rate, in hertz, to give that latency in milliseconds; 0 unknown.
     #[serde(default)]
     pub sample_rate: f64,

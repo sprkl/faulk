@@ -47,6 +47,8 @@ export const engine = defineFeature(
     'engine.compensationLabel': 'Compensation',
     'engine.compensationValue': 'Devices add {ms} ms ({n} samples), compensated: everything stays in time',
     'engine.compensationFrames': 'Devices add {n} samples, compensated: everything stays in time',
+    'engine.compensationCapped': 'Devices add {ms} ms ({n} samples), more than Faulk compensates: some tracks are no longer in time',
+    'engine.compensationCappedFrames': 'Devices add {n} samples, more than Faulk compensates: some tracks are no longer in time',
     'engine.compensationNone': 'No device adds latency',
     'engine.compensationHint':
       'A look-ahead effect such as Ceiling delays its sound. Faulk delays what plays beside it (the other tracks, the metronome) by the same amount so that everything stays in time, and moves recorded takes earlier by it.',
@@ -106,6 +108,8 @@ export const engine = defineFeature(
     'engine.compensationLabel': 'Compensation',
     'engine.compensationValue': 'Les appareils ajoutent {ms} ms ({n} échantillons), compensés : tout reste en place',
     'engine.compensationFrames': 'Les appareils ajoutent {n} échantillons, compensés : tout reste en place',
+    'engine.compensationCapped': 'Les appareils ajoutent {ms} ms ({n} échantillons), plus que Faulk ne compense : certaines pistes ne sont plus en place',
+    'engine.compensationCappedFrames': 'Les appareils ajoutent {n} échantillons, plus que Faulk ne compense : certaines pistes ne sont plus en place',
     'engine.compensationNone': 'Aucun appareil n’ajoute de latence',
     'engine.compensationHint':
       'Un effet qui anticipe, comme Ceiling, retarde son son. Faulk retarde d’autant ce qui joue à côté (les autres pistes, le métronome) pour que tout reste en place, et avance d’autant les prises enregistrées.',

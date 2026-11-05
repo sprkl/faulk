@@ -147,6 +147,10 @@ domain! {
         latency_frames: u32,
         /// The same delay in milliseconds (0 when the engine's rate is unknown).
         latency_ms: f64,
+        /// True when a chain's latency goes beyond what the engine compensates (16 383 samples
+        /// of difference between two tracks): the tracks that would need more are delayed by
+        /// the limit only and play early; every other track stays aligned.
+        latency_capped: bool,
     };
 }
 
@@ -163,9 +167,10 @@ pub fn apply(
             // The protection's count holds whether or not the transport ran (#667).
             let silenced_frames = staged.as_ref().map_or(0, |s| s.silenced_frames);
             // The latency holds whether or not the transport ran (#749).
-            let (latency_frames, rate) = staged
-                .as_ref()
-                .map_or((0, 0.0), |s| (s.latency_frames, s.sample_rate));
+            let (latency_frames, rate, latency_capped) =
+                staged.as_ref().map_or((0, 0.0, false), |s| {
+                    (s.latency_frames, s.sample_rate, s.latency_capped)
+                });
             let stage = staged.filter(|s| s.playing).unwrap_or_default();
             let tracks = track_levels(
                 &state.project,
@@ -179,6 +184,7 @@ pub fn apply(
                 silenced_frames,
                 latency_frames,
                 latency_ms: crate::levels::latency_ms(latency_frames, rate),
+                latency_capped,
             }))
         }
         Command::SetVolume { track, gain_db } => {

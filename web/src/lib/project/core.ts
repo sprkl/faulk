@@ -73,6 +73,8 @@ export interface LevelsStage {
   silenced_frames?: number
   /** The device latency the engine compensates, in frames (#749); 0 when left out. */
   latency_frames?: number
+  /** The compensation is capped: a track is no longer aligned (#749); false when left out. */
+  latency_capped?: boolean
   /** The engine's sample rate, in hertz, to give that latency in milliseconds; 0 when unknown. */
   sample_rate?: number
 }

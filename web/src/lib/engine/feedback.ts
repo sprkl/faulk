@@ -100,6 +100,8 @@ export interface FeedbackReport {
    * tracks plus the master's. The engine delays the other tracks and the metronome to match.
    */
   latencyFrames: number
+  /** A track needs more than the engine compensates and is no longer aligned (bit 31 of the latency word, #749). */
+  latencyCapped: boolean
   /** Most voices sounding in the tracks' devices during the period. */
   voices: number
   /** Per track slot, after the track's fader (all zeros for an empty slot). */
@@ -212,7 +214,8 @@ export function decodeFeedback(bytes: ArrayBufferLike, at = 0, len = bytes.byteL
     pcmOverBudget: (view.getUint32(80, true) & 1) === 1,
     pcmKib: view.getUint32(84, true),
     silencedFrames: view.getUint32(88, true),
-    latencyFrames: view.getUint32(LATENCY_OFFSET, true),
+    latencyFrames: view.getUint32(LATENCY_OFFSET, true) & 0x7fff_ffff,
+    latencyCapped: view.getUint32(LATENCY_OFFSET, true) >>> 31 === 1,
     voices: view.getUint32(52, true),
     tracks: meters,
     master: meterAt(view, FEEDBACK_HEADER_BYTES + tracks * TRACK_METER_BYTES),

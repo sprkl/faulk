@@ -164,6 +164,7 @@ export class Dispatcher {
         const silenced = report.silencedFrames - silencedBase
         if (this.state.silencedFrames !== silenced) this.state.silencedFrames = silenced
         if (this.state.latencyFrames !== report.latencyFrames) this.state.latencyFrames = report.latencyFrames
+        if (this.state.latencyCapped !== report.latencyCapped) this.state.latencyCapped = report.latencyCapped
         const shown = load.update(report.cpuLoad, report.cpuPeak, performance.now())
         if (!sameLoad(this.state.load, shown)) this.state.load = shown
         this.state.peak = peakOf(report.master)
@@ -516,6 +517,7 @@ export class Dispatcher {
     this.state.voices = 0
     this.state.silencedFrames = 0
     this.state.latencyFrames = 0
+    this.state.latencyCapped = false
     this.state.activeNotes = []
     await web.close().catch((error: unknown) => console.error(error))
   }
@@ -729,6 +731,7 @@ export class Dispatcher {
       ...held,
       silenced_frames: this.state.silencedFrames,
       latency_frames: this.state.latencyFrames,
+      latency_capped: this.state.latencyCapped,
       sample_rate: this.state.status?.sampleRate ?? 0,
     })
   }

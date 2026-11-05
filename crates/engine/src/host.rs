@@ -913,7 +913,11 @@ impl Host {
             (disk.pcm_bytes.load(Ordering::Relaxed) / 1024).min(u64::from(u32::MAX)) as u32,
         );
         put(88, silenced_word(self.engine.limiter_silenced()));
-        put(FEEDBACK_LATENCY_OFFSET, self.engine.graph().latency());
+        let graph = self.engine.graph();
+        put(
+            FEEDBACK_LATENCY_OFFSET,
+            crate::msg::latency_word(graph.latency(), graph.latency_capped()),
+        );
         put(40, tracks as u32);
         put(52, self.period_voices);
         let mut at = FEEDBACK_HEADER_BYTES;
@@ -1139,7 +1143,8 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
         pcm_flags: u32_at(80)?,
         pcm_kib: u32_at(84)?,
         silenced_frames: u32_at(88)?,
-        latency_frames: u32_at(FEEDBACK_LATENCY_OFFSET)?,
+        latency_frames: u32_at(FEEDBACK_LATENCY_OFFSET)? & !crate::msg::FEEDBACK_LATENCY_CAPPED,
+        latency_capped: u32_at(FEEDBACK_LATENCY_OFFSET)? & crate::msg::FEEDBACK_LATENCY_CAPPED != 0,
         meters,
         master: meter(tracks as usize)?,
         voices: u32_at(52)?,

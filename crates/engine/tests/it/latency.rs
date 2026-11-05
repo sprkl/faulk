@@ -548,6 +548,57 @@ fn a_chain_switched_off_behind_a_bypassed_ceiling_rings_out_its_delayed_tail() {
 }
 
 #[test]
+fn beyond_the_limit_the_compensation_is_capped_flagged_and_aligned_up_to_it() {
+    // Track 1 (right) goes through five test delays of 4096 frames: 20 480, more than the
+    // 16 383 the engine gives a track. Track 0 (left) has none: it would need 20 480, gets
+    // 16 383 and plays 4097 frames early; the report says the compensation is capped.
+    let five: Vec<M> = (1..=5).map(|d| delay_at(t(1), d, 4096)).collect();
+    let max = engine::msg::limits::MAX_COMPENSATION_FRAMES as usize;
+    let mut rig = Rig::new(48_000.0);
+    pair(&mut rig, &five);
+    let (left, right) = rig.run(220);
+    assert_eq!(rig.latency(), 5 * 4096);
+    assert!(rig.e.graph().latency_capped(), "the cap is flagged");
+    let early = 5 * 4096 - max;
+    assert_eq!(early, 4097);
+    let n = left.len() - early;
+    assert_eq!(
+        mismatch(&left[..n], &right[early..]),
+        0.0,
+        "the plain track is delayed by the limit exactly"
+    );
+    assert!(peak(&right[25_000..]) > 0.05, "the delayed track sounds");
+
+    // A track within the limit stays aligned: two delays (8192) need 12 288, under it. The
+    // plain track still exists (no note: silent) and keeps the cap flagged.
+    let mut rig = Rig::new(48_000.0);
+    let mut msgs = tone_track(t(0), 0.0);
+    msgs.extend(tone_track(t(1), 1.0));
+    msgs.extend(five);
+    msgs.extend(tone_track(t(2), -1.0));
+    msgs.push(delay_at(t(2), 1, 4096));
+    msgs.push(delay_at(t(2), 2, 4096));
+    rig.send(&msgs);
+    rig.run(8);
+    rig.send(&[note_on(t(1)), note_on(t(2))]);
+    let (left, right) = rig.run(220);
+    assert!(rig.e.graph().latency_capped());
+    assert!(peak(&left[25_000..]) > 0.05);
+    assert_eq!(mismatch(&left, &right), 0.0, "aligned within the limit");
+
+    // Without the plain track nothing is capped.
+    let mut rig = Rig::new(48_000.0);
+    let mut msgs = tone_track(t(1), 1.0);
+    msgs.extend((1..=5).map(|d| delay_at(t(1), d, 4096)));
+    msgs.extend(tone_track(t(2), -1.0));
+    msgs.push(delay_at(t(2), 1, 4096));
+    msgs.push(delay_at(t(2), 2, 4096));
+    rig.send(&msgs);
+    rig.run(2);
+    assert!(!rig.e.graph().latency_capped());
+}
+
+#[test]
 fn the_metronome_is_delayed_with_the_music() {
     let click = |latent: bool| -> (usize, u32) {
         let mut rig = Rig::new(48_000.0);
