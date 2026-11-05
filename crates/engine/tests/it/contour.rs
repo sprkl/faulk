@@ -415,6 +415,31 @@ fn the_output_gain_scales_the_whole_signal() {
 }
 
 #[test]
+fn ramped_values_reach_their_targets_and_back_to_0_db_the_device_is_transparent_again() {
+    // No reset here: every value ramps from its default, as during playback.
+    let input = sine(SR as usize, 1000.0, 0.25);
+    let gain = id(BELL_2, BandParam::Gain);
+    let mut c = Contour::new(SR);
+    let events = [(100, param(OUTPUT, 6.0)), (100, param(gain, 12.0))];
+    let (out, _) = run(&mut c, (&input, &input), 128, &events);
+    // After the 20 ms ramps: +6 dB of output and +12 dB of bell 2 at its centre, exactly.
+    let half = out.len() / 2;
+    let measured = 20.0 * (rms(&out[half..]) / rms(&input[half..])).log10();
+    assert!(
+        (measured - 18.0).abs() < 0.01,
+        "after the ramps: {measured} dB"
+    );
+    // Both back to 0 dB by ramps: the output is the input again, bit for bit.
+    let back = [(0, param(OUTPUT, 0.0)), (0, param(gain, 0.0))];
+    let (out, _) = run(&mut c, (&input, &input), 128, &back);
+    assert_eq!(
+        &out[2_000..],
+        &input[2_000..],
+        "transparent after the ramps back"
+    );
+}
+
+#[test]
 fn at_its_defaults_every_gain_at_0_db_gives_the_input_back_unchanged() {
     let input_l = noise(SR as usize, 3);
     let input_r = sine(SR as usize, 440.0, 0.7);
