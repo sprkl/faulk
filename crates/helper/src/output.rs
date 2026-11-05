@@ -618,6 +618,13 @@ mod tests {
         fail_after_core: bool,
     }
 
+    /// Locks for what runs on the supervisor's threads: a test that panics while holding a
+    /// guard must not make them panic too (#743). The production report takes no such lock
+    /// (`main.rs` only notifies the event loop).
+    fn relock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+        m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     struct Fake(Arc<Mutex<World>>);
 
     struct FakeStream(Arc<Mutex<World>>);
@@ -625,7 +632,7 @@ mod tests {
     impl Drop for FakeStream {
         fn drop(&mut self) {
             let held = {
-                let mut world = self.0.lock().unwrap();
+                let mut world = relock(&self.0);
                 world.alive -= 1;
                 world.core.take()
             };
@@ -637,7 +644,7 @@ mod tests {
         type Stream = FakeStream;
 
         fn devices(&mut self) -> String {
-            self.0.lock().unwrap().devices.clone()
+            relock(&self.0).devices.clone()
         }
 
         fn open(
@@ -646,7 +653,7 @@ mod tests {
             core_for: CoreFor<'_>,
         ) -> Result<Opened<FakeStream>, String> {
             let (rate, fail_after_core) = {
-                let mut world = self.0.lock().unwrap();
+                let mut world = relock(&self.0);
                 world.opens += 1;
                 world.opened_at.push(Instant::now());
                 if !world.available {
@@ -664,7 +671,7 @@ mod tests {
                 drop(held);
                 return Err("the stream could not be built".into());
             }
-            let mut world = self.0.lock().unwrap();
+            let mut world = relock(&self.0);
             world.last_failed = Some(failed);
             world.core = Some(held);
             world.alive += 1;
@@ -733,19 +740,13 @@ mod tests {
                 lost: Box::new(move || {
                     error.store(true, Ordering::Relaxed);
                     lost_count.fetch_add(1, Ordering::Relaxed);
-                    let opens = seen.lock().unwrap().opens;
-                    opens_at_lost.lock().unwrap().push(opens);
+                    let opens = relock(&seen).opens;
+                    relock(&opens_at_lost).push(opens);
                 }),
                 reopened: Box::new(move || {
                     reopened_count.fetch_add(1, Ordering::Relaxed);
                 }),
-                // Poison-tolerant: a test that panics while reading the reports must not make
-                // this thread panic too (#743); the production report takes no lock.
-                report: Box::new(move |open| {
-                    told.lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .push(open)
-                }),
+                report: Box::new(move |open| relock(&told).push(open)),
             },
             timing,
         )
