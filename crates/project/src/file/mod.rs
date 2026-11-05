@@ -41,7 +41,10 @@ pub use error::FileError;
 pub use fs::StdFs;
 pub use fs::{DirEntry, FileSystem, FsError, MemFs, Op, walk};
 pub use migrate::{MIGRATIONS, Migration, migrate};
-pub use pack::{PackLimits, PackPlan, PackReport, PackWriter, export_pack, import_pack, plan_pack};
+pub use pack::{
+    PACK_PIECE_BYTES, PackLimits, PackPlan, PackReader, PackReport, PackStep, PackWriter,
+    export_pack, import_pack, plan_pack,
+};
 pub use read::{OpenOptions, OpenReport, Opened, open, open_with, referenced_blobs};
 pub use session_file::{SessionLoad, load_session, save_session};
 pub use unit::{Layout, Unit};
@@ -50,3 +53,10 @@ pub use write::{Dirty, GITATTRIBUTES, GITIGNORE, SaveOptions, SaveReport, SaveSt
 /// The most bytes of a text file (a JSON file, a TSV file) the reader accepts. A clip of a
 /// million notes is about 25 MB; anything bigger is not a project.
 pub const MAX_TEXT_FILE_BYTES: u64 = 64 << 20;
+
+/// The most bytes of a blob of dense automation points: its magic, then the points of a lane
+/// at most. The reader reads such a blob when it opens the project; a bigger one is refused.
+pub const MAX_LANE_BLOB_BYTES: u64 = (text::LANE_BLOB_MAGIC.len()
+    + crate::limits::MAX_POINTS_PER_LANE * text::POINT_BYTES) as u64;
+
+pub use text::LANE_BLOB_MAGIC;

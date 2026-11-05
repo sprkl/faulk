@@ -1860,7 +1860,9 @@ name = "project"
 version = "0.1.0"
 dependencies = [
  "commands",
+ "crc32fast",
  "engine",
+ "flate2",
  "proptest",
  "schemars",
  "serde",
@@ -1878,6 +1880,7 @@ dependencies = [
  "project",
  "serde",
  "serde_json",
+ "sha2",
  "zip",
 ]
 

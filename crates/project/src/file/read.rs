@@ -365,8 +365,7 @@ impl Reader<'_> {
                     .ok_or_else(|| FileError::Missing {
                         path: blob_path.clone(),
                     })?;
-                let max =
-                    (text::LANE_BLOB_MAGIC.len() + MAX_POINTS_PER_LANE * text::POINT_BYTES) as u64;
+                let max = super::MAX_LANE_BLOB_BYTES;
                 if size > max {
                     return Err(FileError::TooLarge {
                         path: blob_path,

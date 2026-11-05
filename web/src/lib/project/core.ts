@@ -42,6 +42,10 @@ interface CoreExports {
   pw_pack_feed(len: number): number
   pw_pack_cancel(): void
   pw_pack_import(len: number): number
+  pw_unpack_begin(lenLo: number, lenHi: number): number
+  pw_unpack_step(len: number): number
+  pw_unpack_texts(): number
+  pw_unpack_cancel(): void
 }
 
 /** The projects the page can open, as `project.list_stored` answers (`StoredProjects` in `crates/commands`). */
@@ -337,8 +341,8 @@ async function packWrite(io: PackIO, bytes: Uint8Array): Promise<void> {
 }
 
 /** An instance of the project module for the pack calls alone, which keep their session apart from any project. */
-export function packExports(module: WebAssembly.Module): PackExports {
-  return new WebAssembly.Instance(module, {}).exports as unknown as PackExports
+export function packExports(module: WebAssembly.Module): PackExports & UnpackExports {
+  return new WebAssembly.Instance(module, {}).exports as unknown as PackExports & UnpackExports
 }
 
 /**
@@ -397,6 +401,92 @@ export async function exportPack(exports: PackExports, entries: FolderEntry[], i
     }
   } finally {
     exports.pw_pack_cancel()
+  }
+}
+
+/** How an import in pieces ended (`unpackPack`): the project's own files (its blobs went to the sink), or not. */
+export type PackUnpack = { status: 'ok'; files: { path: string; bytes: Uint8Array }[] } | { status: 'failed'; message: string } | { status: 'cancelled' }
+
+/** Where the blobs of an import go: one blob at a time, its pieces in order. `start` names it (`blobs/<sha256>`). */
+export interface UnpackSink {
+  start(path: string, size: number): Promise<void>
+  write(chunk: Uint8Array): Promise<void>
+  /** The blob is whole and its hash checked. */
+  end(): Promise<void>
+}
+
+/** What an import in pieces reads and writes: the pack is read in the ranges the core asks for, the blobs written in pieces. */
+export interface UnpackIO {
+  /** The pack's size in bytes. */
+  size: number
+  /** Bytes `[start, end)` of the pack. */
+  read(start: number, end: number): Promise<Uint8Array>
+  sink: UnpackSink
+  /** Stops the import at the next piece. */
+  signal?: AbortSignal
+  /** The fraction of the pack read so far. */
+  onProgress?(fraction: number): void
+  /** Stops before the first blob, with the project's own files as read (unchecked): what the project of a pack is, without its media. */
+  textOnly?: boolean
+}
+
+/** What the import in pieces needs of the core: its memory and the `pw_unpack_*` session (a worker's own instance serves). */
+export type UnpackExports = Pick<CoreExports, 'memory' | 'pw_inbox' | 'pw_out' | 'pw_unpack_begin' | 'pw_unpack_step' | 'pw_unpack_texts' | 'pw_unpack_cancel'>
+
+function unpackFiles(out: Uint8Array): PackUnpack {
+  const frame = parseSaveFrame(out.subarray(1))
+  if (frame.status !== 'ok') return { status: 'failed', message: frame.message }
+  return { status: 'ok', files: frame.entries.flatMap((entry) => (entry.type === 'write' ? [{ path: entry.path, bytes: entry.bytes }] : [])) }
+}
+
+/**
+ * Imports a `.faulkpack` in pieces (#682): the core (`project::file::PackReader`, the strict import of every
+ * host) asks for ranges of the pack, `io.read` gives them, and each blob goes to `io.sink` as it is inflated
+ * and checked against its name; the project's own files come back at the end, once the project they make is
+ * opened and valid. The memory it holds is a piece and the pack's directory, whatever the size of the pack.
+ * A pack that does not pass is `failed` with the reason (the sink may have taken blobs of it: the caller
+ * removes them), an aborted `io.signal` is `cancelled`. Either way the core forgets the import.
+ */
+export async function unpackPack(exports: UnpackExports, io: UnpackIO): Promise<PackUnpack> {
+  const decoder = new TextDecoder()
+  const failed = (out: Uint8Array): PackUnpack => ({ status: 'failed', message: decoder.decode(out.subarray(1)) })
+  let read = 0
+  try {
+    let out = packOut(exports, 'unpack_begin', exports.pw_unpack_begin(io.size % 2 ** 32, Math.floor(io.size / 2 ** 32)))
+    for (;;) {
+      if (io.signal?.aborted) return { status: 'cancelled' }
+      const view = new DataView(out.buffer, out.byteOffset, out.byteLength)
+      if (out[0] === 0) {
+        const offset = Number(view.getBigUint64(1, true))
+        const length = view.getUint32(9, true)
+        const chunk = await io.read(offset, offset + length)
+        if (io.signal?.aborted) return { status: 'cancelled' }
+        if (chunk.length !== length) return { status: 'failed', message: 'the pack changed or ended while it was read' }
+        packInbox(exports, chunk)
+        out = packOut(exports, 'unpack_step', exports.pw_unpack_step(length))
+        read += length
+        io.onProgress?.(io.size > 0 ? Math.min(1, read / io.size) : 1)
+      } else if (out[0] === 2) {
+        if (io.textOnly) return unpackFiles(packOut(exports, 'unpack_texts', exports.pw_unpack_texts()))
+        const size = Number(view.getBigUint64(1, true))
+        const pathLength = view.getUint32(9, true)
+        await io.sink.start(decoder.decode(out.subarray(13, 13 + pathLength)), size)
+        out = packOut(exports, 'unpack_step', exports.pw_unpack_step(0))
+      } else if (out[0] === 3) {
+        await io.sink.write(out.subarray(1))
+        out = packOut(exports, 'unpack_step', exports.pw_unpack_step(0))
+      } else if (out[0] === 4) {
+        await io.sink.end()
+        out = packOut(exports, 'unpack_step', exports.pw_unpack_step(0))
+      } else if (out[0] === 5) {
+        io.onProgress?.(1)
+        return unpackFiles(out)
+      } else {
+        return failed(out)
+      }
+    }
+  } finally {
+    exports.pw_unpack_cancel()
   }
 }
 

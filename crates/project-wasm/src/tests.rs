@@ -1338,6 +1338,138 @@ fn a_pack_of_a_folder_comes_back_as_the_same_files() {
     assert_eq!(opened.project, original.project);
 }
 
+/// Runs an import in pieces of `zip` the way the store's Worker does: the files it gives (the
+/// blobs as they were streamed, the project's own files from the end frame) and the most bytes
+/// it asked for at once, or its message. `stop` cancels after that many steps.
+fn unpack_of(zip: &[u8], stop: Option<usize>) -> Result<(MemFs, usize), String> {
+    let len = zip.len() as u64;
+    let mut out = pack_step(|| pw_unpack_begin(len as u32, (len >> 32) as u32));
+    let mut fs = MemFs::new();
+    let mut blob: Option<(String, u64, Vec<u8>)> = None;
+    let mut widest = 0usize;
+    for steps in 0.. {
+        if stop == Some(steps) {
+            pw_unpack_cancel();
+            return Err("cancelled".into());
+        }
+        out = match out[0] {
+            0 => {
+                let offset = u64::from_le_bytes(out[1..9].try_into().unwrap()) as usize;
+                let n = u32::from_le_bytes(out[9..13].try_into().unwrap()) as usize;
+                widest = widest.max(n);
+                let piece = &zip[offset..offset + n];
+                put_inbox(piece);
+                pack_step(|| pw_unpack_step(piece.len() as u32))
+            }
+            2 => {
+                let size = u64::from_le_bytes(out[1..9].try_into().unwrap());
+                let n = u32::from_le_bytes(out[9..13].try_into().unwrap()) as usize;
+                let path = std::str::from_utf8(&out[13..13 + n]).unwrap().to_owned();
+                assert!(path.starts_with("blobs/"), "only blobs are streamed: {path}");
+                assert!(blob.is_none());
+                if !fs.files().keys().any(|p| p.starts_with("blobs/")) {
+                    // The first blob: the project's own files are all read, and can be asked for.
+                    let texts = pack_step(|| pw_unpack_texts());
+                    assert_eq!(texts[0], 5);
+                    let (_, entries) = save::parse_frame(&texts[1..]).expect("a save frame");
+                    assert!(!entries.is_empty());
+                    assert!(entries.iter().all(|e| matches!(e, Entry::Write(p, _) if !p.starts_with("blobs/"))));
+                }
+                blob = Some((path, size, Vec::new()));
+                pack_step(|| pw_unpack_step(0))
+            }
+            3 => {
+                blob.as_mut().expect("a blob started").2.extend_from_slice(&out[1..]);
+                pack_step(|| pw_unpack_step(0))
+            }
+            4 => {
+                let (path, size, bytes) = blob.take().expect("a blob started");
+                assert_eq!(bytes.len() as u64, size);
+                fs.write(&path, &bytes).unwrap();
+                pack_step(|| pw_unpack_step(0))
+            }
+            5 => {
+                let (_, entries) = save::parse_frame(&out[1..]).expect("a save frame");
+                apply_entries(&mut fs, &entries);
+                // The session is over.
+                assert_eq!(pack_step(|| pw_unpack_step(0))[0], 1);
+                return Ok((fs, widest));
+            }
+            _ => {
+                // A failure ends the session.
+                let message = String::from_utf8_lossy(&out[1..]).into_owned();
+                assert_eq!(pack_step(|| pw_unpack_step(0))[0], 1);
+                return Err(message);
+            }
+        };
+    }
+    unreachable!()
+}
+
+#[test]
+fn a_pack_imported_in_pieces_gives_the_files_of_the_whole_import() {
+    let fs = reference_song();
+    let (_, _, zip) = export_of(&fs);
+    let whole = import_of(&zip).expect("our own pack imports");
+    let (pieces, widest) = unpack_of(&zip, None).expect("and in pieces");
+    assert_eq!(pieces.files(), whole.files());
+    assert!(widest as u64 <= 1 << 20 || widest == zip.len(), "{widest}");
+    // A lane blob is in the song: the session kept it to open the project, and streamed it too.
+    assert!(
+        pieces
+            .files()
+            .iter()
+            .any(|(p, b)| p.starts_with("blobs/") && b.starts_with(project::file::LANE_BLOB_MAGIC))
+    );
+}
+
+#[test]
+fn an_import_in_pieces_refuses_a_damaged_pack_or_an_invalid_project_and_ends() {
+    let fs = reference_song();
+    let (_, _, zip) = export_of(&fs);
+    // Not a zip.
+    assert!(unpack_of(b"not a zip at all", None).is_err());
+    // A pack whose blob is not its name: the hash is checked as the blob streams.
+    let mut bad = zip.clone();
+    // Flip a byte of the last local file's data: its CRC (and a blob's hash) no longer match.
+    let cd = bad.windows(4).position(|w| w == b"PK\x01\x02").unwrap();
+    bad[cd - 40] ^= 0xff;
+    let err = unpack_of(&bad, None).unwrap_err();
+    assert!(err.contains("bad .faulkpack"), "{err}");
+    // A valid zip of an invalid project: refused at the end.
+    let mut broken = fs.clone();
+    broken.remove("project.json").unwrap();
+    let mut entries: Vec<(String, Vec<u8>)> = broken
+        .files()
+        .iter()
+        .filter(|(p, _)| !p.starts_with(".faulk/"))
+        .map(|(p, b)| (p.clone(), b.clone()))
+        .collect();
+    entries.sort();
+    let mut writer = project::file::PackWriter::new(Vec::new());
+    for (path, bytes) in &entries {
+        writer.start(path, bytes.len() as u64).unwrap();
+        writer.write(bytes).unwrap();
+    }
+    let invalid = writer.finish().unwrap();
+    assert!(unpack_of(&invalid, None).is_err());
+    // A step with no session.
+    assert_eq!(pack_step(|| pw_unpack_step(0))[0], 1);
+}
+
+#[test]
+fn an_import_in_pieces_cancelled_at_any_step_leaves_no_session() {
+    let fs = reference_song();
+    let (_, _, zip) = export_of(&fs);
+    for stop in 0..6 {
+        assert_eq!(unpack_of(&zip, Some(stop)).unwrap_err(), "cancelled");
+        assert_eq!(pack_step(|| pw_unpack_step(0))[0], 1, "after a cancel at {stop}");
+    }
+    // A new import starts over, whatever was under way.
+    let _ = pack_step(|| pw_unpack_begin(zip.len() as u32, 0));
+    unpack_of(&zip, None).expect("the import after");
+}
+
 #[test]
 fn a_session_change_is_a_change_to_save_but_not_a_change_to_the_project() {
     let h = Handle::new(KIND_SINGLE_SYNTH);

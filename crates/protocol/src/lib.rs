@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 37;
+pub const PROTOCOL_VERSION: u32 = 38;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -43,6 +43,10 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 38 (#682): the commands gain `project.cancel_import_pack` (stops the `.faulkpack`
+// imports under way, downloads included); the helper generates its MCP tools from the commands,
+// so a helper of version 37 would not offer it to an agent. No message changes.
 
 // Version 37 (#115, AU-6): the arrangement commands
 // take audio placements (move, resize, split, duplicate, repeat, move_to_track, place_from_slot,
