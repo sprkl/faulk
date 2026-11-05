@@ -45,11 +45,11 @@ export const engine = defineFeature(
     'engine.silencedHint':
       'A device produced samples that are not numbers (NaN or infinite). The output turned them to silence instead of sending them to your speakers.',
     'engine.compensationLabel': 'Compensation',
-    'engine.compensationValue': 'Devices add {ms} ms ({n} samples): the other tracks are delayed to match',
-    'engine.compensationFrames': 'Devices add {n} samples: the other tracks are delayed to match',
+    'engine.compensationValue': 'Devices add {ms} ms ({n} samples), compensated: everything stays in time',
+    'engine.compensationFrames': 'Devices add {n} samples, compensated: everything stays in time',
     'engine.compensationNone': 'No device adds latency',
     'engine.compensationHint':
-      'A look-ahead effect such as Ceiling delays its sound. Faulk delays the other tracks and the metronome by the same amount so that everything stays in time, and moves recorded takes earlier by it.',
+      'A look-ahead effect such as Ceiling delays its sound. Faulk delays what plays beside it (the other tracks, the metronome) by the same amount so that everything stays in time, and moves recorded takes earlier by it.',
     'engine.durationUnderMs': 'under 1 ms',
     'engine.durationMs': '{n} ms',
     'engine.durationS': '{n} s',
@@ -104,11 +104,11 @@ export const engine = defineFeature(
     'engine.silencedHint':
       'Un appareil a produit des échantillons qui ne sont pas des nombres (NaN ou infinis). La sortie les a remplacés par du silence au lieu de les envoyer à tes enceintes.',
     'engine.compensationLabel': 'Compensation',
-    'engine.compensationValue': 'Les appareils ajoutent {ms} ms ({n} échantillons) : les autres pistes sont retardées d’autant',
-    'engine.compensationFrames': 'Les appareils ajoutent {n} échantillons : les autres pistes sont retardées d’autant',
+    'engine.compensationValue': 'Les appareils ajoutent {ms} ms ({n} échantillons), compensés : tout reste en place',
+    'engine.compensationFrames': 'Les appareils ajoutent {n} échantillons, compensés : tout reste en place',
     'engine.compensationNone': 'Aucun appareil n’ajoute de latence',
     'engine.compensationHint':
-      'Un effet qui anticipe, comme Ceiling, retarde son son. Faulk retarde d’autant les autres pistes et le métronome pour que tout reste en place, et avance d’autant les prises enregistrées.',
+      'Un effet qui anticipe, comme Ceiling, retarde son son. Faulk retarde d’autant ce qui joue à côté (les autres pistes, le métronome) pour que tout reste en place, et avance d’autant les prises enregistrées.',
     'engine.durationUnderMs': 'moins d’1 ms',
     'engine.durationMs': '{n} ms',
     'engine.durationS': '{n} s',

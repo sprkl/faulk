@@ -129,15 +129,15 @@ describe('the shell', () => {
     expect(body).toMatch(/data-testid="engine-dialog-compensation"[^>]*>No device adds latency</)
     stores.engine.latencyFrames = 72
     body = render(Shell, { props: { stores } }).body
-    expect(body).toContain('Devices add 1.5 ms (72 samples): the other tracks are delayed to match')
+    expect(body).toContain('Devices add 1.5 ms (72 samples), compensated: everything stays in time')
     // Before the engine's rate is known (a helper session opening): the samples alone, never "none".
     stores.engine.status = null
     body = render(Shell, { props: { stores } }).body
-    expect(body).toContain('Devices add 72 samples: the other tracks are delayed to match')
+    expect(body).toContain('Devices add 72 samples, compensated: everything stays in time')
     stores.engine.status = { kind: 'web', sampleRate: 48_000, estimatedLatencyMs: null }
     stores.ui.lang = 'fr'
     body = render(Shell, { props: { stores } }).body
-    expect(body).toContain('Les appareils ajoutent 1,5 ms (72 échantillons) : les autres pistes sont retardées d’autant')
+    expect(body).toContain('Les appareils ajoutent 1,5 ms (72 échantillons), compensés : tout reste en place')
   })
 
   it('folds the bottom panel in the mixer and gives it back on leaving, without touching the stored fold', () => {

@@ -202,8 +202,8 @@ for (const lang of ['en', 'fr'] as const) {
     const compensation = page.getByTestId('engine-dialog-compensation')
     await expect(compensation).toHaveText(
       lang === 'en'
-        ? /^Devices add [\d.]+ ms \(\d+ samples\): the other tracks are delayed to match$/
-        : /^Les appareils ajoutent [\d,]+ ms \(\d+ échantillons\) : les autres pistes sont retardées d’autant$/,
+        ? /^Devices add [\d.]+ ms \(\d+ samples\), compensated: everything stays in time$/
+        : /^Les appareils ajoutent [\d,]+ ms \(\d+ échantillons\), compensés : tout reste en place$/,
     )
     await page.keyboard.press('Escape')
     await expect(page.getByTestId('engine-dialog')).toBeHidden()

@@ -411,8 +411,10 @@ fn a_bypassed_ceiling_removed_or_rebuilt_at_another_slot_never_jumps() {
         &[enabled(t(1), 1, true), remove(t(1), 1)],
         0,
     );
-    // Replaced in its slot by another Ceiling (a rebuild, a sample-rate change): the new one
-    // takes the old one's line, so the slot keeps its timing.
+    // Replaced in its slot by another Ceiling of the same rate (a rebuild after an edit): the
+    // new one takes the old one's line, so the slot keeps its timing. (A sample-rate change
+    // rebuilds every device and restarts the output: the old line's frames are at the old
+    // rate and are not taken.)
     let on = [ceiling_at(t(1), 1, &[(CEILING, 0.0)])];
     right_moves_cleanly(
         "replaced in its slot",
@@ -585,6 +587,29 @@ fn the_panic_cut_leaves_nothing_delayed_behind_it() {
     let from = fade + BLOCK;
     assert_eq!(peak(&left[from..]), 0.0, "the compensation ring is silent");
     assert_eq!(peak(&right[from..]), 0.0);
+}
+
+#[test]
+fn the_panic_cut_leaves_nothing_in_a_bypass_line() {
+    // A bypassed Ceiling of 5 ms holds 240 frames of the tone in its bypass line: after the
+    // cut, none of it comes back (the line is cleared with the devices).
+    let mut rig = Rig::new(48_000.0);
+    pair(
+        &mut rig,
+        &[
+            ceiling_at(t(1), 1, &[(CEILING, 0.0), (LOOKAHEAD, 0.005)]),
+            enabled(t(1), 1, false),
+        ],
+    );
+    rig.run(40);
+    rig.send(&[M::AllSoundOff]);
+    let fade = fade_frames(48_000.0) as usize;
+    let (_, right) = rig.run(20);
+    assert_eq!(
+        peak(&right[fade + BLOCK..]),
+        0.0,
+        "nothing from before the cut"
+    );
 }
 
 #[test]

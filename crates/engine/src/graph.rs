@@ -887,7 +887,7 @@ impl Graph {
                 .mixer
                 .sync(track.gain, track.pan, track.mute, audible, fade);
             // Its delay: at once while nobody hears it, else by a move (module doc > Latency).
-            let wanted = longest - track.graph.latency;
+            let wanted = longest.saturating_sub(track.graph.latency);
             if track.graph.is_silent() {
                 track.graph.route.snap(wanted);
             } else {

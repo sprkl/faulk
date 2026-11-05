@@ -122,8 +122,9 @@ domain! {
     /// stretch without playing it, use `project.analyze_render`. `silenced_frames` above 0
     /// says the output protection silenced an invalid (non-finite) signal since the page's
     /// audio started, which the levels cannot show. `latency_ms` is the delay the devices add
-    /// to what is heard (a look-ahead limiter's): the engine delays the other tracks and the
-    /// metronome to match, so every track stays in time, and moves recorded takes back by it.
+    /// to what is heard (a look-ahead limiter's): the engine delays what plays beside those
+    /// devices (the other tracks, the metronome) to match, so everything stays in time, and
+    /// moves recorded takes back by it.
     /// A query: changes nothing and never enters the history.
     "mixer.levels" (kind = "query", undo = "none", destructive = false)
     Levels {} => {
