@@ -1,0 +1,2 @@
+2026-11-05
+* **Update** (#759): a clip played from bar 1 gives the same samples with and without a transparent effect on its track. The strip of a track that renders nothing in a block (an audio track without a device before its first launch) now moves its ramps on as over a block of silence, so it no longer fades in over 5 ms at the transport's start where a track with an effect did not; `specs/02-decoupage-mvp.md` (MX-1 and AU-4) follows.
