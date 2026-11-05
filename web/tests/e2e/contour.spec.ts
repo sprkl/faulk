@@ -51,6 +51,7 @@ for (const lang of ['en', 'fr'] as const) {
     const freqBefore = await freq.getAttribute('aria-valuetext')
     const curveBefore = await curve.getByTestId('contour-response').getAttribute('d')
     const handle = curve.locator('[data-testid="contour-handle"][data-band="bell2"]')
+    await handle.scrollIntoViewIfNeeded()
     const box = (await handle.boundingBox())!
     await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
     await page.mouse.down()
@@ -101,11 +102,17 @@ test('contour: screenshots of the panel in the dark and the light theme', async 
   await press('bell3', 'ArrowUp', 12)
   await press('high', 'ArrowUp', 6)
   const dir = fileURLToPath(new URL('../../../.qa/156/', import.meta.url))
-  await page.waitForTimeout(800)
-  await card.screenshot({ path: `${dir}contour-dark.png` })
+  // The bottom panel maximised: the whole card in view.
+  await page.getByTestId('bottom-panel-maximize').click()
+  const shoot = async (theme: string) => {
+    await page.waitForTimeout(800)
+    await card.scrollIntoViewIfNeeded()
+    await card.screenshot({ path: `${dir}contour-${theme}.png` })
+    await curve.screenshot({ path: `${dir}contour-curve-${theme}.png` })
+  }
+  await shoot('dark')
   await page.getByTestId('project-menu').click()
   await page.getByTestId('menu-theme-light').click()
   await page.keyboard.press('Escape')
-  await page.waitForTimeout(800)
-  await card.screenshot({ path: `${dir}contour-light.png` })
+  await shoot('light')
 })
