@@ -12,6 +12,21 @@ The source signal is the same for every file: half a second at 44.1 kHz, stereo,
 on the left and a 660 Hz sine on the right at half of full scale, as 16-bit integers (`source`
 below; `sine-s16.wav` holds it exactly). The lossless files hold exactly these samples; the
 lossy ones are compared with them at a tolerance (tests/it/fixtures.rs).
+
+`recorded.webm` is not written here: it is what a browser records (#609), made once in Chromium 156
+(Playwright's) by MediaRecorder from two oscillators, 440 Hz left and 660 Hz right at half scale:
+
+    const ctx = new AudioContext({ sampleRate: 48000 })
+    const dest = ctx.createMediaStreamDestination()
+    const merger = ctx.createChannelMerger(2)
+    for (const [hz, ch] of [[440, 0], [660, 1]]) {
+      const o = ctx.createOscillator(); o.frequency.value = hz
+      const g = ctx.createGain(); g.gain.value = 0.5
+      o.connect(g).connect(merger, 0, ch); o.start()
+    }
+    merger.connect(dest)
+    const rec = new MediaRecorder(dest.stream, { mimeType: 'audio/webm;codecs=opus' })
+    // start, stop after one second, keep the blob's bytes
 """
 
 import os
@@ -77,6 +92,10 @@ def main():
     encode("sine.m4a", "aac", s, RATE, "fltp", bit_rate=128_000)
     encode("sine-alac.m4a", "alac", s, RATE, "s16p")
     encode("sine.opus", "libopus", source(rate=48_000, frames=24_000), 48_000, "fltp", bit_rate=96_000, container="ogg")
+    # Opus (#609): the same stream in WebM (FFmpeg's muxer writes CodecDelay and the last block's
+    # DiscardPadding), and a mono stream in Ogg.
+    encode("sine.webm", "libopus", source(rate=48_000, frames=24_000), 48_000, "fltp", bit_rate=96_000, container="webm")
+    encode("sine-mono.opus", "libopus", source(rate=48_000, frames=24_000, channels=1), 48_000, "fltp", layout="mono", bit_rate=64_000, container="ogg")
     with open(out("not-audio.txt"), "w", newline="\n") as f:
         f.write("This is a text file, not audio.\n")
 

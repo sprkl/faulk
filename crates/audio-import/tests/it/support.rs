@@ -50,3 +50,15 @@ pub fn pcm_digest(pcm: &[f32]) -> String {
     h.update(&bytes);
     h.finish().to_string()
 }
+
+/// `sine.webm` with its `OpusHead` (the track's `CodecPrivate`) saying another channel mapping
+/// family: a layout of channels Faulk does not model.
+pub fn webm_of_family(family: u8) -> Vec<u8> {
+    let mut bytes = read("sine.webm");
+    let at = bytes
+        .windows(8)
+        .position(|w| w == b"OpusHead")
+        .expect("sine.webm holds its OpusHead");
+    bytes[at + 18] = family;
+    bytes
+}

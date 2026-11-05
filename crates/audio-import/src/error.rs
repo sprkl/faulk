@@ -8,7 +8,8 @@ use std::fmt;
 pub enum ImportError {
     /// No reader recognises the file: not audio, or a container Faulk does not read.
     UnsupportedFormat,
-    /// A container Faulk reads, holding audio in a codec it does not decode (Opus, for one).
+    /// A container Faulk reads, holding audio in a codec it does not decode (AC-3 in MP4, or
+    /// Opus of a channel layout other than mono or stereo, for two).
     UnsupportedCodec(String),
     /// The file is damaged: a header or a packet does not decode.
     Corrupt(String),

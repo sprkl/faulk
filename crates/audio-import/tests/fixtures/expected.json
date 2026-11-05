@@ -2,6 +2,16 @@
   "not-audio.txt": {
     "error": "unsupported_format"
   },
+  "recorded.webm": {
+    "channels": 2,
+    "direct": false,
+    "frames": 46080,
+    "pcm_reference": null,
+    "pcm_sha256": "8980ea5a6fb2ac1ea12c386aaac274c361e6ab79469ddf1ed0a586de56f61b39",
+    "peaks_sha256": "a0f8d49f1ac7c4aec0270d8055c6c9ac6425163a38af9034938ccc480720ca22",
+    "sample_rate": 48000,
+    "sha256": "83b9e41f2f5a9ddba94478bada19a7cdc8464e703304ce0ccd5c654e5801a05c"
+  },
   "sine-48k-mono.flac": {
     "channels": 1,
     "direct": false,
@@ -31,6 +41,16 @@
     "peaks_sha256": "889998f16178315418f48d3f70dd34f722520c6cd2e070d8463099209aab6819",
     "sample_rate": 44100,
     "sha256": "833dd3b9dcb98bedde4069428c0c0d40f7b06fcae36353d9a39c6b3c73ece125"
+  },
+  "sine-mono.opus": {
+    "channels": 1,
+    "direct": false,
+    "frames": 24000,
+    "pcm_reference": null,
+    "pcm_sha256": "1118a585c683b8cadf2c3ff9d7f98e2df1e1ea79ba277b2e6eca957539715675",
+    "peaks_sha256": "45c502ef21ed171bdb39943069e63ca4c942acc4719484a850336fbbc8c9cdb0",
+    "sample_rate": 48000,
+    "sha256": "bdf2089d8c2cf44ece9218a3008a433280fbff8ad53c57cef18c3655182fb825"
   },
   "sine-s16.aiff": {
     "channels": 2,
@@ -123,6 +143,23 @@
     "sha256": "9ab53fe1beb65604a0b53b02efbd579a4f3dc10f8ef4bdae3aba5f6edbb16a2b"
   },
   "sine.opus": {
-    "error": "unsupported_codec"
+    "channels": 2,
+    "direct": false,
+    "frames": 24000,
+    "pcm_reference": null,
+    "pcm_sha256": "bbf51fa1dbc4f51021b3dcafe6849c5c457a6c0f4677acda1dcbcd39689c2db8",
+    "peaks_sha256": "d5a559b701da64ced16291f9d5d0ae219f0d58bbcb96a4eac71a2cd2d61f8f5c",
+    "sample_rate": 48000,
+    "sha256": "2d37befe3b5cc4d4f25d401dbc8c4b6c380e9c2bb7c90893d1f9a49ba6094aca"
+  },
+  "sine.webm": {
+    "channels": 2,
+    "direct": false,
+    "frames": 24000,
+    "pcm_reference": null,
+    "pcm_sha256": "bbf51fa1dbc4f51021b3dcafe6849c5c457a6c0f4677acda1dcbcd39689c2db8",
+    "peaks_sha256": "d5a559b701da64ced16291f9d5d0ae219f0d58bbcb96a4eac71a2cd2d61f8f5c",
+    "sample_rate": 48000,
+    "sha256": "c3cac0ac38f2f12270f69871d134a8f9417b68aaf6c18cedd2f70a92d3a8e336"
   }
 }

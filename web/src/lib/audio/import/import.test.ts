@@ -49,13 +49,20 @@ function deps(extra: Partial<PipelineDeps> = {}): PipelineDeps {
 
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex')
 
+/** `sine.webm` whose `OpusHead` says channel mapping family 3 (ambisonics): refused as `unsupported_codec`. */
+function ambisonic(): Uint8Array<ArrayBuffer> {
+  const bytes = fixture('sine.webm')
+  bytes[Buffer.from(bytes).indexOf('OpusHead') + 18] = 3
+  return bytes
+}
+
 /** MP3 and AAC: compared with the native decode at a tolerance, every other file bit for bit (`REFERENCE_PCM` in tests/it/fixtures.rs). */
 const TOLERATED = ['sine.mp3', 'sine.m4a']
 
 describe('the import module, as the page runs it', () => {
   it('gives every reference file the hash and the PCM the native build gives', () => {
     const names = Object.keys(expected)
-    expect(names.length).toBe(14)
+    expect(names.length).toBe(17)
     for (const name of names) {
       const bytes = fixture(name)
       const record = expected[name]!
@@ -96,6 +103,41 @@ describe('the import module, as the page runs it', () => {
         expect((error as ImportError).code, name).toBe(record.error)
       }
     }
+  })
+
+  it('refuses damaged Opus files by name without ever trapping, as the release build runs them (#609)', () => {
+    // xorshift, so that a failure replays: cuts, flipped bits, and runs of random bytes in the headers' region.
+    let state = 0x2545f491
+    const rand = (n: number) => {
+      state ^= state << 13
+      state ^= state >>> 17
+      state ^= state << 5
+      return (state >>> 0) % Math.max(1, n)
+    }
+    const module = new ImportModule(compiled)
+    let refused = 0
+    for (const name of ['sine.opus', 'sine-mono.opus', 'sine.webm', 'recorded.webm']) {
+      const whole = fixture(name)
+      for (let round = 0; round < 150; round++) {
+        let bytes = whole.slice()
+        if (round % 3 === 0) bytes = bytes.subarray(0, rand(bytes.length))
+        else if (round % 3 === 1) for (let k = 0; k <= round % 16; k++) bytes[rand(bytes.length)]! ^= 1 << rand(8)
+        else for (let at = rand(Math.min(bytes.length, 600)), k = 0; k < 1 + rand(24); k++) bytes[at + k] = rand(256)
+        try {
+          module.open(readerOf(bytes), bytes.length, name.split('.').pop()!)
+          while (module.next());
+          module.finish()
+        } catch (error) {
+          expect(error, `${name} round ${round}`).toBeInstanceOf(ImportError)
+          refused++
+        }
+        // A trap would have broken the instance (abi.ts): every damaged file is a typed refusal or a decode.
+        expect(module.broken, `${name} round ${round}`).toBe(false)
+      }
+    }
+    expect(refused).toBeGreaterThan(0)
+    // An Opus stream whose channels have a layout Faulk does not model.
+    expect(() => module.open(readerOf(ambisonic()), ambisonic().length, 'webm')).toThrow(expect.objectContaining({ code: 'unsupported_codec' }) as Error)
   })
 
   it('refuses a damaged file by name, and the same instance imports the next one', () => {
@@ -153,9 +195,9 @@ describe('the import pipeline over a project folder', () => {
   })
 
   it('stores nothing for a file it refuses, and nothing either when cancelled', async () => {
-    for (const name of ['not-audio.txt', 'sine.opus']) {
+    for (const refused of [file('not-audio.txt'), file('ambisonic.webm', ambisonic())]) {
       const dir = new MemoryDir('song')
-      await expect(importAudio(dir.handle(), file(name), deps())).rejects.toBeInstanceOf(ImportError)
+      await expect(importAudio(dir.handle(), refused, deps())).rejects.toBeInstanceOf(ImportError)
       expect(dir.paths()).toEqual([])
     }
     const dir = new MemoryDir('song')

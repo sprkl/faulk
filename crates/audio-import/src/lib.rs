@@ -23,9 +23,13 @@
 //!
 //! **Formats** (decided by AU-1): WAV (PCM 8 to 32-bit, float 32 and 64, A-law, µ-law,
 //! IMA and Microsoft ADPCM), AIFF and AIFF-C, CAF, FLAC, MP3 (and MP1, MP2), AAC-LC in MP4,
-//! M4A or ADTS, ALAC, Ogg Vorbis. Not Opus: symphonia 0.6 has no Opus decoder, and an Opus
-//! file is refused with [`ImportError::UnsupportedCodec`]. No SIMD feature of symphonia is
-//! enabled, so the native and the WebAssembly builds run the same scalar code.
+//! M4A or ADTS, ALAC, Ogg Vorbis; and (#609) Opus in Ogg or WebM/Matroska, mono or stereo,
+//! decoded by `opuscule` behind symphonia's demuxers (symphonia 0.6 has no Opus decoder):
+//! `opus`, and `webm` for a WebM's end padding. Matroska holding another codec, and Opus
+//! of another channel layout than mono or stereo, are refused with
+//! [`ImportError::UnsupportedCodec`]. No SIMD feature of symphonia is enabled, and the Opus
+//! decoder does its math through the pure-Rust `libm`, so the native and the WebAssembly
+//! builds run the same scalar code.
 //!
 //! Every failure is an [`ImportError`]; a panic inside a decoder (a bug of a dependency on a
 //! hostile file) is caught where unwinding exists and reported as [`ImportError::Corrupt`].
@@ -37,7 +41,9 @@ mod decode;
 mod error;
 mod hash;
 mod mp4;
+mod opus;
 pub mod peaks;
+mod webm;
 
 pub use decode::{BLOCK_FRAMES, Decoding, MediaInfo, Source};
 pub use engine::audio_source::layout::{self, PcmLayout, SampleEncoding};

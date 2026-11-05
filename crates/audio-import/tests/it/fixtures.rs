@@ -27,6 +27,9 @@ const FIXTURES: &[&str] = &[
     "sine.m4a",
     "sine.ogg",
     "sine.opus",
+    "sine-mono.opus",
+    "sine.webm",
+    "recorded.webm",
     "not-audio.txt",
 ];
 
@@ -42,13 +45,67 @@ const LOSSLESS: &[&str] = &[
     "sine-alac.m4a",
 ];
 
-/// Lossy files and the lowest signal-to-noise ratio (dB) of their decode against the source,
-/// over the whole file: the tolerance of the reference comparison. Measured on 2026-11-03:
-/// MP3 (LAME, 128 kb/s) 26.0 dB, AAC (FFmpeg's encoder, 128 kb/s) 24.6 dB, Vorbis
-/// (libsndfile's default quality) 40.6 dB; the floors keep about 4 dB of margin. The length
-/// is the source's exactly, and the decode is aligned on it to the sample: the encoder's
-/// delay and padding are cut (LAME tag, Ogg granule positions, the MP4 edit list).
-const LOSSY: &[(&str, f64)] = &[("sine.mp3", 22.0), ("sine.m4a", 21.0), ("sine.ogg", 36.0)];
+/// A lossy file: the lowest signal-to-noise ratio (dB) of its decode against the source, over
+/// the whole file (the tolerance of the reference comparison), and the source's rate, frames
+/// and channels. Measured on 2026-11-03: MP3 (LAME, 128 kb/s) 26.0 dB, AAC (FFmpeg's encoder,
+/// 128 kb/s) 24.6 dB, Vorbis (libsndfile's default quality) 40.6 dB; on 2026-11-05 (#609),
+/// decoded by opuscule: Opus (libopus) in Ogg at 96 kb/s 41.3 dB, mono at 64 kb/s 41.3 dB, in
+/// WebM at 96 kb/s 41.3 dB. The floors keep about 4 dB of margin. The length is the source's
+/// exactly, and the decode is aligned on it to the sample: the encoder's delay and padding
+/// are cut (LAME tag, Ogg granule positions, the MP4 edit list, Opus's pre-skip, a WebM's
+/// `DiscardPadding`).
+struct Lossy {
+    name: &'static str,
+    floor: f64,
+    rate: u32,
+    frames: u64,
+    channels: u16,
+}
+
+const LOSSY: &[Lossy] = &[
+    Lossy {
+        name: "sine.mp3",
+        floor: 22.0,
+        rate: 44_100,
+        frames: 22_050,
+        channels: 2,
+    },
+    Lossy {
+        name: "sine.m4a",
+        floor: 21.0,
+        rate: 44_100,
+        frames: 22_050,
+        channels: 2,
+    },
+    Lossy {
+        name: "sine.ogg",
+        floor: 36.0,
+        rate: 44_100,
+        frames: 22_050,
+        channels: 2,
+    },
+    Lossy {
+        name: "sine.opus",
+        floor: 37.0,
+        rate: 48_000,
+        frames: 24_000,
+        channels: 2,
+    },
+    Lossy {
+        name: "sine-mono.opus",
+        floor: 37.0,
+        rate: 48_000,
+        frames: 24_000,
+        channels: 1,
+    },
+    Lossy {
+        name: "sine.webm",
+        floor: 37.0,
+        rate: 48_000,
+        frames: 24_000,
+        channels: 2,
+    },
+];
 
 /// The lossy files whose native decode is kept whole beside them (`<name>.pcm`, little-endian
 /// `f32`): MP3 and AAC decode with transcendental functions (`powf`, `cos`) whose last bit
@@ -212,18 +269,26 @@ fn lossless_files_decode_to_the_source_exactly() {
 
 #[test]
 fn lossy_files_keep_the_source_length_and_stay_close_to_it() {
-    for (name, floor) in LOSSY {
+    for Lossy {
+        name,
+        floor,
+        rate,
+        frames,
+        channels,
+    } in LOSSY
+    {
         let (imported, pcm) = import(read(name), extension(name)).unwrap();
         assert_eq!(
-            imported.info.frames, 22_050,
+            imported.info.frames, *frames,
             "{name}: the encoder's delay and padding are cut"
         );
         assert_eq!(
             (imported.info.sample_rate, imported.info.channels),
-            (44_100, 2),
+            (*rate, *channels),
             "{name}"
         );
-        let source = source(44_100, 22_050, 2);
+        let ch = usize::from(*channels);
+        let source = source(*rate, *frames as usize, ch);
         let snr = snr_db(&source, &pcm);
         println!("{name}: SNR {snr:.1} dB (floor {floor} dB)");
         assert!(snr >= *floor, "{name}: SNR {snr:.1} dB under {floor} dB");
@@ -232,8 +297,8 @@ fn lossy_files_keep_the_source_length_and_stay_close_to_it() {
         let middle = |lag: i64| {
             let (mut s, mut n) = (0f64, 0f64);
             for f in 4_000..18_000i64 {
-                let x = f64::from(source[(f * 2) as usize]);
-                let y = f64::from(pcm[((f + lag) * 2) as usize]);
+                let x = f64::from(source[f as usize * ch]);
+                let y = f64::from(pcm[(f + lag) as usize * ch]);
                 s += x * x;
                 n += (x - y) * (x - y);
             }
@@ -297,22 +362,91 @@ fn only_wav_and_aiff_of_plain_samples_are_read_directly() {
 }
 
 #[test]
-fn opus_and_text_are_refused_by_name() {
-    assert_eq!(
-        import(read("sine.opus"), Some("opus")).unwrap_err(),
-        ImportError::UnsupportedCodec("Opus".into())
-    );
+fn text_is_refused_by_name() {
     assert_eq!(
         import(read("not-audio.txt"), Some("txt")).unwrap_err(),
         ImportError::UnsupportedFormat
     );
-    // Without the hint, the same answers.
-    assert_eq!(
-        import(read("sine.opus"), None).unwrap_err().code(),
-        "unsupported_codec"
-    );
+    // Without the hint, the same answer.
     assert_eq!(
         import(read("not-audio.txt"), None).unwrap_err().code(),
         "unsupported_format"
     );
+}
+
+#[test]
+fn opus_in_ogg_and_webm_imports_and_a_layout_faulk_does_not_model_is_refused_by_name() {
+    for name in ["sine.opus", "sine-mono.opus", "sine.webm", "recorded.webm"] {
+        let (imported, _) = import(read(name), None).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert_eq!(imported.info.sample_rate, 48_000, "{name}");
+    }
+    for family in [2, 3, 255] {
+        let e = import(webm_of_family(family), Some("webm")).unwrap_err();
+        assert_eq!(e.code(), "unsupported_codec", "family {family}: {e}");
+        assert!(e.to_string().contains(&format!("family {family}")), "{e}");
+    }
+}
+
+#[test]
+fn a_browser_recording_imports_whole_with_its_two_tones() {
+    // Recorded by Chromium's MediaRecorder (`make_fixtures.py`): two oscillators, 440 Hz on
+    // the left and 660 Hz on the right, one second; 16 packets of 60 ms, no pre-skip, no
+    // padding named: every frame is kept.
+    let (imported, pcm) = import(read("recorded.webm"), Some("webm")).unwrap();
+    assert_eq!(
+        (
+            imported.info.sample_rate,
+            imported.info.channels,
+            imported.info.frames
+        ),
+        (48_000, 2, 16 * 2_880)
+    );
+    // The strongest of 400 to 700 Hz, by 10 Hz, in each channel, after the first 100 ms.
+    for (channel, hz) in [(0, 440.0), (1, 660.0)] {
+        let x: Vec<f64> = pcm
+            .iter()
+            .skip(channel)
+            .step_by(2)
+            .skip(4_800)
+            .map(|s| f64::from(*s))
+            .collect();
+        let power = |f: f64| {
+            let (mut re, mut im) = (0.0, 0.0);
+            for (i, s) in x.iter().enumerate() {
+                let w = 2.0 * std::f64::consts::PI * f * i as f64 / 48_000.0;
+                re += s * w.cos();
+                im += s * w.sin();
+            }
+            re * re + im * im
+        };
+        let best = (40..=70)
+            .map(|k| f64::from(k) * 10.0)
+            .max_by(|a, b| power(*a).total_cmp(&power(*b)))
+            .unwrap();
+        assert_eq!(best, hz, "channel {channel}");
+    }
+}
+
+#[test]
+fn a_webm_padding_is_cut_from_the_last_block_only() {
+    // `sine.webm` names 648 frames of padding (13.5 ms) in its last block group, after
+    // 26 packets of 960 frames and a pre-skip of 312.
+    let whole = read("sine.webm");
+    let at = whole
+        .windows(3)
+        .position(|w| w == [0x75, 0xa2, 0x84])
+        .expect("sine.webm names its DiscardPadding")
+        + 3;
+    let with = |ns: u32| {
+        let mut bytes = whole.clone();
+        bytes[at..at + 4].copy_from_slice(&ns.to_be_bytes());
+        import(bytes, Some("webm")).unwrap().0.info.frames
+    };
+    assert_eq!(with(13_500_000), 24_000);
+    // No padding: every frame after the pre-skip.
+    assert_eq!(with(0), 26 * 960 - 312);
+    // More padding than the last block holds: that block goes, no other.
+    assert_eq!(with(u32::MAX >> 1), 25 * 960 - 312);
+    // A negative padding (at the start, by the specification) is not an end padding.
+    assert_eq!(with(u32::MAX), 26 * 960 - 312);
 }
