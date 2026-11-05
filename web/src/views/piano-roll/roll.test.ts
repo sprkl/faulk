@@ -542,7 +542,7 @@ describe('the keyboard resize (#623)', () => {
     expect(lengths(at)).toEqual([480])
     expect(at.cut).toBe(true)
   })
-  it('takes a step that is not a usable number as a sixteenth', () => {
+  it('takes a NaN step as a sixteenth and a zero step as one tick', () => {
     expect(lengths(stepLengths([note(0, 480)], Number.NaN, 1, 3840))).toEqual([720])
     expect(lengths(stepLengths([note(0, 480)], 0, 1, 3840))).toEqual([481])
   })

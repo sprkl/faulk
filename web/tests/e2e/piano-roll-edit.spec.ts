@@ -598,9 +598,25 @@ test('piano roll: the Length field sets the written length whatever the snap, an
   await page.keyboard.press('Enter')
   await expect.poll(async () => (await shape()).find((n) => n[1] === 61)).toEqual([0, 61, 1920])
 
+  // A chosen length longer than the room left is cut at the clip's end, and said (#280).
+  await field.selectOption('four-bars')
+  await page.locator('[data-testid="roll-item"][aria-label^="C4,"]').focus()
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('Enter')
+  await expect.poll(async () => (await shape()).find((n) => n[1] === 58)).toEqual([0, 58, 3840])
+  await expect(said).toContainText('Note added, A#3, Length 1 bar, cut at the end of the clip')
+  // From the free cursor, Alt+Shift+Left shortens the selection (the note just written) by one step.
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('roll-cursor')).toBeFocused()
+  await page.keyboard.press('Alt+Shift+ArrowLeft')
+  await expect.poll(async () => (await shape()).find((n) => n[1] === 58)).toEqual([0, 58, 2880])
+  await expect(page.getByTestId('roll-cursor')).toBeFocused()
+
   // The field comes back when the roll is closed and opened again.
   await page.getByTestId('panel-devices').click()
   await page.getByTestId('panel-piano-roll').click()
-  await expect(page.getByTestId('roll-draw-length')).toHaveValue('half')
+  await expect(page.getByTestId('roll-draw-length')).toHaveValue('four-bars')
   expect(seen.errors).toEqual([])
 })

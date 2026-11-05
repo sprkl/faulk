@@ -572,6 +572,9 @@
       if (!g.note || !fits(g.note, clipLength)) return
       run(addNotes(g.clip, [g.note]))
       picked = new Set([noteKey(g.note)])
+      // A click (no drag) whose length did not fit before the clip's end draws a shorter note: said (#623, #280).
+      if (g.note.start + g.note.length === clipLength && g.note.length < nextLength)
+        announce(t('pianoRoll.saidLengthCut', { length: gestureLength(t, signature, g.note.length) }))
       lastLength = g.note.length
     } else if (g.kind === 'move' || g.kind === 'resize' || g.kind === 'velocity') {
       // The notes the gesture holds must still be in the clip: after an undo they are gone and nothing is sent.
@@ -852,7 +855,9 @@
     if (!notes.some((n) => noteKey(n) === noteKey(note))) return
     picked = new Set([noteKey(note)])
     onCursor = false
-    announce(t('pianoRoll.saidAdded', { pitch: keyNames?.get(note.pitch) ?? pitchName(note.pitch) }))
+    const added = t('pianoRoll.saidAdded', { pitch: keyNames?.get(note.pitch) ?? pitchName(note.pitch) })
+    // The chosen length did not fit before the clip's end (#623, #280): the note is shorter, and that is said.
+    announce(note.length < nextLength ? t('pianoRoll.saidAddedCut', { added, length: gestureLength(t, signature, note.length) }) : added)
     sound(note.pitch, note.velocity)
     release()
     void focusNote(noteKey(note))
@@ -1207,8 +1212,9 @@
     }
     const { changes, cut } = stepLengths(chosen, drawing ?? SIXTEENTH, direction, clipLength)
     const ok = acceptable(notes, changes)
+    // Null: two notes would become one (not the clip's end). Empty: nothing moves, at the floor or at the clip's end.
     if (!ok || ok.length === 0) {
-      announce(t(cut ? 'pianoRoll.saidAtClipEnd' : 'pianoRoll.saidCannotResize'))
+      announce(t(ok && cut ? 'pianoRoll.saidAtClipEnd' : 'pianoRoll.saidCannotResize'))
       return null
     }
     run(updateNotes(edited.id, ok))
