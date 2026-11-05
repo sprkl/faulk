@@ -59,8 +59,10 @@
 //! block, rendered or not: a block in which a track renders nothing (no device sounds, no
 //! clip plays or waits: an audio track without a device before its first launch, an empty
 //! MIDI track) moves its strip's ramps on as a block of silence would
-//! ([`crate::mixer::Mixer::advance`], #759). A track's sound therefore never depends on
-//! whether a device kept it rendered: one that exists 5 ms before the transport starts (the
+//! ([`crate::mixer::Mixer::advance`], #759). A track's strip therefore never depends on
+//! whether a device kept it rendered, for what messages, faders and lanes set (a timed
+//! strip value of a track's schedule, which no host sends yet, is read only while the track
+//! renders): one that exists 5 ms before the transport starts (the
 //! export's pre-roll, a project already open) starts at its levels, the only fade at the
 //! start of its audio clip being the clip player's own, and a mute, solo or fader change made
 //! while it renders nothing ramps from when it was made. A track that leaves its slot
@@ -1270,7 +1272,8 @@ fn chain_sounds(track: &Track) -> bool {
 }
 
 /// Renders one track and sums it into `out_left` and `out_right` with its levels; `false`
-/// when the track is empty (nothing rendered, its levels untouched). The chain runs once
+/// when the track is empty (nothing rendered, its strip's ramps moved on as over silence,
+/// #759). The chain runs once
 /// per sub-block ([`crate::events`]): per segment of `clock`, cut again when the sink is
 /// full; a retiring track (`input` is `None`) reads no events.
 #[allow(clippy::too_many_arguments)]

@@ -106,7 +106,7 @@ fn a_loop_region_in_integers_exports_alike_natively_and_in_wasm() {
 fn a_clip_played_from_bar_1_exports_alike_whatever_the_chain_natively_and_in_wasm() {
     use test_support::clip_start::{impulse_disk, impulse_job, transparent_chains};
     use test_support::export::{export_job_native, export_job_wasm};
-    for rate in [44_100, 48_000] {
+    for rate in [44_100, 48_000, 96_000] {
         let disk = impulse_disk(rate);
         let plain = export_job_wasm(&impulse_job(rate, &[]), &disk);
         assert!(plain.missing.is_empty());
