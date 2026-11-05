@@ -194,6 +194,9 @@ test('piano roll: the editing controls speak French', async ({ page }) => {
   await expect(page.getByTestId('roll-draw-length')).toHaveAccessibleName('Longueur des notes dessinées')
   await expect(page.getByTestId('roll-draw-length').locator('option:checked')).toHaveText('Magnétisme')
   await expect(page.getByTestId('roll-draw-length').locator('option').last()).toHaveText('4 mesures')
+  // #711: the snap's triplets, named as the quantize grid names them, and the Length field's.
+  await expect(page.getByTestId('roll-snap').locator('option').last()).toHaveText('1/16 triolet')
+  await expect(page.getByTestId('roll-draw-length').locator('option[value="eighth-triplet"]')).toHaveText('Triolet de croches')
   await expect(page.getByTestId('roll-quantize')).toBeDisabled()
   expect(seen.errors).toEqual([])
 })
@@ -618,5 +621,69 @@ test('piano roll: the Length field sets the written length whatever the snap, an
   await page.getByTestId('panel-devices').click()
   await page.getByTestId('panel-piano-roll').click()
   await expect(page.getByTestId('roll-draw-length')).toHaveValue('four-bars')
+  expect(seen.errors).toEqual([])
+})
+
+// #711: the snap's triplets. The cursor steps by a third of a beat (bar 1 beat 1.33, 1.67), Enter writes a note of that
+// length, Alt+Left and Right move it by that step, a click draws on it, and a sixteenth triplet halves the step.
+test('piano roll: a triplet snap steps the cursor, writes, moves and draws on triplet positions', async ({ page }) => {
+  test.setTimeout(120_000)
+  const { seen } = await openRoll(page)
+  const snap = page.getByTestId('roll-snap')
+  await expect(snap.locator('option').nth(-2)).toHaveText('1/8 triplet')
+  await expect(snap.locator('option').last()).toHaveText('1/16 triplet')
+  await snap.selectOption('eighth-triplet')
+  const shape = async () => (await notes(page)).map((n) => [n.start, n.pitch, n.length])
+  const cursor = page.getByTestId('roll-cursor')
+  const focused = page.locator(':focus')
+
+  await focusGrid(page)
+  await page.keyboard.press('Tab')
+  await expect(cursor).toBeFocused()
+  await expect(cursor).toHaveAccessibleName(/bar 1 beat 1$/)
+  await page.keyboard.press('ArrowRight')
+  await expect(cursor).toHaveAccessibleName(/bar 1 beat 1\.33$/)
+  await page.keyboard.press('ArrowRight')
+  await expect(cursor).toHaveAccessibleName(/bar 1 beat 1\.67$/)
+  const pitch = Number(await cursor.getAttribute('data-pitch'))
+  await page.keyboard.press('Enter')
+  await expect.poll(shape).toEqual([[640, pitch, 320]])
+  await expect(focused).toHaveAttribute('aria-label', /, bar 1 beat 1\.67,/)
+
+  // Alt+Right and Left move it by the triplet step.
+  await page.keyboard.press('Alt+ArrowRight')
+  await expect.poll(shape).toEqual([[960, pitch, 320]])
+  await page.keyboard.press('Alt+ArrowLeft')
+  await page.keyboard.press('Alt+ArrowLeft')
+  await expect.poll(shape).toEqual([[320, pitch, 320]])
+
+  // A click draws on the triplet line under the pointer, one triplet long.
+  const g = await spot(page)
+  await page.mouse.click(g.x(1300), g.y(62))
+  await expect.poll(shape).toEqual([
+    [320, pitch, 320],
+    [1280, 62, 320],
+  ])
+
+  // A sixteenth triplet: the cursor steps by a sixth of a beat.
+  await snap.selectOption('sixteenth-triplet')
+  await page.getByTestId('roll-item').first().focus()
+  await page.keyboard.press('Escape')
+  await expect(cursor).toBeFocused()
+  await page.keyboard.press('ArrowRight')
+  await expect(cursor).toHaveAccessibleName(/bar 1 beat 1\.5$/)
+
+  // The Length field has the triplets too (#623): an eighth triplet written on a sixteenth-triplet position.
+  const length = page.getByTestId('roll-draw-length')
+  await expect(length.locator('option[value="sixteenth-triplet"]')).toHaveText('1/16 triplet')
+  await length.selectOption('eighth-triplet')
+  await cursor.focus()
+  await page.keyboard.press('ArrowUp')
+  await page.keyboard.press('Enter')
+  await expect.poll(shape).toEqual([
+    [320, pitch, 320],
+    [480, pitch + 1, 320],
+    [1280, 62, 320],
+  ])
   expect(seen.errors).toEqual([])
 })

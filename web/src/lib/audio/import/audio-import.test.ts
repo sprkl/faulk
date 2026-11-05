@@ -87,13 +87,13 @@ describe('importing audio files from the page', () => {
     const { importer, ran } = setup({
       importFile: async (f) => {
         n++
-        if (f.name === 'song.opus') throw new ImportError('unsupported_codec', 'Opus')
+        if (f.name === 'song.ac3') throw new ImportError('unsupported_codec', 'AC-3')
         if (f.name === 'big.wav') throw new StoreError('full', 'quota')
         return media(f.name, n)
       },
     })
-    await importer.importFiles('T1', [file('song.opus'), file('kick.wav')])
-    expect(importer.failure).toMatchObject({ name: 'song.opus', code: 'unsupported_codec', track: 'T1' })
+    await importer.importFiles('T1', [file('song.ac3'), file('kick.wav')])
+    expect(importer.failure).toMatchObject({ name: 'song.ac3', code: 'unsupported_codec', track: 'T1' })
     expect(ran.length).toBe(1)
     await importer.importFiles('T1', [file('big.wav')])
     expect(importer.failure).toMatchObject({ name: 'big.wav', code: 'full' })

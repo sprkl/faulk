@@ -1,0 +1,2 @@
+2026-11-05
+* **Update**: Opus import (#609). `architecture/03-stockage-local.md` § 5.9 lists Opus in Ogg and WebM (mono or stereo, decoded by `opuscule` behind symphonia's demuxers, pre-skip and WebM `DiscardPadding` cut, page and helper bit for bit) and the import module's new size; `specs/02-decoupage-mvp.md` (AU-1's formats) and `agents/verification.md` (the Opus fixtures, the RFC 8251 vectors test, the WebM walk's cost) follow.
