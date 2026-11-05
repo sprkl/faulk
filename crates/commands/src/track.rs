@@ -750,6 +750,7 @@ fn restore_instrument(
     // A snapshot from before the kind gained parameters comes in complete (#754).
     let mut incoming = snapshot.clone();
     crate::device::fill_missing_params(crate::device::registry(), &mut incoming);
+    let incoming_for_lanes = incoming.clone();
     track.devices.insert(device_id.clone(), incoming);
     let put_back = |state: &mut State| {
         if let Some(track) = state.project.tracks.get_mut(track_id) {
@@ -764,7 +765,7 @@ fn restore_instrument(
         state,
         &crate::device::Place::Track(track_id.clone()),
         device_id,
-        snapshot,
+        &incoming_for_lanes,
         lanes,
     ) {
         put_back(state);

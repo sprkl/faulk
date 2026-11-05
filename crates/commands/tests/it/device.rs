@@ -828,6 +828,38 @@ fn a_restored_device_gets_the_parameters_its_snapshot_lacks() {
         }),
     );
     check_filled(&by_device, "device.restore");
+    // A lane on a parameter the snapshot lacks but the descriptor declares is accepted.
+    let mut with_lanes = s.clone();
+    go(&mut with_lanes, &remove(&fx));
+    let lane = AutomationLane {
+        target: AutomationTarget::Device {
+            device: fx.clone(),
+            param: "knee".into(),
+        },
+        points: BTreeMap::from([(
+            Tick(0),
+            AutomationPoint {
+                value: 12.0,
+                shape: Shape::Linear,
+            },
+        )]),
+    };
+    let lane_id = LaneId::generate(&mut ::project::IdGenerator::new(1_680_000_000_999, 9));
+    go(
+        &mut with_lanes,
+        &d(device::Command::Restore {
+            track: Some(c.track.clone()),
+            master: false,
+            device: fx.clone(),
+            snapshot: old.clone(),
+            lanes: BTreeMap::from([(lane_id.clone(), lane)]),
+        }),
+    );
+    assert!(
+        with_lanes.project.tracks[&c.track]
+            .automation
+            .contains_key(&lane_id)
+    );
     // The master's chain takes the same path.
     let mut on_master = c.state.clone();
     let Output::Device(device::Output::Insert { device: mfx }) = go(

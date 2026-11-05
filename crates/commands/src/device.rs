@@ -650,14 +650,15 @@ fn restore(
         ));
     }
     check_device(registry, device_id, snapshot)?;
-    check_lanes(state, place, device_id, snapshot, lanes)?;
+    // A snapshot from before the kind gained parameters comes in complete (#754), lanes
+    // included: one may target a parameter the snapshot lacks.
+    let mut device = snapshot.clone();
+    fill_missing_params(registry, &mut device);
+    check_lanes(state, place, device_id, &device, lanes)?;
     let devices = chain_mut(state, place)?;
     if devices.len() >= MAX_DEVICES_PER_TRACK {
         return Err(limit());
     }
-    // A snapshot from before the kind gained parameters comes in complete (#754).
-    let mut device = snapshot.clone();
-    fill_missing_params(registry, &mut device);
     devices.insert(device_id.clone(), device);
     if let Some(place_lanes) = state.project.lanes_mut(place.track().as_ref()) {
         place_lanes.extend(lanes.iter().map(|(id, lane)| (id.clone(), lane.clone())));
