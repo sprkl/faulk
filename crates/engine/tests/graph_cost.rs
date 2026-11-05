@@ -60,15 +60,14 @@ fn playing(slot: u32) -> Vec<M> {
     ]
 }
 
-/// Best of `ROUNDS` runs per engine, in microseconds per block, the engines measured in
+/// Best of `rounds` runs per engine, in microseconds per block, the engines measured in
 /// turn inside every round: a stretch of machine load (a parallel build) hits the three of
 /// them alike and each one's best round is one the load spared, so the figures compared
 /// below share the machine's state instead of each one getting its own (#763).
-fn time_all(engines: &mut [&mut Engine], blocks: usize) -> Vec<f64> {
-    const ROUNDS: usize = 15;
+fn time_all(engines: &mut [&mut Engine], blocks: usize, rounds: usize) -> Vec<f64> {
     let (mut l, mut r) = (vec![0.0; BLOCK], vec![0.0; BLOCK]);
     let mut best = vec![f64::MAX; engines.len()];
-    for _ in 0..ROUNDS {
+    for _ in 0..rounds {
         for (e, best) in engines.iter_mut().zip(&mut best) {
             for _ in 0..20 {
                 e.process(&mut l, &mut r);
@@ -83,9 +82,9 @@ fn time_all(engines: &mut [&mut Engine], blocks: usize) -> Vec<f64> {
     best
 }
 
-/// Best of `ROUNDS` runs of one engine, in microseconds per block.
+/// Best of three runs of one engine, in microseconds per block.
 fn time(e: &mut Engine, blocks: usize) -> f64 {
-    time_all(&mut [e], blocks)[0]
+    time_all(&mut [e], blocks, 3)[0]
 }
 
 #[test]
@@ -119,7 +118,7 @@ fn an_empty_track_costs_no_notable_computation() {
         send(&mut pp, &mut many, &playing(slot));
     }
 
-    let times = time_all(&mut [&mut base, &mut empties, &mut many], blocks);
+    let times = time_all(&mut [&mut base, &mut empties, &mut many], blocks, 15);
     let (b, e, p) = (times[0], times[1], times[2]);
     let per_empty = (e - b).max(0.0) / f64::from(EMPTY);
     let per_playing = (p - b).max(0.0) / f64::from(PLAYING);
