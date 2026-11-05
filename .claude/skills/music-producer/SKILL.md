@@ -47,13 +47,13 @@ Done when: there are enough distinct patterns to fill the form chosen in phase 4
 
 ### 4. Arrange
 
-Choose the **form** (by sections, or by density: [arrangement.md](references/arrangement.md)), fix the total length in bars, then arrange **subtractively**: fill everything everywhere, carve per section, work backwards from the densest moment. Place the **dramatic arc** or its static substitute. Blur every seam with a coarse edit and the important ones with an anticipation or a hesitation. Insert three to six **unique events** with bar and beat. Write the arrangement block: sections of 8 or 16 bars, and the seam edits as **windows** on the parts (`Bass A [from=15.3]`, `Lead [to=95.3]`, `Beat A [mute=27]`), so that a pattern exists only where the notes differ. Ten to twenty patterns carry a whole track; past that, arrangement edits are being written as patterns.
+Choose the **form** (by sections, or by density: [arrangement.md](references/arrangement.md)), fix the total length in bars, then arrange **subtractively**: fill everything everywhere, carve per section, work backwards from the densest moment. Place the **dramatic arc** or its static substitute. Blur every seam with a coarse edit and the important ones with an anticipation or a hesitation. Insert three to six **unique events** with bar and beat. Write the **movement of the sounds** as `automation` blocks ([notation.md](references/notation.md)): at least two lanes (a filter cutoff, a resonance, an FM index, a level or a pan), each aimed at a pattern, with points by bar and beat and a curve chosen for the feel; a style profile that asks for automation lanes is answered here, not by prose alone. Write the arrangement block: sections of 8 or 16 bars, and the seam edits as **windows** on the parts (`Bass A [from=15.3]`, `Lead [to=95.3]`, `Beat A [mute=27]`), so that a pattern exists only where the notes differ. Ten to twenty patterns carry a whole track; past that, arrangement edits are being written as patterns.
 
-Done when: the arrangement block covers every bar from 1 to the end with no gaps, every section lists its parts, section lengths are multiples of 4 except where the irregularity is named, every seam has its blur noted (as a window where it is a timing edit, in prose where it is processing), the unique events are placed, and the check passes.
+Done when: the arrangement block covers every bar from 1 to the end with no gaps, every section lists its parts, section lengths are multiples of 4 except where the irregularity is named, every seam has its blur noted (as a window where it is a timing edit, in prose where it is processing), the unique events are placed, the automation lanes sit inside the arrangement and aim at parts that play, and the check passes.
 
 ### 5. Finish
 
-Render the MIDI file, run through the **good enough** list in [arrangement.md](references/arrangement.md), and stop. Write the **finishing notes**: what the sounds should become now that the notes exist (presets as starting points, the few parameters to bend, where humanising drift and noise belong), what is deliberately left to the human ear, and what a second version could try.
+Render the MIDI file (the automation lanes go out as control changes on their parts' channels), run through the **good enough** list in [arrangement.md](references/arrangement.md), and stop. Write the **finishing notes**: what the sounds should become now that the notes exist (presets as starting points, the few parameters to bend, where humanising drift and noise belong), what is deliberately left to the human ear, and what a second version could try.
 
 Done when: the sheet and the MIDI file exist, the check output is quoted in the report, and the notes say plainly what was verified and what was not.
 
@@ -68,6 +68,7 @@ One Markdown file, written in the user's language from the title to the headings
 ## Seed loop                  pattern blocks + one line each on why
 ## Variations                 the generations, one line each on what changed
 ## Arrangement                the arrangement block, then seams and unique events by bar
+## Automation                 the automation blocks, one line each on what moves and why that curve
 ## Finishing notes            sounds, humanising, what is left to the ear, next version
 ## Check                      the output of sheet_tool.py check, verbatim
 ```
