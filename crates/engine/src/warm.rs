@@ -432,7 +432,10 @@ pub fn messages() -> Vec<Phase> {
     let halt = vec![M::Stop];
     // A recording from a stopped clock with the metronome on starts with a count-in bar.
     let record = vec![
-        M::SetRecording { recording: true },
+        M::SetRecording {
+            recording: true,
+            shift_us: 0,
+        },
         M::Play { from: Tick(0) },
     ];
     let seek = vec![
@@ -448,7 +451,10 @@ pub fn messages() -> Vec<Phase> {
             at: Some(0),
         },
         M::AllNotesOff { track: synth_track },
-        M::SetRecording { recording: false },
+        M::SetRecording {
+            recording: false,
+            shift_us: 0,
+        },
         M::StopTrack { track: synth_track },
         M::StopAll,
         M::BackTrackToArrangement { track: synth_track },

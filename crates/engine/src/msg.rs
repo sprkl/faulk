@@ -228,6 +228,9 @@ pub const MSG_ALIGN: usize = 4;
 pub mod limits {
     /// Tracks in a project.
     pub const MAX_TRACKS: u32 = 4096;
+    /// The largest shift of a take's notes (`ControlMsg::SetRecording`), in microseconds,
+    /// either way: above the commands' bound (1000 ms of latency plus 500 ms of offset).
+    pub const MAX_RECORD_SHIFT_US: i32 = 2_000_000;
     /// Devices in one track's chain.
     pub const MAX_DEVICES_PER_TRACK: u32 = 1024;
     /// Clips in a project (grid and arrangement together).
@@ -641,8 +644,14 @@ pub enum ControlMsg {
         region: Option<LoopRegion>,
     },
     /// Recording on or off (RE-2); the take comes back through `Feedback::recorded`.
+    /// `shift_us`: how much earlier the notes of the take that starts are placed, in
+    /// microseconds (negative: later), the output latency the host estimates plus the manual
+    /// offset (#560). The recorder moves each note back on its own clock, where it knows the
+    /// loop wraps ([`crate::recorder`]); clamped to [`limits::MAX_RECORD_SHIFT_US`] either way.
+    /// Ignored when `recording` is false and while a take runs.
     SetRecording {
         recording: bool,
+        shift_us: i32,
     },
     // live input (the only messages that go through the bounded live queue)
     /// A note played live. `at` is the host frame at which it was played (#499; module doc,
@@ -1428,7 +1437,7 @@ pub enum TransportMsg {
     Stop,
     Seek { tick: Tick },
     SetLoop { region: Option<LoopRegion> },
-    SetRecording { recording: bool },
+    SetRecording { recording: bool, shift_us: i32 },
 }
 
 /// Launch order carried to the audio thread (executed at the next quantization boundary).

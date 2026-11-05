@@ -387,7 +387,10 @@ fn the_transport_and_launch_orders_land_in_the_state() {
         M::Play { from: Tick(10) },
         M::Seek { tick: Tick(20) },
         M::SetLoop { region },
-        M::SetRecording { recording: true },
+        M::SetRecording {
+            recording: true,
+            shift_us: 0,
+        },
         M::StopTrack { track: T0 },
         M::StopAll,
         M::BackToArrangement,
