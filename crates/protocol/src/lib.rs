@@ -44,12 +44,20 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
-// Version 37 (#115, AU-6; 35 and 36 are #684's and #701's, which land first): the arrangement commands
+// Version 37 (#115, AU-6): the arrangement commands
 // take audio placements (move, resize, split, duplicate, repeat, move_to_track, place_from_slot,
 // place_scene, insert_time, delete_time; `arrangement.place` of an audio clip carves instead of
 // refusing an overlap), `arrangement.restore` takes `audio_clips` and removes audio clips, and
 // `clip.duplicate` copies an audio clip. The helper's MCP tools come from the commands, so a helper
 // of another version would describe them otherwise.
+
+// Version 36 (#695, 33 to 35 are #670's, #676's and #684's): the project's key and scale. The
+// commands gain `project.set_scale`, `project.get` answers `scale_root`, `scale_mode` and
+// `scale_pitch_classes`, the events `scale_changed`, and the project its `scale` (folder format
+// 5). The helper's MCP tools come from the command catalogue (AG-1), so a helper of an earlier version
+// would not offer the command.
+
+// Version 35 (#617; 33 is #670's and 34 is #676's): the commands gain `project.cancel_export_pack` (stops the `.faulkpack` export under way); the helper generates its MCP tools from the commands, so a helper of version 34 would not offer it to an agent. No message changes.
 
 // Version 34 (#667, 33 is #658's): the report is `Feedback` version 8: the header grows from 88
 // to 92 bytes with `silenced_frames` at offset 88 (the stereo frames the output protection
@@ -420,6 +428,13 @@ pub fn schema_bundle() -> serde_json::Value {
         // The page's fader, the axis of a volume lane and the engine's reading of a lane all
         // follow it; the page builds its own from this table.
         "fader_taper": engine::fader::TAPER,
+        // The scales of the project (#695): each one's degrees in semitones above its root,
+        // in the order the page lists them (a list: a map would sort them by name). The
+        // piano roll and the scale picker read them.
+        "scale_intervals": project::ScaleMode::ALL
+            .iter()
+            .map(|m| serde_json::json!({ "mode": m.name(), "intervals": m.intervals() }))
+            .collect::<Vec<_>>(),
         "single_synth": {
             "track": single_synth::TRACK,
             "device": single_synth::DEVICE,

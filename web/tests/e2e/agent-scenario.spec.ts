@@ -357,6 +357,14 @@ test('an agent builds a song over MCP: tracks, scenes, clips, a filter lane, a l
     expect((await mcp.call<{ points: unknown[] }>('automation_lane_points', { lane })).points).toHaveLength(2)
     for (const track of tracks) expect((await mcp.call<{ placement_count: number }>('track_get', { track })).placement_count).toBeGreaterThan(0)
 
+    // The agent sets the theme like the user (#687): the page shows it at once, and the project does not change.
+    const html = page.locator('html')
+    await expect(html).toHaveAttribute('data-theme', 'dark')
+    await mcp.call('view_set_theme', { theme: 'light' })
+    await expect(html).toHaveAttribute('data-theme', 'light')
+    await mcp.call('view_set_theme', { theme: 'dark' })
+    await expect(html).toHaveAttribute('data-theme', 'dark')
+
     // The history names the agent as the author of its edits.
     await page.getByTestId('panel-history').click()
     await expect(page.locator(`[data-testid=history-entry][data-author="agent:${CLIENT}"]`).first()).toBeVisible()

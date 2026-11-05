@@ -8,6 +8,8 @@
    */
   import { onMount } from 'svelte'
   import { drawWaveform } from '../audio/peaks/draw'
+  import { readColors, trackInk } from './timegrid/render'
+  import { theme } from '../theme.svelte'
   import type { Peaks } from '../audio/peaks/format'
 
   interface Props {
@@ -22,9 +24,11 @@
     color?: string
     /** One lane per channel, the channels merged, or `auto`: lanes when each has room. */
     lanes?: boolean | 'auto'
+    /** `color` is a track's hue: drawn with the theme's ink like the other lines of a track (#687). */
+    track?: boolean
   }
 
-  let { peaks, from = 0, frames, framesPerPixel, color = 'currentColor', lanes = 'auto' }: Props = $props()
+  let { peaks, from = 0, frames, framesPerPixel, color = 'currentColor', lanes = 'auto', track = false }: Props = $props()
 
   let root: HTMLElement
   let canvas: HTMLCanvasElement
@@ -51,7 +55,10 @@
     const start = performance.now()
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, width, height)
-    resolved ||= getComputedStyle(root).color
+    if (!resolved) {
+      const computed = getComputedStyle(root).color
+      resolved = track ? trackInk(computed, readColors(root)) : computed
+    }
     let level = ''
     if (peaks) {
       const report = drawWaveform(ctx, peaks, { x: 0, y: 0, width, height }, { from, framesPerPixel: perPixel }, { color: resolved, lanes, dpr })
@@ -74,8 +81,10 @@
     if (!pending && typeof requestAnimationFrame !== 'undefined') pending = requestAnimationFrame(draw)
   }
 
+  // A new colour or a new theme (#687): the colour is resolved again from the tokens, and the waveform drawn again.
+  const page = theme()
   $effect(() => {
-    void color
+    void [color, track, page.resolved]
     resolved = ''
     schedule()
   })

@@ -19,6 +19,10 @@ pub struct ProjectDoc {
     pub tempo: Vec<TempoPoint>,
     pub meter: Vec<MeterPoint>,
     pub transport: TransportSettings,
+    /// The key and scale (#695): left out when there is none, so that a project without one
+    /// writes the same file as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale: Option<crate::scale::Scale>,
     #[serde(deserialize_with = "unique_map")]
     pub scenes: BTreeMap<SceneId, Scene>,
     pub master: Mixer,
@@ -49,6 +53,7 @@ impl ProjectDoc {
             tempo: p.tempo.clone(),
             meter: p.meter.clone(),
             transport: p.transport,
+            scale: p.scale,
             scenes: p.scenes.clone(),
             master: p.master,
             master_devices: p.master_devices.clone(),
@@ -64,6 +69,7 @@ impl ProjectDoc {
             tempo: self.tempo,
             meter: self.meter,
             transport: self.transport,
+            scale: self.scale,
             scenes: self.scenes,
             master: self.master,
             master_devices: self.master_devices,

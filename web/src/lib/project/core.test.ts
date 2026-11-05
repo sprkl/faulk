@@ -10,6 +10,7 @@ import {
   folderFrame,
   MAX_FOLDER_FRAME,
   needsBytes,
+  PACK_CHUNK_BYTES,
   parseSaveFrame,
   ProjectCore,
   type FolderEntry,
@@ -181,14 +182,35 @@ describe('ProjectCore', () => {
       return { source, files }
     }
 
-    it('packs a folder and unpacks the same files, minus the session; the pack is the same bytes each time', () => {
+    /** The pack of `entries` in memory, with the blobs listed by size read from `blobs`, and the sizes of the pieces read. */
+    async function pack(core: ProjectCore, entries: FolderEntry[], blobs: Record<string, Uint8Array> = {}, signal?: AbortSignal) {
+      const parts: Uint8Array[] = []
+      const reads: number[] = []
+      const result = await core.packExport(entries, {
+        read: async (path, start, end) => {
+          reads.push(end - start)
+          return blobs[path]!.slice(start, end)
+        },
+        sink: { write: async (chunk) => void parts.push(chunk) },
+        signal,
+      })
+      const zip = new Uint8Array(parts.reduce((n, part) => n + part.length, 0))
+      let at = 0
+      for (const part of parts) {
+        zip.set(part, at)
+        at += part.length
+      }
+      return { result, zip, reads }
+    }
+
+    it('packs a folder and unpacks the same files, minus the session; the pack is the same bytes each time', async () => {
       const { source, files } = folderOf('Song')
-      const packed = source.packExport(files)
-      if (packed.status !== 'ok') throw new Error(packed.message)
-      expect(packed.missingBlobs).toBe(0)
-      expect(packed.files).toBe(files.filter((f) => !f.path.startsWith('.faulk/')).length)
-      const again = source.packExport(files)
-      expect(again.status === 'ok' && Array.from(again.zip)).toEqual(Array.from(packed.zip))
+      const packed = await pack(source, files)
+      if (packed.result.status !== 'ok') throw new Error(JSON.stringify(packed.result))
+      expect(packed.result.missingBlobs).toBe(0)
+      expect(packed.result.files).toBe(files.filter((f) => !f.path.startsWith('.faulk/')).length)
+      const again = await pack(source, files)
+      expect(Array.from(again.zip)).toEqual(Array.from(packed.zip))
 
       const unpacked = source.packImport(packed.zip)
       if (unpacked.status !== 'ok') throw new Error(unpacked.message)
@@ -207,16 +229,47 @@ describe('ProjectCore', () => {
       source.free()
     })
 
-    it('says why a pack or a folder is refused, and is still able to answer after', () => {
+    it('says why a pack or a folder is refused, and is still able to answer after', async () => {
       const { source, files } = folderOf('Song')
-      const packed = source.packExport(files)
-      if (packed.status !== 'ok') throw new Error(packed.message)
+      const packed = await pack(source, files)
+      expect(packed.result.status).toBe('ok')
       expect(source.packImport(new TextEncoder().encode('not a zip'))).toMatchObject({ status: 'failed', message: expect.stringContaining('faulkpack') })
       expect(source.packImport(packed.zip.subarray(0, 40))).toMatchObject({ status: 'failed' })
-      expect(source.packExport([{ path: 'README.md', bytes: new TextEncoder().encode('hi') }])).toMatchObject({ status: 'failed' })
+      expect((await pack(source, [{ path: 'README.md', bytes: new TextEncoder().encode('hi') }])).result).toMatchObject({ status: 'failed' })
       // A path outside the folder is a malformed frame, not a trap.
-      expect(source.packExport([{ path: '../escape', bytes: new Uint8Array(1) }])).toMatchObject({ status: 'failed' })
+      expect((await pack(source, [{ path: '../escape', bytes: new Uint8Array(1) }])).result).toMatchObject({ status: 'failed' })
       expect(source.packImport(packed.zip).status).toBe('ok')
+      source.free()
+    })
+
+    it('reads the blobs it is given by size in pieces, and the pack is the same whatever is read', async () => {
+      const core = ProjectCore.create(module, 'empty', 1, seed)
+      // The reference song names an audio blob its folder lacks: here it has one, three pieces long (the pack does not check the name).
+      const song = readFolder(SONG_FOLDER)
+      const path = `blobs/${'ab'.repeat(32)}`
+      const size = PACK_CHUNK_BYTES * 2 + (PACK_CHUNK_BYTES >> 1)
+      const media = new Uint8Array(size).map((_, i) => (i * 31 + (i >> 8)) & 0xff)
+      const packed = await pack(core, [...song, { path, size }], { [path]: media })
+      expect(packed.result).toMatchObject({ status: 'ok', missingBlobs: 0 })
+      expect(packed.reads).toEqual([PACK_CHUNK_BYTES, PACK_CHUNK_BYTES, PACK_CHUNK_BYTES >> 1])
+      // Not the same pack as the one without the blob, which the song lacks.
+      const without = await pack(core, song)
+      expect(without.result).toMatchObject({ status: 'ok', missingBlobs: 1 })
+      expect(without.reads).toEqual([])
+      expect(packed.zip.length).toBeGreaterThan(without.zip.length)
+      // A blob that is not the size it was listed with ends the export.
+      const short = await pack(core, [...song, { path, size: size + 1 }], { [path]: media })
+      expect(short.result).toMatchObject({ status: 'failed', message: expect.stringContaining('changed') })
+      expect((await pack(core, song)).result.status).toBe('ok')
+      core.free()
+    })
+
+    it('stops at an abort, forgets the export, and can export again', async () => {
+      const { source, files } = folderOf('Song')
+      const controller = new AbortController()
+      controller.abort()
+      expect((await pack(source, files, {}, controller.signal)).result).toEqual({ status: 'cancelled' })
+      expect((await pack(source, files)).result.status).toBe('ok')
       source.free()
     })
   })

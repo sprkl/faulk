@@ -60,75 +60,82 @@ async function contrast(el: Locator): Promise<number> {
   })
 }
 
-test('mute, solo, arm and the implied mute are letters and shapes on every lane', async ({ page }) => {
-  const { errors } = watch(page)
-  mkdirSync(SHOTS, { recursive: true })
-  await start(page)
-  const rows = page.getByTestId('arr-track').locator('xpath=..')
-  const mute = (i: number) => rows.nth(i).getByTestId('arr-mute')
-  const solo = (i: number) => rows.nth(i).getByTestId('arr-solo')
+// Both themes (#687): the letters and the selected row stay AA on the light working palette too.
+for (const theme of ['dark', 'light'] as const) {
+  test(`mute, solo, arm and the implied mute are letters and shapes on every lane (${theme})`, async ({ page }) => {
+    const { errors } = watch(page)
+    mkdirSync(SHOTS, { recursive: true })
+    await page.addInitScript((t) => localStorage.setItem('faulk.theme', t), theme)
+    await start(page)
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+    const rows = page.getByTestId('arr-track').locator('xpath=..')
+    const mute = (i: number) => rows.nth(i).getByTestId('arr-mute')
+    const solo = (i: number) => rows.nth(i).getByTestId('arr-solo')
 
-  // M, S and R are letters on each lane header, with a meter.
-  for (let i = 0; i < 3; i++) {
-    await expect(mute(i)).toHaveText('M')
-    await expect(solo(i)).toHaveText('S')
-    await expect(rows.nth(i).getByTestId('arr-arm')).toHaveText('Rec')
-    await expect(rows.nth(i).getByTestId('arr-meter')).toBeVisible()
-  }
-  await expect(page.getByTestId('arr-master-meter')).toBeVisible()
+    // M, S and R are letters on each lane header, with a meter.
+    for (let i = 0; i < 3; i++) {
+      await expect(mute(i)).toHaveText('M')
+      await expect(solo(i)).toHaveText('S')
+      await expect(rows.nth(i).getByTestId('arr-arm')).toHaveText('Rec')
+      await expect(rows.nth(i).getByTestId('arr-meter')).toBeVisible()
+    }
+    await expect(page.getByTestId('arr-master-meter')).toBeVisible()
 
-  // Mute: pressed, struck through (a shape), the lane at 40 %; the state is also in the accessible name's pressed state.
-  await mute(1).click()
-  await expect(mute(1)).toHaveAttribute('aria-pressed', 'true')
-  await expect(mute(1)).toHaveCSS('text-decoration-line', 'line-through')
-  await expect(rows.nth(1).locator('.head')).toHaveCSS('opacity', '0.4')
-  await expect(rows.nth(0).locator('.head')).toHaveCSS('opacity', '1')
-  // The letter on the filled button is AA.
-  expect(await contrast(mute(1))).toBeGreaterThanOrEqual(4.5)
+    // Mute: pressed, struck through (a shape), the lane at 40 %; the state is also in the accessible name's pressed state.
+    await mute(1).click()
+    await expect(mute(1)).toHaveAttribute('aria-pressed', 'true')
+    await expect(mute(1)).toHaveCSS('text-decoration-line', 'line-through')
+    await expect(rows.nth(1).locator('.head')).toHaveCSS('opacity', '0.4')
+    await expect(rows.nth(0).locator('.head')).toHaveCSS('opacity', '1')
+    // The letter on the filled button is AA.
+    expect(await contrast(mute(1))).toBeGreaterThanOrEqual(4.5)
 
-  // Solo on the first lane: underlined; the others are silenced by it, which says so in text (screen readers) and with a dashed frame.
-  await solo(0).click()
-  await expect(solo(0)).toHaveAttribute('aria-pressed', 'true')
-  await expect(solo(0)).toHaveCSS('text-decoration-line', 'underline')
-  expect(await contrast(solo(0))).toBeGreaterThanOrEqual(4.5)
-  await expect(mute(2)).toHaveAttribute('data-implied', 'true')
-  await expect(mute(2)).toContainText('Silenced by a solo')
-  // And in its accessible name, which an aria-label would otherwise replace.
-  await expect(mute(2)).toHaveAccessibleName(/Mute .*\. Silenced by a solo/)
-  await expect(mute(2)).toHaveCSS('border-top-style', 'dashed')
-  await expect(rows.nth(2).locator('.head')).toHaveCSS('opacity', '0.4')
-  await expect(mute(0)).not.toHaveAttribute('data-implied', 'true')
-  // The mixer marks it too.
-  await page.getByTestId('nav-mixer').click()
-  await expect(page.getByTestId('mixer-mute').nth(2)).toHaveAttribute('data-implied', 'true')
-  await expect(page.getByTestId('mixer-mute').nth(2)).toHaveCSS('border-top-style', 'dashed')
-  await expect(page.getByTestId('mixer-mute').nth(2)).toHaveAccessibleName(/Silenced by a solo/)
-  await page.getByTestId('nav-arrangement').click()
-  await page.screenshot({ path: `${SHOTS}/arrangement-states-${page.viewportSize()?.width ?? 0}.png` })
+    // Solo on the first lane: underlined; the others are silenced by it, which says so in text (screen readers) and with a dashed frame.
+    await solo(0).click()
+    await expect(solo(0)).toHaveAttribute('aria-pressed', 'true')
+    await expect(solo(0)).toHaveCSS('text-decoration-line', 'underline')
+    expect(await contrast(solo(0))).toBeGreaterThanOrEqual(4.5)
+    await expect(mute(2)).toHaveAttribute('data-implied', 'true')
+    await expect(mute(2)).toContainText('Silenced by a solo')
+    // And in its accessible name, which an aria-label would otherwise replace.
+    await expect(mute(2)).toHaveAccessibleName(/Mute .*\. Silenced by a solo/)
+    await expect(mute(2)).toHaveCSS('border-top-style', 'dashed')
+    await expect(rows.nth(2).locator('.head')).toHaveCSS('opacity', '0.4')
+    await expect(mute(0)).not.toHaveAttribute('data-implied', 'true')
+    // The mixer marks it too.
+    await page.getByTestId('nav-mixer').click()
+    await expect(page.getByTestId('mixer-mute').nth(2)).toHaveAttribute('data-implied', 'true')
+    await expect(page.getByTestId('mixer-mute').nth(2)).toHaveCSS('border-top-style', 'dashed')
+    await expect(page.getByTestId('mixer-mute').nth(2)).toHaveAccessibleName(/Silenced by a solo/)
+    await page.getByTestId('nav-arrangement').click()
+    await page.screenshot({ path: `${SHOTS}/arrangement-states-${theme}-${page.viewportSize()?.width ?? 0}.png` })
 
-  // No hue needed: the states are letters and line shapes, still there on the page (the screenshot is kept for a look in greyscale).
-  await expect(mute(1)).toHaveCSS('text-decoration-line', 'line-through')
-  await expect(solo(0)).toHaveCSS('text-decoration-line', 'underline')
-  await expect(mute(2)).toHaveCSS('border-top-style', 'dashed')
-  expect(errors).toEqual([])
-})
+    // No hue needed: the states are letters and line shapes, still there on the page (the screenshot is kept for a look in greyscale).
+    await expect(mute(1)).toHaveCSS('text-decoration-line', 'line-through')
+    await expect(solo(0)).toHaveCSS('text-decoration-line', 'underline')
+    await expect(mute(2)).toHaveCSS('border-top-style', 'dashed')
+    expect(errors).toEqual([])
+  })
 
-test('the selected track has a 2px light outline and text that is AA', async ({ page }) => {
-  const { errors } = watch(page)
-  await start(page)
-  await page.getByTestId('arr-track').nth(1).click()
-  const row = page.getByTestId('arr-track').nth(1).locator('xpath=..')
-  await expect(row).toHaveCSS('outline-width', '2px')
-  await expect(row).toHaveCSS('outline-style', 'solid')
-  expect(await contrast(row.locator('.track-name'))).toBeGreaterThanOrEqual(4.5)
-  // The row's secondary text (the kind) too.
-  expect(await contrast(row.locator('.kind'))).toBeGreaterThanOrEqual(4.5)
-  await page.getByTestId('nav-mixer').click()
-  const strip = page.getByTestId('mixer-strip').nth(1)
-  await expect(strip).toHaveCSS('outline-width', '2px')
-  expect(await contrast(strip.getByTestId('mixer-chain'))).toBeGreaterThanOrEqual(4.5)
-  expect(errors).toEqual([])
-})
+  test(`the selected track has a 2px outline and text that is AA (${theme})`, async ({ page }) => {
+    const { errors } = watch(page)
+    await page.addInitScript((t) => localStorage.setItem('faulk.theme', t), theme)
+    await start(page)
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+    await page.getByTestId('arr-track').nth(1).click()
+    const row = page.getByTestId('arr-track').nth(1).locator('xpath=..')
+    await expect(row).toHaveCSS('outline-width', '2px')
+    await expect(row).toHaveCSS('outline-style', 'solid')
+    expect(await contrast(row.locator('.track-name'))).toBeGreaterThanOrEqual(4.5)
+    // The row's secondary text (the kind) too.
+    expect(await contrast(row.locator('.kind'))).toBeGreaterThanOrEqual(4.5)
+    await page.getByTestId('nav-mixer').click()
+    const strip = page.getByTestId('mixer-strip').nth(1)
+    await expect(strip).toHaveCSS('outline-width', '2px')
+    expect(await contrast(strip.getByTestId('mixer-chain'))).toBeGreaterThanOrEqual(4.5)
+    expect(errors).toEqual([])
+  })
+}
 
 test('the master meter is in the top bar of every view, and a clip stays until it is reset by click or keyboard', async ({ page }) => {
   const { errors } = watch(page)

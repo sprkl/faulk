@@ -33,6 +33,7 @@ import { pianoRoll } from './piano-roll'
 import { presets } from './presets'
 import { project } from './project'
 import { refusal } from './refusal'
+import { scale } from './scale'
 import { shell } from './shell'
 import { shortcuts } from './shortcuts'
 import { synth } from './synth'
@@ -49,6 +50,7 @@ export const features = {
   tracks,
   browser,
   transport,
+  scale,
   engine,
   helper,
   midi,

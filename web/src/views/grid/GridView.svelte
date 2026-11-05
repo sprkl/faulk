@@ -1268,6 +1268,8 @@
   .cwave {
     position: absolute;
     inset: 4px var(--fk-space-1);
+    /* The track's ink, as `trackInk` mixes it for the canvases (#687): the hue, towards the text by the theme's shade. */
+    color: color-mix(in srgb, var(--track-color, var(--fk-text-muted)), var(--fk-text) var(--fk-track-shade));
     opacity: 0.45;
     pointer-events: none;
   }
@@ -1303,11 +1305,11 @@
   .cell[data-state='playing'],
   .cell[data-state='restarting'] {
     background: var(--track-color, var(--fk-accent));
-    color: #141414;
+    color: var(--fk-on-signal);
   }
   .cell[data-state='playing'] .cname,
   .cell[data-state='restarting'] .cname {
-    color: #141414;
+    color: var(--fk-on-signal);
   }
   .cell[data-state='queued'],
   .cell[data-state='restarting'] {
@@ -1489,7 +1491,7 @@
   }
   .actions .danger {
     border-color: var(--fk-rec);
-    color: var(--fk-rec);
+    color: var(--fk-rec-fg);
   }
 
   :where(button, input):focus-visible {

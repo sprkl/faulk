@@ -8,6 +8,7 @@
    */
   import {
     allowAccess,
+    cancelExportPack,
     exportPack,
     importPack,
     keepMine,
@@ -111,6 +112,11 @@
     <span>{t('save.banner.external', { name })}</span>
     <button class="primary" data-testid="keep-mine" onclick={() => dispatcher.run(keepMine())}>{t('save.banner.keepMine')}</button>
     <button data-testid="load-disk" onclick={() => dispatcher.run(loadFolderVersion())}>{t('save.banner.loadDisk')}</button>
+  </p>
+{:else if storage.banner === 'exporting'}
+  <p class="banner" role="status" data-testid="export-banner">
+    <span>{t('pack.exporting', { percent: Math.floor((storage.exporting ?? 0) * 100) })}</span>
+    <button data-testid="export-cancel" onclick={() => dispatcher.run(cancelExportPack())}>{t('pack.cancelExport')}</button>
   </p>
 {:else if storage.banner === 'downloading'}
   <p class="banner" role="status" data-testid="download-banner">
@@ -228,7 +234,7 @@
   button.primary {
     border-color: var(--fk-accent);
     background: var(--fk-accent);
-    color: #fff;
+    color: var(--fk-on-accent);
     font-weight: 600;
   }
   button.primary:hover {
@@ -243,7 +249,7 @@
     color: var(--fk-text);
   }
   .dialog::backdrop {
-    background: rgb(0 0 0 / 0.5);
+    background: var(--fk-scrim);
   }
   h2 {
     margin: 0 0 var(--fk-space-2);

@@ -1,4 +1,4 @@
-import type { Command, Quantize } from './generated/protocol'
+import type { Command, Quantize, ScaleKind } from './generated/protocol'
 
 /** The commands of the transport bar: each control is one of them (or a short group of them). */
 export const play = (): Command => ({ type: 'transport.play' })
@@ -15,3 +15,5 @@ export const setLoopRegion = (start: number, end: number): Command => ({ type: '
 export const toggleLoop = (): Command => ({ type: 'transport.toggle_loop' })
 export const setMetronome = (enabled: boolean): Command => ({ type: 'transport.set_metronome', enabled })
 export const setLaunchQuantize = (quantize: Quantize): Command => ({ type: 'transport.set_launch_quantize', quantize })
+/** The project's key and scale (#695): `chromatic` is no scale. */
+export const setScale = (root: number, mode: ScaleKind): Command => ({ type: 'project.set_scale', root, mode })

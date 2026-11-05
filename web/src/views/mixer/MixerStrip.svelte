@@ -378,18 +378,18 @@
   .mute[aria-pressed='true'] {
     background: var(--fk-mute);
     border-color: var(--fk-mute);
-    color: #131211;
+    color: var(--fk-on-signal);
     text-decoration: line-through;
   }
   .mute.implied:not([aria-pressed='true']) {
     border-style: dashed;
     border-color: var(--fk-mute);
-    color: var(--fk-mute);
+    color: var(--fk-mute-fg);
   }
   .solo[aria-pressed='true'] {
     background: var(--fk-solo);
     border-color: var(--fk-solo);
-    color: #131211;
+    color: var(--fk-on-signal);
     text-decoration: underline;
   }
   /* Armed for recording (#470): the red dot of recording beside the word. */

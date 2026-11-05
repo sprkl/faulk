@@ -16,7 +16,7 @@ import type { CacheReport, ImportedMedia, MediaRef } from '../audio/import/pipel
 import { peaksPath } from '../audio/peaks/format'
 import type { MessageKey } from '../i18n'
 import { needsBytes, type FolderEntry, type SaveEntry, type SaveFrame, type SaveMode } from '../project/core'
-import type { PackExport, PackImport } from '../project/core'
+import type { PackExport, PackImport, PackIO } from '../project/core'
 import type { OpenOutcome } from '../stores/open'
 import { cleanName } from '../export/audio-export.svelte'
 import { checkOpenUrl, downloadPack, packNameOf } from './open-url'
@@ -61,8 +61,8 @@ export interface ProjectHost {
   projectName(): string | null
   /** `project.rename` through the command path (Save as names the project after the folder it creates); false when the project did not take the name. */
   renameProject(name: string): boolean
-  /** The `.faulkpack` of a project folder given whole (see `ProjectCore.packExport`). */
-  packExport(files: { path: string; bytes: Uint8Array }[]): Promise<PackExport>
+  /** Writes the `.faulkpack` of a project folder to `io.sink`, in pieces (see `ProjectCore.packExport`). */
+  packExport(entries: FolderEntry[], io: PackIO): Promise<PackExport>
   /** The files of a `.faulkpack`, validated (see `ProjectCore.packImport`). */
   packImport(zip: Uint8Array): Promise<PackImport>
   /** Makes the project core ahead of a click that will need it, so the click still has its permission to prompt. */
@@ -97,11 +97,29 @@ export interface StorageDeps {
   pickPack(): Promise<File | null>
   /** Hands a file to the user (a download). */
   download(name: string, blob: Blob): void
+  /**
+   * Asks the user where a big file goes and opens it to be written in pieces (call straight from a click): the
+   * file, `'cancelled'` when the user closed the dialog, `null` when the browser has no such dialog or no click
+   * is behind the call (the file is then a download, kept by the browser). Absent in tests.
+   */
+  saveFile?(name: string): Promise<PackTarget | 'cancelled' | null>
+  /** The bytes the browser can still keep for the page, `null` when it does not say. Absent in tests. */
+  freeSpace?(): Promise<number | null>
   /** The browser's `fetch`, for a pack opened by its link (`project.open_url`). */
   fetch: typeof fetch
   /** Where the page itself is served from (`location.hostname`): plain http links are for a page on this computer only. */
   pageHostname(): string
 }
+
+/** A file written in pieces (a `.faulkpack` the user chose the place of): `close` completes it, `abort` leaves nothing. */
+export interface PackTarget {
+  write(chunk: Uint8Array): Promise<void>
+  close(): Promise<void>
+  abort(): Promise<void>
+}
+
+/** A pack with this many bytes of media or more goes to a file the user chooses; a smaller one is a download. */
+export const PACK_TO_FILE_BYTES = 64 << 20
 
 /** The biggest `.faulkpack` the page reads: the core holds the pack and its files in memory (`crates/project-wasm` `pack.rs`). */
 export const MAX_PACK_BYTES = 192 << 20
@@ -246,6 +264,8 @@ export class ProjectStorage {
   downloading = $state<string | null>(null)
   /** The host a pack could not be downloaded from: the banner offers to import a file instead. */
   downloadFailed = $state<string | null>(null)
+  /** The share of the media written so far (0 to 1) while a `.faulkpack` is being made, else `null`. */
+  exporting = $state<number | null>(null)
   /** A link of the address (`/app?open=`) waiting for the user's answer before anything is downloaded. */
   linkOffer = $state.raw<{ url: string; host: string } | null>(null)
 
@@ -256,6 +276,10 @@ export class ProjectStorage {
   lastWrite: { coreMs: number; writeMs: number; files: number; bytes: number } | null = null
 
   private current: Attached | null = null
+  /** Stops the export under way, if any. */
+  private exportAbort: AbortController | null = null
+  /** An export is under way, from the click on: the file dialog and the preparation included. */
+  private exportBusy = false
   private queue: Promise<unknown> = Promise.resolve()
   /** The downloads of `openUrl`, one at a time, outside `queue` so a slow host never holds a save back. */
   private downloads: Promise<unknown> = Promise.resolve()
@@ -1384,9 +1408,10 @@ export class ProjectStorage {
    * a notice, which answers what the user just did and goes with its Dismiss, the project of last time,
    * and the advice about the browser's storage. The others wait: they show when this one is gone.
    */
-  get banner(): 'permission' | 'full' | 'error' | 'external' | 'reopen' | 'warning' | 'notice' | 'downloading' | 'downloadFailed' | null {
+  get banner(): 'permission' | 'full' | 'error' | 'external' | 'reopen' | 'warning' | 'notice' | 'exporting' | 'downloading' | 'downloadFailed' | null {
     if (this.block) return this.block
-    // A pack opened by its link (#497): the download under way, then why it failed.
+    // A pack being written (#617), then a pack opened by its link (#497): the download under way, then why it failed.
+    if (this.exporting !== null) return 'exporting'
     if (this.downloading) return 'downloading'
     if (this.downloadFailed) return 'downloadFailed'
     if (this.notice) return 'notice'
@@ -1546,12 +1571,70 @@ export class ProjectStorage {
 
   // ------------------------------------------------------------------ .faulkpack
 
-  /** Export: hands the project to the user as a `.faulkpack`, as it is now (saved or not). */
-  exportPack(): Promise<boolean> {
-    return this.enqueue(() => this.doExport())
+  /**
+   * Export: hands the project to the user as a `.faulkpack`, as it is now (saved or not). The pack is written
+   * in pieces, the media read from the folder in pieces, so a project of any size takes the same memory
+   * (#617). With much media it goes to a file the user chooses (call straight from a click); otherwise, or
+   * where the browser has no such dialog, to a download.
+   */
+  async exportPack(): Promise<boolean> {
+    // One at a time, from the click to the end: the file dialog is part of it.
+    if (this.exportBusy) return false
+    this.exportBusy = true
+    // A cancel counts from the click on: during the dialog and the preparation too.
+    const abort = new AbortController()
+    this.exportAbort = abort
+    try {
+      // The place of the pack first, before anything waits (the queue, a store): the browser opens its file
+      // dialog only for a call that follows a click closely.
+      const target = await this.packTarget(`${this.packFileName()}.faulkpack`, await this.mediaBytes())
+      if (target === 'cancelled') return false
+      if (target === 'noRoom') {
+        this.notice = 'pack.noRoom'
+        return false
+      }
+      const prepared = await this.enqueue(() => this.prepareExport())
+      if (!prepared || abort.signal.aborted) {
+        await target.abort().catch(() => undefined)
+        if (prepared) this.notice = 'pack.exportCancelled'
+        return false
+      }
+      // Outside the queue: a long export never holds a save back.
+      return await this.writePack(prepared, target, abort)
+    } finally {
+      this.exportBusy = false
+      this.exportAbort = null
+    }
   }
 
-  private async doExport(): Promise<boolean> {
+  /** A file name for the pack: what the systems refuse in one (and control characters) becomes an underscore. */
+  private packFileName(): string {
+    return (
+      [...(this.host.projectName() ?? '')]
+        .map((ch) => (ch.charCodeAt(0) < 32 || '\\/:*?"<>|'.includes(ch) ? '_' : ch))
+        .join('')
+        .trim() || 'project'
+    )
+  }
+
+  /** The bytes of media the home holds (what an export reads), `0` when it cannot say. */
+  private async mediaBytes(): Promise<number> {
+    try {
+      let bytes = 0
+      for (const entry of (await this.current?.store.listBlobs()) ?? []) if ('size' in entry) bytes += entry.size
+      return bytes
+    } catch {
+      return 0
+    }
+  }
+
+  /** Stops the export under way, whatever it is doing (choosing the file, preparing, writing). */
+  cancelExport() {
+    this.exportAbort?.abort()
+  }
+
+  /** What the export writes: the project as it is now, as a folder. `null` when there is nothing to export. */
+  private async prepareExport(): Promise<{ entries: FolderEntry[]; store: ProjectStore | null } | null> {
     const current = this.current
     let frame: SaveFrame | null
     try {
@@ -1559,40 +1642,90 @@ export class ProjectStorage {
     } catch (error) {
       console.error(error)
       this.notice = 'pack.exportFailed'
-      return false
+      return null
     }
-    if (!frame) return false
+    if (!frame) return null
     // Only to read the project as it is; the home is not told it holds anything new.
     this.host.saved(false)
     if (frame.status === 'failed') {
       this.errorDetail = frame.message
       this.notice = 'pack.exportFailed'
-      return false
+      return null
     }
     try {
       // The media a save does not rewrite come from the home; the frame is what the project is now.
-      const files: Record<string, Uint8Array> = {}
-      if (current) for (const blob of await current.store.readBlobs()) files[blob.path] = blob.bytes
-      for (const entry of frame.entries) if (entry.type === 'write') files[entry.path] = entry.bytes
-      const packed = await this.host.packExport(Object.entries(files).map(([path, bytes]) => ({ path, bytes })))
-      if (packed.status === 'failed') {
-        this.errorDetail = packed.message
-        this.notice = 'pack.exportFailed'
-        return false
-      }
-      // A file name: what the systems refuse in one (and control characters) becomes an underscore.
-      const name =
-        [...(this.host.projectName() ?? '')]
-          .map((ch) => (ch.charCodeAt(0) < 32 || '\\/:*?"<>|'.includes(ch) ? '_' : ch))
-          .join('')
-          .trim() || 'project'
-      this.deps.download(`${name}.faulkpack`, new Blob([packed.zip as Uint8Array<ArrayBuffer>], { type: 'application/zip' }))
-      this.notice = packed.missingBlobs > 0 ? 'pack.missingMedia' : null
-      return true
+      const files: Record<string, FolderEntry> = {}
+      if (current) for (const entry of await current.store.listBlobs()) files[entry.path] = entry
+      for (const entry of frame.entries) if (entry.type === 'write') files[entry.path] = { path: entry.path, bytes: entry.bytes }
+      return { entries: Object.values(files), store: current?.store ?? null }
     } catch (error) {
       this.errorDetail = error instanceof Error ? error.message : String(error)
       this.notice = 'pack.exportFailed'
+      return null
+    }
+  }
+
+  /** Where the pack goes: a file the user chose for much media, else the pieces are kept for a download. */
+  private async packTarget(fileName: string, blobBytes: number): Promise<PackTarget | 'cancelled' | 'noRoom'> {
+    if (blobBytes >= PACK_TO_FILE_BYTES && this.deps.saveFile) {
+      const chosen = await this.deps.saveFile(fileName)
+      if (chosen === 'cancelled') return 'cancelled'
+      if (chosen) return chosen
+    }
+    // A download is kept by the browser (on disk when it is big) as the pieces come; check there is room for it.
+    if (blobBytes >= PACK_TO_FILE_BYTES && this.deps.freeSpace) {
+      const free = await this.deps.freeSpace()
+      if (free !== null && free < blobBytes) return 'noRoom'
+    }
+    let kept = new Blob([], { type: 'application/zip' })
+    return {
+      write: async (chunk) => {
+        kept = new Blob([kept, chunk as Uint8Array<ArrayBuffer>], { type: 'application/zip' })
+      },
+      close: async () => this.deps.download(fileName, kept),
+      abort: async () => {
+        kept = new Blob([])
+      },
+    }
+  }
+
+  private async writePack(prepared: { entries: FolderEntry[]; store: ProjectStore | null }, target: PackTarget, abort: AbortController): Promise<boolean> {
+    this.exporting = 0
+    const { store } = prepared
+    let written = 0
+    try {
+      const packed = await this.host.packExport(prepared.entries, {
+        read: (path, start, end) => (store ? store.read(path, start, end) : Promise.reject(new Error(`${path}: no folder to read from`))),
+        sink: {
+          write: async (chunk) => {
+            await target.write(chunk)
+            written += chunk.length
+          },
+        },
+        signal: abort.signal,
+        onProgress: (fraction) => (this.exporting = fraction),
+      })
+      if (packed.status === 'ok') {
+        await target.close()
+        // A pack the page itself would refuse to open (`MAX_PACK_BYTES`): it opens elsewhere, so it is said, not refused (#682).
+        this.notice = packed.missingBlobs > 0 ? 'pack.missingMedia' : written > MAX_PACK_BYTES ? 'pack.tooBigForPage' : null
+        return true
+      }
+      await target.abort().catch(() => undefined)
+      if (packed.status === 'failed') {
+        this.errorDetail = packed.message
+        this.notice = 'pack.exportFailed'
+      } else {
+        this.notice = 'pack.exportCancelled'
+      }
       return false
+    } catch (error) {
+      await target.abort().catch(() => undefined)
+      this.errorDetail = error instanceof Error ? error.message : String(error)
+      this.notice = 'pack.exportFailed'
+      return false
+    } finally {
+      this.exporting = null
     }
   }
 

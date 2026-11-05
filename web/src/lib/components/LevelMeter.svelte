@@ -161,10 +161,10 @@
   }
   /* The segments: a 1px gap every 3px, cut out of the bar. */
   .vertical .zone {
-    mask-image: repeating-linear-gradient(to top, #000 0 2px, transparent 2px 3px);
+    mask-image: repeating-linear-gradient(to top, var(--fk-text) 0 2px, transparent 2px 3px);
   }
   .horizontal .zone {
-    mask-image: repeating-linear-gradient(to right, #000 0 2px, transparent 2px 3px);
+    mask-image: repeating-linear-gradient(to right, var(--fk-text) 0 2px, transparent 2px 3px);
   }
   .hold {
     position: absolute;

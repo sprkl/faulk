@@ -338,6 +338,9 @@ pub(crate) struct ProjectData {
     pub tempo_bpm: f64,
     pub numerator: u8,
     pub denominator: u8,
+    pub scale_root: u8,
+    pub scale_mode: project::ScaleKind,
+    pub scale_pitch_classes: Vec<u8>,
     pub master: Mixer,
     pub track_count: u32,
     pub scene_count: u32,
@@ -354,6 +357,7 @@ pub(crate) fn project_data(state: &State) -> ProjectData {
     let p = &state.project;
     let counts = p.counts();
     let signature = p.time_signature();
+    let (scale_root, scale_mode) = crate::project::kind_of(p.scale);
     ProjectData {
         id: p.id.clone(),
         name: p.name.clone(),
@@ -361,6 +365,11 @@ pub(crate) fn project_data(state: &State) -> ProjectData {
         tempo_bpm: p.tempo().bpm(),
         numerator: signature.numerator(),
         denominator: signature.denominator(),
+        scale_root,
+        scale_mode,
+        scale_pitch_classes: p
+            .scale
+            .map_or_else(|| (0..12).collect(), project::Scale::pitch_classes),
         master: p.master,
         track_count: count(p.tracks.len()),
         scene_count: count(p.scenes.len()),

@@ -5,7 +5,7 @@
  * notes in sight, not the notes of the clip.
  */
 
-import { RULER_HEIGHT, type BodyFrame, type Colors } from '../../lib/components/timegrid/render'
+import { RULER_HEIGHT, trackInk, type BodyFrame, type Colors } from '../../lib/components/timegrid/render'
 import { tickToX, type View } from '../../lib/components/timegrid/grid'
 import { drawHandles } from '../../lib/components/timegrid/handles'
 import type { Note, TickLoop } from '../../lib/generated/protocol'
@@ -29,6 +29,7 @@ export interface RollFrame {
   /** The names of the keys the instrument answers to (a drum kit), or null for a pitched instrument: the other rows are dimmed. */
   names: ReadonlyMap<number, string> | null
   /** The colour of the track (#470): the notes are drawn in it, their brightness following their velocity. */
+  /** The track's hue; empty when the roll shows no track (the notes take the muted text colour). */
   trackColor: string
   /** The notes of the other tracks' clips at the same time range (#470): hollow, neutral, read-only. Empty when hidden. */
   others: readonly GhostNote[]
@@ -36,6 +37,13 @@ export interface RollFrame {
   taking?: readonly Note[]
   /** The note whose end is drawn as a resize handle (#612): the hovered or the resized one; `strong` when the pointer is on the end itself. */
   handle?: { note: Note; strong: boolean } | null
+  /** The project's scale (#695, #511): its pitch classes and its root, or null for none (and for a drum kit). */
+  scale?: { classes: ReadonlySet<number>; root: number } | null
+}
+
+/** Whether a pitch's row is shaded as off the keys: the black keys without a scale, the notes out of it with one. */
+export function rowShaded(pitch: number, scale: { classes: ReadonlySet<number> } | null | undefined): boolean {
+  return scale ? !scale.classes.has(((pitch % 12) + 12) % 12) : isBlackKey(pitch)
 }
 
 /** Under this row height only the Cs are named. */
@@ -63,8 +71,17 @@ export function drawRoll(ctx: CanvasRenderingContext2D, frame: BodyFrame, roll: 
   const [high, low] = visiblePitches(layout, height)
   ctx.fillStyle = colors.ruler
   ctx.globalAlpha = 0.55
+  const scale = roll.names ? null : (roll.scale ?? null)
   for (let pitch = high; pitch >= low; pitch--) {
-    if (isBlackKey(pitch)) ctx.fillRect(0, pitchTop(pitch, layout), width, layout.rowHeight)
+    if (rowShaded(pitch, scale)) ctx.fillRect(0, pitchTop(pitch, layout), width, layout.rowHeight)
+  }
+  // The root's rows stand out a little: the tonic is where a phrase comes home.
+  if (scale) {
+    ctx.fillStyle = colors.text
+    ctx.globalAlpha = 0.07
+    for (let pitch = high; pitch >= low; pitch--) {
+      if (((pitch % 12) + 12) % 12 === scale.root) ctx.fillRect(0, pitchTop(pitch, layout), width, layout.rowHeight)
+    }
   }
   ctx.globalAlpha = 0.6
   ctx.lineWidth = 1
@@ -168,7 +185,7 @@ function drawNotes(ctx: CanvasRenderingContext2D, roll: RollFrame, frame: BodyFr
   drawOthers(ctx, roll, frame)
   // A note is the track's colour, brighter as it is louder; the selected ones are inverted (white).
   const paint = (list: readonly Note[], selected: boolean) => {
-    ctx.fillStyle = selected ? colors.text : roll.trackColor
+    ctx.fillStyle = selected ? colors.text : trackInk(roll.trackColor || colors.barLine, colors)
     for (const n of list) {
       const x = tickToX(n.start, view)
       const w = Math.max(MIN_NOTE_PX, n.length * view.pxPerTick - 1)
@@ -246,7 +263,7 @@ function drawOthers(ctx: CanvasRenderingContext2D, roll: RollFrame, frame: BodyF
   ctx.globalAlpha = 1
 }
 
-/** The keyboard column: one key per row, black keys narrower, the Cs named, the pitch played lit. */
+/** The keyboard column: one key per row, black keys narrower, the Cs named, the pitch played lit, the scale's keys marked. */
 export function drawKeys(
   ctx: CanvasRenderingContext2D,
   width: number,
@@ -256,6 +273,7 @@ export function drawKeys(
   font: string,
   active: ReadonlySet<number>,
   names: ReadonlyMap<number, string> | null = null,
+  scale: { classes: ReadonlySet<number>; root: number } | null = null,
 ): void {
   ctx.fillStyle = colors.ruler
   ctx.fillRect(0, 0, width, height)
@@ -284,6 +302,14 @@ export function drawKeys(
       ctx.fillText(pitchName(pitch), width - 5, y + layout.rowHeight / 2)
       ctx.textAlign = 'start'
     }
+    // The notes of the scale (#695): a mark on the key's edge, wider on the root.
+    if (scale && !names && scale.classes.has(((pitch % 12) + 12) % 12)) {
+      ctx.fillStyle = active.has(pitch) ? colors.bg : colors.text
+      ctx.globalAlpha = 0.75
+      const root = ((pitch % 12) + 12) % 12 === scale.root
+      ctx.fillRect(0, y + 1, root ? 4 : 2, layout.rowHeight - 3)
+      ctx.globalAlpha = 1
+    }
     if (names && name === undefined) {
       // No sound on this key: the row is dimmed.
       ctx.fillStyle = colors.bg
@@ -311,7 +337,7 @@ export function drawLane(
   clipLength: number,
   colors: Colors,
   hover: string | null = null,
-  trackColor: string = colors.accent,
+  trackColor: string = '',
 ): void {
   ctx.fillStyle = colors.bg
   ctx.fillRect(0, 0, width, height)
@@ -339,13 +365,14 @@ export function drawLane(
     ctx.fillRect(x, height - h, 3, h)
   }
   const hasHidden = hidden.size > 0
+  const ink = trackInk(trackColor || colors.barLine, colors)
   ctx.globalAlpha = 0.85
   for (const n of notes) {
     const x = tickToX(n.start, view)
     if (x > width) break
     const key = hasHidden || selected.size > 0 ? noteKey(n) : ''
     if (hasHidden && hidden.has(key)) continue
-    bar(n, selected.size > 0 && selected.has(key) ? colors.text : trackColor)
+    bar(n, selected.size > 0 && selected.has(key) ? colors.text : ink)
   }
   ctx.globalAlpha = 1
   for (const n of ghosts) bar(n, colors.text)

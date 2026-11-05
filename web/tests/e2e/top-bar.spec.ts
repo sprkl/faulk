@@ -239,3 +239,31 @@ test('what the bar folds is in its more menu, and the menu runs the same command
 
   expect(errors).toEqual([])
 })
+
+test('the key and scale button folds before the launch quantization, and the more menu opens its panel (#695)', async ({ page }) => {
+  const { errors } = watch(page)
+  await open(page, 'en', 1280)
+  await widest(page, 150)
+  await expect(page.getByTestId('transport-quantize')).toBeHidden()
+  await expect(page.getByTestId('transport-scale')).toBeHidden()
+
+  const more = page.getByTestId('bar-more')
+  await more.click()
+  await expect(page.getByTestId('ctx-more-scale')).toContainText('Key and scale: No scale')
+  await page.getByTestId('ctx-more-scale').click()
+  await expect(page.getByTestId('scale-panel')).toBeVisible()
+  await expect(page.getByTestId('scale-root')).toBeFocused()
+  await page.getByTestId('scale-root').selectOption('7')
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('scale-panel')).toHaveCount(0)
+  await expect(more).toBeFocused()
+  await more.click()
+  await expect(page.getByTestId('ctx-more-scale')).toContainText('Key and scale: G major')
+  await page.keyboard.press('Escape')
+
+  // Where there is room the button is back, with the scale.
+  await more.blur()
+  await page.setViewportSize({ width: 1920, height: 900 })
+  await expect(page.getByTestId('transport-scale')).toHaveText('G')
+  expect(errors).toEqual([])
+})

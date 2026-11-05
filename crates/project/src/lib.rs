@@ -23,6 +23,7 @@ pub mod model;
 pub mod names;
 pub mod order;
 pub mod preset;
+pub mod scale;
 pub mod serde_util;
 pub mod session;
 pub mod slots;
@@ -38,6 +39,7 @@ pub use ids::{
 };
 pub use model::*;
 pub use order::OrderKey;
+pub use scale::{Scale, ScaleKind, ScaleMode};
 pub use serde_util::Rgb;
 pub use session::{InputGrid, RecordSettings, SessionState};
 pub use slots::{EngineSlots, SlotTable, Take, TrackSlots};

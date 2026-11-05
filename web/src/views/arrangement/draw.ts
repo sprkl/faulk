@@ -5,7 +5,7 @@
  */
 
 import { tickToX } from '../../lib/components/timegrid/grid'
-import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
+import { RULER_HEIGHT, trackInk, type BodyFrame } from '../../lib/components/timegrid/render'
 import type { LoopRegion, Note } from '../../lib/generated/protocol'
 import { drawHandles, type HandleSide } from '../../lib/components/timegrid/handles'
 import { BLOCK_INSET, audioPasses, cycleOf, edgeZone, laneHeight, laneTop, passCount, passesOf, type AudioPart, type Block } from './arrangement'
@@ -13,6 +13,9 @@ import type { Layout } from './automation/layout'
 import { drawWaveform } from '../../lib/audio/peaks/draw'
 import type { Peaks } from '../../lib/audio/peaks/format'
 import type { MediaRef } from '../../lib/audio/import/pipeline'
+
+/** How opaque a clip's fill of its track hue is, over the background (the contrast test reads it, #687). */
+export const CLIP_FILL_ALPHA = 0.32
 
 export interface ArrangementFrame {
   /** The rows of the tracks and of their lanes. */
@@ -111,12 +114,14 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
     if (y + h < RULER_HEIGHT || y > height) return
     const w = Math.max(2, x1 - x0)
     const k = scene.silent.has(block.track) ? SILENT_ALPHA : 1
+    // The hue fills the clip; its lines (outline, notes, repeat marks) take the theme's ink (#687).
+    const ink = trackInk(block.color, colors)
     ctx.globalAlpha = (ghost ? 0.7 : 1) * k
     ctx.fillStyle = block.color
-    ctx.globalAlpha *= 0.32
+    ctx.globalAlpha *= CLIP_FILL_ALPHA
     ctx.fillRect(x0, y, w, h)
     ctx.globalAlpha = (ghost ? 0.7 : 1) * k
-    ctx.strokeStyle = selected ? colors.text : block.color
+    ctx.strokeStyle = selected ? colors.text : ink
     ctx.lineWidth = selected ? 2 : 1
     ctx.strokeRect(x0 + 0.5, y + 0.5, w - 1, h - 1)
 
@@ -126,7 +131,7 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
       const roomy = h >= NAME_ROOM
       const top = y + (roomy ? 16 : 2)
       const height = Math.max(1, h - (roomy ? 18 : 4))
-      if (drawAudio(ctx, frame, block, block.audio, x0, top, height, scene.peaksOf?.(block.audio.media) ?? null, (ghost ? 0.7 : 0.95) * k)) waveforms++
+      if (drawAudio(ctx, frame, block.audio, ink, x0, x1, top, height, scene.peaksOf?.(block.audio.media) ?? null, (ghost ? 0.7 : 0.95) * k)) waveforms++
     }
     // The notes, as lines across the part of the clip that the block shows.
     const notes = block.notes
@@ -141,7 +146,7 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
       const top = y + (roomy ? 16 : 2)
       const span = Math.max(1, h - (roomy ? 20 : 4))
       const rowH = Math.min(4, span / (high - low + 1))
-      ctx.fillStyle = block.color
+      ctx.fillStyle = ink
       ctx.globalAlpha = (ghost ? 0.7 : 0.95) * k
       // The clip is shown from its offset and goes round its loop, or round the whole clip, where the block
       // outlasts it (#473; a few passes at most: a long block of a short loop is a texture, not a score).
@@ -168,7 +173,7 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
     if (!block.audio && passCount(block) > 1 && w > 6) {
       ctx.save()
       ctx.globalAlpha = (ghost ? 0.5 : 0.75) * k
-      ctx.fillStyle = block.color
+      ctx.fillStyle = ink
       for (const { at } of passes) {
         if (at === block.start) continue
         const bx = Math.round(tickToX(at, view))
@@ -198,7 +203,7 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
     ctx.globalAlpha = 1
   }
 
-  ctx.font = `500 11px ${getComputedStyle(document.documentElement).getPropertyValue('--fk-font-sans').trim() || 'sans-serif'}`
+  ctx.font = `500 11px ${getComputedStyle(document.documentElement).getPropertyValue('--fk-font-ui').trim() || 'sans-serif'}`
   for (const block of scene.blocks) {
     if (hidden.has(block.id)) continue
     drawBlock(block, scene.selected.has(block.id), false)
@@ -265,16 +270,17 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
 function drawAudio(
   ctx: CanvasRenderingContext2D,
   frame: BodyFrame,
-  block: Block,
   audio: AudioPart,
+  /** The track's ink (`trackInk`): the waveform is a line on the clip's tint, as its notes are (#687). */
+  ink: string,
   x0: number,
+  x1: number,
   top: number,
   height: number,
   peaks: Peaks | null,
   alpha: number,
 ): boolean {
   const { width, view, dpr } = frame
-  const x1 = tickToX(block.end, view)
   const left = Math.max(0, x0 + 1)
   const right = Math.min(width, x1 - 1)
   if (right <= left) return false
@@ -285,7 +291,7 @@ function drawAudio(
   ctx.globalAlpha = alpha
   if (!peaks) {
     ctx.globalAlpha = alpha * 0.4
-    ctx.fillStyle = block.color
+    ctx.fillStyle = ink
     ctx.fillRect(left, Math.floor(top + height / 2), right - left, 1)
     ctx.restore()
     return false
@@ -304,7 +310,7 @@ function drawAudio(
       peaks,
       { x: a, y: top, width: b - a, height },
       { from: audio.clipStart + pass.from + (a - px0) * perPixel, framesPerPixel: perPixel },
-      { color: block.color, dpr },
+      { color: ink, dpr },
     )
   }
   ctx.restore()

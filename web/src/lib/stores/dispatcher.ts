@@ -43,6 +43,7 @@ import { listPresets as listPresetsCommand } from '../preset-commands'
 import type { Recorder } from './recorder.svelte'
 import { refusalOf } from './refusal'
 import { storage, TOKEN_KEY } from './storage'
+import { isSetTheme, isThemeChoice, SET_THEME_OUTPUT, type ThemeChoice } from '../theme'
 
 /** How `run` runs a command: `quiet` shows no refusal, `author` is the history's (`user` by default). */
 type RunOptions = {
@@ -391,7 +392,7 @@ export class Dispatcher {
     projectId: () => this.project.view?.project.id ?? null,
     projectName: () => this.project.view?.project.name ?? null,
     renameProject: (name) => this.run(renameProjectCommand(name), { quiet: true }),
-    packExport: async (files) => (await this.ensureCore()).packExport(files),
+    packExport: async (entries, io) => (await this.ensureCore()).packExport(entries, io),
     packImport: async (zip) => (await this.ensureCore()).packImport(zip),
     prepare: async () => void (await this.ensureCore()),
     audioMedia: () => audioMediaOf(this.project.view?.project),
@@ -648,6 +649,8 @@ export class Dispatcher {
       const lists = await this.listStored()
       return { status: 'applied', output: lists }
     }
+    // Needs no project: the theme is the page's (#687).
+    if (isSetTheme(command)) return this.setTheme(command.theme)
     // The queries that measure levels: the page stages its numbers in the core, then the command answers (#665).
     if (isMixerLevels(command) && this.core) this.stageLevels(this.core)
     const range = analyzeRange(command)
@@ -753,8 +756,24 @@ export class Dispatcher {
   /** The page's questions before an agent's destructive call runs (AG-4), shown by `views/confirm/`. */
   readonly confirmations = new AgentConfirmations()
 
+  /** Where `view.set_theme` goes: the page's theme (`createStores` sets it); `null` in a bare dispatcher. */
+  theme: { set(choice: ThemeChoice): void } | null = null
+
+  /**
+   * `view.set_theme` (#687): the core declares it and changes nothing, so the page answers it without one. An
+   * agent's call is not checked by the core's schema on this path, hence the check of the value here.
+   */
+  private setTheme(choice: unknown): AgentResult {
+    if (!isThemeChoice(choice)) return { status: 'invalid', message: 'the theme is "system", "dark" or "light"' }
+    if (!this.theme) return { status: 'unavailable', reason: 'the page has no theme to set' }
+    this.theme.set(choice)
+    return { status: 'applied', output: SET_THEME_OUTPUT }
+  }
+
   /** `run`, saying what happened: what an agent is answered (`runForAgent`). */
   private execute(command: Command, options: RunOptions): Ran {
+    // The theme is the user's, kept by the browser (#687): the page applies it, before audio starts too.
+    if (isSetTheme(command)) return this.setTheme(command.theme)
     // A query that waits for the storage: it answers asynchronously, with the lists it read.
     if (isListStored(command)) {
       void this.listStored().catch((error: unknown) => console.error(error))
@@ -840,6 +859,7 @@ export class Dispatcher {
       save: () => void this.storage?.save(),
       saveAs: () => void this.storage?.saveAs(),
       exportPack: () => void this.storage?.exportPack(),
+      cancelExportPack: () => this.storage?.cancelExport(),
       importPack: () => void this.storage?.importPack(),
       openUrl: (url) => track(this.storage?.openUrl(url, allowed)),
       reopenLast: () => track(this.storage?.reopenLast(allowed)),

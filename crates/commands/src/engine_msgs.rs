@@ -606,7 +606,9 @@ fn compile_event(
         ProjectEvent::MetronomeChanged { .. } => out.push(set_metronome(project)),
         // `project.open` has no per-command messages: the host sends a snapshot of the
         // new project (`Synced::run`).
+        // No device reads the scale yet (#695): it stays in the project.
         ProjectEvent::ProjectRenamed { .. }
+        | ProjectEvent::ScaleChanged { .. }
         | ProjectEvent::MarkersChanged {}
         | ProjectEvent::ProjectOpened { .. }
         | ProjectEvent::ControlChange { .. }

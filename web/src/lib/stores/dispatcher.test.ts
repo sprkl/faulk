@@ -1561,9 +1561,19 @@ describe('the project in a folder (SV-2)', () => {
     if (frame?.status !== 'ok') throw new Error('no frame')
     const files = frame.entries.flatMap((e) => (e.type === 'write' ? [{ path: e.path, bytes: e.bytes }] : []))
     expect(session.dispatcher.host.projectName()).toBe(session.project.view!.project.name)
-    const packed = await session.dispatcher.host.packExport(files)
-    if (packed.status !== 'ok') throw new Error(packed.message)
-    const unpacked = await session.dispatcher.host.packImport(packed.zip)
+    const parts: Uint8Array[] = []
+    const packed = await session.dispatcher.host.packExport(files, {
+      read: async () => new Uint8Array(),
+      sink: { write: async (chunk) => void parts.push(chunk) },
+    })
+    if (packed.status !== 'ok') throw new Error(JSON.stringify(packed))
+    const zip = new Uint8Array(parts.reduce((n, p) => n + p.length, 0))
+    let at = 0
+    for (const part of parts) {
+      zip.set(part, at)
+      at += part.length
+    }
+    const unpacked = await session.dispatcher.host.packImport(zip)
     expect(unpacked.status === 'ok' && unpacked.files.some((f) => f.path === 'project.json')).toBe(true)
   })
 
@@ -1601,8 +1611,11 @@ describe('the project in a folder (SV-2)', () => {
     const importPack = vi.spyOn(session.storage, 'importPack').mockResolvedValue(true)
     session.dispatcher.run({ type: 'project.save' })
     session.dispatcher.run({ type: 'project.save_as' })
+    const cancelExport = vi.spyOn(session.storage, 'cancelExport')
     session.dispatcher.run({ type: 'project.export_pack' })
+    session.dispatcher.run({ type: 'project.cancel_export_pack' })
     session.dispatcher.run({ type: 'project.import_pack' })
+    expect(cancelExport).toHaveBeenCalledTimes(1)
     expect(save).toHaveBeenCalledTimes(1)
     expect(saveAs).toHaveBeenCalledTimes(1)
     expect(exportPack).toHaveBeenCalledTimes(1)
@@ -2208,6 +2221,32 @@ describe("an agent's calls in Boost (AG-1)", () => {
     expect(result).toMatchObject({ status: 'unavailable' })
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(session.dispatcher.history().undo).toEqual([])
+  })
+
+  it('sets the theme for an agent (#687): applied in the page, nothing in the project, the history or the engine', async () => {
+    const session = await boosted()
+    const sends = nativeEngine!.send.mock.calls.length
+    const before = session.dispatcher.history()
+    expect(await call('a', { type: 'view.set_theme', theme: 'light' })).toEqual({ status: 'applied', output: { type: 'view.set_theme' } })
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light')
+    expect(session.ui.theme.choice).toBe('light')
+    expect(localStorage.getItem('faulk.theme')).toBe('light')
+    expect(nativeEngine!.send.mock.calls.length).toBe(sends)
+    expect(session.dispatcher.history()).toEqual(before)
+    // The core does not check this path: a theme the command does not take is refused here, and nothing changes.
+    expect(await call('a', { type: 'view.set_theme', theme: 'sepia' })).toMatchObject({ status: 'invalid' })
+    expect(await call('a', { type: 'view.set_theme' })).toMatchObject({ status: 'invalid' })
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light')
+    expect(await call('a', { type: 'view.set_theme', theme: 'dark' })).toMatchObject({ status: 'applied' })
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+  })
+
+  it('sets the theme before audio starts, for the menu and for an agent (#687)', async () => {
+    const session = newSession()
+    expect(session.dispatcher.run({ type: 'view.set_theme', theme: 'light' })).toBe(true)
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light')
+    expect(await session.dispatcher.runForAgent({ type: 'view.set_theme', theme: 'dark' }, 'agent:a')).toMatchObject({ status: 'applied' })
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
   })
 
   it('answers the stored projects for project.list_stored', async () => {
