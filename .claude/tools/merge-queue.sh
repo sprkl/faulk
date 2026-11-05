@@ -44,7 +44,7 @@ for pr in "$@"; do
   issue=$(printf '%s\n' "$head" | sed -nE 's,^(feat|fix|spike)/([0-9]+)-.*,\2,p')
   if [ -n "$issue" ]; then
     kw='(close[sd]?|fix(e[sd])?|resolve[sd]?)'
-    if ! printf '%s\n' "$msg" | grep -qiE "^[[:space:]]*(${kw}|refs?)[: ]+#$issue([^0-9]|$)"; then
+    if ! printf '%s\n' "$msg" | grep -qiE "^[[:space:]]*(${kw}|refs?)[: ].*#$issue([^0-9]|$)"; then
       echo "STOP $pr: branch $head is for issue #$issue but its '## Commit message' does not say 'Closes #$issue' (or 'Refs #$issue'): wrong description on PR #$pr?"
       exit 1
     fi
@@ -55,9 +55,9 @@ for pr in "$@"; do
       inb && /^```/ { inb = 0; done = 1; next }
       inb { next }
       { print }')
-    for other in $(printf '%s\n' "$msg" | grep -oiE "^[[:space:]]*${kw}[: ]+#[0-9]+" | grep -oE '[0-9]+$' | sort -u); do
+    for other in $(printf '%s\n' "$msg" | grep -iE "^[[:space:]]*${kw}[: ]" | grep -oE '#[0-9]+' | tr -d '#' | sort -u); do
       [ "$other" = "$issue" ] && continue
-      printf '%s\n' "$outside" | grep -qiE "^[[:space:]]*${kw}[: ]+#$other([^0-9]|$)" && continue
+      printf '%s\n' "$outside" | grep -qiE "^[[:space:]]*${kw}[: ].*#$other([^0-9]|$)" && continue
       echo "STOP $pr: the '## Commit message' of PR #$pr closes #$other but branch $head is for issue #$issue: wrong description on this PR?"
       echo "If closing #$other is intended, say 'Closes #$other' on a line of the PR body outside the section."
       exit 1
