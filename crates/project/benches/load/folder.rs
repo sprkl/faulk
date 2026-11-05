@@ -158,6 +158,7 @@ impl WithoutTracks for Project {
             tempo: self.tempo.clone(),
             meter: self.meter.clone(),
             transport: self.transport,
+            scale: self.scale,
             scenes: self.scenes.clone(),
             master: self.master,
             master_devices: self.master_devices.clone(),

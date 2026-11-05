@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 35;
+pub const PROTOCOL_VERSION: u32 = 36;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -43,6 +43,12 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 36 (#695, 33 to 35 are #670's, #676's and #684's): the project's key and scale. The
+// commands gain `project.set_scale`, `project.get` answers `scale_root`, `scale_mode` and
+// `scale_pitch_classes`, the events `scale_changed`, and the project its `scale` (folder format
+// 5). The helper's MCP tools come from the command catalogue (AG-1), so a helper of an earlier version
+// would not offer the command.
 
 // Version 35 (#617; 33 is #670's and 34 is #676's): the commands gain `project.cancel_export_pack` (stops the `.faulkpack` export under way); the helper generates its MCP tools from the commands, so a helper of version 34 would not offer it to an agent. No message changes.
 
@@ -415,6 +421,13 @@ pub fn schema_bundle() -> serde_json::Value {
         // The page's fader, the axis of a volume lane and the engine's reading of a lane all
         // follow it; the page builds its own from this table.
         "fader_taper": engine::fader::TAPER,
+        // The scales of the project (#695): each one's degrees in semitones above its root,
+        // in the order the page lists them (a list: a map would sort them by name). The
+        // piano roll and the scale picker read them.
+        "scale_intervals": project::ScaleMode::ALL
+            .iter()
+            .map(|m| serde_json::json!({ "mode": m.name(), "intervals": m.intervals() }))
+            .collect::<Vec<_>>(),
         "single_synth": {
             "track": single_synth::TRACK,
             "device": single_synth::DEVICE,

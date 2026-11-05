@@ -237,11 +237,9 @@ fn a_format_3_folder_opens_with_its_number_migrated_and_no_presets() {
         .preset = None;
     let (mut fs, _) = save_all(&s.project, &SaveOptions::default());
     let text = String::from_utf8(fs.read("project.json").unwrap()).unwrap();
-    assert!(text.contains("\"format\": 4"), "{text}");
-    fs.insert(
-        "project.json",
-        text.replacen("\"format\": 4", "\"format\": 3", 1),
-    );
+    let current = format!("\"format\": {FORMAT_VERSION}");
+    assert!(text.contains(&current), "{text}");
+    fs.insert("project.json", text.replacen(&current, "\"format\": 3", 1));
     let opened = open(&fs, &OpenOptions::default()).unwrap();
     assert_eq!(opened.report.migrated_from, Some(3));
     assert_eq!(opened.project, s.project);

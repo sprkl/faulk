@@ -31,7 +31,18 @@ pub const MIGRATIONS: &[Migration] = &[
         from: 3,
         apply: v3_to_v4,
     },
+    Migration {
+        from: 4,
+        apply: v4_to_v5,
+    },
 ];
+
+/// Format 5 (#695): the project may hold a key and scale (`scale`). Nothing in the files
+/// changes (a project of format 4 has no scale); the number does, so that a build of format 4
+/// reports the folder as made by a newer build.
+fn v4_to_v5(mem: &mut MemFs) -> Result<(), String> {
+    set_format(mem, 5)
+}
 
 /// Format 4 (#191): a device may name its preset and the folder may hold `presets/`. Nothing
 /// in the files changes; the number does, so that a build of format 3 reports the folder as

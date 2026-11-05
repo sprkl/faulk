@@ -93,6 +93,8 @@ export class UiStore {
   keyLayout = $state.raw<KeyLayout | null>(null)
   /** The shortcut list is open (#474). Page state, not project state. */
   helpOpen = $state(false)
+  /** The key and scale panel of the transport bar (#695) is open: from its button, or from the bar's "more" menu when the bar folded the button. */
+  scaleOpen = $state(false)
   /** The "Go to" field (#554) is open: a bar, or a bar and a beat, to put the playhead on. Page state, not project state. */
   gotoOpen = $state(false)
   /** The device browser (#190) is open: a column beside the track list. Page state, not project state, not kept. */

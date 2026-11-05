@@ -12,6 +12,7 @@
   import { setLaunchQuantize } from '../../lib/transport-commands'
   import Transport from '../transport/Transport.svelte'
   import { QUANTIZE_ORDER } from '../transport/time'
+  import { scaleName } from '../../lib/scale'
   import ProjectMenu from './ProjectMenu.svelte'
 
   const { engine, project, ui, dispatcher, keys, meters, storage } = useStores()
@@ -23,14 +24,16 @@
    *   1  the master meter gets shorter (64 px, still readable),
    *   2  the keyboard octave readout moves to the "more" menu (it plays in every view, so it keeps a place), the project
    *      name's room and the tabs' padding get tighter,
-   *   3  the launch quantization moves to that menu too (the command is the same, the menu runs it),
-   *   4  the idle take target text hides (the record button's title and a status line for screen readers keep it; the live
+   *   3  the key and scale button (#695) moves to that menu: its entry opens the same panel. The scale is set once per
+   *      song and not read while playing, the launch quantization is (clips are launched live): the scale goes first,
+   *   4  the launch quantization moves to that menu too (the command is the same, the menu runs it),
+   *   5  the idle take target text hides (the record button's title and a status line for screen readers keep it; the live
    *      count-in and a lost-note notice never hide), and the master meter shrinks again to 40 px. The target goes last: it
    *      says where the next take lands (spec § 4.1).
    * The project name keeps its minimum room at every step (`ProjectMenu.svelte`). Never hidden: the project, the views, the
    * transport's main controls, the engine pill with its latency and load, the help.
    */
-  const LAST_FIT = 4
+  const LAST_FIT = 5
   let fit = $state(0)
   let bar = $state<HTMLElement | null>(null)
   let moreButton = $state<HTMLElement | null>(null)
@@ -83,7 +86,7 @@
     }
   })
 
-  /** The menu of what the bar folded: the launch quantization (a radio group) and the keyboard octave. */
+  /** The menu of what the bar folded: the launch quantization (a radio group), the keyboard octave and the key and scale. */
   function openMore(event: MouseEvent) {
     const box = (event.currentTarget as HTMLElement).getBoundingClientRect()
     const current = project.view?.project.transport.launch_quantize ?? 'bar'
@@ -94,7 +97,7 @@
       [
         // The octave readout, folded from the bar at step 2 (the keys play in every view, even with the keyboard panel closed).
         { id: 'more-octave', label: t('keys.octaveShort', { n: keys.octave }), disabled: true, run: () => {} },
-        ...(fit >= 3
+        ...(fit >= 4
           ? [
               { id: 'more-quantize', label: t('transport.launchQuantize'), separator: true, disabled: true, run: () => {} },
               ...QUANTIZE_ORDER.map((q) => ({
@@ -106,6 +109,17 @@
                   if (q !== current) void dispatcher.run(setLaunchQuantize(q))
                 },
               })),
+            ]
+          : []),
+        ...(fit >= 3
+          ? [
+              {
+                id: 'more-scale',
+                label: t('scale.title', { name: scaleName(project.view?.project.scale, t) }),
+                separator: true,
+                disabled: !ready,
+                run: () => (ui.scaleOpen = true),
+              },
             ]
           : []),
       ],
@@ -155,7 +169,7 @@
 
   <div class="spacer"></div>
 
-  <Transport hideTarget={fit >= 4} hideQuantize={fit >= 3} />
+  <Transport hideTarget={fit >= 5} hideQuantize={fit >= 4} hideScale={fit >= 3} />
   <button
     class="more"
     bind:this={moreButton}
@@ -204,7 +218,7 @@
         {#if silenced}<span class="silenced" aria-hidden="true" data-testid="engine-silenced"></span>{/if}
       </button>
       <!-- The master's level, in every view: the output is what the listener hears, whatever the view shows. -->
-      <div class="master-meter" class:short={fit >= 1} class:shortest={fit >= 4}>
+      <div class="master-meter" class:short={fit >= 1} class:shortest={fit >= 5}>
         <LevelMeter
           snap={meters.snap(MASTER_METER)}
           orientation="horizontal"
@@ -434,7 +448,7 @@
   .more[aria-expanded='true'] {
     border-color: var(--fk-line);
   }
-  .top:is([data-fit='2'], [data-fit='3'], [data-fit='4']) .views button {
+  .top:is([data-fit='2'], [data-fit='3'], [data-fit='4'], [data-fit='5']) .views button {
     padding: 0 var(--fk-space-2);
   }
   button.primary {

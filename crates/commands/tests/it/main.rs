@@ -42,6 +42,7 @@ mod query;
 mod record;
 mod record_loop;
 mod record_replace;
+mod scale;
 mod scene;
 mod track;
 mod transport;

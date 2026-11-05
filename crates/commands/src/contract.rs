@@ -389,6 +389,9 @@ pub enum ProjectEvent {
     TempoChanged { bpm: f64 },
     /// The time signature changed (the project's one signature).
     TimeSignatureChanged { numerator: u8, denominator: u8 },
+    /// The project's key and scale changed (#695): `mode` is `chromatic` (and `root` 0) when
+    /// the project has none.
+    ScaleChanged { root: u8, mode: project::ScaleKind },
     /// The launch quantization changed (the project's one value).
     LaunchQuantizeChanged { quantize: Quantize },
     /// The loop region or whether the transport loops changed; `region` is `null` when
