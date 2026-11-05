@@ -325,8 +325,10 @@ fn trimmed_audio(
             else {
                 continue;
             };
-            // An overlap the project already held (an older file) is left as it is.
-            let held = crate::clip::placement_ticks(old, t, p).is_some_and(|(_, e)| e > next);
+            // An overlap the project already held (an older file) is left as it is, as long
+            // as the tempo does not make the placement longer.
+            let held =
+                crate::clip::placement_ticks(old, t, p).is_some_and(|(_, e)| e > next && end <= e);
             if end <= next || held {
                 continue;
             }

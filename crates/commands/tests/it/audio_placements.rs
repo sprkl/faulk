@@ -118,7 +118,7 @@ fn a_faster_tempo_shortens_the_placement_that_would_run_into_the_next_and_undoes
     let mut back = slower;
     run(&undo, &mut back, &mut context()).unwrap();
     assert_eq!(back.project, state.project);
-    // An overlap the project already held does not block a tempo change.
+    // An overlap the project already held does not block a tempo change (slower: left as is).
     let mut held = state.clone();
     insert_whole(&mut held, &f, 100, 23);
     let lengths = |s: &State| -> Vec<Span> {
@@ -129,7 +129,7 @@ fn a_faster_tempo_shortens_the_placement_that_would_run_into_the_next_and_undoes
             .collect()
     };
     let before = lengths(&held);
-    run(&set_tempo(121.0), &mut held, &mut context()).unwrap();
+    run(&set_tempo(119.0), &mut held, &mut context()).unwrap();
     assert_eq!(lengths(&held), before, "a held overlap is left as it is");
     // The internal exact lengths are checked: unknown, past the clip, zero.
     let exact = |id: &PlacementId, n: u64| {
