@@ -16,6 +16,7 @@ pub mod view;
 
 pub mod arrangement;
 pub mod big;
+pub mod clip_start;
 pub mod clips;
 pub mod export;
 pub mod reference;
