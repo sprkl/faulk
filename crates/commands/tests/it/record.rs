@@ -767,6 +767,23 @@ fn every_note_of_the_sixteenth_before_the_bar_starts_on_the_bar() {
     };
     let starts: Vec<_> = notes.iter().map(|n| (n.pitch, n.start)).collect();
     assert_eq!(starts, vec![(60, Tick(0)), (61, Tick(0)), (62, Tick(90))]);
+    // The clip of a cell taken without an anchor (it starts at the bar of the first note) too.
+    let (state, _, _) = commit(
+        &r,
+        RecordTarget::Scene {
+            scene: r.scene.clone(),
+        },
+        0.0,
+        take(&r, played.clone(), None),
+    );
+    let notes = notes_of(&state, &r.grid_clip);
+    for expected in [
+        Note::new(Tick(0), 60, Tick(80), 100),
+        Note::new(Tick(0), 61, Tick(80), 100),
+        Note::new(Tick(90), 62, Tick(80), 100),
+    ] {
+        assert!(notes.contains(&expected), "{expected:?} in {notes:?}");
+    }
     // A new clip of the arrangement does the same: the same notes one bar earlier, around the
     // bar of tick 3840.
     let played = played
