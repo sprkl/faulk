@@ -764,6 +764,165 @@ fn the_compressor_s_new_parameters_are_set_by_key_sent_by_id_and_undone() {
     }
 }
 
+/// #754: a serialized device that comes into the project through a restore (`device.restore`,
+/// `track.restore`, `track.restore_instrument`: the undo of a delete, a paste) is completed
+/// like one that comes through `project.open`: a Compressor of the MVP (its five keys) can
+/// set `knee` and `mix` afterwards, and the engine is given the same device as a complete one.
+#[test]
+fn a_restored_device_gets_the_parameters_its_snapshot_lacks() {
+    use engine::devices::compressor as comp;
+    let mvp = ["threshold", "ratio", "attack", "release", "makeup"];
+    let c = chain();
+    let mut s = c.state.clone();
+    let out = go(
+        &mut s,
+        &d(device::Command::Insert {
+            track: Some(c.track.clone()),
+            master: false,
+            kind: "faulk.compressor".into(),
+            index: 0,
+        }),
+    );
+    let Output::Device(device::Output::Insert { device: fx }) = out.output else {
+        panic!()
+    };
+    let complete = s.clone();
+    let old = {
+        let mut device = s.project.tracks[&c.track].devices[&fx].clone();
+        device.params.retain(|k, _| mvp.contains(&k.as_str()));
+        device
+    };
+    assert_eq!(old.params.len(), mvp.len());
+    // What the engine is given: the same messages as for the complete device.
+    let engine_of = |state: &State| format!("{:?}", snapshot(&state.project, &state.session).0);
+    let check_filled = |restored: &State, how: &str| {
+        let device = &restored.project.tracks[&c.track].devices[&fx];
+        assert_eq!(device.params.len(), comp::DESCRIPTOR.params.len(), "{how}");
+        assert_eq!(restored.project, complete.project, "{how}");
+        assert_eq!(engine_of(restored), engine_of(&complete), "{how}");
+        // The new parameters can be set from their defaults.
+        let mut h = restored.clone();
+        for (key, value, default) in [("knee", 12.0, comp::KNEE_DB as f64), ("mix", 0.4, 1.0)] {
+            let out = go(&mut h, &param(&fx, key, value));
+            assert_eq!(
+                out.output,
+                Output::Device(device::Output::SetParam {
+                    previous: default,
+                    value
+                }),
+                "{how}: {key}"
+            );
+        }
+    };
+    // device.restore
+    let mut by_device = s.clone();
+    go(&mut by_device, &remove(&fx));
+    go(
+        &mut by_device,
+        &d(device::Command::Restore {
+            track: Some(c.track.clone()),
+            master: false,
+            device: fx.clone(),
+            snapshot: old.clone(),
+            lanes: BTreeMap::new(),
+        }),
+    );
+    check_filled(&by_device, "device.restore");
+    // The master's chain takes the same path.
+    let mut on_master = c.state.clone();
+    let Output::Device(device::Output::Insert { device: mfx }) = go(
+        &mut on_master,
+        &d(device::Command::Insert {
+            track: None,
+            master: true,
+            kind: "faulk.compressor".into(),
+            index: 0,
+        }),
+    )
+    .output
+    else {
+        panic!()
+    };
+    let master_complete = on_master.project.master_devices[&mfx].clone();
+    let mut old_master = master_complete.clone();
+    old_master.params.retain(|k, _| mvp.contains(&k.as_str()));
+    go(&mut on_master, &remove(&mfx));
+    go(
+        &mut on_master,
+        &d(device::Command::Restore {
+            track: None,
+            master: true,
+            device: mfx.clone(),
+            snapshot: old_master,
+            lanes: BTreeMap::new(),
+        }),
+    );
+    assert_eq!(on_master.project.master_devices[&mfx], master_complete);
+    // track.restore
+    let mut by_track = s.clone();
+    let Undo::Inverse(inverse) = go(
+        &mut by_track,
+        &t(track::Command::Delete {
+            track: c.track.clone(),
+        }),
+    )
+    .undo
+    else {
+        panic!()
+    };
+    let Command::Track(track::Command::Restore {
+        track: id,
+        mut snapshot,
+    }) = *inverse
+    else {
+        panic!()
+    };
+    *snapshot.devices.get_mut(&fx).unwrap() = old.clone();
+    go(
+        &mut by_track,
+        &t(track::Command::Restore {
+            track: id,
+            snapshot,
+        }),
+    );
+    check_filled(&by_track, "track.restore");
+    // track.restore_instrument: the instrument of a snapshot lacking all its parameters.
+    let mut swapped = c.state.clone();
+    let Undo::Inverse(inverse) = go(&mut swapped, &set_instrument(&c.track, "faulk.drums")).undo
+    else {
+        panic!()
+    };
+    let Command::Track(track::Command::RestoreInstrument {
+        track,
+        current,
+        device,
+        mut snapshot,
+        lanes,
+    }) = *inverse
+    else {
+        panic!()
+    };
+    let full = snapshot.params.clone();
+    assert!(!full.is_empty());
+    snapshot.params.clear();
+    go(
+        &mut swapped,
+        &t(track::Command::RestoreInstrument {
+            track: track.clone(),
+            current,
+            device: device.clone(),
+            snapshot,
+            lanes,
+        }),
+    );
+    let filled = &swapped.project.tracks[&track].devices[&device].params;
+    // The fixture's synth holds values that are not the defaults: the keys come back, at the descriptor's.
+    assert_eq!(
+        filled.keys().collect::<Vec<_>>(),
+        full.keys().collect::<Vec<_>>()
+    );
+}
+
 // ---------------------------------------------------------------- track.set_instrument
 
 #[test]

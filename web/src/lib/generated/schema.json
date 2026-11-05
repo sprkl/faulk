@@ -1650,7 +1650,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Bring a deleted track back with its identifier, as `track.delete` removed it: the\ninverse of a delete. `snapshot` is the whole track: its order key, mixer,\ndevices, clips, placements and automation. Refused when the track's identifier or\nany identifier inside it is already in use, at the safety limit of tracks, or when\nthe snapshot is not a valid track of the project. Undo: `track.delete`.",
+        "description": "Bring a deleted track back with its identifier, as `track.delete` removed it: the\ninverse of a delete. `snapshot` is the whole track: its order key, mixer,\ndevices (a built-in device lacking parameters its type declares gets them at their\ndefaults), clips, placements and automation. Refused when the track's identifier or\nany identifier inside it is already in use, at the safety limit of tracks, or when\nthe snapshot is not a valid track of the project. Undo: `track.delete`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -2874,7 +2874,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Swap a track's instrument for a device taken out earlier: the inverse of\n`track.set_instrument`. `current` is the instrument in the track now, replaced by\n`snapshot` under the identifier `device`. Refused when `device` is already in use,\nwhen `current` is not the track's instrument, or when the snapshot is not an\ninstrument that fits the track (a built-in device must be one of the registry; a\nmodule device is taken as it is). The lanes that target `current` are removed with\nit; `lanes` (absent: none) are the lanes that targeted the instrument put back, as\n`track.set_instrument` took them out: each must target the restored instrument and\na parameter it has, under an identifier not in use. Undo: the same swap the other\nway, which takes `lanes` out again and brings the lanes of `current` back.",
+        "description": "Swap a track's instrument for a device taken out earlier: the inverse of\n`track.set_instrument`. `current` is the instrument in the track now, replaced by\n`snapshot` under the identifier `device`. Refused when `device` is already in use,\nwhen `current` is not the track's instrument, or when the snapshot is not an\ninstrument that fits the track (a built-in device must be one of the registry; a\nmodule device is taken as it is; one lacking parameters its type declares gets them\nat their defaults). The lanes that target `current` are removed with\nit; `lanes` (absent: none) are the lanes that targeted the instrument put back, as\n`track.set_instrument` took them out: each must target the restored instrument and\na parameter it has, under an identifier not in use. Undo: the same swap the other\nway, which takes `lanes` out again and brings the lanes of `current` back.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -4187,7 +4187,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Bring a removed effect back with its identifier, as `device.remove` took it out:\nthe inverse of a remove. `track` or `master: true` names the chain, as for\n`device.insert`. `snapshot` is the whole device: its order key, bypass, source,\nsettings and state. Refused when both or neither of `track` and `master` are given,\nwhen the identifier is already in use, at the safety limit of devices, or when the\nsnapshot is not an effect (a built-in device must be one of the registry, with only\nparameters it declares; a module device is taken as it is) or does not fit the\nchain. `lanes` are the automation lanes that targeted the device, as `device.remove`\ntook them out (absent: none); each must target this device and a parameter it has,\nunder an identifier not in use. Undo: `device.remove`.",
+        "description": "Bring a removed effect back with its identifier, as `device.remove` took it out:\nthe inverse of a remove. `track` or `master: true` names the chain, as for\n`device.insert`. `snapshot` is the whole device: its order key, bypass, source,\nsettings and state; a built-in device lacking parameters its type declares (saved\nbefore it gained them) gets them at their defaults. Refused when both or neither of `track` and `master` are given,\nwhen the identifier is already in use, at the safety limit of devices, or when the\nsnapshot is not an effect (a built-in device must be one of the registry, with only\nparameters it declares; a module device is taken as it is) or does not fit the\nchain. `lanes` are the automation lanes that targeted the device, as `device.remove`\ntook them out (absent: none); each must target this device and a parameter it has,\nunder an identifier not in use. Undo: `device.remove`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -19301,7 +19301,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Bring a removed effect back with its identifier, as `device.remove` took it out:\nthe inverse of a remove. `track` or `master: true` names the chain, as for\n`device.insert`. `snapshot` is the whole device: its order key, bypass, source,\nsettings and state. Refused when both or neither of `track` and `master` are given,\nwhen the identifier is already in use, at the safety limit of devices, or when the\nsnapshot is not an effect (a built-in device must be one of the registry, with only\nparameters it declares; a module device is taken as it is) or does not fit the\nchain. `lanes` are the automation lanes that targeted the device, as `device.remove`\ntook them out (absent: none); each must target this device and a parameter it has,\nunder an identifier not in use. Undo: `device.remove`.",
+              "description": "Bring a removed effect back with its identifier, as `device.remove` took it out:\nthe inverse of a remove. `track` or `master: true` names the chain, as for\n`device.insert`. `snapshot` is the whole device: its order key, bypass, source,\nsettings and state; a built-in device lacking parameters its type declares (saved\nbefore it gained them) gets them at their defaults. Refused when both or neither of `track` and `master` are given,\nwhen the identifier is already in use, at the safety limit of devices, or when the\nsnapshot is not an effect (a built-in device must be one of the registry, with only\nparameters it declares; a module device is taken as it is) or does not fit the\nchain. `lanes` are the automation lanes that targeted the device, as `device.remove`\ntook them out (absent: none); each must target this device and a parameter it has,\nunder an identifier not in use. Undo: `device.remove`.",
               "properties": {
                 "device": {
                   "$ref": "#/$defs/DeviceId"
@@ -22481,7 +22481,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Bring a deleted track back with its identifier, as `track.delete` removed it: the\ninverse of a delete. `snapshot` is the whole track: its order key, mixer,\ndevices, clips, placements and automation. Refused when the track's identifier or\nany identifier inside it is already in use, at the safety limit of tracks, or when\nthe snapshot is not a valid track of the project. Undo: `track.delete`.",
+              "description": "Bring a deleted track back with its identifier, as `track.delete` removed it: the\ninverse of a delete. `snapshot` is the whole track: its order key, mixer,\ndevices (a built-in device lacking parameters its type declares gets them at their\ndefaults), clips, placements and automation. Refused when the track's identifier or\nany identifier inside it is already in use, at the safety limit of tracks, or when\nthe snapshot is not a valid track of the project. Undo: `track.delete`.",
               "properties": {
                 "snapshot": {
                   "$ref": "#/$defs/Track"
@@ -22673,7 +22673,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Swap a track's instrument for a device taken out earlier: the inverse of\n`track.set_instrument`. `current` is the instrument in the track now, replaced by\n`snapshot` under the identifier `device`. Refused when `device` is already in use,\nwhen `current` is not the track's instrument, or when the snapshot is not an\ninstrument that fits the track (a built-in device must be one of the registry; a\nmodule device is taken as it is). The lanes that target `current` are removed with\nit; `lanes` (absent: none) are the lanes that targeted the instrument put back, as\n`track.set_instrument` took them out: each must target the restored instrument and\na parameter it has, under an identifier not in use. Undo: the same swap the other\nway, which takes `lanes` out again and brings the lanes of `current` back.",
+              "description": "Swap a track's instrument for a device taken out earlier: the inverse of\n`track.set_instrument`. `current` is the instrument in the track now, replaced by\n`snapshot` under the identifier `device`. Refused when `device` is already in use,\nwhen `current` is not the track's instrument, or when the snapshot is not an\ninstrument that fits the track (a built-in device must be one of the registry; a\nmodule device is taken as it is; one lacking parameters its type declares gets them\nat their defaults). The lanes that target `current` are removed with\nit; `lanes` (absent: none) are the lanes that targeted the instrument put back, as\n`track.set_instrument` took them out: each must target the restored instrument and\na parameter it has, under an identifier not in use. Undo: the same swap the other\nway, which takes `lanes` out again and brings the lanes of `current` back.",
               "properties": {
                 "current": {
                   "$ref": "#/$defs/DeviceId"
