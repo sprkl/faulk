@@ -834,6 +834,13 @@ fn wait_for(updater: &Updater, what: impl Fn(&UpdateStatus) -> bool) -> UpdateSt
     }
 }
 
+/// Waits until the update thread has left its check: the status says `Ready` a few instructions before the
+/// thread releases `busy`, and `apply_and_restart` refuses while it is held (#708). The thread takes the lock
+/// again only for a new check, which these tests do not ask for meanwhile.
+fn wait_idle(updater: &Updater) {
+    wait_until(|| updater.busy.try_lock().is_ok());
+}
+
 const NEVER: Duration = Duration::from_secs(3600);
 
 #[test]
@@ -1038,6 +1045,7 @@ fn apply_needs_a_downloaded_update_and_keeps_the_arguments() {
     *backend.available.lock().unwrap() = Some("0.2.0".into());
     updater.check_now();
     wait_for(&updater, |s| matches!(s, UpdateStatus::Ready { .. }));
+    wait_idle(&updater);
     updater.apply_and_restart().unwrap();
     let applied = backend.applied.lock().unwrap().clone();
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -1061,6 +1069,7 @@ fn apply_is_refused_while_another_helper_runs() {
     assert!(!probe.alone());
     drop(probe);
     drop(other);
+    wait_idle(&updater);
     updater.apply_and_restart().unwrap();
     assert_eq!(backend.applied.lock().unwrap().len(), 1);
     // The apply returned (a failed apply would too): the hold is shared again.
@@ -1089,6 +1098,7 @@ fn apply_is_refused_while_a_download_runs() {
         &updater,
         |s| matches!(s, UpdateStatus::Ready { version } if version == "0.3.0"),
     );
+    wait_idle(&updater);
     updater.apply_and_restart().unwrap();
     assert_eq!(backend.applied.lock().unwrap()[0].0, "0.3.0");
     updater.shutdown();
@@ -1109,6 +1119,7 @@ fn a_ready_update_whose_package_vanished_is_downloaded_again() {
     open.send(()).unwrap();
     wait_for(&updater, |s| matches!(s, UpdateStatus::Ready { .. }));
     assert!(backend.pending().is_some());
+    wait_idle(&updater);
     updater.apply_and_restart().unwrap();
     updater.shutdown();
 }

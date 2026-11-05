@@ -225,6 +225,25 @@ fn expire(kept: &mut Option<Kept>, links: &Links, report: &mut impl FnMut(bool))
     drop_engine(links);
 }
 
+/// The number of quick failures in a row once a stream that lasted `lasted` has failed (`Timing::stable`).
+fn next_quick(quick: u32, lasted: Duration, stable: Duration) -> u32 {
+    if lasted < stable {
+        quick.saturating_add(1)
+    } else {
+        0
+    }
+}
+
+/// The shortest time between an attempt and the next after `quick` quick failures in a row: `min_gap`, doubled
+/// for each one after the first, up to `retry`. A pure function of its arguments, so that tests check the
+/// backoff without reading the clock.
+fn retry_gap(timing: &Timing, quick: u32) -> Duration {
+    timing
+        .min_gap
+        .saturating_mul(1 << quick.saturating_sub(1).min(16))
+        .min(timing.retry.max(timing.min_gap))
+}
+
 fn supervise<B: Backend>(mut backend: B, links: &Links, stop: &mpsc::Receiver<()>, timing: Timing) {
     let mut reported = None;
     let mut report = |open: bool| {
@@ -316,11 +335,7 @@ fn supervise<B: Backend>(mut backend: B, links: &Links, stop: &mpsc::Receiver<()
                     return;
                 }
                 let core = back.and_then(|returned| returned.recv_timeout(CORE_BACK).ok());
-                quick = if attempt.elapsed() < timing.stable {
-                    quick + 1
-                } else {
-                    0
-                };
+                quick = next_quick(quick, attempt.elapsed(), timing.stable);
                 match core {
                     Some(core) if !timing.grace.is_zero() => {
                         crate::log!(
@@ -341,11 +356,7 @@ fn supervise<B: Backend>(mut backend: B, links: &Links, stop: &mpsc::Receiver<()
                 // Try again at once (the default output may have changed), but not faster than
                 // `min_gap`, doubled for each quick failure in a row after the first. A kept
                 // engine whose grace ends meanwhile is dropped then, not after the wait.
-                let gap = timing
-                    .min_gap
-                    .saturating_mul(1 << quick.saturating_sub(1).min(16))
-                    .min(timing.retry.max(timing.min_gap));
-                let next = attempt + gap;
+                let next = attempt + retry_gap(&timing, quick);
                 if let Some(until) = kept.as_ref().map(|k| k.until).filter(|u| *u < next) {
                     if stopped(stop, until.saturating_duration_since(Instant::now())) {
                         return;
@@ -891,9 +902,61 @@ mod tests {
         r.supervisor.stop();
     }
 
-    /// Opens a stream that fails `after` its open, `count` times, and returns the times between
-    /// one attempt and the next.
-    fn gaps_of_failing_streams(timing: Timing, after: Duration, count: usize) -> Vec<Duration> {
+    #[test]
+    fn the_gap_between_attempts_doubles_for_each_quick_failure_up_to_the_retry_cap() {
+        let timing = Timing {
+            min_gap: Duration::from_millis(100),
+            retry: Duration::from_millis(1000),
+            ..FAST
+        };
+        let gaps: Vec<u64> = (0..=20)
+            .map(|quick| retry_gap(&timing, quick).as_millis() as u64)
+            .collect();
+        // No quick failure and the first one: the shortest gap; then 200, 400, 800, and the cap.
+        assert_eq!(gaps[..7], [100, 100, 200, 400, 800, 1000, 1000]);
+        assert!(
+            gaps.iter().all(|gap| (100..=1000).contains(gap)),
+            "{gaps:?}"
+        );
+        assert!(
+            gaps.windows(2).all(|w| w[0] <= w[1]),
+            "never shorter: {gaps:?}"
+        );
+        // A cap under `min_gap` never shortens it.
+        let tight = Timing {
+            min_gap: Duration::from_millis(100),
+            retry: Duration::from_millis(10),
+            ..FAST
+        };
+        assert_eq!(retry_gap(&tight, 5), Duration::from_millis(100));
+        // Whatever the count, nothing overflows.
+        assert!(retry_gap(&timing, u32::MAX) <= Duration::from_millis(1000));
+    }
+
+    #[test]
+    fn a_stream_that_failed_at_once_counts_as_a_quick_failure_and_one_that_played_resets_the_count()
+    {
+        let stable = Duration::from_millis(40);
+        assert_eq!(next_quick(0, Duration::ZERO, stable), 1);
+        assert_eq!(next_quick(3, Duration::from_millis(39), stable), 4);
+        // Lasted the `stable` time exactly, or more: the next attempt is after the shortest gap.
+        assert_eq!(next_quick(3, stable, stable), 0);
+        assert_eq!(next_quick(3, Duration::from_secs(60), stable), 0);
+        assert_eq!(next_quick(u32::MAX, Duration::ZERO, stable), u32::MAX);
+    }
+
+    #[test]
+    fn a_device_that_keeps_failing_at_once_is_retried_less_and_less_often() {
+        // The real supervisor, with a stream that fails the moment it opens. Gaps are 100, 200, 400
+        // ms (`retry_gap`), so the n-th open cannot come before 100, 300, 700 ms after the first
+        // attempt, and load can only delay it. Without the backoff there would be about 12 opens by
+        // 600 ms. The bound is an upper bound on a count, so it holds however slow the machine is.
+        let timing = Timing {
+            min_gap: Duration::from_millis(100),
+            retry: Duration::from_millis(1000),
+            ..FAST
+        };
+        let start = Instant::now();
         let r = rig(
             World {
                 available: true,
@@ -901,70 +964,17 @@ mod tests {
             },
             timing,
         );
-        let start = Instant::now();
-        loop {
-            let (opens, last, failed) = {
-                let world = r.world.lock().unwrap();
-                (
-                    world.opens as usize,
-                    world.opened_at.last().copied(),
-                    world.last_failed.clone(),
-                )
-            };
-            if opens > count {
-                break;
-            }
-            if let (Some(last), Some(failed)) = (last, failed)
-                && last.elapsed() >= after
-            {
+        while start.elapsed() < Duration::from_millis(600) {
+            let failed = r.world.lock().unwrap().last_failed.clone();
+            if let Some(failed) = failed {
                 failed.store(true, Ordering::Relaxed);
             }
-            assert!(start.elapsed() < Duration::from_secs(20), "too slow");
             std::thread::sleep(Duration::from_millis(1));
         }
-        let at = r.world.lock().unwrap().opened_at.clone();
+        let opens = r.world.lock().unwrap().opens;
         r.supervisor.stop();
-        at.windows(2).map(|w| w[1] - w[0]).take(count).collect()
-    }
-
-    #[test]
-    fn a_device_that_keeps_failing_at_once_is_retried_less_and_less_often() {
-        let min_gap = Duration::from_millis(100);
-        let gaps = gaps_of_failing_streams(
-            Timing {
-                min_gap,
-                retry: Duration::from_millis(1000),
-                ..FAST
-            },
-            Duration::ZERO,
-            4,
-        );
-        // 100 ms, then 200, 400, 800 (each under the 1 s cap).
-        for (gap, factor) in gaps.iter().zip([1u32, 2, 4, 8]) {
-            assert!(*gap >= min_gap * factor, "{gaps:?}");
-            assert!(
-                *gap < min_gap * factor + Duration::from_millis(150),
-                "{gaps:?}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_stream_that_played_a_while_is_reopened_after_the_shortest_gap() {
-        let min_gap = Duration::from_millis(100);
-        let gaps = gaps_of_failing_streams(
-            Timing {
-                min_gap,
-                stable: Duration::from_millis(40),
-                ..FAST
-            },
-            Duration::from_millis(60),
-            4,
-        );
-        // Each stream lasted longer than `stable`: no doubling.
-        for gap in &gaps {
-            assert!(*gap < min_gap + Duration::from_millis(80), "{gaps:?}");
-        }
+        assert!(opens >= 1, "it tried");
+        assert!(opens <= 3, "{opens} opens in 600 ms: the gaps do not grow");
     }
 
     #[test]
