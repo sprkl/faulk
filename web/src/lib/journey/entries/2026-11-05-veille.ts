@@ -23,8 +23,8 @@ export default {
   },
   tested: [
     {
-      en: 'The project scale (first day), set to F minor before writing the notes',
-      fr: 'La gamme du projet (premier jour), réglée sur Fa mineur avant d’écrire les notes',
+      en: 'The project scale (new), set to F minor before writing the notes',
+      fr: 'La gamme du projet (nouveauté), réglée sur Fa mineur avant d’écrire les notes',
     },
     {
       en: '“Place at the playhead” and “Repeat until…” for 183 linked placements',
@@ -32,8 +32,8 @@ export default {
     },
     { en: 'Renaming the project and “Save as”, then reopening it', fr: 'Le renommage du projet et « Save as », puis la réouverture' },
     {
-      en: 'Exporting a 4:02 WAV named by the File name field',
-      fr: 'L’export d’un WAV de 4:02 nommé par le champ de nom de fichier',
+      en: 'Exporting a 4-minute WAV named by the File name field',
+      fr: 'L’export d’un WAV de 4 minutes nommé par le champ de nom de fichier',
     },
   ],
   gaps: [
