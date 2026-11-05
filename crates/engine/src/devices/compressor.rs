@@ -79,7 +79,12 @@
 //! latency yet: a Compressor with a look-ahead on one track plays that track this much later
 //! than the others (the look-ahead control shows that delay); on the master chain everything
 //! is delayed together. For the same reason the graph's 5 ms crossfade of a bypass, an insert
-//! or a removal mixes the undelayed dry signal with the delayed one (a short comb).
+//! or a removal mixes the undelayed dry signal with the delayed one (a short comb). A device
+//! just switched on, inserted or put back is reset, so for its first `L` frames it outputs
+//! silence (its line holds nothing yet): the graph's fade from the dry signal then dips into
+//! that silence before the delayed signal starts, a short dropout and a step on a sustained
+//! sound (with `L` = 10 ms, about 5 ms of near silence). Only a graph that delays its dry
+//! side by [`Device::latency_frames`], or the engine's latency compensation, removes it.
 //!
 //! A change of `lookahead` while the device sounds goes through the [`LatencySwitch`]: one
 //! switch per gesture, a fade out, a silence of the new latency, a fade in. A change made
