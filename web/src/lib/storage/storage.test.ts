@@ -2351,7 +2351,8 @@ describe('import a .faulkpack', () => {
     expect(w.host.opened).toEqual([])
   })
 
-  describe('where the browser keeps no projects: the pack is read whole (#735)', () => {
+  describe('a cancel of an import, where the pack is read whole and where it is read in pieces (#735)', () => {
+    const LINK = 'https://cdn.example.org/tracks/a/project.faulkpack'
     /** A file whose stream gives `pieces` of 1 byte, the last after `hold` is released. */
     const heldFile = (hold: Promise<void>, pieces = 4) =>
       ({
@@ -2432,6 +2433,61 @@ describe('import a .faulkpack', () => {
       expect(w.host.opened.length).toBe(1)
       // Over: nothing runs any more.
       expect(w.storage.cancelImport()).toEqual({ cancelled: 0, tooLate: 0 })
+    })
+
+    it('is cancelled after a link was downloaded, while its import waits its turn', async () => {
+      const w = world()
+      w.host.unpacked = packOf('pack-1')
+      w.served.set(LINK, text('zip'))
+      let free!: () => void
+      const busy = (w.storage as unknown as { enqueue(task: () => Promise<void>): Promise<void> }).enqueue(
+        () => new Promise<void>((resolve) => (free = resolve)),
+      )
+      const opening = w.storage.openUrl(LINK)
+      await settle()
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 1, tooLate: 0 })
+      free()
+      await busy
+      expect(await opening).toBe(false)
+      expect(w.storage.notice).toBe('pack.importCancelled')
+      expect(w.host.opened).toEqual([])
+    })
+
+    it('with browser storage: a cancel comes too late once the project opens, and not before', async () => {
+      const w = world()
+      w.browser.available = true
+      w.host.unpacked = packOf('pack-1')
+      let release!: () => void
+      w.host.openHold = new Promise<void>((resolve) => (release = resolve))
+      const started = new Promise<void>((resolve) => (w.host.opening = resolve))
+      w.packs.push(packFile())
+      const importing = w.storage.importPack()
+      await started
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 0, tooLate: 1 })
+      release()
+      expect(await importing).toBe(true)
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 0, tooLate: 0 })
+    })
+
+    it('with browser storage: a link whose kept copy would open is stopped by a cancel that comes before it', async () => {
+      const w = world()
+      w.browser.available = true
+      w.served.set(LINK, text('zip'))
+      w.host.unpacked = packOf('pack-1')
+      expect(await w.storage.openUrl(LINK)).toBe(true)
+      w.host.id = 'pack-1'
+      await w.storage.newProject()
+      w.storage.dismissNotice()
+      const opened = w.host.opened.length
+      // The cancel lands while the page looks at what the browser keeps.
+      const list = w.browser.list.bind(w.browser)
+      w.browser.list = async () => {
+        w.storage.cancelImport()
+        return list()
+      }
+      expect(await w.storage.openUrl(LINK)).toBe(false)
+      expect(w.storage.notice).toBe('pack.importCancelled')
+      expect(w.host.opened.length).toBe(opened)
     })
 
     it('counts a link read whole the same way: cancelled while it downloads', async () => {

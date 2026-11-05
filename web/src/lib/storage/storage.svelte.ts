@@ -2248,6 +2248,11 @@ export class ProjectStorage {
       return false
     }
     releaseDir?.()
+    if (!this.commitImport(signal)) {
+      await this.deps.browser.remove(dir).catch(() => undefined)
+      this.notice = 'pack.importCancelled'
+      return false
+    }
     const opened = await this.openHandle(handle, { kind: 'browser', dir, allowed })
     // Declined (the question before replacing a project) or refused: the copy made for it goes.
     if (!opened) await this.deps.browser.remove(dir).catch(() => undefined)

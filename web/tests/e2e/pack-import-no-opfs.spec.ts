@@ -7,6 +7,7 @@ import { engineUp, watch } from './support'
 
 type Hooks = {
   __faulkRun(c: object): boolean
+  __faulkAgent(c: object, author?: string): Promise<{ status: string; output?: Record<string, unknown>; error?: { code: string } }>
   __faulkView(): { project: { id: string; tracks: Record<string, unknown> } }
 }
 const projectId = (page: Page) => page.evaluate(() => (window as unknown as Hooks).__faulkView().project.id)
@@ -41,7 +42,7 @@ test('without browser storage, a cancel during the whole-file read stops the imp
   await (await download).saveAs(pack)
   await maker.close()
 
-  // A page with no OPFS, and a read that takes a while: the file arrives in small pieces, 80 ms apart.
+  // A page with no OPFS, and a read that takes a while: the file arrives in pieces of 128 bytes, 120 ms apart (a pack of a few KB takes seconds).
   const page = await browser.newPage()
   const { errors } = watch(page)
   await page.addInitScript(() => {
@@ -52,14 +53,14 @@ test('without browser storage, a cancel during the whole-file read stops the imp
       let held: Uint8Array = new Uint8Array(0)
       return new ReadableStream<Uint8Array<ArrayBuffer>>({
         async pull(controller) {
-          await new Promise((resolve) => setTimeout(resolve, 80))
+          await new Promise((resolve) => setTimeout(resolve, 120))
           if (held.length === 0) {
             const next = await reader.read()
             if (next.done) return controller.close()
             held = next.value
           }
-          const piece = held.slice(0, 512)
-          held = held.slice(512)
+          const piece = held.slice(0, 128)
+          held = held.slice(128)
           controller.enqueue(piece as Uint8Array<ArrayBuffer>)
         },
         cancel: () => reader.cancel(),
@@ -67,6 +68,8 @@ test('without browser storage, a cancel during the whole-file read stops the imp
     } as typeof File.prototype.stream
   })
   await startAudio(page)
+  // The page really has no browser storage: the project lives in the tab.
+  expect(await page.evaluate(() => typeof navigator.storage.getDirectory)).toBe('undefined')
   const before = await projectId(page)
   const tracks = await trackCount(page)
   expect(before).not.toBe(packed)
@@ -84,9 +87,13 @@ test('without browser storage, a cancel during the whole-file read stops the imp
   // Cancelled through the command, the way an agent does: the same.
   await importPack(page, pack)
   await expect(page.getByTestId('import-banner')).toBeVisible()
-  await page.evaluate(() => (window as unknown as Hooks).__faulkRun({ type: 'project.cancel_import_pack' }))
+  const answer = await page.evaluate(() => (window as unknown as Hooks).__faulkAgent({ type: 'project.cancel_import_pack' }))
+  expect(answer).toMatchObject({ status: 'applied', output: { cancelled: 1, too_late: 0 } })
   await expect(page.getByTestId('storage-notice')).toContainText('Import cancelled')
   expect(await projectId(page)).toBe(before)
+  // Nothing runs any more: it says so (0 and 0), it does not claim to have cancelled something.
+  const again = await page.evaluate(() => (window as unknown as Hooks).__faulkAgent({ type: 'project.cancel_import_pack' }))
+  expect(again).toMatchObject({ status: 'applied', output: { cancelled: 0, too_late: 0 } })
   await page.getByTestId('storage-notice').getByRole('button').last().click()
 
   // Not cancelled: the pack opens.
