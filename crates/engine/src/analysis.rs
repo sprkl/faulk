@@ -296,10 +296,13 @@ impl Analysis {
     }
 }
 
-/// Reads the spectrum region into `out` (the audio side, before a report): the number of
-/// spectra, or `None` when a write runs or ran meanwhile, or none happened yet (the caller keeps
-/// what it had). No allocation.
-pub fn read_spectra(region: &[AtomicU32], out: &mut [Spectrum; MAX_SPECTRA]) -> Option<usize> {
+/// Reads the spectrum region into `out` (the audio side, before a report): the seq of the
+/// write and the number of spectra, or `None` when a write runs or ran meanwhile, or none
+/// happened yet; `out` may then be partly written, and is not to be used. No allocation.
+pub fn read_spectra(
+    region: &[AtomicU32],
+    out: &mut [Spectrum; MAX_SPECTRA],
+) -> Option<(u32, usize)> {
     read_under(region, || {
         let count = (get(region, 1) as usize).min(MAX_SPECTRA);
         for (slot, s) in out.iter_mut().enumerate().take(count) {
@@ -313,7 +316,6 @@ pub fn read_spectra(region: &[AtomicU32], out: &mut [Spectrum; MAX_SPECTRA]) -> 
         }
         count
     })
-    .map(|(_, count)| count)
 }
 
 // ---------------------------------------------------------------- the analyser
@@ -450,7 +452,8 @@ impl Analyzer {
             let p = if first < end {
                 power[first..end].iter().fold(0.0f32, |m, p| m.max(*p))
             } else {
-                let x = (band_centre(i) / bin_hz).min(last as f32);
+                // From bin 1: bin 0 is the DC, and its window's leakage, not a tone.
+                let x = (band_centre(i) / bin_hz).clamp(1.0, last as f32);
                 let k = (x.floor() as usize).min(last);
                 let k1 = (k + 1).min(last);
                 let t = x - k as f32;
@@ -480,13 +483,16 @@ mod tests {
         // Stable and even: read.
         region[0].store(4, Ordering::Relaxed);
         region[1].store(1, Ordering::Relaxed);
-        assert_eq!(read_spectra(&region, &mut spectra()), Some(1));
+        assert_eq!(read_spectra(&region, &mut spectra()), Some((4, 1)));
         // A write that started and ended while the body was read: the seq moved, refused.
         let torn = read_under(&region, || region[0].store(6, Ordering::Relaxed));
         assert_eq!(torn, None);
         // A count beyond the slots is cut to them.
         region[1].store(99, Ordering::Relaxed);
-        assert_eq!(read_spectra(&region, &mut spectra()), Some(MAX_SPECTRA));
+        assert_eq!(
+            read_spectra(&region, &mut spectra()).map(|r| r.1),
+            Some(MAX_SPECTRA)
+        );
     }
 
     #[test]
@@ -517,7 +523,10 @@ mod tests {
         // The same write again: nothing new.
         assert!(!analysis.run(&windows, &out));
         let mut read = spectra();
-        assert_eq!(read_spectra(&out, &mut read), Some(MAX_SPECTRA));
+        assert_eq!(
+            read_spectra(&out, &mut read).map(|r| r.1),
+            Some(MAX_SPECTRA)
+        );
         assert_eq!((read[0].track, read[0].device), (2, 3));
         assert_eq!(read[0].sample_rate, 48_000.0);
         // A constant reads as DC: the lowest band is the loudest.
@@ -526,6 +535,6 @@ mod tests {
         writer.begin(&windows);
         writer.end(&windows);
         assert!(analysis.run(&windows, &out));
-        assert_eq!(read_spectra(&out, &mut read), Some(0));
+        assert_eq!(read_spectra(&out, &mut read).map(|r| r.1), Some(0));
     }
 }

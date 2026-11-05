@@ -34,6 +34,7 @@ function mountCurve(spectrum: Parameters<typeof ContourCurve>[1]['spectrum'] = n
       name: 'Contour',
       valueOf: (key: string) => values[key],
       spectrum,
+      sampleRate: 48000,
       onchange: (key: string, value: number) => {
         changes.push([key, value])
         values[key] = value
@@ -99,22 +100,34 @@ describe('the Contour curve', () => {
     expect(host.querySelector('[data-testid="contour-curve"]')?.getAttribute('data-spectrum')).toBe('on')
   })
 
-  it('makes a drag one group of frequency and gain changes', () => {
+  it('makes a drag one group of frequency and gain changes, by the movement from where the handle was grabbed', () => {
     if (!('PointerEvent' in globalThis)) globalThis.PointerEvent = MouseEvent as unknown as typeof PointerEvent
     mountCurve()
-    handle('bell2').dispatchEvent(pointer('pointerdown', 240, 75))
-    // Half way across the log axis is sqrt(20 * 20000) = 632.5 Hz; a quarter of the height up is 37.5 / 67 of +24 dB (the curve keeps 8 px at each edge): +13.4 dB.
-    svg().dispatchEvent(pointer('pointermove', 240, 37.5))
-    svg().dispatchEvent(pointer('pointermove', 360, 37.5))
-    svg().dispatchEvent(pointer('pointerup', 360, 37.5))
+    // Grabbed off its centre (bell 2 sits at 1 kHz, 0 dB): nothing moves until the pointer does.
+    handle('bell2').dispatchEvent(pointer('pointerdown', 250, 80))
+    // Within the dead zone (2 px): nothing sent.
+    svg().dispatchEvent(pointer('pointermove', 252, 80))
+    expect(changes).toEqual([])
+    // 37.5 px up is 37.5 / 67 of +24 dB (the curve keeps 8 px at each edge): +13.4 dB; the frequency stays.
+    svg().dispatchEvent(pointer('pointermove', 250, 42.5))
+    // A quarter of the width right is a quarter of the three decades: 1 kHz x 1000^0.25 = 5.62 kHz.
+    svg().dispatchEvent(pointer('pointermove', 370, 42.5))
+    svg().dispatchEvent(pointer('pointerup', 370, 42.5))
     expect(groups).toEqual(['begin', 'end'])
     const freqs = changes.filter(([k]) => k === 'bell2_freq').map(([, v]) => v)
     const gains = changes.filter(([k]) => k === 'bell2_gain').map(([, v]) => v)
-    expect(freqs[0]).toBeCloseTo(632.5, 0)
-    expect(freqs.at(-1)).toBeCloseTo(3556.6, 0)
+    expect(freqs).toHaveLength(1)
+    expect(freqs[0]).toBeCloseTo(1000 * Math.pow(1000, 0.25), 0)
     // The gain moved once (the second move kept the height: nothing sent for it).
     expect(gains).toHaveLength(1)
     expect(gains[0]).toBeCloseTo(13.4, 1)
+    // A click without a move changes nothing, and still closes its group.
+    changes = []
+    groups = []
+    handle('bell1').dispatchEvent(pointer('pointerdown', 100, 75))
+    svg().dispatchEvent(pointer('pointerup', 101, 75))
+    expect(changes).toEqual([])
+    expect(groups).toEqual(['begin', 'end'])
     // A cut band moves its frequency only.
     changes = []
     handle('hp').dispatchEvent(pointer('pointerdown', 0, 75))

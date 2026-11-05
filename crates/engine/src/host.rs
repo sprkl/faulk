@@ -557,13 +557,13 @@ pub struct Host {
     feedback: Arc<[AtomicU32]>,
     feedback_seq: u32,
     /// The spectrum analysis (#156, [`crate::analysis`]): the window region this side writes,
-    /// the spectrum region it reads, the last spectra it read whole, the next device of the
-    /// round robin, and a window's scratch.
+    /// the spectrum region it reads, the spectra read from it and the seq they were published
+    /// under, the next device of the round robin, and a window's scratch.
     windows: Arc<[AtomicU32]>,
     spectrum_region: Arc<[AtomicU32]>,
     window_writer: WindowWriter,
     spectra: Box<[Spectrum; MAX_SPECTRA]>,
-    spectra_count: usize,
+    spectra_seq: u32,
     robin: usize,
     window: Box<[f32]>,
     /// The clock's rate the host last saw (#236): a change makes the report period and the
@@ -638,7 +638,7 @@ pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
         spectrum_region: Arc::clone(&spectrum_region),
         window_writer: WindowWriter::default(),
         spectra: try_box([Spectrum::default(); MAX_SPECTRA])?,
-        spectra_count: 0,
+        spectra_seq: 0,
         robin: 0,
         window: try_slice(MAX_WINDOW, 0.0)?,
         clock_rate: 0,
@@ -1013,12 +1013,18 @@ impl Host {
             }
         });
         put(48, recorded);
-        // The spectra the prepare side computed from the last windows (#156), after the notes;
-        // a write of theirs under way keeps the last ones read whole.
-        if let Some(count) = read_spectra(&self.spectrum_region, &mut self.spectra) {
-            self.spectra_count = count;
-        }
-        for s in &self.spectra[..self.spectra_count] {
+        // The spectra the prepare side computed from the last windows (#156), after the notes,
+        // once each: a report carries only spectra published since the last one, so that a
+        // stalled prepare side lets the page's spectra go stale rather than repeat. A write of
+        // theirs under way leaves `self.spectra` partly written and this report without spectra.
+        let fresh = match read_spectra(&self.spectrum_region, &mut self.spectra) {
+            Some((seq, count)) if seq != self.spectra_seq => {
+                self.spectra_seq = seq;
+                count
+            }
+            _ => 0,
+        };
+        for s in &self.spectra[..fresh] {
             put(at, s.track);
             put(at + 4, s.device);
             put(at + 8, s.sample_rate.to_bits());
@@ -1027,7 +1033,7 @@ impl Host {
             }
             at += SPECTRUM_WIRE_BYTES;
         }
-        put(100, self.spectra_count as u32);
+        put(100, fresh as u32);
         put(56, recorder.take());
         put(60, recorder.total());
         put(64, recorder.dropped());

@@ -38,6 +38,8 @@ export class SpectrumTracker {
   readonly shown = new Map<string, Shown>()
   /** The slots each device had at the last report, and since when. */
   private readonly slotsOf = new Map<string, { key: string; since: number }>()
+  /** The sample rate of each device's last spectrum. */
+  private readonly rates = new Map<string, number>()
 
   /** Takes the spectra of a report, against the view's slot table, at the page's clock `now`. */
   feed(epoch: number, spectra: readonly Spectrum[], slots: SpectrumSlots | undefined, now: number) {
@@ -59,6 +61,7 @@ export class SpectrumTracker {
       if (!devices[id]) {
         this.slotsOf.delete(id)
         this.shown.delete(id)
+        this.rates.delete(id)
       }
     }
     if (!slots || epoch !== slots.epoch) return
@@ -68,7 +71,13 @@ export class SpectrumTracker {
       const place = this.slotsOf.get(id)
       if (place && now - place.since < SETTLE_MS) continue
       this.shown.set(id, { bands: s.bands, sampleRate: s.sampleRate, at: now })
+      if (s.sampleRate > 0) this.rates.set(id, s.sampleRate)
     }
+  }
+
+  /** The sample rate of a device's last spectrum, kept after it goes stale; `undefined` before any. */
+  rate(id: string): number | undefined {
+    return this.rates.get(id)
   }
 
   /** The spectrum of a device, or `null` when it has none fresh at `now`. */

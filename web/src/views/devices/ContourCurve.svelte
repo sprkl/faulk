@@ -18,6 +18,7 @@
     name,
     valueOf,
     spectrum,
+    sampleRate,
     bypassed = false,
     onchange,
     onbegin,
@@ -29,6 +30,8 @@
     valueOf: (key: string) => number
     /** The last spectrum of the device's output, `null` when none is fresh. */
     spectrum: Shown | null
+    /** The engine's sample rate, as the device's spectra last gave it: the curve's bilinear warp follows it. */
+    sampleRate: number
     bypassed?: boolean
     onchange: (key: string, value: number) => void
     onbegin: () => void
@@ -54,7 +57,6 @@
   const w = $derived(Math.max(240, width))
   let svg = $state<SVGSVGElement>()
 
-  const sampleRate = $derived(spectrum?.sampleRate || 48000)
   const xOf = (hz: number) => xOfHz(hz) * w
   const yOfDb = (db: number) => HEIGHT / 2 - (Math.max(-RANGE, Math.min(RANGE, db)) / RANGE) * (HEIGHT / 2 - 8)
   const dbOfY = (y: number) => ((HEIGHT / 2 - y) / (HEIGHT / 2 - 8)) * RANGE
@@ -104,7 +106,7 @@
   const handleLabel = (band: Band) => {
     const parts = [label(band), text(`${band.key}_freq`)]
     if (!isCut(band.shape)) parts.push(text(`${band.key}_gain`))
-    parts.push(`Q ${valueOf(`${band.key}_q`).toFixed(2)}`)
+    parts.push(t('contour.qValue', { value: valueOf(`${band.key}_q`).toFixed(2) }))
     if (!isOn(band, valueOf)) parts.push(t('contour.bandOff'))
     return parts.join(', ')
   }
@@ -116,22 +118,37 @@
     if (Math.abs(valueOf(key) - value) > 1e-9) onchange(key, value)
   }
 
-  // ---- drag
-  let dragging: Band | null = null
+  // ---- drag: the handle follows the pointer's movement from where it was grabbed, once past a few pixels (a click or a
+  // double click does not nudge the band).
+  /** Pixels the pointer moves before a drag changes anything. */
+  const DEAD_ZONE = 3
+  let dragging: { band: Band; x: number; y: number; freqX: number; gainY: number; moved: boolean } | null = null
   function pointerDown(event: PointerEvent, band: Band) {
     if (event.button !== 0) return
     event.preventDefault()
     ;(event.currentTarget as Element).setPointerCapture?.(event.pointerId)
-    dragging = band
+    dragging = {
+      band,
+      x: event.clientX,
+      y: event.clientY,
+      freqX: xOfHz(valueOf(`${band.key}_freq`)),
+      gainY: yOfDb(isCut(band.shape) ? 0 : valueOf(`${band.key}_gain`)),
+      moved: false,
+    }
     onbegin()
   }
   function pointerMove(event: PointerEvent) {
     if (!dragging || !svg) return
     const box = svg.getBoundingClientRect()
-    const x = (event.clientX - box.left) / Math.max(1, box.width)
-    const y = ((event.clientY - box.top) / Math.max(1, box.height)) * HEIGHT
-    set(`${dragging.key}_freq`, Math.round(clamp(hzOfX(x), FREQ_MIN, FREQ_MAX) * 10) / 10)
-    if (!isCut(dragging.shape)) set(`${dragging.key}_gain`, Math.round(clamp(dbOfY(y), -GAIN_MAX, GAIN_MAX) * 10) / 10)
+    const dx = event.clientX - dragging.x
+    const dy = event.clientY - dragging.y
+    if (!dragging.moved && Math.hypot(dx, dy) < DEAD_ZONE) return
+    dragging.moved = true
+    const band = dragging.band
+    const x = dragging.freqX + dx / Math.max(1, box.width)
+    const y = dragging.gainY + (dy / Math.max(1, box.height)) * HEIGHT
+    set(`${band.key}_freq`, Math.round(clamp(hzOfX(x), FREQ_MIN, FREQ_MAX) * 10) / 10)
+    if (!isCut(band.shape)) set(`${band.key}_gain`, Math.round(clamp(dbOfY(y), -GAIN_MAX, GAIN_MAX) * 10) / 10)
   }
   function pointerUp() {
     if (!dragging) return

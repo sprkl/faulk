@@ -50,6 +50,12 @@ export class MeterStore {
     return this.spectra.get(device, performance.now())
   }
 
+  /** The sample rate a device's last spectrum was measured at, kept once the spectrum is gone; `undefined` before any. */
+  spectrumRate(device: string): number | undefined {
+    void this.spectrumTick
+    return this.spectra.rate(device)
+  }
+
   /** Clears one strip's peak readout and clip mark. */
   reset(id: string) {
     // A copy that replaces the raw state, never mutated in place.
@@ -59,8 +65,11 @@ export class MeterStore {
     this.snaps = next
   }
 
-  /** Feeds the bank from a report, or silence (`null`). Reads nothing reactive. */
-  feed(report: NonNullable<EngineStore['feedback']> | null, now: number) {
+  /**
+   * Feeds the bank from a report, or silence (`null`). Reads nothing reactive. `fresh`: the report just arrived; a report
+   * fed again (the tracks changed) gives its meters, but not its spectra, which would look new.
+   */
+  feed(report: NonNullable<EngineStore['feedback']> | null, now: number, fresh = true) {
     const slots = this.project.view?.slots
     const ids = this.project.tracks.map((entry) => entry.id)
     const silence = { peakL: 0, peakR: 0 }
@@ -75,10 +84,9 @@ export class MeterStore {
       },
       now / 1000,
     )
-    if (report) {
-      this.spectra.feed(report.epoch, report.spectra ?? [], slots, now)
-      this.spectrumTick++
-    }
+    if (report) this.spectra.feed(report.epoch, fresh ? (report.spectra ?? []) : [], slots, now)
+    // Every pass, reports or silence: a spectrum's reader sees it go stale when the reports stop.
+    this.spectrumTick++
   }
 
   /** Follows the engine's reports until the returned function is called. Call it from a component. */
@@ -103,7 +111,7 @@ export class MeterStore {
       $effect(() => {
         void this.project.tracks
         untrack(() => {
-          if (this.lastReport && performance.now() - this.lastReportAt <= STALE_MS) this.feed(this.lastReport, performance.now())
+          if (this.lastReport && performance.now() - this.lastReportAt <= STALE_MS) this.feed(this.lastReport, performance.now(), false)
         })
       })
       $effect(() => {

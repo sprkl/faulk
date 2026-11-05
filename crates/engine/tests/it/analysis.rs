@@ -378,3 +378,21 @@ fn without_a_contour_the_report_carries_no_spectrum_and_the_analysis_does_nothin
     prepare.analyse();
     assert!(!prepare.analyse());
 }
+
+#[test]
+fn a_spectrum_is_reported_once_and_a_stalled_prepare_side_lets_the_reports_go_without() {
+    let mut s = session(1);
+    assert_eq!(s.run(4).spectra.len(), 1);
+    // The prepare side stops (a throttled Worker, a busy control thread): the next report may
+    // carry the last publication once, then none.
+    let mut with = 0;
+    for _ in 0..4 {
+        for _ in 0..13 {
+            assert_no_alloc(|| s.host.render(128));
+        }
+        with += read_feedback(s.host.feedback()).unwrap().spectra.len();
+    }
+    assert!(with <= 1, "{with} spectra while the prepare side stalled");
+    // It comes back: so do the spectra.
+    assert_eq!(s.run(3).spectra.len(), 1);
+}

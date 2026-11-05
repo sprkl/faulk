@@ -159,6 +159,7 @@
       {name}
       {valueOf}
       spectrum={bypassed ? null : meters.spectrum(entry.id)}
+      sampleRate={meters.spectrumRate(entry.id) ?? 48000}
       {bypassed}
       onchange={(key, value) => dispatcher.run(setDeviceParam(entry.id, key, value))}
       onbegin={gesture.begin}
