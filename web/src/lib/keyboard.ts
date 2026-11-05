@@ -293,6 +293,16 @@ export function repeatShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'm
   return (event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'r'
 }
 
+/**
+ * The piano roll's "Generate" (#694): Alt+G, by position. Alt alone (never a bare letter: G plays a note), no repeat, nothing
+ * from a text field (a second press while the generator is open does nothing). Playing ignores every Alt event
+ * (`ignoreKeyEvent`), so it plays nothing.
+ */
+const GENERATE_CODE = 'KeyG'
+export function generateShortcut(event: Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'repeat' | 'target'>): boolean {
+  return event.code === GENERATE_CODE && event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.repeat && !isTextTarget(event.target)
+}
+
 /** Undo or redo asked by the keyboard (Ctrl or Cmd + Z, Shift for redo, Ctrl + Y), or null; never inside a text field. */
 export function historyShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'target'>): 'undo' | 'redo' | null {
   if (!(event.ctrlKey || event.metaKey) || event.altKey || isTextTarget(event.target)) return null

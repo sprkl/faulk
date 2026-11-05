@@ -298,6 +298,61 @@ test('places a MIDI note where its time says it was played', async ({ page }) =>
   expect(errors).toEqual([])
 })
 
+// #725: RE-2 aims at +-1 ms for a simulated input with a known time. Each note of a sweep is measured against its own
+// stamp, not against the first note. The tempo is the default 120 BPM: the project floors each start to a tick (0.52 ms),
+// so the gaps spread over one tick. The take's origin on the page's clock is not known to the page, so the one constant
+// offset of the take (the median gap) is taken out: what is left is the spread of the conversion from `timeStamp` to the
+// engine's frame, note by note, plus that tick. Measured in Chromium on Windows, 40 runs of 60 notes: worst 0.42 ms with
+// the smoothed clock (`OutputClock`, #725); 10 runs of 40 beyond 1 ms (worst 3.5 ms) when each note was converted with
+// the pair of the moment. (At 999 BPM the take shows 3 to 14 ms on its first notes: not the conversion, see #732.) The constant bias of the
+// take is not measured here: the test of #499 above bounds it.
+// The worst gap is printed.
+test('each simulated MIDI note lands within 1 ms of its own time', async ({ page }) => {
+  const { errors } = watch(page)
+  await fakeWebMidi(page)
+  await start(page)
+  await chooseMidiInput(page, 'E2E Keys')
+  expect(await run(page, { type: 'transport.set_tempo', bpm: 120 })).toBe(true)
+  await arm(page, /^Arm .+ to record$/)
+  const v0 = await view(page)
+  const track = synth(v0)
+  const placed = Object.keys(v0.project.tracks[track]!.placements).length
+  await record(page).click()
+  await expect(feedback(page)).toHaveAttribute('data-transport', 'recording')
+  await page.waitForTimeout(300)
+  // 60 notes 10 ms apart, stamped from 300 ms ago and sent at once, in one batch.
+  const times: number[] = await page.evaluate(async () => {
+    const midi = (window as unknown as { __fakeMidi: { send(b: number[], t?: number | null): void } }).__fakeMidi
+    await new Promise((resolve) => setTimeout(resolve, 700))
+    const from = performance.now() - 300
+    const out: number[] = []
+    for (let k = 0; k < 60; k++) {
+      const t = from + k * 10
+      midi.send([0x90, 20 + k, 100], t)
+      midi.send([0x80, 20 + k, 0], t + 5)
+      out.push(t)
+    }
+    return out
+  })
+  await page.waitForTimeout(200)
+  await record(page).click()
+  await page.getByTestId('transport-stop').click()
+  await expect.poll(async () => Object.keys((await view(page)).project.tracks[track]!.placements).length).toBe(placed + 1)
+  const v1 = await view(page)
+  const [, placement] = Object.entries(v1.project.tracks[track]!.placements).find(([id]) => !v0.project.tracks[track]!.placements[id])!
+  const notes = notesOf(v1, track, placement.clip)
+  expect(notes.length).toBe(times.length)
+  const msPerTick = 60000 / (120 * 960)
+  const gaps = times.map((t, k) => (placement.start + notes.find((n) => n.pitch === 20 + k)!.start) * msPerTick - t)
+  const offset = [...gaps].sort((a, b) => a - b)[gaps.length >> 1]!
+  const off = gaps.map((g) => g - offset)
+  console.log(
+    `per-note gap to its stamp, ${times.length} notes: min ${Math.min(...off).toFixed(3)}, max ${Math.max(...off).toFixed(3)}, worst |gap| ${Math.max(...off.map(Math.abs)).toFixed(3)} ms (take offset ${offset.toFixed(2)} ms)`,
+  )
+  for (const ms of off) expect(Math.abs(ms)).toBeLessThanOrEqual(1)
+  expect(errors).toEqual([])
+})
+
 // #560: the engine moves the notes back by the take's shift on its own clock, where it knows the loop. The playhead
 // enters a loop from before it; a sweep of short notes 10 ms apart around that entry, stamped in the past and sent at
 // once, keeps their time apart on the line (within 2 ms, below): a note heard just before the loop's start stays before it,
@@ -345,9 +400,9 @@ test('a note played just before the playhead enters a loop stays before the loop
   const msPerTick = 500 / 960
   const off = times.map((t, k) => (startOf(k) - startOf(0)) * msPerTick - (t - times[0]!))
   console.log(`sweep of ${times.length} notes, worst gap to the line: ${Math.max(...off.map(Math.abs)).toFixed(2)} ms`)
-  // Each gap compares two floored starts (one tick, 0.52 ms, of rounding) of notes the page converted to frames one by
-  // one (measured up to 1.35 ms of spread over 12 runs in Chromium on Windows): 2 ms. The defect this guards against
-  // moves a note by the latency (42 ms) or the whole loop (2 s).
+  // Each gap compares two floored starts (up to one tick, 0.52 ms, of rounding each way, and the first note's own
+  // conversion): 2 ms. The conversion alone is held to 1 ms per note by the test above (#725). The defect this guards
+  // against moves a note by the latency (42 ms) or the whole loop (2 s).
   for (const ms of off) expect(Math.abs(ms)).toBeLessThanOrEqual(2)
   // The sweep crossed the entry: notes on both sides of the loop's start, none past its end.
   const starts = times.map((_, k) => startOf(k))
