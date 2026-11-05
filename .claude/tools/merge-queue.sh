@@ -43,11 +43,11 @@ for pr in "$@"; do
   fi
   issue=$(printf '%s\n' "$head" | sed -nE 's,^(feat|fix|spike)/0*([0-9]+)-.*,\2,p')
   if [ -n "$issue" ]; then
-    # The numbers of the issues a text closes (and, given an argument, refers to): a keyword, then #n and any
-    # further #m joined by a comma, "and" or "&", anywhere in a line (a bullet, a sentence), as GitHub reads it.
+    # The numbers of the issues a text closes (and, given an argument, refers to): a keyword then #n, anywhere
+    # in a line (a bullet, a sentence); as on GitHub, each issue needs its own keyword.
     kw='(close[sd]?|fix(e[sd])?|resolve[sd]?)'
-    issues_of() { grep -oiE "(^|[^[:alnum:]])(${kw}${1:+|refs?})[: ]+#[0-9]+(([ ,&]|and)+#[0-9]+)*" | grep -oE '#[0-9]+' | tr -d '#' | sed 's/^0*//'; }
-    if ! printf '%s\n' "$msg" | issues_of refs | grep -qx "$issue"; then
+    issues_of() { grep -oiE "(^|[^[:alnum:]])(${kw}${1:+|refs?})[: ]+#[0-9]+" | grep -oE '#[0-9]+' | tr -d '#' | sed 's/^0*//'; }
+    if ! printf '%s\n' "$msg" | sed 1d | issues_of refs | grep -qx "$issue"; then
       echo "STOP $pr: branch $head is for issue #$issue but its '## Commit message' does not say 'Closes #$issue' (or 'Refs #$issue'): wrong description on PR #$pr?"
       exit 1
     fi
@@ -58,7 +58,7 @@ for pr in "$@"; do
       inb && /^```/ { inb = 0; done = 1; next }
       inb { next }
       { print }')
-    for other in $(printf '%s\n' "$msg" | issues_of | sort -u); do
+    for other in $(printf '%s\n' "$msg" | sed 1d | issues_of | sort -u); do
       [ "$other" = "$issue" ] && continue
       printf '%s\n' "$outside" | issues_of | grep -qx "$other" && continue
       echo "STOP $pr: the '## Commit message' of PR #$pr closes #$other but branch $head is for issue #$issue: wrong description on this PR?"

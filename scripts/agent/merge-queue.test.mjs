@@ -617,20 +617,24 @@ test('merge-queue does not check a branch outside the convention (#727)', () => 
   }
 })
 
-test('merge-queue reads several issue numbers on one line, the colon form and CRLF line ends (#727)', () => {
+test('merge-queue reads each keyword of a line, the colon form and CRLF line ends, and not the subject (#727)', () => {
   const w = branchWorld('fix/560-loop', msgBody('fix: x\n\nCloses #560, closes #682', 'Closes #560'))
   try {
     // A second number on the same line is seen, not missed.
     const r = w.run('merge-queue.sh', '7')
     assert.equal(r.status, 1, r.stdout + r.stderr)
     assert.match(r.stdout, /closes #682 but branch fix\/560-loop/)
-    w.env.MQ_BODY = msgBody('fix: x\n\nCloses #12 and #560', 'Closes #560')
+    w.env.MQ_BODY = msgBody('fix: x\n\nCloses #560 and closes #12', 'Closes #560')
     const other = w.run('merge-queue.sh', '7')
     assert.equal(other.status, 1, other.stdout + other.stderr)
     assert.match(other.stdout, /closes #12 but/)
-    // Declared outside on one line with the branch's own issue.
-    w.env.MQ_BODY = msgBody('fix: x\n\nCloses #560, #682', 'Closes #560 and #682')
+    // Each issue needs its own keyword, as on GitHub: `Closes #560, #682` closes #560 only.
+    w.env.MQ_BODY = msgBody('fix: x\n\nCloses #560, #682', 'Closes #560')
     assert.equal(w.run('merge-queue.sh', '7').status, 0)
+    // The subject line is not a closing line: `fix: #560` closes nothing.
+    w.env.MQ_BODY = msgBody('fix: #560 loop\n\nBody.', 'Closes #560')
+    const subject = w.run('merge-queue.sh', '7')
+    assert.equal(subject.status, 1, subject.stdout + subject.stderr)
     // The colon form and CRLF line ends.
     w.env.MQ_BODY = msgBody('fix: x\n\nCloses: #560').replace(/\n/g, '\r\n')
     const crlf = w.run('merge-queue.sh', '7')
