@@ -446,7 +446,8 @@ function unpackFiles(out: Uint8Array): PackUnpack {
  * Imports a `.faulkpack` in pieces (#682): the core (`project::file::PackReader`, the strict import of every
  * host) asks for ranges of the pack, `io.read` gives them, and each blob goes to `io.sink` as it is inflated
  * and checked against its name; the project's own files come back at the end, once the project they make is
- * opened and valid. The memory it holds is a piece and the pack's directory, whatever the size of the pack.
+ * opened and valid. The memory it holds is a piece, the pack's directory and the project's own files and lane blobs (512 MiB at
+ * most), whatever the size of its media.
  * A pack that does not pass is `failed` with the reason (the sink may have taken blobs of it: the caller
  * removes them), an aborted `io.signal` is `cancelled`. Either way the core forgets the import.
  */
