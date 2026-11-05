@@ -114,4 +114,12 @@ fn a_song_through_ceilings_exports_from_its_first_frame_natively_and_in_wasm() {
     );
     parity("with latency", &native, &wasm);
     parity("without latency", &reference, &reference_wasm);
+    // The Ceilings do have their latency, in both targets: each render ran it more (the 72
+    // frames of the lead's Ceiling and the 84 of the master's, true peak, at 48 kHz).
+    assert_eq!(native.rendered - reference.rendered, 72 + 84, "natively");
+    assert_eq!(wasm.rendered - reference_wasm.rendered, 72 + 84, "in WASM");
+    println!(
+        "for listening: {}",
+        native.write("export-latency-755").display()
+    );
 }

@@ -773,6 +773,15 @@ fn under_a_capped_compensation_the_file_starts_where_the_first_track_comes_out()
         "track 1's first impulse at {}",
         1 + late
     );
+    // Each track's levels cover its whole content, the late one's last frames included (its
+    // window ends after the content's end): the same as with the 66 Ceilings without latency.
+    let flat: Vec<M> = (0..66)
+        .map(|d| ceiling(TrackSlot(1), d, false, Some(0.0)))
+        .collect();
+    let (reference, _, _) = export_impulses(rate, &flat);
+    let (m, want) = (offline.measure().unwrap(), reference.measure().unwrap());
+    assert_eq!(m.frames, impulse_frames(rate));
+    assert_eq!(m.tracks, want.tracks, "the tracks' levels");
 }
 
 /// The latency of a Ceiling at `lookahead` seconds with the true-peak detection at `rate`.

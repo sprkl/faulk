@@ -253,6 +253,9 @@ pub struct Offline {
     edges: Vec<u64>,
     /// The first edge not passed yet.
     edge: usize,
+    /// Nothing more is written: the tail fell quiet or was cut. The render becomes
+    /// [`Phase::Done`] once the levels' windows are over too ([`Offline::measure_end`]).
+    ended: bool,
     phase: Phase,
     /// Frames rendered, written or not.
     rendered: u64,
@@ -338,6 +341,7 @@ impl Offline {
             lead: 0,
             edges: Vec::new(),
             edge: 0,
+            ended: false,
             phase: Phase::Body,
             rendered: 0,
             written: 0,
@@ -753,9 +757,14 @@ impl Offline {
             used = budget;
         }
         while used < budget && self.phase != Phase::Done {
-            if self.phase == Phase::Body && self.rendered >= self.content_end() {
+            if self.phase == Phase::Body && self.rendered >= self.measure_end() {
                 self.phase = Phase::Tail;
                 self.freeze_measure();
+            }
+            // The tail ended (quiet, or cut), but no earlier than the levels' windows.
+            if self.phase == Phase::Tail && self.ended {
+                self.phase = Phase::Done;
+                break;
             }
             // The transport stops on the content's last frame, `lead` frames before that frame
             // comes out (module doc > Device latency).
@@ -809,8 +818,20 @@ impl Offline {
         self.plan.body_frames + self.lead
     }
 
-    /// Keeps the levels of the content. Its last block ended on an edge, which closed the
-    /// metering period there.
+    /// The frame, counted from the start, where every level window has ended: the content's
+    /// end, or later under a capped compensation, where a track that comes out after the
+    /// others meters its last frame (`body + L_t`, the last edge). The content is rendered
+    /// ([`Phase::Body`]) until then.
+    fn measure_end(&self) -> u64 {
+        self.edges
+            .last()
+            .copied()
+            .unwrap_or(0)
+            .max(self.content_end())
+    }
+
+    /// Keeps the levels of the content. Its last block ended on an edge (the last one), which
+    /// closed the metering period there.
     fn freeze_measure(&mut self) {
         if let Some(levels) = self.host.levels() {
             self.measure = Some(Measure {
@@ -861,7 +882,7 @@ impl Offline {
                 self.write(l, r);
                 continue;
             }
-            if self.phase == Phase::Done {
+            if self.phase == Phase::Done || self.ended {
                 continue;
             }
             if l.abs() > self.threshold || r.abs() > self.threshold {
@@ -878,13 +899,13 @@ impl Offline {
                 self.held_right.push(r);
                 self.quiet += 1;
                 if self.quiet >= self.silence_frames {
-                    self.phase = Phase::Done;
+                    self.ended = true;
                     continue;
                 }
             }
             if self.rendered - self.content_end() >= self.tail_frames {
                 self.tail_cut = true;
-                self.phase = Phase::Done;
+                self.ended = true;
             }
         }
     }
