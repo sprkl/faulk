@@ -199,7 +199,7 @@
     overflow: auto;
     padding: var(--fk-space-5, 20px);
     border: 1px solid var(--fk-line);
-    border-radius: var(--fk-radius);
+    border-radius: var(--fk-radius-panel);
     background: var(--fk-surface);
   }
   h2 {
@@ -243,7 +243,7 @@
     height: 24px;
     padding: 0 var(--fk-space-2);
     border: 1px solid var(--fk-line);
-    border-radius: var(--fk-radius-sm, 4px);
+    border-radius: var(--fk-radius-work);
     background: var(--fk-surface-2);
     color: var(--fk-text);
     font: inherit;
@@ -256,7 +256,7 @@
     height: 24px;
     padding: 0 var(--fk-space-2);
     border: 1px solid var(--fk-line);
-    border-radius: var(--fk-radius-sm, 4px);
+    border-radius: var(--fk-radius-work);
     background: var(--fk-surface-2);
     color: var(--fk-text);
     font: inherit;
