@@ -179,9 +179,12 @@ test('an MP3 gets its decoded PCM in the cache, and a cache deleted is made agai
   expect((await opfsFiles(page))[cache]).toBeUndefined()
   await page.reload()
   await expect.poll(() => reopened(page), { timeout: 30_000 }).toBe(true)
-  const report = await page.evaluate(() =>
-    (window as unknown as { __faulkAudioCache(): Promise<{ made: string[]; peaks: string[] } | null> }).__faulkAudioCache(),
-  )
+  // The hook waits for the work of the attach that is running, and answers `null` while no attach has begun it
+  // yet (the project is back before the storage is attached): wait for the report itself, not for a delay (#707).
+  type CacheReport = { made: string[]; peaks: string[] } | null
+  const readReport = () => page.evaluate(() => (window as unknown as { __faulkAudioCache(): Promise<CacheReport> }).__faulkAudioCache())
+  await expect.poll(readReport, { timeout: 30_000 }).not.toBeNull()
+  const report = await readReport()
   expect(report?.made).toEqual([hash])
   expect(report?.peaks).toEqual([hash])
   expect((await opfsFiles(page))[cache]).toBe(32 + 22_050 * 2 * 4)
