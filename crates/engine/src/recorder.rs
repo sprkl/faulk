@@ -77,8 +77,10 @@
 //! - the stamp, before the shift, is never before the take's first sample (the rule above), so
 //!   a note heard less than one shift before the take began is kept where it was heard, before
 //!   the take's first tick, and one heard earlier lands one shift before that tick; the
-//!   engine drops none of them (`record.commit_take` drops a note before tick 0 or before
-//!   its clip). A moved sample older than the oldest anchor (a note heard just before the
+//!   recorder drops none of those it takes (`record.commit_take` drops a note before tick 0 or
+//!   before its clip). An event that reaches the engine before the capture begins (during the
+//!   count-in, module doc above) is not taken at all, whatever its stamp: after a count-in a
+//!   note anticipated by more than the rendering's real lead over the output is lost. A moved sample older than the oldest anchor (a note heard just before the
 //!   take's `Play`, or before a seek or a sample-rate change) is placed on the line, back from
 //!   that anchor. The anchors hold the anchor in force and the one before it: a sample older
 //!   than both after two loop wraps or a wrap and a tempo change within the shift and the

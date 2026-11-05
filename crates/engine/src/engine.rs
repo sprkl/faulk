@@ -263,8 +263,9 @@ impl Default for Master {
 pub struct Playback {
     pub playing: bool,
     pub recording: bool,
-    /// How much earlier the notes of a take are placed, in microseconds: the last
-    /// `SetRecording` that switched recording on (#560).
+    /// How much earlier the notes of a take are placed, in microseconds: the value of the
+    /// last `SetRecording { recording: true }`, even one sent while a take runs (#560). The
+    /// recorder takes it when a take begins and keeps its own for the take.
     pub record_shift_us: i32,
     pub loop_region: Option<LoopRegion>,
     /// The position the last `Play` or `Seek` asked for, not yet taken by the clock.
