@@ -12,6 +12,7 @@ import { draftName } from '../project/draft-name'
 import { CoreError, coreModule, engineStep, ProjectCore, type EngineStep, type FolderEntry, type StoredProjects } from '../project/core'
 import {
   analyzeRange,
+  cancelImportOutput,
   isCancelImportPack,
   isListStored,
   isMixerLevels,
@@ -786,7 +787,7 @@ export class Dispatcher {
         error: { code: 'not_done', message: 'too late: the pack is already opening its project, nothing was cancelled', notice: null },
       }
     }
-    return { status: 'applied', output: { type: 'project.cancel_import_pack', cancelled, too_late: tooLate } }
+    return { status: 'applied', output: cancelImportOutput(cancelled, tooLate) }
   }
 
   /** `run`, saying what happened: what an agent is answered (`runForAgent`). */

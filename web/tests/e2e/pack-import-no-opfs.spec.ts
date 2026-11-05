@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { engineUp, skipWithoutDevHooks, watch } from './support'
+import { engineUp, watch } from './support'
 
 // #735: where the browser keeps no projects (no OPFS), a `.faulkpack` is read whole by the page. The banner shows the
 // import with its Cancel button, a cancel stops the read and changes nothing, and the next import still opens its project.
@@ -27,10 +27,10 @@ async function importPack(page: Page, path: string) {
 }
 
 test('without browser storage, a cancel during the whole-file read stops the import and leaves the project alone', async ({ browser }, testInfo) => {
+  test.skip(test.info().project.name !== 'dev', 'dev only')
   // A pack made in a page that has the browser's storage.
   const maker = await browser.newPage()
   await startAudio(maker)
-  await skipWithoutDevHooks(maker)
   await maker.evaluate(() => (window as unknown as Hooks).__faulkRun({ type: 'track.create', kind: 'midi' }))
   const packed = await projectId(maker)
   await maker.evaluate(() => void ((window as unknown as { showSaveFilePicker?: unknown }).showSaveFilePicker = undefined))
@@ -67,7 +67,6 @@ test('without browser storage, a cancel during the whole-file read stops the imp
     } as typeof File.prototype.stream
   })
   await startAudio(page)
-  await skipWithoutDevHooks(page)
   const before = await projectId(page)
   const tracks = await trackCount(page)
   expect(before).not.toBe(packed)
