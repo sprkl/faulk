@@ -102,7 +102,6 @@ fn cost() {
                 Source {
                     track: 0,
                     device: d,
-                    serial: d + 1,
                 },
                 SR,
                 &frames,

@@ -1,8 +1,8 @@
 //! Native/WASM parity of the spectrum analysis (#156): the scenario of
 //! `engine::host::testing::spectrum_scenario` (a synth through two Contours, the windows copied by
 //! the audio side, analysed by the prepare side, carried by the report) run natively and through
-//! the real `.wasm` build, run by an interpreter, gives the same spectra: the same slots and
-//! serials, and bands within `TOLERANCE_DB` (the last bits of `sin`, `cos`, `log10`, `tan` and `pow`
+//! the real `.wasm` build, run by an interpreter, gives the same spectra: the same slots, and
+//! bands within `TOLERANCE_DB` (the last bits of `sin`, `cos`, `log10`, `tan` and `pow`
 //! differ between the two libms, and a band is the log of a sum).
 
 use engine::analysis::band_edge;
@@ -64,7 +64,7 @@ fn the_spectra_of_the_report_are_the_same_in_native_and_wasm() {
     assert_eq!(wasm.spectra.len(), native.spectra.len());
     let mut worst = 0f32;
     for (n, w) in native.spectra.iter().zip(&wasm.spectra) {
-        assert_eq!((n.track, n.device, n.serial), (w.track, w.device, w.serial));
+        assert_eq!((n.track, n.device), (w.track, w.device));
         assert_eq!(n.sample_rate, w.sample_rate);
         for (i, (a, b)) in n.bands.iter().zip(&w.bands).enumerate() {
             let d = (a - b).abs();

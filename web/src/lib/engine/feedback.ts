@@ -17,8 +17,8 @@ export const MAX_RECORDED_PER_REPORT = 256
 export const FEEDBACK_VERSION = 10
 /** Bands of a spectrum (`engine::analysis::BANDS`). */
 export const SPECTRUM_BANDS = 96
-/** Size of one spectrum: track, device, serial, sample rate, then the bands (`SPECTRUM_WIRE_BYTES`). */
-export const SPECTRUM_BYTES = 16 + 4 * SPECTRUM_BANDS
+/** Size of one spectrum: track, device, sample rate, then the bands (`SPECTRUM_WIRE_BYTES`). */
+export const SPECTRUM_BYTES = 12 + 4 * SPECTRUM_BANDS
 /** Most spectra one report carries (`engine::analysis::MAX_SPECTRA`). */
 export const MAX_SPECTRA = 4
 
@@ -76,8 +76,6 @@ export interface Spectrum {
   track: number
   /** Device slot in that chain. */
   device: number
-  /** The engine's number of the device instance: a device rebuilt at that slot (moved, inserted again) has another. */
-  serial: number
   sampleRate: number
   bands: Float32Array
 }
@@ -218,14 +216,13 @@ export function decodeFeedback(bytes: ArrayBufferLike, at = 0, len = bytes.byteL
     const at = spectraAt + i * SPECTRUM_BYTES
     const bands = new Float32Array(SPECTRUM_BANDS)
     for (let b = 0; b < SPECTRUM_BANDS; b++) {
-      const v = view.getFloat32(at + 16 + 4 * b, true)
+      const v = view.getFloat32(at + 12 + 4 * b, true)
       bands[b] = Number.isFinite(v) ? v : -140
     }
     spectra.push({
       track: view.getUint32(at, true),
       device: view.getUint32(at + 4, true),
-      serial: view.getUint32(at + 8, true),
-      sampleRate: view.getFloat32(at + 12, true),
+      sampleRate: view.getFloat32(at + 8, true),
       bands,
     })
   }

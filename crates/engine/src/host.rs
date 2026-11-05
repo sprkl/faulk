@@ -1021,10 +1021,9 @@ impl Host {
         for s in &self.spectra[..self.spectra_count] {
             put(at, s.track);
             put(at + 4, s.device);
-            put(at + 8, s.serial);
-            put(at + 12, s.sample_rate.to_bits());
+            put(at + 8, s.sample_rate.to_bits());
             for (i, b) in s.bands.iter().enumerate() {
-                put(at + 16 + 4 * i, b.to_bits());
+                put(at + 12 + 4 * i, b.to_bits());
             }
             at += SPECTRUM_WIRE_BYTES;
         }
@@ -1077,7 +1076,6 @@ impl Host {
                             Source {
                                 track: track.0,
                                 device: u32::from(device.0),
-                                serial: entry.serial,
                             },
                             rate,
                             &window[..n],
@@ -1239,12 +1237,11 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
             let mut s = Spectrum {
                 track: u32_at(at)?,
                 device: u32_at(at + 4)?,
-                serial: u32_at(at + 8)?,
-                sample_rate: f32::from_bits(u32_at(at + 12)?),
+                sample_rate: f32::from_bits(u32_at(at + 8)?),
                 ..Spectrum::default()
             };
             for (k, b) in s.bands.iter_mut().enumerate() {
-                *b = f32::from_bits(u32_at(at + 16 + 4 * k)?);
+                *b = f32::from_bits(u32_at(at + 12 + 4 * k)?);
             }
             Some(s)
         })

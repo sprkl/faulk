@@ -10,9 +10,8 @@
 //!    that grows with the sample rate so that a band always spans about the same hertz.
 //! 2. The audio side, when it writes a report (`crate::host::Host::write_feedback`, about 30 times
 //!    a second), copies the windows of at most [`MAX_SPECTRA`] devices into the **window region**,
-//!    under a seqlock, each with its track slot, device slot, the serial of its instance
-//!    (`crate::engine::DeviceEntry::serial`) and the sample rate. With more devices than that, a
-//!    round robin takes the next ones at the next report.
+//!    under a seqlock, each with its track slot, device slot and the sample rate. With more
+//!    devices than that, a round robin takes the next ones at the next report.
 //! 3. The prepare side (`crate::host::Prepare::flush`, every few milliseconds in both targets:
 //!    the helper's control thread, the web prepare Worker) reads a window region it has not read
 //!    yet, runs an [`Analyzer`] on each window (a Hann window, a radix-2 FFT, then [`BANDS`]
@@ -67,13 +66,11 @@ pub fn band_centre(i: usize) -> f32 {
     LOW_HZ * (HIGH_HZ / LOW_HZ).powf((i as f32 + 0.5) / BANDS as f32)
 }
 
-/// One analysed device: where it is, the serial of its instance, the sample rate it ran at, and
-/// its bands in dBFS.
+/// One analysed device: where it is, the sample rate it ran at, and its bands in dBFS.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Spectrum {
     pub track: u32,
     pub device: u32,
-    pub serial: u32,
     pub sample_rate: f32,
     pub bands: [f32; BANDS],
 }
@@ -83,26 +80,25 @@ impl Default for Spectrum {
         Self {
             track: 0,
             device: 0,
-            serial: 0,
             sample_rate: 0.0,
             bands: [FLOOR_DB; BANDS],
         }
     }
 }
 
-/// Size of a [`Spectrum`] on the wire: track, device, serial, sample rate, then the bands.
-pub const SPECTRUM_WIRE_BYTES: usize = 16 + 4 * BANDS;
+/// Size of a [`Spectrum`] on the wire: track, device, sample rate, then the bands.
+pub const SPECTRUM_WIRE_BYTES: usize = 12 + 4 * BANDS;
 
 // ---------------------------------------------------------------- the regions
 
-/// Words of a window's header in the window region: track, device, serial, rate, frames.
-const WINDOW_HEADER: usize = 5;
+/// Words of a window's header in the window region: track, device, rate, frames.
+const WINDOW_HEADER: usize = 4;
 /// Words of one window slot.
 const WINDOW_SLOT: usize = WINDOW_HEADER + MAX_WINDOW;
 /// Words of the window region: seq, count, then the slots.
 pub const WINDOW_REGION_WORDS: usize = 2 + MAX_SPECTRA * WINDOW_SLOT;
-/// Words of one spectrum slot: track, device, serial, rate, bands.
-const SPECTRUM_SLOT: usize = 4 + BANDS;
+/// Words of one spectrum slot: track, device, rate, bands.
+const SPECTRUM_SLOT: usize = 3 + BANDS;
 /// Words of the spectrum region: seq, count, then the slots.
 pub const SPECTRUM_REGION_WORDS: usize = 2 + MAX_SPECTRA * SPECTRUM_SLOT;
 
@@ -111,7 +107,6 @@ pub const SPECTRUM_REGION_WORDS: usize = 2 + MAX_SPECTRA * SPECTRUM_SLOT;
 pub struct Source {
     pub track: u32,
     pub device: u32,
-    pub serial: u32,
 }
 
 /// A region of 32-bit words shared by the two sides, built off the audio path.
@@ -166,9 +161,8 @@ impl WindowWriter {
         let n = frames.len().min(MAX_WINDOW);
         put(region, base, source.track);
         put(region, base + 1, source.device);
-        put(region, base + 2, source.serial);
-        put(region, base + 3, sample_rate.to_bits());
-        put(region, base + 4, n as u32);
+        put(region, base + 2, sample_rate.to_bits());
+        put(region, base + 3, n as u32);
         for (i, s) in frames[..n].iter().enumerate() {
             put(region, base + WINDOW_HEADER + i, s.to_bits());
         }
@@ -229,7 +223,6 @@ impl Analysis {
                 Source {
                     track: 0,
                     device: 0,
-                    serial: 0,
                 },
                 0.0,
                 0,
@@ -249,14 +242,13 @@ impl Analysis {
             let count = (get(windows, 1) as usize).min(MAX_SPECTRA);
             for (slot, source) in sources.iter_mut().enumerate().take(count) {
                 let base = 2 + slot * WINDOW_SLOT;
-                let n = (get(windows, base + 4) as usize).min(MAX_WINDOW);
+                let n = (get(windows, base + 3) as usize).min(MAX_WINDOW);
                 *source = (
                     Source {
                         track: get(windows, base),
                         device: get(windows, base + 1),
-                        serial: get(windows, base + 2),
                     },
-                    f32::from_bits(get(windows, base + 3)),
+                    f32::from_bits(get(windows, base + 2)),
                     n,
                 );
                 let out = &mut frames[slot * MAX_WINDOW..slot * MAX_WINDOW + n];
@@ -278,7 +270,6 @@ impl Analysis {
             let spectrum = &mut self.spectra[slot];
             spectrum.track = source.track;
             spectrum.device = source.device;
-            spectrum.serial = source.serial;
             spectrum.sample_rate = rate;
             let window = &self.frames[slot * MAX_WINDOW..slot * MAX_WINDOW + n];
             self.analyzer.bands(window, rate, &mut spectrum.bands);
@@ -291,10 +282,9 @@ impl Analysis {
             let base = 2 + slot * SPECTRUM_SLOT;
             put(spectra, base, s.track);
             put(spectra, base + 1, s.device);
-            put(spectra, base + 2, s.serial);
-            put(spectra, base + 3, s.sample_rate.to_bits());
+            put(spectra, base + 2, s.sample_rate.to_bits());
             for (i, b) in s.bands.iter().enumerate() {
-                put(spectra, base + 4 + i, b.to_bits());
+                put(spectra, base + 3 + i, b.to_bits());
             }
         }
         put(spectra, 1, count as u32);
@@ -316,10 +306,9 @@ pub fn read_spectra(region: &[AtomicU32], out: &mut [Spectrum; MAX_SPECTRA]) -> 
             let base = 2 + slot * SPECTRUM_SLOT;
             s.track = get(region, base);
             s.device = get(region, base + 1);
-            s.serial = get(region, base + 2);
-            s.sample_rate = f32::from_bits(get(region, base + 3));
+            s.sample_rate = f32::from_bits(get(region, base + 2));
             for (i, b) in s.bands.iter_mut().enumerate() {
-                *b = f32::from_bits(get(region, base + 4 + i));
+                *b = f32::from_bits(get(region, base + 3 + i));
             }
         }
         count
@@ -512,7 +501,6 @@ mod tests {
         let source = Source {
             track: 2,
             device: 3,
-            serial: 9,
         };
         writer.begin(&windows);
         assert!(writer.push(&windows, source, 48_000.0, &frames));
@@ -530,7 +518,7 @@ mod tests {
         assert!(!analysis.run(&windows, &out));
         let mut read = spectra();
         assert_eq!(read_spectra(&out, &mut read), Some(MAX_SPECTRA));
-        assert_eq!((read[0].track, read[0].device, read[0].serial), (2, 3, 9));
+        assert_eq!((read[0].track, read[0].device), (2, 3));
         assert_eq!(read[0].sample_rate, 48_000.0);
         // A constant reads as DC: the lowest band is the loudest.
         assert!(read[0].bands[0] > read[0].bands[60]);

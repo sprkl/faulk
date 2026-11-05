@@ -7,7 +7,6 @@
 //! - the whole path through the host (window region, `Prepare::flush`, spectrum region, report
 //!   v10) with the render and the report under the allocation detector;
 //! - the round robin over more devices than a report carries, also when the count shrinks;
-//! - the serial of a rebuilt device;
 //! - a reset or a bypass hides the window;
 //! - the seqlocks refuse an odd or unchanged region.
 
@@ -292,22 +291,21 @@ fn the_report_carries_contour_s_spectrum_one_report_after_its_window() {
     assert_eq!(report.spectra.len(), 1, "{:?}", report.spectra.len());
     let sp = &report.spectra[0];
     assert_eq!((sp.track, sp.device), (0, 1));
-    assert!(sp.serial > 0);
     assert_eq!(sp.sample_rate, RATE);
     assert!(sp.bands.iter().all(|b| b.is_finite() && *b >= FLOOR_DB));
     // The saw's harmonics are there: something well above the floor in the midrange.
     let mid = sp.bands[band_of(1000.0)];
     assert!(mid > -80.0, "1 kHz band at {mid} dB");
-    // Each spectrum is 400 bytes on the wire after the notes: the decode found them whole.
-    assert_eq!(engine::analysis::SPECTRUM_WIRE_BYTES, 400);
+    // Each spectrum is 396 bytes on the wire after the notes: the decode found them whole.
+    assert_eq!(engine::analysis::SPECTRUM_WIRE_BYTES, 396);
     // The bands are centred where they say (a sanity check of the scale the page draws).
     assert!((band_centre(0) - 20.0 * 1000f32.powf(0.5 / 96.0)).abs() < 1e-3);
 }
 
 #[test]
-fn a_bypassed_contour_is_not_analysed_and_a_rebuilt_one_has_a_new_serial() {
+fn a_bypassed_contour_is_not_analysed_and_comes_back_when_switched_on() {
     let mut s = session(1);
-    let before = s.run(4).spectra[0].serial;
+    assert_eq!(s.run(4).spectra.len(), 1);
     s.send(&[M::DeviceSetEnabled {
         track: TrackSlot(0),
         device: DeviceSlot(1),
@@ -315,16 +313,15 @@ fn a_bypassed_contour_is_not_analysed_and_a_rebuilt_one_has_a_new_serial() {
     }]);
     let off = s.run(4);
     assert!(off.spectra.is_empty(), "a bypassed device is not analysed");
-    // Inserted again on its slot: another instance, another serial.
-    s.send(&[M::DeviceInsert {
+    // On again: analysed again once its ring is full (the switch reset it).
+    s.send(&[M::DeviceSetEnabled {
         track: TrackSlot(0),
         device: DeviceSlot(1),
-        kind: contour::DESCRIPTOR.kind_id,
-        state: Vec::new(),
+        enabled: true,
     }]);
     let again = s.run(6);
     assert_eq!(again.spectra.len(), 1);
-    assert_ne!(again.spectra[0].serial, before);
+    assert_eq!((again.spectra[0].track, again.spectra[0].device), (0, 1));
 }
 
 #[test]

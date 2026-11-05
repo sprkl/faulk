@@ -96,11 +96,6 @@ pub struct DeviceEntry {
     pub(crate) fade: f32,
     /// The slot an outgoing device held: it fades out there.
     pub(crate) slot: u16,
-    /// The number of this instance among the devices its prepare side built (#156), from 1: a
-    /// device moved, rebuilt at a new rate or inserted again is a new instance with a new
-    /// serial, so the page tells the spectrum of an instance from the next one's at the same
-    /// slot ([`crate::analysis`]). 0 for an entry built outside a prepare side.
-    pub serial: u32,
 }
 
 impl DeviceEntry {
@@ -112,7 +107,6 @@ impl DeviceEntry {
             events_out,
             fade: 1.0,
             slot: 0,
-            serial: 0,
         }
     }
 
@@ -593,7 +587,6 @@ pub fn channel_with(
         collected: 0,
         stopped_at: None,
         disk: crate::audio_source::Disk::new(Arc::clone(&disk_stats), disk_rx),
-        serials: core::cell::Cell::new(0),
     };
     let graph = Graph::try_new(&setup, retired_tx)?;
     // TR-1 cuts a block of `frames` in at most `frames + 2` segments (at most `frames + 1`
@@ -826,8 +819,6 @@ pub struct Preparer {
     stopped_at: Option<usize>,
     /// The disk planner (AU-3, [`crate::audio_source::Disk`]).
     disk: crate::audio_source::Disk,
-    /// The serial of the last device built ([`DeviceEntry::serial`]).
-    serials: core::cell::Cell<u32>,
 }
 
 impl core::fmt::Debug for Preparer {
@@ -1630,11 +1621,7 @@ impl Preparer {
             )?),
             _ => None,
         };
-        let mut entry = DeviceEntry::new(built, events_out);
-        let serial = self.serials.get().wrapping_add(1).max(1);
-        self.serials.set(serial);
-        entry.serial = serial;
-        let value = try_box(entry)?;
+        let value = try_box(DeviceEntry::new(built, events_out))?;
         Ok((value, descriptor))
     }
 

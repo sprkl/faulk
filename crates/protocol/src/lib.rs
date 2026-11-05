@@ -46,7 +46,7 @@ pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
 // Version 44 (#156): the report is `Feedback` version 10: the header grows from 100 to 104 bytes
 // with `spectra` at offset 100, and the report ends with that many spectra (track slot, device slot,
-// the instance's serial, the sample rate, 96 bands in dBFS: 400 bytes each), what an equaliser's
+// the sample rate, 96 bands in dBFS: 396 bytes each), what an equaliser's
 // panel draws, computed off the audio path (`engine::analysis`). Only the bands cross the link,
 // never samples. A page and a helper of different versions refuse each other.
 

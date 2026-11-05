@@ -201,15 +201,14 @@ describe('decodeFeedback', () => {
       const at = base.length + i * SPECTRUM_BYTES
       view.setUint32(at, i === 0 ? 0 : 0xffffffff, true)
       view.setUint32(at + 4, 3 + i, true)
-      view.setUint32(at + 8, 40 + i, true)
-      view.setFloat32(at + 12, 48000, true)
-      for (let b = 0; b < SPECTRUM_BANDS; b++) view.setFloat32(at + 16 + 4 * b, -b, true)
+      view.setFloat32(at + 8, 48000, true)
+      for (let b = 0; b < SPECTRUM_BANDS; b++) view.setFloat32(at + 12 + 4 * b, -b, true)
     }
     // A corrupt band reads as the floor.
-    view.setFloat32(base.length + 16, NaN, true)
+    view.setFloat32(base.length + 12, NaN, true)
     const r = decodeFeedback(buffer)!
     expect(r.spectra).toHaveLength(2)
-    expect(r.spectra[0]).toMatchObject({ track: 0, device: 3, serial: 40, sampleRate: 48000 })
+    expect(r.spectra[0]).toMatchObject({ track: 0, device: 3, sampleRate: 48000 })
     expect(r.spectra[1].track).toBe(0xffffffff)
     expect(r.spectra[0].bands[0]).toBe(-140)
     expect(r.spectra[0].bands[95]).toBe(-95)

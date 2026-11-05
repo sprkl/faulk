@@ -1776,8 +1776,8 @@ pub const FEEDBACK_HEADER_BYTES: usize = 104;
 ///          then RecordedNote × recorded (track u32, pad u32, start i64, length i64,
 ///               pitch u8, velocity u8, pad ×6: 32 bytes on the wire)
 ///          then Spectrum × spectra (track slot u32 (`TrackSlot::MASTER` for the master's
-///               chain), device slot u32, the instance's serial u32 (`DeviceEntry::serial`),
-///               sample rate f32, then `analysis::BANDS` bands f32 in dBFS: 400 bytes; the
+///               chain), device slot u32, sample rate f32, then `analysis::BANDS` bands f32 in
+///               dBFS: 396 bytes; the
 ///               spectrum of a device's last window, computed off the audio path one report
 ///               earlier, `crate::analysis`; version 10, #156)
 /// ```
