@@ -746,80 +746,126 @@ fn a_first_note_played_just_before_the_bar_starts_the_clip_on_that_bar() {
     assert_eq!(p.start, Tick(3840));
 }
 
-/// #732: the rule above takes every note of the sixteenth before the bar, not only the first:
-/// they all start on the bar's first tick, the notes after the bar stay as played. The window
-/// is in ticks, so its length in time follows the tempo (125 ms at 120 BPM, 15 ms at 999 BPM):
-/// the "common floor" of the first notes of a batch the issue measured at 999 BPM. This pins the
-/// rule as it stands; whether it should move more than the first note is an open product
-/// question (spec 03, implementation state).
-#[test]
-fn every_note_of_the_sixteenth_before_the_bar_starts_on_the_bar() {
+/// Where `played` (ticks around bar 2, 7680, at the default 120 BPM: 1.92 ticks a millisecond)
+/// lands in the three targets of a take (#732): an empty cell, the clip of a cell without an
+/// anchor, and a new clip of the arrangement (the same notes one bar earlier, around 3840, whose
+/// placement start is given back on the scale of the others, plus 3840). Each gives the notes'
+/// `(pitch, position)` in their clip, which tells the bar the clip counts from.
+fn downbeat_targets(played: &[(i64, u8)]) -> Vec<(&'static str, Option<i64>, Vec<(u8, i64)>)> {
     let r = rec();
-    // 160 ticks apart (10 ms at 999 BPM): 7450 and 7610 lie 230 and 70 ticks before bar 2 (7680).
-    let played = vec![note(7450, 60, 80), note(7610, 61, 80), note(7770, 62, 80)];
-    let (state, out, _) = commit(
+    let take_of = |shift: i64| {
+        take(
+            &r,
+            played
+                .iter()
+                .map(|&(start, pitch)| note(start - shift, pitch, 80))
+                .collect(),
+            None,
+        )
+    };
+    let pitches: Vec<u8> = played.iter().map(|&(_, p)| p).collect();
+    let positions = |notes: &[Note]| {
+        let mut out: Vec<_> = notes
+            .iter()
+            .filter(|n| pitches.contains(&n.pitch))
+            .map(|n| (n.pitch, n.start.get()))
+            .collect();
+        out.sort();
+        out
+    };
+    let mut out = Vec::new();
+
+    let (state, ro, _) = commit(
         &r,
         RecordTarget::Scene {
             scene: r.empty.clone(),
         },
         0.0,
-        take(&r, played.clone(), None),
+        take_of(0),
     );
-    let RO::CommitTake { clips, dropped, .. } = out else {
+    let RO::CommitTake { clips, dropped, .. } = ro else {
         panic!()
     };
     assert_eq!(dropped, 0);
-    let ClipContent::Midi { notes, .. } =
-        &state.project.tracks[&r.track].clips[&clips[0].clip].content
-    else {
-        panic!()
-    };
-    let starts: Vec<_> = notes.iter().map(|n| (n.pitch, n.start)).collect();
-    assert_eq!(starts, vec![(60, Tick(0)), (61, Tick(0)), (62, Tick(90))]);
-    // The clip of a cell taken without an anchor (it starts at the bar of the first note) too.
+    out.push((
+        "empty cell",
+        None,
+        positions(&notes_of(&state, &clips[0].clip)),
+    ));
+
     let (state, _, _) = commit(
         &r,
         RecordTarget::Scene {
             scene: r.scene.clone(),
         },
         0.0,
-        take(&r, played.clone(), None),
+        take_of(0),
     );
-    let notes = notes_of(&state, &r.grid_clip);
-    for expected in [
-        Note::new(Tick(0), 60, Tick(80), 100),
-        Note::new(Tick(0), 61, Tick(80), 100),
-        Note::new(Tick(90), 62, Tick(80), 100),
-    ] {
-        assert!(notes.contains(&expected), "{expected:?} in {notes:?}");
-    }
-    // A new clip of the arrangement does the same: the same notes one bar earlier, around the
-    // bar of tick 3840.
-    let played = played
-        .iter()
-        .map(|n| note(n.start.get() - 3840, n.pitch, 80))
-        .collect();
-    let (state, out, _) = commit(
-        &r,
-        RecordTarget::Arrangement {},
-        0.0,
-        take(&r, played, None),
-    );
-    let RO::CommitTake { clips, .. } = out else {
+    out.push((
+        "cell without an anchor",
+        None,
+        positions(&notes_of(&state, &r.grid_clip)),
+    ));
+
+    let (state, ro, _) = commit(&r, RecordTarget::Arrangement {}, 0.0, take_of(3840));
+    let RO::CommitTake { clips, .. } = ro else {
         panic!()
     };
-    let track = &state.project.tracks[&r.track];
-    let p = track
+    let p = state.project.tracks[&r.track]
         .placements
         .values()
         .find(|p| p.clip == clips[0].clip)
         .unwrap();
-    assert_eq!(p.start, Tick(3840));
-    let ClipContent::Midi { notes, .. } = &track.clips[&clips[0].clip].content else {
-        panic!()
-    };
-    let starts: Vec<_> = notes.iter().map(|n| (n.pitch, n.start)).collect();
-    assert_eq!(starts, vec![(60, Tick(0)), (61, Tick(0)), (62, Tick(90))]);
+    out.push((
+        "arrangement",
+        Some(p.start.get() + 3840),
+        positions(&notes_of(&state, &clips[0].clip)),
+    ));
+    out
+}
+
+/// `played` lands in every target with the clip counting from `origin` and the notes at
+/// `expected` in it.
+fn assert_downbeat(played: &[(i64, u8)], origin: i64, expected: &[(u8, i64)]) {
+    for (target, start, notes) in downbeat_targets(played) {
+        if let Some(start) = start {
+            assert_eq!(start, origin, "{target}: clip start");
+        }
+        assert_eq!(notes, expected, "{target}: notes");
+    }
+}
+
+/// #732: a chord played early on the downbeat (notes 0, 10 and 25 ms after the first, all in
+/// the sixteenth before the bar) starts the clip on the bar, each note on its first tick with
+/// its length; a note after the bar stays as played.
+#[test]
+fn an_early_downbeat_chord_starts_the_clip_on_the_bar() {
+    // 7580 is 100 ticks (52 ms) before the bar; +19 ticks is 9.9 ms, +48 is 25 ms.
+    assert_downbeat(
+        &[(7580, 60), (7599, 64), (7628, 67), (7870, 72)],
+        7680,
+        &[(60, 0), (64, 0), (67, 0), (72, 190)],
+    );
+}
+
+/// #732: a single downbeat played early is put on the bar.
+#[test]
+fn a_single_early_downbeat_starts_the_clip_on_the_bar() {
+    assert_downbeat(&[(7660, 60), (8640, 62)], 7680, &[(60, 0), (62, 960)]);
+}
+
+/// #732: a pickup before an early downbeat (in the same sixteenth, 94 ms apart): nothing is
+/// moved, the clip starts on the bar before and both notes keep the place they were heard at.
+#[test]
+fn a_pickup_before_the_downbeat_keeps_every_note_where_it_was_heard() {
+    assert_downbeat(&[(7480, 59), (7660, 60)], 3840, &[(59, 3640), (60, 3820)]);
+}
+
+/// #732: a second note 31 ms after the first (60 ticks, 31.25 ms) is not the same chord:
+/// nothing is moved.
+#[test]
+fn a_note_31_ms_after_the_first_is_not_the_downbeat_chord() {
+    assert_downbeat(&[(7580, 60), (7640, 64)], 3840, &[(60, 3740), (64, 3800)]);
 }
 
 /// #560: the engine applies the take's shift (the latency plus the session's offset), the

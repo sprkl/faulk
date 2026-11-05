@@ -589,13 +589,36 @@ enum Write {
 /// (#723): one tolerance for both.
 pub const EARLY: i64 = engine::recorder::COUNT_IN_EARLY;
 
-/// The bar a take's first note starts a clip on, with [`EARLY`] of tolerance.
-fn bar_of(first: i64, bar: i64) -> i64 {
-    floor_to(first.saturating_add(EARLY), bar)
+/// How far apart, in time, the notes of a downbeat played early may start and still be one
+/// chord (#732): the notes of the sixteenth before a bar that start less than this after the
+/// first one are that downbeat.
+pub const DOWNBEAT_CHORD_MS: f64 = 30.0;
+
+/// The bar the notes `starts` (a take, or one gap's share of it) start a clip on (#732). With
+/// [`EARLY`] of tolerance: when the first note lies in the sixteenth before a bar and every note
+/// of that sixteenth starts less than [`DOWNBEAT_CHORD_MS`] after it (a downbeat, single note or
+/// chord, played early), the clip starts on that bar and [`early`] puts those notes on its first
+/// tick. Any other note in that sixteenth (a pickup, a grace note) keeps every note where it
+/// was heard: the clip starts on the bar of the first note, the bar before. `ms_per_tick` is at
+/// the project's tempo.
+fn bar_of(starts: impl Iterator<Item = i64> + Clone, bar: i64, ms_per_tick: f64) -> i64 {
+    let first = starts.clone().min().unwrap_or(0);
+    let tolerant = floor_to(first.saturating_add(EARLY), bar);
+    if tolerant <= first {
+        return tolerant;
+    }
+    let chord = starts
+        .filter(|&s| s < tolerant)
+        .all(|s| s.saturating_sub(first) as f64 * ms_per_tick < DOWNBEAT_CHORD_MS);
+    if chord {
+        tolerant
+    } else {
+        floor_to(first, bar)
+    }
 }
 
-/// A position `e` ticks from a clip start taken from the first note: up to [`EARLY`] before it
-/// counts as the start.
+/// A position `e` ticks from a clip start that [`bar_of`] chose: up to [`EARLY`] before it
+/// counts as the start (only the notes of an early downbeat can lie there).
 fn early(e: i64) -> i64 {
     if (-EARLY..0).contains(&e) { 0 } else { e }
 }
@@ -705,6 +728,7 @@ fn plan_track(
     opts: Opts,
 ) -> (Vec<Write>, u32) {
     let bar = project.time_signature().ticks_per_bar().get().max(1);
+    let ms_per_tick = 60_000.0 / (project.tempo().bpm() * PPQ as f64);
     let Some(track) = project.tracks.get(track_id) else {
         return (vec![], 0);
     };
@@ -728,7 +752,10 @@ fn plan_track(
                 .and_then(|(id, c)| Some((id.clone(), Geo::of(c)?)));
             match cell {
                 Some((clip, geo)) => {
-                    let origin = anchor.map_or(bar_of(first, bar), Tick::get);
+                    let origin = anchor.map_or_else(
+                        || bar_of(notes.iter().map(|n| n.start.get()), bar, ms_per_tick),
+                        Tick::get,
+                    );
                     let grows = geo.looping.is_none();
                     let original = geo.length;
                     let mut length = geo.length;
@@ -766,7 +793,7 @@ fn plan_track(
                     });
                 }
                 None => {
-                    let origin = bar_of(first, bar);
+                    let origin = bar_of(notes.iter().map(|n| n.start.get()), bar, ms_per_tick);
                     let length = ceil_to(last_end - origin, bar).max(bar);
                     let out = notes
                         .iter()
@@ -893,7 +920,8 @@ fn plan_track(
                     .map(|n| n.start.get().saturating_add(n.length.get()))
                     .max()
                     .unwrap_or(first + 1);
-                let start = bar_of(first, bar).max(before);
+                let start =
+                    bar_of(group.iter().map(|n| n.start.get()), bar, ms_per_tick).max(before);
                 let mut end = ceil_to(last, bar).max(start + 1);
                 if let Some(next) = after {
                     end = end.min(next);
