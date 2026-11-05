@@ -746,12 +746,15 @@ fn a_first_note_played_just_before_the_bar_starts_the_clip_on_that_bar() {
     assert_eq!(p.start, Tick(3840));
 }
 
+/// One target's result: its name, the clip's start (arrangement only) and the notes.
+type Landed = (&'static str, Option<i64>, Vec<(u8, i64)>);
+
 /// Where `played` (ticks around bar 2, 7680, at the default 120 BPM: 1.92 ticks a millisecond)
 /// lands in the three targets of a take (#732): an empty cell, the clip of a cell without an
 /// anchor, and a new clip of the arrangement (the same notes one bar earlier, around 3840, whose
 /// placement start is given back on the scale of the others, plus 3840). Each gives the notes'
 /// `(pitch, position)` in their clip, which tells the bar the clip counts from.
-fn downbeat_targets(played: &[(i64, u8)]) -> Vec<(&'static str, Option<i64>, Vec<(u8, i64)>)> {
+fn downbeat_targets(played: &[(i64, u8)]) -> Vec<Landed> {
     let r = rec();
     let take_of = |shift: i64| {
         take(
