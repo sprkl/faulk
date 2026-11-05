@@ -19,7 +19,7 @@ import { needsBytes, type FolderEntry, type SaveEntry, type SaveFrame, type Save
 import type { PackExport, PackImport, PackIO } from '../project/core'
 import type { OpenOutcome } from '../stores/open'
 import { cleanName } from '../export/audio-export.svelte'
-import { checkOpenUrl, downloadPack, packNameOf } from './open-url'
+import { checkOpenUrl, downloadPack, packNameOf, streamPack, type Streamed } from './open-url'
 import {
   StoreError,
   type BrowserProject,
@@ -121,8 +121,28 @@ export interface PackTarget {
 /** A pack with this many bytes of media or more goes to a file the user chooses; a smaller one is a download. */
 export const PACK_TO_FILE_BYTES = 64 << 20
 
-/** The biggest `.faulkpack` the page reads: the core holds the pack and its files in memory (`crates/project-wasm` `pack.rs`). */
+/**
+ * The biggest `.faulkpack` the page reads whole, where the browser keeps no projects (the core holds the pack and its files
+ * in memory, `crates/project-wasm` `pack.rs`). Where it keeps them, a pack is read in pieces, whatever its size (#682).
+ */
 export const MAX_PACK_BYTES = 192 << 20
+
+/** The biggest `.faulkpack` the page downloads into the browser's storage: the format's own limit (16 GiB of files), and its directory. */
+export const MAX_STREAMED_PACK_BYTES = 16 * 2 ** 30 + (64 << 20)
+
+/** Where a pack opened by its link is downloaded, in the new project's directory, until it is read (`.faulk/tmp/`, swept). */
+export const DOWNLOAD_PATH = '.faulk/tmp/download.faulkpack'
+
+/** The pieces a download is handed to the store's Worker in. */
+const DOWNLOAD_PIECE_BYTES = 1 << 20
+
+/** A new directory of the browser's storage made for an import, its lock and its store. */
+interface ImportDir {
+  dir: string
+  handle: FolderHandle
+  store: ProjectStore
+  release: (() => void) | null
+}
 
 /** Where `writeInto` puts a project: the browser's storage, or a folder (`project` and `folder`: Save as named the project). */
 type SaveTarget = { kind: 'folder'; handle: FolderHandle; project?: string; folder?: string } | { kind: 'browser' }
@@ -262,10 +282,14 @@ export class ProjectStorage {
   confirm = $state.raw<{ action: Discard; name: string | null } | null>(null)
   /** The host a pack is being downloaded from (`project.open_url`), while it is. */
   downloading = $state<string | null>(null)
+  /** The share of the download received (0 to 1) when the host announced its length, else `null`. */
+  downloadProgress = $state<number | null>(null)
   /** The host a pack could not be downloaded from: the banner offers to import a file instead. */
   downloadFailed = $state<string | null>(null)
   /** The share of the media written so far (0 to 1) while a `.faulkpack` is being made, else `null`. */
   exporting = $state<number | null>(null)
+  /** The share of the pack read so far (0 to 1) while a `.faulkpack` is being imported into the browser's storage, else `null`. */
+  importing = $state<number | null>(null)
   /** A link of the address (`/app?open=`) waiting for the user's answer before anything is downloaded. */
   linkOffer = $state.raw<{ url: string; host: string } | null>(null)
 
@@ -280,6 +304,9 @@ export class ProjectStorage {
   private exportAbort: AbortController | null = null
   /** An export is under way, from the click on: the file dialog and the preparation included. */
   private exportBusy = false
+  /** The imports asked for and not over (#682): `cancelImport` stops them all. */
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- never read by the interface
+  private readonly importAborts = new Set<AbortController>()
   private queue: Promise<unknown> = Promise.resolve()
   /** The downloads of `openUrl`, one at a time, outside `queue` so a slow host never holds a save back. */
   private downloads: Promise<unknown> = Promise.resolve()
@@ -1416,10 +1443,12 @@ export class ProjectStorage {
    * a notice, which answers what the user just did and goes with its Dismiss, the project of last time,
    * and the advice about the browser's storage. The others wait: they show when this one is gone.
    */
-  get banner(): 'permission' | 'full' | 'error' | 'external' | 'reopen' | 'warning' | 'notice' | 'exporting' | 'downloading' | 'downloadFailed' | null {
+  get banner():
+    'permission' | 'full' | 'error' | 'external' | 'reopen' | 'warning' | 'notice' | 'exporting' | 'importing' | 'downloading' | 'downloadFailed' | null {
     if (this.block) return this.block
-    // A pack being written (#617), then a pack opened by its link (#497): the download under way, then why it failed.
+    // A pack being written (#617) or read (#682), then a pack opened by its link (#497): the download under way, then why it failed.
     if (this.exporting !== null) return 'exporting'
+    if (this.importing !== null) return 'importing'
     if (this.downloading) return 'downloading'
     if (this.downloadFailed) return 'downloadFailed'
     if (this.notice) return 'notice'
@@ -1721,8 +1750,10 @@ export class ProjectStorage {
           })
       if (packed.status === 'ok') {
         await target.close()
-        // A pack the page itself would refuse to open (`MAX_PACK_BYTES`): it opens elsewhere, so it is said, not refused (#682).
-        this.notice = packed.missingBlobs > 0 ? 'pack.missingMedia' : written > MAX_PACK_BYTES ? 'pack.tooBigForPage' : null
+        // A pack this page could not open again (where the browser keeps no projects, `MAX_PACK_BYTES`): it opens elsewhere,
+        // so it is said, not refused.
+        const tooBigHere = !this.deps.browser.available && written > MAX_PACK_BYTES
+        this.notice = packed.missingBlobs > 0 ? 'pack.missingMedia' : tooBigHere ? 'pack.tooBigForPage' : null
         return true
       }
       await target.abort().catch(() => undefined)
@@ -1748,55 +1779,327 @@ export class ProjectStorage {
     if (this.needsGesture()) return false
     const file = await this.deps.pickPack()
     if (!file) return false
-    return this.enqueue(() => this.importFile(file))
+    const abort = this.beginImport()
+    try {
+      return await this.enqueue(() => this.importFile(file, abort.signal))
+    } finally {
+      this.endImport(abort)
+    }
   }
 
-  private async importFile(file: File): Promise<boolean> {
+  /** Stops the `.faulkpack` imports under way and those waiting their turn (`project.cancel_import_pack`), until their project starts opening. */
+  cancelImport() {
+    for (const abort of this.importAborts) abort.abort()
+  }
+
+  /** An import from the moment it is asked for: `cancelImport` reaches it while it waits, downloads or reads. */
+  private beginImport(): AbortController {
+    const abort = new AbortController()
+    this.importAborts.add(abort)
+    return abort
+  }
+
+  private endImport(abort: AbortController) {
+    this.importAborts.delete(abort)
+  }
+
+  private async importFile(file: File, signal: AbortSignal): Promise<boolean> {
+    const name = file.name.replace(/\.faulkpack$/i, '') || 'pack'
+    if (signal.aborted) {
+      this.notice = 'pack.importCancelled'
+      return false
+    }
+    // Into the browser's storage in pieces (#682): a pack of any size, read by the store's Worker.
+    if (this.deps.browser.available) return this.importStreamed(file, name, {}, signal)
+    // The tab alone (no browser storage): the project lives in its memory, and so does the pack.
     if (file.size > MAX_PACK_BYTES) {
       this.notice = 'pack.tooBig'
       return false
     }
-    return this.importBytes(new Uint8Array(await file.arrayBuffer()), file.name.replace(/\.faulkpack$/i, '') || 'pack')
+    return this.importBytes(new Uint8Array(await file.arrayBuffer()), name)
   }
 
   /**
    * Open a `.faulkpack` hosted at `url` (`project.open_url`): the page checks the link (see `checkOpenUrl`),
-   * downloads it without credentials and with the size guard, then it goes the way of an imported file. A pack
-   * whose project the browser keeps already opens that copy instead of a second one (the same link clicked
-   * twice). The current project is never touched before the pack is whole and valid. Downloads run one after
-   * the other, outside the storage's queue; the import itself joins the queue. `allowed`: as for `openRecent`.
+   * downloads it without credentials and with the size guard, then it goes the way of an imported file. Where the
+   * browser keeps projects, the download is written as it comes into the new project's directory, then read from
+   * there (#682); else it is held in memory, within `MAX_PACK_BYTES`. A pack whose project the browser keeps already
+   * opens that copy instead of a second one (the same link clicked twice). The current project is never touched
+   * before the pack is whole and valid. Downloads run one after the other, outside the storage's queue; the import
+   * itself joins the queue. `allowed`: as for `openRecent`.
    */
   openUrl(url: string, allowed = false): Promise<boolean> {
-    const run = this.downloads.then(() => this.fetchAndOpen(url, allowed))
+    // A cancel reaches it from now on, while it waits behind another download too.
+    const abort = this.beginImport()
+    const run = this.downloads.then(() => this.fetchAndOpen(url, allowed, abort)).finally(() => this.endImport(abort))
     this.downloads = run.catch(() => undefined)
     return run
   }
 
-  private async fetchAndOpen(raw: string, allowed: boolean): Promise<boolean> {
+  private async fetchAndOpen(raw: string, allowed: boolean, abort: AbortController): Promise<boolean> {
     const checked = checkOpenUrl(raw, this.deps.pageHostname())
     if (checked.status !== 'ok') {
       this.notice = 'openUrl.refused'
       return false
     }
     this.downloadFailed = null
-    this.downloading = checked.host
-    let download: Awaited<ReturnType<typeof downloadPack>>
-    try {
-      download = await downloadPack(checked.url, { fetch: this.deps.fetch, max: MAX_PACK_BYTES, pageHostname: this.deps.pageHostname() })
-    } finally {
-      this.downloading = null
+    if (abort.signal.aborted) {
+      this.notice = 'pack.importCancelled'
+      return false
     }
+    {
+      if (this.deps.browser.available) return await this.downloadInto(checked, allowed, abort.signal)
+      let download: Awaited<ReturnType<typeof downloadPack>>
+      this.downloading = checked.host
+      try {
+        download = await downloadPack(checked.url, {
+          fetch: this.deps.fetch,
+          max: MAX_PACK_BYTES,
+          pageHostname: this.deps.pageHostname(),
+          signal: abort.signal,
+        })
+      } finally {
+        this.downloading = null
+      }
+      if (download.status !== 'ok') {
+        this.downloadRefused(download, checked.host)
+        return false
+      }
+      const bytes = download.bytes
+      return await this.enqueue(() => {
+        if (abort.signal.aborted) {
+          this.notice = 'pack.importCancelled'
+          return Promise.resolve(false)
+        }
+        return this.importBytes(bytes, packNameOf(checked.url), { reuseKept: true, allowed })
+      })
+    }
+  }
+
+  /** What the page says of a download that did not end with a pack. */
+  private downloadRefused(download: { status: 'unreachable'; detail: string } | { status: 'tooBig' } | { status: 'cancelled' }, host: string) {
     if (download.status === 'unreachable') {
       this.errorDetail = download.detail
-      this.downloadFailed = checked.host
+      this.downloadFailed = host
+    } else {
+      this.notice = download.status === 'tooBig' ? 'pack.tooBig' : 'pack.importCancelled'
+    }
+  }
+
+  /**
+   * The download of a link into a new directory of the browser's storage (its file `DOWNLOAD_PATH`, written in pieces
+   * as it comes), then the import from there in the storage's queue.
+   */
+  private async downloadInto(checked: { url: URL; host: string }, allowed: boolean, signal: AbortSignal): Promise<boolean> {
+    let target: ImportDir
+    try {
+      target = await this.importDir()
+    } catch (error) {
+      this.importFailed(error)
       return false
     }
-    if (download.status === 'tooBig') {
-      this.notice = 'pack.tooBig'
+    this.downloading = checked.host
+    let streamed: Streamed
+    try {
+      const file = await target.store.writer(DOWNLOAD_PATH)
+      // The pieces of the answer, gathered into pieces of `DOWNLOAD_PIECE_BYTES` for the Worker.
+      let piece = new Uint8Array(DOWNLOAD_PIECE_BYTES)
+      let filled = 0
+      const flush = async () => {
+        if (filled === 0) return
+        const full = piece.subarray(0, filled)
+        piece = new Uint8Array(DOWNLOAD_PIECE_BYTES)
+        filled = 0
+        await file.write(full.slice())
+      }
+      try {
+        streamed = await streamPack(checked.url, {
+          fetch: this.deps.fetch,
+          max: MAX_STREAMED_PACK_BYTES,
+          onProgress: (received, announced) => (this.downloadProgress = announced ? Math.min(1, received / announced) : null),
+          pageHostname: this.deps.pageHostname(),
+          signal,
+          sink: {
+            write: async (chunk) => {
+              let at = 0
+              while (at < chunk.length) {
+                const n = Math.min(chunk.length - at, piece.length - filled)
+                piece.set(chunk.subarray(at, at + n), filled)
+                filled += n
+                at += n
+                if (filled === piece.length) await flush()
+              }
+            },
+          },
+        })
+        if (streamed.status === 'ok') {
+          await flush()
+          await file.close()
+        } else {
+          await file.abort()
+        }
+      } catch (error) {
+        await file.abort()
+        throw error
+      }
+    } catch (error) {
+      await this.dropImportDir(target)
+      this.importFailed(error)
+      return false
+    } finally {
+      this.downloading = null
+      this.downloadProgress = null
+    }
+    if (streamed.status !== 'ok') {
+      await this.dropImportDir(target)
+      this.downloadRefused(streamed, checked.host)
       return false
     }
-    const bytes = download.bytes
-    return this.enqueue(() => this.importBytes(bytes, packNameOf(checked.url), { reuseKept: true, allowed }))
+    return this.enqueue(() => this.importStreamed(DOWNLOAD_PATH, packNameOf(checked.url), { reuseKept: true, allowed }, signal, target))
+  }
+
+  /** A new directory of the browser's storage for a pack, locked (see `dirLock`), and its store. Throws what the browser refused. */
+  private async importDir(): Promise<ImportDir> {
+    const dir = crypto.randomUUID()
+    const release = await this.deps.lock(dirLock(dir))
+    try {
+      const handle = await this.deps.browser.create(dir)
+      const store = await this.deps.openStore(handle)
+      return { dir, handle, store, release }
+    } catch (error) {
+      await this.deps.browser.remove(dir).catch(() => undefined)
+      release?.()
+      throw error
+    }
+  }
+
+  /** The directory made for a pack goes, with whatever was written into it. */
+  private async dropImportDir(target: ImportDir) {
+    target.store.close()
+    await this.deps.browser.remove(target.dir).catch(() => undefined)
+    target.release?.()
+  }
+
+  /** An import cancelled once its files were written: the directory goes all the same. */
+  private async cancelledAfterWrite(target: ImportDir): Promise<boolean> {
+    await this.dropImportDir(target)
+    this.notice = 'pack.importCancelled'
+    return false
+  }
+
+  /** What the page says of an import the browser's storage refused. */
+  private importFailed(error: unknown) {
+    this.errorDetail = error instanceof Error ? error.message : String(error)
+    this.notice = error instanceof StoreError && error.code === 'full' ? 'storage.browserFull' : 'pack.writeFailed'
+  }
+
+  /**
+   * A pack read in pieces into a new directory of the browser's storage by the store's Worker (#682): first its project's own
+   * files alone, to know the project (one the page has already is not imported again), then the whole pack, its blobs written
+   * as they come; then its own files are written, `project.json` last, and the project opens. `source`: the file, or the path
+   * of the pack in `given`'s directory (a download).
+   */
+  private async importStreamed(
+    source: Blob | string,
+    name: string,
+    options: { reuseKept?: boolean; allowed?: boolean },
+    signal: AbortSignal,
+    given?: ImportDir,
+  ): Promise<boolean> {
+    const allowed = options.allowed ?? false
+    let target: ImportDir
+    if (given) {
+      target = given
+    } else {
+      try {
+        target = await this.importDir()
+      } catch (error) {
+        this.importFailed(error)
+        return false
+      }
+    }
+    const store = target.store
+    const stop = async (key: MessageKey, detail?: string) => {
+      await this.dropImportDir(target)
+      if (detail !== undefined) this.errorDetail = detail
+      this.notice = key
+      return false
+    }
+    if (signal.aborted) return stop('pack.importCancelled')
+    // The pack's blobs need about its size again (a download is there already, about as big).
+    this.importing = 0
+    let files: { path: string; bytes: Uint8Array }[]
+    try {
+      // What the project of the pack is, before any of its media is read.
+      const head = await store.unpack(source, { signal, textOnly: true })
+      if (head.status === 'cancelled') return await stop('pack.importCancelled')
+      if (head.status === 'failed') return await stop('pack.invalid', head.message)
+      // The blobs take what the pack's directory declares (a download is counted in the browser's use already).
+      const free = this.deps.freeSpace ? await this.deps.freeSpace() : null
+      if (free !== null && free < head.blobBytes) return await stop('storage.browserFull')
+      // A cancel holds until a project starts opening, the copy the browser keeps too.
+      if (signal.aborted) return await stop('pack.importCancelled')
+      const known = await this.knownProject(head.files, name, options)
+      if (known) {
+        await this.dropImportDir(target)
+        return known.open !== undefined ? this.openKept(known.open, allowed) : known.result
+      }
+      const unpacked = await store.unpack(source, { signal, onProgress: (fraction) => (this.importing = fraction) })
+      if (unpacked.status === 'cancelled') return await stop('pack.importCancelled')
+      if (unpacked.status === 'failed') return await stop('pack.invalid', unpacked.message)
+      files = unpacked.files
+      if (signal.aborted) return await stop('pack.importCancelled')
+      // The downloaded pack goes first, then the project's own files, `project.json` last: the directory is a project
+      // only once it is whole.
+      const rank = (path: string) => (path === 'project.json' ? 1 : 0)
+      const writes = [...files].sort((a, b) => rank(a.path) - rank(b.path)).map((f): SaveEntry => ({ type: 'write', path: f.path, bytes: f.bytes }))
+      await target.store.apply([...(typeof source === 'string' ? [{ type: 'remove' as const, path: source }] : []), ...writes])
+    } catch (error) {
+      await this.dropImportDir(target)
+      this.importFailed(error)
+      return false
+    } finally {
+      this.importing = null
+    }
+    // The last moment a cancel reaches it: once the project starts opening, it opens.
+    if (signal.aborted) return this.cancelledAfterWrite(target)
+    target.store.close()
+    target.release?.()
+    const opened = await this.openHandle(target.handle, { kind: 'browser', dir: target.dir, allowed })
+    // Declined (the question before replacing a project) or refused: the copy made for it goes.
+    if (!opened) await this.deps.browser.remove(target.dir).catch(() => undefined)
+    else this.persistOnce()
+    await this.refreshBrowserProjects()
+    return opened
+  }
+
+  /**
+   * Whether the project of a pack is one the page has already (the pack keeps its identity, so what it gives back is the
+   * project it was made from; a project of that identity that is here, open or kept in the browser, is never overwritten by
+   * it). `null`: a new project, import it. Else what to do instead: the import's answer, or the kept copy to open.
+   */
+  private async knownProject(
+    files: { path: string; bytes: Uint8Array }[],
+    name: string,
+    options: { reuseKept?: boolean },
+  ): Promise<{ result: boolean; open?: undefined } | { open: string } | null> {
+    const id = projectIdOf(files)
+    if (!id) return null
+    const kept = this.deps.browser.available ? (await this.deps.browser.list()).projects.find((p) => p.id === id) : undefined
+    if (options.reuseKept && this.host.projectId() === id) {
+      this.notice = 'openUrl.alreadyOpen'
+      return { result: true }
+    }
+    if (options.reuseKept && kept) return { open: kept.dir }
+    if (kept || this.host.projectId() === id) {
+      // Names the project and, when it is kept in the browser and not the one open, offers to open it.
+      const open = this.host.projectId() === id ? null : (kept?.dir ?? null)
+      this.notice = open === null ? 'pack.alreadyOpen' : 'pack.alreadyHere'
+      this.noticeVars = { name: kept?.name ?? name }
+      this.noticeOpen = open
+      return { result: false }
+    }
+    return null
   }
 
   /** The pack's bytes, checked by the core, kept in a new directory of the browser's storage and opened. */
@@ -1817,27 +2120,10 @@ export class ProjectStorage {
       return false
     }
     const files = unpacked.files
-    const id = projectIdOf(files)
-    // The pack keeps its identity, so what it gives back is the project it was made from. A project
-    // of that identity that is already here (open, or kept in the browser) is never overwritten by it.
-    if (id) {
-      const kept = this.deps.browser.available ? (await this.deps.browser.list()).projects.find((p) => p.id === id) : undefined
-      if (options.reuseKept && this.host.projectId() === id) {
-        this.notice = 'openUrl.alreadyOpen'
-        return true
-      }
-      if (options.reuseKept && kept) return this.openKept(kept.dir, allowed)
-      if (kept || this.host.projectId() === id) {
-        // Names the project and, when it is kept in the browser and not the one open, offers to open it.
-        const open = this.host.projectId() === id ? null : (kept?.dir ?? null)
-        this.notice = open === null ? 'pack.alreadyOpen' : 'pack.alreadyHere'
-        this.noticeVars = { name: kept?.name ?? name }
-        this.noticeOpen = open
-        return false
-      }
-    }
+    const known = await this.knownProject(files, name, options)
+    if (known) return known.open !== undefined ? this.openKept(known.open, allowed) : known.result
     if (!this.deps.browser.available) return this.openImported(name, files, allowed)
-    // Into a directory of the browser's storage first, as a pack is written into an empty folder: the
+    // (Not reached from the page, which reads a pack in pieces where the browser keeps projects.) Into a directory of the browser's storage first, as a pack is written into an empty folder: the
     // page's own project is untouched until the pack is whole there, `project.json` last.
     const dir = crypto.randomUUID()
     const releaseDir = await this.deps.lock(dirLock(dir))
@@ -1855,8 +2141,7 @@ export class ProjectStorage {
     } catch (error) {
       await this.deps.browser.remove(dir).catch(() => undefined)
       releaseDir?.()
-      this.errorDetail = error instanceof Error ? error.message : String(error)
-      this.notice = error instanceof StoreError && error.code === 'full' ? 'storage.browserFull' : 'pack.writeFailed'
+      this.importFailed(error)
       return false
     }
     releaseDir?.()

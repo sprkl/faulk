@@ -1148,6 +1148,36 @@ pub extern "C" fn pw_pack_import(len: u32) -> i32 {
     publish_pack(with_inbox(len, pack::import), true)
 }
 
+/// Starts the import in pieces of a pack of `len_lo + (len_hi << 32)` bytes (see [`pack`]): the
+/// answer at [`pw_out`], its length returned.
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_unpack_begin(len_lo: u32, len_hi: u32) -> i32 {
+    publish_pack(
+        pack::unpack_begin(u64::from(len_lo) | (u64::from(len_hi) << 32)),
+        true,
+    )
+}
+
+/// The first `len` bytes of the inbox as the bytes the import under way asked for (none for a
+/// step that asked for none): its next step (see [`pack`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_unpack_step(len: u32) -> i32 {
+    publish_pack(with_inbox(len, pack::unpack_step), false)
+}
+
+/// The project's own files the import in pieces under way has read so far (see [`pack`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_unpack_texts() -> i32 {
+    publish_pack(pack::unpack_texts(), false)
+}
+
+/// Ends the import in pieces under way, if any, and frees what it holds.
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_unpack_cancel() {
+    pack::unpack_cancel();
+    INBOX.with_borrow_mut(|inbox| *inbox = Vec::new());
+}
+
 /// [`Core::saved`]: `applied` is 1 when the page wrote every entry of the last frame.
 ///
 /// # Safety
