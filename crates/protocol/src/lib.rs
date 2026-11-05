@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 39;
+pub const PROTOCOL_VERSION: u32 = 40;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -44,9 +44,9 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
-// Version 39 (#682, 38 is #560's): the commands gain `project.cancel_import_pack` (stops the
+// Version 40 (#682; 38 is #560's, 39 is #710's): the commands gain `project.cancel_import_pack` (stops the
 // `.faulkpack` imports under way, downloads included); the helper generates its MCP tools from the
-// commands, so a helper of version 38 would not offer it to an agent. No message changes.
+// commands, so a helper of an earlier version would not offer it to an agent. No message changes.
 
 // Version 38 (#560): the engine message `SetRecording` carries `shift_us`, how much earlier the
 // take's notes are placed (the estimated output latency plus the manual offset): the engine moves
