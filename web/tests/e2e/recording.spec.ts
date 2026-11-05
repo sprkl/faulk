@@ -203,7 +203,7 @@ test('records a simulated MIDI controller into the arrangement, in French; an un
   expect(errors).toEqual([])
 })
 
-test('the default count-in of one bar is shown and its notes are heard, not recorded but counted lost', async ({ page }) => {
+test('the default count-in of one bar is shown and its notes are heard, not recorded', async ({ page }) => {
   const { errors } = watch(page)
   await start(page)
   await run(page, { type: 'transport.set_metronome', count_in_bars: 1 })
@@ -213,8 +213,7 @@ test('the default count-in of one bar is shown and its notes are heard, not reco
   const placed = Object.keys(v0.project.tracks[track]!.placements).length
   await record(page).click()
   await expect(page.getByTestId('transport-record-target')).toHaveText('Count-in')
-  // Played at the start of the count-in, far more than a sixteenth before the cue: not part of the take, counted
-  // lost (#723; a note of the count-in's last sixteenth is kept, tested offline in crates/engine).
+  // Played during the count-in: not part of the take.
   await play(page, 'KeyA')
   // The count-in is one bar (2 s at 120 BPM); then the target comes back and the take records.
   await expect(page.getByTestId('transport-record-target')).toHaveText('At bar 1', { timeout: 5000 })
@@ -224,7 +223,6 @@ test('the default count-in of one bar is shown and its notes are heard, not reco
   const v1 = await view(page)
   const [, placement] = Object.entries(v1.project.tracks[track]!.placements).find(([id]) => !v0.project.tracks[track]!.placements[id])!
   expect(notesOf(v1, track, placement.clip).map((n) => n.pitch)).toEqual([64])
-  await expect(page.getByTestId('transport-record-notice')).toHaveText('Notes lost from the take: 1')
   await page.getByTestId('transport-stop').click()
   expect(errors).toEqual([])
 })

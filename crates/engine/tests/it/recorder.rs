@@ -269,12 +269,12 @@ fn the_count_in_is_heard_and_only_its_last_sixteenth_is_kept() {
     let played = rig.count_in();
     rig.blocks(10);
     assert!(rig.e.clock().playhead_tick() < Tick(0));
-    // Played along with the count-in, long before the cue: not a note of the take, counted lost.
+    // Played along with the count-in, long before the cue: not a note of the take, not counted.
     rig.on(0, 60);
     rig.blocks(10);
     rig.off(0, 60);
     rig.blocks(670);
-    // 60 blocks (307 ticks) before the cue, held across it: lost too, its note off ignored.
+    // 60 blocks (307 ticks) before the cue, held across it: not a note either, its note off ignored.
     rig.on(0, 61);
     rig.blocks(30);
     // 30 blocks (154 ticks, 80 ms) before the cue: a note of the take, where it was heard.
@@ -287,15 +287,14 @@ fn the_count_in_is_heard_and_only_its_last_sixteenth_is_kept() {
     rig.blocks(10);
     assert!(!rig.e.recorder().capturing());
     assert_eq!(rig.e.recorder().take(), 0);
-    assert_eq!(
-        rig.e.recorder().dropped(),
-        0,
-        "the count-in counts for its take"
-    );
     rig.blocks(20);
     assert!(rig.e.recorder().capturing());
     assert_eq!(rig.e.recorder().take(), 1);
-    assert_eq!(rig.e.recorder().dropped(), 2);
+    assert_eq!(
+        rig.e.recorder().dropped(),
+        0,
+        "notes played before the last sixteenth are not lost notes"
+    );
     rig.off(0, 61);
     rig.off(0, 62);
     rig.off(1, 50);
@@ -318,7 +317,7 @@ fn the_count_in_is_heard_and_only_its_last_sixteenth_is_kept() {
     let notes = rig.notes();
     assert_eq!(notes.len(), 2);
     assert!(notes[1].note.start >= Tick(0));
-    assert_eq!(rig.e.recorder().dropped(), 2);
+    assert_eq!(rig.e.recorder().dropped(), 0);
 }
 
 /// Released before the cue, pressed twice, ended by an all-notes-off or an overflow: each note
@@ -402,7 +401,7 @@ fn a_cancelled_count_in_forgets_what_it_kept() {
         let mut rig = Rig::new();
         rig.count_in();
         rig.blocks(10);
-        rig.on(0, 59); // too early: counted
+        rig.on(0, 59); // too early: ignored
         rig.blocks(700);
         rig.on(0, 60); // kept, held
         rig.on(2, 62);

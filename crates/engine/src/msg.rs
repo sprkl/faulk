@@ -1742,9 +1742,8 @@ pub const FEEDBACK_HEADER_BYTES: usize = 92;
 ///             version 5)
 ///     60    4 record_total (u32, notes finished in that take: the notes carried are the
 ///             indices record_total - recorded .. record_total; version 5)
-///     64    4 record_dropped (u32, notes of that take lost: the recorder's held table was
-///             full, or they were played during its count-in more than a sixteenth before the
-///             cue, #723; version 5)
+///     64    4 record_dropped (u32, notes of that take lost because the recorder's held
+///             table was full; version 5)
 ///     68    4 record_flags (u32, bit 0: the recorder captures; once it is 0 with this
 ///             record_take, the take's notes are all in the report; version 5)
 ///     72    4 cpu_peak (f32, 0..1: the largest load of one peak window closed in the period;

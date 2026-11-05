@@ -43,7 +43,7 @@ export class Recorder {
   phase = $state<RecorderPhase>('idle')
   /** The notes of the take so far, by track id, as played (transport ticks), for the views that show them live. */
   notes = $state.raw<Readonly<Record<string, readonly RecordedNote[]>>>({})
-  /** Notes the take lost: the engine's held table was full or they were played too early in the count-in, or the page fell behind its reports. */
+  /** Notes the take lost: the engine's held table was full, or the page fell behind its reports. */
   lost = $state(0)
   /** Why the last take was dropped without being written, if it was: the engine was replaced, or the project refused it. */
   dropped = $state<'engine' | 'refused' | null>(null)

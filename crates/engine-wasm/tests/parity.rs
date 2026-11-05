@@ -880,7 +880,7 @@ fn native_and_wasm_record_stamped_notes_on_their_beats() {
 
 /// A take after a one-bar count-in, with a shift of 42 ms (#723): two notes of the count-in's
 /// last sixteenth taken before the cue (one released before it, one held across it), and one
-/// heard 130 ms before the cue, counted lost.
+/// heard 130 ms before the cue, ignored and not counted.
 fn count_in_session() -> Vec<Step> {
     use engine::msg::{ControlMsg as M, encode_stream};
     use engine::time::Tick;
@@ -964,7 +964,10 @@ fn native_and_wasm_keep_the_count_in_notes_alike() {
     let w = decode_feedback(&wasm).expect("a wasm report");
     assert_eq!(n.record_take, 1);
     assert_eq!(n.record_total, 2);
-    assert_eq!(n.record_dropped, 1, "the note heard 130 ms early");
+    assert_eq!(
+        n.record_dropped, 0,
+        "the note heard 130 ms early is ignored"
+    );
     assert_eq!(n.recorded, w.recorded);
     assert_eq!(
         (n.record_take, n.record_total, n.record_dropped),

@@ -163,7 +163,7 @@ fn a_take_round_the_loop_lands_where_each_note_was_heard_within_a_millisecond() 
 /// #723: after a one-bar count-in, a downbeat heard 35 ms early whose event reaches the engine
 /// during the count-in (taken by the count-in's last whole block) is a note of the take, and
 /// `record.commit_take` writes it on beat 1; one heard 130 ms early (more than a sixteenth,
-/// 125 ms) is counted lost by the engine.
+/// 125 ms) is ignored by the engine, not counted lost.
 #[test]
 fn after_a_count_in_a_downbeat_anticipated_by_35_ms_is_written_on_beat_1() {
     let mut s = Session::single_synth();
@@ -234,7 +234,10 @@ fn after_a_count_in_a_downbeat_anticipated_by_35_ms_is_written_on_beat_1() {
     .run(command(json!({"type": "record.stop"})))
     .render_blocks(2);
     let (notes, dropped) = replay(s.scenario());
-    assert_eq!(dropped, 1, "the note heard 130 ms early is counted lost");
+    assert_eq!(
+        dropped, 0,
+        "the note heard 130 ms early is ignored, not counted lost"
+    );
     assert_eq!(notes.len(), 1, "{notes:?}");
     assert_eq!(notes[0].note.pitch, 60);
     assert_eq!(

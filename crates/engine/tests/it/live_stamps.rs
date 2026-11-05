@@ -774,7 +774,7 @@ impl Rig {
 /// rendering runs 31 ms ahead of the output: the event comes before the cue's block), is
 /// recorded where it was heard, 67.2 ticks before beat 1 (`record.commit_take`'s early rule
 /// then writes it on beat 1, `test-support`'s `record_loop`); one heard 130 ms early (more than
-/// a sixteenth, 125 ms) is counted lost.
+/// a sixteenth, 125 ms) is not a note of the take, and not counted as a lost one.
 #[test]
 fn after_a_count_in_a_downbeat_anticipated_by_35_ms_is_recorded() {
     for hosted in [true, false] {
@@ -808,13 +808,17 @@ fn after_a_count_in_a_downbeat_anticipated_by_35_ms_is_recorded() {
             "1 680 samples before the cue"
         );
         assert_eq!(notes[0].note.length, Tick(240), "6 000 samples, as played");
-        assert_eq!(rig.e.recorder().dropped(), 1, "the note heard 130 ms early");
+        assert_eq!(
+            rig.e.recorder().dropped(),
+            0,
+            "the note heard 130 ms early is ignored, not lost"
+        );
         assert_eq!(rig.e.recorder().unplaced(), 0);
     }
 }
 
 /// The tolerance's edges, heard exactly a sixteenth before the cue (kept) and one sample more
-/// (lost); without a shift, as the take places them.
+/// (ignored, not counted); without a shift, as the take places them.
 #[test]
 fn the_count_in_keeps_a_note_heard_a_sixteenth_before_the_cue_and_no_earlier() {
     let sixteenth = BEAT / 4;
@@ -838,7 +842,7 @@ fn the_count_in_keeps_a_note_heard_a_sixteenth_before_the_cue_and_no_earlier() {
             assert_eq!(rig.e.recorder().dropped(), 0);
         } else {
             assert!(notes.is_empty(), "{notes:?}");
-            assert_eq!(rig.e.recorder().dropped(), 1);
+            assert_eq!(rig.e.recorder().dropped(), 0);
         }
     }
 }

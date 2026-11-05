@@ -21,8 +21,11 @@
 //! the same rules as during the take) falls within [`COUNT_IN_EARLY`] (a sixteenth, the
 //! tolerance of `record.commit_take`'s early rule) before the cue is held for that take, at its
 //! heard position, before the cue, exactly as a note heard as early whose event arrives once
-//! the capture has begun; one heard earlier is counted lost ([`Recorder::dropped`] of the take
-//! to come), never hidden. A note off, a second press of the key, an all-notes-off or an
+//! the capture has begun; one heard earlier is not a note of the take: heard, not recorded and
+//! not counted, as a note played before the recording (the musician plays along with the
+//! count-in; lead's decision, #723). A kept note that finds the held table full, or that ends
+//! with [`MAX_HELD`] released notes already waiting, counts in the take's
+//! [`Recorder::dropped`]. A note off, a second press of the key, an all-notes-off or an
 //! overflow ends a held one: it waits, with its played length, and becomes one of the take's
 //! first notes when the take begins; one still held then is a held note of the take, ended by
 //! its note off as any other. The shift of the take to come is taken at every block of the
@@ -125,9 +128,9 @@
 //! `min(count, RING)` notes, so a reader that misses reports loses nothing until it falls
 //! [`RING`] notes behind, which it can tell from the indices. A note that finds the held
 //! table full (more than [`MAX_HELD`] keys held at once on the armed tracks) is not recorded
-//! and is counted in [`Recorder::dropped`], never hidden, as is a note of the count-in heard
-//! too early to be kept ("The count-in" above) or ended with [`MAX_HELD`] released notes of the
-//! count-in already waiting.
+//! and is counted in [`Recorder::dropped`], never hidden, as is a kept note of the count-in
+//! ended with [`MAX_HELD`] released notes of the count-in already waiting ("The count-in"
+//! above).
 //!
 //! Nothing here allocates, frees, locks or panics: the tables are built with the engine.
 
@@ -310,8 +313,8 @@ impl Recorder {
         self.unplaced
     }
 
-    /// Notes of the current take lost: the held table was full, or they were played during its
-    /// count-in, too early before the cue to be kept (module doc, "The count-in").
+    /// Notes of the current take lost because the held table (or, for notes kept from its
+    /// count-in, the table of released ones) was full.
     pub fn dropped(&self) -> u32 {
         self.dropped
     }
@@ -398,12 +401,14 @@ impl Recorder {
                     // The note's previous press is closed first: a key is held once.
                     self.close(track.0, pitch, ended, clock);
                     let at = self.opened(ended);
-                    if velocity > 0 && armed(state, track) {
-                        let kept = window.is_none_or(|from| self.start_of(at, clock) >= from)
-                            && self.open(track.0, pitch, velocity, at, clock);
-                        if !kept {
-                            self.lose();
-                        }
+                    // A note of the count-in heard earlier than its last sixteenth is not a note
+                    // of the take: heard, not recorded, not counted (as a note before the take).
+                    if velocity > 0
+                        && armed(state, track)
+                        && window.is_none_or(|from| self.start_of(at, clock) >= from)
+                        && !self.open(track.0, pitch, velocity, at, clock)
+                    {
+                        self.lose();
                     }
                 }
                 LiveEvent::NoteOff { track, pitch, at } => {
