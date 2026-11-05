@@ -251,7 +251,7 @@
     width: min(420px, calc(100vw - 32px));
     padding: var(--fk-space-5, 20px);
     border: 1px solid var(--fk-line);
-    border-radius: var(--fk-radius);
+    border-radius: var(--fk-radius-panel);
     background: var(--fk-surface);
     color: var(--fk-text);
   }
@@ -269,7 +269,7 @@
   .dialog p.link {
     padding: var(--fk-space-2) var(--fk-space-3);
     border: 1px solid var(--fk-line);
-    border-radius: var(--fk-radius);
+    border-radius: var(--fk-radius-panel);
     background: var(--fk-surface-2);
     color: var(--fk-text-muted, var(--fk-text));
     font-size: 12px;

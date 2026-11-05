@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Check a production sheet and render it to a Standard MIDI File.
 
-A production sheet is a Markdown file that carries fenced ```pattern``` and
-```arrangement``` blocks in the notation described in references/notation.md.
+A production sheet is a Markdown file that carries fenced ```pattern```,
+```arrangement``` and ```automation``` blocks in the notation described in references/notation.md.
 No third-party dependency: the MIDI writer is a few dozen lines.
 
 Usage:
@@ -10,7 +10,8 @@ Usage:
   python sheet_tool.py render SHEET.md --out SONG.mid [--tempo 120]
 
 `check` exits 1 on structural errors (wrong step counts, unknown pattern in a
-section, unparsable token). Out-of-key notes and contour remarks are reported
+section, unparsable token, an automation out of range, out of order, past the end of
+the arrangement or aimed at a missing part). Out-of-key notes and contour remarks are reported
 as warnings, because they may be deliberate, but each one must be a decision.
 """
 from __future__ import annotations
@@ -44,6 +45,13 @@ DRUM_NOTES = {
     "clave": 75, "perc": 76, "perc2": 77, "conga": 63, "bongo": 60, "noise": 81,
 }
 VEL = {"x": 100, "X": 127, "o": 60}
+# Parameter names an automation block may use instead of cc=<n> (General MIDI controller numbers).
+CC_NAMES = {
+    "modulation": 1, "breath": 2, "volume": 7, "balance": 8, "pan": 10, "expression": 11,
+    "resonance": 71, "release": 72, "attack": 73, "cutoff": 74, "decay": 75,
+    "reverb": 91, "chorus": 93, "delay": 94,
+}
+CURVES = ("step", "linear", "ease-in", "ease-out", "smooth")
 
 TOKEN_RE = re.compile(r"^([A-G])([#♯b♭]?)(-?\d)?$")
 
@@ -71,6 +79,18 @@ class Pattern:
     @property
     def beats(self) -> float:
         return self.bars * 4.0
+
+
+@dataclass
+class Automation:
+    name: str
+    part: str
+    cc: int | None
+    param: str
+    curve: str
+    points: list = field(default_factory=list)  # (beat offset from bar 1, value 0-127, curve of the segment to the next point)
+    errors: list = field(default_factory=list)
+    line_no: int = 0
 
 
 @dataclass
@@ -239,15 +259,51 @@ def parse_notes(p: Pattern, body: list[str]):
             open_notes.append(n)
 
 
+def parse_automation(a: Automation, body: list[str]):
+    """Points are 'bar.beat value [curve]' items, separated by commas, semicolons or line breaks."""
+    items = []
+    for ln in body:
+        if ln.strip().startswith("#"):
+            continue
+        items += [x.strip() for x in re.split(r"[,;]", ln) if x.strip()]
+    if not items:
+        a.errors.append("no points (expected e.g. 1.1 20, 17.1 100)")
+    for item in items:
+        f = item.split()
+        if len(f) not in (2, 3):
+            a.errors.append(f"cannot parse point {item!r} (expected: <bar.beat> <value 0-127> [curve])")
+            continue
+        pos = parse_position(f[0])
+        if pos is None:
+            a.errors.append(f"bad position {f[0]!r} in point {item!r} (use bar, bar.beat or bar.beat.sixteenth)")
+            continue
+        if not re.fullmatch(r"\d+", f[1]):
+            a.errors.append(f"bad value {f[1]!r} in point {item!r} (an integer from 0 to 127)")
+            continue
+        val = int(f[1])
+        if not 0 <= val <= 127:
+            a.errors.append(f"value {val} at {f[0]} is outside 0-127")
+            continue
+        curve = f[2].lower() if len(f) == 3 else a.curve
+        if curve not in CURVES:
+            a.errors.append(f"unknown curve {curve!r} at {f[0]} (known: {', '.join(CURVES)})")
+            continue
+        if a.points and pos <= a.points[-1][0]:
+            a.errors.append(f"point {f[0]} is not after the previous point (points must be in increasing order; use curve step for a jump)")
+            continue
+        a.points.append((pos, val, curve))
+
+
 def parse_sheet(text: str):
     patterns: dict[str, Pattern] = {}
+    automations: list[Automation] = []
     sections: list[Section] = []
     arr_params: dict = {}
     errors: list[str] = []
     lines = text.splitlines()
     i = 0
     while i < len(lines):
-        m = re.match(r"^\s*```(pattern|arrangement)\b(.*)$", lines[i])
+        m = re.match(r"^\s*```(pattern|arrangement|automation)\b(.*)$", lines[i])
         if not m:
             i += 1
             continue
@@ -275,6 +331,34 @@ def parse_sheet(text: str):
             if name in patterns:
                 errors.append(f"line {start + 1}: duplicate pattern name {name!r}")
             patterns[name] = p
+        elif m.group(1) == "automation":
+            hm = re.match(r'^"([^"]+)"\s*(.*)$', head)
+            if not hm:
+                errors.append(f"line {start + 1}: automation header must be: automation \"Name\" part=\"Pattern\" cc=N|param=NAME [curve=...]")
+                continue
+            name, rest = hm.groups()
+            params = parse_params(rest)
+            param = params.get("param", "")
+            cc = None
+            if "cc" in params:
+                cc = int(params["cc"]) if re.fullmatch(r"[0-9]+", params["cc"]) else None
+            elif param.lower() in CC_NAMES:
+                cc = CC_NAMES[param.lower()]
+            a = Automation(name, params.get("part", ""), cc, param or (f"cc{cc}" if cc is not None else ""),
+                           params.get("curve", "linear").lower(), line_no=start + 1)
+            if not a.part:
+                a.errors.append('needs part="<pattern name>"')
+            if cc is None:
+                a.errors.append(f"needs cc=<0-127> or param=<{'|'.join(CC_NAMES)}> (got cc={params.get('cc')!r} param={param!r})")
+            elif not 0 <= cc <= 127:
+                a.errors.append(f"cc {cc} is outside 0-127")
+            if a.curve not in CURVES:
+                a.errors.append(f"unknown curve {a.curve!r} (known: {', '.join(CURVES)})")
+                a.curve = "linear"
+            parse_automation(a, body)
+            if any(x.name == name for x in automations):
+                errors.append(f"line {start + 1}: duplicate automation name {name!r}")
+            automations.append(a)
         else:
             arr_params.update(parse_params(head))
             for ln in body:
@@ -288,7 +372,7 @@ def parse_sheet(text: str):
                 where = f"arrangement, section {sm.group(1).strip()!r}"
                 parts = [parse_part(x, errors, where) for x in chunks]
                 sections.append(Section(sm.group(1).strip(), int(sm.group(2)), int(sm.group(3)), parts))
-    return patterns, sections, arr_params, errors
+    return patterns, sections, arr_params, errors, automations
 
 
 # ---------------------------------------------------------------- checks
@@ -337,7 +421,7 @@ def key_report(p: Pattern) -> list[str]:
     return [f"{len(bad)} note(s) outside {key}: {where}{more}. Keep each one only if it is a decision."]
 
 
-def check(patterns, sections, arr_params, errors) -> int:
+def check(patterns, sections, arr_params, errors, automations=()) -> int:
     rc = 0
     for e in errors:
         print(f"ERROR  {e}")
@@ -380,6 +464,28 @@ def check(patterns, sections, arr_params, errors) -> int:
         print(f"  total {last_end} bars")
     else:
         print("\n[arrangement] none: render will lay every pattern once from bar 1")
+    total_beats = max((s.end_bar for s in sections), default=0) * 4.0
+    for a in automations:
+        print(f"\n[automation] {a.name!r}  part={a.part!r} cc={a.cc} ({a.param}) curve={a.curve} points={len(a.points)}")
+        errs = list(a.errors)
+        target = patterns.get(a.part)
+        if a.part and target is None:
+            errs.append(f"target part {a.part!r} is not a pattern in this sheet")
+        limit = total_beats if sections else (target.beats if target else 0.0)
+        where = "the arrangement" if sections else f"pattern {a.part!r}"
+        if a.points and limit and a.points[-1][0] >= limit:
+            bad = next(p for p in a.points if p[0] >= limit)
+            errs.append(f"point at bar {int(bad[0] // 4) + 1} beat {bad[0] % 4 + 1:g} lies outside {where} ({int(limit // 4)} bars)")
+        if sections and target and not any(pt.name == a.part for s in sections for pt in s.parts):
+            print(f"  WARN   part {a.part!r} is in no section: this automation will move nothing audible")
+        if target and target.kind == "drums":
+            print("  NOTE   target is a drum pattern: the CC goes to MIDI channel 10")
+        for e in errs:
+            print(f"  ERROR  {e}")
+            rc = 1
+        if not errs and len(a.points) < 2:
+            print("  NOTE   a single point is a constant value, not a move")
+        a.errors = errs
     print("\nRESULT", "errors" if rc else "ok")
     return rc
 
@@ -427,7 +533,37 @@ def place(p: Pattern, from_beat: float, until_beat: float, channel: int, events:
         pos += p.beats
 
 
-def render(patterns, sections, arr_params, out_path: str, tempo: float | None):
+def curve_value(v0: int, v1: int, t: float, curve: str) -> float:
+    """Value at fraction t (0-1) of a segment from v0 to v1."""
+    if curve == "step":
+        return v0
+    shaped = {"linear": t, "ease-in": t * t, "ease-out": 1 - (1 - t) ** 2, "smooth": t * t * (3 - 2 * t)}[curve]
+    return v0 + (v1 - v0) * shaped
+
+
+def automation_events(a: Automation, channel: int, events: list):
+    """Write a's points as CC messages on channel: one at each point, and one per sixteenth where the value moves."""
+    last = None
+
+    def emit(beat: float, value: float):
+        nonlocal last
+        v = max(0, min(127, int(round(value))))
+        if v != last:
+            events.append((int(round(beat * PPQ)), bytes([0xB0 | channel, a.cc & 0x7F, v])))
+            last = v
+
+    for (b0, v0, curve), (b1, v1, _) in zip(a.points, a.points[1:]):
+        emit(b0, v0)
+        if curve != "step":
+            k = 1
+            while b0 + k * 0.25 < b1 - 1e-9:
+                emit(b0 + k * 0.25, curve_value(v0, v1, k * 0.25 / (b1 - b0), curve))
+                k += 1
+    if a.points:
+        emit(a.points[-1][0], a.points[-1][1])
+
+
+def render(patterns, sections, arr_params, out_path: str, tempo: float | None, automations=()):
     bpm = tempo or float(arr_params.get("tempo", 120))
     tracks = []
     meta = [(0, b"\xff\x51\x03" + struct.pack(">I", int(60_000_000 / bpm))[1:]),
@@ -444,6 +580,9 @@ def render(patterns, sections, arr_params, out_path: str, tempo: float | None):
         prog = p.params.get("program")
         if prog and prog.isdigit() and p.kind == "notes":
             events.append((0, bytes([0xC0 | channel, int(prog) & 0x7F])))
+        for a in automations:  # before the notes: a CC on a note's tick applies to that note
+            if a.part == p.name:
+                automation_events(a, channel, events)
         if sections:
             for s in sections:
                 for part in s.parts:
@@ -456,7 +595,8 @@ def render(patterns, sections, arr_params, out_path: str, tempo: float | None):
     with open(out_path, "wb") as f:
         f.write(header + b"".join(tracks))
     total = max([s.end_bar for s in sections], default=max([p.bars for p in patterns.values()], default=0))
-    print(f"wrote {out_path}: {len(tracks) - 1} part tracks, {total} bars at {bpm:g} bpm")
+    print(f"wrote {out_path}: {len(tracks) - 1} part tracks, {total} bars at {bpm:g} bpm"
+          + (f", {len(automations)} automation lane(s) as CC" if automations else ""))
 
 
 def main(argv=None) -> int:
@@ -467,16 +607,16 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     with open(a.sheet, encoding="utf-8") as f:
         text = f.read()
-    patterns, sections, arr_params, errors = parse_sheet(text)
+    patterns, sections, arr_params, errors, automations = parse_sheet(text)
     if not patterns:
         print("no ```pattern``` block found")
         return 1
-    rc = check(patterns, sections, arr_params, errors)
+    rc = check(patterns, sections, arr_params, errors, automations)
     if a.cmd == "render":
         if rc:
             print("not rendering: fix the errors above")
             return rc
-        render(patterns, sections, arr_params, a.out, a.tempo)
+        render(patterns, sections, arr_params, a.out, a.tempo, automations)
     return rc
 
 

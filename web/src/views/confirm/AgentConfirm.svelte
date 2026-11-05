@@ -83,7 +83,7 @@
     width: min(440px, calc(100vw - 32px));
     padding: var(--fk-space-5, 20px);
     border: 1px solid var(--fk-line);
-    border-radius: var(--fk-radius);
+    border-radius: var(--fk-radius-panel);
     background: var(--fk-surface);
     color: var(--fk-text);
   }

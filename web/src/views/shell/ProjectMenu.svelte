@@ -355,7 +355,7 @@
     max-width: 320px;
     padding: var(--fk-space-1);
     border: 1px solid var(--fk-line);
-    border-radius: var(--fk-radius);
+    border-radius: var(--fk-radius-panel);
     background: var(--fk-surface);
     box-shadow: var(--fk-shadow-float);
   }
@@ -366,7 +366,7 @@
     gap: var(--fk-space-3);
     padding: var(--fk-space-2) var(--fk-space-3);
     border: 0;
-    border-radius: var(--fk-radius-sm, 4px);
+    border-radius: var(--fk-radius-work);
     background: transparent;
     color: var(--fk-text);
     font-size: 13px;
