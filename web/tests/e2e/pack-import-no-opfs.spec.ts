@@ -31,7 +31,7 @@ test('without browser storage, a cancel during the whole-file read stops the imp
   const maker = await browser.newPage()
   await startAudio(maker)
   await skipWithoutDevHooks(maker)
-  await maker.evaluate(() => (window as unknown as Hooks).__faulkRun({ type: 'track.create', kind: 'instrument' }))
+  await maker.evaluate(() => (window as unknown as Hooks).__faulkRun({ type: 'track.create', kind: 'midi' }))
   const packed = await projectId(maker)
   await maker.evaluate(() => void ((window as unknown as { showSaveFilePicker?: unknown }).showSaveFilePicker = undefined))
   const download = maker.waitForEvent('download')
