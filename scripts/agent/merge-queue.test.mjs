@@ -541,3 +541,78 @@ test('regen-generated reports a refused push (the branch moved) and leaves no wo
     w.done()
   }
 })
+
+/** A PR whose branch is `branch`, pushed with one change, and whose body is `body`. */
+function branchWorld(branch, body) {
+  const w = world()
+  git(w.work, 'checkout', '-q', '-b', branch)
+  writeFileSync(join(w.work, 'web/src/other/x.txt'), 'changed\n')
+  git(w.work, 'add', '-A')
+  git(w.work, 'commit', '-q', '-m', 'work')
+  git(w.work, 'push', '-q', 'origin', branch)
+  w.env.MQ_HEAD = branch
+  w.env.MQ_STATE = 'MERGEABLE CLEAN'
+  w.env.MQ_BODY = body
+  return w
+}
+const msgBody = (message, outside = '') => ['Pourquoi.', outside, '', '## Commit message', '', `${FENCE}text`, message, FENCE].join('\n')
+
+test('merge-queue merges a PR whose commit message closes the issue of its branch (#727)', () => {
+  for (const [branch, closing] of [['fix/42-thing', 'Closes #42'], ['feat/42-thing', 'Refs #42'], ['spike/42-thing', 'fixes #42']]) {
+    const w = branchWorld(branch, msgBody(`fix: x\n\nBody.\n\n${closing}`))
+    try {
+      const r = w.run('merge-queue.sh', '7')
+      assert.equal(r.status, 0, `${branch}: ${r.stdout}${r.stderr}`)
+      assert.match(w.logText(), /gh pr merge 7 --squash/)
+    } finally {
+      w.done()
+    }
+  }
+})
+
+test('merge-queue stops when the commit message does not close the issue of the branch, or names another one (#727)', () => {
+  for (const message of ['fix: x\n\nBody without any issue.', 'fix: x\n\nCloses #420', 'fix: x\n\nCloses #682']) {
+    // Even a `Closes #42` outside the section does not stand for the message's own.
+    const w = branchWorld('fix/42-thing', msgBody(message, 'Closes #42'))
+    try {
+      const r = w.run('merge-queue.sh', '7')
+      assert.equal(r.status, 1, r.stdout + r.stderr)
+      assert.match(r.stdout, /STOP 7: branch fix\/42-thing is for issue #42 but its '## Commit message' does not say 'Closes #42'/)
+      assert.doesNotMatch(w.logText(), /update-branch|pr merge/)
+    } finally {
+      w.done()
+    }
+  }
+})
+
+test('merge-queue stops when the commit message also closes another issue, unless the body says so outside the section (#727)', () => {
+  const w = branchWorld('fix/560-loop', msgBody('fix: x\n\nCloses #682\nCloses #560', 'Closes #560'))
+  try {
+    const r = w.run('merge-queue.sh', '7')
+    assert.equal(r.status, 1, r.stdout + r.stderr)
+    assert.match(r.stdout, /STOP 7: the '## Commit message' of PR #7 closes #682 but branch fix\/560-loop is for issue #560/)
+    assert.doesNotMatch(w.logText(), /pr merge/)
+    // A deliberate second issue, closed by a line outside the section, passes.
+    w.env.MQ_BODY = msgBody('fix: x\n\nCloses #682\nCloses #560', 'Closes #560\nCloses #682')
+    const ok = w.run('merge-queue.sh', '7')
+    assert.equal(ok.status, 0, ok.stdout + ok.stderr)
+    // A longer number is not the same issue: #6820 outside does not declare #682.
+    w.env.MQ_BODY = msgBody('fix: x\n\nCloses #682\nCloses #560', 'Closes #560\nCloses #6820')
+    const near = w.run('merge-queue.sh', '7')
+    assert.equal(near.status, 1, near.stdout + near.stderr)
+  } finally {
+    w.done()
+  }
+})
+
+test('merge-queue does not check a branch outside the convention (#727)', () => {
+  for (const branch of ['docs/update-notes', 'release/1.2', 'feat/no-number']) {
+    const w = branchWorld(branch, msgBody('docs: x\n\nCloses #999'))
+    try {
+      const r = w.run('merge-queue.sh', '7')
+      assert.equal(r.status, 0, `${branch}: ${r.stdout}${r.stderr}`)
+    } finally {
+      w.done()
+    }
+  }
+})

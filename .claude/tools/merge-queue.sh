@@ -13,6 +13,10 @@
 # subject, without the PR number; the rest: the body). The squash commit is that subject + " (#<pr>)",
 # then that body, a "Closes #<n>" line per issue the PR closes, and the Co-Authored-By and
 # Claude-Session trailers of the branch's commits. A PR without the section stops before anything moves.
+# A branch named feat|fix|spike/<n>-<slug> carries issue <n> (#727): the merge stops unless the section
+# says `Closes #<n>` (or Refs), and when the section closes another issue #m that a line of the PR body
+# outside the section does not also close (a description pasted on the wrong PR). Other branches
+# (docs/..., release) are not checked.
 cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)" || exit 1
 gen=web/src/lib/generated
 for pr in "$@"; do
@@ -23,8 +27,9 @@ for pr in "$@"; do
   git fetch -q origin
   head=$(gh pr view "$pr" --json headRefName -q .headRefName)
   git rev-parse --verify -q "origin/$head" >/dev/null || { echo "STOP $pr: origin/$head not found (a fork branch?)"; exit 1; }
+  prbody=$(gh pr view "$pr" --json body -q .body | tr -d '\r')
   # The first `## Commit message` section, its first fenced block (CRLF tolerated).
-  msg=$(gh pr view "$pr" --json body -q .body | tr -d '\r' | awk '
+  msg=$(printf '%s\n' "$prbody" | awk '
     !sec && /^##+[ \t]+Commit message[ \t]*$/ { sec = 1; next }
     sec && !inb && /^```/ { inb = 1; next }
     sec && !inb && /^#/ { exit }
@@ -35,6 +40,28 @@ for pr in "$@"; do
     echo "STOP $pr: no English commit message: add to the PR body a '## Commit message' section with one fenced block"
     echo "(first line: the commit subject, without the PR number; then a blank line and the body), e.g. gh pr edit $pr --body-file <file>."
     exit 1
+  fi
+  issue=$(printf '%s\n' "$head" | sed -nE 's,^(feat|fix|spike)/([0-9]+)-.*,\2,p')
+  if [ -n "$issue" ]; then
+    kw='(close[sd]?|fix(e[sd])?|resolve[sd]?)'
+    if ! printf '%s\n' "$msg" | grep -qiE "^[[:space:]]*(${kw}|refs?)[: ]+#$issue([^0-9]|$)"; then
+      echo "STOP $pr: branch $head is for issue #$issue but its '## Commit message' does not say 'Closes #$issue' (or 'Refs #$issue'): wrong description on PR #$pr?"
+      exit 1
+    fi
+    # The body without the section's fenced block: where a deliberate extra `Closes #m` is declared.
+    outside=$(printf '%s\n' "$prbody" | awk '
+      !sec && /^##+[ \t]+Commit message[ \t]*$/ { sec = 1; print; next }
+      sec && !inb && !done && /^```/ { inb = 1; next }
+      inb && /^```/ { inb = 0; done = 1; next }
+      inb { next }
+      { print }')
+    for other in $(printf '%s\n' "$msg" | grep -oiE "^[[:space:]]*${kw}[: ]+#[0-9]+" | grep -oE '[0-9]+$' | sort -u); do
+      [ "$other" = "$issue" ] && continue
+      printf '%s\n' "$outside" | grep -qiE "^[[:space:]]*${kw}[: ]+#$other([^0-9]|$)" && continue
+      echo "STOP $pr: the '## Commit message' of PR #$pr closes #$other but branch $head is for issue #$issue: wrong description on this PR?"
+      echo "If closing #$other is intended, say 'Closes #$other' on a line of the PR body outside the section."
+      exit 1
+    done
   fi
   case "$subject" in *"(#$pr)") ;; *) subject="$subject (#$pr)" ;; esac
   # The body, built now from what was read once (an edit of the PR during the CI wait is not taken):
