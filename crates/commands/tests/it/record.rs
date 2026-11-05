@@ -105,7 +105,10 @@ fn a_take_starts_launches_the_scene_records_and_counts_in_from_a_stopped_transpo
                 track: TrackSlot(0),
                 scene: SceneSlot(0),
             },
-            ControlMsg::SetRecording { recording: true },
+            ControlMsg::SetRecording {
+                recording: true,
+                shift_us: 20_000
+            },
             ControlMsg::Play { from: Tick(0) },
         ]
     );
@@ -130,7 +133,13 @@ fn a_take_starts_launches_the_scene_records_and_counts_in_from_a_stopped_transpo
             state: TakeState::Stopped
         }]
     );
-    assert_eq!(control, vec![ControlMsg::SetRecording { recording: false }]);
+    assert_eq!(
+        control,
+        vec![ControlMsg::SetRecording {
+            recording: false,
+            shift_us: 0
+        }]
+    );
     assert!(s.ctx.engine.playing);
     // Still waiting to be written: refused again; a discard frees it.
     assert!(matches!(
@@ -152,7 +161,13 @@ fn a_take_starts_launches_the_scene_records_and_counts_in_from_a_stopped_transpo
             state: TakeState::Discarded
         }]
     );
-    assert_eq!(control, vec![ControlMsg::SetRecording { recording: false }]);
+    assert_eq!(
+        control,
+        vec![ControlMsg::SetRecording {
+            recording: false,
+            shift_us: 0
+        }]
+    );
     // On a running transport: no launch, no count-in, no second play.
     let (out, _, control) = run(
         &mut s,
@@ -171,7 +186,13 @@ fn a_take_starts_launches_the_scene_records_and_counts_in_from_a_stopped_transpo
             ..
         })
     ));
-    assert_eq!(control, vec![ControlMsg::SetRecording { recording: true }]);
+    assert_eq!(
+        control,
+        vec![ControlMsg::SetRecording {
+            recording: true,
+            shift_us: 0
+        }]
+    );
 }
 
 #[test]
@@ -197,11 +218,10 @@ fn a_transport_stop_or_pause_ends_the_capture() {
             }),
             "{end:?}"
         );
-        assert!(
-            outcome
-                .control
-                .contains(&ControlMsg::SetRecording { recording: false })
-        );
+        assert!(outcome.control.contains(&ControlMsg::SetRecording {
+            recording: false,
+            shift_us: 0
+        }));
         // Once: a second stop does not end it again.
         let (outcome, _) = s.run(&Command::Transport(end)).unwrap();
         assert!(outcome.events.is_empty());
@@ -715,4 +735,46 @@ fn a_first_note_played_just_before_the_bar_starts_the_clip_on_that_bar() {
         .find(|p| p.clip == clips[0].clip)
         .unwrap();
     assert_eq!(p.start, Tick(3840));
+}
+
+/// #560: the engine applies the take's shift (the latency plus the session's offset), the
+/// same one `record.start` answers.
+#[test]
+fn the_take_s_shift_goes_to_the_engine_as_record_start_answers_it() {
+    for (latency_ms, offset_ms, shift_us) in [
+        (Some(42.0), 8, 50_000),
+        (None, -500, -500_000),
+        (Some(1000.0), 500, 1_500_000),
+        (Some(20.4), 0, 20_400),
+    ] {
+        let r = rec();
+        let mut s = synced(&r);
+        run(
+            &mut s,
+            R::SetSettings {
+                offset_ms: Some(offset_ms),
+                replace: None,
+                quantize_on_input: None,
+                quantize_strength: None,
+            },
+        );
+        let (out, _, control) = run(
+            &mut s,
+            R::Start {
+                target: None,
+                latency_ms,
+            },
+        );
+        let Output::Record(RO::Start { shift_ms, .. }) = out else {
+            panic!("{out:?}")
+        };
+        assert_eq!(f64::from(shift_us) / 1000.0, shift_ms);
+        assert!(
+            control.contains(&ControlMsg::SetRecording {
+                recording: true,
+                shift_us
+            }),
+            "{control:?}"
+        );
+    }
 }

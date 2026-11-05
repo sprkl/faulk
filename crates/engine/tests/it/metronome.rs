@@ -388,7 +388,10 @@ fn a_count_in_runs_the_playhead_through_negative_ticks_before_a_recording() {
             volume: 1.0,
             count_in_bars: 2,
         },
-        M::SetRecording { recording: true },
+        M::SetRecording {
+            recording: true,
+            shift_us: 0,
+        },
         M::Play { from: Tick(0) },
     ]);
     let first = rig.render(64);
@@ -419,7 +422,10 @@ fn the_playhead_reaches_the_cue_when_the_count_in_ends() {
             volume: 1.0,
             count_in_bars: 1,
         },
-        M::SetRecording { recording: true },
+        M::SetRecording {
+            recording: true,
+            shift_us: 0,
+        },
         M::Play { from: Tick(3840) },
     ]);
     rig.render(96_000 - 1);
@@ -441,7 +447,10 @@ fn a_count_in_clicks_with_the_metronome_off_and_stops_at_the_cue() {
             volume: 1.0,
             count_in_bars: 2,
         },
-        M::SetRecording { recording: true },
+        M::SetRecording {
+            recording: true,
+            shift_us: 0,
+        },
         M::Play { from: Tick(0) },
     ]);
     let count_in = rig.seconds(4.0);
@@ -469,7 +478,10 @@ fn no_count_in_when_not_recording_or_already_playing() {
     assert_eq!(rig.e.clock().playhead_tick(), Tick(2));
     // Already playing: a new Play (or a Seek) is not preceded by a count-in.
     rig.send(&[
-        M::SetRecording { recording: true },
+        M::SetRecording {
+            recording: true,
+            shift_us: 0,
+        },
         M::Play { from: Tick(1920) },
     ]);
     rig.render(64);
@@ -478,7 +490,10 @@ fn no_count_in_when_not_recording_or_already_playing() {
     let mut rig = Rig::new(48_000);
     rig.setup(120.0, (4, 4), 1.0);
     rig.send(&[
-        M::SetRecording { recording: true },
+        M::SetRecording {
+            recording: true,
+            shift_us: 0,
+        },
         M::Play { from: Tick(0) },
     ]);
     rig.render(64);
@@ -506,7 +521,10 @@ fn the_report_carries_the_state_and_the_playhead() {
     assert_eq!(r.transport, TransportState::Stopped);
     assert_eq!(r.playhead_tick, Tick(2880));
     rig.send(&[
-        M::SetRecording { recording: true },
+        M::SetRecording {
+            recording: true,
+            shift_us: 0,
+        },
         M::Play { from: Tick(0) },
     ]);
     rig.render(10);
@@ -598,7 +616,10 @@ fn seconds_of_audio_with_changes_never_allocate() {
         M::SetLoop {
             region: LoopRegion::new(Tick(0), Tick(7680)),
         },
-        M::SetRecording { recording: true },
+        M::SetRecording {
+            recording: true,
+            shift_us: 0,
+        },
         M::Play { from: Tick(0) },
     ]);
     let mut r = Feedback::default();
@@ -658,7 +679,10 @@ fn ticks_at_the_edges_of_the_range_never_panic() {
                     volume: 1.0,
                     count_in_bars: count_in,
                 },
-                M::SetRecording { recording: true },
+                M::SetRecording {
+                    recording: true,
+                    shift_us: 0,
+                },
                 M::Play { from: Tick(from) },
             ]);
             rig.seconds(2.0);
@@ -700,7 +724,10 @@ fn listening_render() {
             volume: 1.0,
             count_in_bars: 1,
         },
-        M::SetRecording { recording: true },
+        M::SetRecording {
+            recording: true,
+            shift_us: 0,
+        },
         M::Play { from: Tick(0) },
     ]);
     out.extend(rig.seconds(4.0));
@@ -736,7 +763,10 @@ fn no_count_in_when_the_cue_is_past_the_end_of_the_loop() {
         M::SetLoop {
             region: LoopRegion::new(Tick(0), Tick(3840)),
         },
-        M::SetRecording { recording: true },
+        M::SetRecording {
+            recording: true,
+            shift_us: 0,
+        },
         M::Play { from: Tick(5000) },
     ]);
     rig.seconds(10.0);
@@ -754,7 +784,10 @@ fn no_count_in_when_the_cue_is_past_the_end_of_the_loop() {
         M::SetLoop {
             region: LoopRegion::new(Tick(0), Tick(3840)),
         },
-        M::SetRecording { recording: true },
+        M::SetRecording {
+            recording: true,
+            shift_us: 0,
+        },
         M::Play { from: Tick(1920) },
     ]);
     rig.render(1);

@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 38;
+pub const PROTOCOL_VERSION: u32 = 39;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -44,9 +44,15 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
-// Version 38 (#710): the commands gain `clip.notes.repeat` (notes repeated end to end up to a
+// Version 39 (#710): the commands gain `clip.notes.repeat` (notes repeated end to end up to a
 // tick, cut at the end of the clip). The helper's MCP tools come from the commands, so a helper of
-// version 37 would not offer it to an agent. No message changes.
+// version 38 would not offer it to an agent. No message changes.
+
+// Version 38 (#560): the engine message `SetRecording` carries `shift_us`, how much earlier the
+// take's notes are placed (the estimated output latency plus the manual offset): the engine moves
+// them back on its own clock, where it knows the loop wraps, and the page writes the take with a
+// `shift_ms` of 0. Its payload grows by four bytes, so a page and a helper of different versions
+// refuse each other.
 
 // Version 37 (#115, AU-6): the arrangement commands
 // take audio placements (move, resize, split, duplicate, repeat, move_to_track, place_from_slot,

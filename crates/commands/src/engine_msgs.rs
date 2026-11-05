@@ -183,7 +183,7 @@ pub fn compile(
                 out.push(ControlMsg::StopTrack { track });
             }
         }
-        Command::Record(record::Command::Start { target, .. }) => {
+        Command::Record(record::Command::Start { target, latency_ms }) => {
             // From a stopped transport with a scene target, the scene's clip of each
             // recording track is launched first (the take is played over it), then the
             // capture is asked, then the play: the engine counts in from the stopped clock.
@@ -209,7 +209,11 @@ pub fn compile(
                     }
                 }
             }
-            out.push(ControlMsg::SetRecording { recording: true });
+            // The engine moves the take's notes back by its shift, on its own clock (#560).
+            out.push(ControlMsg::SetRecording {
+                recording: true,
+                shift_us: record::shift_us(record::take_shift_ms(*latency_ms, state)),
+            });
             start_playback(sync, &mut out);
         }
         Command::Launch(launch::Command::StopAll {}) => out.push(ControlMsg::StopAll),
@@ -310,7 +314,7 @@ fn compile_event(
         ProjectEvent::RecordingChanged {
             state: TakeState::Stopped | TakeState::Discarded,
             ..
-        } => out.push(ControlMsg::SetRecording { recording: false }),
+        } => out.push(ControlMsg::SetRecording { recording: false, shift_us: 0 }),
         ProjectEvent::TrackCreated { track } => {
             if let Some(t) = project.tracks.get(track) {
                 remove_track(track, sync, out);
