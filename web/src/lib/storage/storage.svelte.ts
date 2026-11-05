@@ -1694,17 +1694,23 @@ export class ProjectStorage {
     const { store } = prepared
     let written = 0
     try {
-      const packed = await this.host.packExport(prepared.entries, {
-        read: (path, start, end) => (store ? store.read(path, start, end) : Promise.reject(new Error(`${path}: no folder to read from`))),
+      const io = {
         sink: {
-          write: async (chunk) => {
+          write: async (chunk: Uint8Array) => {
             await target.write(chunk)
             written += chunk.length
           },
         },
         signal: abort.signal,
-        onProgress: (fraction) => (this.exporting = fraction),
-      })
+        onProgress: (fraction: number) => (this.exporting = fraction),
+      }
+      // The store's Worker deflates when the folder is read there (#685); else the page's core does, reading the blobs through the store.
+      const packed = store?.packExport
+        ? await store.packExport(prepared.entries, io)
+        : await this.host.packExport(prepared.entries, {
+            ...io,
+            read: (path, start, end) => (store ? store.read(path, start, end) : Promise.reject(new Error(`${path}: no folder to read from`))),
+          })
       if (packed.status === 'ok') {
         await target.close()
         // A pack the page itself would refuse to open (`MAX_PACK_BYTES`): it opens elsewhere, so it is said, not refused (#682).
