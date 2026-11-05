@@ -1359,9 +1359,8 @@ fn a_quiet_tail_leaves_no_denormal_in_the_states() {
     for word in
         state.split(|ch: char| !(ch.is_ascii_digit() || ch == '.' || ch == 'e' || ch == '-'))
     {
-        if word.contains('.')
-            && let Ok(v) = word.parse::<f32>()
-        {
+        // Every number of the print: a subnormal may print without a dot (`1e-40`).
+        if let Ok(v) = word.parse::<f32>() {
             assert!(v == 0.0 || v.abs() >= f32::MIN_POSITIVE, "{v} in the state");
             floats += 1;
         }
@@ -1394,15 +1393,17 @@ fn a_rate_above_the_cap_keeps_the_mvp_s_coefficients() {
         frames: nl.len() as u32,
         transport: Transport::default(),
     };
-    new.process(
-        &ctx,
-        &[],
-        &mut AudioIo {
-            left: &mut nl,
-            right: &mut nr,
-            events_out: &mut unused,
-        },
-    );
+    assert_no_alloc(|| {
+        new.process(
+            &ctx,
+            &[],
+            &mut AudioIo {
+                left: &mut nl,
+                right: &mut nr,
+                events_out: &mut unused,
+            },
+        );
+    });
     assert_eq!(nl, l);
     // The longest look-ahead is the line's.
     new.set_param(ParamId(LOOKAHEAD), 0.01);
