@@ -1,6 +1,6 @@
 import { mkdirSync } from 'node:fs'
 import { expect, test, type CDPSession, type Page } from '@playwright/test'
-import { best, chooseMidiInput, engineUp, fakeWebMidi, mainThreadMeter, watch } from './support'
+import { best, chooseMidiInput, engineUp, fakeWebMidi, mainThreadMeter, median, watch } from './support'
 
 // MX-3 (#92): the mixer view in a real browser. Real worklet, engine and project core: every
 // control goes through the dispatcher as a command, and the meters are the engine's own report.
@@ -204,11 +204,14 @@ async function counters(cdp: CDPSession, collect = false): Promise<Counters> {
 function frames(page: Page, ms: number) {
   return page.evaluate(
     (window_ms) =>
-      new Promise<{ p50: number; p95: number; max: number; frames: number; longTasks: number }>((resolve) => {
+      new Promise<{ p50: number; p95: number; max: number; frames: number; longTasks: number; writes: number }>((resolve) => {
         const intervals: number[] = []
         let longTasks = 0
         const observer = new PerformanceObserver((list) => (longTasks += list.getEntries().length))
         observer.observe({ entryTypes: ['longtask'] })
+        // The style writes the page makes inside this very window (the observer of the render-cost test, if it is installed), so that they are counted over the same frames.
+        const written = () => (window as unknown as { __writes?: number }).__writes ?? 0
+        const writes0 = written()
         let last = performance.now()
         const end = last + window_ms
         const tick = (now: number) => {
@@ -220,7 +223,7 @@ function frames(page: Page, ms: number) {
             intervals.shift()
             intervals.sort((a, b) => a - b)
             const at = (q: number) => intervals[Math.min(intervals.length - 1, Math.floor(q * intervals.length))]
-            resolve({ p50: at(0.5), p95: at(0.95), max: intervals[intervals.length - 1], frames: intervals.length, longTasks })
+            resolve({ p50: at(0.5), p95: at(0.95), max: intervals[intervals.length - 1], frames: intervals.length, longTasks, writes: written() - writes0 })
           }
         }
         requestAnimationFrame(tick)
@@ -229,8 +232,21 @@ function frames(page: Page, ms: number) {
   )
 }
 
-/** Main-thread time per frame of the mixer view, in reference units (`mainThreadMeter`); about 0.4 here, up to 0.75 with a 4x slower CPU, so ten times the work of the view crosses it and a noisy runner does not. */
-const MIXER_CEILING = 1.5
+/**
+ * Two ceilings on the mixer view with 32 strips whose meters move (#739). A time cannot tell a regression from a busy
+ * machine closely enough (the ratios of runs under a parallel build overlapped those of a mixer that did three times
+ * the meter work), so the ceiling on time is wide and the work is counted.
+ *
+ * `MIXER_CEILING`: CPU time the page's renderer process spent per frame in the mixer view, over the same in the grid
+ * view with the same tracks (alternately, in the same page, the best round of each). 2.5 to 5.0 clean, on a quiet
+ * machine and under a cargo build; about 5 with the meters rendered three times. It catches a gross regression.
+ *
+ * `MIXER_WRITES_CEILING`: style writes per frame in the mixer view, counted by a MutationObserver. 29 to 30 clean
+ * (the median of 7 rounds, quiet or under a cargo build); a meter rendered twice reads 58 to 60.
+ */
+const MIXER_CEILING = 8
+const MIXER_WRITES_CEILING = 45
+const ROUNDS = 7
 
 test('32 strips with every meter moving: render cost @full', async ({ page }) => {
   test.setTimeout(240_000)
@@ -249,6 +265,11 @@ test('32 strips with every meter moving: render cost @full', async ({ page }) =>
   const WINDOW_MS = 3000
   const WINDOWS = 3
   const meter = await mainThreadMeter(page)
+  const browserCdp = await page.context().browser()!.newBrowserCDPSession()
+  const rendererCpu = async () => {
+    const { processInfo } = await browserCdp.send('SystemInfo.getProcessInfo')
+    return processInfo.filter((p) => p.type === 'renderer').reduce((a, p) => a + p.cpuTime, 0)
+  }
   await cdp.send('Profiler.enable')
   /** Share of the main thread the page's JavaScript used (CPU profile: samples that are not idle or the browser's own). */
   const busyShare = async () => {
@@ -265,7 +286,7 @@ test('32 strips with every meter moving: render cost @full', async ({ page }) =>
     })
     return busy / total
   }
-  const measure = async (label: string, moving: boolean) => {
+  const measure = async (label: string, moving: boolean, windowCount = WINDOWS) => {
     await page.waitForTimeout(500)
     // The note is pulsed (on, off, on...) all through the windows, so that the meters keep moving whatever the
     // engine's level settles to; the style writes the page makes meanwhile are counted, to prove the windows measure a moving mixer.
@@ -284,8 +305,23 @@ test('32 strips with every meter moving: render cost @full', async ({ page }) =>
     const started = Date.now()
     const before = await counters(cdp)
     const windows = []
-    for (let i = 0; i < WINDOWS; i++) {
-      windows.push(await meter.measure(() => Promise.all([frames(page, WINDOW_MS), busyShare()])))
+    const cpus: number[] = []
+    try {
+      for (let i = 0; i < windowCount; i++) {
+        const c0 = await rendererCpu()
+        const w = await meter.measure(() => Promise.all([frames(page, WINDOW_MS), busyShare()]))
+        const c1 = await rendererCpu()
+        cpus.push(((c1 - c0) * 1000) / w.result[0].frames)
+        windows.push(w)
+      }
+    } catch (error) {
+      // A failed window must not leave the pulse and the observer running for the rest of the page's life.
+      await page.evaluate(() => {
+        const w = window as unknown as { __pulse?: number; __observer?: MutationObserver }
+        clearInterval(w.__pulse)
+        w.__observer?.disconnect()
+      })
+      throw error
     }
     const after = await counters(cdp)
     const elapsed = Date.now() - started
@@ -304,20 +340,52 @@ test('32 strips with every meter moving: render cost @full', async ({ page }) =>
     const [f, share] = windows[units.indexOf(cost)]!.result
     console.log(
       `mixer-cost ${label}: frames p50 ${f.p50.toFixed(1)} ms, p95 ${f.p95.toFixed(1)} ms, max ${f.max.toFixed(1)} ms over ${f.frames} frames, long tasks ${f.longTasks}; ` +
-        `JavaScript busy share ${(share * 100).toFixed(2)} %; main thread per frame ${cost.toFixed(4)} reference units (best of ${WINDOWS}); per second: script ${perSecond('ScriptDuration').toFixed(1)} ms, layout ${perSecond('LayoutDuration').toFixed(1)} ms, style ${perSecond('RecalcStyleDuration').toFixed(1)} ms; ` +
+        `JavaScript busy share ${(share * 100).toFixed(2)} %; main thread per frame ${cost.toFixed(4)} reference units (best of ${windowCount}); per second: script ${perSecond('ScriptDuration').toFixed(1)} ms, layout ${perSecond('LayoutDuration').toFixed(1)} ms, style ${perSecond('RecalcStyleDuration').toFixed(1)} ms; ` +
         `style writes ${writes}; nodes ${after.Nodes}, listeners ${after.JSEventListeners}`,
     )
-    return { f, share, cost }
+    // Style writes per frame, over the frames of each window (not over the setup around them): the median window.
+    const writesPerFrame = median(windows.map((w) => w.result[0].writes / w.result[0].frames))
+    return { f, share, cost, cpu: best(cpus), writesPerFrame }
   }
 
-  const mixer = await measure('mixer view, 32 strips', true)
-  await page.getByTestId('nav-grid').click()
-  const baseline = await measure('grid view, 32 tracks (baseline)', false)
-  console.log(`mixer-cost extra JavaScript busy share ${((mixer.share - baseline.share) * 100).toFixed(2)} points`)
+  // Two measurements (#739; the absolute main-thread figure moved from 1.3 to 2.0 reference units under a parallel
+  // build). The time is a ratio to the same page's grid view with the same 32 tracks, rounds alternating the two views,
+  // the best round of each view counting (noise only ever adds time): it follows the machine less than an absolute
+  // figure but still moves, so its ceiling is wide. The work is counted: style writes per frame of the moving mixer.
+  const rounds: { mixer: number; baseline: number; mixerUnits: number; baselineUnits: number; share: number; baselineShare: number; writes: number }[] = []
+  for (let round = 0; round < ROUNDS; round++) {
+    await page.getByTestId('nav-mixer').click()
+    await expect(page.getByTestId('mixer')).toBeVisible()
+    const mixer = await measure(`mixer view, 32 strips (round ${round + 1}/${ROUNDS})`, true, 1)
+    await page.getByTestId('nav-grid').click()
+    const baseline = await measure(`grid view, 32 tracks (baseline, round ${round + 1}/${ROUNDS})`, false, 1)
+    rounds.push({
+      mixer: mixer.cpu,
+      baseline: baseline.cpu,
+      mixerUnits: mixer.cost,
+      baselineUnits: baseline.cost,
+      share: mixer.share,
+      writes: mixer.writesPerFrame,
+      baselineShare: baseline.share,
+    })
+  }
+  const ratio = best(rounds.map((r) => r.mixer)) / best(rounds.map((r) => r.baseline))
+  console.log(
+    `mixer-cost ratio to the grid view: ${ratio.toFixed(2)} = best of ${ROUNDS} rounds ${best(rounds.map((r) => r.mixer)).toFixed(2)} ms of renderer CPU per frame in the mixer view over ${best(rounds.map((r) => r.baseline)).toFixed(2)} in the grid view; ` +
+      `per round, mixer: ${rounds.map((r) => r.mixer.toFixed(1)).join(', ')}, grid: ${rounds.map((r) => r.baseline.toFixed(1)).join(', ')}; ` +
+      `main-thread reference units, best mixer ${best(rounds.map((r) => r.mixerUnits)).toFixed(3)}, best grid ${best(rounds.map((r) => r.baselineUnits)).toFixed(3)}; extra JavaScript busy share ${((best(rounds.map((r) => r.share)) - best(rounds.map((r) => r.baselineShare))) * 100).toFixed(2)} points`,
+  )
 
-  // A ceiling that catches an order-of-magnitude regression on a shared runner, not a budget. The frame
-  // intervals are printed, not asserted: they follow the runner (vsync, neighbours), not the code.
-  expect(mixer.cost).toBeLessThan(MIXER_CEILING)
+  // The time ceiling catches a gross regression only (a mixer 2.5 to 3 times heavier); a doubling that adds no style
+  // write (canvas, layout, JavaScript) passes it. The frame intervals are printed, not asserted: they follow the
+  // runner (vsync, neighbours), not the code.
+  expect(ratio).toBeLessThan(MIXER_CEILING)
+  // The work, counted: a busy machine changes how long a frame takes, not how many style writes the meters make in
+  // it, so a render done twice doubles it. Counted over the frames of the window, median of the rounds. It sees
+  // `style` attribute writes only: a meter moved to a canvas or to classes would need its own count.
+  const writes = median(rounds.map((r) => r.writes))
+  console.log(`mixer-cost style writes per frame in the mixer view: ${writes.toFixed(1)} (rounds: ${rounds.map((r) => r.writes.toFixed(1)).join(', ')})`)
+  expect(writes, 'style writes per frame, mixer view').toBeLessThan(MIXER_WRITES_CEILING)
   await send(page, [0x80, 69, 0])
   expect(errors).toEqual([])
 })
