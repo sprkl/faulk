@@ -481,6 +481,49 @@ fn a_device_is_described_with_its_parameters_and_its_kind() {
     );
 }
 
+/// Every built-in kind of the engine's registry is described to agents by `device.describe`,
+/// from its descriptor: the same keys, descriptions, bounds, defaults and steps (#159 added
+/// `faulk.ceiling`).
+#[test]
+fn every_built_in_kind_is_described_from_its_descriptor() {
+    let f = automation_examples::fx();
+    let kinds: Vec<_> = engine::devices::REGISTRY
+        .iter()
+        .map(|b| b.descriptor)
+        .collect();
+    assert!(kinds.iter().any(|d| d.kind == "faulk.ceiling"));
+    for d in kinds {
+        let Output::Device(device::Output::Describe { descriptor, .. }) = q(
+            Command::Device(device::Command::Describe {
+                device: None,
+                kind: Some(d.kind.into()),
+            }),
+            &f.state,
+        )
+        .unwrap() else {
+            panic!("{}", d.kind)
+        };
+        let info = descriptor.unwrap();
+        assert_eq!((info.kind.as_str(), info.name.as_str()), (d.kind, d.name));
+        assert_eq!(info.params.len(), d.params.len(), "{}", d.kind);
+        for (spec, p) in info.params.iter().zip(d.params) {
+            assert_eq!(spec.key, p.key, "{}", d.kind);
+            assert_eq!(spec.description, p.description, "{}.{}", d.kind, p.key);
+            assert_eq!(
+                (spec.min, spec.max, spec.default, spec.step),
+                (p.min, p.max, p.default, p.step),
+                "{}.{}",
+                d.kind,
+                p.key
+            );
+            assert_eq!(
+                spec.values,
+                p.values.iter().map(|v| v.to_string()).collect::<Vec<_>>()
+            );
+        }
+    }
+}
+
 #[test]
 fn every_field_of_every_query_answer_is_documented() {
     let tools: Vec<_> = catalog()

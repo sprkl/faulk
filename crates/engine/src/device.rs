@@ -487,6 +487,15 @@ pub trait Device: Send {
     fn gain_reduction_db(&self) -> f32 {
         0.0
     }
+
+    /// The latency this device adds now, in frames: how many frames after an input sample
+    /// the output sample it becomes comes out (a look-ahead, #159); 0 for a device that adds
+    /// none. It may change with the parameters. The engine does not compensate it yet: a
+    /// device with a latency delays its track against the others by that much. It reads a
+    /// field: no allocation, no lock.
+    fn latency_frames(&self) -> u32 {
+        0
+    }
 }
 
 /// Builds a device off the audio path, with fallible allocations only.

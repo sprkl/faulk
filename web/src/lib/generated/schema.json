@@ -29520,6 +29520,118 @@
       ],
       "role": "effect",
       "version": 1
+    },
+    {
+      "kind": "faulk.ceiling",
+      "kind_id": 7,
+      "memory_bytes": 25136,
+      "midi_output": null,
+      "name": "Ceiling",
+      "named_keys": [],
+      "params": [
+        {
+          "default": -0.3,
+          "description": "Highest level the output may reach, in decibels of full scale, from -12 to 0 dB: no sample goes above it.",
+          "id": 0,
+          "key": "ceiling",
+          "max": 0,
+          "min": -12,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Gain added before the limiter, from 0 to 24 dB: it pushes the sound against the ceiling, so it gets louder without going over.",
+          "id": 1,
+          "key": "gain",
+          "max": 24,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "When on, the output is turned down by the input gain: the gain changes how hard the sound is limited, not how loud it is, to compare by ear.",
+          "id": 2,
+          "key": "compensate",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 0.0015,
+          "description": "How far ahead the limiter sees the peaks, from 0 to 5 ms: it turns down smoothly before each one. It delays the sound by this time. A change fades out and back in.",
+          "id": 3,
+          "key": "lookahead",
+          "max": 0.005,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "How the limiter lets the sound back up after a peak: manual (the release time) or auto (fast after a short peak, slower under sustained limiting).",
+          "id": 4,
+          "key": "release_mode",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "manual",
+            "auto"
+          ]
+        },
+        {
+          "default": 0.1,
+          "description": "In manual release, time the limiter takes to let the sound back up after a peak, from 1 ms to 1 s: short is louder, long is smoother.",
+          "id": 5,
+          "key": "release",
+          "max": 1,
+          "min": 0.001,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "When on, the limiter also catches the peaks between samples (4x oversampled detection), for a converter or an encoder. It adds 12 samples of delay and a look-ahead of at least 16 samples. A change fades out and back in.",
+          "id": 6,
+          "key": "true_peak",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        }
+      ],
+      "role": "effect",
+      "version": 1
     }
   ],
   "error_codes": {
@@ -38487,7 +38599,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 40,
+  "protocol_version": 42,
   "scale_intervals": [
     {
       "intervals": [

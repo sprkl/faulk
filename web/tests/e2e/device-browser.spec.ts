@@ -68,7 +68,7 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(groups.first()).toContainText(x.instruments)
     await expect(groups.nth(1)).toContainText(x.effects)
     const kinds = await panel.getByTestId('browse-device').evaluateAll((rows) => rows.map((r) => r.getAttribute('data-kind')))
-    expect(kinds).toEqual(['faulk.osc_synth', 'faulk.drums', 'faulk.echo', 'faulk.reverb', 'faulk.compressor', 'faulk.filter'])
+    expect(kinds).toEqual(['faulk.osc_synth', 'faulk.drums', 'faulk.echo', 'faulk.reverb', 'faulk.compressor', 'faulk.filter', 'faulk.ceiling'])
     await expect(panel.locator('[data-testid="browse-preset"][data-kind="faulk.osc_synth"]').first()).toBeVisible()
     await expect(panel.getByRole('option', { name: /Round Bass/ })).toHaveCount(1)
 

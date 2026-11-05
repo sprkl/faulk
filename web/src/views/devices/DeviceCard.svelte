@@ -26,8 +26,8 @@
   const bypassed = $derived(!entry.device.enabled)
   const isEffect = $derived(entry.effectIndex !== null)
   const actions = $derived(cardActions(chain, entry))
-  // The Compressor shows the gain it takes off (the engine reports the largest reduction of the strip's enabled compressors).
-  const reduces = $derived(entry.kind === 'faulk.compressor')
+  // The Compressor and Ceiling show the gain they take off (the engine reports the largest reduction of the strip's enabled devices).
+  const reduces = $derived(entry.kind === 'faulk.compressor' || entry.kind === 'faulk.ceiling')
   const reduction = $derived(bypassed ? 0 : meters.snap(master ? MASTER_METER : (track ?? MASTER_METER)).reductionDb)
 
   // A knob drag is one history group: one undo takes it back whole.
