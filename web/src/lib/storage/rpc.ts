@@ -1,12 +1,26 @@
 // The page's side of the project store's Worker (SV-2): `ProjectStore` over `postMessage`.
 import { ImportError, type ImportErrorCode } from '../audio/import/abi'
 import type { CacheReport, ImportOutcome, MediaRef } from '../audio/import/pipeline'
-import type { FolderEntry, PackExport, PackIO, SaveEntry } from '../project/core'
-import { StoreError, type FolderHandle, type ProjectStore, type Signature, type StoreErrorCode } from './types'
+import type { FolderEntry, PackExport, PackIO, PackUnpack, SaveEntry } from '../project/core'
+import { StoreError, type FileWriter, type FolderHandle, type ProjectStore, type Signature, type StoreErrorCode } from './types'
 import { FolderBackend } from './backend'
 
 /** The calls of `ProjectStore` the Worker takes by name. */
-export const STORE_METHODS = ['isEmpty', 'hasProject', 'readFolder', 'listBlobs', 'read', 'apply', 'scan', 'copyBlobsFrom', 'cleanUp'] as const
+export const STORE_METHODS = [
+  'isEmpty',
+  'hasProject',
+  'readFolder',
+  'listBlobs',
+  'read',
+  'apply',
+  'scan',
+  'copyBlobsFrom',
+  'cleanUp',
+  'openWriter',
+  'writePiece',
+  'closeWriter',
+  'abortWriter',
+] as const
 type Method = (typeof STORE_METHODS)[number]
 
 export type Request =
@@ -19,6 +33,8 @@ export type Request =
   | { id: number; op: 'audioCache'; key: number; media: MediaRef[] }
   /** The `.faulkpack` of a folder (#685): zip pieces come back as `chunk` replies, each waiting for a `packAck`. */
   | { id: number; op: 'pack'; key: number; entries: FolderEntry[] }
+  /** A `.faulkpack` imported into the folder (#682), from a file or a file of the folder (a path): progress replies until the answer. */
+  | { id: number; op: 'unpack'; key: number; source: Blob | string; textOnly?: boolean }
   /** The page wrote the piece of pack `target` (`failed`: it could not, stop the export). No answer of its own. */
   | { id: number; op: 'packAck'; target: number; failed?: boolean }
   /** Cancels the import `target` (no answer of its own). */
@@ -225,6 +241,21 @@ export class WorkerStore implements ProjectStore {
       signal: io.signal,
       onChunk: (chunk) => io.sink.write(chunk),
     })
+  }
+  async unpack(source: Blob | string, io: { onProgress?: (fraction: number) => void; signal?: AbortSignal; textOnly?: boolean } = {}): Promise<PackUnpack> {
+    const key = await this.ready()
+    return this.worker.request<PackUnpack>({ op: 'unpack', key, source, textOnly: io.textOnly }, [], {
+      onProgress: io.onProgress ?? (() => undefined),
+      signal: io.signal,
+    })
+  }
+  async writer(path: string): Promise<FileWriter> {
+    const id = await this.call<number>('openWriter', [path])
+    return {
+      write: (chunk) => this.call<void>('writePiece', [id, chunk], [chunk.buffer as ArrayBuffer]),
+      close: () => this.call<void>('closeWriter', [id]),
+      abort: () => this.call<void>('abortWriter', [id]).catch(() => undefined),
+    }
   }
   cleanUp() {
     return this.call<void>('cleanUp')

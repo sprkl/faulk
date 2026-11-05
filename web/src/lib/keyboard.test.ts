@@ -12,6 +12,7 @@ import {
   octaveStep,
   PLAYING_KEYS,
   playsNote,
+  generateShortcut,
   gotoShortcut,
   repeatShortcut,
   saveShortcut,
@@ -494,6 +495,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
         'PageDown',
         'PageUp',
       ], // Page Up and Down: the selection's velocity (#494)
+      'views/piano-roll/EuclideanPanel.svelte': ['Enter', 'Escape'], // the euclidean generator's fields (#694): Enter places, Escape closes; every other key stays in the field
       'views/shell/BottomPanel.svelte': ['ArrowDown', 'ArrowUp', 'End', 'Enter', 'Home'],
       'views/shell/EngineDialog.svelte': ['Enter'], // the recording offset's field (#470)
       'views/shell/ExportDialog.svelte': ['Escape'],
@@ -675,6 +677,20 @@ describe('repeatShortcut (#555)', () => {
     expect(repeatShortcut(press())).toBe(true)
     expect(repeatShortcut(press({ ctrlKey: false, metaKey: true, key: 'r' }))).toBe(true)
     for (const over of [{ ctrlKey: false }, { shiftKey: false }, { altKey: true }, { key: 'd' }]) expect(repeatShortcut(press(over))).toBe(false)
+  })
+})
+
+describe('generateShortcut (#694)', () => {
+  const press = (over: object = {}) => ({ code: 'KeyG', altKey: true, ctrlKey: false, metaKey: false, shiftKey: false, repeat: false, target: null, ...over })
+  it('is Alt+G by position, alone, without repeat', () => {
+    expect(generateShortcut(press())).toBe(true)
+    for (const over of [{ altKey: false }, { ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { repeat: true }, { code: 'KeyH' }]) {
+      expect(generateShortcut(press(over)), JSON.stringify(over)).toBe(false)
+    }
+  })
+  it('leaves a text field alone', () => {
+    expect(generateShortcut(press({ target: document.createElement('input') }))).toBe(false)
+    expect(generateShortcut(press({ target: document.createElement('select') }))).toBe(false)
   })
 })
 

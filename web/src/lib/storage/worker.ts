@@ -2,7 +2,8 @@
 // page's main thread, so a save of a big project never holds up the interface or the engine's
 // feeding. One `FolderBackend` per folder the page opened; the page talks to it by `rpc.ts`. The
 // audio import (AU-1) runs here too: it writes the folder, and it needs `FileReaderSync`, which only
-// a Worker has. It reports progress and hears a cancel; between its steps the other calls run.
+// a Worker has. It reports progress and hears a cancel; between its steps the other calls run. So
+// does the `.faulkpack` import (#682), which writes the pack's blobs as it reads them.
 import { ImportError } from '../audio/import/abi'
 import { classify, FolderBackend } from './backend'
 import { packInWorker } from './pack-worker'
@@ -43,6 +44,7 @@ async function handle(request: Request): Promise<unknown> {
     return request.handle.name
   }
   if (request.op === 'close') {
+    backends.get(request.key)?.close()
     backends.delete(request.key)
     return null
   }
@@ -76,6 +78,20 @@ async function handle(request: Request): Promise<unknown> {
     } finally {
       control.signal.removeEventListener('abort', release)
       packWaits.delete(request.id)
+      running.delete(request.id)
+    }
+  }
+  if (request.op === 'unpack') {
+    const backend = backendOf(request.key)
+    const control = new AbortController()
+    running.set(request.id, control)
+    try {
+      return await backend.unpack(request.source, {
+        onProgress: (fraction) => post({ id: request.id, progress: fraction }),
+        signal: control.signal,
+        textOnly: request.textOnly,
+      })
+    } finally {
       running.delete(request.id)
     }
   }
