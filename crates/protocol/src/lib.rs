@@ -44,9 +44,13 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
-// Version 42 (#159; 41 is #744's): a new built-in device, `faulk.ceiling` (kind id 7, the brick-wall
+// Version 42 (#159): a new built-in device, `faulk.ceiling` (kind id 7, the brick-wall
 // limiter). No message changes shape, but a helper of an earlier version does not know kind 7: its engine
 // refuses a stream that inserts it (`UnknownDevice`), so a project holding a Ceiling would not play in Boost.
+
+// Version 41 (#733): the report is `Feedback` version 9: the header grows from 92 to 100 bytes with
+// `host_frame` at offset 92 (the host's frame at the report's playhead), so that the page can place a
+// tick on the host's clock. A page and a helper of different versions refuse each other.
 
 // Version 40 (#682; 38 is #560's, 39 is #710's): the commands gain `project.cancel_import_pack` (stops the
 // `.faulkpack` imports under way, downloads included); the helper generates its MCP tools from the

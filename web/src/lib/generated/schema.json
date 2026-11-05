@@ -29524,7 +29524,7 @@
     {
       "kind": "faulk.ceiling",
       "kind_id": 7,
-      "memory_bytes": 25136,
+      "memory_bytes": 29248,
       "midi_output": null,
       "name": "Ceiling",
       "named_keys": [],
@@ -29573,7 +29573,7 @@
         },
         {
           "default": 0.0015,
-          "description": "How far ahead the limiter sees the peaks, from 0 to 5 ms: it turns down smoothly before each one. It delays the sound by this time. A change fades out and back in.",
+          "description": "How far ahead the limiter sees the peaks, from 0 to 5 ms: it turns down smoothly before each one. It delays this track by that time: the other tracks are not delayed to match. A change fades out and back in.",
           "id": 3,
           "key": "lookahead",
           "max": 0.005,

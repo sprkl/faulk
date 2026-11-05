@@ -650,6 +650,9 @@ fn native_and_wasm_write_the_same_report() {
         (w.playhead_tick, w.playhead_frame)
     );
     assert!(n.playhead_frame.0 > 0);
+    // The host's frame at the playhead (#733): with no host clock, the engine's own counter, the same in both.
+    assert_eq!(n.host_frame, w.host_frame);
+    assert!(n.host_frame > 0);
     assert_eq!(
         (n.live_overflows, n.rejected, n.disk_underruns),
         (w.live_overflows, w.rejected, w.disk_underruns)
