@@ -24,3 +24,9 @@ body {
   text-transform: uppercase;
   color: var(--fk-text-muted);
 }
+
+/* Radio buttons and checkboxes take the accent, not the browser's blue (#698). */
+input[type='radio'],
+input[type='checkbox'] {
+  accent-color: var(--fk-accent);
+}

@@ -54,7 +54,11 @@
     DEFAULT_ROW_HEIGHT,
     DEFAULT_VELOCITY,
     acceptable,
-    defaultLength,
+    DRAW_LENGTHS,
+    parseDrawLength,
+    stepLengths,
+    writeLength,
+    type DrawLength,
     clampScrollY,
     drawnNote,
     hitNote,
@@ -121,7 +125,7 @@
 
   type Tool = 'draw' | 'select'
   type Gesture =
-    | { kind: 'draw'; clip: string; pressTick: number; pitch: number; note: Note | null }
+    | { kind: 'draw'; clip: string; pressTick: number; pitch: number; note: Note | null; dragged?: boolean }
     | { kind: 'move' | 'resize'; clip: string; grabbed: Note; key: string; startX: number; startY: number; changes: Change[] }
     | { kind: 'velocity'; clip: string; grabbed: Note; key: string; startX: number; startY: number; moved: boolean; drag: Drag; changes: Change[] }
     | { kind: 'band'; clip: string; x0: number; y0: number; base: ReadonlySet<string>; rect: Rect }
@@ -222,6 +226,8 @@
   let lastLength = $state<number | null>(null)
   /** The velocity of a note drawn (#527): its own setting in the toolbar, never what a touched note had. */
   let drawVelocity = $state(untrack(() => parseDrawVelocity(String(ui.recall<number>('piano-roll-draw-velocity') ?? DEFAULT_VELOCITY), DEFAULT_VELOCITY)))
+  /** The length of a written note (#623): "Snap" follows the snap step, a value is kept whatever the snap; remembered as the velocity is. */
+  let drawLength = $state<DrawLength>(untrack(() => parseDrawLength(ui.recall<string>('piano-roll-draw-length'))))
   let rollEl = $state<HTMLElement>()
   let picked = $state.raw<ReadonlySet<string>>(new Set())
   let gesture = $state.raw<Gesture | null>(null)
@@ -236,6 +242,8 @@
   const step = $derived(snapStep(snap, signature, shown.pxPerTick))
   /** The step notes are drawn on: Auto never goes below a sixteenth. */
   const drawing = $derived(drawStep(snap === 'auto', step))
+  /** The length of the next note written by a click or Enter (#623): the "Length" field, or with "Snap" the step and the last length. */
+  const nextLength = $derived(writeLength(drawLength, lastLength, drawing, bar))
   const layout = $derived<Layout>({ rowHeight: ROW, scrollY: clampScrollY(scrollY, stageH, { rowHeight: ROW, top: RULER_HEIGHT }), top: RULER_HEIGHT })
   const chosenNotes = $derived(picked.size === 0 ? [] : notes.filter((n) => picked.has(noteKey(n))))
   const chosenKeys = $derived<ReadonlySet<string>>(new Set(chosenNotes.map(noteKey)))
@@ -494,7 +502,7 @@
     }
     if (tool === 'draw') {
       const pitch = pitchAt(y, layout)
-      const note = drawnNote(xToTick(x, shown), null, pitch, drawVelocity, drawing, defaultLength(lastLength, drawing), clipLength)
+      const note = drawnNote(xToTick(x, shown), null, pitch, drawVelocity, drawing, nextLength, clipLength)
       if (!note) return
       gesture = { kind: 'draw', clip: edited.id, pressTick: xToTick(x, shown), pitch, note }
       sound(pitch)
@@ -522,7 +530,9 @@
     } else if (g.kind === 'draw') {
       const end = snapTick(xToTick(x, shown), drawing)
       const pitch = g.note?.pitch ?? g.pitch
-      gesture = { ...g, note: drawnNote(g.pressTick, end, pitch, drawVelocity, drawing, defaultLength(lastLength, drawing), clipLength) }
+      // Dragged as drawnNote counts it: at least one step past the pressed cell; a click keeps the chosen length.
+      const dragged = end - floorTick(g.pressTick, drawing) >= (drawing !== null && drawing > 0 ? drawing : 1)
+      gesture = { ...g, dragged, note: drawnNote(g.pressTick, end, pitch, drawVelocity, drawing, nextLength, clipLength) }
     } else if (g.kind === 'band') {
       const rect = rectBetween(g.x0, g.y0, x, y)
       picked = new Set([...g.base, ...notesInRect(notes, rect, shown, layout)])
@@ -564,6 +574,8 @@
       if (!g.note || !fits(g.note, clipLength)) return
       run(addNotes(g.clip, [g.note]))
       picked = new Set([noteKey(g.note)])
+      // A click (no drag) whose length did not fit before the clip's end draws a shorter note: said (#623, #280).
+      if (!g.dragged && g.note.length < nextLength) announce(t('pianoRoll.saidLengthCut', { length: gestureLength(t, signature, g.note.length) }))
       lastLength = g.note.length
     } else if (g.kind === 'move' || g.kind === 'resize' || g.kind === 'velocity') {
       // The notes the gesture holds must still be in the clip: after an undo they are gone and nothing is sent.
@@ -743,7 +755,7 @@
       {
         start: cursorPos.tick,
         pitch: cursorPos.pitch,
-        length: Math.max(1, Math.min(defaultLength(lastLength, drawing), clipLength - cursorPos.tick)),
+        length: Math.max(1, Math.min(nextLength, clipLength - cursorPos.tick)),
         velocity: drawVelocity,
       },
       shown,
@@ -837,14 +849,16 @@
       void focusNote(under.id)
       return
     }
-    const note = drawnNote(at.tick, null, at.pitch, drawVelocity, drawing, defaultLength(lastLength, drawing), clipLength)
+    const note = drawnNote(at.tick, null, at.pitch, drawVelocity, drawing, nextLength, clipLength)
     if (!note || !fits(note, clipLength) || notes.some((n) => noteKey(n) === noteKey(note))) return announce(t('pianoRoll.saidNoRoom'))
     run(addNotes(edited.id, [note]))
     // Nothing to say or sound when the command did not apply (no engine, a refusal the dispatcher already shows).
     if (!notes.some((n) => noteKey(n) === noteKey(note))) return
     picked = new Set([noteKey(note)])
     onCursor = false
-    announce(t('pianoRoll.saidAdded', { pitch: keyNames?.get(note.pitch) ?? pitchName(note.pitch) }))
+    const added = t('pianoRoll.saidAdded', { pitch: keyNames?.get(note.pitch) ?? pitchName(note.pitch) })
+    // The chosen length did not fit before the clip's end (#623, #280): the note is shorter, and that is said.
+    announce(note.length < nextLength ? t('pianoRoll.saidAddedCut', { added, length: gestureLength(t, signature, note.length) }) : added)
     sound(note.pitch, note.velocity)
     release()
     void focusNote(noteKey(note))
@@ -905,6 +919,13 @@
     if (action.kind === 'move') {
       if (!chosenKeys.has(current.id)) picked = new Set([current.id])
       const chosen = chosenKeys.has(current.id) ? chosenNotes : [current.note]
+      if (event.shiftKey && (action.direction === 'left' || action.direction === 'right')) {
+        // Alt+Shift+Left and Right (#623): the end of the focused note, or of each note of the selection; the focus stays on it.
+        const ok = resizeChosen(action.direction === 'left' ? -1 : 1, chosen, current.note)
+        const mine = ok?.find((c) => noteKey(c.from) === current.id)
+        if (mine) void focusNote(noteKey(mine.to))
+        return
+      }
       let changes: Change[] | null
       if (action.direction === 'up' || action.direction === 'down') {
         changes = transposeChanges(chosen, (action.direction === 'up' ? 1 : -1) * (event.shiftKey ? 12 : 1))
@@ -1147,6 +1168,10 @@
   let quantizeNote = $state<string | null>(null)
   let quantizeTimer: ReturnType<typeof setTimeout> | undefined
   onDestroy(() => clearTimeout(quantizeTimer))
+  function onDrawLengthChange(event: Event & { currentTarget: HTMLSelectElement }) {
+    drawLength = parseDrawLength(event.currentTarget.value)
+    ui.remember('piano-roll-draw-length', drawLength)
+  }
   function onDrawVelocityChange(event: Event & { currentTarget: HTMLInputElement }) {
     const input = event.currentTarget
     drawVelocity = parseDrawVelocity(input.value, drawVelocity)
@@ -1174,17 +1199,31 @@
     release()
   }
 
-  /** Moves the end of the chosen notes by the drawing step (`direction` -1 or 1): Alt+Shift+Left and Right (#612). Said, with the new length. */
-  function resizeChosen(direction: -1 | 1) {
-    if (!edited) return
-    if (chosenNotes.length === 0) return announce(t('pianoRoll.saidNoSelection'))
-    const changes = resizeNotes(chosenNotes, direction * (drawing ?? SIXTEENTH), clipLength)
-    const ok = changes ? acceptable(notes, changes) : null
-    if (!ok || ok.length === 0 || ok.every((c) => c.from.length === c.to.length)) return announce(t('pianoRoll.saidCannotResize'))
-    const chosen = chosenNotes
+  /**
+   * Moves the end of the chosen notes by the drawing step (`direction` -1 or 1): Alt+Shift+Left and Right (#612), from
+   * the grid, the free cursor or a note's cell (#623). Each note keeps at least one step and stops at the clip's end, which
+   * is said (#280). One `clip.notes.update`, so one undo. Said with the new length of `said` (the focused note) or of the
+   * first note; returns the changes sent, or null.
+   */
+  function resizeChosen(direction: -1 | 1, chosen: readonly Note[] = chosenNotes, said?: Note): Change[] | null {
+    if (!edited) return null
+    if (chosen.length === 0) {
+      announce(t('pianoRoll.saidNoSelection'))
+      return null
+    }
+    const { changes, cut } = stepLengths(chosen, drawing ?? SIXTEENTH, direction, clipLength)
+    const ok = acceptable(notes, changes)
+    // Null: two notes would become one (not the clip's end). Empty: nothing moves, at the floor or at the clip's end.
+    if (!ok || ok.length === 0) {
+      announce(t(ok && cut ? 'pianoRoll.saidAtClipEnd' : 'pianoRoll.saidCannotResize'))
+      return null
+    }
     run(updateNotes(edited.id, ok))
     picked = afterChanges(new Set(chosen.map(noteKey)), ok)
-    announce(gestureLength(t, signature, ok[0]!.to.length))
+    const mine = (said && changes.find((c) => noteKey(c.from) === noteKey(said))) || changes[0]!
+    const length = gestureLength(t, signature, mine.to.length)
+    announce(cut ? t('pianoRoll.saidLengthCut', { length }) : length)
+    return ok
   }
 
   /** Moves the chosen notes by semitones, heard once; nothing when one would leave the keyboard. */
@@ -1392,7 +1431,15 @@
           onchange={onDrawVelocityChange}
         />
       </label>
-      <div class="field" role="group" aria-label={t('pianoRoll.quantize')}>
+      <label class="field" title={t('pianoRoll.drawLengthHint')}>
+        <span>{t('pianoRoll.drawLength')}</span>
+        <select aria-label={t('pianoRoll.drawLengthLabel')} data-testid="roll-draw-length" value={drawLength} onchange={onDrawLengthChange}>
+          {#each DRAW_LENGTHS as length (length.id)}
+            <option value={length.id}>{t(`pianoRoll.drawLength.${length.id}`)}</option>
+          {/each}
+        </select>
+      </label>
+      <div class="field quantize" role="group" aria-label={t('pianoRoll.quantize')}>
         <select aria-label={t('pianoRoll.quantizeGrid')} data-testid="roll-quantize-grid" bind:value={quantizeGrid}>
           {#each QUANTIZE_GRIDS as grid (grid.id)}
             <option value={grid.id}>{t(`pianoRoll.qgrid.${grid.id}`)}</option>
@@ -1655,9 +1702,22 @@
     padding: 0 var(--fk-space-1);
     text-align: center;
   }
+  .quantize {
+    position: relative;
+  }
+  /* Out of the flow, under the quantize field: the message must not wrap the toolbar and move the grid while it shows. */
   .said {
+    position: absolute;
+    top: calc(100% + 2px);
+    right: 0;
+    z-index: 2;
+    padding: 2px var(--fk-space-2);
+    border: 1px solid var(--fk-line);
+    border-radius: 4px;
+    background: var(--fk-surface);
     color: var(--fk-text-muted);
     white-space: nowrap;
+    pointer-events: none;
   }
   .count {
     margin-left: auto;

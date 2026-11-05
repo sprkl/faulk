@@ -317,6 +317,89 @@ export function engineStep(run: () => WithEngine<RunReport>): EngineStep {
   return { push: engine, events: report.events, output: report.output }
 }
 
+/** What the pack calls of the core need: its memory and the `pw_pack_*` session (a worker's own instance serves, no project needed). */
+export type PackExports = Pick<CoreExports, 'memory' | 'pw_inbox' | 'pw_out' | 'pw_pack_begin' | 'pw_pack_next' | 'pw_pack_feed' | 'pw_pack_cancel'>
+
+function packInbox(exports: Pick<CoreExports, 'memory' | 'pw_inbox'>, bytes: Uint8Array): void {
+  const at = exports.pw_inbox(bytes.length)
+  if (!at) throw new CoreError('inbox', 0)
+  new Uint8Array(exports.memory.buffer, at, bytes.length).set(bytes)
+}
+
+function packOut(exports: Pick<CoreExports, 'memory' | 'pw_out'>, call: string, len: number): Uint8Array {
+  if (len < 0) throw new CoreError(call, len)
+  return new Uint8Array(exports.memory.buffer, exports.pw_out(), len).slice()
+}
+
+/** Hands zip bytes to the sink (a copy: the core's memory is reused by the next call). */
+async function packWrite(io: PackIO, bytes: Uint8Array): Promise<void> {
+  if (bytes.length > 0) await io.sink.write(bytes.slice())
+}
+
+/** An instance of the project module for the pack calls alone, which keep their session apart from any project. */
+export function packExports(module: WebAssembly.Module): PackExports {
+  return new WebAssembly.Instance(module, {}).exports as unknown as PackExports
+}
+
+/**
+ * Writes the `.faulkpack` of a project folder to `io.sink` (`project::file::PackWriter` in the core, so
+ * the archive is the one every host reads), one file at a time: the entries with their bytes (the
+ * project's files) are given to the core whole, the ones with a size (the blobs) are read from `io` in
+ * pieces of `PACK_CHUNK_BYTES` as the core asks for them, so memory does not depend on the size of the
+ * project. A folder that is not a valid project, or a file that is not the size it was listed with,
+ * is `failed` with the reason; an aborted `io.signal` is `cancelled`. Either way the core forgets the export.
+ * Throws a `CoreError` when the folder cannot be carried into the core at all.
+ */
+export async function exportPack(exports: PackExports, entries: FolderEntry[], io: PackIO): Promise<PackExport> {
+  const sizes = new Map<string, number>()
+  let total = 0
+  for (const entry of entries) {
+    if ('size' in entry) {
+      sizes.set(entry.path, entry.size)
+      total += entry.size
+    }
+  }
+  let given = 0
+  try {
+    const frame = folderFrame('pack', entries)
+    packInbox(exports, frame)
+    const begun = packOut(exports, 'pack_begin', exports.pw_pack_begin(frame.length))
+    if (begun[0] !== 0) return { status: 'failed', message: new TextDecoder().decode(begun.subarray(1)) }
+    const view = new DataView(begun.buffer, begun.byteOffset, begun.byteLength)
+    const result = { status: 'ok' as const, files: view.getUint32(1, true), missingBlobs: view.getUint32(5, true) }
+    for (;;) {
+      if (io.signal?.aborted) return { status: 'cancelled' }
+      const out = packOut(exports, 'pack_next', exports.pw_pack_next())
+      if (out[0] === 1) return { status: 'failed', message: new TextDecoder().decode(out.subarray(1)) }
+      if (out[0] === 3) {
+        await packWrite(io, out.subarray(1))
+        io.onProgress?.(1)
+        return result
+      }
+      // 2: the core wants the bytes of a blob, after the zip bytes it has written since.
+      const pathLength = new DataView(out.buffer, out.byteOffset, out.byteLength).getUint32(1, true)
+      const path = new TextDecoder().decode(out.subarray(5, 5 + pathLength))
+      await packWrite(io, out.subarray(5 + pathLength))
+      const size = sizes.get(path)
+      if (size === undefined) return { status: 'failed', message: `${path}: not a file of the folder` }
+      for (let start = 0; start < size; start += PACK_CHUNK_BYTES) {
+        if (io.signal?.aborted) return { status: 'cancelled' }
+        const end = Math.min(size, start + PACK_CHUNK_BYTES)
+        const chunk = await io.read(path, start, end)
+        if (chunk.length !== end - start) return { status: 'failed', message: `${path}: changed while it was exported` }
+        packInbox(exports, chunk)
+        const fed = packOut(exports, 'pack_feed', exports.pw_pack_feed(chunk.length))
+        if (fed[0] !== 0) return { status: 'failed', message: new TextDecoder().decode(fed.subarray(1)) }
+        await packWrite(io, fed.subarray(1))
+        given += chunk.length
+        io.onProgress?.(total > 0 ? given / total : 1)
+      }
+    }
+  } finally {
+    exports.pw_pack_cancel()
+  }
+}
+
 /**
  * One project in the page with the stream of the engine that plays it. Each call returns
  * what the Rust side reported; refusals are reports, never exceptions.
@@ -567,79 +650,17 @@ export class ProjectCore {
 
   /** Puts `bytes` in the core's inbox; the stateless pack calls read it from there. */
   private inbox(bytes: Uint8Array): void {
-    const at = this.exports.pw_inbox(bytes.length)
-    if (!at) throw new CoreError('inbox', 0)
-    new Uint8Array(this.exports.memory.buffer, at, bytes.length).set(bytes)
+    packInbox(this.exports, bytes)
   }
 
   /** The `len` bytes the last pack call left, copied out of the core's memory. */
   private packOut(call: string, len: number): Uint8Array {
-    if (len < 0) throw new CoreError(call, len)
-    return new Uint8Array(this.exports.memory.buffer, this.exports.pw_out(), len).slice()
+    return packOut(this.exports, call, len)
   }
 
-  /**
-   * Writes the `.faulkpack` of a project folder to `io.sink` (`project::file::PackWriter` in the core, so
-   * the archive is the one every host reads), one file at a time: the entries with their bytes (the
-   * project's files) are given to the core whole, the ones with a size (the blobs) are read from `io` in
-   * pieces of `PACK_CHUNK_BYTES` as the core asks for them, so memory does not depend on the size of the
-   * project. A folder that is not a valid project, or a file that is not the size it was listed with,
-   * is `failed` with the reason; an aborted `io.signal` is `cancelled`. Either way the core forgets the export.
-   * Throws a `CoreError` when the folder cannot be carried into the core at all.
-   */
-  async packExport(entries: FolderEntry[], io: PackIO): Promise<PackExport> {
-    const sizes = new Map<string, number>()
-    let total = 0
-    for (const entry of entries) {
-      if ('size' in entry) {
-        sizes.set(entry.path, entry.size)
-        total += entry.size
-      }
-    }
-    let given = 0
-    try {
-      const frame = folderFrame('pack', entries)
-      this.inbox(frame)
-      const begun = this.packOut('pack_begin', this.exports.pw_pack_begin(frame.length))
-      if (begun[0] !== 0) return { status: 'failed', message: new TextDecoder().decode(begun.subarray(1)) }
-      const view = new DataView(begun.buffer, begun.byteOffset, begun.byteLength)
-      const result = { status: 'ok' as const, files: view.getUint32(1, true), missingBlobs: view.getUint32(5, true) }
-      for (;;) {
-        if (io.signal?.aborted) return { status: 'cancelled' }
-        const out = this.packOut('pack_next', this.exports.pw_pack_next())
-        if (out[0] === 1) return { status: 'failed', message: new TextDecoder().decode(out.subarray(1)) }
-        if (out[0] === 3) {
-          await this.packWrite(io, out.subarray(1))
-          io.onProgress?.(1)
-          return result
-        }
-        // 2: the core wants the bytes of a blob, after the zip bytes it has written since.
-        const pathLength = new DataView(out.buffer, out.byteOffset, out.byteLength).getUint32(1, true)
-        const path = new TextDecoder().decode(out.subarray(5, 5 + pathLength))
-        await this.packWrite(io, out.subarray(5 + pathLength))
-        const size = sizes.get(path)
-        if (size === undefined) return { status: 'failed', message: `${path}: not a file of the folder` }
-        for (let start = 0; start < size; start += PACK_CHUNK_BYTES) {
-          if (io.signal?.aborted) return { status: 'cancelled' }
-          const end = Math.min(size, start + PACK_CHUNK_BYTES)
-          const chunk = await io.read(path, start, end)
-          if (chunk.length !== end - start) return { status: 'failed', message: `${path}: changed while it was exported` }
-          this.inbox(chunk)
-          const fed = this.packOut('pack_feed', this.exports.pw_pack_feed(chunk.length))
-          if (fed[0] !== 0) return { status: 'failed', message: new TextDecoder().decode(fed.subarray(1)) }
-          await this.packWrite(io, fed.subarray(1))
-          given += chunk.length
-          io.onProgress?.(total > 0 ? given / total : 1)
-        }
-      }
-    } finally {
-      this.exports.pw_pack_cancel()
-    }
-  }
-
-  /** Hands zip bytes to the sink (a copy: the core's memory is reused by the next call). */
-  private async packWrite(io: PackIO, bytes: Uint8Array): Promise<void> {
-    if (bytes.length > 0) await io.sink.write(bytes.slice())
+  /** Writes the `.faulkpack` of a folder to `io.sink` in this core's instance (see `exportPack`). */
+  packExport(entries: FolderEntry[], io: PackIO): Promise<PackExport> {
+    return exportPack(this.exports, entries, io)
   }
 
   /**

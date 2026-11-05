@@ -93,9 +93,11 @@ describe.each(Object.entries(THEMES))('the %s palette (#687)', (_, t) => {
 
   it('draws each of the 16 track hues as lines and notes at 3:1 on the background and on a clip', () => {
     const shade = parseFloat(v('--fk-track-shade')) / 100
-    const colors = { text: v('--fk-text'), trackShade: shade }
+    const colors = { text: v('--fk-text'), trackShade: shade, bg: v('--fk-bg') }
     for (const hue of TRACK_COLORS) {
       const ink = trackInk(hue, colors)
+      // The palette needs no more ink than the theme's shade: the floor of #698 (given the background) leaves it as it is.
+      expect(trackInk(hue, { ...colors, bg: '' }), hue).toBe(ink)
       const clip = over(hue, v('--fk-bg'), CLIP_FILL_ALPHA)
       expect(ratio(ink, v('--fk-bg')), `${hue} on the background`).toBeGreaterThanOrEqual(3)
       expect(ratio(ink, clip), `${hue} on its clip`).toBeGreaterThanOrEqual(3)
@@ -106,7 +108,7 @@ describe.each(Object.entries(THEMES))('the %s palette (#687)', (_, t) => {
 describe('the two palettes', () => {
   it('keep the hues as they are in the dark theme and shade them only in the light one', () => {
     expect(THEMES.dark['--fk-track-shade']).toBe('0%')
-    expect(trackInk(TRACK_COLORS[0], { text: THEMES.dark['--fk-text']!, trackShade: 0 })).toBe(TRACK_COLORS[0])
+    expect(trackInk(TRACK_COLORS[0], { text: THEMES.dark['--fk-text']!, trackShade: 0, bg: '' })).toBe(TRACK_COLORS[0])
     expect(parseFloat(THEMES.light['--fk-track-shade']!)).toBeGreaterThan(0)
   })
 })
