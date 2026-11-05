@@ -81,129 +81,133 @@ async function drag(page: Page, from: { x: number; y: number }, to: { x: number;
   await page.mouse.up()
 }
 
-test('an audio file is launched from the grid, heard, placed on the timeline, edited by hand, dropped on its lane, and found again after a reload', async ({
-  page,
-}) => {
-  const seen = watch(page)
-  const refused: string[] = []
-  page.on('console', (message) => {
-    if (message.type() === 'warning' && /refused/.test(message.text())) refused.push(message.text())
-  })
-  await page.setViewportSize({ width: 1600, height: 900 })
-  await page.goto('/app')
-  await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
-  await engineUp(page, 'Web')
-  test.skip((await hooks(page)) !== 'function', 'the command hooks exist in the dev server only')
+for (const theme of ['dark', 'light'] as const)
+  test(`an audio file is launched from the grid, heard, placed on the timeline, edited by hand, dropped on its lane, and found again after a reload (${theme} theme)`, async ({
+    page,
+  }) => {
+    // Both themes (#687): the waveforms take the track's ink in each.
+    await page.addInitScript((t) => localStorage.setItem('faulk.theme', t), theme)
+    const seen = watch(page)
+    const refused: string[] = []
+    page.on('console', (message) => {
+      if (message.type() === 'warning' && /refused/.test(message.text())) refused.push(message.text())
+    })
+    await page.setViewportSize({ width: 1600, height: 900 })
+    await page.goto('/app')
+    await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+    await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
+    await engineUp(page, 'Web')
+    test.skip((await hooks(page)) !== 'function', 'the command hooks exist in the dev server only')
 
-  // An audio track (the second row), a scene, and the reference file imported in its Clips panel.
-  await page.getByTestId('add-track').click()
-  await page.getByTestId('add-track-menu').getByRole('menuitem', { name: 'Audio track' }).click()
-  const track = Object.entries((await view(page)).project.tracks).find(([, t]) => t.kind === 'audio')![0]
-  await run(page, { type: 'view.select_track', track })
-  await run(page, { type: 'scene.create', name: 'A' })
-  await page.getByTestId('panel-clips').click()
-  const chooser = page.waitForEvent('filechooser')
-  await page.getByTestId('audio-import-button').click()
-  await (await chooser).setFiles(`${FIXTURES}sine-s16.wav`)
-  await expect(page.getByTestId('pool-clip')).toHaveCount(1)
-  const clip = Object.keys((await view(page)).project.tracks[track]!.clips)[0]!
-
-  // In the grid: its cell shows the waveform; a click launches it (quantized, AU-4) and the track is heard.
-  await run(page, { type: 'clip.audio.set_loop', clip, looping: { start: 0, end: 22_050 } })
-  await page.getByTestId('pool-grid').click()
-  await expect.poll(async () => (await view(page)).project.tracks[track]!.clips[clip]!.slot).not.toBeNull()
-  await page.getByTestId('nav-grid').click()
-  const cell = page.locator(`[data-cell][data-clip="${clip}"]`)
-  await expect(cell.getByTestId('cell-waveform').getByTestId('waveform')).toHaveAttribute('data-state', 'ready', { timeout: 15_000 })
-  await cell.click()
-  await expect(cell).toHaveAttribute('data-state', 'playing', { timeout: 15_000 })
-  await heard(page, track)
-  await run(page, { type: 'transport.stop' })
-  await run(page, { type: 'clip.audio.set_loop', clip, looping: null })
-
-  // On the timeline: "Place at the playhead" in the Clips panel puts the grid clip at bar 1, drawn with its waveform.
-  await page.getByTestId('nav-arrangement').click()
-  await page.getByTestId('panel-clips').click()
-  await page.getByTestId('pool-place').first().click()
-  await expect.poll(async () => (await audioPlacements(page, track)).length).toBe(1)
-  const [placed] = await audioPlacements(page, track)
-  expect(placed).toMatchObject({ start: 0, frames: { length: 22_050, offset: 0 } })
-  await expect.poll(async () => Number(await stage(page).getAttribute('data-waveforms')), { timeout: 15_000 }).toBe(1)
-  // The track plays the arrangement again (the grid held it), and the placement is heard.
-  await run(page, { type: 'launch.back_track_to_arrangement', track })
-  await run(page, { type: 'transport.play' })
-  await heard(page, track)
-  await run(page, { type: 'transport.stop' })
-  await run(page, { type: 'transport.seek', tick: 0 })
-
-  // By hand, each gesture one history entry: move it one bar later, shorten it by a quarter note, split it in two.
-  await page.getByTestId('arr-snap').selectOption('half-beat')
-  let g = await spot(page)
-  let entries = await historyCount(page)
-  await drag(page, { x: g.x(FILE_TICKS / 2), y: g.y(1) }, { x: g.x(FILE_TICKS / 2 + BAR), y: g.y(1) })
-  await expect.poll(async () => (await audioPlacements(page, track))[0]?.start).toBe(BAR)
-  expect(await historyCount(page)).toBe(entries + 1)
-  g = await spot(page)
-  entries = await historyCount(page)
-  await drag(page, { x: g.x(BAR + FILE_TICKS) - 2, y: g.y(1) }, { x: g.x(BAR + FILE_TICKS - 480), y: g.y(1) })
-  await expect.poll(async () => (await audioPlacements(page, track))[0]?.frames.length).toBe(11_025)
-  expect(await historyCount(page)).toBe(entries + 1)
-  entries = await historyCount(page)
-  await run(page, { type: 'transport.seek', tick: BAR + 240 })
-  g = await spot(page)
-  await page.mouse.click(g.x(BAR + 100), g.y(1))
-  await page.getByTestId('arr-split').click()
-  await expect
-    .poll(async () => (await audioPlacements(page, track)).map((p) => [p.start, p.frames.length, p.frames.offset]))
-    .toEqual([
-      [BAR, 5_512, 0],
-      [BAR + 240, 5_513, 5_512],
-    ])
-  expect(await historyCount(page)).toBe(entries + 1)
-
-  // A file dropped on the lane two bars on is imported and placed there.
-  g = await spot(page)
-  const bytes = [...readFileSync(`${FIXTURES}sine-s16.wav`)]
-  await page.evaluate(
-    ({ bytes, x, y }) => {
-      const transfer = new DataTransfer()
-      transfer.items.add(new File([Uint8Array.from(bytes)], 'dropped.wav', { type: 'audio/wav' }))
-      const target = document.querySelector('[data-testid="arr-stage"]')!
-      for (const type of ['dragenter', 'dragover', 'drop'])
-        target.dispatchEvent(new DragEvent(type, { dataTransfer: transfer, clientX: x, clientY: y, bubbles: true, cancelable: true }))
-    },
-    { bytes, x: g.x(3 * BAR + 50), y: g.y(1) },
-  )
-  await expect.poll(async () => (await audioPlacements(page, track)).length, { timeout: 20_000 }).toBe(3)
-  expect((await audioPlacements(page, track)).at(-1)).toMatchObject({ start: 3 * BAR, frames: { length: 22_050, offset: 0 } })
-  await expect.poll(async () => Number(await stage(page).getAttribute('data-waveforms')), { timeout: 15_000 }).toBe(3)
-
-  // The clip's gain, typed in the Clips panel: one command.
-  const gain = page.getByTestId('pool-gain').first()
-  await gain.fill('-6')
-  await gain.press('Enter')
-  await expect.poll(async () => Object.values((await view(page)).project.tracks[track]!.clips).some((c) => c.content.audio?.gain_db === -6)).toBe(true)
-
-  // After a reload the draft comes back with its three placements, drawn with their waveforms.
-  const before = await audioPlacements(page, track)
-  await page.waitForTimeout(2_000)
-  await page.reload()
-  await expect.poll(async () => (await audioPlacements(page, track).catch(() => [])).length, { timeout: 30_000 }).toBe(3)
-  expect(await audioPlacements(page, track)).toEqual(before)
-  await page.getByTestId('nav-arrangement').click()
-  await expect.poll(async () => Number(await stage(page).getAttribute('data-waveforms')), { timeout: 20_000 }).toBe(3)
-
-  if (process.env.FAULK_E2E_SHOTS) {
-    g = await spot(page)
-    await page.mouse.move(g.x(2 * BAR), g.y(1))
-    await page.keyboard.down('Control')
-    for (let i = 0; i < 6; i++) await page.mouse.wheel(0, -200)
-    await page.keyboard.up('Control')
-    await page.screenshot({ path: `${process.env.FAULK_E2E_SHOTS}/audio-clips-timeline.png` })
-    await page.getByTestId('nav-grid').click()
+    // An audio track (the second row), a scene, and the reference file imported in its Clips panel.
+    await page.getByTestId('add-track').click()
+    await page.getByTestId('add-track-menu').getByRole('menuitem', { name: 'Audio track' }).click()
+    const track = Object.entries((await view(page)).project.tracks).find(([, t]) => t.kind === 'audio')![0]
+    await run(page, { type: 'view.select_track', track })
+    await run(page, { type: 'scene.create', name: 'A' })
     await page.getByTestId('panel-clips').click()
-    await page.screenshot({ path: `${process.env.FAULK_E2E_SHOTS}/audio-clips-grid.png` })
-  }
-  expect(refused).toEqual([])
-  expect(seen.errors).toEqual([])
-})
+    const chooser = page.waitForEvent('filechooser')
+    await page.getByTestId('audio-import-button').click()
+    await (await chooser).setFiles(`${FIXTURES}sine-s16.wav`)
+    await expect(page.getByTestId('pool-clip')).toHaveCount(1)
+    const clip = Object.keys((await view(page)).project.tracks[track]!.clips)[0]!
+
+    // In the grid: its cell shows the waveform; a click launches it (quantized, AU-4) and the track is heard.
+    await run(page, { type: 'clip.audio.set_loop', clip, looping: { start: 0, end: 22_050 } })
+    await page.getByTestId('pool-grid').click()
+    await expect.poll(async () => (await view(page)).project.tracks[track]!.clips[clip]!.slot).not.toBeNull()
+    await page.getByTestId('nav-grid').click()
+    const cell = page.locator(`[data-cell][data-clip="${clip}"]`)
+    await expect(cell.getByTestId('cell-waveform').getByTestId('waveform')).toHaveAttribute('data-state', 'ready', { timeout: 15_000 })
+    await cell.click()
+    await expect(cell).toHaveAttribute('data-state', 'playing', { timeout: 15_000 })
+    await heard(page, track)
+    await run(page, { type: 'transport.stop' })
+    await run(page, { type: 'clip.audio.set_loop', clip, looping: null })
+
+    // On the timeline: "Place at the playhead" in the Clips panel puts the grid clip at bar 1, drawn with its waveform.
+    await page.getByTestId('nav-arrangement').click()
+    await page.getByTestId('panel-clips').click()
+    await page.getByTestId('pool-place').first().click()
+    await expect.poll(async () => (await audioPlacements(page, track)).length).toBe(1)
+    const [placed] = await audioPlacements(page, track)
+    expect(placed).toMatchObject({ start: 0, frames: { length: 22_050, offset: 0 } })
+    await expect.poll(async () => Number(await stage(page).getAttribute('data-waveforms')), { timeout: 15_000 }).toBe(1)
+    // The track plays the arrangement again (the grid held it), and the placement is heard.
+    await run(page, { type: 'launch.back_track_to_arrangement', track })
+    await run(page, { type: 'transport.play' })
+    await heard(page, track)
+    await run(page, { type: 'transport.stop' })
+    await run(page, { type: 'transport.seek', tick: 0 })
+
+    // By hand, each gesture one history entry: move it one bar later, shorten it by a quarter note, split it in two.
+    await page.getByTestId('arr-snap').selectOption('half-beat')
+    let g = await spot(page)
+    let entries = await historyCount(page)
+    await drag(page, { x: g.x(FILE_TICKS / 2), y: g.y(1) }, { x: g.x(FILE_TICKS / 2 + BAR), y: g.y(1) })
+    await expect.poll(async () => (await audioPlacements(page, track))[0]?.start).toBe(BAR)
+    expect(await historyCount(page)).toBe(entries + 1)
+    g = await spot(page)
+    entries = await historyCount(page)
+    await drag(page, { x: g.x(BAR + FILE_TICKS) - 2, y: g.y(1) }, { x: g.x(BAR + FILE_TICKS - 480), y: g.y(1) })
+    await expect.poll(async () => (await audioPlacements(page, track))[0]?.frames.length).toBe(11_025)
+    expect(await historyCount(page)).toBe(entries + 1)
+    entries = await historyCount(page)
+    await run(page, { type: 'transport.seek', tick: BAR + 240 })
+    g = await spot(page)
+    await page.mouse.click(g.x(BAR + 100), g.y(1))
+    await page.getByTestId('arr-split').click()
+    await expect
+      .poll(async () => (await audioPlacements(page, track)).map((p) => [p.start, p.frames.length, p.frames.offset]))
+      .toEqual([
+        [BAR, 5_512, 0],
+        [BAR + 240, 5_513, 5_512],
+      ])
+    expect(await historyCount(page)).toBe(entries + 1)
+
+    // A file dropped on the lane two bars on is imported and placed there.
+    g = await spot(page)
+    const bytes = [...readFileSync(`${FIXTURES}sine-s16.wav`)]
+    await page.evaluate(
+      ({ bytes, x, y }) => {
+        const transfer = new DataTransfer()
+        transfer.items.add(new File([Uint8Array.from(bytes)], 'dropped.wav', { type: 'audio/wav' }))
+        const target = document.querySelector('[data-testid="arr-stage"]')!
+        for (const type of ['dragenter', 'dragover', 'drop'])
+          target.dispatchEvent(new DragEvent(type, { dataTransfer: transfer, clientX: x, clientY: y, bubbles: true, cancelable: true }))
+      },
+      { bytes, x: g.x(3 * BAR + 50), y: g.y(1) },
+    )
+    await expect.poll(async () => (await audioPlacements(page, track)).length, { timeout: 20_000 }).toBe(3)
+    expect((await audioPlacements(page, track)).at(-1)).toMatchObject({ start: 3 * BAR, frames: { length: 22_050, offset: 0 } })
+    await expect.poll(async () => Number(await stage(page).getAttribute('data-waveforms')), { timeout: 15_000 }).toBe(3)
+
+    // The clip's gain, typed in the Clips panel: one command.
+    const gain = page.getByTestId('pool-gain').first()
+    await gain.fill('-6')
+    await gain.press('Enter')
+    await expect.poll(async () => Object.values((await view(page)).project.tracks[track]!.clips).some((c) => c.content.audio?.gain_db === -6)).toBe(true)
+
+    // After a reload the draft comes back with its three placements, drawn with their waveforms.
+    const before = await audioPlacements(page, track)
+    await page.waitForTimeout(2_000)
+    await page.reload()
+    await expect.poll(async () => (await audioPlacements(page, track).catch(() => [])).length, { timeout: 30_000 }).toBe(3)
+    expect(await audioPlacements(page, track)).toEqual(before)
+    await page.getByTestId('nav-arrangement').click()
+    await expect.poll(async () => Number(await stage(page).getAttribute('data-waveforms')), { timeout: 20_000 }).toBe(3)
+
+    if (process.env.FAULK_E2E_SHOTS) {
+      g = await spot(page)
+      await page.mouse.move(g.x(2 * BAR), g.y(1))
+      await page.keyboard.down('Control')
+      for (let i = 0; i < 6; i++) await page.mouse.wheel(0, -200)
+      await page.keyboard.up('Control')
+      await page.screenshot({ path: `${process.env.FAULK_E2E_SHOTS}/audio-clips-timeline-${theme}.png` })
+      await page.getByTestId('nav-grid').click()
+      await page.getByTestId('panel-clips').click()
+      await page.screenshot({ path: `${process.env.FAULK_E2E_SHOTS}/audio-clips-grid-${theme}.png` })
+    }
+    expect(refused).toEqual([])
+    expect(seen.errors).toEqual([])
+  })
