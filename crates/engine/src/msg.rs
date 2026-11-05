@@ -215,7 +215,7 @@ pub use codec::{
 pub const MSG_VERSION: u8 = 1;
 
 /// Version of the [`Feedback`] layout.
-pub const FEEDBACK_VERSION: u8 = 8;
+pub const FEEDBACK_VERSION: u8 = 9;
 
 /// Size of a [`Header`] in bytes.
 pub const HEADER_BYTES: usize = 16;
@@ -1711,7 +1711,7 @@ pub struct RecordedNote {
 }
 
 /// Size of the fixed part of a [`Feedback`] on the wire.
-pub const FEEDBACK_HEADER_BYTES: usize = 92;
+pub const FEEDBACK_HEADER_BYTES: usize = 100;
 
 /// What the engine reports to the page, about 30 times per second. Fixed little-endian
 /// layout, written by the audio thread into a region sized by [`Feedback::size_for`]:
@@ -1757,7 +1757,14 @@ pub const FEEDBACK_HEADER_BYTES: usize = 92;
 ///     88    4 silenced_frames (u32, cumulative since the channel was built, saturating: stereo
 ///             frames the output protection turned to silence because a sample was non-finite,
 ///             `Engine::limiter_silenced`; version 8, #667)
-///     92      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
+///     92    8 host_frame (u64: the host's frame at the report's playhead, the clock the host
+///             gave `Engine::set_host_frame` (the web worklet's `currentFrame`) carried to the
+///             sample the playhead (tick, frame above) sits at; a host that gives none (the
+///             helper) has the engine's own sample counter; last word of the header; version 9, #733).
+///             It keeps counting while the transport is stopped, where `playhead_frame` stops: `host_frame -
+///             playhead_frame` is the host frame of position 0 only while the transport runs at one tempo,
+///             with no loop wrap and no sample-rate change since the Play.
+///    100      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
 ///             largest gain reduction in decibels of the strip's devices over the period, version 4):
 ///             one per track slot below `tracks` (zeros for an empty slot; peak and RMS after the
 ///             track's fader), then the output's meter after the master (version 2); the master's
@@ -1774,6 +1781,8 @@ pub struct Feedback {
     pub seq: u32,
     pub playhead_tick: Tick,
     pub playhead_frame: Frame,
+    /// The host's frame at the playhead (offset 92, version 9, #733).
+    pub host_frame: u64,
     pub cpu_load: f32,
     /// The largest load of one peak window closed in the period (`crate::host`); with a
     /// coarse clock a period may close none and carry the last window, which can be under

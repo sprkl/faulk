@@ -2383,12 +2383,21 @@ impl Engine {
         &self.transport
     }
 
+    /// The host's frame of the start of the next block, where the playhead of a report sits (#733): the
+    /// last [`Engine::set_host_frame`] origin carried to the engine's sample counter. A host that never
+    /// gave its clock has the engine's counter. Saturates, never panics. No allocation.
+    pub fn host_frame_at_playhead(&self) -> u64 {
+        let frame = i128::from(self.host_origin) + i128::from(self.transport.total_samples());
+        u64::try_from(frame).unwrap_or(0)
+    }
+
     /// Writes the transport part of a report: its state and the playhead (the start of
     /// the next block). No allocation.
     pub fn report_transport(&self, feedback: &mut Feedback) {
         feedback.transport = self.transport.state();
         feedback.playhead_tick = self.transport.playhead_tick();
         feedback.playhead_frame = self.transport.playhead_frame();
+        feedback.host_frame = self.host_frame_at_playhead();
     }
 
     /// The grid cells that are not idle, for the report ([`crate::launcher::active_clips`]):
