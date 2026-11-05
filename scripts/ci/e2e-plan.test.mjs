@@ -45,14 +45,14 @@ test('every spec on disk runs whole, its @full tests included, when its own file
   assert.ok(!both.specs.includes('mixer'))
 })
 
-test('a file of the store runs the streamed export specs whole, @full included; other files do not (#737)', () => {
+test('a file of the store runs the streamed pack specs whole, @full included; other files do not (#737)', () => {
   for (const [, names] of FULL_WHEN) for (const n of names) assert.ok(EXISTING.includes(n), `FULL_WHEN names "${n}": no such spec`)
   const store = plan(['web/src/lib/storage/storage.svelte.ts'])
   assert.equal(store.tier, 'area')
-  assert.deepEqual(store.changed, ['pack-longtasks', 'pack-stream'])
+  assert.deepEqual(store.changed, ['pack-import', 'pack-longtasks', 'pack-stream'])
   // The rest of the area keeps its @full tests to the whole suite.
   assert.ok(store.specs.includes('project-store'))
-  assert.ok(!store.specs.includes('pack-stream') && !store.specs.includes('pack-longtasks'))
+  for (const n of store.changed) assert.ok(!store.specs.includes(n), n)
   assert.match(store.why, /@full specs for: web\/src\/lib\/storage\/storage\.svelte\.ts/)
   // Not for a file outside the store, even one of the same area.
   for (const f of ['web/src/views/shell/StorageBanners.svelte', 'web/src/lib/project/core.ts', 'web/src/views/mixer/M.svelte']) {

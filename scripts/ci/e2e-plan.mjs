@@ -230,13 +230,14 @@ export const RULES = [
 /**
  * Specs that run whole, their `@full` tests included, when a file they prove changes, as if their own file had
  * (#737). The 90 MiB `.faulkpack` export to a chosen file (`pack-stream`, `pack-longtasks`) is the only browser test
- * that reads the streamed zip back (its central directory, the blob whole), and it is `@full` for its cost (an audio
- * import of 90 MiB, about 10 s each locally): a change of the store (`web/src/lib/storage/`, where the export, its
- * Worker and its banner live) ran the area without it, and a broken end of export went unseen until a whole-suite run.
+ * that reads the streamed zip back (its central directory, the blob whole), and the large import (`pack-import`) the
+ * only one of the streamed import; all are `@full` for their cost (tens of MiB generated and moved, about 10 s each
+ * locally): a change of the store (`web/src/lib/storage/`, where the export, the import, their Worker and the banner
+ * live) ran the area without them, and a broken end of export went unseen until a whole-suite run.
  * The other `@full` tests of the storage area stay to the whole suite: their French variants are covered by
  * `i18n.test.ts` and the English runs, and their performance prints by the release run (`verification.md` > `@full`).
  */
-export const FULL_WHEN = [[/^web\/src\/lib\/storage\//, ['pack-stream', 'pack-longtasks']]]
+export const FULL_WHEN = [[/^web\/src\/lib\/storage\//, ['pack-stream', 'pack-longtasks', 'pack-import']]]
 
 /**
  * The core: the app's backbone, run with every change the page can see (alone for a shared file, with
