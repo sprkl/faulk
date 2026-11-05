@@ -55,6 +55,24 @@ describe('importing audio files from the page', () => {
     expect(importer.failure).toBeNull()
   })
 
+  it('hands each staged file to a placer when one is given (AU-6), and reports one that makes no clip', async () => {
+    const { importer, log, ran } = setup()
+    const placed: [string, number][] = []
+    const placer = (m: AudioMedia, index: number) => {
+      placed.push([m.name, index])
+      return index === 0
+    }
+    await importer.importFiles('T1', [file('kick.wav'), file('snare.wav')], placer)
+    // The placer runs its own commands: none goes through the default import.
+    expect(ran).toEqual([])
+    expect(log).toEqual(['import kick.wav', 'stage kick.wav', 'import snare.wav', 'stage snare.wav'])
+    expect(placed).toEqual([
+      ['kick.wav', 0],
+      ['snare.wav', 1],
+    ])
+    expect(importer.failure).toMatchObject({ name: 'snare.wav', code: 'store' })
+  })
+
   it('never opens a dialog without a click: it says so instead', () => {
     const { importer, log } = setup({ canAsk: () => false })
     importer.choose('T1')

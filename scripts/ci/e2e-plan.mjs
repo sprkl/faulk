@@ -29,7 +29,7 @@ export const areas = (...names) => {
 // e2e-table:begin
 /** Named areas: the specs that exercise one part of the page. Rules below are unions of them. */
 export const AREA = {
-  arrangement: ['arrangement', 'arrangement-time', 'arrangement-handles', 'arrangement-view', 'arrangement-draw', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard', 'discoverability', 'keyboard-create', 'recording', 'piano-roll-follow', 'clip-pool', 'markers', 'context-menu', 'toolbar-overflow', 'device-browser'],
+  arrangement: ['arrangement', 'audio-clips', 'arrangement-time', 'arrangement-handles', 'arrangement-view', 'arrangement-draw', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard', 'discoverability', 'keyboard-create', 'recording', 'piano-roll-follow', 'clip-pool', 'markers', 'context-menu', 'toolbar-overflow', 'device-browser'],
   clips: ['clip-pool'],
   grid: ['clip-names', 'clip-pool', 'grid', 'grid-clips', 'grid-to-arrangement', 'recording'],
   history: ['history', 'history-cost', 'history-names', 'keyboard-create'],
@@ -42,8 +42,8 @@ export const AREA = {
   keyboard: ['keyboard', 'keyboard-all-views', 'layout-4', 'live-input', 'typing-mode', 'track-state'],
   export: ['export-audio'],
   storage: ['project-store', 'project-save', 'project-rename', 'project-save-as-name', 'open-project', 'browser-storage', 'storage-commands', 'local-access', 'discoverability', 'open-url', 'audio-import', 'pack-stream'],
-  // Importing audio files (AU-1): the pipeline in the store's Worker, the Clips panel that starts it, the storage it writes; their waveforms (AU-2).
-  audio: ['audio-import', 'audio-play', 'clip-pool', 'browser-storage', 'project-store', 'waveform'],
+  // Importing audio files (AU-1): the pipeline in the store's Worker, the Clips panel that starts it, the storage it writes; their waveforms (AU-2); audio clips in the grid and the timeline (AU-6).
+  audio: ['audio-clips', 'audio-import', 'audio-play', 'clip-pool', 'browser-storage', 'project-store', 'waveform'],
   shortcuts: ['discoverability', 'keyboard-all-views'],
   shortcutsDialog: ['discoverability', 'keyboard-all-views', 'navigation'],
   bottomPanel: ['bottom-panel', 'layout-4', 'ux-quick-wins'],
@@ -138,7 +138,7 @@ export const RULES = [
   [/^web\/src\/lib\/components\/Knob\.svelte$/, areas('devices', 'valueEntry')],
   [/^web\/src\/lib\/components\/LevelMeter\.svelte$/, areas('arrangement', 'mixer', 'topBar')],
   [/^web\/src\/lib\/components\/LinkMark\.svelte$/, areas('clips', 'grid', 'audio')],
-  [/^web\/src\/lib\/components\/Waveform\.svelte$/, areas('clips', 'audio')], // the Clips panel's rows and the /dev/waveform surface (AU-2)
+  [/^web\/src\/lib\/components\/Waveform\.svelte$/, areas('clips', 'audio', 'grid')], // the Clips panel's rows, the /dev/waveform surface (AU-2), the grid's audio cells (AU-6)
   [/^web\/src\/lib\/components\/Monogram\.svelte$/, areas('landing', 'topBar')],
   [/^web\/src\/lib\/components\/PanControl\.svelte$/, areas('mixer', 'tracks')],
   [/^web\/src\/lib\/components\/ParamControl\.svelte$/, areas('devices', 'valueEntry')],
@@ -161,6 +161,7 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/automation\.ts$/, areas('arrangement', 'devices', 'mixer')],
   [/^web\/src\/lib\/i18n\/browser\.ts$/, areas('deviceBrowser', 'tracks')],
   [/^web\/src\/lib\/i18n\/clips\.ts$/, areas('clips', 'audio')],
+  [/^web\/src\/lib\/i18n\/audio\.ts$/, areas('arrangement', 'grid', 'clips', 'audio')],
   [/^web\/src\/lib\/i18n\/confirm\.ts$/, areas('helper', 'history')], // shown by the agents' question (lib/agents/, views/confirm/)
   [/^web\/src\/lib\/i18n\/(devices|presets|synth|drums|echo|reverb|filter|compressor)\.ts$/, areas('devices')],
   [/^web\/src\/lib\/i18n\/controls\.ts$/, areas('mixer', 'tracks', 'devices', 'valueEntry', 'arrangement', 'pianoRoll')],

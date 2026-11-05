@@ -350,8 +350,46 @@ pub fn examples() -> Vec<(Command, State)> {
         placements: vec![audio, f.b.clone()],
     });
     all.push((delete.clone(), placed.clone()));
-    let (state, restore) = after(placed, &delete);
+    let (state, restore) = after(placed.clone(), &delete);
     all.push((restore, state));
+    // The audio branches (AU-6): an audio placement moved, resized at each edge, split,
+    // copied (an independent copy makes an audio clip; its undo brings back nothing but
+    // removes it) and repeated, each with the restore that undoes it.
+    let audio = with_audio_placement(&f).1;
+    for command in [
+        arrangement::Command::Move {
+            placements: vec![audio.clone()],
+            by: Tick(960),
+        },
+        arrangement::Command::Resize {
+            placement: audio.clone(),
+            edge: Edge::End,
+            to: Tick(4320),
+        },
+        arrangement::Command::Resize {
+            placement: audio.clone(),
+            edge: Edge::Start,
+            to: Tick(3600),
+        },
+        arrangement::Command::Split {
+            placement: audio.clone(),
+            at: Tick(4320),
+        },
+        arrangement::Command::Duplicate {
+            placements: vec![audio.clone()],
+            linked: false,
+            by: None,
+        },
+        arrangement::Command::Repeat {
+            placement: audio.clone(),
+            until: Tick(3840 * 3),
+        },
+    ] {
+        let command = a(command);
+        all.push((command.clone(), placed.clone()));
+        let (state, restore) = after(placed.clone(), &command);
+        all.push((restore, state));
+    }
     all
 }
 

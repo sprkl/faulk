@@ -613,37 +613,76 @@ fn a_random_sweep_keeps_the_project_valid_free_of_overlaps_and_undoable() {
 }
 
 #[test]
-fn an_audio_placement_anywhere_refuses_the_whole_command_and_nothing_moves() {
+fn audio_placements_shift_split_and_cut_in_frames_with_the_time() {
     let f = base();
     let mut s = f.state.clone();
     let mut ids = IdGenerator::new(1_700_000_000_500, 0x00DD_0000_0000_0000_0000);
-    s.project
-        .tracks
-        .get_mut(&f.audio_track)
-        .unwrap()
-        .placements
-        .insert(
-            ::project::PlacementId::generate(&mut ids),
-            ::project::Placement {
-                clip: f.audio_clip.clone(),
-                start: Tick(0),
-                span: Span::Frames {
-                    length: ::project::Frame::new(44_100),
-                    offset: ::project::Frame::new(0),
+    let (early, late) = (
+        ::project::PlacementId::generate(&mut ids),
+        ::project::PlacementId::generate(&mut ids),
+    );
+    // One second (1920 ticks at 120 bpm) from tick 0, and another from tick 3840.
+    for (id, start) in [(&early, 0), (&late, 3840)] {
+        s.project
+            .tracks
+            .get_mut(&f.audio_track)
+            .unwrap()
+            .placements
+            .insert(
+                id.clone(),
+                ::project::Placement {
+                    clip: f.audio_clip.clone(),
+                    start: Tick(start),
+                    span: Span::Frames {
+                        length: ::project::Frame::new(44_100),
+                        offset: ::project::Frame::new(0),
+                    },
                 },
-            },
-        );
-    s.project.validate().unwrap();
-    for command in [insert(100, 960), delete(100, 960)] {
-        let error = check_refusal(&command, &s, &context()).unwrap();
-        // The refusal names the field and says why, so that an agent or a person knows what to do.
-        let CommandError::Invalid { field, message } = &error else {
-            panic!("{error:?}")
-        };
-        assert_eq!(field, "track");
-        assert!(message.contains("audio"), "{message}");
-        assert!(message.contains("insert or delete time"), "{message}");
+            );
     }
+    s.project.validate().unwrap();
+    let audio = |state: &State| {
+        let mut out: Vec<(i64, u64, u64)> = state.project.tracks[&f.audio_track]
+            .placements
+            .values()
+            .map(|p| match p.span {
+                Span::Frames { length, offset } => (p.start.get(), length.get(), offset.get()),
+                Span::Ticks { .. } => panic!("ticks"),
+            })
+            .collect();
+        out.sort();
+        out
+    };
+    // Inserting a bar at tick 960 splits the first one there (half a second each side) and
+    // moves the second one a bar later.
+    let mut inserted = s.clone();
+    let mut ctx = context();
+    let outcome = run(&insert(960, 3840), &mut inserted, &mut ctx).unwrap();
+    inserted.project.validate().unwrap();
+    assert_eq!(
+        audio(&inserted),
+        [
+            (0, 22_050, 0),
+            (960 + 3840, 22_050, 22_050),
+            (3840 + 3840, 44_100, 0)
+        ]
+    );
+    let Undo::Inverse(undo) = outcome.undo else {
+        panic!()
+    };
+    run(&undo, &mut inserted, &mut ctx).unwrap();
+    assert_eq!(inserted.project, s.project);
+    // Deleting [960, 4320) keeps the first half of the first one, drops nothing whole, and
+    // brings the second one back from its first quarter on, at tick 960.
+    let mut deleted = s.clone();
+    let outcome = run(&delete(960, 4320 - 960), &mut deleted, &mut ctx).unwrap();
+    deleted.project.validate().unwrap();
+    assert_eq!(audio(&deleted), [(0, 22_050, 0), (960, 33_075, 11_025)]);
+    let Undo::Inverse(undo) = outcome.undo else {
+        panic!()
+    };
+    run(&undo, &mut deleted, &mut ctx).unwrap();
+    assert_eq!(deleted.project, s.project);
 }
 
 #[test]

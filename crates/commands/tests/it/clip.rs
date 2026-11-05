@@ -338,7 +338,7 @@ fn restore_refuses_a_collision_a_bad_snapshot_and_a_bad_track() {
 }
 
 #[test]
-fn duplicate_is_independent_and_audio_clips_are_refused() {
+fn duplicate_is_independent_and_keeps_to_the_kind_of_track() {
     let f = fx();
     let mut state = f.state.clone();
     let out = run(
@@ -370,7 +370,26 @@ fn duplicate_is_independent_and_audio_clips_are_refused() {
         "the original is untouched"
     );
     assert_eq!(notes_of(&state, &f, &copy).len(), 2);
-    // The slot of the copy is taken, or the clip is audio.
+    // An audio clip is copied into a slot of its audio track (AU-6): the same file and range.
+    let mut audio = f.state.clone();
+    let out = run(
+        &c(clip::Command::Duplicate {
+            clip: f.audio_clip.clone(),
+            slot: Some(f.scene_free.clone()),
+            track: None,
+        }),
+        &mut audio,
+        &mut context(),
+    )
+    .unwrap();
+    let Output::Clip(clip::Output::Duplicate { clip: audio_copy }) = out.output else {
+        panic!()
+    };
+    let held = &audio.project.tracks[&f.audio_track].clips;
+    assert_eq!(held[&audio_copy].content, held[&f.audio_clip].content);
+    assert_eq!(held[&audio_copy].slot, Some(f.scene_free.clone()));
+    // The slot of the copy is taken, a copy of an audio clip into a MIDI track (and of a
+    // MIDI one into an audio track), or what an audio clip does not have.
     for command in [
         clip::Command::Duplicate {
             clip: f.clip.clone(),
@@ -380,7 +399,12 @@ fn duplicate_is_independent_and_audio_clips_are_refused() {
         clip::Command::Duplicate {
             clip: f.audio_clip.clone(),
             slot: None,
-            track: None,
+            track: Some(f.track.clone()),
+        },
+        clip::Command::Duplicate {
+            clip: f.clip.clone(),
+            slot: None,
+            track: Some(f.audio_track.clone()),
         },
         clip::Command::SetLoop {
             clip: f.audio_clip.clone(),

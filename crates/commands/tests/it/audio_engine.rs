@@ -359,3 +359,75 @@ fn deleting_an_audio_placement_empties_the_track_but_keeps_the_source() {
     r.run(&undo());
     assert_eq!(r.model.placements.values().flatten().count(), 1);
 }
+
+#[test]
+fn the_arrangement_edits_of_audio_placements_keep_the_engine_in_step_both_ways() {
+    use commands::arrangement::{Command as A, Edge};
+    let f = fx();
+    let (state, placement) = with_audio_placement(&f);
+    let mut r = Rig::new(state);
+    let sources = r.model.sources.len();
+    let ar = Command::Arrangement;
+    let steps = [
+        ar(A::Move {
+            placements: vec![placement.clone()],
+            by: Tick(960),
+        }),
+        ar(A::Resize {
+            placement: placement.clone(),
+            edge: Edge::End,
+            to: Tick(4800 + 480),
+        }),
+        ar(A::Resize {
+            placement: placement.clone(),
+            edge: Edge::Start,
+            to: Tick(4800 - 240),
+        }),
+        ar(A::Split {
+            placement: placement.clone(),
+            at: Tick(4800),
+        }),
+        // An independent copy: a new clip of the same media, so no new source.
+        ar(A::Duplicate {
+            placements: vec![placement.clone()],
+            linked: false,
+            by: Some(Tick(7680)),
+        }),
+        ar(A::Duplicate {
+            placements: vec![placement.clone()],
+            linked: true,
+            by: Some(Tick(15_360)),
+        }),
+        ar(A::Repeat {
+            placement: placement.clone(),
+            until: Tick(30_000),
+        }),
+        ar(A::InsertTime {
+            at: Tick(4700),
+            length: Tick(3840),
+        }),
+        ar(A::DeleteTime {
+            from: Tick(100),
+            to: Tick(2000),
+        }),
+        c(clip::Command::Duplicate {
+            clip: f.audio_clip.clone(),
+            slot: Some(f.scene_free.clone()),
+            track: None,
+        }),
+    ];
+    for step in &steps {
+        r.run(step);
+        assert_eq!(
+            r.model.sources.len(),
+            sources,
+            "{step:?}: one source per media"
+        );
+    }
+    for _ in &steps {
+        r.run(&undo());
+    }
+    for _ in &steps {
+        r.run(&Command::History(history::Command::Redo {}));
+    }
+}

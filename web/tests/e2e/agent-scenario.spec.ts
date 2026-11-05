@@ -326,9 +326,8 @@ test('an agent builds a song over MCP: tracks, scenes, clips, a filter lane, a l
     await mcp.call('launch_stop_all')
     await mcp.call('transport_stop')
 
-    // The arrangement: the second scene at bar 1 (copies of its MIDI clips), the audio clip there too; back to it, play.
+    // The arrangement: the second scene at bar 1 (copies of its clips, the audio one included since AU-6); back to it, play.
     await mcp.call('arrangement_place_scene', { scene: scenes[1], start: 0 })
-    await mcp.call('clip_import_audio', { track: audio, media, at: { at: 'arrangement', start: 0 }, name: 'Sine' })
     await mcp.call('launch_back_to_arrangement')
     await mcp.call('transport_seek', { tick: 0 })
     // Clears what the meters held, so that what they show next is the arrangement's.

@@ -578,7 +578,7 @@ fn a_repeat_lays_linked_copies_end_to_end_and_shortens_the_last_one() {
 }
 
 #[test]
-fn an_audio_placement_is_not_repeated_and_nothing_changes() {
+fn an_audio_placement_is_repeated_whole_then_cut_at_the_last_frame_that_fits() {
     let f = fx();
     let mut s = f.state.clone();
     let mut ids = ::project::IdGenerator::new(1_700_000_000_700, 0x00DD_0000_0000_0000_0000);
@@ -600,16 +600,66 @@ fn an_audio_placement_is_not_repeated_and_nothing_changes() {
             },
         );
     s.project.validate().unwrap();
-    let error = check_refusal(
-        &a(arrangement::Command::Repeat {
-            placement: audio,
+    // One second at 120 bpm is 1920 ticks: seven whole linked copies fill up to bar 4.
+    let second = one_second_in_ticks(&s);
+    assert_eq!(second, 1920);
+    let (out, _) = ok(
+        &mut s,
+        arrangement::Command::Repeat {
+            placement: audio.clone(),
             until: Tick(3840 * 4),
-        }),
-        &s,
-        &context(),
-    )
-    .unwrap();
-    assert!(matches!(error, CommandError::Invalid { .. }), "{error:?}");
+        },
+    );
+    let arrangement::Output::Repeat { placements, .. } = out else {
+        panic!()
+    };
+    let track = &s.project.tracks[&f.audio_track];
+    let spans: Vec<(i64, u64, u64)> = placements
+        .iter()
+        .map(|id| match track.placements[id].span {
+            Span::Frames { length, offset } => {
+                (track.placements[id].start.get(), length.get(), offset.get())
+            }
+            Span::Ticks { .. } => panic!("ticks"),
+        })
+        .collect();
+    assert_eq!(
+        spans,
+        [
+            (1920, 44_100, 0),
+            (3840, 44_100, 0),
+            (5760, 44_100, 0),
+            (7680, 44_100, 0),
+            (9600, 44_100, 0),
+            (11_520, 44_100, 0),
+            (13_440, 44_100, 0),
+        ]
+    );
+    for id in &placements {
+        assert_eq!(track.placements[id].clip, f.audio_clip, "linked copies");
+    }
+    // A repeat that ends inside a copy cuts it at the last frame whose ticks fit.
+    let mut s2 = s.clone();
+    let last = placements.last().unwrap().clone();
+    let (out, _) = ok(
+        &mut s2,
+        arrangement::Command::Repeat {
+            placement: last,
+            until: Tick(15_360 + 480),
+        },
+    );
+    let arrangement::Output::Repeat { placements, .. } = out else {
+        panic!()
+    };
+    let cut = &s2.project.tracks[&f.audio_track].placements[&placements[0]];
+    assert_eq!(cut.start, Tick(15_360));
+    assert_eq!(
+        cut.span,
+        Span::Frames {
+            length: ::project::Frame::new(11_025),
+            offset: ::project::Frame::new(0),
+        }
+    );
 }
 
 #[test]
@@ -1030,6 +1080,7 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
         put,
         remove,
         clips: vec![],
+        audio_clips: vec![],
         remove_clips,
     };
     let fresh = PlacementId::generate(&mut ::project::IdGenerator::for_tests());
@@ -1152,6 +1203,7 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
                 id: id.clone(),
                 snapshot,
             }],
+            audio_clips: vec![],
             remove_clips: vec![],
         }],
     };
@@ -1231,20 +1283,66 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
                     },
                 })
                 .collect(),
+            audio_clips: vec![],
             remove_clips: vec![],
         }],
     };
     invalid(two(Some(scene)));
-    // An audio track takes back placements only, never clips.
+    // An audio track takes back audio clips only (`audio_clips`), a MIDI track MIDI ones.
+    let midi_record = arrangement::ClipRecord {
+        id: c1.clone(),
+        snapshot: snap(),
+    };
     invalid(C::Restore {
         edits: vec![arrangement::TrackEdit {
             track: f.audio_track.clone(),
             put: vec![],
             remove: vec![],
-            clips: vec![],
-            remove_clips: vec![f.audio_clip.clone()],
+            clips: vec![midi_record],
+            audio_clips: vec![],
+            remove_clips: vec![],
         }],
     });
+    let audio_record = arrangement::AudioClipRecord {
+        id: c2.clone(),
+        snapshot: audio_snapshot(&f),
+    };
+    invalid(C::Restore {
+        edits: vec![arrangement::TrackEdit {
+            track: f.track.clone(),
+            put: vec![],
+            remove: vec![],
+            clips: vec![],
+            audio_clips: vec![audio_record],
+            remove_clips: vec![],
+        }],
+    });
+}
+
+/// The snapshot of the fixture's audio clip, as `arrangement.restore` brings one back.
+fn audio_snapshot(f: &ArFx) -> commands::clip::AudioClipSnapshot {
+    let clip = &f.state.project.tracks[&f.audio_track].clips[&f.audio_clip];
+    let ::project::ClipContent::Audio {
+        media,
+        start,
+        frames,
+        gain_db,
+        looping,
+    } = &clip.content
+    else {
+        panic!("not an audio clip")
+    };
+    commands::clip::AudioClipSnapshot {
+        name: clip.name.clone(),
+        color: clip.color,
+        slot: None,
+        launch_quantize: None,
+        media: media.clone(),
+        start: *start,
+        frames: *frames,
+        gain_db: *gain_db,
+        looping: *looping,
+    }
 }
 
 /// An `arrangement.restore` of one audio-track edit.
@@ -1255,6 +1353,7 @@ fn audio_restore(put: Vec<arrangement::PlacementRecord>, f: &ArFx) -> arrangemen
             put,
             remove: vec![],
             clips: vec![],
+            audio_clips: vec![],
             remove_clips: vec![],
         }],
     }
@@ -1325,22 +1424,39 @@ fn placing_an_audio_clip_puts_it_whole_and_undo_removes_it() {
 }
 
 #[test]
-fn placing_an_audio_clip_never_carves_and_refuses_an_overlap() {
+fn placing_an_audio_clip_carves_what_it_covers_in_frames() {
     let f = fx();
-    let (placed, _) = arrangement_examples::with_audio_placement(&f);
-    // The placement plays 22 050 frames from tick 3840: half a second.
+    let (placed, audio) = arrangement_examples::with_audio_placement(&f);
+    // The placement plays 22 050 frames (half a second, 960 ticks) from frame 11 025, from
+    // tick 3840; the clip is one second (1920 ticks).
     let second = one_second_in_ticks(&placed);
-    let half = second / 2;
-    for start in [3840, 3840 + half - 1, 3840 - second + 1] {
-        let error = check_refusal(&a(place_audio(&f, start)), &placed, &context()).unwrap();
-        assert!(
-            matches!(&error, CommandError::Invalid { message, .. } if message.contains("overlap")),
-            "{start}: {error:?}"
-        );
-    }
-    // Edge to edge is free, before and after.
+    assert_eq!(second, 1920);
+    let frames = |state: &State, id: &PlacementId| {
+        let p = &state.project.tracks[&f.audio_track].placements[id];
+        match p.span {
+            Span::Frames { length, offset } => (p.start.get(), length.get(), offset.get()),
+            Span::Ticks { .. } => panic!("ticks"),
+        }
+    };
+    // Put down over its second half: it is shortened to the frames before.
+    let mut state = placed.clone();
+    let (out, _) = ok(&mut state, place_audio(&f, 3840 + 480));
+    assert!(matches!(
+        out,
+        arrangement::Output::Place { overwritten: 1, .. }
+    ));
+    assert_eq!(frames(&state, &audio), (3840, 11_025, 11_025));
+    // Put down over its first half: it is trimmed at the front and plays on from where it was.
+    let mut state = placed.clone();
+    ok(&mut state, place_audio(&f, 3840 - second + 480));
+    assert_eq!(frames(&state, &audio), (4320, 11_025, 22_050));
+    // Edge to edge carves nothing, before and after.
     let mut state = placed;
-    ok(&mut state, place_audio(&f, 3840 + half));
+    let (out, _) = ok(&mut state, place_audio(&f, 3840 + 960));
+    assert!(matches!(
+        out,
+        arrangement::Output::Place { overwritten: 0, .. }
+    ));
     ok(&mut state, place_audio(&f, 3840 - second));
     assert_eq!(state.project.tracks[&f.audio_track].placements.len(), 3);
 }
@@ -1403,7 +1519,7 @@ fn placing_an_audio_clip_of_the_grid_names_the_right_command() {
     let CommandError::Invalid { message, .. } = &error else {
         panic!("{error:?}")
     };
-    assert!(message.contains("clip.import_audio"), "{message}");
+    assert!(message.contains("arrangement.place_from_slot"), "{message}");
 }
 
 #[test]
@@ -1420,9 +1536,17 @@ fn placing_an_audio_clip_ends_where_the_project_tempo_says() {
     assert!(quick_ticks > slow_ticks);
     ok(&mut slow, place_audio(&f, 0));
     ok(&mut quick, place_audio(&f, 0));
-    // The same start fits after the first placement at 60 bpm, not at 240 bpm.
-    assert!(check_refusal(&a(place_audio(&f, slow_ticks)), &slow, &context()).is_err());
-    assert!(check_refusal(&a(place_audio(&f, slow_ticks)), &quick, &context()).is_ok());
+    // The same start lies after the first placement at 60 bpm, inside it at 240 bpm.
+    let (out, _) = ok(&mut slow, place_audio(&f, slow_ticks));
+    assert!(matches!(
+        out,
+        arrangement::Output::Place { overwritten: 0, .. }
+    ));
+    let (out, _) = ok(&mut quick, place_audio(&f, slow_ticks));
+    assert!(matches!(
+        out,
+        arrangement::Output::Place { overwritten: 1, .. }
+    ));
 }
 
 #[test]
@@ -1597,6 +1721,7 @@ fn an_audio_restore_is_checked_like_the_audio_clip_restore() {
                 }],
                 remove: vec![],
                 clips: vec![],
+                audio_clips: vec![],
                 remove_clips: vec![],
             }],
         }),
@@ -1861,6 +1986,7 @@ fn an_audio_restore_replaces_a_placement_by_its_identifier_and_removes_one() {
             put: vec![],
             remove: vec![audio.clone()],
             clips: vec![],
+            audio_clips: vec![],
             remove_clips: vec![],
         }],
     };
@@ -1935,6 +2061,7 @@ fn an_audio_restore_never_overlaps_audio_placements() {
             put: vec![over.clone()],
             remove: vec![audio.clone()],
             clips: vec![],
+            audio_clips: vec![],
             remove_clips: vec![],
         }],
     };

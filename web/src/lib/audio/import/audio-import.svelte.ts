@@ -45,6 +45,13 @@ export const AUDIO_ACCEPT = 'audio/*,.wav,.wave,.aif,.aiff,.aifc,.caf,.flac,.mp3
 
 export const importCommand = (track: string, media: string): Command => ({ type: 'clip.import_audio', track, media, name: null })
 
+/**
+ * Where an imported file's clip goes (AU-6, a drop on a lane or a cell): runs the commands that make the clip (and place
+ * it) once the file is read and its metadata staged; `index` is the file's place among those imported together. True
+ * when the clip was made. Without one, the clip goes into the track's pool.
+ */
+export type ImportPlacer = (media: AudioMedia, index: number) => boolean
+
 export class AudioImport {
   /** The import under way, or `null`. */
   running = $state.raw<ImportProgress | null>(null)
@@ -69,9 +76,12 @@ export class AudioImport {
     void this.enqueue(async () => this.runFiles(track, await picking))
   }
 
-  /** Imports `files` into `track`, one after the other; returns the SHA-256 of each file imported. */
-  importFiles(track: string, files: File[]): Promise<string[]> {
-    return this.enqueue(() => this.runFiles(track, files))
+  /**
+   * Imports `files` into `track`, one after the other; returns the SHA-256 of each file imported. `place` chooses where
+   * each clip goes (the pool by default).
+   */
+  importFiles(track: string, files: File[], place?: ImportPlacer): Promise<string[]> {
+    return this.enqueue(() => this.runFiles(track, files, place))
   }
 
   /** Stops the import under way (the files after it are not imported either). */
@@ -90,7 +100,7 @@ export class AudioImport {
     return run
   }
 
-  private async runFiles(track: string, files: File[]): Promise<string[]> {
+  private async runFiles(track: string, files: File[], place?: ImportPlacer): Promise<string[]> {
     const imported: string[] = []
     if (files.length === 0) return imported
     this.failure = null
@@ -110,7 +120,8 @@ export class AudioImport {
           )
           const staged: AudioMedia = { hash: media.hash, sample_rate: media.sample_rate, channels: media.channels, frames: media.frames, name: media.name }
           if (!this.deps.stage(staged)) throw new ImportError('unavailable', 'the project is not ready yet')
-          if (!this.deps.run(importCommand(track, media.hash))) throw new ImportError('store', 'the clip could not be made')
+          const made = place ? place(staged, i) : this.deps.run(importCommand(track, media.hash))
+          if (!made) throw new ImportError('store', 'the clip could not be made')
           imported.push(media.hash)
         } catch (error) {
           if (error instanceof ImportError && error.code === 'cancelled') break

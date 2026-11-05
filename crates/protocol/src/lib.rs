@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 36;
+pub const PROTOCOL_VERSION: u32 = 37;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -43,6 +43,13 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 37 (#115, AU-6): the arrangement commands
+// take audio placements (move, resize, split, duplicate, repeat, move_to_track, place_from_slot,
+// place_scene, insert_time, delete_time; `arrangement.place` of an audio clip carves instead of
+// refusing an overlap), `arrangement.restore` takes `audio_clips` and removes audio clips, and
+// `clip.duplicate` copies an audio clip. The helper's MCP tools come from the commands, so a helper
+// of another version would describe them otherwise.
 
 // Version 36 (#695, 33 to 35 are #670's, #676's and #684's): the project's key and scale. The
 // commands gain `project.set_scale`, `project.get` answers `scale_root`, `scale_mode` and

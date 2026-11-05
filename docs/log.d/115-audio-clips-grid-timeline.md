@@ -1,0 +1,2 @@
+2026-11-04
+* **Update** (#115, AU-6): audio clips in the grid and the timeline. The arrangement commands take audio placements under the overlap rule (cut in whole frames), `arrangement.restore` brings back audio clips, `clip.duplicate` copies one; the page draws their waveform, edits them by hand, places files dropped on a track and sets the clip gain. `specs/02-decoupage-mvp.md` AU-6 records it.
