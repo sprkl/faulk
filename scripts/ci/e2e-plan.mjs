@@ -237,7 +237,9 @@ export const RULES = [
  * itself (`StorageBanners.svelte`) and the zip writer and reader (`pack.rs` of `crates/project` and
  * `crates/project-wasm`) run them too. `web/src/lib/project/core.ts` does not: it is a shared hub changed by most
  * tasks, and its pack path (`exportPack`, which the store's Worker runs) is held by `pack-worker.test.ts`, which
- * compares its zip with the page core's and checks that the last piece waits for the page.
+ * compares its zip with the page core's and checks that the last piece waits for the page; nor do the C entry points
+ * `pw_pack_*` and `pw_unpack_*` in `crates/project-wasm/src/lib.rs`, the same kind of hub, which that test runs through
+ * the real module. A unit test of the store (`*.test.ts`, no browser test sees it) does not run them either.
  * The other `@full` tests of the storage area stay to the whole suite: their French variants are covered by
  * `i18n.test.ts` and the English runs, and their performance prints by the release run (`verification.md` > `@full`).
  */

@@ -1636,7 +1636,13 @@ export class ProjectStorage {
     try {
       // The place of the pack first, before anything waits (the queue, a store): the browser opens its file
       // dialog only for a call that follows a click closely.
-      const target = await this.packTarget(`${this.packFileName()}.faulkpack`, await this.mediaBytes())
+      const bytes = await this.mediaBytes()
+      // Cancelled from the banner before the dialog opened: no dialog for an export that is over.
+      if (abort.signal.aborted) {
+        this.notice = 'pack.exportCancelled'
+        return false
+      }
+      const target = await this.packTarget(`${this.packFileName()}.faulkpack`, bytes)
       if (target === 'cancelled') return false
       if (target === 'noRoom') {
         this.notice = 'pack.noRoom'

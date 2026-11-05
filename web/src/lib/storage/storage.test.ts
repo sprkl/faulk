@@ -2240,12 +2240,26 @@ describe('export a .faulkpack', () => {
     w.host.frameFails = true
     expect(await w.storage.exportPack()).toBe(false)
     expect(w.storage.exporting).toBeNull()
-    // Cancelled while the dialog is open.
+    // Cancelled before the dialog opens: no dialog at all.
     w.host.frameFails = false
     w.saveFile = 'chosen'
+    const before = w.saved.length
+    const early = w.storage.exportPack()
+    expect(w.storage.banner).toBe('exporting')
+    w.storage.cancelExport()
+    expect(await early).toBe(false)
+    expect(w.storage.notice).toBe('pack.exportCancelled')
+    expect(w.saved.length).toBe(before)
+    expect(w.storage.exporting).toBeNull()
+    // Cancelled while the dialog is open: the file chosen is dropped.
     let answer!: () => void
+    let asked = false
     w.fileHolds = { answer: new Promise<void>((resolve) => (answer = resolve)) }
+    const ask = w.deps.saveFile!
+    w.deps.saveFile = (name) => ((asked = true), ask(name))
     const done = w.storage.exportPack()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(asked).toBe(true)
     expect(w.storage.banner).toBe('exporting')
     w.storage.cancelExport()
     answer()
