@@ -528,18 +528,18 @@
   .state.mute[aria-pressed='true'] {
     background: var(--fk-mute);
     border-color: var(--fk-mute);
-    color: #131211;
+    color: var(--fk-on-signal);
     text-decoration: line-through;
   }
   .state.mute.implied:not([aria-pressed='true']) {
     border-style: dashed;
     border-color: var(--fk-mute);
-    color: var(--fk-mute);
+    color: var(--fk-mute-fg);
   }
   .state.solo[aria-pressed='true'] {
     background: var(--fk-solo);
     border-color: var(--fk-solo);
-    color: #131211;
+    color: var(--fk-on-signal);
     text-decoration: underline;
   }
   /* Armed: the neutral inverted fill of the other strips, with the red dot of recording (#470). */

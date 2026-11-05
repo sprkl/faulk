@@ -127,14 +127,7 @@
         >
           {#if index === current}
             <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
-              ><path
-                d="M2.5 6.5 5 9l4.5-5.5"
-                fill="none"
-                stroke="var(--fk-ink, #131211)"
-                stroke-width="1.8"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              /></svg
+              ><path d="M2.5 6.5 5 9l4.5-5.5" fill="none" stroke="var(--fk-on-signal)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" /></svg
             >
           {/if}
         </button>

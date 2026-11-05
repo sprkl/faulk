@@ -33,23 +33,57 @@ async function alpha(page: Page, x: number, y: number): Promise<number> {
   )
 }
 
+/** The colour of the most opaque pixel of the canvas's middle column, in device pixels. */
+async function ink(page: Page): Promise<[number, number, number]> {
+  return page.evaluate(() => {
+    const canvas = document.querySelector('[data-testid=waveform] canvas') as HTMLCanvasElement
+    const data = canvas.getContext('2d')!.getImageData(Math.floor(canvas.width / 2), 0, 1, canvas.height).data
+    let best = 0
+    for (let i = 0; i < data.length; i += 4) if (data[i + 3]! > data[best + 3]!) best = i
+    return [data[best]!, data[best + 1]!, data[best + 2]!] as [number, number, number]
+  })
+}
+
+const near = (a: readonly number[], b: readonly number[]) => a.every((v, i) => Math.abs(v - b[i]!) <= 2)
+
+// #687: the surface draws a track's hue (track-08, #4ac495): as it is in the dark theme, with 40 % of the light
+// theme's ink (#131211) in the light one, and again at once when the theme changes.
+test('takes the theme: the hue in dark, the hue with ink in light, and redraws when the theme changes', async ({ page }) => {
+  const hue = [0x4a, 0xc4, 0x95]
+  const light = hue.map((v, i) => Math.round(v * 0.6 + [0x13, 0x12, 0x11][i]! * 0.4))
+  await page.addInitScript(() => localStorage.setItem('faulk.theme', 'system'))
+  await page.emulateMedia({ colorScheme: 'dark' })
+  const seen = await open(page)
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  expect(near(await ink(page), hue), String(await ink(page))).toBe(true)
+  await page.emulateMedia({ colorScheme: 'light' })
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await expect.poll(async () => near(await ink(page), light)).toBe(true)
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await expect.poll(async () => near(await ink(page), hue)).toBe(true)
+  expect(seen.errors).toEqual([])
+})
+
 test.describe('the waveform of an hour of audio', () => {
   test.describe.configure({ timeout: 120_000 })
 
-  test('draws its two channels from the peaks, around the middle of each lane and not beyond its amplitude', async ({ page }) => {
-    const seen = await open(page)
-    const box = (await waveform(page).boundingBox())!
-    const dpr = await page.evaluate(() => window.devicePixelRatio || 1)
-    const x = Math.round((box.width / 2) * dpr)
-    // Two lanes: the middle of each is drawn, the top edge of the canvas (above any peak but a beat's) is not.
-    const lane = box.height / 2
-    expect(await alpha(page, x, Math.round((lane / 2) * dpr))).toBeGreaterThan(0)
-    expect(await alpha(page, x, Math.round((lane + lane / 2) * dpr))).toBeGreaterThan(0)
-    expect(await alpha(page, x, 0)).toBe(0)
-    // 16 384 frames a CSS pixel: the top level.
-    expect(await waveform(page).getAttribute('data-level')).toBe(String(dpr >= 2 ? 2 : 3))
-    expect(seen.errors).toEqual([])
-  })
+  for (const theme of ['dark', 'light'] as const)
+    test(`draws its two channels from the peaks, around the middle of each lane and not beyond its amplitude (${theme})`, async ({ page }) => {
+      await page.addInitScript((t) => localStorage.setItem('faulk.theme', t), theme)
+      const seen = await open(page)
+      await expect(page.locator('html')).toHaveAttribute('data-theme', theme)
+      const box = (await waveform(page).boundingBox())!
+      const dpr = await page.evaluate(() => window.devicePixelRatio || 1)
+      const x = Math.round((box.width / 2) * dpr)
+      // Two lanes: the middle of each is drawn, the top edge of the canvas (above any peak but a beat's) is not.
+      const lane = box.height / 2
+      expect(await alpha(page, x, Math.round((lane / 2) * dpr))).toBeGreaterThan(0)
+      expect(await alpha(page, x, Math.round((lane + lane / 2) * dpr))).toBeGreaterThan(0)
+      expect(await alpha(page, x, 0)).toBe(0)
+      // 16 384 frames a CSS pixel: the top level.
+      expect(await waveform(page).getAttribute('data-level')).toBe(String(dpr >= 2 ? 2 : 3))
+      expect(seen.errors).toEqual([])
+    })
 
   test('reads a finer level as it zooms in, a coarser one as it zooms out', async ({ page }) => {
     const seen = await open(page)

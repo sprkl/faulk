@@ -5,7 +5,10 @@ import { rulerMarks, tickToX, type View } from './grid'
 
 export const RULER_HEIGHT = 28
 
-/** Colours, read once from the CSS tokens (`readColors`), so a frame never touches the style engine. */
+/**
+ * Colours, read from the CSS tokens (`readColors`) when the surface is sized and when the theme changes (#687), so a
+ * frame never touches the style engine.
+ */
 export interface Colors {
   bg: string
   ruler: string
@@ -14,6 +17,8 @@ export interface Colors {
   text: string
   accent: string
   play: string
+  /** How much of `text` a track hue takes where it is drawn as a line or a note (`--fk-track-shade`, 0 to 1). */
+  trackShade: number
 }
 
 export interface Frame {
@@ -50,18 +55,66 @@ export type Surface = Pick<CanvasRenderingContext2D, 'fillRect' | 'fillText' | '
   globalAlpha: number
 }
 
+/** The theme's colours, from the tokens of `element` (`styles/tokens.css`, the one place they are written). */
 export function readColors(element: Element): Colors {
   const style = getComputedStyle(element)
-  const token = (name: string, fallback: string) => style.getPropertyValue(name).trim() || fallback
+  const token = (name: string) => style.getPropertyValue(name).trim()
+  const shade = parseFloat(token('--fk-track-shade'))
   return {
-    bg: token('--fk-bg', '#131211'),
-    ruler: token('--fk-surface', '#1a1917'),
-    line: token('--fk-line', '#34312e'),
-    barLine: token('--fk-text-muted', '#8f8a85'),
-    text: token('--fk-text', '#ece9e6'),
-    accent: token('--fk-accent-fg', '#9c92ff'),
-    play: token('--fk-play', '#3fc168'),
+    bg: token('--fk-bg'),
+    ruler: token('--fk-surface'),
+    line: token('--fk-line'),
+    barLine: token('--fk-text-muted'),
+    text: token('--fk-text'),
+    accent: token('--fk-accent-fg'),
+    play: token('--fk-play'),
+    trackShade: Number.isFinite(shade) ? Math.min(1, Math.max(0, shade / 100)) : 0,
   }
+}
+
+const HEX = /^#([0-9a-f]{6})$/i
+// A computed style's colour (`getComputedStyle(…).color`): three channels, maybe an alpha after them.
+const COMPUTED = /^rgba?\((\d+),\s*(\d+),\s*(\d+)/
+
+/** The red, green and blue of `#rrggbb` or of a computed colour, `null` for anything else. */
+function channels(color: string): number[] | null {
+  const hex = HEX.exec(color)
+  if (hex) return [0, 2, 4].map((i) => parseInt(hex[1]!.slice(i, i + 2), 16))
+  const computed = COMPUTED.exec(color)
+  return computed ? [computed[1], computed[2], computed[3]].map(Number) : null
+}
+// The mixes of the current theme, by hue: emptied when the theme's text colour or shade changes, so a frame
+// builds no key and a switch serves no stale mix.
+const inks = new Map<string, string>()
+let inksOf = { text: '', shade: 0 }
+
+/**
+ * A track hue as a line or a note is drawn on the background (#687): the hue mixed with the theme's text colour by
+ * `trackShade` (none in the dark theme; enough ink in the light one to read at 3:1 on paper and on a clip's tint).
+ * The hue itself stays the track's colour for fills. A colour that is neither `#rrggbb` nor a computed `rgb(…)` is
+ * kept as it is.
+ */
+export function trackInk(color: string, colors: Pick<Colors, 'text' | 'trackShade'>): string {
+  const shade = colors.trackShade
+  if (!(shade > 0)) return color
+  if (inksOf.text !== colors.text || inksOf.shade !== shade) {
+    inks.clear()
+    inksOf = { text: colors.text, shade }
+  }
+  const known = inks.get(color)
+  if (known) return known
+  const a = channels(color)
+  const b = channels(colors.text)
+  if (!a || !b) return color
+  let out = '#'
+  for (const i of [0, 1, 2])
+    out += Math.round(a[i]! * (1 - shade) + b[i]! * shade)
+      .toString(16)
+      .padStart(2, '0')
+  // A track's colour can be any `#rrggbb` (`track.set_color`): the cache never grows past a few hundred.
+  if (inks.size >= 256) inks.clear()
+  inks.set(color, out)
+  return out
 }
 
 /**

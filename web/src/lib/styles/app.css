@@ -1,5 +1,11 @@
 /* Globals of the DAW (`/app`) only; the shared base is in base.css. */
 
+/* The light working palette (#687): the DAW sets secondary text on surface-2 (buttons, chips), where the site's
+   muted grey is 4.49:1; a step darker is AA (4.5:1) on bg, surface and surface-2. The site keeps its own. */
+:root[data-theme='light'] {
+  --fk-text-muted: #67625d;
+}
+
 body {
   font-size: 13px;
   line-height: 1.4;

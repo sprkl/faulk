@@ -3,7 +3,7 @@ import { barTicks } from '../../../views/transport/time'
 import { DEFAULT_PX_PER_TICK, totalTicksOf } from './grid'
 import { RULER_HEIGHT, drawGrid, drawPlayhead, type Colors, type Frame, type Surface } from './render'
 
-const colors: Colors = { bg: '#bg', ruler: '#ruler', line: '#line', barLine: '#bar', text: '#text', accent: '#accent', play: '#play' }
+const colors: Colors = { bg: '#bg', ruler: '#ruler', line: '#line', barLine: '#bar', text: '#text', accent: '#accent', play: '#play', trackShade: 0 }
 const signature = { numerator: 4, denominator: 4 }
 
 interface Recorded {

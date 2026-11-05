@@ -364,7 +364,7 @@
   }
   .mode.boost {
     background: var(--fk-accent);
-    color: #fff;
+    color: var(--fk-on-accent);
   }
   /* The load changes about 30 times a second: fixed-width digits keep the pill still while its digit count stays. */
   .mode .load {
@@ -376,6 +376,8 @@
     height: 7px;
     border-radius: 50%;
     background: var(--fk-solo);
+    /* The light theme's yellow is pale on paper: an ink ring keeps the dot in sight (#687). */
+    box-shadow: 0 0 0 1px var(--fk-on-signal);
   }
   /* The output protection silenced a non-finite signal (#667): red, apart from the yellow wait; ringed so that it
      reads on the Boost pill's accent too. */
@@ -455,7 +457,7 @@
     border: 1px solid var(--fk-accent);
     border-radius: var(--fk-radius-pill);
     background: var(--fk-accent);
-    color: #fff;
+    color: var(--fk-on-accent);
     font-weight: 600;
     cursor: pointer;
     white-space: nowrap;

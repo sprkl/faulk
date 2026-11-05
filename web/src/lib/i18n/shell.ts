@@ -6,6 +6,10 @@ export const shell = defineFeature(
   {
     'app.home': 'Faulk home page',
     panic: 'All notes off',
+    'theme.title': 'Theme',
+    'theme.system': 'System',
+    'theme.dark': 'Dark',
+    'theme.light': 'Light',
     'density.title': 'Row density',
     'density.comfortable': 'Comfortable',
     'density.compact': 'Compact',
@@ -23,6 +27,10 @@ export const shell = defineFeature(
   {
     'app.home': 'Page d’accueil de Faulk',
     panic: 'Couper toutes les notes',
+    'theme.title': 'Thème',
+    'theme.system': 'Système',
+    'theme.dark': 'Sombre',
+    'theme.light': 'Clair',
     'density.title': 'Densité des lignes',
     'density.comfortable': 'Confort',
     'density.compact': 'Compacte',

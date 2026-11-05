@@ -25,6 +25,7 @@
     type View,
   } from './grid'
   import { RULER_HEIGHT, drawGrid, drawPlayhead, readColors, type BodyFrame, type Colors } from './render'
+  import { theme } from '../../theme.svelte'
 
   let {
     signature,
@@ -162,6 +163,18 @@
       observer.disconnect()
       cancelAnimationFrame(pending)
     }
+  })
+
+  // A new theme (#687): the tokens changed under the same size, so the colours are read again and both canvases
+  // draw again (the host's `drawBody` gets the new colours in its frame).
+  const page = theme()
+  let seenTheme = page.resolved
+  $effect(() => {
+    const now = page.resolved
+    if (now === seenTheme) return
+    seenTheme = now
+    colors = readColors(root)
+    epoch++
   })
 
   // The pixel ratio changes with the monitor or the browser zoom, with no resize of the grid: draw again at the new ratio.

@@ -164,7 +164,7 @@
               {@const audio = entry.clip.content.audio}
               <!-- The part of its file the clip plays (AU-2), drawn from the file's peaks. -->
               <span class="wave" data-testid="pool-waveform" data-media={audio.media.hash}>
-                <Waveform peaks={peaks.of(audio.media).peaks} from={audio.start} frames={audio.frames} color={entry.clip.color ?? color} />
+                <Waveform peaks={peaks.of(audio.media).peaks} from={audio.start} frames={audio.frames} color={entry.clip.color ?? color} track />
               </span>
             {/if}
           </span>

@@ -15,10 +15,27 @@
   --fk-accent-strong: #4c1ebc;
   --fk-accent-fg: #6633f4;
   --fk-accent-tint: #ede9ff;
-  --fk-play: #3fc168;
-  --fk-rec: #ee3533;
-  --fk-solo: #efcc36;
-  --fk-mute: #4baeed;
+  /* Text and glyphs on an accent fill. */
+  --fk-on-accent: #fff;
+  /* Text on a signal fill (play, mute, solo) and on a track hue: ink in both themes. */
+  --fk-on-signal: #131211;
+  /* The light working palette's signals (#687): deeper than the dark theme's, so a meter, a glyph or a
+     pressed state reads on paper (3:1 on bg and surface, solo aside: its pressed state is the ink S and its
+     underline) while ink stays AA on each fill. */
+  --fk-play: #2c9a50;
+  --fk-rec: #d42f2c;
+  --fk-solo: #e5bb1f;
+  --fk-mute: #2b8bd0;
+  /* Signals as text on the surfaces: AA (4.5:1). */
+  --fk-mute-fg: #1d6aa8;
+  --fk-rec-fg: #be2a28;
+  /* A refused value (fields, dialogs). */
+  --fk-danger: #be2a28;
+  /* Behind a modal dialog. */
+  --fk-scrim: rgb(19 18 17 / 0.32);
+  /* How much ink a track hue takes where it is drawn as a line or a note on the background (a canvas
+     outline, a note, an automation curve): 3:1 or more on paper and on a clip's tint. 0% keeps the hue. */
+  --fk-track-shade: 40%;
 
   --fk-font-display: 'Archivo Variable', 'Archivo', 'Arial Black', sans-serif;
   --fk-font-ui: 'Geist Variable', 'Geist', 'Helvetica Neue', Arial, sans-serif;
@@ -57,6 +74,15 @@
   --fk-text-muted-on-tint: #b9b4af;
   --fk-accent-fg: #9c92ff;
   --fk-accent-tint: #2a2150;
+  --fk-play: #3fc168;
+  --fk-rec: #ee3533;
+  --fk-solo: #efcc36;
+  --fk-mute: #4baeed;
+  --fk-mute-fg: #4baeed;
+  --fk-rec-fg: #f26b5f;
+  --fk-danger: #f26b5f;
+  --fk-scrim: rgb(0 0 0 / 0.5);
+  --fk-track-shade: 0%;
 }
 
 [data-density='compact'] {

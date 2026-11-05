@@ -147,7 +147,7 @@
     return value && classes ? { classes, root: value.root } : null
   })
   // The notes of the clip are drawn in the track's colour; the other tracks' notes at the same time range show hollow (#470).
-  const trackColor = $derived(track ? colorOfTrack(track.track.color, track.index) : '#8f8a85')
+  const trackColor = $derived(track ? colorOfTrack(track.track.color, track.index) : '')
   let showOthers = $state(true)
   const others = $derived(showOthers && track ? ghostNotes(project.tracks, track.id, edited, track.track, placement?.id ?? null) : [])
   const signature = $derived(project.view?.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 })

@@ -16296,6 +16296,53 @@
           "type": "object"
         },
         "undo": "none"
+      },
+      {
+        "description": "Set the theme of the interface: `dark` (the default), `light`, or `system`, which\nfollows the system's light or dark setting, also when it changes later. The user's\npreference, kept by the browser for every project: it changes nothing in the\nproject or its session, is not undoable and works before audio starts.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "Theme": {
+              "description": "The theme of the interface the user chose.",
+              "oneOf": [
+                {
+                  "const": "system",
+                  "description": "Follows the system's light or dark setting, also when it changes during the session.",
+                  "type": "string"
+                },
+                {
+                  "const": "dark",
+                  "description": "The dark theme, the default.",
+                  "type": "string"
+                },
+                {
+                  "const": "light",
+                  "description": "The light theme.",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "theme": {
+              "$ref": "#/$defs/Theme"
+            }
+          },
+          "required": [
+            "theme"
+          ],
+          "type": "object"
+        },
+        "kind": "live",
+        "name": "view.set_theme",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "undo": "none"
       }
     ],
     "input": {
@@ -21647,6 +21694,26 @@
           ],
           "type": "object"
         },
+        "Theme": {
+          "description": "The theme of the interface the user chose.",
+          "oneOf": [
+            {
+              "const": "system",
+              "description": "Follows the system's light or dark setting, also when it changes during the session.",
+              "type": "string"
+            },
+            {
+              "const": "dark",
+              "description": "The dark theme, the default.",
+              "type": "string"
+            },
+            {
+              "const": "light",
+              "description": "The light theme.",
+              "type": "string"
+            }
+          ]
+        },
         "Tick": {
           "description": "A musical position or duration, in ticks ([`PPQ`] per quarter note).\n\nArithmetic saturates instead of overflowing. The inner value is public so that the\nproject and the UI read it as a plain integer.",
           "format": "int64",
@@ -22592,6 +22659,27 @@
               "required": [
                 "type",
                 "track"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "live",
+              "x-undo": "none"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Set the theme of the interface: `dark` (the default), `light`, or `system`, which\nfollows the system's light or dark setting, also when it changes later. The user's\npreference, kept by the browser for every project: it changes nothing in the\nproject or its session, is not undoable and works before audio starts.",
+              "properties": {
+                "theme": {
+                  "$ref": "#/$defs/Theme"
+                },
+                "type": {
+                  "const": "view.set_theme",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "theme"
               ],
               "type": "object",
               "x-destructive": false,
@@ -27785,6 +27873,19 @@
                 },
                 "type": {
                   "const": "view.select_track",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "view.set_theme",
                   "type": "string"
                 }
               },
@@ -37544,6 +37645,19 @@
                 },
                 "type": {
                   "const": "view.select_track",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "view.set_theme",
                   "type": "string"
                 }
               },

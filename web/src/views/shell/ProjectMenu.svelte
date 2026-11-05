@@ -19,6 +19,7 @@
   } from '../../lib/project-commands'
   import { chordText } from '../../lib/shortcuts'
   import { useStores } from '../../lib/stores'
+  import { setTheme, THEME_CHOICES } from '../../lib/theme'
 
   const { ui, storage, project, dispatcher, audioExport } = useStores()
   const t = ui.t
@@ -215,6 +216,18 @@
         {/each}
       {/if}
       <hr />
+      <p class="heading" id="menu-theme">{t('theme.title')}</p>
+      <div role="group" aria-labelledby="menu-theme" class="langs">
+        {#each THEME_CHOICES as choice (choice)}
+          <button
+            role="menuitemradio"
+            aria-checked={ui.theme.choice === choice}
+            data-testid="menu-theme-{choice}"
+            onclick={() => choose(() => dispatcher.run(setTheme(choice)))}>{t(`theme.${choice}`)}</button
+          >
+        {/each}
+      </div>
+      <hr />
       <p class="heading" id="menu-density">{t('density.title')}</p>
       <div role="group" aria-labelledby="menu-density" class="langs">
         {#each ['comfortable', 'compact'] as const as density (density)}
@@ -344,7 +357,7 @@
     border: 1px solid var(--fk-line);
     border-radius: var(--fk-radius);
     background: var(--fk-surface);
-    box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+    box-shadow: var(--fk-shadow-float);
   }
   .menu button {
     display: flex;
