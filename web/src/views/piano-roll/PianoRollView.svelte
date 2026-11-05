@@ -41,9 +41,11 @@
     type View,
   } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
-  import { isQuantizeKey, isTextTarget, QUANTIZE_CODE, repeatShortcut } from '../../lib/keyboard'
+  import { generateShortcut, isQuantizeKey, isTextTarget, QUANTIZE_CODE, repeatShortcut } from '../../lib/keyboard'
   import BarDialog from '../arrangement/BarDialog.svelte'
   import { defaultRepeatUntil, parseRepeatUntil, repeatCopies } from './repeat'
+  import EuclideanPanel from './EuclideanPanel.svelte'
+  import { DEFAULT_GATE, euclideanFault, euclideanNotes, euclideanPlan, parsePitch, type EuclideanDraft, type EuclideanSettings } from './euclidean'
   import { instrumentNamedKeys, isMidi, trackColor as colorOfTrack } from '../../lib/project/tracks'
   import { inGroup } from '../../lib/history-group'
   import { useStores } from '../../lib/stores'
@@ -253,14 +255,15 @@
 
   const ghosts = $derived.by<Note[]>(() => {
     const g = gesture
-    if (!g) return []
+    if (!g) return euclidPlan?.add ?? []
     if (g.kind === 'draw') return g.note ? [g.note] : []
     if (g.kind === 'move' || g.kind === 'resize' || g.kind === 'velocity') return g.changes.map((c) => c.to)
     return []
   })
   const hidden = $derived.by<ReadonlySet<string>>(() => {
     const g = gesture
-    return g && (g.kind === 'move' || g.kind === 'resize' || g.kind === 'velocity') ? new Set(g.changes.map((c) => noteKey(c.from))) : new Set()
+    if (!g) return euclidPlan && euclidPlan.remove.length > 0 ? new Set(euclidPlan.remove.map(noteKey)) : new Set()
+    return g.kind === 'move' || g.kind === 'resize' || g.kind === 'velocity' ? new Set(g.changes.map((c) => noteKey(c.from))) : new Set()
   })
   const band = $derived(gesture?.kind === 'band' ? gesture.rect : null)
   const loopShown = $derived(
@@ -636,7 +639,11 @@
     if (event.defaultPrevented || !edited || isTextTarget(event.target)) return
     const target = event.target
     if (target !== document.body && !(target instanceof Node && rollEl?.contains(target))) return
-    if (editShortcut(event)) event.preventDefault()
+    // The roll's own listener takes Alt+G from inside the roll; from the page itself (nothing focused) it is taken here.
+    if (target === document.body && generateShortcut(event)) {
+      event.preventDefault()
+      void openEuclid()
+    } else if (editShortcut(event)) event.preventDefault()
   }
 
   function onKeyDown(event: KeyboardEvent) {
@@ -1067,6 +1074,7 @@
     }
     if (boardNotes().length > 0) items.push({ id: 'paste', label: t('pianoRoll.paste'), shortcut: mod('V'), run: pasteBoard })
     if (some) items.push({ id: 'delete', label: t('pianoRoll.delete'), shortcut: chordText(['Delete']), separator: true, run: removeSelected })
+    items.push({ id: 'euclidean', label: t('pianoRoll.euclidean'), shortcut: chordText(['Alt', 'G']), separator: true, run: () => void openEuclid() })
     ui.openMenu(event, items, t('pianoRoll.menu'))
   }
 
@@ -1348,6 +1356,12 @@
    * From a note's cell outside the selection, that note alone, as Alt+arrows do.
    */
   function onRollKeyDown(event: KeyboardEvent) {
+    if (generateShortcut(event)) {
+      event.preventDefault()
+      event.stopPropagation()
+      void openEuclid()
+      return
+    }
     if (!repeatShortcut(event)) return
     event.preventDefault()
     event.stopPropagation()
@@ -1364,6 +1378,137 @@
     root.addEventListener('keydown', onRollKeyDown)
     return () => root.removeEventListener('keydown', onRollKeyDown)
   })
+
+  // --- euclidean rhythm generator (#694) --------------------------------------------------------------------------
+  // A page tool, not a command: what it writes is `clip.notes.add` (and `clip.notes.remove` of the same-pitch notes it
+  // replaces, in one history group), so one undo takes it all back, and an agent computes the same pattern itself.
+  /** The generator while it is open: its fields, where the pattern starts, the clip it is for and what had the focus. */
+  let euclid = $state<{ draft: EuclideanDraft; start: number; clip: string; opener: HTMLElement | null } | null>(null)
+  let euclidPanel: ReturnType<typeof EuclideanPanel> | undefined = $state()
+  const euclidSettings = $derived.by<EuclideanSettings | null>(() => {
+    if (!euclid) return null
+    const d = euclid.draft
+    return {
+      steps: d.steps,
+      hits: d.hits,
+      rotation: d.rotation,
+      grid: QUANTIZE_GRIDS.find((g) => g.id === d.grid)?.ticks ?? 0,
+      pitch: parsePitch(d.pitch),
+      velocity: d.velocity,
+      gate: d.gate,
+      fill: d.fill,
+      replace: !d.keep,
+    }
+  })
+  const euclidFault = $derived(euclidSettings ? euclideanFault(euclidSettings) : null)
+  const euclidMade = $derived(euclid && euclidSettings ? euclideanNotes(euclidSettings, euclid.start, clipLength) : [])
+  /** What Place would do now; also the preview in the grid (the notes to add as outlines, the ones to replace hidden). */
+  const euclidPlan = $derived(euclid && euclidSettings && !euclidFault ? euclideanPlan(notes, euclidMade, euclidSettings, euclid.start, clipLength) : null)
+  const euclidSummary = $derived.by(() => {
+    if (!euclid || !euclidSettings || !euclidPlan) return ''
+    const beatsPerBar = bar / PPQ
+    const beat = euclid.start / PPQ
+    const vars = {
+      n: euclidMade.length,
+      pitch: keyNames?.get(euclidSettings.pitch!) ?? pitchName(euclidSettings.pitch!),
+      bar: Math.floor(beat / beatsPerBar) + 1,
+      beat: Number(((beat % beatsPerBar) + 1).toFixed(2)),
+      m: euclidPlan.remove.length,
+    }
+    return t(euclidPlan.remove.length > 0 ? 'pianoRoll.euclideanSummaryReplace' : 'pianoRoll.euclideanSummary', vars)
+  })
+  // Another clip, or none: the generator was for the first.
+  $effect(() => {
+    if (euclid && euclid.clip !== edited?.id) untrack(() => (euclid = null))
+  })
+
+  /** The pitch the generator starts on: the cursor's row once it was used, else the selected note's, else where the cursor stands. */
+  function euclidPitch(): number {
+    if (cursorAt || chosenNotes.length === 0) return cursorPos.pitch
+    return chosenNotes[0]!.pitch
+  }
+
+  /** Opens the generator, its fields as they were left (the grid following the snap the first time), the focus on the first. */
+  async function openEuclid() {
+    if (!edited || gesture) return
+    if (euclid) return euclidPanel?.focusFirst()
+    const left = ui.recall<Partial<EuclideanDraft>>('piano-roll-euclid')
+    const pitch = euclidPitch()
+    const named = keyNames ? [...keyNames.keys()] : []
+    const active = document.activeElement
+    euclid = {
+      clip: edited.id,
+      start: cursorPos.tick,
+      opener: active instanceof HTMLElement && active !== document.body ? active : null,
+      draft: {
+        steps: left?.steps ?? 8,
+        hits: left?.hits ?? 3,
+        rotation: left?.rotation ?? 0,
+        grid: left?.grid ?? QUANTIZE_GRIDS.find((g) => g.ticks === drawing)?.id ?? DEFAULT_QUANTIZE_GRID,
+        pitch: String(named.length > 0 && !named.includes(pitch) ? named[0] : pitch),
+        velocity: drawVelocity,
+        gate: left?.gate ?? DEFAULT_GATE,
+        fill: left?.fill ?? false,
+        keep: left?.keep ?? false,
+      },
+    }
+    await tick()
+    euclidPanel?.focusFirst()
+  }
+
+  /** Closes the generator with nothing placed; the focus goes back to what had it, else to the cursor. */
+  async function closeEuclid(focusCell: Note | null = null) {
+    const opener = euclid?.opener ?? null
+    euclid = null
+    await tick()
+    if (focusCell) return void focusNote(noteKey(focusCell))
+    if (opener?.isConnected) opener.focus()
+    else void focusCursor()
+  }
+
+  /**
+   * Place: the notes the fields give, added in one `clip.notes.add`, the same-pitch notes under the pattern removed in the
+   * same history group (unless "Add without replacing"). The new notes become the selection. Nothing is sent when the
+   * pattern is already there; a start past the clip's end is said.
+   */
+  function placeEuclid() {
+    if (!edited || !euclid || !euclidSettings || !euclidPlan || euclidFault) return
+    if (euclidMade.length === 0) return announce(t('pianoRoll.saidEuclideanNoRoom'))
+    const { add, remove } = euclidPlan
+    const made = euclidMade
+    const settings = euclidSettings
+    const id = edited.id
+    const draft = euclid.draft
+    const inCells = !!euclid.opener && !!itemsEl && itemsEl.contains(euclid.opener)
+    if (add.length === 0 && remove.length === 0) {
+      ui.remember('piano-roll-euclid', { ...draft, pitch: undefined, velocity: undefined })
+      announce(t('pianoRoll.saidEuclideanNone'))
+      return void closeEuclid()
+    }
+    // Written first, removed second: a refused write (a limit) leaves the clip as it was.
+    const done = group(() => {
+      if (add.length > 0 && !run(addNotes(id, add))) return false
+      return remove.length === 0 || run(removeNotes(id, remove))
+    })
+    // Refused by the project after all: the dispatcher says why, and the generator stays open for another try.
+    if (!done) return
+    ui.remember('piano-roll-euclid', { ...draft, pitch: undefined, velocity: undefined })
+    picked = new Set(made.map(noteKey))
+    const pitch = keyNames?.get(settings.pitch!) ?? pitchName(settings.pitch!)
+    announce(t(remove.length > 0 ? 'pianoRoll.saidEuclideanReplace' : 'pianoRoll.saidEuclidean', { n: add.length, pitch, m: remove.length }))
+    void closeEuclid(inCells ? (made[0] ?? null) : null)
+  }
+
+  /** The "Generate" button: the list of generators under it (one so far, others are ideas of #253). */
+  function openGenerate(event: MouseEvent) {
+    const box = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    ui.openMenuAt(
+      box.left,
+      box.bottom,
+      [{ id: 'euclidean', label: t('pianoRoll.euclidean'), shortcut: chordText(['Alt', 'G']), run: () => void openEuclid() }],
+      t('pianoRoll.generateMenu'),
+    )
+  }
 
   function copyChosen(): boolean {
     if (chosenNotes.length === 0) return false
@@ -1563,10 +1708,30 @@
         >
         {#if quantizeNote}<span class="said" data-testid="roll-quantize-said">{quantizeNote}</span>{/if}
       </div>
+      <button
+        aria-haspopup="menu"
+        aria-expanded={euclid !== null}
+        aria-keyshortcuts="Alt+G"
+        title={withShortcut(t('pianoRoll.generateHint'), [chordText(['Alt', 'G'])])}
+        data-testid="roll-generate"
+        onclick={openGenerate}>{t('pianoRoll.generate')}</button
+      >
       <span class="count" data-testid="roll-count" title={chosenNotes.length > 0 ? t('pianoRoll.selected', { n: chosenNotes.length }) : undefined}
         >{t('pianoRoll.count', { n: notes.length })}</span
       >
     </div>
+
+    {#if euclid}
+      <EuclideanPanel
+        bind:this={euclidPanel}
+        bind:draft={euclid.draft}
+        sounds={keyNames ? [...keyNames].map(([key, name]) => ({ key, name })) : null}
+        fault={euclidFault}
+        summary={euclidSummary}
+        onsubmit={placeEuclid}
+        oncancel={() => void closeEuclid()}
+      />
+    {/if}
 
     <div class="board" style:--keys="{keyNames ? NAMED_KEYS_WIDTH : KEYS_WIDTH}px" style:--lane="{LANE_HEIGHT}px">
       <div
