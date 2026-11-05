@@ -50,7 +50,8 @@ export function bandDb(band: Band, values: Values, hz: number, sampleRate: numbe
   const top = Math.max(0.45 * sampleRate, FREQ_MIN)
   const freq = clamp(values(`${band.key}_freq`), FREQ_MIN, top)
   const q = clamp(values(`${band.key}_q`), Q_MIN, Q_MAX)
-  const t = Math.tan((Math.PI * clamp(hz, 0, 0.499 * sampleRate)) / sampleRate)
+  // From 1 Hz up, as the engine: at 0 Hz a cut band has no power, whose logarithm is not finite.
+  const t = Math.tan((Math.PI * clamp(hz, 1, 0.499 * sampleRate)) / sampleRate)
   const tf = Math.tan((Math.PI * freq) / sampleRate)
   if (isCut(band.shape)) {
     const slope = clamp(Math.round(values(`${band.key}_slope`)), 0, 2)
@@ -61,7 +62,7 @@ export function bandDb(band: Band, values: Values, hz: number, sampleRate: numbe
       const k = 1 / sq
       power *= band.shape === 'highpass' ? sectionPower(t / tf, k, 1, -k, -1) : sectionPower(t / tf, k, 0, 0, 1)
     })
-    return 10 * Math.log10(power)
+    return 10 * Math.log10(Math.max(power, 1e-30))
   }
   const db = clamp(values(`${band.key}_gain`), -GAIN_MAX, GAIN_MAX)
   const a = db === 0 ? 1 : Math.pow(10, db / 40)
@@ -76,7 +77,7 @@ export function bandDb(band: Band, values: Values, hz: number, sampleRate: numbe
     const k = 1 / q
     power = sectionPower(t / (tf * Math.sqrt(a)), k, a * a, k * (1 - a) * a, 1 - a * a)
   }
-  return 10 * Math.log10(power)
+  return 10 * Math.log10(Math.max(power, 1e-30))
 }
 
 /** Whether a band is on. */

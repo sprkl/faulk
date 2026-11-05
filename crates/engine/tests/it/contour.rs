@@ -415,6 +415,31 @@ fn the_output_gain_scales_the_whole_signal() {
 }
 
 #[test]
+fn ramped_values_reach_their_targets_and_back_to_0_db_the_device_is_transparent_again() {
+    // No reset here: every value ramps from its default, as during playback.
+    let input = sine(SR as usize, 1000.0, 0.25);
+    let gain = id(BELL_2, BandParam::Gain);
+    let mut c = Contour::new(SR);
+    let events = [(100, param(OUTPUT, 6.0)), (100, param(gain, 12.0))];
+    let (out, _) = run(&mut c, (&input, &input), 128, &events);
+    // After the 20 ms ramps: +6 dB of output and +12 dB of bell 2 at its centre, exactly.
+    let half = out.len() / 2;
+    let measured = 20.0 * (rms(&out[half..]) / rms(&input[half..])).log10();
+    assert!(
+        (measured - 18.0).abs() < 0.01,
+        "after the ramps: {measured} dB"
+    );
+    // Both back to 0 dB by ramps: the output is the input again, bit for bit.
+    let back = [(0, param(OUTPUT, 0.0)), (0, param(gain, 0.0))];
+    let (out, _) = run(&mut c, (&input, &input), 128, &back);
+    assert_eq!(
+        &out[2_000..],
+        &input[2_000..],
+        "transparent after the ramps back"
+    );
+}
+
+#[test]
 fn at_its_defaults_every_gain_at_0_db_gives_the_input_back_unchanged() {
     let input_l = noise(SR as usize, 3);
     let input_r = sine(SR as usize, 440.0, 0.7);
@@ -784,17 +809,20 @@ fn the_panel_s_curve_fixture_is_the_engine_s_response() {
             serde_json::json!({ "sample_rate": sr, "params": values, "points": points })
         })
         .collect();
-    let text = serde_json::to_string_pretty(&serde_json::json!({ "cases": cases })).unwrap() + "\n";
+    let fixture = serde_json::json!({ "cases": cases });
     if std::env::var_os("FAULK_BLESS").is_some() {
-        std::fs::write(&path, &text).unwrap();
+        // The web app's formatter lays the file out its own way afterwards (`pnpm format`): the
+        // comparison below reads the values, not the layout.
+        let text = serde_json::to_string_pretty(&fixture).unwrap() + "\n";
+        std::fs::write(&path, text).unwrap();
         return;
     }
-    let on_disk = std::fs::read_to_string(&path)
-        .unwrap_or_default()
-        .replace("\r\n", "\n");
+    let on_disk: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap_or_default())
+            .unwrap_or_default();
     assert!(
-        on_disk == text,
-        "{} is stale: FAULK_BLESS=1 cargo test -p engine --test it contour::the_panel",
+        on_disk == fixture,
+        "{} is stale: FAULK_BLESS=1 cargo test -p engine --test it contour::the_panel, then pnpm format",
         path.display()
     );
 }

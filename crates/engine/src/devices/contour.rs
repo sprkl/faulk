@@ -559,6 +559,15 @@ pub struct BandSettings {
     pub q: f32,
 }
 
+/// A quality factor as the filters use it: clamped to its range, [`Q_FLAT`] when not finite.
+fn finite_q(q: f32) -> f32 {
+    if q.is_finite() {
+        q.clamp(Q_MIN as f32, Q_MAX as f32)
+    } else {
+        Q_FLAT as f32
+    }
+}
+
 /// `g`, `k` and the mix of a bell or a shelf, or `g` of a cut band (`k` and the mix per section).
 fn prototype(s: &BandSettings, sample_rate: f32) -> (f32, f32, (f32, f32, f32)) {
     let top = (NYQUIST_SHARE * sample_rate).max(FREQ_MIN as f32);
@@ -567,11 +576,7 @@ fn prototype(s: &BandSettings, sample_rate: f32) -> (f32, f32, (f32, f32, f32)) 
     } else {
         1000.0
     };
-    let q = if s.q.is_finite() {
-        s.q.clamp(Q_MIN as f32, Q_MAX as f32)
-    } else {
-        Q_FLAT as f32
-    };
+    let q = finite_q(s.q);
     let db = if s.gain_db.is_finite() {
         s.gain_db.clamp(-GAIN_MAX_DB as f32, GAIN_MAX_DB as f32)
     } else {
@@ -648,6 +653,9 @@ struct Band {
     cascade_active: [bool; 3],
     /// Whether the coefficients must be recomputed once more.
     stale: bool,
+    /// The cascades whose coefficients are those of the current settings (a cut band computes
+    /// only the cascades it hears).
+    computed: [bool; 3],
 }
 
 impl Band {
@@ -660,12 +668,15 @@ impl Band {
         }
     }
 
-    fn compute(&mut self, s: &BandSettings, sample_rate: f32) {
+    /// Computes the coefficients of `s`: a bell's or a shelf's section, or the sections of the
+    /// cascades of a cut band that `cascades` names.
+    fn compute(&mut self, s: &BandSettings, sample_rate: f32, cascades: [bool; 3]) {
         let (g, k, m) = prototype(s, sample_rate);
         if s.shape.is_cut() {
-            for slope in 0..3 {
+            let q = finite_q(s.q);
+            for slope in (0..3).filter(|c| cascades[*c]) {
                 for i in 0..SECTIONS[slope] {
-                    let k = 1.0 / section_q(slope, i, s.q.clamp(Q_MIN as f32, Q_MAX as f32));
+                    let k = 1.0 / section_q(slope, i, q);
                     self.coefficients[CASCADE_START[slope] + i] =
                         Coefficients::new(g, k, cut_mix(s.shape, k));
                 }
@@ -673,6 +684,7 @@ impl Band {
         } else {
             self.coefficients[0] = Coefficients::new(g, k, m);
         }
+        self.computed = cascades;
     }
 
     /// The band's output for one stereo frame.
@@ -697,8 +709,10 @@ impl Band {
             self.active = true;
             self.stale = true;
         }
-        if moving || self.stale {
-            self.compute(&s, sample_rate);
+        // The cascades heard now: the weight of a slope that is not 0, or that still moves.
+        let heard = core::array::from_fn(|c| weights[c] != 0.0 || !self.slope[c].is_still());
+        if moving || self.stale || heard != self.computed {
+            self.compute(&s, sample_rate, heard);
             self.stale = moving;
         }
         let (mut out_l, mut out_r) = (0.0, 0.0);
@@ -733,6 +747,8 @@ pub struct Contour {
     bands: [Band; BANDS],
     output: Smoother,
     output_gain: f32,
+    /// Whether the output gain must be taken once more (the frame after its ramp ends).
+    output_stale: bool,
     fade_frames: u32,
     ramp_frames: u32,
     /// The last frames of the output, the mono sum, for the panel's spectrum (#156,
@@ -795,8 +811,9 @@ impl Contour {
                 active: false,
                 cascade_active: [false; 3],
                 stale: true,
+                computed: [false; 3],
             };
-            band.compute(&band.settings(), sample_rate);
+            band.compute(&band.settings(), sample_rate, [true; 3]);
             band
         });
         let ramp = DESCRIPTOR
@@ -807,6 +824,7 @@ impl Contour {
             bands,
             output: Smoother::new(0.0),
             output_gain: 1.0,
+            output_stale: false,
             fade_frames: (FADE_SECONDS * f64::from(sample_rate)).round() as u32,
             ramp_frames: ramp,
             ring: Box::new([]),
@@ -831,15 +849,15 @@ impl Contour {
             return;
         };
         let (fade, ramp) = (self.fade_frames, self.ramp_frames);
-        let what = [
-            BandParam::On,
-            BandParam::Freq,
-            BandParam::Gain,
-            BandParam::Q,
-            BandParam::Slope,
-        ]
-        .into_iter()
-        .find(|w| band_param(b, *w) == Some(id.0));
+        // The inverse of `band_param`: four ids per band, the last two by the band's shape.
+        let what = match (id.0 % 4, band.shape.is_cut()) {
+            (0, _) => Some(BandParam::On),
+            (1, _) => Some(BandParam::Freq),
+            (2, false) => Some(BandParam::Gain),
+            (2, true) | (3, false) => Some(BandParam::Q),
+            (3, true) => Some(BandParam::Slope),
+            _ => None,
+        };
         match what {
             Some(BandParam::On) => band.on.set(value.round().clamp(0.0, 1.0), fade),
             Some(BandParam::Freq) => band.freq.set(value, ramp),
@@ -865,7 +883,8 @@ impl Contour {
     /// bands that are on, with the slope each cut band settles on, and the output gain.
     pub fn response_db(&self, hz: f32) -> f32 {
         let mut power = 1.0f64;
-        let t = (core::f32::consts::PI * hz.clamp(0.0, 0.499 * self.sample_rate)
+        // From 1 Hz up: at 0 Hz a cut band's power is 0, whose logarithm is not finite.
+        let t = (core::f32::consts::PI * hz.clamp(1.0, 0.499 * self.sample_rate)
             / self.sample_rate)
             .tan();
         for band in &self.bands {
@@ -887,14 +906,14 @@ impl Contour {
                     .position(|w| w.target() >= 0.5)
                     .unwrap_or(0);
                 for i in 0..SECTIONS[slope] {
-                    let k = 1.0 / section_q(slope, i, s.q.clamp(Q_MIN as f32, Q_MAX as f32));
+                    let k = 1.0 / section_q(slope, i, finite_q(s.q));
                     power *= section_power(w, k, cut_mix(band.shape, k));
                 }
             } else {
                 power *= section_power(w, k, m);
             }
         }
-        (10.0 * power.log10()) as f32 + self.output.target()
+        (10.0 * power.max(1e-30).log10()) as f32 + self.output.target()
     }
 
     /// Renders the frames of `left` and `right` (same length).
@@ -905,8 +924,13 @@ impl Contour {
             for band in &mut self.bands {
                 (x, y) = band.tick(x, y, sr);
             }
-            if !self.output.is_still() {
-                self.output_gain = db_to_gain(self.output.next_value());
+            // The gain follows the ramp, and is taken once more at its target the frame after the
+            // ramp ends (the last frame of a ramp is one step short of it).
+            let moving = !self.output.is_still();
+            let db = self.output.next_value();
+            if moving || self.output_stale {
+                self.output_gain = db_to_gain(db);
+                self.output_stale = moving;
             }
             *l = flush(x * self.output_gain);
             *r = flush(y * self.output_gain);
@@ -979,11 +1003,12 @@ impl Device for Contour {
             band.states = [[State::default(); 2]; BAND_SECTIONS];
             band.active = false;
             band.cascade_active = [false; 3];
-            band.compute(&band.settings(), sr);
+            band.compute(&band.settings(), sr, [true; 3]);
             band.stale = false;
         }
         self.output.snap();
         self.output_gain = db_to_gain(self.output.current());
+        self.output_stale = false;
         // The ring's content is hidden, not wiped (constant time): no window until it is full
         // again.
         self.filled = 0;
