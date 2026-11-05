@@ -300,7 +300,7 @@ test('places a MIDI note where its time says it was played', async ({ page }) =>
 
 // #560: the engine moves the notes back by the take's shift on its own clock, where it knows the loop. The playhead
 // enters a loop from before it; a sweep of short notes 10 ms apart around that entry, stamped in the past and sent at
-// once, keeps their time apart on the line (±1 ms): a note heard just before the loop's start stays before it,
+// once, keeps their time apart on the line (within 2 ms, below): a note heard just before the loop's start stays before it,
 // none is folded to the loop's end.
 test('a note played just before the playhead enters a loop stays before the loop', async ({ page }) => {
   const { errors } = watch(page)
@@ -345,7 +345,10 @@ test('a note played just before the playhead enters a loop stays before the loop
   const msPerTick = 500 / 960
   const off = times.map((t, k) => (startOf(k) - startOf(0)) * msPerTick - (t - times[0]!))
   console.log(`sweep of ${times.length} notes, worst gap to the line: ${Math.max(...off.map(Math.abs)).toFixed(2)} ms`)
-  for (const ms of off) expect(Math.abs(ms)).toBeLessThanOrEqual(1)
+  // Each gap compares two floored starts (one tick, 0.52 ms, of rounding) of notes the page converted to frames one by
+  // one (measured up to 1.25 ms of spread over 8 runs in Chromium on Windows): 2 ms. The defect this guards against
+  // moves a note by the latency (42 ms) or the whole loop (2 s).
+  for (const ms of off) expect(Math.abs(ms)).toBeLessThanOrEqual(2)
   // The sweep crossed the entry: notes on both sides of the loop's start, none past its end.
   const starts = times.map((_, k) => startOf(k))
   expect(starts.some((t) => t < 3840)).toBe(true)
