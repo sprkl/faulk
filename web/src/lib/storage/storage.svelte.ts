@@ -292,6 +292,8 @@ export class ProjectStorage {
    * written and the file closed, so that its end is never announced before the pack is whole (#737).
    */
   exporting = $state<number | null>(null)
+  /** The export under way writes its pack (outside the queue): its banner then goes before an import's or a download's. */
+  private exportWriting = $state(false)
   /** The share of the pack read so far (0 to 1) while a `.faulkpack` is being imported into the browser's storage, else `null`. */
   importing = $state<number | null>(null)
   /** A link of the address (`/app?open=`) waiting for the user's answer before anything is downloaded. */
@@ -1449,8 +1451,9 @@ export class ProjectStorage {
     'permission' | 'full' | 'error' | 'external' | 'reopen' | 'warning' | 'notice' | 'exporting' | 'importing' | 'downloading' | 'downloadFailed' | null {
     if (this.block) return this.block
     // A pack being written (#617) or read (#682), then a pack opened by its link (#497): the download under way, then why it failed.
-    // An import or a download first: an export clicked meanwhile waits for the queue they hold, and the banner of the
-    // one at work keeps its Cancel (#737). The export's own banner shows once they are over.
+    // An export that writes goes first: its banner's end says the pack is whole (#737). One that has not started writing
+    // (the dialog, the queue an import holds) waits behind an import or a download, whose banner keeps its Cancel.
+    if (this.exporting !== null && this.exportWriting) return 'exporting'
     if (this.importing !== null) return 'importing'
     if (this.downloading) return 'downloading'
     if (this.exporting !== null) return 'exporting'
@@ -1639,7 +1642,7 @@ export class ProjectStorage {
         this.notice = 'pack.noRoom'
         return false
       }
-      const prepared = await Promise.race([this.enqueue(() => (abort.signal.aborted ? Promise.resolve(null) : this.prepareExport())), cancelled])
+      const prepared = await Promise.race([this.enqueue(() => (abort.signal.aborted ? Promise.resolve(null) : this.prepareExport(abort.signal))), cancelled])
       if (prepared === 'cancelled' || abort.signal.aborted) {
         await target.abort().catch(() => undefined)
         this.notice = 'pack.exportCancelled'
@@ -1650,10 +1653,12 @@ export class ProjectStorage {
         return false
       }
       // Outside the queue: a long export never holds a save back.
+      this.exportWriting = true
       return await this.writePack(prepared, target, abort)
     } finally {
       // After `writePack`, which closes the file (or aborts it) before it returns.
       this.exporting = null
+      this.exportWriting = false
       this.exportAbort = null
     }
   }
@@ -1685,7 +1690,7 @@ export class ProjectStorage {
   }
 
   /** What the export writes: the project as it is now, as a folder. `null` when there is nothing to export. */
-  private async prepareExport(): Promise<{ entries: FolderEntry[]; store: ProjectStore | null } | null> {
+  private async prepareExport(signal: AbortSignal): Promise<{ entries: FolderEntry[]; store: ProjectStore | null } | null> {
     const current = this.current
     let frame: SaveFrame | null
     try {
@@ -1710,6 +1715,8 @@ export class ProjectStorage {
       for (const entry of frame.entries) if (entry.type === 'write') files[entry.path] = { path: entry.path, bytes: entry.bytes }
       return { entries: Object.values(files), store: current?.store ?? null }
     } catch (error) {
+      // Cancelled while it read the media: the export already ended and said so, a late failure does not say otherwise.
+      if (signal.aborted) return null
       this.errorDetail = error instanceof Error ? error.message : String(error)
       this.notice = 'pack.exportFailed'
       return null

@@ -2302,6 +2302,49 @@ describe('export a .faulkpack', () => {
     expect(w.storage.banner).toBeNull()
   })
 
+  it('keeps the banner of an export that writes in front of an import or a download started meanwhile (#737)', async () => {
+    const { w, store } = await drafted()
+    store.media.set('blobs/aa', text('media'))
+    let release!: () => void
+    w.host.exportHold = new Promise<void>((resolve) => (release = resolve))
+    const done = w.storage.exportPack()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.storage.exporting).toBe(0.6)
+    w.storage.importing = 0.2
+    expect(w.storage.banner).toBe('exporting')
+    w.storage.importing = null
+    w.storage.downloading = 'example.com'
+    expect(w.storage.banner).toBe('exporting')
+    release()
+    expect(await done).toBe(true)
+    // Over: the download's banner is the one left.
+    expect(w.storage.banner).toBe('downloading')
+    w.storage.downloading = null
+  })
+
+  it('says it was cancelled, not that it failed, when the media list it was reading fails after the cancel (#737)', async () => {
+    const { w, store } = await drafted()
+    store.media.set('blobs/aa', text('media'))
+    const list = store.listBlobs.bind(store)
+    let fail!: (error: Error) => void
+    let calls = 0
+    store.listBlobs = async () => {
+      // The first read is the size check before the dialog; the second is the preparation's, held, then failing.
+      if (++calls === 1) return list()
+      return new Promise<FolderEntry[]>((_resolve, reject) => (fail = reject))
+    }
+    const done = w.storage.exportPack()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(calls).toBe(2)
+    w.storage.cancelExport()
+    expect(await done).toBe(false)
+    expect(w.storage.notice).toBe('pack.exportCancelled')
+    fail(new Error('the folder went away'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.storage.notice).toBe('pack.exportCancelled')
+    expect(w.storage.errorDetail).not.toBe('the folder went away')
+  })
+
   it('does not start a second export while one is under way', async () => {
     const { w, store } = await drafted()
     store.media.set('blobs/aa', text('media'))

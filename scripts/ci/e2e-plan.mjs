@@ -232,12 +232,21 @@ export const RULES = [
  * (#737). The 90 MiB `.faulkpack` export to a chosen file (`pack-stream`, `pack-longtasks`) is the only browser test
  * that reads the streamed zip back (its central directory, the blob whole), and the large import (`pack-import`) the
  * only one of the streamed import; all are `@full` for their cost (tens of MiB generated and moved, about 10 s each
- * locally): a change of the store (`web/src/lib/storage/`, where the export, the import, their Worker and the banner
- * live) ran the area without them, and a broken end of export went unseen until a whole-suite run.
+ * locally): a change of the store (`web/src/lib/storage/`, where the export, the import, their Worker and the banner's
+ * state live) ran the area without them, and a broken end of export went unseen until a whole-suite run. The banner
+ * itself (`StorageBanners.svelte`) and the zip writer and reader (`pack.rs` of `crates/project` and
+ * `crates/project-wasm`) run them too. `web/src/lib/project/core.ts` does not: it is a shared hub changed by most
+ * tasks, and its pack path (`exportPack`, which the store's Worker runs) is held by `pack-worker.test.ts`, which
+ * compares its zip with the page core's and checks that the last piece waits for the page.
  * The other `@full` tests of the storage area stay to the whole suite: their French variants are covered by
  * `i18n.test.ts` and the English runs, and their performance prints by the release run (`verification.md` > `@full`).
  */
-export const FULL_WHEN = [[/^web\/src\/lib\/storage\//, ['pack-stream', 'pack-longtasks', 'pack-import']]]
+const PACK_SPECS = ['pack-stream', 'pack-longtasks', 'pack-import']
+export const FULL_WHEN = [
+  [/^web\/src\/lib\/storage\//, PACK_SPECS],
+  [/^web\/src\/views\/shell\/StorageBanners\.svelte$/, PACK_SPECS],
+  [/^crates\/(project\/src\/file|project-wasm\/src)\/pack\.rs$/, PACK_SPECS],
+]
 
 /**
  * The core: the app's backbone, run with every change the page can see (alone for a shared file, with

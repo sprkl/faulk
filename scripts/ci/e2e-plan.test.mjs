@@ -56,9 +56,13 @@ test('a file of the store runs the streamed pack specs whole, @full included; ot
   assert.match(store.why, /@full specs for: web\/src\/lib\/storage\/storage\.svelte\.ts/)
   // Not for a unit test of the store (no browser test sees it), nor for a file outside the store, even one of the same area.
   assert.equal(plan(['web/src/lib/storage/storage.test.ts']).run, false)
-  for (const f of ['web/src/views/shell/StorageBanners.svelte', 'web/src/lib/project/core.ts', 'web/src/views/mixer/M.svelte']) {
+  for (const f of ['web/src/views/shell/ProjectMenu.svelte', 'web/src/lib/project/core.ts', 'crates/project/src/file/read.rs', 'web/src/views/mixer/M.svelte']) {
     const p = plan([f])
     assert.ok(!p.changed.includes('pack-stream'), f)
+  }
+  // The banner and the zip writer and reader run them too.
+  for (const f of ['web/src/views/shell/StorageBanners.svelte', 'crates/project/src/file/pack.rs', 'crates/project-wasm/src/pack.rs']) {
+    assert.deepEqual(plan([f]).changed, ['pack-import', 'pack-longtasks', 'pack-stream'], f)
   }
   // A name that is no spec is a stale list: the whole suite, never a silent hole.
   const without = EXISTING.filter((n) => n !== 'pack-longtasks')
