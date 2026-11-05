@@ -100,6 +100,23 @@ const reopened = (page: Page) =>
     return typeof view === 'function' && view() !== null && view() !== undefined
   })
 
+/**
+ * The report of the caches the last opening made again. The page's hook waits for the work of an attach that is
+ * running, and answers `null` while none has begun it (the project is back before the storage is attached):
+ * ask until it reports, on the condition and not on a delay (#707).
+ */
+async function audioCacheReport(page: Page, timeout = 60_000): Promise<{ made: string[]; peaks: string[] }> {
+  const deadline = Date.now() + timeout
+  for (;;) {
+    const report = await page.evaluate(() =>
+      (window as unknown as { __faulkAudioCache(): Promise<{ made: string[]; peaks: string[] } | null> }).__faulkAudioCache(),
+    )
+    if (report) return report
+    if (Date.now() > deadline) throw new Error('the audio cache report never came')
+    await page.waitForTimeout(50)
+  }
+}
+
 /** Starts audio and makes an audio track, selected, with the Clips panel open. Returns the track. */
 async function audioTrack(page: Page): Promise<string> {
   await page.goto('/app')
@@ -179,12 +196,7 @@ test('an MP3 gets its decoded PCM in the cache, and a cache deleted is made agai
   expect((await opfsFiles(page))[cache]).toBeUndefined()
   await page.reload()
   await expect.poll(() => reopened(page), { timeout: 30_000 }).toBe(true)
-  // The hook waits for the work of the attach that is running, and answers `null` while no attach has begun it
-  // yet (the project is back before the storage is attached): wait for the report itself, not for a delay (#707).
-  type CacheReport = { made: string[]; peaks: string[] } | null
-  const readReport = () => page.evaluate(() => (window as unknown as { __faulkAudioCache(): Promise<CacheReport> }).__faulkAudioCache())
-  await expect.poll(readReport, { timeout: 30_000 }).not.toBeNull()
-  const report = await readReport()
+  const report = await audioCacheReport(page)
   expect(report?.made).toEqual([hash])
   expect(report?.peaks).toEqual([hash])
   expect((await opfsFiles(page))[cache]).toBe(32 + 22_050 * 2 * 4)
@@ -388,9 +400,7 @@ test('a one-hour file: the progress shows as it goes, and in Boost no byte of it
     await expect.poll(() => reopened(page), { timeout: 60_000 }).toBe(true)
     const answers: number[] = []
     let made = false
-    const remade = page
-      .evaluate(() => (window as unknown as { __faulkAudioCache(): Promise<{ peaks: string[] } | null> }).__faulkAudioCache())
-      .then((report) => ((made = true), report))
+    const remade = audioCacheReport(page).then((report) => ((made = true), report))
     while (!made) {
       const start = performance.now()
       await page.evaluate(() => (window as unknown as { __faulkView(): unknown }).__faulkView())

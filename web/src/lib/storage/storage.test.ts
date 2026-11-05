@@ -2860,6 +2860,46 @@ describe('importing an audio file (AU-1)', () => {
     expect(signal.aborted).toBe(true)
   })
 
+  it('the PCM cache work of an attach is awaitable from the start of the attach, not only once it begins (#707)', async () => {
+    const { w, handle, store } = await saved()
+    const media = [{ hash: 'a'.repeat(64), sample_rate: 44_100, channels: 2, frames: 10 }]
+    w.host.audioMedia = () => media
+    store.files.set('project.json', 'rev 0')
+    w.storage.sleep()
+    w.recents = [{ id: handle.name, name: handle.name, handle, at: 1 }]
+    await w.storage.newProject()
+    // What a hook reads in the middle of the attach (the engine is told the folder before the work starts).
+    const early: { done: Promise<void> | null } = { done: null }
+    const told = w.host.folderChanged.bind(w.host)
+    w.host.folderChanged = (h) => {
+      early.done = w.storage.audioCacheDone
+      told(h)
+    }
+    let release = () => {}
+    store.cacheHold = new Promise((resolve) => (release = resolve))
+    const opening = w.storage.openRecent(handle.name)
+    await settle()
+    let done = false
+    void early.done!.then(() => (done = true))
+    await settle()
+    expect(done, 'still waiting for the work').toBe(false)
+    release()
+    await opening
+    await early.done
+    expect(w.storage.audioCache).toEqual({ made: [media[0]!.hash], peaks: [], missing: [], failed: [] })
+  })
+
+  it('an attach that ends before the cache work does not leave its wait pending (#707)', async () => {
+    const { w, handle } = await saved()
+    w.storage.sleep()
+    w.recents = [{ id: handle.name, name: handle.name, handle, at: 1 }]
+    await w.storage.newProject()
+    await w.storage.openRecent(handle.name)
+    await w.storage.audioCacheDone
+    await w.storage.newProject()
+    await w.storage.audioCacheDone
+  })
+
   it('reads the waveform peaks of a media from the place, and has them made one media at a time, stopped when the project leaves it (AU-2)', async () => {
     const { w, store } = await saved()
     const a = { hash: 'a'.repeat(64), sample_rate: 44_100, channels: 2, frames: 10 }
