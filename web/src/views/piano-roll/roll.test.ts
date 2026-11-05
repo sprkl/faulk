@@ -506,6 +506,9 @@ describe('the writing length (#623)', () => {
     expect(writeLength('quarter', 1440, 240, BAR)).toBe(960)
     expect(writeLength('thirty-second', null, 3840, BAR)).toBe(120)
     expect(writeLength('half', null, null, BAR)).toBe(1920)
+    // The triplets (#711): a quarter note in six and in three, whole in ticks.
+    expect(writeLength('sixteenth-triplet', null, 240, BAR)).toBe(160)
+    expect(writeLength('eighth-triplet', 1440, 240, BAR)).toBe(320)
     expect(writeLength('bar', null, 240, BAR)).toBe(3840)
     expect(writeLength('two-bars', null, 240, 2880)).toBe(5760)
     expect(writeLength('four-bars', null, 240, BAR)).toBe(4 * BAR)
