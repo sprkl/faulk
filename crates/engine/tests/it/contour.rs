@@ -502,16 +502,20 @@ fn a_fast_automated_sweep_of_every_frequency_neither_clicks_nor_goes_unstable() 
     let mut c = with(&base);
     let (out, _) = run(&mut c, (&input, &input), 128, &events);
     check(&out);
-    // The same settings, parked: the steepest a steady output gets. The sine's own step is
-    // 2 pi 300 / 48000 * 0.5 = 0.02; the bands lift it by at most +24 dB (x 15.8) here.
-    let steady_bound = 0.5 * core::f32::consts::TAU * 300.0 / SR * 15.85;
+    // A linear filter turns a sine into a sine whose level and phase move with the sweep: its
+    // step from one sample to the next is at most its angular step times its level, plus the
+    // slow change of that level. A click (a coefficient a frame late, a ramp step dropped, a
+    // state reset) is a step well beyond that: the bound is 1.5 times the sine's own slope at
+    // the output's peak. (The cut bands sweep a narrower range: swept over the whole range, they
+    // would cut the test sine away and leave nothing to hear a click in.)
+    let slope_bound = 1.5 * core::f32::consts::TAU * 300.0 / SR * peak(&out);
     let step = largest_step(&out);
     println!(
-        "fast sweep: peak {:.3}, largest step {step:.4} (steady bound {steady_bound:.4})",
+        "fast sweep: peak {:.3}, largest step {step:.4} (bound {slope_bound:.4})",
         peak(&out)
     );
     assert!(peak(&out) < 16.0, "bounded: {}", peak(&out));
-    assert!(step < steady_bound, "a click: step {step} > {steady_bound}");
+    assert!(step < slope_bound, "a click: step {step} > {slope_bound}");
 }
 
 #[test]
