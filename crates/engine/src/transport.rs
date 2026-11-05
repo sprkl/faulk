@@ -561,6 +561,14 @@ impl Transport {
         self.open = false;
     }
 
+    /// The loop the playhead will wrap at the end of, while the clock runs: armed when the
+    /// playhead is before the loop's end, inside the loop or still before its start (the first
+    /// pass). The recorder folds a position it extrapolates past that end (#560).
+    pub fn armed_loop(&self) -> Option<LoopRegion> {
+        self.active_loop()
+            .filter(|_| self.running && self.loop_armed)
+    }
+
     /// The loop that is in force: none when shorter than one sample at the current tempo.
     fn active_loop(&self) -> Option<LoopRegion> {
         let region = self.loop_region?;

@@ -16,7 +16,6 @@ export interface Take {
   target: RecordTarget
   /** The recording tracks (ids). */
   tracks: string[]
-  shiftMs: number
   countIn: boolean
 }
 
@@ -93,8 +92,8 @@ export class Recorder {
       if (dropped > 0) this.lost += dropped
     }
     if (command.type === 'record.start' && output && typeof output === 'object' && 'take' in output) {
-      const o = output as { take: number; target: RecordTarget; tracks: string[]; shift_ms: number; count_in: boolean }
-      this.begin({ take: o.take, target: o.target, tracks: o.tracks, shiftMs: o.shift_ms, countIn: o.count_in })
+      const o = output as { take: number; target: RecordTarget; tracks: string[]; count_in: boolean }
+      this.begin({ take: o.take, target: o.target, tracks: o.tracks, countIn: o.count_in })
     }
     for (const event of events) {
       if (event.type !== 'recording_changed' || event.take !== this.take?.take) continue
@@ -238,7 +237,8 @@ export class Recorder {
     this.reset()
     if (tracks.length === 0) {
       this.ports.run({ type: 'record.discard_take' })
-    } else if (!this.ports.run({ type: 'record.commit_take', take: take.take, target, shift_ms: take.shiftMs, tracks })) {
+      // The engine already moved the notes by the take's shift, on its own clock (#560): no shift here.
+    } else if (!this.ports.run({ type: 'record.commit_take', take: take.take, target, shift_ms: 0, tracks })) {
       // Refused (a limit of the project): the dispatcher said why; the take is dropped so the next one may start.
       this.dropped = 'refused'
       this.ports.run({ type: 'record.discard_take' })

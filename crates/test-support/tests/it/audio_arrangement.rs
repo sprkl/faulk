@@ -1,9 +1,10 @@
 //! AU-6 (#115): what the arrangement commands do to an audio placement is what plays. A
 //! tone placed at the start of the arrangement, then split, moved or trimmed: the split
-//! plays on without a gap or a jump at the cut (the player's crossfade between two reads of
-//! the same frames), the move plays the same frames later, and a start trimmed by half a
-//! second plays the second half from where it fell. The engine reads the file through the
-//! disk planner, served from the blobs ([`test_support::Disk`]).
+//! plays like the whole placement, sample for sample through the cut (#704: the right part
+//! takes over the left part's read, at any cut, resampled or not), two placements that follow
+//! in time but not in the file crossfade, the move plays the same frames later, and a start
+//! trimmed by half a second plays the second half from where it fell. The engine reads the
+//! file through the disk planner, served from the blobs ([`test_support::Disk`]).
 
 use commands::{Command, Output, arrangement, clip, track};
 use project::{AudioMedia, Frame, Hash, PlacementId, SampleRate};
@@ -15,11 +16,11 @@ fn cmd(v: Value) -> Command {
 }
 
 const MEDIA: [u8; 32] = [0x43; 32];
-const FRAMES: u64 = 96_000;
 
-/// A 2 s stereo WAV at 48 kHz: a 220 Hz tone on the left, 330 Hz on the right.
-fn wav() -> Vec<u8> {
-    let data = FRAMES as usize * 4;
+/// A 2 s stereo WAV at `rate`: a 220 Hz tone on the left, 330 Hz on the right.
+fn wav(rate: u32) -> Vec<u8> {
+    let frames = 2 * u64::from(rate);
+    let data = frames as usize * 4;
     let mut w = Vec::with_capacity(44 + data);
     w.extend_from_slice(b"RIFF");
     w.extend_from_slice(&(36 + data as u32).to_le_bytes());
@@ -27,45 +28,54 @@ fn wav() -> Vec<u8> {
     w.extend_from_slice(&16u32.to_le_bytes());
     w.extend_from_slice(&1u16.to_le_bytes());
     w.extend_from_slice(&2u16.to_le_bytes());
-    w.extend_from_slice(&48_000u32.to_le_bytes());
-    w.extend_from_slice(&(48_000u32 * 4).to_le_bytes());
+    w.extend_from_slice(&rate.to_le_bytes());
+    w.extend_from_slice(&(rate * 4).to_le_bytes());
     w.extend_from_slice(&4u16.to_le_bytes());
     w.extend_from_slice(&16u16.to_le_bytes());
     w.extend_from_slice(b"data");
     w.extend_from_slice(&(data as u32).to_le_bytes());
-    for f in 0..FRAMES {
+    for f in 0..frames {
         for hz in [220.0, 330.0] {
-            let v = (f as f64 * hz * core::f64::consts::TAU / 48_000.0).sin() * 12_000.0;
+            let v = (f as f64 * hz * core::f64::consts::TAU / f64::from(rate)).sin() * 12_000.0;
             w.extend_from_slice(&(v as i16).to_le_bytes());
         }
     }
     w
 }
 
-fn disk() -> Disk {
+fn disk(rate: u32) -> Disk {
     let mut d = Disk::default();
-    d.blob(MEDIA, wav());
+    d.blob(MEDIA, wav(rate));
     d
 }
 
 /// An audio track with the tone placed whole at the start of the arrangement (120 bpm: a
 /// second is 1920 ticks).
 fn song() -> (Session, PlacementId) {
+    song_at(48_000, None, 0)
+}
+
+/// [`song`] with the tone's file at `rate`, the tempo at `bpm` (set before the import) and
+/// the placement at tick `start`.
+fn song_at(rate: u32, bpm: Option<f64>, start: i64) -> (Session, PlacementId) {
     let mut s = Session::single_synth();
+    if let Some(bpm) = bpm {
+        s.run(cmd(json!({"type": "transport.set_tempo", "bpm": bpm})));
+    }
     let track = match s.exec(cmd(json!({"type": "track.create", "kind": "audio"}))) {
         Output::Track(track::Output::Create { track, .. }) => track,
         other => panic!("{other:?}"),
     };
     s.stage_media(AudioMedia {
         hash: Hash(MEDIA),
-        sample_rate: SampleRate::HZ_48000,
+        sample_rate: SampleRate::new(rate).expect("a rate"),
         channels: 2,
-        frames: Frame::new(FRAMES),
+        frames: Frame::new(2 * u64::from(rate)),
         name: "tone.wav".into(),
     });
     let placement = match s.exec(cmd(json!({
         "type": "clip.import_audio", "track": track, "media": Hash(MEDIA).to_string(),
-        "at": {"at": "arrangement", "start": 0}
+        "at": {"at": "arrangement", "start": start}
     }))) {
         Output::Clip(clip::Output::ImportAudio {
             placement: Some(p), ..
@@ -77,12 +87,28 @@ fn song() -> (Session, PlacementId) {
 
 /// Lets the planner load the clip's start, then plays the arrangement for 1.5 s.
 fn play(s: &mut Session) -> Render {
+    play_at(s, 48_000)
+}
+
+/// [`play`] with the tone's file at `rate`.
+fn play_at(s: &mut Session, rate: u32) -> Render {
     s.render_secs(0.5);
     s.run(cmd(json!({"type": "transport.play"})));
     s.render_secs(1.5);
-    let rendered = render_native_with_disk(s.scenario(), &disk());
+    let rendered = render_native_with_disk(s.scenario(), &disk(rate));
     rendered.assert_clean();
     rendered
+}
+
+/// Splits `placement` at tick `at`; returns the right part.
+fn split(s: &mut Session, placement: PlacementId, at: i64) -> PlacementId {
+    match s.exec(Command::Arrangement(arrangement::Command::Split {
+        placement,
+        at: project::Tick(at),
+    })) {
+        Output::Arrangement(arrangement::Output::Split { placement }) => placement,
+        other => panic!("{other:?}"),
+    }
 }
 
 /// The frame of the render at `secs` seconds.
@@ -103,43 +129,83 @@ fn a_split_audio_placement_plays_on_through_the_cut() {
     let (mut whole, _) = song();
     let reference = play(&mut whole);
     let (mut cut, placement) = song();
-    match cut.exec(Command::Arrangement(arrangement::Command::Split {
-        placement,
-        at: project::Tick(960),
-    })) {
-        Output::Arrangement(arrangement::Output::Split { .. }) => {}
-        other => panic!("{other:?}"),
-    }
+    split(&mut cut, placement, 960);
     let split = play(&mut cut);
     reference.assert_audible(0.6..1.9, 0.05);
-    // The cut falls half a second into the play, one second into the render. Before it the
-    // two renders are the same; from the cut the player crossfades from the left part's read
-    // to the right part's (AU-4's change of what plays), and once that fade is over the
-    // right part plays the very frames the whole placement plays: the split loses no frame
-    // and repeats none.
-    let cut_at = frame(1.0);
-    let fade = frame(0.005);
-    let (before, _) = window(&split, 0, cut_at).max_difference(&window(&reference, 0, cut_at));
-    assert_eq!(before, 0.0);
-    let (after, at) = window(&split, cut_at + fade, frame(1.9)).max_difference(&window(
+    // The cut falls half a second into the play, about one second into the render. The right
+    // part takes over the left part's read (#704): the split plays the very samples of the
+    // whole placement, through the cut too (before #704, a crossfade between the two reads
+    // dipped by 0.09 within the 5 ms after the cut on this 0.37 tone).
+    let (diff, at) = split.max_difference(&reference);
+    assert_eq!(diff, 0.0, "the split differs by {diff} at {at}");
+}
+
+#[test]
+fn a_split_audio_placement_plays_like_the_whole_one_at_any_cut_resampled_or_not() {
+    // 130 BPM: a tick is not a whole number of samples; the placement starts at tick 77, on
+    // no sample either; a file at 44.1 kHz is resampled to the engine's 48 kHz.
+    for rate in [48_000, 44_100] {
+        let (mut whole, _) = song_at(rate, Some(130.0), 77);
+        let reference = play_at(&mut whole, rate);
+        reference.assert_audible(0.6..1.9, 0.05);
+        for at in [1_001, 1_003, 1_111, 1_234, 1_357, 1_500, 1_618, 1_777] {
+            let (mut cut, placement) = song_at(rate, Some(130.0), 77);
+            split(&mut cut, placement, at);
+            let split = play_at(&mut cut, rate);
+            let (diff, i) = split.max_difference(&reference);
+            assert_eq!(
+                diff, 0.0,
+                "{rate} Hz, cut at {at}: differs by {diff} at {i}"
+            );
+        }
+    }
+}
+
+#[test]
+fn audio_placements_that_follow_in_time_but_not_in_the_file_crossfade() {
+    let (mut whole, _) = song();
+    let reference = play(&mut whole);
+    // Split at half a second, the right part's first quarter second trimmed away, then the
+    // right part moved back to the cut: it follows the left part in time, a quarter second
+    // later in the file.
+    let (mut s, placement) = song();
+    let right = split(&mut s, placement, 960);
+    s.run(Command::Arrangement(arrangement::Command::Resize {
+        placement: right.clone(),
+        edge: arrangement::Edge::Start,
+        to: project::Tick(1_440),
+    }));
+    s.run(Command::Arrangement(arrangement::Command::Move {
+        placements: vec![right],
+        by: project::Tick(-480),
+    }));
+    let jumped = play(&mut s);
+    // The play starts on a quantum of the render, the cut half a second later: where the
+    // two renders part.
+    let cut_at = (0..jumped.frames())
+        .find(|&i| jumped.left[i] != reference.left[i])
+        .expect("the renders part at the cut");
+    assert!(cut_at.abs_diff(frame(1.0)) < 128, "the cut at {cut_at}");
+    // The player's 2 ms at 48 kHz.
+    let fade = 96;
+    let skip = frame(0.25);
+    // After the crossfade, the frames a quarter second later.
+    let to = frame(1.7);
+    let (after, at) = window(&jumped, cut_at + fade, to).max_difference(&window(
         &reference,
-        cut_at + fade,
-        frame(1.9),
+        cut_at + fade + skip,
+        to + skip,
     ));
-    assert!(after < 1e-6, "after the cut, differs by {after} at {at}");
-    // Within the fade the level dips (measured 0.09 at most on this 0.37 tone, a known
-    // limit of the player's crossfade between two reads: #704); it never goes
-    // silent.
-    let (during, at) = window(&split, cut_at, cut_at + fade).max_difference(&window(
-        &reference,
-        cut_at,
-        cut_at + fade,
-    ));
-    assert!(
-        during < 0.15,
-        "within the fade, differs by {during} at {at}"
+    assert_eq!(
+        after, 0.0,
+        "after the crossfade, differs by {after} at {at}"
     );
-    window(&split, cut_at, cut_at + fade).assert_audible(0.0..0.004, 0.05);
+    // Within it, both reads: neither the old one nor the new one alone.
+    let (a, b) = (cut_at + fade / 4, cut_at + 3 * fade / 4);
+    let (old, _) = window(&jumped, a, b).max_difference(&window(&reference, a, b));
+    let (new, _) = window(&jumped, a, b).max_difference(&window(&reference, a + skip, b + skip));
+    println!("within the crossfade: {old} from the old read, {new} from the new one");
+    assert!(old > 0.01 && new > 0.01, "a crossfade ({old}, {new})");
 }
 
 #[test]

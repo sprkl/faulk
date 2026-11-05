@@ -711,7 +711,10 @@ fn record_session() -> Vec<Step> {
         track: TrackSlot(1),
         armed: true,
     });
-    setup.push(M::SetRecording { recording: true });
+    setup.push(M::SetRecording {
+        recording: true,
+        shift_us: 0,
+    });
     setup.push(M::Play { from: Tick(480) });
     let on = |t: u32, pitch: u8| M::NoteOn {
         track: TrackSlot(t),
@@ -733,7 +736,10 @@ fn record_session() -> Vec<Step> {
         Step::Render(9),
         push(&[off(0, 60), off(1, 64)]),
         Step::Render(5),
-        push(&[M::SetRecording { recording: false }]),
+        push(&[M::SetRecording {
+            recording: false,
+            shift_us: 0,
+        }]),
         Step::Render(30),
     ]
 }
@@ -797,7 +803,10 @@ fn stamped_session() -> Vec<Step> {
             track: TrackSlot(0),
             armed: true,
         },
-        M::SetRecording { recording: true },
+        M::SetRecording {
+            recording: true,
+            shift_us: 0,
+        },
         M::Play { from: Tick(0) },
     ];
     let note = |on: bool, pitch: u8, sample: u64| {
@@ -830,7 +839,10 @@ fn stamped_session() -> Vec<Step> {
         Step::Render(5),
         push(&[note(false, 64, 50_000), note(false, 67, 50_000)]),
         Step::Render(5),
-        push(&[M::SetRecording { recording: false }]),
+        push(&[M::SetRecording {
+            recording: false,
+            shift_us: 0,
+        }]),
         // Long enough for a report after the take.
         Step::Render(30),
     ]
@@ -862,6 +874,104 @@ fn native_and_wasm_record_stamped_notes_on_their_beats() {
             (64, Tick(1920), Tick(80)),
             (67, Tick(1920), Tick(79)),
         ]
+    );
+    assert_eq!(native_out.len(), wasm_out.len());
+}
+
+/// A take with a shift of 42 ms (#560) whose playhead enters a loop from before it, then wraps:
+/// a note heard 10 ms before the loop's start and one heard 20 ms before its end, each stamped
+/// 42 ms after it was heard and taken some blocks later.
+fn shifted_loop_session() -> Vec<Step> {
+    use engine::msg::{ControlMsg as M, encode_stream};
+    use engine::time::{LoopRegion, Tick};
+    const ORIGIN: u64 = 1_000_000;
+    let mut seq = 0;
+    let mut push = |msgs: &[M]| {
+        let bytes = encode_stream(1, seq, msgs).unwrap();
+        seq += msgs.len() as u32;
+        Step::Push(bytes)
+    };
+    let setup = [
+        M::Reset { epoch: 1 },
+        M::SetMetronome {
+            enabled: false,
+            volume: 1.0,
+            count_in_bars: 0,
+        },
+        M::TrackCreate {
+            track: TrackSlot(0),
+            kind: TrackKind::Midi,
+        },
+        M::TrackArm {
+            track: TrackSlot(0),
+            armed: true,
+        },
+        // Beats 1 to 3: entered at sample 24 000, wrapped at 72 000.
+        M::SetLoop {
+            region: LoopRegion::new(Tick(960), Tick(2880)),
+        },
+        M::SetRecording {
+            recording: true,
+            shift_us: 42_000,
+        },
+        M::Play { from: Tick(0) },
+    ];
+    let note = |on: bool, pitch: u8, sample: u64| {
+        let at = Some(ORIGIN + sample);
+        let track = TrackSlot(0);
+        if on {
+            M::NoteOn {
+                track,
+                pitch,
+                velocity: 100,
+                at,
+            }
+        } else {
+            M::NoteOff { track, pitch, at }
+        }
+    };
+    vec![
+        push(&setup),
+        // Heard at 23 520 (480 samples before the loop), stamped 2 016 samples later.
+        Step::Render(210),
+        push(&[note(true, 60, 25_536)]),
+        Step::Render(2),
+        push(&[note(false, 60, 25_776)]),
+        // Heard at 71 040 (960 samples before the wrap), stamped after it.
+        Step::Render(368),
+        push(&[note(true, 64, 73_056)]),
+        Step::Render(2),
+        push(&[note(false, 64, 73_296)]),
+        Step::Render(5),
+        push(&[M::SetRecording {
+            recording: false,
+            shift_us: 0,
+        }]),
+        Step::Render(30),
+    ]
+}
+
+#[test]
+fn native_and_wasm_apply_the_take_s_shift_round_the_loop() {
+    use engine::host::decode_feedback;
+    use engine::time::Tick;
+    let steps = shifted_loop_session();
+    let (native_out, native, _) = run_native_at(&steps, Some(1_000_000));
+    let (wasm_out, wasm) = run_wasm_at(&steps, Some(1_000_000));
+    let n = decode_feedback(&native).expect("a native report");
+    let w = decode_feedback(&wasm).expect("a wasm report");
+    assert_eq!(n.recorded, w.recorded);
+    let mut starts: Vec<(u8, Tick, Tick)> = n
+        .recorded
+        .iter()
+        .map(|r| (r.note.pitch, r.note.start, r.note.length))
+        .collect();
+    starts.sort();
+    // 960 - 19.2 ticks (before the loop's start) and 2 880 - 38.4 (before its end), floored;
+    // 240 samples long, 9.6 ticks.
+    assert_eq!(
+        starts,
+        [(60, Tick(940), Tick(10)), (64, Tick(2841), Tick(10))]
     );
     assert_eq!(native_out.len(), wasm_out.len());
 }

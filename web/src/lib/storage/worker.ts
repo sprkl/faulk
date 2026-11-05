@@ -5,6 +5,7 @@
 // a Worker has. It reports progress and hears a cancel; between its steps the other calls run.
 import { ImportError } from '../audio/import/abi'
 import { classify, FolderBackend } from './backend'
+import { packInWorker } from './pack-worker'
 import type { Reply, Request } from './rpc'
 import { STORE_METHODS } from './rpc'
 
@@ -12,6 +13,9 @@ const backends = new Map<number, FolderBackend>()
 
 /** The imports that run, by request id: a cancel aborts them. */
 const running = new Map<number, AbortController>()
+
+/** The pack exports that wait for the page to have written a piece, by request id: the page's word, or an abort, ends the wait. */
+const packWaits = new Map<number, () => void>()
 
 const post = (reply: Reply, transfer: ArrayBuffer[] = []) => (self as unknown as { postMessage(m: Reply, t: ArrayBuffer[]): void }).postMessage(reply, transfer)
 
@@ -46,6 +50,35 @@ async function handle(request: Request): Promise<unknown> {
     running.get(request.target)?.abort()
     return null
   }
+  if (request.op === 'packAck') {
+    // The page wrote the piece (or could not: then it stops the export).
+    if (request.failed) running.get(request.target)?.abort()
+    packWaits.get(request.target)?.()
+    return null
+  }
+  if (request.op === 'pack') {
+    const backend = backendOf(request.key)
+    const control = new AbortController()
+    running.set(request.id, control)
+    const release = () => packWaits.get(request.id)?.()
+    control.signal.addEventListener('abort', release)
+    try {
+      return await packInWorker(request.entries, control.signal, {
+        read: (path, start, end) => backend.read(path, start, end),
+        send: async (chunk) => {
+          if (control.signal.aborted) return
+          const waiting = new Promise<void>((resolve) => packWaits.set(request.id, resolve))
+          post({ id: request.id, chunk }, [chunk.buffer as ArrayBuffer])
+          await waiting
+        },
+        progress: (fraction) => post({ id: request.id, progress: fraction }),
+      })
+    } finally {
+      control.signal.removeEventListener('abort', release)
+      packWaits.delete(request.id)
+      running.delete(request.id)
+    }
+  }
   if (request.op === 'import' || request.op === 'audioCache') {
     const backend = backendOf(request.key)
     const control = new AbortController()
@@ -77,7 +110,7 @@ self.onmessage = async (event: MessageEvent<Request>) => {
   try {
     const value = await handle(request)
     // A cancel has no answer: the import it stops answers.
-    if (request.op === 'cancel') return
+    if (request.op === 'cancel' || request.op === 'packAck') return
     transfer = buffersOf(value)
     reply = { id: request.id, ok: true, value }
   } catch (error) {
