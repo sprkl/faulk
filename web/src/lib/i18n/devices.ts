@@ -84,7 +84,7 @@ export const devices = defineFeature(
     'ceiling.compensate.hint':
       'When on, the output is turned down by the input gain: the gain changes how hard the sound is limited, not how loud it is, to compare by ear.',
     'ceiling.lookahead.hint':
-      'How far ahead the limiter sees the peaks, from 0 to 5 ms: it turns down smoothly before each one. It delays this track by that time: the other tracks are not delayed to match. A change fades out and back in.',
+      'How far ahead the limiter sees the peaks, from 0 to 5 ms: it turns down smoothly before each one. It delays the sound by that time; the other tracks are delayed to match, so everything stays in time. A change fades out and back in.',
     'ceiling.release_mode.hint':
       'How the limiter lets the sound back up after a peak: manual (the release time) or auto (fast after a short peak, slower under sustained limiting).',
     'ceiling.release.hint':
@@ -167,7 +167,7 @@ export const devices = defineFeature(
     'ceiling.compensate.hint':
       'Activée, la sortie est baissée du gain d’entrée : le gain change la force de la limitation, pas le volume, pour comparer à l’oreille.',
     'ceiling.lookahead.hint':
-      'Avance avec laquelle le limiteur voit venir les crêtes, de 0 à 5 ms : il baisse le son en douceur avant chacune. Cette piste est retardée d’autant, les autres pistes ne le sont pas. Un changement se fait par un fondu de sortie puis d’entrée.',
+      'Avance avec laquelle le limiteur voit venir les crêtes, de 0 à 5 ms : il baisse le son en douceur avant chacune. Le son est retardé d’autant ; les autres pistes le sont aussi, pour que tout reste en place. Un changement se fait par un fondu de sortie puis d’entrée.',
     'ceiling.release_mode.hint':
       'Comment le limiteur relève le son après une crête : manuel (le temps de relâchement) ou auto (vite après une crête brève, plus lentement quand la limitation dure).',
     'ceiling.release.hint':

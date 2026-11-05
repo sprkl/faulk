@@ -38,6 +38,8 @@ fn levels_name_the_tracks_through_the_engine_slots_and_serve_one_answer() {
         tracks,
         master: reading(1.0, 0.5),
         silenced_frames: 0,
+        latency_frames: 72,
+        sample_rate: 48_000.0,
     });
     let before = state.clone();
     let Output::Mixer(mixer::Output::Levels {
@@ -45,6 +47,8 @@ fn levels_name_the_tracks_through_the_engine_slots_and_serve_one_answer() {
         tracks,
         master,
         silenced_frames,
+        latency_frames,
+        latency_ms,
     }) = levels(&mut state, &mut ctx)
     else {
         panic!()
@@ -52,6 +56,8 @@ fn levels_name_the_tracks_through_the_engine_slots_and_serve_one_answer() {
     assert_eq!(state, before, "a query changes nothing");
     assert!(playing);
     assert_eq!(silenced_frames, 0);
+    // The device latency the engine compensates (#749), in samples and milliseconds.
+    assert_eq!((latency_frames, latency_ms), (72, 1.5));
     let mine = tracks.iter().find(|t| t.track == f.track).unwrap();
     assert!((mine.peak_db.unwrap() - 20.0 * 0.5f64.log10()).abs() < 1e-9);
     assert!((mine.rms_db.unwrap() - 20.0 * 0.25f64.log10()).abs() < 1e-9);
@@ -193,12 +199,16 @@ fn levels_read_while_the_transport_did_not_run_are_all_silent() {
         tracks: vec![reading(0.5, 0.25); 4],
         master: reading(1.0, 0.5),
         silenced_frames: 131,
+        latency_frames: 252,
+        sample_rate: 48_000.0,
     });
     let Output::Mixer(mixer::Output::Levels {
         playing,
         tracks,
         master,
         silenced_frames,
+        latency_frames,
+        latency_ms,
     }) = levels(&mut state, &mut ctx)
     else {
         panic!()
@@ -212,12 +222,18 @@ fn levels_read_while_the_transport_did_not_run_are_all_silent() {
     assert_eq!(master.peak_db, None);
     // The protection's count (#667) holds while the transport is stopped too.
     assert_eq!(silenced_frames, 131);
+    // So does the device latency (#749).
+    assert_eq!((latency_frames, latency_ms), (252, 5.25));
     // Taken with the reading: nothing staged answers 0.
     let Output::Mixer(mixer::Output::Levels {
-        silenced_frames, ..
+        silenced_frames,
+        latency_frames,
+        latency_ms,
+        ..
     }) = levels(&mut state, &mut ctx)
     else {
         panic!()
     };
     assert_eq!(silenced_frames, 0);
+    assert_eq!((latency_frames, latency_ms), (0, 0.0));
 }

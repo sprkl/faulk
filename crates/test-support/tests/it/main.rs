@@ -18,6 +18,7 @@ mod export_audio;
 mod filter;
 mod harness;
 mod journey_pack;
+mod latency;
 mod live_input;
 mod live_insert_export;
 mod master_automation;

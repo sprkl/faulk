@@ -94,6 +94,41 @@
 //!   in, a muted track) applies at once.
 //!
 //! Every device of a slot runs once per sub-block, on the same input.
+//!
+//! # Latency
+//!
+//! A device may delay what it outputs ([`crate::device::Device::latency_frames`]: a
+//! look-ahead, #159). The graph keeps every track, the master and the metronome on one timing
+//! (#749), with buffers prepared off the audio path ([`crate::latency`]):
+//!
+//! - **A chain's latency** `L` is the sum of the latencies of the devices the chain runs
+//!   (enabled or bypassed: a bypassed device keeps its latency, below), saturating. At the
+//!   start of each block the graph reads every track's `L`, takes the largest, `T`, and gives
+//!   each track a delay `D = T − L` (at most [`crate::msg::limits::MAX_COMPENSATION_FRAMES`]).
+//!   A track at a delay of 0 mixes into the sum as before; another one adds its mixed signal to
+//!   the compensation ring `D` frames ahead ([`crate::latency::Compensation`]): one ring of
+//!   fixed size for every track, whatever the number of distinct delays. The ring's frames of
+//!   the block join the sum before the master's chain.
+//! - **A change of `D`** (a latency that changed anywhere, a device inserted or removed) moves
+//!   the track from its old delay to the new one ([`crate::latency::Route`]): both are fed,
+//!   their gains timed so that they cross over [`FADE_SECONDS`] of *output*, so nothing is cut
+//!   and nothing heard twice. A change asked during a move waits for its end. A track nobody
+//!   hears (silent strip, or not rendered) takes its new delay at once. A latency that switches
+//!   within a block is read at the next one.
+//! - **A bypassed device keeps its latency**: a device with a latency is wrapped by `prepare`
+//!   with a bypass line ([`crate::latency::Latent`]) the slot feeds with the signal entering it
+//!   and reads at the device's latency. That delayed signal is the slot's `dry` in a device
+//!   fade and the slot's output once the device is off, so a bypass neither combs nor moves
+//!   the track. A device fading in from off (a switch on, an insert) holds its fade at 0 until
+//!   it ran its latency, so its own reset line is never heard. A bypassed device that leaves its
+//!   chain fades its line out as an outgoing device, from the delayed signal to the undelayed
+//!   one.
+//! - **The master's** chain latency `M` delays the whole sum; **the metronome** is delayed by
+//!   `T + M` (a crossfaded [`crate::latency::Delay`]), so a click stays on its beat.
+//! - **The report**: `T + M`, the device latency of what is heard
+//!   ([`Graph::latency`], the feedback's `latency_frames`).
+//!
+//! Track meters read before the compensation: they lead the sound by the track's `D`.
 
 use rtrb::{Producer, PushError};
 
@@ -105,6 +140,7 @@ use crate::device::{
 use crate::devices::clip_player::{self as audio_clips, AudioPlayer};
 use crate::engine::{Clip, DeviceEntry, Lane, Paged, State, Track};
 use crate::events::{NOTE_ROOM, PARAM_CHUNK, Read, Schedule, Sink};
+use crate::latency::{Compensation, Delay, Route};
 pub use crate::mixer::mix_levels;
 use crate::mixer::{Mixer, timed};
 use crate::msg::{DeviceSlot, LiveEvent, MsgError, TrackKind, TrackMeter, TrackSlot};
@@ -125,6 +161,10 @@ pub const RETIRE_RING_CAPACITY: usize = 4096;
 /// to 32 per block for one fade, and its cost in the worst case of the engine's tables
 /// (`tests/it/msg.rs`: 256 bytes a track, 2 MiB for 4 096 tracks counted twice) fits the budget.
 pub const OUTGOING_ROOM: usize = 32;
+
+/// The longest delay of the metronome (#749): the longest a track is given; beyond, the clicks
+/// are delayed by this much.
+pub const CLICK_LINE_FRAMES: u32 = crate::msg::limits::MAX_COMPENSATION_FRAMES;
 
 /// What the audio side hands back through the retire ring once its fade is over: a track
 /// that left its slot, or a device that left its chain (#233).
@@ -355,6 +395,11 @@ pub struct TrackGraph {
     stopped_at: Option<(u64, u64)>,
     /// The devices that left the track's chain while it was heard, fading out (#233).
     outgoing: Outgoing,
+    /// How the track reaches the sum through the compensation ring (#749, module doc >
+    /// Latency).
+    route: Route,
+    /// The latency of the track's chain at the start of the last block, in frames.
+    latency: u32,
     next: Option<Box<Track>>,
 }
 
@@ -377,8 +422,20 @@ impl TrackGraph {
             lane_expect: None,
             stopped_at: None,
             outgoing: Outgoing::new(),
+            route: Route::at(0),
+            latency: 0,
             next: None,
         }
+    }
+
+    /// The latency of the track's chain at the start of the last block, in frames (#749).
+    pub fn latency(&self) -> u32 {
+        self.latency
+    }
+
+    /// The delay the track is given to align it with the others, or moves toward (#749).
+    pub fn delay(&self) -> u32 {
+        self.route.delay()
     }
 
     /// The devices that left the track's chain and still fade out (#233).
@@ -488,6 +545,9 @@ struct Scratch {
     unused: EventBuffer,
     /// The buffers of a device fade (#233).
     blend: Blend,
+    /// A track's mixed sub-block on its way to the compensation ring (#749).
+    post_left: Box<[f32]>,
+    post_right: Box<[f32]>,
 }
 
 /// The buffers a slot of a chain uses while one of its devices fades (#233, module doc >
@@ -497,6 +557,12 @@ struct Blend {
     dry_right: Box<[f32]>,
     old_left: Box<[f32]>,
     old_right: Box<[f32]>,
+    /// The signal entering the slot, delayed by its device's latency (#749).
+    late_left: Box<[f32]>,
+    late_right: Box<[f32]>,
+    /// An outgoing device's own output, blended with its line (#749).
+    wet_left: Box<[f32]>,
+    wet_right: Box<[f32]>,
 }
 
 /// The clock as the graph reads it for one block: the segments TR-1 cut it in (none when
@@ -538,6 +604,16 @@ pub struct Graph {
     master_outgoing: Outgoing,
     /// The audio clip players' scratch (AU-4), shared by the tracks.
     audio_scratch: audio_clips::Scratch,
+    /// The ring that delays the tracks to align them (#749).
+    compensation: Compensation,
+    /// The metronome's delay of `T + M` and its block's clicks (#749).
+    click_line: Delay,
+    click_left: Box<[f32]>,
+    click_right: Box<[f32]>,
+    /// The largest chain latency of the tracks (`T`) and the master's (`M`) at the start of
+    /// the last block, in frames.
+    track_latency: u32,
+    master_latency: u32,
 }
 
 impl core::fmt::Debug for Graph {
@@ -593,7 +669,13 @@ impl Graph {
                     dry_right: buffer(max_frames)?,
                     old_left: buffer(max_frames)?,
                     old_right: buffer(max_frames)?,
+                    late_left: buffer(max_frames)?,
+                    late_right: buffer(max_frames)?,
+                    wet_left: buffer(max_frames)?,
+                    wet_right: buffer(max_frames)?,
                 },
+                post_left: buffer(max_frames)?,
+                post_right: buffer(max_frames)?,
             },
             master: Mixer::unity(),
             master_gen: 0,
@@ -605,7 +687,83 @@ impl Graph {
             retired,
             master_outgoing: Outgoing::new(),
             audio_scratch: audio_clips::Scratch::try_new()?,
+            compensation: Compensation::try_new(max_frames)?,
+            click_line: Delay::try_new(CLICK_LINE_FRAMES, 0)?,
+            click_left: buffer(max_frames)?,
+            click_right: buffer(max_frames)?,
+            track_latency: 0,
+            master_latency: 0,
         })
+    }
+
+    /// Bytes the graph's latency buffers take for blocks of up to `max_frames` (#749): the
+    /// compensation ring, the metronome's line and its block, a fade's delayed dry signal, an
+    /// outgoing device's own output and a track's mixed sub-block.
+    pub fn latency_bytes(max_frames: usize) -> u64 {
+        let ring = Compensation::frames_for(max_frames) as u64 * 2 * 4;
+        ring + Delay::bytes_for(CLICK_LINE_FRAMES) + 8 * max_frames as u64 * 4
+    }
+
+    /// The device latency of what is heard, in frames (#749, module doc > Latency): the
+    /// largest chain latency of the tracks plus the master's, at the start of the last block.
+    pub fn latency(&self) -> u32 {
+        self.track_latency.saturating_add(self.master_latency)
+    }
+
+    /// Reads every chain's latency for the block to come (module doc > Latency): each track's,
+    /// the largest of them (`T`) and the master's (`M`). The engine calls it before the
+    /// recorder and the graph take the block, so both see the same latency. No allocation.
+    pub(crate) fn measure_latency(&mut self, state: &mut State) {
+        let mut longest = 0u32;
+        for track in state.tracks.as_mut_slice().iter_mut().flatten() {
+            let latency = chain_latency(track.devices.as_mut_slice());
+            track.graph.latency = latency;
+            longest = longest.max(latency);
+        }
+        self.track_latency = longest;
+        self.master_latency = chain_latency(state.master_devices.as_mut_slice());
+    }
+
+    /// The master chain's latency at the start of the last block, in frames.
+    pub fn master_latency(&self) -> u32 {
+        self.master_latency
+    }
+
+    /// The panic cut (#749): nothing delayed before it comes back after it. The ring is wiped
+    /// (linear in its size, no allocation), the metronome's line hidden.
+    pub(crate) fn clear_latency(&mut self) {
+        self.compensation.clear();
+        self.click_line.clear();
+    }
+
+    /// The block's metronome buffers, zeroed, for the clicker to add into (#749).
+    pub(crate) fn click_buffers(&mut self, frames: usize) -> (&mut [f32], &mut [f32]) {
+        let frames = frames.min(self.max_frames);
+        let (l, r) = (
+            &mut self.click_left[..frames],
+            &mut self.click_right[..frames],
+        );
+        l.fill(0.0);
+        r.fill(0.0);
+        (l, r)
+    }
+
+    /// Adds the clicks of [`Graph::click_buffers`] to `left` and `right`, delayed by the device
+    /// latency ([`Graph::latency`]) so that they stay on the music's beat (#749).
+    pub(crate) fn add_clicks(&mut self, left: &mut [f32], right: &mut [f32]) {
+        let frames = left.len().min(right.len()).min(self.max_frames);
+        let (latency, fade) = (self.latency(), self.fade);
+        let (cl, cr) = (
+            &mut self.click_left[..frames],
+            &mut self.click_right[..frames],
+        );
+        self.click_line.process(cl, cr, latency, fade);
+        for (o, c) in left.iter_mut().zip(cl.iter()) {
+            *o += *c;
+        }
+        for (o, c) in right.iter_mut().zip(cr.iter()) {
+            *o += *c;
+        }
     }
 
     /// The largest block the graph renders at once (the setup's).
@@ -705,6 +863,8 @@ impl Graph {
         let fade = self.fade;
         let mut voices = 0u32;
         let any_solo = state.tracks.as_slice().iter().flatten().any(|t| t.solo);
+        // The chains' latencies at the start of the block ([`Graph::measure_latency`]).
+        let longest = self.track_latency;
         let (quantize, signature) = (state.transport.launch_quantize, state.transport.signature);
         crate::automation::link(&mut state.tracks, &mut state.lanes, &mut self.master_lanes);
         let clips = &mut state.clips;
@@ -726,6 +886,13 @@ impl Graph {
                 .graph
                 .mixer
                 .sync(track.gain, track.pan, track.mute, audible, fade);
+            // Its delay: at once while nobody hears it, else by a move (module doc > Latency).
+            let wanted = longest - track.graph.latency;
+            if track.graph.is_silent() {
+                track.graph.route.snap(wanted);
+            } else {
+                track.graph.route.ask(wanted);
+            }
             let input = Input {
                 slot: TrackSlot(slot as u32),
                 live,
@@ -738,17 +905,22 @@ impl Graph {
                 }),
                 lanes: Some(&mut *lanes),
             };
-            render_track(
+            let rendered = render_track(
                 track,
                 Some(input),
                 clock,
                 &ctx,
                 &mut self.scratch,
                 &mut aio,
+                &mut self.compensation,
                 fade,
                 left,
                 right,
             );
+            if !rendered {
+                // It gave nothing: its new delay holds at once.
+                track.graph.route.snap(wanted);
+            }
             // The devices whose fade-out ended leave for the prepare side (#233).
             let slots = track.devices.as_slice().len();
             track.graph.outgoing.sweep(&mut self.retired, slots);
@@ -775,6 +947,7 @@ impl Graph {
                     &ctx,
                     &mut self.scratch,
                     &mut aio,
+                    &mut self.compensation,
                     fade,
                     left,
                     right,
@@ -800,6 +973,8 @@ impl Graph {
             kept = Some(track);
         }
         self.retiring = kept;
+        // The delayed tracks join the sum, before the master's chain.
+        self.compensation.take(left, right);
 
         self.master_pass(state, clock, &ctx, left, right);
         self.master_outgoing
@@ -1116,6 +1291,38 @@ impl Graph {
     }
 }
 
+/// The latency of a chain at the start of a block, in frames (#749, module doc > Latency): the
+/// sum, saturating, of the latencies of the devices `run_chain` runs, enabled or bypassed (a
+/// bypassed device keeps its latency through its line; a device without a line declares none,
+/// [`crate::device::Device::max_latency_frames`]). A MIDI effect without an output and an
+/// instrument after the first enabled one are not run and count for nothing.
+pub(crate) fn chain_latency(devices: &mut [Option<Box<DeviceEntry>>]) -> u32 {
+    let mut instrument = false;
+    let mut sum = 0u32;
+    for entry in devices.iter_mut().flatten() {
+        let role = entry.device.descriptor().role;
+        match role {
+            DeviceRole::MidiEffect if entry.events_out.is_none() => continue,
+            DeviceRole::Instrument if instrument => continue,
+            DeviceRole::Instrument if entry.enabled => instrument = true,
+            _ => {}
+        }
+        let latency = entry
+            .device
+            .latency_frames()
+            .min(entry.device.max_latency_frames());
+        // A device not heard yet (off, or holding its fade in) gives its line: the timing of
+        // the slot is the line's tap, which reaches the latency by its own crossfade.
+        let heard = entry.fade > 0.0;
+        let latency = match entry.device.bypass() {
+            Some(b) if !heard => b.line.tap(),
+            _ => latency,
+        };
+        sum = sum.saturating_add(latency);
+    }
+    sum
+}
+
 /// The largest gain reduction of the enabled devices of a chain, in decibels (0 for none; a
 /// disabled device is out of the chain and counts for nothing).
 fn chain_reduction(devices: &[Option<Box<DeviceEntry>>]) -> f32 {
@@ -1252,14 +1459,14 @@ fn render_audio(
 
 /// Whether the track has a device to render: an enabled one, or one that still fades out
 /// (in its slot or outgoing, #233).
-fn chain_sounds(track: &Track) -> bool {
+fn chain_sounds(track: &mut Track) -> bool {
     !track.graph.outgoing.is_empty()
-        || track
-            .devices
-            .as_slice()
-            .iter()
-            .flatten()
-            .any(|d| d.enabled || d.fade > 0.0)
+        || track.devices.as_mut_slice().iter_mut().flatten().any(|d| {
+            d.enabled
+                    || d.fade > 0.0
+                    // A bypass line still gives what entered it (#749).
+                    || d.device.bypass().is_some_and(|b| b.line.busy())
+        })
 }
 
 /// Renders one track and sums it into `out_left` and `out_right` with its levels; `false`
@@ -1274,6 +1481,7 @@ fn render_track(
     ctx: &BlockCtx,
     scratch: &mut Scratch,
     aio: &mut audio_clips::Io<'_>,
+    ring: &mut Compensation,
     fade: u32,
     out_left: &mut [f32],
     out_right: &mut [f32],
@@ -1289,7 +1497,7 @@ fn render_track(
         && (track.audio.busy()
             || (input.as_ref().is_some_and(|i| i.clips.is_some())
                 && (player_runs || !track.placements.is_empty())));
-    if !chain_sounds(track) && !player_runs && !audio_runs {
+    if !chain_sounds(&mut *track) && !player_runs && !audio_runs {
         // Not rendered: the next stopped block it renders applies its lanes again.
         track.graph.stopped_at = None;
         return false;
@@ -1302,6 +1510,8 @@ fn render_track(
         merged,
         unused,
         blend,
+        post_left,
+        post_right,
     } = scratch;
     let (left, right) = (&mut left[..frames], &mut right[..frames]);
     left.fill(0.0);
@@ -1366,6 +1576,7 @@ fn render_track(
         lane_expect,
         stopped_at,
         outgoing,
+        route,
         ..
     } = graph;
     // The track's automation lanes (AM-2, [`crate::automation`]).
@@ -1434,16 +1645,33 @@ fn render_track(
             &mut right[from..to],
         );
         // The mix, with the strip's timed parameters, then the track's meter: after its
-        // fader, as the signal enters the sum.
-        mixer.mix_into(
-            &left[from..to],
-            &right[from..to],
-            &mut out_left[from..to],
-            &mut out_right[from..to],
-            meter,
-            timed(sink.params()),
-            fade,
-        );
+        // fader, as the signal enters the sum; straight in at a delay of 0, else through the
+        // compensation ring (#749).
+        if !route.moving() && route.delay() == 0 {
+            mixer.mix_into(
+                &left[from..to],
+                &right[from..to],
+                &mut out_left[from..to],
+                &mut out_right[from..to],
+                meter,
+                timed(sink.params()),
+                fade,
+            );
+        } else {
+            let (pl, pr) = (&mut post_left[from..to], &mut post_right[from..to]);
+            pl.fill(0.0);
+            pr.fill(0.0);
+            mixer.mix_into(
+                &left[from..to],
+                &right[from..to],
+                pl,
+                pr,
+                meter,
+                timed(sink.params()),
+                fade,
+            );
+            route.add(ring, from, pl, pr, fade);
+        }
     };
     if !clock.running || clock.segments.is_empty() {
         // Stopped, the lanes apply their value at the playhead once, when the clock stops
@@ -1690,10 +1918,14 @@ fn run_chain(
     for i in 0..devices.len() {
         let leaving = !outgoing.is_empty() && outgoing.sounds_at(i);
         let (before, rest) = devices.split_at_mut(i);
+        // A device with a bypass line runs its line even when off (#749).
         let entry = rest
             .first_mut()
             .and_then(|e| e.as_deref_mut())
-            .filter(|e| e.enabled || e.fade > 0.0);
+            .and_then(|e| {
+                let keep = e.enabled || e.fade > 0.0 || e.device.bypass().is_some();
+                keep.then_some(e)
+            });
         if entry.is_none() && !leaving {
             continue;
         }
@@ -1717,90 +1949,105 @@ fn run_chain(
             blend.dry_left[..frames].copy_from_slice(left);
             blend.dry_right[..frames].copy_from_slice(right);
         }
+        // What an outgoing device's difference is taken from: the signal the slot gives
+        // without it (the delayed one when the slot's device has a line).
+        let mut late = false;
         if let Some(entry) = entry {
             let Some(notes_from) = run else {
-                // Not run: its fade has nothing to fade.
+                // Not run: its fade has nothing to fade, its line nothing worth keeping.
                 entry.fade = entry.target();
+                if let Some(b) = entry.device.bypass() {
+                    b.line.clear();
+                    b.off = true;
+                    b.warm = 0;
+                }
                 if leaving {
-                    fade_out_at(outgoing, i, blend, unused, step, ctx, left, right);
+                    fade_out_at(outgoing, i, blend, false, unused, fade, ctx, left, right);
                 }
                 continue;
             };
-            let role = entry.device.descriptor().role;
-            // Slots are below `MAX_DEVICES_PER_TRACK`: they fit in a `u16`.
-            let slot = DeviceSlot(i.min(usize::from(u16::MAX)) as u16);
-            let events: &[Event] = match notes_from {
-                // Fading out: no event, its voices and tail ring down.
-                None => &[],
-                Some(from) => {
-                    if role == DeviceRole::Instrument {
-                        instrument = true;
+            // The slot's signal delayed by the device's latency (#749, module doc > Latency).
+            let latency = entry.device.latency_frames();
+            if let Some(b) = entry.device.bypass() {
+                late = true;
+                let (ll, lr) = (
+                    &mut blend.late_left[..frames],
+                    &mut blend.late_right[..frames],
+                );
+                ll.copy_from_slice(left);
+                lr.copy_from_slice(right);
+                b.line.process(ll, lr, latency, fade);
+                let settled_off = !entry.enabled && entry.fade <= 0.0;
+                // Off, or just switched on and not yet run for its latency (its own line was
+                // reset): the slot gives the delayed signal, its fade held at 0.
+                let held = entry.enabled && entry.fade <= 0.0 && (b.off || b.warm < latency);
+                if settled_off {
+                    b.off = true;
+                    b.warm = 0;
+                } else {
+                    if b.off {
+                        b.off = false;
+                        b.warm = 0;
                     }
-                    let notes: &[Event] = match (role, from) {
-                        (DeviceRole::Effect, _) => &[],
-                        (_, Stream::Input) => sink.notes(),
-                        (_, Stream::Device(j)) => before
-                            .get(j)
-                            .and_then(|e| e.as_deref())
-                            .and_then(|e| e.events_out.as_ref())
-                            .map_or(&[], EventBuffer::events),
-                    };
-                    let values = sink.params_for(slot);
-                    if values == 0 {
-                        notes
-                    } else if notes.len() + values < merged.capacity() {
-                        sink.merge_for(slot, notes, merged);
-                        merged.events()
-                    } else {
-                        // More than the merge holds (after a chained MIDI effect with a large
-                        // output): the values apply at the sub-block's first frame, and no
-                        // note is lost.
-                        for (d, e) in sink.params() {
-                            if *d == slot
-                                && let Event::ParamValue { id, value, .. } = *e
-                            {
-                                entry.device.set_param(id, value);
-                            }
-                        }
-                        notes
-                    }
+                    b.warm = b.warm.saturating_add(frames as u32);
                 }
-            };
-            let DeviceEntry {
-                device, events_out, ..
-            } = &mut *entry;
-            match role {
-                DeviceRole::MidiEffect => {
-                    let Some(out) = events_out.as_mut() else {
-                        continue;
-                    };
-                    out.clear();
-                    let mut io = AudioIo {
+                if settled_off {
+                    left.copy_from_slice(ll);
+                    right.copy_from_slice(lr);
+                    if leaving {
+                        fade_out_at(outgoing, i, blend, true, unused, fade, ctx, left, right);
+                    }
+                    continue;
+                }
+                if held {
+                    // It runs (its line fills) but is not heard yet.
+                    run_device(
+                        entry,
+                        before,
+                        notes_from,
+                        &mut instrument,
+                        &mut stream,
+                        i,
+                        sink,
+                        merged,
+                        unused,
+                        ctx,
                         left,
                         right,
-                        events_out: out,
-                    };
-                    device.process(ctx, events, &mut io);
-                    out.finish();
-                    out.retain_notes();
-                    stream = Stream::Device(i);
-                }
-                DeviceRole::Instrument | DeviceRole::Effect => {
-                    unused.clear();
-                    let mut io = AudioIo {
-                        left,
-                        right,
-                        events_out: unused,
-                    };
-                    device.process(ctx, events, &mut io);
+                    );
+                    left.copy_from_slice(&blend.late_left[..frames]);
+                    right.copy_from_slice(&blend.late_right[..frames]);
+                    if leaving {
+                        fade_out_at(outgoing, i, blend, true, unused, fade, ctx, left, right);
+                    }
+                    continue;
                 }
             }
+            run_device(
+                entry,
+                before,
+                notes_from,
+                &mut instrument,
+                &mut stream,
+                i,
+                sink,
+                merged,
+                unused,
+                ctx,
+                left,
+                right,
+            );
             if fading {
+                let (rl, rr): (&[f32], &[f32]) = if late {
+                    (&blend.late_left[..frames], &blend.late_right[..frames])
+                } else {
+                    (&blend.dry_left[..frames], &blend.dry_right[..frames])
+                };
                 let target = entry.target();
                 let mut g = entry.fade;
                 for (n, (l, r)) in left.iter_mut().zip(right.iter_mut()).enumerate() {
                     g = approach(g, target, step);
-                    let (dl, dr) = (blend.dry_left[n], blend.dry_right[n]);
+                    let (dl, dr) = (rl[n], rr[n]);
                     *l = dl + g * (*l - dl);
                     *r = dr + g * (*r - dr);
                 }
@@ -1808,11 +2055,104 @@ fn run_chain(
                 if g <= 0.0 && !entry.enabled {
                     // Silent now: nothing of it comes back when it is switched on again.
                     entry.device.reset();
+                    if let Some(b) = entry.device.bypass() {
+                        b.off = true;
+                        b.warm = 0;
+                    }
                 }
             }
         }
         if leaving {
-            fade_out_at(outgoing, i, blend, unused, step, ctx, left, right);
+            fade_out_at(outgoing, i, blend, late, unused, fade, ctx, left, right);
+        }
+    }
+}
+
+/// Runs the device of slot `i` over `left` and `right` with its events (module doc): a MIDI
+/// effect's output becomes the chain's note stream, an instrument or an effect writes the
+/// sound in place. `notes_from` is where its notes come from (`None`: it fades out, no event).
+#[allow(clippy::too_many_arguments)]
+fn run_device(
+    entry: &mut DeviceEntry,
+    before: &[Option<Box<DeviceEntry>>],
+    notes_from: Option<Stream>,
+    instrument: &mut bool,
+    stream: &mut Stream,
+    i: usize,
+    sink: &Sink,
+    merged: &mut EventBuffer,
+    unused: &mut EventBuffer,
+    ctx: &BlockCtx,
+    left: &mut [f32],
+    right: &mut [f32],
+) {
+    let role = entry.device.descriptor().role;
+    // Slots are below `MAX_DEVICES_PER_TRACK`: they fit in a `u16`.
+    let slot = DeviceSlot(i.min(usize::from(u16::MAX)) as u16);
+    let events: &[Event] = match notes_from {
+        // Fading out: no event, its voices and tail ring down.
+        None => &[],
+        Some(from) => {
+            if role == DeviceRole::Instrument {
+                *instrument = true;
+            }
+            let notes: &[Event] = match (role, from) {
+                (DeviceRole::Effect, _) => &[],
+                (_, Stream::Input) => sink.notes(),
+                (_, Stream::Device(j)) => before
+                    .get(j)
+                    .and_then(|e| e.as_deref())
+                    .and_then(|e| e.events_out.as_ref())
+                    .map_or(&[], EventBuffer::events),
+            };
+            let values = sink.params_for(slot);
+            if values == 0 {
+                notes
+            } else if notes.len() + values < merged.capacity() {
+                sink.merge_for(slot, notes, merged);
+                merged.events()
+            } else {
+                // More than the merge holds (after a chained MIDI effect with a large
+                // output): the values apply at the sub-block's first frame, and no
+                // note is lost.
+                for (d, e) in sink.params() {
+                    if *d == slot
+                        && let Event::ParamValue { id, value, .. } = *e
+                    {
+                        entry.device.set_param(id, value);
+                    }
+                }
+                notes
+            }
+        }
+    };
+    let DeviceEntry {
+        device, events_out, ..
+    } = &mut *entry;
+    match role {
+        DeviceRole::MidiEffect => {
+            let Some(out) = events_out.as_mut() else {
+                return;
+            };
+            out.clear();
+            let mut io = AudioIo {
+                left,
+                right,
+                events_out: out,
+            };
+            device.process(ctx, events, &mut io);
+            out.finish();
+            out.retain_notes();
+            *stream = Stream::Device(i);
+        }
+        DeviceRole::Instrument | DeviceRole::Effect => {
+            unused.clear();
+            let mut io = AudioIo {
+                left,
+                right,
+                events_out: unused,
+            };
+            device.process(ctx, events, &mut io);
         }
     }
 }
@@ -1829,43 +2169,85 @@ fn approach(g: f32, target: f32, step: f32) -> f32 {
 
 /// Adds to `left` and `right` what the outgoing devices of slot `slot` still give (#233):
 /// each runs, with no event, over the signal entering the slot (`blend`'s dry buffers), and
-/// its difference from that signal is added with its falling fade.
+/// its difference from what the slot gives without it (the dry signal, or the delayed one
+/// when `late`: the slot's device has a bypass line, #749) is added with its falling fade. A
+/// device that left while bypassed (#749) gives its bypass line, not its own output.
 #[allow(clippy::too_many_arguments)]
 fn fade_out_at(
     outgoing: &mut Outgoing,
     slot: usize,
     blend: &mut Blend,
+    late: bool,
     unused: &mut EventBuffer,
-    step: f32,
+    fade: u32,
     ctx: &BlockCtx,
     left: &mut [f32],
     right: &mut [f32],
 ) {
     let frames = left.len().min(right.len());
+    let step = 1.0 / fade.max(1) as f32;
     let Blend {
         dry_left,
         dry_right,
         old_left,
         old_right,
+        late_left,
+        late_right,
+        wet_left,
+        wet_right,
     } = blend;
+    let (wet_left, wet_right) = (&mut wet_left[..frames], &mut wet_right[..frames]);
     let (dry_left, dry_right) = (&dry_left[..frames], &dry_right[..frames]);
+    let (ref_left, ref_right) = if late {
+        (&late_left[..frames], &late_right[..frames])
+    } else {
+        (dry_left, dry_right)
+    };
     let (old_left, old_right) = (&mut old_left[..frames], &mut old_right[..frames]);
     for entry in outgoing.iter_mut() {
         if usize::from(entry.slot) == slot && entry.fade > 0.0 {
             old_left.copy_from_slice(dry_left);
             old_right.copy_from_slice(dry_right);
-            unused.clear();
-            let mut io = AudioIo {
-                left: &mut *old_left,
-                right: &mut *old_right,
-                events_out: &mut *unused,
+            let latency = entry.device.latency_frames();
+            // A device with a line gave its line blended with its own output by its fade when
+            // it left (`mix`, #749): it keeps giving that, so its slot's timing never jumps.
+            let mix = match entry.device.bypass() {
+                Some(b) => {
+                    b.line.process(old_left, old_right, latency, fade);
+                    Some(b.mix)
+                }
+                None => None,
             };
-            entry.device.process(ctx, &[], &mut io);
+            match mix {
+                Some(m) if m <= 0.0 => {}
+                _ => {
+                    let (out_l, out_r): (&mut [f32], &mut [f32]) = if mix.is_some() {
+                        wet_left.copy_from_slice(dry_left);
+                        wet_right.copy_from_slice(dry_right);
+                        (&mut *wet_left, &mut *wet_right)
+                    } else {
+                        (&mut *old_left, &mut *old_right)
+                    };
+                    unused.clear();
+                    let mut io = AudioIo {
+                        left: out_l,
+                        right: out_r,
+                        events_out: &mut *unused,
+                    };
+                    entry.device.process(ctx, &[], &mut io);
+                    if let Some(m) = mix {
+                        for n in 0..frames {
+                            old_left[n] += m * (wet_left[n] - old_left[n]);
+                            old_right[n] += m * (wet_right[n] - old_right[n]);
+                        }
+                    }
+                }
+            }
             let mut g = entry.fade;
             for n in 0..frames {
                 g = approach(g, 0.0, step);
-                left[n] += g * (old_left[n] - dry_left[n]);
-                right[n] += g * (old_right[n] - dry_right[n]);
+                left[n] += g * (old_left[n] - ref_left[n]);
+                right[n] += g * (old_right[n] - ref_right[n]);
             }
             entry.fade = g;
         }

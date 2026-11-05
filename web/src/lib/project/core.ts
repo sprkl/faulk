@@ -71,6 +71,10 @@ export interface LevelsStage {
   master: MeterReading
   /** Frames the output protection silenced for a non-finite sample since the engine that plays started (#667); 0 when left out. */
   silenced_frames?: number
+  /** The device latency the engine compensates, in frames (#749); 0 when left out. */
+  latency_frames?: number
+  /** The engine's sample rate, in hertz, to give that latency in milliseconds; 0 when unknown. */
+  sample_rate?: number
 }
 
 /** The measures of an offline render `project.analyze_render` answers with (`AnalysisStage`, #665). */

@@ -35,10 +35,10 @@ use std::sync::Arc;
 use crate::device::{DeviceSetup, Factory};
 use crate::engine::{Engine, Preparer, channel as engine_channel};
 use crate::msg::{
-    ACTIVE_CLIP_BYTES, ActiveClip, ClipState, DeviceKind, FEEDBACK_HEADER_BYTES, FEEDBACK_VERSION,
-    Feedback, HEADER_BYTES, MAX_RECORDED_PER_REPORT, MSG_VERSION, MsgError, Note,
-    RECORDED_NOTE_WIRE_BYTES, RecordedNote, TRACK_METER_BYTES, Tag, TrackMeter, TrackSlot,
-    TransportState, limits,
+    ACTIVE_CLIP_BYTES, ActiveClip, ClipState, DeviceKind, FEEDBACK_HEADER_BYTES,
+    FEEDBACK_LATENCY_OFFSET, FEEDBACK_VERSION, Feedback, HEADER_BYTES, MAX_RECORDED_PER_REPORT,
+    MSG_VERSION, MsgError, Note, RECORDED_NOTE_WIRE_BYTES, RecordedNote, TRACK_METER_BYTES, Tag,
+    TrackMeter, TrackSlot, TransportState, limits,
 };
 use crate::time::SampleRate;
 
@@ -865,8 +865,8 @@ impl Host {
     /// every track slot up to the last track and the output's, then the active clips (GR-1),
     /// then the take's number, count and last notes (RE-2), the disk's underruns, offline
     /// sources, budget flag and PCM in memory (AU-3), and the frames the output protection
-    /// silenced because a sample was non-finite (#667), and the host's frame at the playhead (#733).
-    /// No allocation.
+    /// silenced because a sample was non-finite (#667), the host's frame at the playhead (#733),
+    /// and the device latency the graph compensates (#749). No allocation.
     pub fn write_feedback(&mut self) {
         let seq = self.feedback_seq.wrapping_add(1) | 1;
         let fb = &self.feedback;
@@ -913,6 +913,7 @@ impl Host {
             (disk.pcm_bytes.load(Ordering::Relaxed) / 1024).min(u64::from(u32::MAX)) as u32,
         );
         put(88, silenced_word(self.engine.limiter_silenced()));
+        put(FEEDBACK_LATENCY_OFFSET, self.engine.graph().latency());
         put(40, tracks as u32);
         put(52, self.period_voices);
         let mut at = FEEDBACK_HEADER_BYTES;
@@ -1138,6 +1139,7 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
         pcm_flags: u32_at(80)?,
         pcm_kib: u32_at(84)?,
         silenced_frames: u32_at(88)?,
+        latency_frames: u32_at(FEEDBACK_LATENCY_OFFSET)?,
         meters,
         master: meter(tracks as usize)?,
         voices: u32_at(52)?,

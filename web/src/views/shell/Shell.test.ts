@@ -121,6 +121,25 @@ describe('the shell', () => {
     expect(body).toContain('moins d’1 ms de signal invalide coupé depuis le démarrage de l’audio')
   })
 
+  it('says in the engine dialog how much latency the devices add, which the engine compensates (#749)', () => {
+    const stores = createStores('arrangement', DEFAULT_PANEL)
+    stores.engine.started = true
+    stores.engine.status = { kind: 'web', sampleRate: 48_000, estimatedLatencyMs: null }
+    let body = render(Shell, { props: { stores } }).body
+    expect(body).toMatch(/data-testid="engine-dialog-compensation"[^>]*>No device adds latency</)
+    stores.engine.latencyFrames = 72
+    body = render(Shell, { props: { stores } }).body
+    expect(body).toContain('Devices add 1.5 ms (72 samples): the other tracks are delayed to match')
+    // Before the engine's rate is known (a helper session opening): the samples alone, never "none".
+    stores.engine.status = null
+    body = render(Shell, { props: { stores } }).body
+    expect(body).toContain('Devices add 72 samples: the other tracks are delayed to match')
+    stores.engine.status = { kind: 'web', sampleRate: 48_000, estimatedLatencyMs: null }
+    stores.ui.lang = 'fr'
+    body = render(Shell, { props: { stores } }).body
+    expect(body).toContain('Les appareils ajoutent 1,5 ms (72 échantillons) : les autres pistes sont retardées d’autant')
+  })
+
   it('folds the bottom panel in the mixer and gives it back on leaving, without touching the stored fold', () => {
     const stores = createStores('arrangement', DEFAULT_PANEL)
     const ui = stores.ui

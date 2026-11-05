@@ -15178,7 +15178,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Read how loud the project sounds now, per track and for the master, from the\nmeters of the playing engine: how an agent without ears learns whether a song\nsounds. Call it while the transport plays (`transport.play`): the meters keep the\nlargest peak and the loudest RMS since the previous call (at most the last 10\nseconds), so a call right after a passage covers it. That RMS is the loudest of\nthe engine's short windows (about 30 ms), so it reads higher than the RMS of a\nwhole passage, which is what `project.analyze_render` gives. Levels are in dBFS (0 is\nfull scale; the master is measured before the output protection, so it can read\nabove 0), `null` is silence; a peak is the larger of the two channels, an RMS the\npower mean of both. `playing` says whether the transport ran: when it did not (or\nthe audio is not started, or the engine has stopped reporting), every level is\n`null`. Tracks come in display order, after their fader and mute. To measure a\nstretch without playing it, use `project.analyze_render`. `silenced_frames` above 0\nsays the output protection silenced an invalid (non-finite) signal since the page's\naudio started, which the levels cannot show. A query: changes nothing\nand never enters the history.",
+        "description": "Read how loud the project sounds now, per track and for the master, from the\nmeters of the playing engine: how an agent without ears learns whether a song\nsounds. Call it while the transport plays (`transport.play`): the meters keep the\nlargest peak and the loudest RMS since the previous call (at most the last 10\nseconds), so a call right after a passage covers it. That RMS is the loudest of\nthe engine's short windows (about 30 ms), so it reads higher than the RMS of a\nwhole passage, which is what `project.analyze_render` gives. Levels are in dBFS (0 is\nfull scale; the master is measured before the output protection, so it can read\nabove 0), `null` is silence; a peak is the larger of the two channels, an RMS the\npower mean of both. `playing` says whether the transport ran: when it did not (or\nthe audio is not started, or the engine has stopped reporting), every level is\n`null`. Tracks come in display order, after their fader and mute. To measure a\nstretch without playing it, use `project.analyze_render`. `silenced_frames` above 0\nsays the output protection silenced an invalid (non-finite) signal since the page's\naudio started, which the levels cannot show. `latency_ms` is the delay the devices add\nto what is heard (a look-ahead limiter's): the engine delays the other tracks and the\nmetronome to match, so every track stays in time, and moves recorded takes back by it.\nA query: changes nothing and never enters the history.",
         "destructive": false,
         "input_schema": {
           "additionalProperties": false,
@@ -15264,6 +15264,17 @@
           },
           "additionalProperties": false,
           "properties": {
+            "latency_frames": {
+              "description": "The delay the devices add to what is heard, in samples at the engine's rate: the\nlongest chain of the tracks plus the master's (0 with no such device). The engine\ncompensates it: the tracks and the metronome stay aligned. Counted whether or not the\ntransport runs.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "latency_ms": {
+              "description": "The same delay in milliseconds (0 when the engine's rate is unknown).",
+              "format": "double",
+              "type": "number"
+            },
             "master": {
               "$ref": "#/$defs/Level",
               "description": "The level of the output, after the master and before the output protection."
@@ -15290,7 +15301,9 @@
             "playing",
             "tracks",
             "master",
-            "silenced_frames"
+            "silenced_frames",
+            "latency_frames",
+            "latency_ms"
           ],
           "type": "object"
         },
@@ -20453,7 +20466,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Read how loud the project sounds now, per track and for the master, from the\nmeters of the playing engine: how an agent without ears learns whether a song\nsounds. Call it while the transport plays (`transport.play`): the meters keep the\nlargest peak and the loudest RMS since the previous call (at most the last 10\nseconds), so a call right after a passage covers it. That RMS is the loudest of\nthe engine's short windows (about 30 ms), so it reads higher than the RMS of a\nwhole passage, which is what `project.analyze_render` gives. Levels are in dBFS (0 is\nfull scale; the master is measured before the output protection, so it can read\nabove 0), `null` is silence; a peak is the larger of the two channels, an RMS the\npower mean of both. `playing` says whether the transport ran: when it did not (or\nthe audio is not started, or the engine has stopped reporting), every level is\n`null`. Tracks come in display order, after their fader and mute. To measure a\nstretch without playing it, use `project.analyze_render`. `silenced_frames` above 0\nsays the output protection silenced an invalid (non-finite) signal since the page's\naudio started, which the levels cannot show. A query: changes nothing\nand never enters the history.",
+              "description": "Read how loud the project sounds now, per track and for the master, from the\nmeters of the playing engine: how an agent without ears learns whether a song\nsounds. Call it while the transport plays (`transport.play`): the meters keep the\nlargest peak and the loudest RMS since the previous call (at most the last 10\nseconds), so a call right after a passage covers it. That RMS is the loudest of\nthe engine's short windows (about 30 ms), so it reads higher than the RMS of a\nwhole passage, which is what `project.analyze_render` gives. Levels are in dBFS (0 is\nfull scale; the master is measured before the output protection, so it can read\nabove 0), `null` is silence; a peak is the larger of the two channels, an RMS the\npower mean of both. `playing` says whether the transport ran: when it did not (or\nthe audio is not started, or the engine has stopped reporting), every level is\n`null`. Tracks come in display order, after their fader and mute. To measure a\nstretch without playing it, use `project.analyze_render`. `silenced_frames` above 0\nsays the output protection silenced an invalid (non-finite) signal since the page's\naudio started, which the levels cannot show. `latency_ms` is the delay the devices add\nto what is heard (a look-ahead limiter's): the engine delays the other tracks and the\nmetronome to match, so every track stays in time, and moves recorded takes back by it.\nA query: changes nothing and never enters the history.",
               "properties": {
                 "type": {
                   "const": "mixer.levels",
@@ -25958,6 +25971,17 @@
             {
               "additionalProperties": false,
               "properties": {
+                "latency_frames": {
+                  "description": "The delay the devices add to what is heard, in samples at the engine's rate: the\nlongest chain of the tracks plus the master's (0 with no such device). The engine\ncompensates it: the tracks and the metronome stay aligned. Counted whether or not the\ntransport runs.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "latency_ms": {
+                  "description": "The same delay in milliseconds (0 when the engine's rate is unknown).",
+                  "format": "double",
+                  "type": "number"
+                },
                 "master": {
                   "$ref": "#/$defs/Level",
                   "description": "The level of the output, after the master and before the output protection."
@@ -25989,7 +26013,9 @@
                 "playing",
                 "tracks",
                 "master",
-                "silenced_frames"
+                "silenced_frames",
+                "latency_frames",
+                "latency_ms"
               ],
               "type": "object"
             }
@@ -29524,7 +29550,7 @@
     {
       "kind": "faulk.ceiling",
       "kind_id": 7,
-      "memory_bytes": 29248,
+      "memory_bytes": 37552,
       "midi_output": null,
       "name": "Ceiling",
       "named_keys": [],
@@ -29573,7 +29599,7 @@
         },
         {
           "default": 0.0015,
-          "description": "How far ahead the limiter sees the peaks, from 0 to 5 ms: it turns down smoothly before each one. It delays this track by that time: the other tracks are not delayed to match. A change fades out and back in.",
+          "description": "How far ahead the limiter sees the peaks, from 0 to 5 ms: it turns down smoothly before each one. It delays the sound by that time; the other tracks are delayed to match, so everything stays in time. A change fades out and back in.",
           "id": 3,
           "key": "lookahead",
           "max": 0.005,
@@ -34929,6 +34955,17 @@
             {
               "additionalProperties": false,
               "properties": {
+                "latency_frames": {
+                  "description": "The delay the devices add to what is heard, in samples at the engine's rate: the\nlongest chain of the tracks plus the master's (0 with no such device). The engine\ncompensates it: the tracks and the metronome stay aligned. Counted whether or not the\ntransport runs.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "latency_ms": {
+                  "description": "The same delay in milliseconds (0 when the engine's rate is unknown).",
+                  "format": "double",
+                  "type": "number"
+                },
                 "master": {
                   "$ref": "#/$defs/Level",
                   "description": "The level of the output, after the master and before the output protection."
@@ -34960,7 +34997,9 @@
                 "playing",
                 "tracks",
                 "master",
-                "silenced_frames"
+                "silenced_frames",
+                "latency_frames",
+                "latency_ms"
               ],
               "type": "object"
             }
@@ -38599,7 +38638,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 42,
+  "protocol_version": 46,
   "scale_intervals": [
     {
       "intervals": [

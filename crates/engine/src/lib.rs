@@ -17,6 +17,7 @@ pub mod events;
 pub mod fader;
 pub mod graph;
 pub mod host;
+pub mod latency;
 pub mod launcher;
 pub mod limiter;
 pub mod metronome;

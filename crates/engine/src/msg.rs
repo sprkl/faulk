@@ -215,7 +215,7 @@ pub use codec::{
 pub const MSG_VERSION: u8 = 1;
 
 /// Version of the [`Feedback`] layout.
-pub const FEEDBACK_VERSION: u8 = 9;
+pub const FEEDBACK_VERSION: u8 = 11;
 
 /// Size of a [`Header`] in bytes.
 pub const HEADER_BYTES: usize = 16;
@@ -274,6 +274,13 @@ pub mod limits {
     pub const MAX_APPLY_PER_BLOCK: usize = 128;
     /// Largest render block, in frames (Web Audio allows up to 2048).
     pub const MAX_BLOCK_FRAMES: usize = 2048;
+    /// The longest delay the graph gives a track to align it with the others, and the
+    /// longest bypass line of a device, in frames (#749, `crate::graph` > Latency): 85 ms at
+    /// 192 kHz, 341 ms at 48 kHz (sixteen Ceilings at their longest look-ahead and 192 kHz). A
+    /// chain whose latency goes beyond is compensated up to it.
+    /// It sizes the graph's compensation ring once ([`crate::latency::Compensation`]), not a
+    /// buffer per track.
+    pub const MAX_COMPENSATION_FRAMES: u32 = 16_383;
     /// Initial size of the web module's linear memory, in 64 KiB pages (16 MiB).
     pub const WASM_INITIAL_PAGES: u32 = 256;
     /// The cap of a wasm32 linear memory: 65 536 pages of 64 KiB.
@@ -1711,7 +1718,11 @@ pub struct RecordedNote {
 }
 
 /// Size of the fixed part of a [`Feedback`] on the wire.
-pub const FEEDBACK_HEADER_BYTES: usize = 100;
+pub const FEEDBACK_HEADER_BYTES: usize = 104;
+
+/// Where the device latency sits in a [`Feedback`] (#749, version 11): one `u32`, the last
+/// word of the header. One constant, so that the field moves in one place.
+pub const FEEDBACK_LATENCY_OFFSET: usize = 100;
 
 /// What the engine reports to the page, about 30 times per second. Fixed little-endian
 /// layout, written by the audio thread into a region sized by [`Feedback::size_for`]:
@@ -1764,7 +1775,10 @@ pub const FEEDBACK_HEADER_BYTES: usize = 100;
 ///             It keeps counting while the transport is stopped, where `playhead_frame` stops: `host_frame -
 ///             playhead_frame` is the host frame of position 0 only while the transport runs at one tempo,
 ///             with no loop wrap and no sample-rate change since the Play.
-///    100      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
+///    100    4 latency_frames (u32: the device latency of what is heard, in frames at the engine's rate:
+///             the largest chain latency of the tracks plus the master's, which the graph compensates
+///             (`crate::graph` > Latency); [`FEEDBACK_LATENCY_OFFSET`]; last word of the header; version 11, #749)
+///    104      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
 ///             largest gain reduction in decibels of the strip's devices over the period, version 4):
 ///             one per track slot below `tracks` (zeros for an empty slot; peak and RMS after the
 ///             track's fader), then the output's meter after the master (version 2); the master's
@@ -1783,6 +1797,9 @@ pub struct Feedback {
     pub playhead_frame: Frame,
     /// The host's frame at the playhead (offset 92, version 9, #733).
     pub host_frame: u64,
+    /// The device latency of what is heard, in frames ([`FEEDBACK_LATENCY_OFFSET`], version 11,
+    /// #749).
+    pub latency_frames: u32,
     pub cpu_load: f32,
     /// The largest load of one peak window closed in the period (`crate::host`); with a
     /// coarse clock a period may close none and carry the last window, which can be under

@@ -1105,6 +1105,58 @@ fn the_report_carries_the_host_frame_at_the_playhead() {
     }
 }
 
+/// The report carries the device latency the graph compensates (#749, version 11), at its one
+/// offset, the last word of the header: a Ceiling at its defaults on a track is 72 frames at
+/// 48 kHz, one on the master with the true peak adds 84.
+#[test]
+fn the_report_carries_the_device_latency() {
+    use engine::devices::ceiling::{DESCRIPTOR as CEILING, TRUE_PEAK};
+    use engine::msg::{FEEDBACK_HEADER_BYTES, FEEDBACK_LATENCY_OFFSET, encode_state};
+    assert_eq!(FEEDBACK_LATENCY_OFFSET + 4, FEEDBACK_HEADER_BYTES);
+    assert_eq!(FEEDBACK_LATENCY_OFFSET % 4, 0);
+    let mut session = Session::new();
+    session.host.render(128);
+    session.host.write_feedback();
+    assert_eq!(
+        read_feedback(session.host.feedback())
+            .unwrap()
+            .latency_frames,
+        0
+    );
+    session.send(&[M::DeviceInsert {
+        track: TrackSlot(0),
+        device: DeviceSlot(1),
+        kind: CEILING.kind_id,
+        state: Vec::new(),
+    }]);
+    session.host.render(128);
+    // A device inserted on a heard chain holds its fade until it ran its latency: its slot
+    // gives its line, whose tap reaches the latency by its own crossfade.
+    for _ in 0..3 {
+        session.host.render(128);
+    }
+    session.host.write_feedback();
+    assert_eq!(
+        read_feedback(session.host.feedback())
+            .unwrap()
+            .latency_frames,
+        72
+    );
+    session.send(&[M::DeviceInsert {
+        track: TrackSlot::MASTER,
+        device: DeviceSlot(0),
+        kind: CEILING.kind_id,
+        state: encode_state(&[(engine::msg::ParamId(TRUE_PEAK), 1.0)]),
+    }]);
+    session.host.render(128);
+    for _ in 0..3 {
+        session.host.render(128);
+    }
+    session.host.write_feedback();
+    let fb = read_feedback(session.host.feedback()).unwrap();
+    assert_eq!(fb.latency_frames, 72 + 84);
+}
+
 /// A report of version 7 (the header of 88 bytes, without the silenced frames) is refused, and so is one of version 8.
 #[test]
 fn a_report_of_version_7_is_refused() {

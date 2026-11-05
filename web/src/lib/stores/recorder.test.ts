@@ -41,6 +41,7 @@ function report(over: Partial<FeedbackReport>): FeedbackReport {
     pcmOverBudget: false,
     pcmKib: 0,
     silencedFrames: 0,
+    latencyFrames: 0,
     voices: 0,
     tracks: [],
     master: { peakL: 0, peakR: 0, rmsL: 0, rmsR: 0, gainReductionDb: 0 },

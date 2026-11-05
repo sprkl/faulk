@@ -29,6 +29,11 @@ export class EngineStore {
    * pill and its dialog say so.
    */
   silencedFrames = $state(0)
+  /**
+   * The delay the devices add to what is heard, in frames at the engine's rate (#749): the longest chain latency of the
+   * tracks plus the master's, which the engine compensates (the other tracks and the metronome are delayed to match).
+   */
+  latencyFrames = $state(0)
   /** The engine's CPU load, smoothed, and its peak held (#486); `null` while the engine does not measure it. */
   load = $state.raw<EngineLoad | null>(null)
   /** Notes sounding, for the piano strip and the MIDI activity light. */

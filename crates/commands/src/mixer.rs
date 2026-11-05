@@ -121,8 +121,10 @@ domain! {
     /// `null`. Tracks come in display order, after their fader and mute. To measure a
     /// stretch without playing it, use `project.analyze_render`. `silenced_frames` above 0
     /// says the output protection silenced an invalid (non-finite) signal since the page's
-    /// audio started, which the levels cannot show. A query: changes nothing
-    /// and never enters the history.
+    /// audio started, which the levels cannot show. `latency_ms` is the delay the devices add
+    /// to what is heard (a look-ahead limiter's): the engine delays the other tracks and the
+    /// metronome to match, so every track stays in time, and moves recorded takes back by it.
+    /// A query: changes nothing and never enters the history.
     "mixer.levels" (kind = "query", undo = "none", destructive = false)
     Levels {} => {
         /// Whether the transport was playing or recording at the last reading.
@@ -137,6 +139,13 @@ domain! {
         /// invalid signal, which the levels above do not show. Counted whether or not the
         /// transport runs.
         silenced_frames: u64,
+        /// The delay the devices add to what is heard, in samples at the engine's rate: the
+        /// longest chain of the tracks plus the master's (0 with no such device). The engine
+        /// compensates it: the tracks and the metronome stay aligned. Counted whether or not the
+        /// transport runs.
+        latency_frames: u32,
+        /// The same delay in milliseconds (0 when the engine's rate is unknown).
+        latency_ms: f64,
     };
 }
 
@@ -152,6 +161,10 @@ pub fn apply(
             let staged = ctx.levels.take();
             // The protection's count holds whether or not the transport ran (#667).
             let silenced_frames = staged.as_ref().map_or(0, |s| s.silenced_frames);
+            // The latency holds whether or not the transport ran (#749).
+            let (latency_frames, rate) = staged
+                .as_ref()
+                .map_or((0, 0.0), |s| (s.latency_frames, s.sample_rate));
             let stage = staged.filter(|s| s.playing).unwrap_or_default();
             let tracks = track_levels(
                 &state.project,
@@ -163,6 +176,8 @@ pub fn apply(
                 tracks,
                 master: level_of(&stage.master),
                 silenced_frames,
+                latency_frames,
+                latency_ms: crate::levels::latency_ms(latency_frames, rate),
             }))
         }
         Command::SetVolume { track, gain_db } => {

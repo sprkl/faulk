@@ -163,6 +163,7 @@ export class Dispatcher {
         if (report.silencedFrames < silencedBase) silencedBase = 0
         const silenced = report.silencedFrames - silencedBase
         if (this.state.silencedFrames !== silenced) this.state.silencedFrames = silenced
+        if (this.state.latencyFrames !== report.latencyFrames) this.state.latencyFrames = report.latencyFrames
         const shown = load.update(report.cpuLoad, report.cpuPeak, performance.now())
         if (!sameLoad(this.state.load, shown)) this.state.load = shown
         this.state.peak = peakOf(report.master)
@@ -514,6 +515,7 @@ export class Dispatcher {
     this.state.peak = 0
     this.state.voices = 0
     this.state.silencedFrames = 0
+    this.state.latencyFrames = 0
     this.state.activeNotes = []
     await web.close().catch((error: unknown) => console.error(error))
   }
@@ -722,8 +724,13 @@ export class Dispatcher {
   private stageLevels(core: ProjectCore) {
     const slots = this.project.view?.slots
     const held = this.levelHold.take(performance.now(), this.state.started ? slots?.epoch : undefined)
-    // What the output protection silenced (#667) is the engine's count, playing or not.
-    core.stageLevels({ ...held, silenced_frames: this.state.silencedFrames })
+    // What the output protection silenced (#667) is the engine's count, playing or not; so is the device latency (#749).
+    core.stageLevels({
+      ...held,
+      silenced_frames: this.state.silencedFrames,
+      latency_frames: this.state.latencyFrames,
+      sample_rate: this.state.status?.sampleRate ?? 0,
+    })
   }
 
   /**

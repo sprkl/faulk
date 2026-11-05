@@ -4,6 +4,7 @@ import {
   ACTIVE_CLIP_BYTES,
   FEEDBACK_HEADER_BYTES,
   FEEDBACK_VERSION,
+  LATENCY_OFFSET,
   MAX_RECORDED_PER_REPORT,
   RECORDED_NOTE_BYTES,
   TRACK_METER_BYTES,
@@ -116,6 +117,7 @@ describe('decodeFeedback', () => {
         v.setUint32(84, 4096, true)
         v.setUint32(88, 131, true)
         v.setBigUint64(92, 5_000_000n, true)
+        v.setUint32(LATENCY_OFFSET, 156, true)
       }),
     )!
     expect(r).toMatchObject({
@@ -134,6 +136,7 @@ describe('decodeFeedback', () => {
       pcmOverBudget: true,
       pcmKib: 4096,
       silencedFrames: 131,
+      latencyFrames: 156,
     })
     expect(r.tracks).toHaveLength(3)
     expect(r.tracks[2].peakL).toBeCloseTo(0.3)
@@ -152,7 +155,15 @@ describe('decodeFeedback', () => {
     expect(decodeFeedback(report(1, (v) => v.setFloat32(at + 16, NaN, true)))!.tracks[0].gainReductionDb).toBe(0)
   })
 
-  it('refuses a report of the previous layouts (version 8: a 92-byte header, without the host frame; version 7: an 88-byte header, without the silenced frames; version 5: 72 bytes; version 4: 56 bytes; version 3)', () => {
+  it('keeps the device latency in the last word of the header (#749)', () => {
+    expect(LATENCY_OFFSET + 4).toBe(FEEDBACK_HEADER_BYTES)
+    expect(LATENCY_OFFSET % 4).toBe(0)
+    expect(decodeFeedback(report(0))!.latencyFrames).toBe(0)
+  })
+
+  it('refuses a report of the previous layouts (version 9: a 100-byte header, without the device latency; version 8: a 92-byte header, without the host frame; version 7: an 88-byte header, without the silenced frames; version 5: 72 bytes; version 4: 56 bytes; version 3)', () => {
+    expect(decodeFeedback(report(2, (v) => v.setUint8(0, 10)))).toBeNull()
+    expect(decodeFeedback(report(2, (v) => v.setUint8(0, 9)))).toBeNull()
     expect(decodeFeedback(report(2, (v) => v.setUint8(0, 8)))).toBeNull()
     expect(decodeFeedback(report(2, (v) => v.setUint8(0, 7)))).toBeNull()
     expect(decodeFeedback(report(2, (v) => v.setUint8(0, 5)))).toBeNull()
@@ -185,7 +196,7 @@ describe('decodeFeedback', () => {
     expect(decodeFeedback(report(0, (v) => v.setFloat32(72, NaN, true)))!.cpuPeak).toBeNull()
     expect(decodeFeedback(report(0, (v) => v.setFloat32(72, 2, true)))!.cpuPeak).toBe(1)
     // The meters start after it.
-    expect(FEEDBACK_HEADER_BYTES).toBe(100)
+    expect(FEEDBACK_HEADER_BYTES).toBe(104)
   })
 
   it('refuses another version, a short buffer and a track count beyond the bytes', () => {

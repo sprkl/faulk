@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 42;
+pub const PROTOCOL_VERSION: u32 = 46;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -43,6 +43,11 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 46 (#749, provisional: 43 to 45 are held by #751, #752 and #157): the report is `Feedback`
+// version 11: the header grows by one word, `latency_frames` at `FEEDBACK_LATENCY_OFFSET` (the device
+// latency the engine compensates, in frames), and the commands' `mixer.levels` answers it. A page and a
+// helper of different versions refuse each other.
 
 // Version 42 (#159): a new built-in device, `faulk.ceiling` (kind id 7, the brick-wall
 // limiter). No message changes shape, but a helper of an earlier version does not know kind 7: its engine
