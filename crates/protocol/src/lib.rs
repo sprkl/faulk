@@ -44,7 +44,7 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
-// Version 43 (#156; 41 is #744's, 42 is #159's): a new built-in device kind, `faulk.contour` (kind 7, the
+// Version 43 (#156; 41 is #733's, 42 is #159's): a new built-in device kind, `faulk.contour` (kind 7, the
 // seven-band equaliser). A helper of an earlier version does not know the kind and refuses, in Boost, the
 // stream that inserts it; the schema bundle exports its descriptor. No message changes.
 

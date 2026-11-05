@@ -1563,13 +1563,24 @@ fn every_parameter_of_contour_is_set_by_its_key_checked_against_its_descriptor_a
         } else {
             (p.min + p.max) / 2.0 + 0.123
         };
-        for value in [p.min, p.max, between] {
+        // Each value is checked from the state the previous one left, so that every value of a
+        // choice (a switch's two, a slope's three) is checked once from another one.
+        let values: Vec<f64> = if p.step > 0.0 {
+            let n = ((p.max - p.min) / p.step).round() as u32;
+            (0..=n)
+                .map(|i| p.min + f64::from(i) * p.step)
+                .chain([p.min])
+                .collect()
+        } else {
+            vec![p.min, p.max, between]
+        };
+        for value in values {
             let current = s.project.tracks[&c.track].devices[&eq].params[p.key];
-            if current == p.sanitize_f64(value).unwrap() {
-                continue;
+            if current != p.sanitize_f64(value).unwrap() {
+                check(&param(&eq, p.key, value), &s, &context())
+                    .unwrap_or_else(|e| panic!("{} = {value}: {e}", p.key));
             }
-            check(&param(&eq, p.key, value), &s, &context())
-                .unwrap_or_else(|e| panic!("{}: {e}", p.key));
+            go(&mut s, &param(&eq, p.key, value));
         }
         // Clamped to the range, a choice rounded to its step.
         let Output::Device(device::Output::SetParam { value, .. }) =
