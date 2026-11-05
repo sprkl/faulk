@@ -58,6 +58,23 @@ section Outro     97-112  : Beat A [mute=105-112], Pad
 - Windows are how seams are blurred without multiplying patterns: a part that carries over, enters on beat 2, drops a bar early or skips one bar is the same pattern with a window, not a new pattern. Make a new pattern only when the notes differ (`Beat A`, `Beat A fill`). A sheet with more than about twenty patterns is usually encoding arrangement edits as patterns.
 - Every pattern listed must exist in the sheet. The check flags section lengths that are not multiples of 4 bars and gaps between sections, as information: an irregular length is fine when it is a decision. Processing (filter sweeps, sends, effects switched on once) is not notation: it goes in prose, by bar and beat.
 
+## Automation
+
+````
+```automation "Acid cutoff" part="Acid" param=cutoff curve=ease-in
+17.1 30, 32.4 110 step, 33.1 40 linear
+49.1 40, 56.4 90 smooth, 57.1 100
+```
+````
+
+- Header: `automation "<Name>" part="<pattern name>" param=<name> | cc=<0-127> [curve=<shape>]`. The name is unique in a sheet. `part=` is a pattern that exists in the sheet: the controller is written on that part's MIDI channel (channel 10 for a drum pattern). `param=` is one of `cutoff` (CC 74), `resonance` (71), `attack` (73), `release` (72), `decay` (75), `volume` (7), `pan` (10), `expression` (11), `modulation` (1), `reverb` (91), `chorus` (93), `delay` (94); any other parameter takes its number with `cc=` (when both are given, `cc=` wins). A sound maps the number to its own knob: say in prose which one.
+- Body: points `<position> <value> [curve]`, separated by commas, semicolons or line breaks. The position is `bar`, `bar.beat` or `bar.beat.sixteenth`, counted from 1 like everywhere else, in absolute bars of the arrangement. The value is an integer from 0 to 127.
+- Points are in strictly increasing order of position. Nothing is written before the first point; the last value is held to the end of the track.
+- The curve of a point shapes the segment that leaves it, towards the next point; without one, the block's `curve=` applies (default `linear`). Shapes: `step` holds the value until the next point (a sudden jump: the point that drops it is the next one); `linear`; `ease-in` (slow start, fast end: a filter that opens, a build); `ease-out` (fast start, slow end: a decay that settles); `smooth` (slow at both ends, an S-shaped crossfade). Choose by what the ear should feel and say it in prose.
+- In the example, the cutoff rises from 30 to 110 over bars 17 to 32 with `ease-in` (the block's curve), holds 110 until bar 33 beat 1, where it falls to 40, then follows the later points.
+- `check` flags a value or controller outside 0-127, a point out of order, a point at or after the end of the arrangement (without an arrangement: the pattern's length), an unknown curve, a missing `part=` or controller, and a `part` that is not a pattern of the sheet. It warns when the part sits in no section. `render` writes one control change on the part's channel at each point and, for the shaped curves, one per sixteenth where the value moves, on that part's track.
+- Automation is the movement of one MIDI controller. Sends, effect chains and anything that is not a controller stay in prose, by bar and beat.
+
 ## Running the tool
 
 ```
@@ -65,6 +82,6 @@ python scripts/sheet_tool.py check  sheet.md
 python scripts/sheet_tool.py render sheet.md --out song.mid [--tempo 124]
 ```
 
-`check` prints, per pattern, the errors (wrong counts, bad tokens: exit code 1), the in-key verdict, and contour statistics (range, how many times the top note occurs, steps versus leaps, up versus down, notes per bar). `render` refuses to write a file while errors remain; without an arrangement block it lays every pattern once from bar 1, which is enough to audition loop material. The MIDI file has one track per pattern, drums on channel 10, so any sequencer or sampler can open it.
+`check` prints, per pattern, the errors (wrong counts, bad tokens: exit code 1), the in-key verdict, and contour statistics (range, how many times the top note occurs, steps versus leaps, up versus down, notes per bar). `render` refuses to write a file while errors remain; without an arrangement block it lays every pattern once from bar 1, which is enough to audition loop material. The MIDI file has one track per pattern (its automation lanes are control changes on that track), drums on channel 10, so any sequencer or sampler can open it.
 
 Read the warnings as questions, not verdicts: an out-of-key note or a six-bar section is often the best idea in the sheet. Each one must simply be a choice you can name.
