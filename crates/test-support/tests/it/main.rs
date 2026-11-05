@@ -18,6 +18,7 @@ mod filter;
 mod harness;
 mod journey_pack;
 mod live_input;
+mod live_insert_export;
 mod master_automation;
 mod master_chain;
 mod master_export;
