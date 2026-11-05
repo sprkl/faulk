@@ -48,6 +48,10 @@ pub const AGENT_CONFIRM_MS: u32 = 45_000;
 // seven-band equaliser). A helper of an earlier version does not know the kind and refuses, in Boost, the
 // stream that inserts it; the schema bundle exports its descriptor. No message changes.
 
+// Version 41 (#733): the report is `Feedback` version 9: the header grows from 92 to 100 bytes with
+// `host_frame` at offset 92 (the host's frame at the report's playhead), so that the page can place a
+// tick on the host's clock. A page and a helper of different versions refuse each other.
+
 // Version 40 (#682; 38 is #560's, 39 is #710's): the commands gain `project.cancel_import_pack` (stops the
 // `.faulkpack` imports under way, downloads included); the helper generates its MCP tools from the
 // commands, so a helper of an earlier version would not offer it to an agent. No message changes. Its output
