@@ -23,9 +23,10 @@
 //! holds the track, the audio placement at a tick is the last frame placement started at or
 //! before it, until its effective end: the least of `start + Tempo::frames_to_ticks(length,
 //! source rate)` (the rule `clip.import_audio` places with) and the next placement's start
-//! (the MIDI rule of [`crate::arrangement`]). A grid clip played once ends with its last
-//! frame, not at a tick (audio is not warped): the player tells the grid's player
-//! ([`AudioPlayer::take_ended`], `ClipPlayer::audio_ended`).
+//! (the MIDI rule of [`crate::arrangement`]); a gap shorter than one more frame of the source
+//! to the next part of its cut (same clip, next frames) is closed (#704). A grid clip played once
+//! ends with its last frame, not at a tick (audio is not warped): the player tells the grid's
+//! player ([`AudioPlayer::take_ended`], `ClipPlayer::audio_ended`).
 //!
 //! # Time
 //!
@@ -46,6 +47,15 @@
 //! out. A change of what plays starts a new stream on the free port with a fade in while the
 //! old one fades out: a crossfade. A change while the old one still fades waits for it (at
 //! most one fade) and then starts from where its timeline is then.
+//!
+//! One change is not a crossfade (#704): a placement that takes over from a placement of the
+//! same clip, the clip's frames unchanged, and starts from where the playing stream is (within
+//! one output frame and two source frames, [`CONTIGUOUS`]: the rounding of a cut), with no
+//! jump of the transport, as the parts of a split placement do. The stream plays on, under
+//! the new placement's identity, at its own position: the parts play like the whole
+//! placement, sample for sample. After a tempo change during play the stream no longer is
+//! where the next part starts (a tempo change does not move a playing clip): that part
+//! crossfades in, as any other change.
 //!
 //! Each stream resamples its source to the engine's rate: a 4-point cubic Hermite
 //! interpolator over a window `x[-1], x0, x1, x2` (the voice runs two frames ahead of `x0`)
@@ -79,7 +89,7 @@ use crate::engine::{AudioClip, Clip, ClipContent, Paged, Source};
 use crate::msg::{
     ClipSlot, MsgError, Placement, PlacementSlot, Slots, SourceSlot, Span, TrackSlot,
 };
-use crate::time::{SampleRate, Tempo, Tick};
+use crate::time::{Frame, SampleRate, Tempo, Tick};
 use crate::transport::Segment;
 
 /// Length of every fade of the player, in seconds (96 frames at 48 kHz).
@@ -89,6 +99,14 @@ pub const CHUNK: usize = 256;
 /// The largest ratio of a source's rate to the engine's: beyond, the source plays slower
 /// (it bounds the frames a block pulls).
 pub const MAX_RATIO: u64 = 64;
+
+/// How far apart (source frames, 32-bit fraction), besides one output frame (the phase step),
+/// the position a placement starts from and the playing stream's may be for the placement to
+/// take the stream over (module doc): the rounding of a cut. The stream reached the cut through
+/// the floor of an engine sample (one output frame); the split's offset is the floor of the
+/// cut's source frame (one source frame), and the right part may give up one more frame so
+/// that its rounded ticks do not pass the original's end (`arrangement.split`).
+pub const CONTIGUOUS: u128 = 2 << 32;
 
 /// Frames of a fade at `rate`, at least 1.
 pub fn fade_frames(rate: u32) -> u32 {
@@ -448,6 +466,15 @@ impl AudioPlayer {
         if self.pending.is_some() && self.pending == ident && !jumped {
             return;
         }
+        if !jumped
+            && let Some(next) = ident
+            && self.continues(io, track, segment, f, next)
+        {
+            // The next placement resumes where the stream is: it plays on (module doc).
+            self.streams[self.current].ident = Some(next);
+            self.pending = None;
+            return;
+        }
         self.streams[self.current].out |= playing;
         self.pending = None;
         let Some(ident) = ident else {
@@ -459,6 +486,48 @@ impl AudioPlayer {
             return;
         }
         self.begin(io, track, segment, f, ident);
+    }
+
+    /// Whether the placement `next`, taking over at block frame `f` from the placement the
+    /// current stream plays, resumes where that stream is (module doc): both placements of
+    /// the same clip, its frames unchanged since the stream started, and the position `next`
+    /// starts from at `f` within [`CONTIGUOUS`] of the stream's.
+    fn continues(
+        &self,
+        io: &Io<'_>,
+        track: &TrackIo<'_>,
+        segment: &Segment,
+        f: usize,
+        next: Ident,
+    ) -> bool {
+        let cur = &self.streams[self.current];
+        if !cur.live || cur.out {
+            return false;
+        }
+        let (Some(Ident::Place { clip: was, .. }), Ident::Place { clip, .. }) = (cur.ident, next)
+        else {
+            return false;
+        };
+        if was != clip {
+            return false;
+        }
+        let Some(state) = track.clip(clip) else {
+            return false;
+        };
+        if !same_range(cur.clip.as_ref(), Some(&state)) {
+            return false;
+        }
+        let Some(src) = source_of(io.sources, state.source) else {
+            return false;
+        };
+        let step = step_of(src.sample_rate, io.rate);
+        let Some((pos, _)) = position(segment, f, next, &state, track.placements, step) else {
+            return false;
+        };
+        // Both in source frames with a 32-bit fraction; `u128` holds them without overflow.
+        let wanted = (u128::from(state.start.0) << 32) + pos;
+        let at = (u128::from(cur.x0) << 32) + u128::from(cur.frac);
+        wanted.abs_diff(at) <= u128::from(step) + CONTIGUOUS
     }
 
     /// A port no stream sounds on: the other one first.
@@ -581,7 +650,7 @@ fn audio_end(track: &TrackIo<'_>, sources: &Slots<Box<Source>>, i: usize) -> Tic
     let Some(p) = table.get(i) else {
         return Tick(i64::MIN);
     };
-    let Span::Frames { length, .. } = p.span else {
+    let Span::Frames { length, offset } = p.span else {
         return p.start;
     };
     let Some(rate) = track
@@ -593,6 +662,24 @@ fn audio_end(track: &TrackIo<'_>, sources: &Slots<Box<Source>>, i: usize) -> Tic
     };
     let own = track.tempo.audio_end_tick(p.start, length, rate);
     match table.get(i + 1) {
+        // The next part of a cut of this placement (the same clip, from the frame after its
+        // last, or one more: the split's trim) that starts within one more frame of the
+        // source: the gap is the rounding of the cut to ticks (#704), and the placement
+        // plays on to that part.
+        Some(next)
+            if next.start > own
+                && next.clip == p.clip
+                && matches!(next.span, Span::Frames { offset: o, .. }
+                    if (0..=1).contains(&o.0.wrapping_sub(offset.0.saturating_add(length.0))))
+                && next.start
+                    <= track.tempo.audio_end_tick(
+                        p.start,
+                        Frame(length.0.saturating_add(1)),
+                        rate,
+                    ) =>
+        {
+            next.start
+        }
         Some(next) => own.min(next.start),
         None => own,
     }
