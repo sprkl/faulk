@@ -83,6 +83,8 @@ thread_local! {
     }) };
     /// The furthest byte the decoder has read: the progress of a decode.
     static POSITION: RefCell<u64> = const { RefCell::new(0) };
+    /// The length of the file being decoded.
+    static LEN: RefCell<u64> = const { RefCell::new(0) };
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -244,6 +246,12 @@ pub extern "C" fn ai_open(len_lo: u32, len_hi: u32, hint_len: u32) -> i32 {
         };
         match Decoding::open(Box::new(file), hint.as_deref()) {
             Ok(job) => {
+                // Opening may read up to the end of the file before the first packet (a WebM's
+                // paddings, the last Ogg page, an MP4 whose `moov` is at the end, Matroska's
+                // cues): the progress counts the reads of the decoding from here, and is the
+                // whole file at the end (`ai_next`).
+                POSITION.set(0);
+                LEN.set(file_len(len_lo, len_hi));
                 s.job = Some(job);
                 0
             }
@@ -269,7 +277,10 @@ pub extern "C" fn ai_next() -> i32 {
                     .push(block);
                 BLOCK
             }
-            Ok(false) => END,
+            Ok(false) => {
+                POSITION.set(LEN.with_borrow(|l| *l));
+                END
+            }
             Err(e) => {
                 s.job = None;
                 s.peaks = None;

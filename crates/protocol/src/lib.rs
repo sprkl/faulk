@@ -48,6 +48,10 @@ pub const AGENT_CONFIRM_MS: u32 = 45_000;
 // `.faulkpack` imports under way, downloads included); the helper generates its MCP tools from the
 // commands, so a helper of an earlier version would not offer it to an agent. No message changes.
 
+// Version 39 (#710): the commands gain `clip.notes.repeat` (notes repeated end to end up to a
+// tick, cut at the end of the clip). The helper's MCP tools come from the commands, so a helper of
+// version 38 would not offer it to an agent. No message changes.
+
 // Version 38 (#560): the engine message `SetRecording` carries `shift_us`, how much earlier the
 // take's notes are placed (the estimated output latency plus the manual offset): the engine moves
 // them back on its own clock, where it knows the loop wraps, and the page writes the take with a

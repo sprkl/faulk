@@ -706,6 +706,15 @@ type: "clip.notes.duplicate"
  * Identifier of a clip.
  */
 clip: string
+grid?: (Tick | null)
+notes: Note[]
+type: "clip.notes.repeat"
+until: Tick
+} | {
+/**
+ * Identifier of a clip.
+ */
+clip: string
 /**
  * Placements to return, 1 to 1000, 100 by default.
  */
@@ -1902,6 +1911,16 @@ type: "clip.notes.transpose"
  */
 added: number
 type: "clip.notes.duplicate"
+} | {
+/**
+ * How many copies were new.
+ */
+added: number
+/**
+ * True when the clip's end, not `until`, shortened or left out a copy.
+ */
+at_clip_end: boolean
+type: "clip.notes.repeat"
 } | {
 /**
  * What the clip holds, without the notes.

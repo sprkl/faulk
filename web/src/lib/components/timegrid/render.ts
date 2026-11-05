@@ -32,6 +32,8 @@ export interface Frame {
   hover: number | null
   colors: Colors
   font: string
+  /** A triplet snap's unit in ticks (#711): the lines follow it; `null` or left out for the ruler's own step. */
+  unit?: number | null
 }
 
 /** What a host's `drawBody` is given, drawn over the grid in the same frame (the context is in CSS pixels). */
@@ -153,7 +155,7 @@ export function trackInk(color: string, colors: Pick<Colors, 'text' | 'trackShad
 export function drawGrid(ctx: Surface, frame: Frame, dpr: number): void {
   const { width, height, view, colors } = frame
   const snap = (x: number) => (Math.round(x * dpr) + 0.5) / dpr
-  const marks = rulerMarks(view, width, frame.signature, frame.totalTicks)
+  const marks = rulerMarks(view, width, frame.signature, frame.totalTicks, frame.unit ?? null)
 
   ctx.fillStyle = colors.bg
   ctx.fillRect(0, 0, width, height)

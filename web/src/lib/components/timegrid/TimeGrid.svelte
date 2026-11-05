@@ -19,6 +19,7 @@
     snapStep,
     snapTick,
     totalTicksOf,
+    tripletUnit,
     xToTick,
     zoomAt,
     type SnapSetting,
@@ -79,6 +80,8 @@
   let epoch = $state(0)
 
   const totalTicks = $derived(totalTicksOf(totalBars, signature))
+  /** A triplet snap draws its own lines (#711); the other settings keep the ruler's step. */
+  const unit = $derived(tripletUnit(snap))
   const clamped = $derived(clampView(view, width, totalTicks))
 
   /** The pointer's tick, snapped to the setting at the current zoom. */
@@ -108,7 +111,7 @@
     if (canvas.height !== Math.round(height * dpr)) canvas.height = Math.round(height * dpr)
     const start = performance.now()
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    drawGrid(ctx, { width, height, view: clamped, signature, totalTicks, hover, colors, font }, dpr)
+    drawGrid(ctx, { width, height, view: clamped, signature, totalTicks, hover, colors, font, unit }, dpr)
     // The cost of the last frame and the count of frames, for the frame-time measurement of the e2e spec.
     drawCount++
     root.dataset.drawMs = String(performance.now() - start)
@@ -123,7 +126,7 @@
 
   // One frame per change: wheel bursts coalesce into the next animation frame.
   $effect(() => {
-    void [clamped, signature, totalTicks, hover, width, height, epoch, drawBody]
+    void [clamped, signature, totalTicks, hover, width, height, epoch, drawBody, unit]
     if (!pending) pending = requestAnimationFrame(draw)
   })
 

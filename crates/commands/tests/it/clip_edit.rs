@@ -534,3 +534,127 @@ fn a_hundred_thousand_notes_quantize_transpose_and_duplicate_in_one_command_each
     assert_eq!(notes_of(&state, &f, &f.clip).len(), 200_000);
     state.project.validate().unwrap();
 }
+
+// --- #710: `clip.notes.repeat` ----------------------------------------------------------------
+
+fn repeat(f: &ClipFx, notes: Vec<Note>, until: i64, grid: Option<i64>) -> Command {
+    c(clip::Command::NotesRepeat {
+        clip: f.clip.clone(),
+        notes,
+        until: Tick(until),
+        grid: grid.map(Tick),
+    })
+}
+
+/// A note of the shared case table: `[start, pitch, length, velocity]`.
+fn case_note(value: &serde_json::Value) -> Note {
+    let v = |i: usize| value[i].as_i64().unwrap();
+    n(v(0), v(1) as u8, v(2), v(3) as u8)
+}
+
+fn case_notes(value: &serde_json::Value) -> Vec<Note> {
+    value.as_array().unwrap().iter().map(case_note).collect()
+}
+
+/// The cases the piano roll's own copy of the rules runs too (`web/src/views/piano-roll/repeat.test.ts`): the page selects
+/// the copies it computes, so both must agree on every one.
+#[test]
+fn repeat_runs_every_case_of_the_table_shared_with_the_piano_roll() {
+    let table: serde_json::Value =
+        serde_json::from_str(include_str!("notes_repeat_cases.json")).unwrap();
+    let cases = table["cases"].as_array().unwrap();
+    assert!(cases.len() >= 10);
+    for case in cases {
+        let name = case["name"].as_str().unwrap();
+        let sources = case_notes(&case["notes"]);
+        let others = case_notes(&case["others"]);
+        let all: Vec<Note> = sources.iter().chain(&others).copied().collect();
+        let (f, state) = with_length_notes(case["clipLength"].as_i64().unwrap(), &all);
+        let command = repeat(
+            &f,
+            sources,
+            case["until"].as_i64().unwrap(),
+            case["grid"].as_i64(),
+        );
+        if let Some(code) = case["refused"].as_str() {
+            assert_eq!(refusal(&state, &command).code(), code, "{name}");
+            continue;
+        }
+        check(&command, &state, &context()).unwrap_or_else(|e| panic!("{name}: {e:?}"));
+        let (after, out) = go(&state, &command);
+        assert_eq!(
+            out.output,
+            Output::Clip(clip::Output::NotesRepeat {
+                added: case["added"].as_u64().unwrap() as u32,
+                at_clip_end: case["atClipEnd"].as_bool().unwrap(),
+            }),
+            "{name}"
+        );
+        let copies = case_notes(&case["copies"]);
+        let expected: BTreeSet<Note> = all.iter().chain(&copies).copied().collect();
+        assert_eq!(notes_of(&after, &f, &f.clip), expected, "{name}");
+        assert_eq!(
+            after.history.undo.len(),
+            state.history.undo.len() + 1,
+            "{name}"
+        );
+        after.project.validate().unwrap();
+        assert_eq!(undo(after, out).project, state.project, "{name}");
+    }
+}
+
+#[test]
+fn repeat_refuses_what_it_cannot_do_and_leaves_the_clip_alone() {
+    let figure = vec![n(0, 60, 240, 100), n(240, 62, 240, 100)];
+    let (f, state) = with_notes(&figure);
+    // A note that is not in the clip.
+    assert_eq!(
+        refusal(&state, &repeat(&f, vec![n(5, 60, 5, 5)], 3840, None)).code(),
+        "not_found"
+    );
+    // An empty choice does nothing.
+    let (after, out) = go(&state, &repeat(&f, vec![], 3840, Some(240)));
+    assert_eq!((after, out.undo), (state.clone(), Undo::None));
+    // A copy everywhere already: nothing new, nothing in the history.
+    let full: Vec<Note> = (0..16)
+        .map(|i| n(i * 240, 60 + (i % 2) as u8 * 2, 240, 100))
+        .collect();
+    let (ff, filled) = with_notes(&full);
+    let (after, out) = go(&filled, &repeat(&ff, full[..2].to_vec(), 3840, Some(240)));
+    assert_eq!(
+        out.output,
+        Output::Clip(clip::Output::NotesRepeat {
+            added: 0,
+            at_clip_end: false
+        })
+    );
+    assert_eq!((after, out.undo), (filled, Undo::None));
+    // An audio clip has no notes.
+    let fa = fx();
+    let audio = c(clip::Command::NotesRepeat {
+        clip: fa.audio_clip.clone(),
+        notes: vec![],
+        until: Tick(3840),
+        grid: None,
+    });
+    assert_eq!(refusal(&fa.state, &audio).code(), "invalid");
+}
+
+#[test]
+fn repeat_refuses_copies_past_the_note_limit_before_making_them() {
+    // One note of one tick, repeated every tick over a long clip: far more copies than a clip may hold.
+    let (f, mut state) = with_notes(&[n(0, 60, 1, 100)]);
+    run(
+        &c(clip::Command::SetLength {
+            placements: None,
+            clip: f.clip.clone(),
+            length: Tick(1 << 30),
+            trim: false,
+        }),
+        &mut state,
+        &mut context(),
+    )
+    .unwrap();
+    let command = repeat(&f, vec![n(0, 60, 1, 100)], 1 << 30, Some(1));
+    assert_eq!(refusal(&state, &command).code(), "limit");
+}

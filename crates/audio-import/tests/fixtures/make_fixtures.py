@@ -12,6 +12,21 @@ The source signal is the same for every file: half a second at 44.1 kHz, stereo,
 on the left and a 660 Hz sine on the right at half of full scale, as 16-bit integers (`source`
 below; `sine-s16.wav` holds it exactly). The lossless files hold exactly these samples; the
 lossy ones are compared with them at a tolerance (tests/it/fixtures.rs).
+
+`recorded.webm` is not written here: it is what a browser records (#609), made once in Chromium 156
+(Playwright's) by MediaRecorder from two oscillators, 440 Hz left and 660 Hz right at half scale:
+
+    const ctx = new AudioContext({ sampleRate: 48000 })
+    const dest = ctx.createMediaStreamDestination()
+    const merger = ctx.createChannelMerger(2)
+    for (const [hz, ch] of [[440, 0], [660, 1]]) {
+      const o = ctx.createOscillator(); o.frequency.value = hz
+      const g = ctx.createGain(); g.gain.value = 0.5
+      o.connect(g).connect(merger, 0, ch); o.start()
+    }
+    merger.connect(dest)
+    const rec = new MediaRecorder(dest.stream, { mimeType: 'audio/webm;codecs=opus' })
+    // start, stop after one second, keep the blob's bytes
 """
 
 import os
@@ -37,12 +52,14 @@ def out(name):
     return os.path.join(HERE, name)
 
 
-def encode(name, codec, samples, rate, fmt, layout="stereo", bit_rate=None, container=None):
+def encode(name, codec, samples, rate, fmt, layout="stereo", bit_rate=None, container=None, options=None):
     with av.open(out(name), "w", format=container) as box:
         stream = box.add_stream(codec, rate=rate)
         stream.layout = layout
         if bit_rate:
             stream.bit_rate = bit_rate
+        if options:
+            stream.codec_context.options = options
         frame_size = stream.codec_context.frame_size or 4096
         data = samples.astype(np.float32) / 32768.0 if fmt == "fltp" else samples
         at = 0
@@ -77,6 +94,15 @@ def main():
     encode("sine.m4a", "aac", s, RATE, "fltp", bit_rate=128_000)
     encode("sine-alac.m4a", "alac", s, RATE, "s16p")
     encode("sine.opus", "libopus", source(rate=48_000, frames=24_000), 48_000, "fltp", bit_rate=96_000, container="ogg")
+    # Opus (#609): the same stream in WebM (FFmpeg's muxer writes CodecDelay and the last block's
+    # DiscardPadding), and a mono stream in Ogg.
+    encode("sine.webm", "libopus", source(rate=48_000, frames=24_000), 48_000, "fltp", bit_rate=96_000, container="webm")
+    encode("sine-mono.opus", "libopus", source(rate=48_000, frames=24_000, channels=1), 48_000, "fltp", layout="mono", bit_rate=64_000, container="ogg")
+    # Opus's speech modes, so that the page/helper parity covers them (the files above are CELT):
+    # SILK alone (mono, 10 kb/s), and hybrid then SILK then CELT (stereo, 16 kb/s), both with
+    # libopus's voip application and 20 ms frames.
+    encode("voip-mono.opus", "libopus", source(rate=48_000, frames=24_000, channels=1), 48_000, "fltp", layout="mono", bit_rate=10_000, container="ogg", options={"application": "voip"})
+    encode("voip.webm", "libopus", source(rate=48_000, frames=24_000), 48_000, "fltp", bit_rate=16_000, container="webm", options={"application": "voip"})
     with open(out("not-audio.txt"), "w", newline="\n") as f:
         f.write("This is a text file, not audio.\n")
 

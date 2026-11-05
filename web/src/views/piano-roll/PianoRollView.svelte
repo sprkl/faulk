@@ -14,6 +14,7 @@
     auditionOn,
     createClipAtStart,
     duplicateNotes,
+    repeatNotes,
     quantizeNotes,
     removeNotes,
     renameClip,
@@ -30,7 +31,7 @@
   import { chordText, positionKey, withShortcut } from '../../lib/shortcuts'
   import {
     DEFAULT_PX_PER_TICK,
-    SNAP_SETTINGS,
+    ROLL_SNAP_SETTINGS,
     clampView,
     snapStep,
     snapTick,
@@ -40,11 +41,13 @@
     type View,
   } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
-  import { isQuantizeKey, isTextTarget, QUANTIZE_CODE } from '../../lib/keyboard'
+  import { isQuantizeKey, isTextTarget, QUANTIZE_CODE, repeatShortcut } from '../../lib/keyboard'
+  import BarDialog from '../arrangement/BarDialog.svelte'
+  import { defaultRepeatUntil, parseRepeatUntil, repeatCopies } from './repeat'
   import { instrumentNamedKeys, isMidi, trackColor as colorOfTrack } from '../../lib/project/tracks'
   import { inGroup } from '../../lib/history-group'
   import { useStores } from '../../lib/stores'
-  import { barTicks, PPQ } from '../transport/time'
+  import { MAX_GOTO_BAR, barTicks, beatTicks, PPQ } from '../transport/time'
   import { itemAt, moveCursor, rovingKey, step as stepItem, zoomKey, type RovingKey } from '../../lib/roving'
   import { sortedScenes } from '../grid/cells'
   import { clipEntries, clipLabel, clipOrigin, editedClip, editedPlacement, ghostNotes, midiClips, type ClipEntry, type MidiClip } from './clips'
@@ -374,6 +377,8 @@
     const names = {
       bar: t('pianoRoll.snap.bar'),
       beat: t('pianoRoll.snap.beat'),
+      eighthTriplet: t('pianoRoll.snap.eighth-triplet'),
+      sixteenthTriplet: t('pianoRoll.snap.sixteenth-triplet'),
     }
     const lines = [
       g.kind === 'resize' ? gestureLength(t, signature, note.length) : positionText(t, signature, note.start),
@@ -1047,6 +1052,8 @@
     if (some) {
       items.push(
         { id: 'duplicate', label: t('pianoRoll.duplicate'), shortcut: mod('D'), run: duplicateChosen },
+        { id: 'repeat', label: t('pianoRoll.repeat'), shortcut: chordText(['Mod', 'Shift', 'R']), run: () => repeatChosen(undefined, chosenNotes, true) },
+        { id: 'repeat-until', label: t('pianoRoll.repeatUntil'), run: openRepeat },
         { id: 'copy', label: t('pianoRoll.copy'), shortcut: mod('C'), separator: true, run: copyChosen },
         {
           id: 'cut',
@@ -1274,6 +1281,90 @@
     if (withRoomFor(endOf(copies), () => run(duplicateNotes(id, source, offset)))) picked = new Set(copies.map(noteKey))
   }
 
+  // --- repeat end to end (#710) -------------------------------------------------------------------------------------
+  /** The "Repeat until" field: open while it asks, with the first tick it accepts past (the start of the first copy). */
+  let repeating = $state<{ firstCopy: number; initial: string } | null>(null)
+  /** The notes the field was opened for: the selection may not change under it, but a stale one is never sent. */
+  let repeatSource: Note[] = []
+
+  /** "bar.beat" of the end of the beat that holds `tick` (the first value past it the field accepts), "bar" on a bar line. */
+  function untilText(tick: number): string {
+    const beat = beatTicks(signature)
+    const beats = Math.floor(tick / beat) + 1
+    const perBar = Math.max(1, Math.round(bar / beat))
+    const barNumber = Math.floor((beats - 1) / perBar) + 1
+    const inBar = beats - (barNumber - 1) * perBar
+    return inBar === perBar ? String(barNumber) : `${barNumber}.${inBar}`
+  }
+
+  /**
+   * Copies of the chosen notes end to end (#710), their span rounded up to the quantize grid, up to `until` (the end of the
+   * bar where the copies begin by default), cut at the clip's end with a message (#280). One `clip.notes.repeat`, so one
+   * undo. The copies become the selection, and the focus goes to the first one when it was on a note or the cursor.
+   */
+  function repeatChosen(until?: number, source: readonly Note[] = chosenNotes, focusCopies = false) {
+    if (!edited || gesture) return
+    if (source.length === 0) return announce(t('pianoRoll.saidNoSelection'))
+    const sources = [...source]
+    const target = until ?? defaultRepeatUntil(sources, gridTicks, bar)
+    const result = repeatCopies(sources, gridTicks, target, clipLength)
+    // The page never asks for a grid below a tick nor an end before the first copy (the default and the field see to it):
+    // what is left is no room in the clip.
+    if (!result.ok) return announce(t('pianoRoll.saidRepeatNoRoom'))
+    const there = new Set(notes.map(noteKey))
+    const added = result.copies.filter((n) => !there.has(noteKey(n))).length
+    const focusInCells = focusCopies || (!!itemsEl && document.activeElement instanceof Node && itemsEl.contains(document.activeElement))
+    // Refused by the project after all (a limit, a note gone under an agent): the dispatcher says why; nothing here.
+    if (added > 0 && !run(repeatNotes(edited.id, sources, target, gridTicks))) return
+    picked = new Set(result.copies.map(noteKey))
+    const n = added
+    announce(added === 0 ? t('pianoRoll.saidRepeatNone') : result.atClipEnd ? t('pianoRoll.saidRepeatedCut', { n }) : t('pianoRoll.saidRepeated', { n }))
+    if (focusInCells && result.copies[0]) void focusNote(noteKey(result.copies[0]))
+  }
+
+  /** "Repeat until…": the field, filled with the default end; Enter repeats there. */
+  function openRepeat() {
+    if (!edited || chosenNotes.length === 0) return announce(t('pianoRoll.saidNoSelection'))
+    repeatSource = [...chosenNotes]
+    const result = repeatCopies(repeatSource, gridTicks, Number.MAX_SAFE_INTEGER, clipLength)
+    if (!result.ok && result.refusal === 'room') return announce(t('pianoRoll.saidRepeatNoRoom'))
+    repeating = { firstCopy: result.firstCopy, initial: untilText(defaultRepeatUntil(repeatSource, gridTicks, bar) - 1) }
+  }
+
+  /** The field's answer: the notes it was opened for that are still in the clip, repeated there; the copies take the focus. */
+  async function repeatUpTo(until: number) {
+    const there = new Set(notes.map(noteKey))
+    const source = repeatSource.filter((n) => there.has(noteKey(n)))
+    repeating = null
+    repeatSource = []
+    // After the dialog has given the focus back to what opened it.
+    await tick()
+    repeatChosen(until, source, true)
+  }
+
+  /**
+   * Ctrl or Cmd + Shift + R in the piano roll (#710): Repeat. The arrangement takes the same chord on the whole page (#555,
+   * the browser would reload): stopped here, so that one press never does both. Cancelled in a text field too, as there.
+   * From a note's cell outside the selection, that note alone, as Alt+arrows do.
+   */
+  function onRollKeyDown(event: KeyboardEvent) {
+    if (!repeatShortcut(event)) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.repeat || isTextTarget(event.target)) return
+    const key = (event.target as Element | null)?.closest?.<HTMLElement>('[data-note]')?.dataset.note
+    const cell = key !== undefined && !chosenKeys.has(key) ? noteItems.find((i) => i.id === key)?.note : undefined
+    repeatChosen(undefined, cell ? [cell] : chosenNotes)
+  }
+  // On the roll's root, below the window: a key from anywhere in the roll (toolbar, grid, cells) meets it before the
+  // arrangement's window listener does.
+  $effect(() => {
+    const root = rollEl
+    if (!root) return
+    root.addEventListener('keydown', onRollKeyDown)
+    return () => root.removeEventListener('keydown', onRollKeyDown)
+  })
+
   function copyChosen(): boolean {
     if (chosenNotes.length === 0) return false
     setBoard(toBoard(chosenNotes))
@@ -1366,7 +1457,7 @@
       <label class="field">
         <span>{t('pianoRoll.snap')}</span>
         <select aria-label={t('pianoRoll.snap')} data-testid="roll-snap" bind:value={snap}>
-          {#each SNAP_SETTINGS as setting (setting)}
+          {#each ROLL_SNAP_SETTINGS as setting (setting)}
             <option value={setting}>{t(`pianoRoll.snap.${setting}`)}</option>
           {/each}
         </select>
@@ -1402,6 +1493,12 @@
       <div class="group" role="group" aria-label={t('pianoRoll.edit')}>
         <button title={t('pianoRoll.duplicateHint')} disabled={chosenNotes.length === 0} data-testid="roll-duplicate" onclick={duplicateChosen}
           >{t('pianoRoll.duplicate')}</button
+        >
+        <button
+          title={t('pianoRoll.repeatHint')}
+          disabled={chosenNotes.length === 0}
+          data-testid="roll-repeat"
+          onclick={(e) => repeatChosen(undefined, chosenNotes, e.detail === 0)}>{t('pianoRoll.repeat')}</button
         >
         <button
           title={t('pianoRoll.transposeDownHint')}
@@ -1603,6 +1700,27 @@
         />
       </div>
     </div>
+    <!-- Inside the roll's root: its listener cancels Ctrl+Shift+R in the field too, arrangement shown or not. -->
+    <BarDialog
+      open={repeating !== null}
+      name="roll-repeat"
+      title={t('pianoRoll.repeatTitle')}
+      label={t('pianoRoll.repeatLabel', { min: untilText(repeating?.firstCopy ?? 0) })}
+      invalid={t('pianoRoll.repeatInvalid', { min: untilText(repeating?.firstCopy ?? 0) })}
+      go={t('pianoRoll.repeatGo')}
+      cancel={t('pianoRoll.repeatCancel')}
+      initial={1}
+      initialText={repeating?.initial ?? '1'}
+      min={(repeating?.firstCopy ?? 0) + 1}
+      max={MAX_GOTO_BAR * bar}
+      parse={(text) => parseRepeatUntil(text, signature)}
+      inputmode="decimal"
+      onsubmit={repeatUpTo}
+      onclose={() => {
+        repeating = null
+        repeatSource = []
+      }}
+    />
   </div>
 {/if}
 

@@ -116,9 +116,9 @@ describe('an audio import through the store worker (AU-1)', () => {
 
   it('a file the import refuses arrives as an ImportError with its code; a folder that refused a write as a StoreError', async () => {
     const { fake, store } = await importing()
-    const refused = store.importAudio(new File([], 'song.opus'))
+    const refused = store.importAudio(new File([], 'song.ac3'))
     await vi.advanceTimersByTimeAsync(0)
-    reply(fake, { id: fake.sent.at(-1)!.id, ok: false, code: 'io', message: 'Opus', importCode: 'unsupported_codec' })
+    reply(fake, { id: fake.sent.at(-1)!.id, ok: false, code: 'io', message: 'AC-3', importCode: 'unsupported_codec' })
     await expect(refused).rejects.toMatchObject({ name: 'ImportError', code: 'unsupported_codec' })
     const full = store.importAudio(new File([], 'big.wav'))
     await vi.advanceTimersByTimeAsync(0)

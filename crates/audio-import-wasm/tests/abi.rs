@@ -42,6 +42,8 @@ fn decode(bytes: &[u8], hint: &str) -> Result<Vec<f32>, i32> {
     if status != 0 {
         return Err(status);
     }
+    // The reads of the opening (up to the end of the file for some) are not progress.
+    assert_eq!(ai_position(), 0.0, "the progress starts with the decoding");
     let mut pcm = Vec::new();
     loop {
         match ai_next() {
@@ -75,6 +77,8 @@ fn the_steps_give_the_hash_the_samples_and_the_metadata_of_the_library() {
         ("sine.mp3", "mp3"),
         ("sine.m4a", "m4a"),
         ("sine-48k-mono.flac", "flac"),
+        ("sine.opus", "opus"),
+        ("sine.webm", "webm"),
     ] {
         let bytes = fixture(name);
         let mut expected = Vec::new();
@@ -110,7 +114,11 @@ fn the_steps_give_the_hash_the_samples_and_the_metadata_of_the_library() {
 fn a_failure_is_a_code_and_a_text_and_the_next_job_works() {
     assert_eq!(decode(&fixture("not-audio.txt"), "txt"), Err(-1));
     assert!(!error_text().is_empty());
-    assert_eq!(decode(&fixture("sine.opus"), "opus"), Err(-2));
+    // An Opus stream whose channels Faulk does not model (mapping family 3, ambisonics).
+    let mut ambisonic = fixture("sine.webm");
+    let head = ambisonic.windows(8).position(|w| w == b"OpusHead").unwrap();
+    ambisonic[head + 18] = 3;
+    assert_eq!(decode(&ambisonic, "webm"), Err(-2));
     assert!(error_text().contains("Opus"), "{}", error_text());
     let wav = fixture("sine-s16.wav");
     assert_eq!(
