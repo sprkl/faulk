@@ -865,7 +865,7 @@ impl Host {
     /// every track slot up to the last track and the output's, then the active clips (GR-1),
     /// then the take's number, count and last notes (RE-2), the disk's underruns, offline
     /// sources, budget flag and PCM in memory (AU-3), and the frames the output protection
-    /// silenced because a sample was non-finite (#667).
+    /// silenced because a sample was non-finite (#667), and the host's frame at the playhead (#733).
     /// No allocation.
     pub fn write_feedback(&mut self) {
         let seq = self.feedback_seq.wrapping_add(1) | 1;
@@ -898,6 +898,9 @@ impl Host {
         let frame = self.scratch.playhead_frame.0;
         put(16, frame as u32);
         put(20, (frame >> 32) as u32);
+        let host = self.scratch.host_frame;
+        put(92, host as u32);
+        put(96, (host >> 32) as u32);
         put(24, load.to_bits());
         put(28, self.status.live_overflows.load(Ordering::Relaxed));
         put(32, self.status.rejected.load(Ordering::Relaxed));
@@ -1125,6 +1128,7 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
         seq: u32_at(4)?,
         playhead_tick: crate::time::Tick(u64_at(8)? as i64),
         playhead_frame: crate::time::Frame(u64_at(16)?),
+        host_frame: u64_at(92)?,
         cpu_load: f32::from_bits(u32_at(24)?),
         cpu_peak: f32::from_bits(u32_at(72)?),
         live_overflows: u32_at(28)?,

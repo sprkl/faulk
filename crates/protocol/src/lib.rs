@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 40;
+pub const PROTOCOL_VERSION: u32 = 41;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -43,6 +43,10 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 41 (#733): the report is `Feedback` version 9: the header grows from 92 to 100 bytes with
+// `host_frame` at offset 92 (the host's frame at the report's playhead), so that the page can place a
+// tick on the host's clock. A page and a helper of different versions refuse each other.
 
 // Version 40 (#682; 38 is #560's, 39 is #710's): the commands gain `project.cancel_import_pack` (stops the
 // `.faulkpack` imports under way, downloads included); the helper generates its MCP tools from the

@@ -115,6 +115,7 @@ describe('decodeFeedback', () => {
         v.setUint32(80, 1, true)
         v.setUint32(84, 4096, true)
         v.setUint32(88, 131, true)
+        v.setBigUint64(92, 5_000_000n, true)
       }),
     )!
     expect(r).toMatchObject({
@@ -123,6 +124,7 @@ describe('decodeFeedback', () => {
       transport: 'playing',
       playheadTick: 1920,
       playheadFrame: 96000,
+      hostFrame: 5_000_000,
       cpuLoad: 0.25,
       liveOverflows: 2,
       rejected: 3,
@@ -150,7 +152,8 @@ describe('decodeFeedback', () => {
     expect(decodeFeedback(report(1, (v) => v.setFloat32(at + 16, NaN, true)))!.tracks[0].gainReductionDb).toBe(0)
   })
 
-  it('refuses a report of the previous layouts (version 7: an 88-byte header, without the silenced frames; version 5: 72 bytes; version 4: 56 bytes; version 3)', () => {
+  it('refuses a report of the previous layouts (version 8: a 92-byte header, without the host frame; version 7: an 88-byte header, without the silenced frames; version 5: 72 bytes; version 4: 56 bytes; version 3)', () => {
+    expect(decodeFeedback(report(2, (v) => v.setUint8(0, 8)))).toBeNull()
     expect(decodeFeedback(report(2, (v) => v.setUint8(0, 7)))).toBeNull()
     expect(decodeFeedback(report(2, (v) => v.setUint8(0, 5)))).toBeNull()
     expect(decodeFeedback(report(2, (v) => v.setUint8(0, 4)))).toBeNull()
@@ -182,7 +185,7 @@ describe('decodeFeedback', () => {
     expect(decodeFeedback(report(0, (v) => v.setFloat32(72, NaN, true)))!.cpuPeak).toBeNull()
     expect(decodeFeedback(report(0, (v) => v.setFloat32(72, 2, true)))!.cpuPeak).toBe(1)
     // The meters start after it.
-    expect(FEEDBACK_HEADER_BYTES).toBe(92)
+    expect(FEEDBACK_HEADER_BYTES).toBe(100)
   })
 
   it('refuses another version, a short buffer and a track count beyond the bytes', () => {

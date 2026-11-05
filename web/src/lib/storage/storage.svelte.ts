@@ -332,8 +332,14 @@ export class ProjectStorage {
   downloadProgress = $state<number | null>(null)
   /** The host a pack could not be downloaded from: the banner offers to import a file instead. */
   downloadFailed = $state<string | null>(null)
-  /** The share of the media written so far (0 to 1) while a `.faulkpack` is being made, else `null`. */
+  /**
+   * The share of the media written so far (0 to 1) while a `.faulkpack` is being made, else `null`: from the click
+   * (the file dialog and the preparation are part of the export, and Cancel counts there) until the last piece is
+   * written and the file closed, so that its end is never announced before the pack is whole (#737).
+   */
   exporting = $state<number | null>(null)
+  /** The export under way writes its pack (outside the queue): its banner then goes before an import's or a download's. */
+  private exportWriting = $state(false)
   /** The share of the pack read so far (0 to 1) while a `.faulkpack` is being imported into the browser's storage, else `null`. */
   importing = $state<number | null>(null)
   /** A link of the address (`/app?open=`) waiting for the user's answer before anything is downloaded. */
@@ -348,8 +354,6 @@ export class ProjectStorage {
   private current: Attached | null = null
   /** Stops the export under way, if any. */
   private exportAbort: AbortController | null = null
-  /** An export is under way, from the click on: the file dialog and the preparation included. */
-  private exportBusy = false
   /** The imports asked for and not over (#682): `cancelImport` stops them all, but those whose project started to open. */
   // eslint-disable-next-line svelte/prefer-svelte-reactivity -- never read by the interface
   private readonly importRuns = new Map<AbortSignal, ImportRun>()
@@ -1493,9 +1497,12 @@ export class ProjectStorage {
     'permission' | 'full' | 'error' | 'external' | 'reopen' | 'warning' | 'notice' | 'exporting' | 'importing' | 'downloading' | 'downloadFailed' | null {
     if (this.block) return this.block
     // A pack being written (#617) or read (#682), then a pack opened by its link (#497): the download under way, then why it failed.
-    if (this.exporting !== null) return 'exporting'
+    // An export that writes goes first: its banner's end says the pack is whole (#737). One that has not started writing
+    // (the dialog, the queue an import holds) waits behind an import or a download, whose banner keeps its Cancel.
+    if (this.exporting !== null && this.exportWriting) return 'exporting'
     if (this.importing !== null) return 'importing'
     if (this.downloading) return 'downloading'
+    if (this.exporting !== null) return 'exporting'
     if (this.downloadFailed) return 'downloadFailed'
     if (this.notice) return 'notice'
     if (this.reopen) return 'reopen'
@@ -1661,31 +1668,49 @@ export class ProjectStorage {
    * where the browser has no such dialog, to a download.
    */
   async exportPack(): Promise<boolean> {
-    // One at a time, from the click to the end: the file dialog is part of it.
-    if (this.exportBusy) return false
-    this.exportBusy = true
-    // A cancel counts from the click on: during the dialog and the preparation too.
+    // One at a time, from the click to the end: the file dialog is part of it. `exporting` says one is under way.
+    if (this.exporting !== null) return false
+    // A cancel counts from the click on: during the dialog and the preparation too. So does the banner, which offers
+    // it: shown before the first wait, it is gone only once this call is over (#737).
     const abort = new AbortController()
     this.exportAbort = abort
+    this.exporting = 0
+    // A cancel ends the wait for the queue at once (a long save or import may hold it); the queued step then does nothing.
+    const cancelled = abort.signal.aborted
+      ? Promise.resolve('cancelled' as const)
+      : new Promise<'cancelled'>((resolve) => abort.signal.addEventListener('abort', () => resolve('cancelled'), { once: true }))
     try {
       // The place of the pack first, before anything waits (the queue, a store): the browser opens its file
       // dialog only for a call that follows a click closely.
-      const target = await this.packTarget(`${this.packFileName()}.faulkpack`, await this.mediaBytes())
+      const bytes = await this.mediaBytes()
+      // Cancelled from the banner before the dialog opened: no dialog for an export that is over.
+      if (abort.signal.aborted) {
+        this.notice = 'pack.exportCancelled'
+        return false
+      }
+      const target = await this.packTarget(`${this.packFileName()}.faulkpack`, bytes)
       if (target === 'cancelled') return false
       if (target === 'noRoom') {
         this.notice = 'pack.noRoom'
         return false
       }
-      const prepared = await this.enqueue(() => this.prepareExport())
-      if (!prepared || abort.signal.aborted) {
+      const prepared = await Promise.race([this.enqueue(() => (abort.signal.aborted ? Promise.resolve(null) : this.prepareExport(abort.signal))), cancelled])
+      if (prepared === 'cancelled' || abort.signal.aborted) {
         await target.abort().catch(() => undefined)
-        if (prepared) this.notice = 'pack.exportCancelled'
+        this.notice = 'pack.exportCancelled'
+        return false
+      }
+      if (!prepared) {
+        await target.abort().catch(() => undefined)
         return false
       }
       // Outside the queue: a long export never holds a save back.
+      this.exportWriting = true
       return await this.writePack(prepared, target, abort)
     } finally {
-      this.exportBusy = false
+      // After `writePack`, which closes the file (or aborts it) before it returns.
+      this.exporting = null
+      this.exportWriting = false
       this.exportAbort = null
     }
   }
@@ -1717,7 +1742,7 @@ export class ProjectStorage {
   }
 
   /** What the export writes: the project as it is now, as a folder. `null` when there is nothing to export. */
-  private async prepareExport(): Promise<{ entries: FolderEntry[]; store: ProjectStore | null } | null> {
+  private async prepareExport(signal: AbortSignal): Promise<{ entries: FolderEntry[]; store: ProjectStore | null } | null> {
     const current = this.current
     let frame: SaveFrame | null
     try {
@@ -1742,6 +1767,8 @@ export class ProjectStorage {
       for (const entry of frame.entries) if (entry.type === 'write') files[entry.path] = { path: entry.path, bytes: entry.bytes }
       return { entries: Object.values(files), store: current?.store ?? null }
     } catch (error) {
+      // Cancelled while it read the media: the export already ended and said so, a late failure does not say otherwise.
+      if (signal.aborted) return null
       this.errorDetail = error instanceof Error ? error.message : String(error)
       this.notice = 'pack.exportFailed'
       return null
@@ -1773,7 +1800,6 @@ export class ProjectStorage {
   }
 
   private async writePack(prepared: { entries: FolderEntry[]; store: ProjectStore | null }, target: PackTarget, abort: AbortController): Promise<boolean> {
-    this.exporting = 0
     const { store } = prepared
     let written = 0
     try {
@@ -1815,8 +1841,6 @@ export class ProjectStorage {
       this.errorDetail = error instanceof Error ? error.message : String(error)
       this.notice = 'pack.exportFailed'
       return false
-    } finally {
-      this.exporting = null
     }
   }
 
