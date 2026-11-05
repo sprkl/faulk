@@ -327,6 +327,8 @@ pub struct PackReader {
     entries: Vec<Entry>,
     /// The end of the files' data (the directory's start).
     data_end: u64,
+    /// The bytes of the blobs, as the directory declares them.
+    blob_bytes: u64,
     next: usize,
     /// The range asked for last, which the next step must bring.
     asked: Option<(u64, u64)>,
@@ -342,6 +344,7 @@ impl PackReader {
             limits,
             entries: Vec::new(),
             data_end: 0,
+            blob_bytes: 0,
             next: 0,
             asked: Some((base, len - base)),
             phase: Phase::Directory {
@@ -355,6 +358,12 @@ impl PackReader {
     /// The range the next step must bring, if any.
     pub fn wants(&self) -> Option<(u64, u64)> {
         self.asked
+    }
+
+    /// The bytes the pack's blobs take once written, as its directory declares them (each checked as it
+    /// is produced): 0 until the directory is read.
+    pub fn blob_bytes(&self) -> u64 {
+        self.blob_bytes
     }
 
     /// The next step. `input` is the bytes of the range [`wants`](Self::wants) named, or empty
@@ -493,7 +502,9 @@ impl PackReader {
             if total > self.limits.max_total {
                 return Err(bad("the pack is too big"));
             }
-            if !name.starts_with("blobs/") {
+            if name.starts_with("blobs/") {
+                self.blob_bytes = self.blob_bytes.saturating_add(file.size());
+            } else {
                 text_total = text_total.saturating_add(file.size());
                 if text_total > self.limits.max_text_total {
                     return Err(bad("the project's own files are too big"));

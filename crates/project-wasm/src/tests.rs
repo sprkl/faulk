@@ -1374,7 +1374,7 @@ fn unpack_of(zip: &[u8], stop: Option<usize>) -> Result<(MemFs, usize), String> 
                     // The first blob: the project's own files are all read, and can be asked for.
                     let texts = pack_step(|| pw_unpack_texts());
                     assert_eq!(texts[0], 5);
-                    let (_, entries) = save::parse_frame(&texts[1..]).expect("a save frame");
+                    let (_, entries) = save::parse_frame(&texts[9..]).expect("a save frame");
                     assert!(!entries.is_empty());
                     assert!(
                         entries
@@ -1399,7 +1399,7 @@ fn unpack_of(zip: &[u8], stop: Option<usize>) -> Result<(MemFs, usize), String> 
                 pack_step(|| pw_unpack_step(0))
             }
             5 => {
-                let (_, entries) = save::parse_frame(&out[1..]).expect("a save frame");
+                let (_, entries) = save::parse_frame(&out[9..]).expect("a save frame");
                 apply_entries(&mut fs, &entries);
                 // The session is over.
                 assert_eq!(pack_step(|| pw_unpack_step(0))[0], 1);
@@ -1465,6 +1465,32 @@ fn an_import_in_pieces_refuses_a_damaged_pack_or_an_invalid_project_and_ends() {
     assert!(unpack_of(&invalid, None).is_err());
     // A step with no session.
     assert_eq!(pack_step(|| pw_unpack_step(0))[0], 1);
+}
+
+#[test]
+fn an_import_in_pieces_keeps_no_more_than_its_bound_of_project_files_and_lanes() {
+    let fs = reference_song();
+    let (_, _, zip) = export_of(&fs);
+    // The song's own files and its lane blob are a few KiB: under a bound of 64 bytes, refused.
+    let begun = pack::unpack_begin_keeping(zip.len() as u64, 64);
+    assert_eq!(begun[0], 0);
+    let mut out = begun;
+    let message = loop {
+        out = match out[0] {
+            0 => {
+                let offset = u64::from_le_bytes(out[1..9].try_into().unwrap()) as usize;
+                let n = u32::from_le_bytes(out[9..13].try_into().unwrap()) as usize;
+                pack::unpack_step(&zip[offset..offset + n])
+            }
+            1 => break String::from_utf8_lossy(&out[1..]).into_owned(),
+            5 => panic!("imported past the bound"),
+            _ => pack::unpack_step(&[]),
+        };
+    };
+    assert!(message.contains("too big to open in the page"), "{message}");
+    // The session is over; the default bound takes the song.
+    assert_eq!(pack::unpack_step(&[])[0], 1);
+    unpack_of(&zip, None).expect("within the bound");
 }
 
 #[test]

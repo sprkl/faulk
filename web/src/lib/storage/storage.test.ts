@@ -65,7 +65,8 @@ class FakeStore implements ProjectStore {
       for (const file of pack.files) if (file.path.startsWith('blobs/')) this.media.set(file.path, file.bytes)
       io.onProgress?.(1)
     }
-    return { status: 'ok', files: pack.files.filter((f) => !f.path.startsWith('blobs/')) }
+    const blobs = pack.files.filter((f) => f.path.startsWith('blobs/'))
+    return { status: 'ok', files: pack.files.filter((f) => !f.path.startsWith('blobs/')), blobBytes: blobs.reduce((n, f) => n + f.bytes.length, 0) }
   }
   /** The files written in pieces, whole once closed; the ones aborted. */
   written = new Map<string, Uint8Array>()
@@ -2302,16 +2303,69 @@ describe('import a .faulkpack', () => {
     expect(alone.host.opened).toEqual([])
   })
 
-  it('refuses a pack the browser has no room for before reading it', async () => {
+  it('refuses a pack the browser has no room for before reading its media: what its blobs take, as its directory says', async () => {
     const w = world()
     w.browser.available = true
     w.host.unpacked = packOf('pack-1')
-    w.free = 2
+    // The pack's file is 3 bytes; its blob takes 5.
+    w.free = 4
     w.packs.push(packFile())
     expect(await w.storage.importPack()).toBe(false)
     expect(w.storage.notice).toBe('storage.browserFull')
     expect(w.browser.handles.size).toBe(0)
-    expect([...w.stores.values()].flatMap((store) => store.unpacks)).toEqual([])
+    expect([...w.stores.values()].flatMap((store) => store.unpacks.map((u) => u.textOnly))).toEqual([true])
+    w.free = 5
+    w.packs.push(packFile())
+    expect(await w.storage.importPack()).toBe(true)
+  })
+
+  it('stops a link waiting behind another download when asked, before it is fetched', async () => {
+    const w = world()
+    w.browser.available = true
+    w.host.unpacked = packOf('pack-1')
+    let release!: () => void
+    const hold = new Promise<void>((resolve) => (release = resolve))
+    const fetched: string[] = []
+    w.deps.fetch = async (input) => {
+      fetched.push(String(input))
+      await hold
+      return new Response(text('zip'))
+    }
+    const first = w.storage.openUrl('https://a.example.org/1.faulkpack')
+    const second = w.storage.openUrl('https://a.example.org/2.faulkpack')
+    await settle()
+    w.storage.cancelImport()
+    release()
+    expect(await first).toBe(false)
+    expect(await second).toBe(false)
+    expect(fetched).toEqual(['https://a.example.org/1.faulkpack'])
+    expect(w.storage.notice).toBe('pack.importCancelled')
+    expect(w.host.opened).toEqual([])
+  })
+
+  it('shows how far a download is when the host announced its length', async () => {
+    const w = world()
+    w.browser.available = true
+    w.host.unpacked = packOf('pack-1')
+    let rest!: () => void
+    const more = new Promise<void>((resolve) => (rest = resolve))
+    w.deps.fetch = async () => {
+      const body = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          controller.enqueue(new Uint8Array(2))
+          await more
+          controller.enqueue(new Uint8Array(2))
+          controller.close()
+        },
+      })
+      return new Response(body, { headers: { 'content-length': '4' } })
+    }
+    const opening = w.storage.openUrl('https://a.example.org/1.faulkpack')
+    await vi.waitFor(() => expect(w.storage.downloadProgress).toBe(0.5))
+    expect(w.storage.banner).toBe('downloading')
+    rest()
+    expect(await opening).toBe(true)
+    expect(w.storage.downloadProgress).toBeNull()
   })
 
   it('stops an import when asked: while it waits its turn, while it reads, and not one asked for after', async () => {

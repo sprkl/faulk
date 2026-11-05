@@ -282,6 +282,8 @@ export class ProjectStorage {
   confirm = $state.raw<{ action: Discard; name: string | null } | null>(null)
   /** The host a pack is being downloaded from (`project.open_url`), while it is. */
   downloading = $state<string | null>(null)
+  /** The share of the download received (0 to 1) when the host announced its length, else `null`. */
+  downloadProgress = $state<number | null>(null)
   /** The host a pack could not be downloaded from: the banner offers to import a file instead. */
   downloadFailed = $state<string | null>(null)
   /** The share of the media written so far (0 to 1) while a `.faulkpack` is being made, else `null`. */
@@ -1827,20 +1829,25 @@ export class ProjectStorage {
    * itself joins the queue. `allowed`: as for `openRecent`.
    */
   openUrl(url: string, allowed = false): Promise<boolean> {
-    const run = this.downloads.then(() => this.fetchAndOpen(url, allowed))
+    // A cancel reaches it from now on, while it waits behind another download too.
+    const abort = this.beginImport()
+    const run = this.downloads.then(() => this.fetchAndOpen(url, allowed, abort)).finally(() => this.endImport(abort))
     this.downloads = run.catch(() => undefined)
     return run
   }
 
-  private async fetchAndOpen(raw: string, allowed: boolean): Promise<boolean> {
+  private async fetchAndOpen(raw: string, allowed: boolean, abort: AbortController): Promise<boolean> {
     const checked = checkOpenUrl(raw, this.deps.pageHostname())
     if (checked.status !== 'ok') {
       this.notice = 'openUrl.refused'
       return false
     }
     this.downloadFailed = null
-    const abort = this.beginImport()
-    try {
+    if (abort.signal.aborted) {
+      this.notice = 'pack.importCancelled'
+      return false
+    }
+    {
       if (this.deps.browser.available) return await this.downloadInto(checked, allowed, abort.signal)
       let download: Awaited<ReturnType<typeof downloadPack>>
       this.downloading = checked.host
@@ -1866,8 +1873,6 @@ export class ProjectStorage {
         }
         return this.importBytes(bytes, packNameOf(checked.url), { reuseKept: true, allowed })
       })
-    } finally {
-      this.endImport(abort)
     }
   }
 
@@ -1911,6 +1916,7 @@ export class ProjectStorage {
         streamed = await streamPack(checked.url, {
           fetch: this.deps.fetch,
           max: MAX_STREAMED_PACK_BYTES,
+          onProgress: (received, announced) => (this.downloadProgress = announced ? Math.min(1, received / announced) : null),
           pageHostname: this.deps.pageHostname(),
           signal,
           sink: {
@@ -1942,14 +1948,14 @@ export class ProjectStorage {
       return false
     } finally {
       this.downloading = null
+      this.downloadProgress = null
     }
     if (streamed.status !== 'ok') {
       await this.dropImportDir(target)
       this.downloadRefused(streamed, checked.host)
       return false
     }
-    const size = streamed.size
-    return this.enqueue(() => this.importStreamed(DOWNLOAD_PATH, packNameOf(checked.url), { reuseKept: true, allowed }, signal, target, size))
+    return this.enqueue(() => this.importStreamed(DOWNLOAD_PATH, packNameOf(checked.url), { reuseKept: true, allowed }, signal, target))
   }
 
   /** A new directory of the browser's storage for a pack, locked (see `dirLock`), and its store. Throws what the browser refused. */
@@ -1999,7 +2005,6 @@ export class ProjectStorage {
     options: { reuseKept?: boolean; allowed?: boolean },
     signal: AbortSignal,
     given?: ImportDir,
-    downloaded?: number,
   ): Promise<boolean> {
     const allowed = options.allowed ?? false
     let target: ImportDir
@@ -2022,9 +2027,6 @@ export class ProjectStorage {
     }
     if (signal.aborted) return stop('pack.importCancelled')
     // The pack's blobs need about its size again (a download is there already, about as big).
-    const size = downloaded ?? (source instanceof Blob ? source.size : 0)
-    const free = this.deps.freeSpace ? await this.deps.freeSpace() : null
-    if (free !== null && free < size) return stop('storage.browserFull')
     this.importing = 0
     let files: { path: string; bytes: Uint8Array }[]
     try {
@@ -2032,6 +2034,9 @@ export class ProjectStorage {
       const head = await store.unpack(source, { signal, textOnly: true })
       if (head.status === 'cancelled') return await stop('pack.importCancelled')
       if (head.status === 'failed') return await stop('pack.invalid', head.message)
+      // The blobs take what the pack's directory declares (a download is counted in the browser's use already).
+      const free = this.deps.freeSpace ? await this.deps.freeSpace() : null
+      if (free !== null && free < head.blobBytes) return await stop('storage.browserFull')
       const known = await this.knownProject(head.files, name, options)
       if (known) {
         await this.dropImportDir(target)

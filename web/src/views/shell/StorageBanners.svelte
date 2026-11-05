@@ -126,7 +126,11 @@
   </p>
 {:else if storage.banner === 'downloading'}
   <p class="banner" role="status" data-testid="download-banner">
-    <span>{t('openUrl.downloading', { host: storage.downloading ?? '' })}</span>
+    <span
+      >{storage.downloadProgress === null
+        ? t('openUrl.downloading', { host: storage.downloading ?? '' })
+        : t('openUrl.downloadingPercent', { host: storage.downloading ?? '', percent: Math.floor(storage.downloadProgress * 100) })}</span
+    >
     <button data-testid="download-cancel" onclick={() => dispatcher.run(cancelImportPack())}>{t('pack.cancelImport')}</button>
   </p>
 {:else if storage.banner === 'downloadFailed'}

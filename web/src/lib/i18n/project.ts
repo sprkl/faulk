@@ -124,6 +124,7 @@ export const project = defineFeature(
     'openUrl.confirm.body': 'Faulk downloads it and opens it as a new project. Your current project is kept: reopen it from the Project menu.',
     'openUrl.confirm.open': 'Open',
     'openUrl.downloading': 'Downloading the project from {host}…',
+    'openUrl.downloadingPercent': 'Downloading the project from {host}… {percent}%',
     'openUrl.failed': 'Couldn’t download this project from {host}.',
     'openUrl.importFile': 'Import a file…',
     // The project of last time that would not open (#504).
@@ -255,6 +256,7 @@ export const project = defineFeature(
     'openUrl.confirm.body': 'Faulk le télécharge et l’ouvre comme un nouveau projet. Ton projet en cours est gardé : rouvre-le depuis le menu Projet.',
     'openUrl.confirm.open': 'Ouvrir',
     'openUrl.downloading': 'Téléchargement du projet depuis {host}…',
+    'openUrl.downloadingPercent': 'Téléchargement du projet depuis {host}… {percent} %',
     'openUrl.failed': 'Impossible de télécharger ce projet depuis {host}.',
     'openUrl.importFile': 'Importer un fichier…',
     'save.banner.reopenRetry': 'Réessayer',

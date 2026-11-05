@@ -1,6 +1,8 @@
-import { readFileSync, writeFileSync } from 'node:fs'
+import { createReadStream, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { expect, test, type Page, type TestInfo } from '@playwright/test'
-import { engineUp, watch } from './support'
+import { engineUp, skipWithoutDevHooks, watch } from './support'
 
 // #682: a `.faulkpack` is imported in pieces by the store's Worker, whatever its size. A project with a large audio
 // file (generated here, `FAULK_PACK_MIB` MiB of noise, 300 by default, never committed) is exported as a download,
@@ -36,8 +38,21 @@ function noiseWav(path: string, bytes: number) {
   writeFileSync(path, wav)
 }
 
-type Hooks = { __faulkRun(c: object): boolean; __faulkView(): { project: { id: string; tracks: Record<string, { kind: string }> } } }
-const hooks = (page: Page) => page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)
+type Hooks = {
+  __faulkRun(c: object): boolean
+  __faulkView(): { project: { id: string; tracks: Record<string, { kind: string; clips: Record<string, { slot: unknown }> }> } }
+}
+/** The audio clip that sits in the grid, if any. */
+const slottedClip = (page: Page) =>
+  page.evaluate(() => {
+    for (const track of Object.values((window as unknown as Hooks).__faulkView().project.tracks)) {
+      if (track.kind !== 'audio') continue
+      for (const [id, clip] of Object.entries(track.clips)) if (clip.slot) return id
+    }
+    return null
+  })
+const meterDb = async (page: Page) => Number(await page.getByTestId('top-meter').getAttribute('aria-valuenow'))
+
 const projectId = (page: Page) => page.evaluate(() => (window as unknown as Hooks).__faulkView().project.id)
 const audioTracks = (page: Page) =>
   page.evaluate(() => Object.values((window as unknown as Hooks).__faulkView().project.tracks).filter((t) => t.kind === 'audio').length)
@@ -50,16 +65,18 @@ async function startAudio(page: Page) {
 
 /** A project with the audio file, exported as a download saved to `out` (the browser keeps no save dialog here); its identity. */
 async function exportedProject(page: Page, wav: string, out: string): Promise<string> {
-  await startAudio(page)
-  test.skip((await hooks(page)) !== 'function', 'the command hooks exist in the dev server only')
   await page.evaluate(() => (window as unknown as Hooks).__faulkRun({ type: 'track.create', kind: 'audio' }))
   const track = await page.evaluate(() => Object.entries((window as unknown as Hooks).__faulkView().project.tracks).find(([, t]) => t.kind === 'audio')![0])
   await page.evaluate((id) => (window as unknown as Hooks).__faulkRun({ type: 'view.select_track', track: id }), track)
+  await page.evaluate(() => (window as unknown as Hooks).__faulkRun({ type: 'scene.create', name: 'A' }))
   await page.getByTestId('panel-clips').click()
   const chooser = page.waitForEvent('filechooser')
   await page.getByTestId('audio-import-button').click()
   await (await chooser).setFiles(wav)
   await expect(page.getByTestId('pool-clip')).toHaveCount(1, { timeout: 600_000 })
+  // In the grid, so the imported project has a cell to play.
+  await page.getByTestId('pool-grid').click()
+  await expect.poll(() => slottedClip(page)).not.toBeNull()
   await page.evaluate(() => void ((window as unknown as { showSaveFilePicker?: unknown }).showSaveFilePicker = undefined))
   const download = page.waitForEvent('download', { timeout: 900_000 })
   await page.getByTestId('project-menu').click()
@@ -156,6 +173,8 @@ async function workerMemory(page: Page): Promise<number | null> {
 
 test('a large .faulkpack is imported in pieces: cancel, a damaged pack, then the whole one opens and plays @full', async ({ page }, testInfo) => {
   const { errors } = watch(page)
+  await startAudio(page)
+  await skipWithoutDevHooks(page)
   const wav = testInfo.outputPath('noise.wav')
   noiseWav(wav, WAV_BYTES)
   const pack = testInfo.outputPath('out.faulkpack')
@@ -177,7 +196,50 @@ test('a large .faulkpack is imported in pieces: cancel, a damaged pack, then the
   await expect.poll(() => projectId(page), { timeout: 1_200_000 }).toBe(packed)
   const { base, peak } = await memory.stop()
   await finish(page, testInfo, started, errors, base, peak)
+  if (!process.env.FAULK_PACK_MEASURE_ONLY) await byLink(page, pack)
+  expect(errors).toEqual([])
 })
+
+/**
+ * The same pack by its link (`project.open_url`), served from this computer by a small server of the test (plain http to
+ * the computer itself, which a page served from it may fetch): a download cancelled while it waits for the host changes
+ * nothing; one that comes is written into the browser's storage in pieces, read from there, and its project, which is the
+ * open one, is not opened twice.
+ */
+async function byLink(page: Page, pack: string) {
+  let release!: () => void
+  let held: Promise<void> = new Promise<void>((resolve) => (release = resolve))
+  const server = createServer((request, response) => {
+    void held.then(() => {
+      response.writeHead(200, {
+        'access-control-allow-origin': '*',
+        'cross-origin-resource-policy': 'cross-origin',
+        'content-type': 'application/zip',
+        'content-length': String(statSync(pack).size),
+      })
+      createReadStream(pack).pipe(response)
+    })
+    request.on('close', () => undefined)
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const link = `http://127.0.0.1:${(server.address() as AddressInfo).port}/song.faulkpack`
+  try {
+    const open = () => page.evaluate((url) => (window as unknown as Hooks).__faulkRun({ type: 'project.open_url', url }), link)
+    await open()
+    await expect(page.getByTestId('download-banner')).toBeVisible({ timeout: 30_000 })
+    await page.getByTestId('download-cancel').click()
+    await expect(page.getByTestId('storage-notice')).toContainText('Import cancelled', { timeout: 60_000 })
+    await page.getByTestId('storage-notice').getByRole('button').last().click()
+    release()
+    held = Promise.resolve()
+    await open()
+    await expect(page.getByTestId('storage-notice')).toContainText('already open', { timeout: 600_000 })
+  } finally {
+    release()
+    server.closeAllConnections()
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+  }
+}
 
 /** Cancelled midway (the banner says how far it is), then a damaged copy (refused with its reason): the project stays, nothing is kept. */
 async function cancelAndDamaged(page: Page, before: string, pack: string, bad: string) {
@@ -217,9 +279,13 @@ async function finish(page: Page, testInfo: TestInfo, started: number, errors: s
   testInfo.annotations.push({ type: 'import', description: report })
   console.log(report)
 
-  // Then it plays.
-  await page.evaluate(() => (window as unknown as Hooks).__faulkRun({ type: 'transport.play' }))
-  await page.waitForTimeout(1500)
+  // Then it plays: the noise is heard through the master meter.
+  const clip = await slottedClip(page)
+  expect(clip).not.toBeNull()
+  const cell = page.locator(`[data-cell][data-clip="${clip}"]`)
+  await cell.click()
+  await expect(cell).toHaveAttribute('data-state', 'playing', { timeout: 15_000 })
+  await expect.poll(() => meterDb(page), { timeout: 15_000 }).toBeGreaterThan(-30)
   await page.evaluate(() => (window as unknown as Hooks).__faulkRun({ type: 'transport.stop' }))
   // The page's memory does not follow the size of the pack.
   expect(heap - base).toBeLessThan(64 << 20)

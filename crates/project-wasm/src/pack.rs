@@ -17,11 +17,14 @@
 //!
 //! - [`unpack_begin`] and [`unpack_step`]: `0`, `u64` offset, `u32` length: the bytes of the
 //!   pack the next step takes; `2`, `u64` size, `u32` path length, the path: a blob starts;
-//!   `3` and bytes of that blob; `4`: the blob is whole and checked; `5` and the save frame of
-//!   the project's own files: the pack is read and its project valid; or `1` and the message.
+//!   `3` and bytes of that blob; `4`: the blob is whole and checked; `5`, `u64` bytes of the
+//!   blobs as the directory declares them, and the save frame of the project's own files: the
+//!   pack is read and its project valid; or `1` and the message.
 //!   A failure, the end and [`unpack_cancel`] end the session.
-//! - [`unpack_texts`]: `5` and the save frame of the project's own files read so far (they come
-//!   before the blobs), unchecked; the session goes on.
+//! - [`unpack_texts`]: the same `5` answer for the project's own files read so far (they come
+//!   before the blobs), unchecked; the session goes on. The session keeps the project's own files
+//!   and its lane blobs, `MAX_UNPACK_KEPT` bytes at most, never another blob.
+
 //!
 //! Export is a session that writes the pack file by file, so the memory it holds does not
 //! depend on the size of the project: the page gives the folder (a folder frame, see
@@ -318,7 +321,14 @@ struct Unpack {
     /// The project's own files and the lane blobs with their bytes, the other blobs by size:
     /// what opening the project at the end reads.
     staged: StagedFs,
+    /// The bytes of the project's own files and lane blobs kept so far, and the most it keeps.
+    kept: u64,
+    keep_max: u64,
 }
+
+/// The most bytes of the project's own files and lane blobs an import keeps to open the project: the
+/// page stages them in one folder frame at the opening ([`crate::MAX_FOLDER_FRAME`]).
+pub(crate) const MAX_UNPACK_KEPT: u64 = crate::MAX_FOLDER_FRAME as u64;
 
 thread_local! {
     static UNPACK: RefCell<Option<Unpack>> = const { RefCell::new(None) };
@@ -327,6 +337,11 @@ thread_local! {
 /// Starts the import of a pack of `len` bytes, ending the one under way: `0`, `u64` offset and
 /// `u32` length of the first bytes to give.
 pub fn unpack_begin(len: u64) -> Vec<u8> {
+    unpack_begin_keeping(len, MAX_UNPACK_KEPT)
+}
+
+/// [`unpack_begin`] keeping at most `keep_max` bytes of the project's own files and lane blobs.
+pub(crate) fn unpack_begin_keeping(len: u64, keep_max: u64) -> Vec<u8> {
     unpack_cancel();
     let reader = PackReader::new(len, unpack_limits());
     let Some((offset, want)) = reader.wants() else {
@@ -337,6 +352,8 @@ pub fn unpack_begin(len: u64) -> Vec<u8> {
             reader,
             current: None,
             staged: StagedFs::default(),
+            kept: 0,
+            keep_max,
         });
     });
     need(offset, want)
@@ -407,13 +424,18 @@ impl Unpack {
                     });
                 }
                 PackStep::Bytes(bytes) => match self.current.as_mut() {
-                    Some(Current::Text { bytes: body, .. }) => body.extend_from_slice(&bytes),
+                    Some(Current::Text { bytes: body, .. }) => {
+                        body.extend_from_slice(&bytes);
+                        self.keep(bytes.len())?;
+                    }
                     Some(Current::Blob { kept, .. }) => {
                         if let Some(head) = kept.as_mut() {
                             head.extend_from_slice(&bytes);
                             let n = head.len().min(LANE_BLOB_MAGIC.len());
                             if head[..n] != LANE_BLOB_MAGIC[..n] {
                                 *kept = None;
+                            } else {
+                                self.keep(bytes.len())?;
                             }
                         }
                         let mut out = Vec::with_capacity(1 + bytes.len());
@@ -450,7 +472,19 @@ impl Unpack {
         }
     }
 
-    /// `5` and the save frame of the project's own files read so far.
+    /// Counts `n` more bytes kept, within the bound.
+    fn keep(&mut self, n: usize) -> Result<(), String> {
+        self.kept += n as u64;
+        if self.kept > self.keep_max {
+            return Err(
+                "the project's own files and automation are too big to open in the page".into(),
+            );
+        }
+        Ok(())
+    }
+
+    /// `5`, `u64` bytes of the blobs (as the directory declares them), and the save frame of the
+    /// project's own files read so far.
     fn texts(&self) -> Vec<u8> {
         let entries: Vec<Entry> = self
             .staged
@@ -461,6 +495,7 @@ impl Unpack {
             .map(|(path, bytes)| Entry::Write(path.clone(), bytes.clone()))
             .collect();
         let mut out = vec![UNPACK_DONE];
+        out.extend_from_slice(&self.reader.blob_bytes().to_le_bytes());
         out.extend_from_slice(&frame(0, &entries));
         out
     }

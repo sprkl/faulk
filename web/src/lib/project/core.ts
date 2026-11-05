@@ -405,7 +405,9 @@ export async function exportPack(exports: PackExports, entries: FolderEntry[], i
 }
 
 /** How an import in pieces ended (`unpackPack`): the project's own files (its blobs went to the sink), or not. */
-export type PackUnpack = { status: 'ok'; files: { path: string; bytes: Uint8Array }[] } | { status: 'failed'; message: string } | { status: 'cancelled' }
+export type PackUnpack =
+  /** `blobBytes`: what the pack's blobs take once written, as its directory declares them. */
+  { status: 'ok'; files: { path: string; bytes: Uint8Array }[]; blobBytes: number } | { status: 'failed'; message: string } | { status: 'cancelled' }
 
 /** Where the blobs of an import go: one blob at a time, its pieces in order. `start` names it (`blobs/<sha256>`). */
 export interface UnpackSink {
@@ -434,9 +436,10 @@ export interface UnpackIO {
 export type UnpackExports = Pick<CoreExports, 'memory' | 'pw_inbox' | 'pw_out' | 'pw_unpack_begin' | 'pw_unpack_step' | 'pw_unpack_texts' | 'pw_unpack_cancel'>
 
 function unpackFiles(out: Uint8Array): PackUnpack {
-  const frame = parseSaveFrame(out.subarray(1))
+  const blobBytes = Number(new DataView(out.buffer, out.byteOffset, out.byteLength).getBigUint64(1, true))
+  const frame = parseSaveFrame(out.subarray(9))
   if (frame.status !== 'ok') return { status: 'failed', message: frame.message }
-  return { status: 'ok', files: frame.entries.flatMap((entry) => (entry.type === 'write' ? [{ path: entry.path, bytes: entry.bytes }] : [])) }
+  return { status: 'ok', files: frame.entries.flatMap((entry) => (entry.type === 'write' ? [{ path: entry.path, bytes: entry.bytes }] : [])), blobBytes }
 }
 
 /**
