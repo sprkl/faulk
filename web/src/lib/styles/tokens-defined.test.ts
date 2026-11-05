@@ -24,7 +24,10 @@ function files(dir: string, out: string[] = []): string[] {
 describe('the design tokens (#698)', () => {
   const sources = files(SRC).map((path) => ({ path: relative(SRC, path).replace(/\\/g, '/'), text: readFileSync(path, 'utf8') }))
   const declared = new Set<string>()
-  for (const { text } of sources) for (const m of text.matchAll(/(?:^|[\s{;'"`])(?:style:)?(--fk-[\w-]+)\s*[:=]/g)) declared.add(m[1]!)
+  // A declaration is in a stylesheet or a component's style, not in a comment: block and HTML comments are dropped.
+  const bare = (text: string) => text.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
+  for (const { path, text } of sources)
+    if (/\.(svelte|css)$/.test(path)) for (const m of bare(text).matchAll(/(?:^|[\s{;'"`])(?:style:)?(--fk-[\w-]+)\s*[:=]/g)) declared.add(m[1]!)
 
   it('declares every token that a var() uses without a fallback', () => {
     const missing: string[] = []

@@ -207,7 +207,7 @@ describe('a track hue drawn as a line (#687)', () => {
   it('takes more ink for any colour until it holds 3:1 on the background and on the clip (#698)', () => {
     const colors = { text: '#131211', bg: '#fdfcfc', trackShade: 0.4 }
     // Without the background the fixed shade stays, as before.
-    const plain = trackInk('#ffff00', { text: colors.text, trackShade: 0.4 })
+    const plain = trackInk('#ffff00', { text: colors.text, trackShade: 0.4, bg: '' })
     const ink = trackInk('#ffff00', colors)
     expect(ink).not.toBe(plain)
     expect(contrastOf(ink, colors.bg)).toBeGreaterThanOrEqual(3)
@@ -228,24 +228,24 @@ describe('a track hue drawn as a line (#687)', () => {
       expect(contrastOf(out, tint), `${hue} on its clip`).toBeGreaterThanOrEqual(3)
     }
     // A colour that already reads keeps the plain shade.
-    expect(trackInk('#000000', colors)).toBe(trackInk('#000000', { text: colors.text, trackShade: 0.4 }))
+    expect(trackInk('#000000', colors)).toBe(trackInk('#000000', { text: colors.text, trackShade: 0.4, bg: '' }))
   })
 
   it('is the hue itself in the dark theme and the hue with ink in the light one', () => {
-    expect(trackInk('#f08098', { text: '#ece9e6', trackShade: 0 })).toBe('#f08098')
-    expect(trackInk('#ffffff', { text: '#000000', trackShade: 0.4 })).toBe('#999999')
+    expect(trackInk('#f08098', { text: '#ece9e6', trackShade: 0, bg: '' })).toBe('#f08098')
+    expect(trackInk('#ffffff', { text: '#000000', trackShade: 0.4, bg: '' })).toBe('#999999')
     // Asked again after a switch of theme, it is the new theme's.
-    expect(trackInk('#ffffff', { text: '#000000', trackShade: 0.5 })).toBe('#808080')
-    expect(trackInk('#ffffff', { text: '#ffffff', trackShade: 0.5 })).toBe('#ffffff')
+    expect(trackInk('#ffffff', { text: '#000000', trackShade: 0.5, bg: '' })).toBe('#808080')
+    expect(trackInk('#ffffff', { text: '#ffffff', trackShade: 0.5, bg: '' })).toBe('#ffffff')
   })
 
   it('mixes a computed colour too, as the waveform reads it from its style (#687)', () => {
-    expect(trackInk('rgb(255, 255, 255)', { text: '#000000', trackShade: 0.4 })).toBe('#999999')
-    expect(trackInk('rgba(255, 255, 255, 0.5)', { text: 'rgb(0, 0, 0)', trackShade: 0.5 })).toBe('#808080')
+    expect(trackInk('rgb(255, 255, 255)', { text: '#000000', trackShade: 0.4, bg: '' })).toBe('#999999')
+    expect(trackInk('rgba(255, 255, 255, 0.5)', { text: 'rgb(0, 0, 0)', trackShade: 0.5, bg: '' })).toBe('#808080')
   })
 
   it('keeps a colour it cannot mix', () => {
-    expect(trackInk('', { text: '#000000', trackShade: 0.4 })).toBe('')
-    expect(trackInk('#fff', { text: '#000000', trackShade: 0.4 })).toBe('#fff')
+    expect(trackInk('', { text: '#000000', trackShade: 0.4, bg: '' })).toBe('')
+    expect(trackInk('#fff', { text: '#000000', trackShade: 0.4, bg: '' })).toBe('#fff')
   })
 })

@@ -112,14 +112,14 @@ const INK_CONTRAST = 3
  * A track hue as a line or a note is drawn on the background (#687): the hue mixed with the theme's text colour by
  * `trackShade` (none in the dark theme; enough ink in the light one to read at 3:1 on paper and on a clip's tint
  * for the palette's hues). The hue itself stays the track's colour for fills. A track's colour can be any `#rrggbb`
- * (`track.set_color`): with the background given (`colors.bg`), the mix takes more ink, in steps of 5 %, until the
+ * (`track.set_color`): with the background parsed (`colors.bg`), the mix takes more ink, in steps of 5 %, until the
  * line holds 3:1 on the background and on the clip's tint (#698), up to the ink itself. A colour that is neither
  * `#rrggbb` nor a computed `rgb(…)` is kept as it is.
  */
-export function trackInk(color: string, colors: Pick<Colors, 'text' | 'trackShade'> & { bg?: string }): string {
+export function trackInk(color: string, colors: Pick<Colors, 'text' | 'trackShade' | 'bg'>): string {
   const shade = colors.trackShade
   if (!(shade > 0)) return color
-  const bgText = colors.bg ?? ''
+  const bgText = colors.bg
   if (inksOf.text !== colors.text || inksOf.bg !== bgText || inksOf.shade !== shade) {
     inks.clear()
     inksOf = { text: colors.text, bg: bgText, shade }
