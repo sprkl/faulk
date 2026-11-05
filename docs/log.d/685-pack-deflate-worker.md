@@ -1,0 +1,2 @@
+2026-11-05
+* **Update** (#685): the `.faulkpack` export is deflated in the store's Worker, not on the page's main thread (a second instance of the project module serves the `pw_pack_*` session there; the zip pieces go to the page, which writes them and answers before the next one). Measured on noise audio (a 5 ms timer on the main thread, no Long Task over 50 ms before or after): the longest gap went from 46 ms (90 and 300 MiB) to 15 ms (90 MiB), 14 ms (300 MiB) and 16 ms (500 MiB, after only).

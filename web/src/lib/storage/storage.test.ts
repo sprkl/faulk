@@ -28,6 +28,7 @@ class FakeStore implements ProjectStore {
   fail: StoreError | null = null
   hold: Promise<void> | null = null
   closed = false
+  packExport?: ProjectStore['packExport']
   project = true
   copied: ProjectStore[] = []
   stamp = 1
@@ -1961,6 +1962,47 @@ describe('export a .faulkpack', () => {
     expect(w.host.dirty()).toBe(true)
     await vi.advanceTimersByTimeAsync(AUTOSAVE_DELAY_MS)
     expect(store.files.get('project.json')).toBe('rev 2')
+  })
+
+  it("has the home's own Worker make the zip when it can, and tells the same ends as the page's core does (#685)", async () => {
+    const { w, store } = await drafted()
+    store.media.set('blobs/aa', text('media'))
+    const seen: string[] = []
+    let outcome: PackExport = { status: 'ok', files: 2, missingBlobs: 0 }
+    store.packExport = async (entries, io) => {
+      seen.push(
+        entries
+          .map((e) => e.path)
+          .sort()
+          .join(','),
+      )
+      await io.sink.write(text('zip'))
+      io.onProgress?.(1)
+      return outcome
+    }
+    expect(await w.storage.exportPack()).toBe(true)
+    // The page's core was not asked, and the pieces the Worker handed over are the download.
+    expect(w.host.exports).toEqual([])
+    expect(seen).toEqual(['blobs/aa,project.json'])
+    expect(w.downloads.map((d) => d.name)).toEqual(['Song.faulkpack'])
+    expect(await w.downloads[0]!.blob.text()).toBe('zip')
+
+    outcome = { status: 'failed', message: 'blobs/aa: changed while it was exported' }
+    expect(await w.storage.exportPack()).toBe(false)
+    expect(w.storage.notice).toBe('pack.exportFailed')
+    expect(w.storage.errorDetail).toContain('changed while it was exported')
+    outcome = { status: 'cancelled' }
+    expect(await w.storage.exportPack()).toBe(false)
+    expect(w.storage.notice).toBe('pack.exportCancelled')
+    expect(w.downloads).toHaveLength(1)
+
+    // The Worker lost, or the page's sink refusing a piece, is a failed export with its reason, not an uncaught error.
+    store.packExport = async () => {
+      throw new StoreError('io', 'the project store stopped')
+    }
+    expect(await w.storage.exportPack()).toBe(false)
+    expect(w.storage.notice).toBe('pack.exportFailed')
+    expect(w.storage.errorDetail).toBe('the project store stopped')
   })
 
   it('works for a project that has no home at all', async () => {

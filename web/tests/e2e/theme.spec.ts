@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { engineUp, watch } from './support'
+import { engineUp, skipWithoutDevHooks, watch } from './support'
 
 // #687: the light and the dark theme of the DAW. The project menu's Theme (System, Dark, Light) runs `view.set_theme`;
 // the choice is kept by the browser and comes back on the next page before the first paint (the head's script); System
@@ -98,6 +98,97 @@ test('System follows the system preference, also when it changes during the sess
   await expect(html(page)).toHaveAttribute('data-theme', 'dark')
   await choose(page, 'system')
   await expect(html(page)).toHaveAttribute('data-theme', 'light')
+  expect(errors).toEqual([])
+})
+
+test('a second tab follows a theme chosen in the first (#698)', async ({ page, context }) => {
+  const { errors } = watch(page)
+  await start(page)
+  const other = await context.newPage()
+  const otherErrors = watch(other).errors
+  await other.goto('/app')
+  await other.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
+  await engineUp(other, 'Web')
+  await expect(html(other)).toHaveAttribute('data-theme', 'dark')
+  await choose(page, 'light')
+  await expect(html(page)).toHaveAttribute('data-theme', 'light')
+  // The storage event reaches the other tab, which applies the choice without writing it back.
+  await expect(html(other)).toHaveAttribute('data-theme', 'light')
+  expect(await other.evaluate(() => getComputedStyle(document.body).backgroundColor)).toBe('rgb(253, 252, 252)')
+  await choose(other, 'dark')
+  await expect(html(page)).toHaveAttribute('data-theme', 'dark')
+  await other.close()
+  expect(errors).toEqual([])
+  expect(otherErrors).toEqual([])
+})
+
+test('a track colour of any hue reads in the clip grid in the light theme (#698)', async ({ page }) => {
+  const { errors } = watch(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await start(page)
+  await skipWithoutDevHooks(page)
+  await page.evaluate(() => {
+    const w = window as unknown as {
+      __faulkRun: (c: unknown) => void
+      __faulkView: () => { project: { tracks: Record<string, unknown>; scenes: Record<string, unknown> } }
+    }
+    w.__faulkRun({ type: 'scene.create' })
+    const { tracks, scenes } = w.__faulkView().project
+    const track = Object.keys(tracks)[0]!
+    w.__faulkRun({ type: 'clip.create', track, at: { at: 'slot', scene: Object.keys(scenes)[0]! } })
+    w.__faulkRun({ type: 'track.set_color', track, color: '#ffff00' })
+  })
+  await page.getByTestId('nav-grid').click()
+  const cell = page.getByTestId('cell').first()
+  await expect(cell).toBeVisible()
+  await choose(page, 'light')
+  await expect(html(page)).toHaveAttribute('data-theme', 'light')
+  const ratioOf = () =>
+    cell.evaluate((el) => {
+      const lum = (css: string) => {
+        const m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(css)!
+        const [r, g, b] = [m[1], m[2], m[3]].map((v) => {
+          const x = Number(v) / 255
+          return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4
+        })
+        return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!
+      }
+      const [hi, lo] = [lum(getComputedStyle(el).color), lum(getComputedStyle(document.body).backgroundColor)].sort((a, b) => b - a)
+      return (hi! + 0.05) / (lo! + 0.05)
+    })
+  await expect.poll(ratioOf).toBeGreaterThanOrEqual(3)
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/light-grid-yellow-track.png` })
+  // Dark keeps the hue as it is.
+  await choose(page, 'dark')
+  await expect.poll(() => cell.evaluate((el) => getComputedStyle(el).color)).toBe('rgb(255, 255, 0)')
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/dark-grid-yellow-track.png` })
+  expect(errors).toEqual([])
+})
+
+test('the dialogs have rounded corners and the radio buttons the accent, in both themes (#698)', async ({ page }) => {
+  const { errors } = watch(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await start(page)
+  for (const choice of ['dark', 'light'] as const) {
+    await choose(page, choice)
+    await page.getByTestId('project-menu').click()
+    await expect(page.getByTestId('menu-export')).toBeVisible()
+    expect(parseFloat(await page.getByRole('menu').evaluate((el) => getComputedStyle(el).borderTopLeftRadius))).toBeGreaterThan(0)
+    await page.getByTestId('menu-export').click()
+    await expect(page.getByTestId('export-dialog')).toBeVisible()
+    expect(parseFloat(await page.getByTestId('export-dialog').evaluate((el) => getComputedStyle(el).borderTopLeftRadius))).toBeGreaterThan(0)
+    const accent = await page.getByTestId('export-song').evaluate((el) => {
+      const probe = document.createElement('i')
+      probe.style.color = getComputedStyle(document.documentElement).getPropertyValue('--fk-accent')
+      document.body.append(probe)
+      const expected = getComputedStyle(probe).color
+      probe.remove()
+      return { got: getComputedStyle(el).accentColor, expected }
+    })
+    expect(accent.got).toBe(accent.expected)
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/${choice}-export-dialog-radio.png` })
+    await page.keyboard.press('Escape')
+  }
   expect(errors).toEqual([])
 })
 
