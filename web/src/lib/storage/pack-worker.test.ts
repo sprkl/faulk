@@ -183,6 +183,34 @@ describe('the store Worker\'s "pack" messages', () => {
     expect(Array.from(zip)).toEqual(Array.from(join(inPage)))
   })
 
+  it("answers only after the page's word on the last piece, the one that ends the zip (#737)", async () => {
+    await open()
+    const id = next
+    const running = send({ op: 'pack', key: 7, entries: entries() })
+    let seen = 0
+    for (;;) {
+      await untilChunksOrDone(id, seen + 1)
+      // Never an answer while a piece waits for the page, the last one included.
+      expect(final(id)).toBeUndefined()
+      seen++
+      const last = (chunks().at(-1)!.reply as { chunk: Uint8Array }).chunk
+      // The end of central directory record: the piece that completes the zip.
+      const ends = last.length >= 22 && new DataView(last.buffer, last.byteOffset + last.length - 22, 4).getUint32(0, true) === 0x06054b50
+      if (ends) {
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        expect(final(id)).toBeUndefined()
+        expect(chunks()).toHaveLength(seen)
+        await send({ op: 'packAck', target: id })
+        break
+      }
+      await send({ op: 'packAck', target: id })
+    }
+    await running
+    expect((final(id) as { ok: true; value: PackExport }).value).toMatchObject({ status: 'ok' })
+    // Nothing came after the answer.
+    expect(posted.at(-1)!.reply).toMatchObject({ id, ok: true })
+  })
+
   async function untilChunksOrDone(id: number, count: number) {
     for (let i = 0; i < 2000 && chunks().length < count && !final(id); i++) await new Promise((resolve) => setTimeout(resolve, 5))
   }

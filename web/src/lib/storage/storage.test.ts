@@ -329,6 +329,8 @@ interface World {
   /** What the page's file dialog answers to a big export, and the files it wrote; the room the browser says it has. */
   saveFile: 'unsupported' | 'cancelled' | 'chosen'
   saved: { name: string; chunks: Uint8Array[]; closed: boolean; aborted: boolean }[]
+  /** Holds the dialog's answer, each write and the close of the chosen file, while set (#737). */
+  fileHolds: { answer?: Promise<void>; write?: Promise<void>; close?: Promise<void> }
   free: number | null
   /** What each link answers for `openUrl` (#497): bytes, or a network failure; the links asked for. */
   served: Map<string, Uint8Array | 'unreachable'>
@@ -357,6 +359,7 @@ function world(): World {
     downloads: [] as { name: string; blob: Blob }[],
     saveFile: 'unsupported',
     saved: [],
+    fileHolds: {},
     free: null,
     served: new Map(),
     fetched: [],
@@ -413,11 +416,18 @@ function world(): World {
     saveFile: async (name) => {
       if (w.saveFile === 'cancelled') return 'cancelled'
       if (w.saveFile === 'unsupported') return null
+      await w.fileHolds.answer
       const file = { name, chunks: [] as Uint8Array[], closed: false, aborted: false }
       w.saved.push(file)
       return {
-        write: async (chunk) => void file.chunks.push(chunk),
-        close: async () => void (file.closed = true),
+        write: async (chunk) => {
+          await w.fileHolds.write
+          file.chunks.push(chunk)
+        },
+        close: async () => {
+          await w.fileHolds.close
+          file.closed = true
+        },
         abort: async () => void (file.aborted = true),
       }
     },
@@ -2105,6 +2115,79 @@ describe('export a .faulkpack', () => {
     expect(await w.storage.exportPack()).toBe(true)
   })
 
+  it('is shown from the click until its last piece is written and the file closed, and only then over (#737)', async () => {
+    const { w, store } = await drafted()
+    // Enough media for the file dialog; the fake core then writes its last piece alone (`zip of 2`).
+    store.bigMedia.set('blobs/big', 700 << 20)
+    w.host.bigSizes = true
+    w.saveFile = 'chosen'
+    const hold = () => {
+      let release!: () => void
+      return { promise: new Promise<void>((resolve) => (release = resolve)), release: () => release() }
+    }
+    const answer = hold()
+    const write = hold()
+    const close = hold()
+    w.fileHolds = { answer: answer.promise, write: write.promise, close: close.promise }
+    let over = false
+    const done = w.storage.exportPack().then((ok) => ((over = true), ok))
+    // At once, before the first wait: the dialog is still open, and Cancel already counts.
+    expect(w.storage.banner).toBe('exporting')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.saved).toEqual([])
+    expect(w.storage.banner).toBe('exporting')
+    // The file is chosen; its last piece is being written.
+    answer.release()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.saved).toHaveLength(1)
+    expect(w.saved[0]!.chunks).toEqual([])
+    expect(w.storage.banner).toBe('exporting')
+    // The last piece written: the file is not closed yet, and the export is not over.
+    write.release()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.saved[0]!.chunks.map((c) => new TextDecoder().decode(c))).toEqual(['zip of 2'])
+    expect(w.saved[0]!.closed).toBe(false)
+    expect(w.storage.banner).toBe('exporting')
+    expect(over).toBe(false)
+    // Closed: only now is it over.
+    close.release()
+    expect(await done).toBe(true)
+    expect(w.saved[0]!.closed).toBe(true)
+    expect(w.storage.exporting).toBeNull()
+    expect(w.storage.banner).toBeNull()
+  })
+
+  it('takes the banner down when it stops before writing: a closed dialog, no room, nothing to export', async () => {
+    const { w, store } = await drafted()
+    store.bigMedia.set('blobs/big', 700 << 20)
+    w.host.bigSizes = true
+    w.saveFile = 'cancelled'
+    expect(await w.storage.exportPack()).toBe(false)
+    expect(w.storage.exporting).toBeNull()
+    w.saveFile = 'unsupported'
+    w.free = 100 << 20
+    expect(await w.storage.exportPack()).toBe(false)
+    expect(w.storage.notice).toBe('pack.noRoom')
+    expect(w.storage.exporting).toBeNull()
+    w.free = null
+    w.host.frameFails = true
+    expect(await w.storage.exportPack()).toBe(false)
+    expect(w.storage.exporting).toBeNull()
+    // Cancelled while the dialog is open.
+    w.host.frameFails = false
+    w.saveFile = 'chosen'
+    let answer!: () => void
+    w.fileHolds = { answer: new Promise<void>((resolve) => (answer = resolve)) }
+    const done = w.storage.exportPack()
+    expect(w.storage.banner).toBe('exporting')
+    w.storage.cancelExport()
+    answer()
+    expect(await done).toBe(false)
+    expect(w.storage.notice).toBe('pack.exportCancelled')
+    expect(w.saved.at(-1)!.aborted).toBe(true)
+    expect(w.storage.exporting).toBeNull()
+  })
+
   it('does not start a second export while one is under way', async () => {
     const { w, store } = await drafted()
     store.media.set('blobs/aa', text('media'))
@@ -2113,6 +2196,8 @@ describe('export a .faulkpack', () => {
     const first = w.storage.exportPack()
     // At once, before anything is chosen or read: the dialog is part of the export.
     expect(await w.storage.exportPack()).toBe(false)
+    // The refused one does not take down the banner of the one under way.
+    expect(w.storage.banner).toBe('exporting')
     await vi.advanceTimersByTimeAsync(0)
     expect(await w.storage.exportPack()).toBe(false)
     release()

@@ -38,34 +38,41 @@ function noiseWav(path: string, bytes: number) {
 
 const hooks = (page: Page) => page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)
 
-/** Stands in for the file dialog: the pack goes to `out.faulkpack` in the browser's storage, `delay` ms per piece. */
-async function chooseOutput(page: Page, delay: number) {
-  await page.evaluate((pause) => {
-    const w = window as unknown as { showSaveFilePicker: unknown; __peakHeap: number; __saved: string[] }
-    w.__saved = []
-    w.showSaveFilePicker = async (options: { suggestedName: string }) => {
-      w.__saved.push(options.suggestedName)
-      const root = await navigator.storage.getDirectory()
-      const handle = await root.getFileHandle('out.faulkpack', { create: true })
-      const real = await handle.createWritable()
-      return {
-        createWritable: async () => ({
-          write: async (chunk: Uint8Array) => {
-            if (pause) await new Promise((resolve) => setTimeout(resolve, pause))
-            await real.write(chunk as Uint8Array<ArrayBuffer>)
-          },
-          close: () => real.close(),
-          abort: () => real.abort(),
-        }),
+/**
+ * Stands in for the file dialog: the pack goes to `out.faulkpack` in the browser's storage, `delay` ms per piece. The
+ * dialog answers `answer` ms after it was opened, as a real one does once the user chose (#737).
+ */
+async function chooseOutput(page: Page, delay: number, answer = 0) {
+  await page.evaluate(
+    ([pause, wait]) => {
+      const w = window as unknown as { showSaveFilePicker: unknown; __peakHeap: number; __saved: string[] }
+      w.__saved = []
+      w.showSaveFilePicker = async (options: { suggestedName: string }) => {
+        w.__saved.push(options.suggestedName)
+        const root = await navigator.storage.getDirectory()
+        const handle = await root.getFileHandle('out.faulkpack', { create: true })
+        const real = await handle.createWritable()
+        if (wait) await new Promise((resolve) => setTimeout(resolve, wait))
+        return {
+          createWritable: async () => ({
+            write: async (chunk: Uint8Array) => {
+              if (pause) await new Promise((resolve) => setTimeout(resolve, pause))
+              await real.write(chunk as Uint8Array<ArrayBuffer>)
+            },
+            close: () => real.close(),
+            abort: () => real.abort(),
+          }),
+        }
       }
-    }
-    // The heap the page itself holds (the blobs go through the Worker and the core's memory in pieces).
-    w.__peakHeap = 0
-    setInterval(() => {
-      const used = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0
-      w.__peakHeap = Math.max(w.__peakHeap, used)
-    }, 20)
-  }, delay)
+      // The heap the page itself holds (the blobs go through the Worker and the core's memory in pieces).
+      w.__peakHeap = 0
+      setInterval(() => {
+        const used = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory?.usedJSHeapSize ?? 0
+        w.__peakHeap = Math.max(w.__peakHeap, used)
+      }, 20)
+    },
+    [delay, answer],
+  )
 }
 
 /** The entries of the zip in the browser's storage: name and uncompressed size, from its central directory. */
@@ -116,10 +123,13 @@ test('a project with 90 MiB of audio is exported to a chosen file in a stream, a
   const wav = testInfo.outputPath('noise.wav')
   noiseWav(wav, WAV_BYTES)
   await projectWithAudio(page, wav)
-  await chooseOutput(page, 0)
+  // The dialog takes a second to answer: the banner, whose end says the pack is whole, is up from the click, so its
+  // absence below cannot be the moment before the export started (#737: the zip was read before anything was written).
+  await chooseOutput(page, 0, 1_000)
 
   await page.getByTestId('project-menu').click()
   await page.getByTestId('menu-export-pack').click()
+  await expect(page.getByTestId('export-banner')).toBeVisible()
   await expect.poll(() => page.evaluate(() => (window as unknown as { __saved: string[] }).__saved.length)).toBe(1)
   await expect(page.getByTestId('export-banner')).toHaveCount(0, { timeout: 120_000 })
   const { fileSize, entries } = await zipEntries(page)

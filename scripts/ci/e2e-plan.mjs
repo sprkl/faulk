@@ -228,6 +228,17 @@ export const RULES = [
 // e2e-table:end
 
 /**
+ * Specs that run whole, their `@full` tests included, when a file they prove changes, as if their own file had
+ * (#737). The 90 MiB `.faulkpack` export to a chosen file (`pack-stream`, `pack-longtasks`) is the only browser test
+ * that reads the streamed zip back (its central directory, the blob whole), and it is `@full` for its cost (an audio
+ * import of 90 MiB, about 10 s each locally): a change of the store (`web/src/lib/storage/`, where the export, its
+ * Worker and its banner live) ran the area without it, and a broken end of export went unseen until a whole-suite run.
+ * The other `@full` tests of the storage area stay to the whole suite: their French variants are covered by
+ * `i18n.test.ts` and the English runs, and their performance prints by the release run (`verification.md` > `@full`).
+ */
+export const FULL_WHEN = [[/^web\/src\/lib\/storage\//, ['pack-stream', 'pack-longtasks']]]
+
+/**
  * The core: the app's backbone, run with every change the page can see (alone for a shared file, with
  * the area's specs otherwise), because a change in one place breaks another through the shared parts
  * the table cannot see (#377: the piano roll's view height once broke the audio export). One entry per
@@ -278,8 +289,8 @@ export const ruleFor = (raw) => RULES.find(([re]) => re.test(raw.replaceAll('\\'
  * @param {string[]} files changed files, repo-relative
  * @param {string[]} existing the spec names present on disk (without `.spec.ts`)
  * @returns {{specs: string[], changed: string[], all: boolean, shared: boolean, reasons: Record<string, string[]>}}
- *   `changed`: the specs among `specs` whose own file changed. `reasons`: per kind (`area`, `shared`,
- *   `all`, `unknown`, `missing`), the files and why.
+ *   `changed`: the specs among `specs` whose own file changed, or a file they prove (`FULL_WHEN`). `reasons`: per
+ *   kind (`area`, `full`, `shared`, `all`, `unknown`, `missing`), the files and why.
  */
 export function selectSpecs(files, existing) {
   const known = new Set(existing)
@@ -299,6 +310,19 @@ export function selectSpecs(files, existing) {
       continue
     }
     const [re, what] = rule
+    for (const [when, names] of FULL_WHEN) {
+      if (!when.test(f)) continue
+      for (const n of names) {
+        if (known.has(n)) {
+          picked.add(n)
+          changed.add(n)
+        } else {
+          all = true
+          why('missing', `FULL_WHEN ${f} -> ${n}`)
+        }
+      }
+      why('full', f)
+    }
     if (what === NONE) continue
     if (what === ALL) {
       all = true
@@ -377,7 +401,7 @@ export const shardCount = (units) => Math.min(MAX_SHARDS, Math.max(1, Math.ceil(
 
 /** One line saying why a plan was chosen (for the CI summary and verify.mjs). Lists at most `max` files per kind. */
 export function explain(reasons, max = 4) {
-  const label = { forced: 'whole suite', unreadable: 'specs unreadable', unknown: 'unknown path', missing: 'stale table', all: 'whole suite for', table: 'table only', shared: 'shared page file', area: 'area of' }
+  const label = { forced: 'whole suite', unreadable: 'specs unreadable', unknown: 'unknown path', missing: 'stale table', all: 'whole suite for', table: 'table only', shared: 'shared page file', area: 'area of', full: '@full specs for' }
   // What decided the tier comes first: the reasons for the whole suite, then the shared files, then the areas.
   const rank = (k) => (k in label ? Object.keys(label).indexOf(k) : -1)
   return Object.entries(reasons)
@@ -391,7 +415,7 @@ export function explain(reasons, max = 4) {
  * configuration): repeated variants (a second language, another width of the same flow) and the
  * performance ceilings, whose strict budgets are checked off CI anyway (#533). A tagged test has
  * `@full` in its title; the area and core runs pass `--grep-invert @full`, the whole suite does not,
- * and a spec whose own file changed runs whole, tags included.
+ * and a spec whose own file changed runs whole, tags included, as does a spec of `FULL_WHEN` for its files.
  */
 export const FULL_TAG = '@full'
 

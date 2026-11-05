@@ -264,7 +264,11 @@ export class ProjectStorage {
   downloading = $state<string | null>(null)
   /** The host a pack could not be downloaded from: the banner offers to import a file instead. */
   downloadFailed = $state<string | null>(null)
-  /** The share of the media written so far (0 to 1) while a `.faulkpack` is being made, else `null`. */
+  /**
+   * The share of the media written so far (0 to 1) while a `.faulkpack` is being made, else `null`: from the click
+   * (the file dialog and the preparation are part of the export, and Cancel counts there) until the last piece is
+   * written and the file closed, so that its end is never announced before the pack is whole (#737).
+   */
   exporting = $state<number | null>(null)
   /** A link of the address (`/app?open=`) waiting for the user's answer before anything is downloaded. */
   linkOffer = $state.raw<{ url: string; host: string } | null>(null)
@@ -1589,9 +1593,11 @@ export class ProjectStorage {
     // One at a time, from the click to the end: the file dialog is part of it.
     if (this.exportBusy) return false
     this.exportBusy = true
-    // A cancel counts from the click on: during the dialog and the preparation too.
+    // A cancel counts from the click on: during the dialog and the preparation too. So does the banner, which offers
+    // it: shown before the first wait, it is gone only once this call is over (#737).
     const abort = new AbortController()
     this.exportAbort = abort
+    this.exporting = 0
     try {
       // The place of the pack first, before anything waits (the queue, a store): the browser opens its file
       // dialog only for a call that follows a click closely.
@@ -1610,6 +1616,8 @@ export class ProjectStorage {
       // Outside the queue: a long export never holds a save back.
       return await this.writePack(prepared, target, abort)
     } finally {
+      // After `writePack`, which closes the file (or aborts it) before it returns.
+      this.exporting = null
       this.exportBusy = false
       this.exportAbort = null
     }
@@ -1698,7 +1706,6 @@ export class ProjectStorage {
   }
 
   private async writePack(prepared: { entries: FolderEntry[]; store: ProjectStore | null }, target: PackTarget, abort: AbortController): Promise<boolean> {
-    this.exporting = 0
     const { store } = prepared
     let written = 0
     try {
@@ -1738,8 +1745,6 @@ export class ProjectStorage {
       this.errorDetail = error instanceof Error ? error.message : String(error)
       this.notice = 'pack.exportFailed'
       return false
-    } finally {
-      this.exporting = null
     }
   }
 
