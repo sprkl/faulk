@@ -983,7 +983,7 @@ fn restored(track: &project::Track, clip_id: &ClipId) -> Result<RestoredClip, Co
 /// stays there instead of leaving before its start (#542). A stamp outside the loop, a move
 /// that is not backwards, a stamp exactly on the loop's start (a note pressed before the capture
 /// began is clamped to the take's first tick: it stays on the line, where the clip's early rule
-/// takes it to its first beat) and a transport that does not loop move on the line. Known limit:
+/// takes it to its first beat when it is part of an early downbeat, [`bar_of`]) and a transport that does not loop move on the line. Known limit:
 /// a command cannot tell a stamp the engine wrapped from a note anticipating the loop's start
 /// while the playhead enters the loop from before it (first pass only), which is folded too.
 /// The page's takes are moved by the engine instead, which knows the wraps (#560), and come
