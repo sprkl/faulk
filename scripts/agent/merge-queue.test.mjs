@@ -642,3 +642,18 @@ test('merge-queue reads several issue numbers on one line, the colon form and CR
     w.done()
   }
 })
+
+test('merge-queue sees a closing keyword anywhere in a line, and a branch number with leading zeros (#727)', () => {
+  const w = branchWorld('fix/0560-loop', msgBody('fix: x\n\n- Closes #560\n- also fixes #682 and resolves #12', 'Closes #560\n* Closes #682'))
+  try {
+    // Bulleted and mid-sentence closings: #12 is not declared outside.
+    const r = w.run('merge-queue.sh', '7')
+    assert.equal(r.status, 1, r.stdout + r.stderr)
+    assert.match(r.stdout, /closes #12 but branch fix\/0560-loop is for issue #560/)
+    w.env.MQ_BODY = msgBody('fix: x\n\n- Closes #560\n- also fixes #682 and resolves #12', 'Closes #560\n* Closes #682\nand resolves #12')
+    const ok = w.run('merge-queue.sh', '7')
+    assert.equal(ok.status, 0, ok.stdout + ok.stderr)
+  } finally {
+    w.done()
+  }
+})
