@@ -96,6 +96,8 @@ pub struct OpusStream {
     channels: usize,
     /// The header's output gain as a factor; exactly 1 when the header says 0 dB.
     gain: f32,
+    /// The frames of the last packet decoded: what an empty packet conceals.
+    last: usize,
 }
 
 impl OpusStream {
@@ -116,25 +118,32 @@ impl OpusStream {
             decoder: Box::new(Decoder::new(SampleRate::Hz48000, layout)),
             channels: usize::from(head.channels),
             gain,
+            last: 0,
         }
     }
 
-    /// Decodes one packet into `out` (cleared first), interleaved; an empty packet holds no
-    /// frame (RFC 6716 § 3.2 gives every packet a TOC byte, so it is skipped, not concealed).
+    /// Decodes one packet into `out` (cleared first), interleaved. An empty packet (every
+    /// Opus packet has a TOC byte, RFC 6716 § 3.2) is a lost one: concealed for the length of
+    /// the packet before, as libopus does, so the timeline keeps the length the container
+    /// counts; before any packet it holds nothing.
     pub fn decode(&mut self, packet: &[u8], out: &mut Vec<f32>) -> Result<(), ImportError> {
         out.clear();
-        if packet.is_empty() {
-            return Ok(());
-        }
-        out.resize(MAX_FRAMES * self.channels, 0.0);
-        let frames = match self.decoder.decode(Some(packet), out, false) {
+        let (packet, capacity) = match packet {
+            [] if self.last == 0 => return Ok(()),
+            [] => (None, self.last),
+            packet => (Some(packet), MAX_FRAMES),
+        };
+        out.resize(capacity * self.channels, 0.0);
+        let frames = match self.decoder.decode(packet, out, false) {
             Ok(frames) => frames,
             Err(e) => {
                 out.clear();
                 return Err(ImportError::Corrupt(format!("an Opus packet: {e}")));
             }
         };
-        out.truncate(frames.min(MAX_FRAMES) * self.channels);
+        let frames = frames.min(capacity);
+        self.last = frames;
+        out.truncate(frames * self.channels);
         if self.gain != 1.0 {
             for sample in out.iter_mut() {
                 *sample *= self.gain;
@@ -246,8 +255,16 @@ mod tests {
         for (x, y) in a.iter().zip(&b) {
             assert_eq!(*y, *x * factor);
         }
-        // An empty packet holds nothing.
+        // An empty packet is a lost one: concealed for the length of the packet before.
         plain.decode(&[], &mut a).unwrap();
+        assert_eq!(a.len(), 960 * 2);
+        // Before any packet, it holds nothing.
+        let mut fresh = OpusStream::new(Head {
+            channels: 1,
+            pre_skip: 0,
+            gain: 0,
+        });
+        fresh.decode(&[], &mut a).unwrap();
         assert!(a.is_empty());
     }
 }

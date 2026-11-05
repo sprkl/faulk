@@ -32,6 +32,8 @@ const DISCARD_PADDING: u32 = 0x75A2;
 const BUFFER: usize = 1 << 16;
 /// The largest element whose body is read whole (a track entry, a block group's head).
 const MAX_BODY: u64 = 1 << 20;
+/// The most Opus tracks the walk keeps.
+const MAX_TRACKS: usize = 16;
 
 /// The padding of each Opus track's last block, by track number, in frames at 48 kHz.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -76,6 +78,12 @@ pub fn paddings(r: &mut (impl Read + Seek), len: u64) -> Option<Paddings> {
                     let size = size?;
                     if id == TRACK_ENTRY {
                         if let Some(number) = opus_track(&r.body(size)?) {
+                            // A file names its tracks once each, a few of them: more is not
+                            // a file this walk reads (and keeps each block's lookup short).
+                            if found.0.len() == MAX_TRACKS || found.0.iter().any(|t| t.0 == number)
+                            {
+                                return None;
+                            }
                             found.0.push((number, 0));
                         }
                     } else {
@@ -393,6 +401,14 @@ mod tests {
         let n = past.len();
         past[n - 2] = 0x40;
         assert_eq!(walk(&past), None);
+        // More Opus tracks than a file has, or one named twice: not read (each block's
+        // lookup stays short on a hostile file of many tracks and blocks).
+        let many: Vec<u8> = (1..=17).flat_map(|n| track(n, b"A_OPUS")).collect();
+        assert_eq!(walk(&file(el(TRACKS, &many), true)), None);
+        let sixteen: Vec<u8> = (1..=16).flat_map(|n| track(n, b"A_OPUS")).collect();
+        assert!(walk(&file(el(TRACKS, &sixteen), true)).is_some());
+        let twice = el(TRACKS, &[track(1, b"A_OPUS"), track(1, b"A_OPUS")].concat());
+        assert_eq!(walk(&file(twice, true)), None);
         // A second EBML header (two files one after the other).
         let twice = [whole.clone(), whole.clone()].concat();
         assert_eq!(walk(&twice), None);
