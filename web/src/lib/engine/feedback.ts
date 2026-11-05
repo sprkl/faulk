@@ -1,10 +1,10 @@
-// Decodes the engine's report (the `Feedback` layout of crates/engine/src/msg.rs, version 8). The
+// Decodes the engine's report (the `Feedback` layout of crates/engine/src/msg.rs, version 9). The
 // same bytes reach the page two ways: the Web engine's render instance writes them under a
 // seqlock into the shared memory (`readFeedback`), the helper sends them as binary WebSocket
 // frames (`decodeFeedback` on the frame). One decoder, so that both modes show the same thing.
 
 /** Size of the fixed part of a report. */
-export const FEEDBACK_HEADER_BYTES = 92
+export const FEEDBACK_HEADER_BYTES = 100
 /** Size of one meter. */
 export const TRACK_METER_BYTES = 20
 /** Size of one active clip (track u32, scene u16, state u8, one padding byte, anchor i64). */
@@ -14,7 +14,7 @@ export const RECORDED_NOTE_BYTES = 32
 /** Most recorded notes one report carries (`MAX_RECORDED_PER_REPORT`). */
 export const MAX_RECORDED_PER_REPORT = 256
 /** The layout version this page reads. */
-export const FEEDBACK_VERSION = 8
+export const FEEDBACK_VERSION = 9
 
 /** Peak and RMS of both channels, linear amplitude, and the gain reduction of the strip's devices. */
 export interface Meter {
@@ -68,6 +68,12 @@ export interface FeedbackReport {
   playheadTick: number
   /** Playhead, in frames since the clock started. */
   playheadFrame: number
+  /**
+   * The host's frame at the playhead, the last word of the header (offset 92, version 9, #733): with the Web engine the audio
+   * context's frame (the worklet's `currentFrame`, the clock the page stamps MIDI notes in) the playhead sits at, with the
+   * helper its own sample counter. `host frame - playheadFrame` is the host frame of the transport's position 0 only while it runs at one tempo, with no loop wrap and no sample-rate change since the Play (the host frame goes on while stopped, the playhead frame does not).
+   */
+  hostFrame: number
   /** Render time over the duration of the blocks timed in the period, 0 to 1; `null` until the host timed a block (#486). */
   cpuLoad: number | null
   /** The largest load of one peak window of the period (one block with the helper's clock, about 100 ms with the worklet's), 0 to 1; `null` like `cpuLoad`. */
@@ -189,6 +195,7 @@ export function decodeFeedback(bytes: ArrayBufferLike, at = 0, len = bytes.byteL
     transport: TRANSPORT[view.getUint8(1)] ?? 'stopped',
     playheadTick: Number(view.getBigInt64(8, true)),
     playheadFrame: Number(view.getBigUint64(16, true)),
+    hostFrame: Number(view.getBigUint64(92, true)),
     cpuLoad: load >= 0 ? Math.min(load, 1) : null,
     cpuPeak: peak >= 0 ? Math.min(peak, 1) : null,
     liveOverflows: view.getUint32(28, true),

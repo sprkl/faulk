@@ -31,6 +31,7 @@ function report(over: Partial<FeedbackReport>): FeedbackReport {
     transport: 'recording',
     playheadTick: 0,
     playheadFrame: 0,
+    hostFrame: 0,
     cpuLoad: null,
     cpuPeak: null,
     liveOverflows: 0,
