@@ -7235,7 +7235,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Ask the user for audio files to import into an audio track (AU-1): the page opens\nits file dialog, then imports each file chosen (its bytes are kept in the project's\n`blobs/`, its decoded audio checked) and makes a clip of it with `clip.import_audio`.\nA file dialog needs a click by the user, so an agent that is not driven by one gets a\nnotice in the page instead. Formats: WAV, AIFF, CAF, FLAC, MP3, AAC (MP4, M4A, ADTS),\nALAC, Ogg Vorbis; Opus is not supported yet. The answer only says the request was\naccepted; the clips arrive with `clip.import_audio`, one history entry each. Refused\nwhen the track is not an audio track. Not undoable itself.",
+        "description": "Ask the user for audio files to import into an audio track (AU-1): the page opens\nits file dialog, then imports each file chosen (its bytes are kept in the project's\n`blobs/`, its decoded audio checked) and makes a clip of it with `clip.import_audio`.\nA file dialog needs a click by the user, so an agent that is not driven by one gets a\nnotice in the page instead. Formats: WAV, AIFF, CAF, FLAC, MP3, AAC (MP4, M4A, ADTS),\nALAC, Ogg Vorbis, Opus (Ogg, WebM: mono or stereo). The answer only says the request was\naccepted; the clips arrive with `clip.import_audio`, one history entry each. Refused\nwhen the track is not an audio track. Not undoable itself.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -18323,7 +18323,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Ask the user for audio files to import into an audio track (AU-1): the page opens\nits file dialog, then imports each file chosen (its bytes are kept in the project's\n`blobs/`, its decoded audio checked) and makes a clip of it with `clip.import_audio`.\nA file dialog needs a click by the user, so an agent that is not driven by one gets a\nnotice in the page instead. Formats: WAV, AIFF, CAF, FLAC, MP3, AAC (MP4, M4A, ADTS),\nALAC, Ogg Vorbis; Opus is not supported yet. The answer only says the request was\naccepted; the clips arrive with `clip.import_audio`, one history entry each. Refused\nwhen the track is not an audio track. Not undoable itself.",
+              "description": "Ask the user for audio files to import into an audio track (AU-1): the page opens\nits file dialog, then imports each file chosen (its bytes are kept in the project's\n`blobs/`, its decoded audio checked) and makes a clip of it with `clip.import_audio`.\nA file dialog needs a click by the user, so an agent that is not driven by one gets a\nnotice in the page instead. Formats: WAV, AIFF, CAF, FLAC, MP3, AAC (MP4, M4A, ADTS),\nALAC, Ogg Vorbis, Opus (Ogg, WebM: mono or stereo). The answer only says the request was\naccepted; the clips arrive with `clip.import_audio`, one history entry each. Refused\nwhen the track is not an audio track. Not undoable itself.",
               "properties": {
                 "track": {
                   "$ref": "#/$defs/TrackId"

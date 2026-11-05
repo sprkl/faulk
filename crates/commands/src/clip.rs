@@ -323,7 +323,7 @@ domain! {
     /// `blobs/`, its decoded audio checked) and makes a clip of it with `clip.import_audio`.
     /// A file dialog needs a click by the user, so an agent that is not driven by one gets a
     /// notice in the page instead. Formats: WAV, AIFF, CAF, FLAC, MP3, AAC (MP4, M4A, ADTS),
-    /// ALAC, Ogg Vorbis; Opus is not supported yet. The answer only says the request was
+    /// ALAC, Ogg Vorbis, Opus (Ogg, WebM: mono or stereo). The answer only says the request was
     /// accepted; the clips arrive with `clip.import_audio`, one history entry each. Refused
     /// when the track is not an audio track. Not undoable itself.
     "clip.choose_audio" (kind = "live", undo = "none", destructive = false)

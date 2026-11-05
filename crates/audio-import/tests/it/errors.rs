@@ -21,6 +21,12 @@ const AUDIO: &[&str] = &[
     "sine.mp3",
     "sine.m4a",
     "sine.ogg",
+    "sine.opus",
+    "sine-mono.opus",
+    "sine.webm",
+    "recorded.webm",
+    "voip-mono.opus",
+    "voip.webm",
 ];
 
 /// A small deterministic generator (xorshift64*), so a failing run replays from its seed.
@@ -156,6 +162,8 @@ fn random_bytes_and_wrong_hints_are_refused() {
             Some("flac"),
             Some("m4a"),
             Some("ogg"),
+            Some("opus"),
+            Some("webm"),
         ] {
             assert!(
                 outcome(

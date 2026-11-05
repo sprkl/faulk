@@ -31,7 +31,7 @@
   import { chordText, positionKey, withShortcut } from '../../lib/shortcuts'
   import {
     DEFAULT_PX_PER_TICK,
-    SNAP_SETTINGS,
+    ROLL_SNAP_SETTINGS,
     clampView,
     snapStep,
     snapTick,
@@ -377,6 +377,8 @@
     const names = {
       bar: t('pianoRoll.snap.bar'),
       beat: t('pianoRoll.snap.beat'),
+      eighthTriplet: t('pianoRoll.snap.eighth-triplet'),
+      sixteenthTriplet: t('pianoRoll.snap.sixteenth-triplet'),
     }
     const lines = [
       g.kind === 'resize' ? gestureLength(t, signature, note.length) : positionText(t, signature, note.start),
@@ -1455,7 +1457,7 @@
       <label class="field">
         <span>{t('pianoRoll.snap')}</span>
         <select aria-label={t('pianoRoll.snap')} data-testid="roll-snap" bind:value={snap}>
-          {#each SNAP_SETTINGS as setting (setting)}
+          {#each ROLL_SNAP_SETTINGS as setting (setting)}
             <option value={setting}>{t(`pianoRoll.snap.${setting}`)}</option>
           {/each}
         </select>

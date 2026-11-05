@@ -12,8 +12,16 @@ project = { path = "../project" }
 sha2 = "0.11.1"
 # No SIMD features (`opt-simd-*`): the native and the WASM builds run the same scalar code, so the
 # page and the helper decode a file to the same PCM (bit for bit, but MP3 and AAC within 3.3e-7: the
-# last bit of `powf` and `cos` differs between libraries). symphonia 0.6 has no Opus decoder.
-symphonia = { version = "0.6.1", default-features = false, features = ["pcm", "adpcm", "wav", "aiff", "caf", "flac", "mp1", "mp2", "mp3", "aac", "isomp4", "alac", "ogg", "vorbis"] }
+# last bit of `powf` and `cos` differs between libraries). symphonia 0.6 has no Opus decoder: its
+# Ogg and Matroska demuxers (`ogg`, `mkv`) hand Opus packets to `opuscule` (#609).
+symphonia = { version = "0.6.1", default-features = false, features = ["pcm", "adpcm", "wav", "aiff", "caf", "flac", "mp1", "mp2", "mp3", "aac", "isomp4", "alac", "ogg", "vorbis", "mkv"] }
+# The Opus decoder (RFC 6716 with RFC 8251), pure Rust, MPL-2.0 like symphonia. Float build without
+# `std`: every `exp`, `cos` and `sqrt` goes through the pure-Rust `libm` crate, so the native and the
+# WebAssembly builds run the same code and decode an Opus file to the same PCM, bit for bit. Passes
+# the 12 RFC 8251 vectors in stereo and mono (`tests/it/opus_vectors.rs`). After an upgrade of it or
+# of `libm`, re-bless the fixtures and raise `cache::DECODER`.
+opuscule = { version = "0.2.2", default-features = false, features = ["libm"] }
+libm = "0.2.16"
 
 [dev-dependencies]
 serde_json = "1.0.154"

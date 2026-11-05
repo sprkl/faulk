@@ -207,13 +207,37 @@ test('an MP3 gets its decoded PCM in the cache, and a cache deleted is made agai
   expect(errors).toEqual([])
 })
 
+test('Opus in Ogg and in WebM, and a browser recording, become clips of their exact length, decoded as the native build decodes them (#609)', async ({
+  page,
+}) => {
+  const { errors } = watch(page)
+  const track = await audioTrack(page)
+  const files = { 'sine.opus': 24_000, 'sine.webm': 24_000, 'recorded.webm': 46_080 }
+  await choose(page, ...Object.keys(files).map(fixture))
+  await expect(page.getByTestId('pool-clip')).toHaveCount(3)
+  const clips = await audioClips(page, track)
+  for (const [name, frames] of Object.entries(files)) {
+    const hash = sha256(fixture(name))
+    // The pre-skip and the padding are cut: the source's half second at 48 kHz, or the recording's 16 packets of 60 ms.
+    expect(clips.find((c) => c.content.audio!.media.name === name)!.content.audio!.media).toMatchObject({ hash, frames })
+    await expect.poll(async () => (await opfsFiles(page))[`.faulk/cache/pcm/${hash}.pcm`]).toBe(32 + frames * 2 * 4)
+    expect(await opfsDigest(page, peaksPath(hash))).toBe(expected[name]!.peaks_sha256)
+  }
+  expect(errors).toEqual([])
+})
+
 test('a file that is not audio, or in a format Faulk does not read, is refused by name and nothing is kept', async ({ page }) => {
   const { errors } = watch(page)
   const track = await audioTrack(page)
   await choose(page, fixture('not-audio.txt'))
   await expect(page.getByTestId('audio-import-failure')).toHaveAttribute('data-code', 'unsupported_format')
   await expect(page.getByTestId('audio-import-failure')).toContainText('not-audio.txt is not an audio file Faulk can read.')
-  await choose(page, fixture('sine.opus'))
+  // An Opus stream whose channels Faulk does not model (mapping family 3, ambisonics).
+  const ambisonic = readFileSync(fixture('sine.webm'))
+  ambisonic[ambisonic.indexOf('OpusHead') + 18] = 3
+  const refused = page.waitForEvent('filechooser')
+  await page.getByTestId('audio-import-button').click()
+  await (await refused).setFiles({ name: 'ambisonic.webm', mimeType: 'audio/webm', buffer: ambisonic })
   await expect(page.getByTestId('audio-import-failure')).toHaveAttribute('data-code', 'unsupported_codec')
   // A damaged WAV (cut in the middle of its samples).
   const wav = readFileSync(fixture('sine-s16.wav'))
