@@ -300,6 +300,7 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
 /// that start ("the last one put down wins", AU-6). Starts never move.
 fn trimmed_audio(
     project: &project::Project,
+    old: project::Tempo,
     new: project::Tempo,
 ) -> Vec<(project::PlacementId, project::Frame, project::Frame)> {
     let mut out = Vec::new();
@@ -324,7 +325,9 @@ fn trimmed_audio(
             else {
                 continue;
             };
-            if end <= next {
+            // An overlap the project already held (an older file) is left as it is.
+            let held = crate::clip::placement_ticks(old, t, p).is_some_and(|(_, e)| e > next);
+            if end <= next || held {
                 continue;
             }
             let Some(project::ClipContent::Audio { media, .. }) =
@@ -383,16 +386,29 @@ fn set_tempo(
                     .project
                     .tracks
                     .values()
-                    .find_map(|t| t.placements.get(&item.placement))
-                    .and_then(|p| match p.span {
-                        project::Span::Frames { length, .. } => Some(length),
-                        project::Span::Ticks { .. } => None,
+                    .find_map(|t| {
+                        let p = t.placements.get(&item.placement)?;
+                        let project::ClipContent::Audio { frames, .. } =
+                            &t.clips.get(&p.clip)?.content
+                        else {
+                            return None;
+                        };
+                        match p.span {
+                            // The exact lengths stay inside the clip, as an undo's do.
+                            project::Span::Frames { length, offset }
+                                if offset.get().saturating_add(item.length.get())
+                                    <= frames.get() =>
+                            {
+                                Some(length)
+                            }
+                            _ => None,
+                        }
                     })
                     .filter(|_| seen.insert(&item.placement))
                     .ok_or_else(|| {
                         invalid(
                             "placements",
-                            "an audio placement listed once is needed".into(),
+                            "an audio placement of the project, listed once, with a length inside its clip".into(),
                         )
                     })?;
                 if item.length.get() == 0 {
@@ -405,7 +421,7 @@ fn set_tempo(
             }
             out
         }
-        None => trimmed_audio(&state.project, new),
+        None => trimmed_audio(&state.project, previous, new),
     };
     let past = state.project.tracks.values().find_map(|t| {
         t.placements.iter().find_map(|(id, p)| {
