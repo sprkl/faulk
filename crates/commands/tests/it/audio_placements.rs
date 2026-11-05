@@ -17,7 +17,10 @@ fn insert_whole(state: &mut State, f: &ClipFx, start: i64, seed: u128) -> Placem
 }
 
 fn set_tempo(bpm: f64) -> Command {
-    Command::Transport(transport::Command::SetTempo { bpm })
+    Command::Transport(transport::Command::SetTempo {
+        bpm,
+        placements: None,
+    })
 }
 
 #[test]
@@ -90,28 +93,59 @@ fn a_growing_placement_stops_at_the_next_one_and_exact_lengths_are_checked() {
 }
 
 #[test]
-fn a_tempo_that_would_make_two_audio_placements_overlap_is_refused_and_names_them() {
+fn a_faster_tempo_shortens_the_placement_that_would_run_into_the_next_and_undoes_exactly() {
     let f = fx();
     // One second is 1 920 ticks at 120 BPM and 3 840 at 240: the second placement starts
-    // at 2 000, so the first one fits at 120 and overlaps it at 240.
+    // at 2 000, so the first one fits at 120 and would overlap it at 240.
     let (mut state, first) = with_whole(&f, f.state.clone(), 0, 21);
     let second = insert_whole(&mut state, &f, 2_000, 22);
-    let error = check_refusal(&set_tempo(240.0), &state, &context()).unwrap();
-    assert_eq!(error.code(), "invalid");
-    let message = error.to_string();
-    assert!(
-        message.contains(&first.to_string()) && message.contains(&second.to_string()),
-        "{message}"
-    );
+    let (faster, undo) = after(state.clone(), &set_tempo(240.0));
+    let Span::Frames { length, .. } = span_of(&faster, &f, &first) else {
+        panic!()
+    };
+    assert!(length.get() < 44_100, "{length:?}");
+    assert_eq!(span_of(&faster, &f, &second), span_of(&state, &f, &second));
+    for p in faster.project.tracks[&f.audio_track].placements.values() {
+        assert!(p.start.get() == 0 || p.start.get() == 2_000);
+    }
+    audio_placements_hold(&faster);
+    // The undo gives the exact lengths back.
+    let mut back = faster;
+    run(&undo, &mut back, &mut context()).unwrap();
+    assert_eq!(back.project, state.project);
     // Slower is fine, and undoing it comes back.
     let (slower, undo) = after(state.clone(), &set_tempo(60.0));
     let mut back = slower;
     run(&undo, &mut back, &mut context()).unwrap();
     assert_eq!(back.project, state.project);
-    // An overlap the project already held does not block a tempo change.
+    // An overlap the project already held does not block a tempo change (slower: left as is).
     let mut held = state.clone();
     insert_whole(&mut held, &f, 100, 23);
-    run(&set_tempo(121.0), &mut held, &mut context()).unwrap();
+    let lengths = |s: &State| -> Vec<Span> {
+        s.project.tracks[&f.audio_track]
+            .placements
+            .values()
+            .map(|p| p.span)
+            .collect()
+    };
+    let before = lengths(&held);
+    run(&set_tempo(119.0), &mut held, &mut context()).unwrap();
+    assert_eq!(lengths(&held), before, "a held overlap is left as it is");
+    // The internal exact lengths are checked: unknown, past the clip, zero.
+    let exact = |id: &PlacementId, n: u64| {
+        Command::Transport(transport::Command::SetTempo {
+            bpm: 90.0,
+            placements: Some(vec![clip::PlacementFrames {
+                placement: id.clone(),
+                length: Frame::new(n),
+            }]),
+        })
+    };
+    assert!(check_refusal(&exact(&first, 44_101), &state, &context()).is_ok());
+    assert!(check_refusal(&exact(&first, 0), &state, &context()).is_ok());
+    let unknown = PlacementId::generate(&mut ::project::IdGenerator::new(1, 99));
+    assert!(check_refusal(&exact(&unknown, 10), &state, &context()).is_ok());
+    run(&exact(&first, 40_000), &mut state.clone(), &mut context()).unwrap();
 }
 
 #[test]

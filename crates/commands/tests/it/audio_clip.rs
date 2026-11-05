@@ -367,7 +367,12 @@ fn a_tempo_that_would_push_an_audio_placement_past_the_timeline_is_refused() {
     // 240 (a faster tempo puts more ticks in a second), 960 at 60.
     let start = ::project::limits::MAX_TICK - 3_000;
     let (state, _) = with_whole(&f, f.state.clone(), start, 4);
-    let tempo = |bpm: f64| Command::Transport(transport::Command::SetTempo { bpm });
+    let tempo = |bpm: f64| {
+        Command::Transport(transport::Command::SetTempo {
+            bpm,
+            placements: None,
+        })
+    };
     assert_eq!(code(&tempo(240.0), &state), "invalid");
     let mut slower = state.clone();
     run(&tempo(60.0), &mut slower, &mut context()).unwrap();

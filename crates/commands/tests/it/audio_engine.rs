@@ -431,3 +431,19 @@ fn the_arrangement_edits_of_audio_placements_keep_the_engine_in_step_both_ways()
         r.run(&Command::History(history::Command::Redo {}));
     }
 }
+
+#[test]
+fn a_faster_tempo_that_shortens_an_audio_placement_reaches_the_engine_and_undoes() {
+    use crate::audio_clip::with_whole;
+    let f = fx();
+    // Two whole placements back to back at 120 BPM: a faster tempo shortens the first (#709).
+    let (state, _) = with_whole(&f, f.state.clone(), 0, 41);
+    let (state, _) = with_whole(&f, state, 1_920, 42);
+    let mut r = Rig::new(state);
+    let faster = Command::Transport(commands::transport::Command::SetTempo {
+        bpm: 240.0,
+        placements: None,
+    });
+    r.run(&faster);
+    r.run(&undo());
+}
