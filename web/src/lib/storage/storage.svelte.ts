@@ -1023,7 +1023,17 @@ export class ProjectStorage {
     wrote: boolean,
     place: { kind: 'folder' | 'browser'; dir: string | null; releaseDir: (() => void) | null; discard?: string | null },
   ) {
-    await this.holdingBarrier(this.attachNow(handle, store, release, wrote, place))
+    // The audio cache work of this attach is awaitable from its first instant, not only once it starts at
+    // the end of the attach: a hook that asks before then waits for it instead of reading the previous
+    // (resolved) promise and an empty report (#707). Settled with the work, or at once when the attach
+    // ends without it.
+    let settle: (done?: Promise<void>) => void = () => {}
+    this.audioCacheDone = new Promise<void>((resolve) => (settle = resolve))
+    try {
+      await this.holdingBarrier(this.attachNow(handle, store, release, wrote, place, settle))
+    } finally {
+      settle()
+    }
   }
 
   /**
@@ -1050,6 +1060,7 @@ export class ProjectStorage {
     release: () => void,
     wrote: boolean,
     place: { kind: 'folder' | 'browser'; dir: string | null; releaseDir: (() => void) | null; discard?: string | null },
+    settleAudioCache: (done: Promise<void>) => void,
   ) {
     // Remembered before the page says "saved", and before the old project is detached (the project
     // stays reachable meanwhile): a reload right after the first save must still find the folder among
@@ -1105,7 +1116,7 @@ export class ProjectStorage {
     if (this.current !== current) return
     if (current.kind === 'folder') current.stopWatching = this.deps.watch(handle, () => this.folderMayHaveChanged())
     if (this.dirty) this.schedule()
-    this.refreshAudioCache(current)
+    settleAudioCache(this.refreshAudioCache(current))
   }
 
   // ------------------------------------------------------------------ audio files (AU-1)
@@ -1120,7 +1131,7 @@ export class ProjectStorage {
    * holds no disk). In the background, never in the storage's queue (it writes only `.faulk/cache/`,
    * which no save, scan or copy reads).
    */
-  private refreshAudioCache(current: Attached) {
+  private refreshAudioCache(current: Attached): Promise<void> {
     const media = this.host.audioMedia?.() ?? []
     this.audioCache = null
     // Stopped when the project leaves this place (`detach`): it would make caches for nothing. The
@@ -1128,11 +1139,8 @@ export class ProjectStorage {
     const abort = new AbortController()
     this.audioCacheAbort = abort
     this.peaksEpoch++
-    if (media.length === 0) {
-      this.audioCacheDone = Promise.resolve()
-      return
-    }
-    this.audioCacheDone = current.store
+    if (media.length === 0) return Promise.resolve()
+    return current.store
       .ensureAudioCache(media, undefined, abort.signal)
       .then((report) => {
         if (this.current === current) this.audioCache = report
