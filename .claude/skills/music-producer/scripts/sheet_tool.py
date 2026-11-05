@@ -341,7 +341,7 @@ def parse_sheet(text: str):
             param = params.get("param", "")
             cc = None
             if "cc" in params:
-                cc = int(params["cc"]) if params["cc"].isdigit() else None
+                cc = int(params["cc"]) if re.fullmatch(r"[0-9]+", params["cc"]) else None
             elif param.lower() in CC_NAMES:
                 cc = CC_NAMES[param.lower()]
             a = Automation(name, params.get("part", ""), cc, param or (f"cc{cc}" if cc is not None else ""),
@@ -580,6 +580,9 @@ def render(patterns, sections, arr_params, out_path: str, tempo: float | None, a
         prog = p.params.get("program")
         if prog and prog.isdigit() and p.kind == "notes":
             events.append((0, bytes([0xC0 | channel, int(prog) & 0x7F])))
+        for a in automations:  # before the notes: a CC on a note's tick applies to that note
+            if a.part == p.name:
+                automation_events(a, channel, events)
         if sections:
             for s in sections:
                 for part in s.parts:
@@ -587,9 +590,6 @@ def render(patterns, sections, arr_params, out_path: str, tempo: float | None, a
                         place(p, (s.start_bar - 1) * 4.0, s.end_bar * 4.0, channel, events, part)
         else:
             place(p, 0.0, p.beats, channel, events)
-        for a in automations:
-            if a.part == p.name:
-                automation_events(a, channel, events)
         tracks.append(track_bytes(events))
     header = b"MThd" + struct.pack(">IHHH", 6, 1, len(tracks), PPQ)
     with open(out_path, "wb") as f:

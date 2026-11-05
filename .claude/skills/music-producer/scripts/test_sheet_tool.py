@@ -234,6 +234,22 @@ class RenderTests(Fixture):
         self.assertIn("not rendering", text)
         self.assertFalse(os.path.exists(out))
 
+    def test_cc_on_a_notes_tick_comes_before_the_note(self):
+        rc, text, out = self.render('```automation "A" part="Pad" cc=74 curve=step\n1.1 10, 3.1 80\n```')
+        self.assertEqual(rc, 0, text)
+        with open(out, "rb") as f:
+            data = f.read()
+        cc = bytes([0xB0, 74, 10])
+        note_on = bytes([0x90, 45, 100])  # A2 starts on bar 1 beat 1, the same tick as the first CC
+        self.assertIn(cc, data)
+        self.assertIn(note_on, data)
+        self.assertLess(data.index(cc), data.index(note_on))
+
+    def test_non_ascii_digits_in_cc_are_an_error_not_a_crash(self):
+        rc, out = self.check('```automation "A" part="Pad" cc=\u00b2\n1.1 20, 5.1 90\n```')
+        self.assertEqual(rc, 1)
+        self.assertIn("needs cc=", out)
+
     def test_values_stay_in_midi_range(self):
         for curve in sheet_tool.CURVES:
             rc, text, out = self.render(f'```automation "A" part="Pad" cc=74 curve={curve}\n1.1 0, 3.1 127, 6.1 0\n```')
