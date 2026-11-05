@@ -4,7 +4,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, posix } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { ALL, AREA, CORE, CORE_TESTS, FULL_TAG, MAX_SHARDS, NONE, RULES, SPECS_PER_SHARD, areas, coreBySpec, coreGrep, explain, needsWeb, planE2e, ruleFor, selectSpecs, shardCount, specNames, tableOnlyChange } from './e2e-plan.mjs'
+import { ALL, AREA, CORE, CORE_TESTS, FULL_TAG, FULL_WHEN, MAX_SHARDS, NONE, RULES, SPECS_PER_SHARD, areas, coreBySpec, coreGrep, explain, needsWeb, planE2e, ruleFor, selectSpecs, shardCount, specNames, tableOnlyChange } from './e2e-plan.mjs'
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url))
 const E2E = join(ROOT, 'web/tests/e2e/')
@@ -43,6 +43,34 @@ test('every spec on disk runs whole, its @full tests included, when its own file
   const both = plan(['web/tests/e2e/mixer.spec.ts', 'web/src/views/mixer/M.svelte'])
   assert.deepEqual(both.changed, ['mixer'])
   assert.ok(!both.specs.includes('mixer'))
+})
+
+test('a file of the store runs the streamed pack specs whole, @full included; other files do not (#737)', () => {
+  for (const [, names] of FULL_WHEN) for (const n of names) assert.ok(EXISTING.includes(n), `FULL_WHEN names "${n}": no such spec`)
+  const store = plan(['web/src/lib/storage/storage.svelte.ts'])
+  assert.equal(store.tier, 'area')
+  assert.deepEqual(store.changed, ['pack-import', 'pack-longtasks', 'pack-stream'])
+  // The rest of the area keeps its @full tests to the whole suite.
+  assert.ok(store.specs.includes('project-store'))
+  for (const n of store.changed) assert.ok(!store.specs.includes(n), n)
+  assert.match(store.why, /@full specs for: web\/src\/lib\/storage\/storage\.svelte\.ts/)
+  // Not for a unit test of the store (no browser test sees it), nor for a file outside the store, even one of the same area.
+  assert.equal(plan(['web/src/lib/storage/storage.test.ts']).run, false)
+  for (const f of ['web/src/views/shell/ProjectMenu.svelte', 'web/src/lib/project/core.ts', 'crates/project/src/file/read.rs', 'web/src/views/mixer/M.svelte']) {
+    const p = plan([f])
+    assert.ok(!p.changed.includes('pack-stream'), f)
+  }
+  // The banner and the zip writer and reader run them too.
+  for (const f of ['web/src/views/shell/StorageBanners.svelte', 'crates/project/src/file/pack.rs', 'crates/project-wasm/src/pack.rs']) {
+    assert.deepEqual(plan([f]).changed, ['pack-import', 'pack-longtasks', 'pack-stream'], f)
+  }
+  // A name that is no spec is a stale list: the whole suite, never a silent hole.
+  const without = EXISTING.filter((n) => n !== 'pack-longtasks')
+  const stale = planE2e(['web/src/lib/storage/rpc.ts'], without)
+  assert.equal(stale.tier, 'all')
+  assert.match(stale.why, /FULL_WHEN web\/src\/lib\/storage\/rpc\.ts -> pack-longtasks/)
+  // And it does not claim the selection it did not make.
+  assert.doesNotMatch(stale.why, /@full specs for/)
 })
 
 test('every rule is a verdict or a list of specs', () => {
