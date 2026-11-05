@@ -105,7 +105,10 @@ impl Rig {
 
     fn record(&mut self, from: i64) -> usize {
         self.send(&[
-            M::SetRecording { recording: true },
+            M::SetRecording {
+                recording: true,
+                shift_us: 0,
+            },
             M::Play { from: Tick(from) },
         ]);
         self.frames
@@ -157,7 +160,13 @@ fn nothing_is_captured_unless_the_transport_records() {
     assert!(rig.notes().is_empty());
     assert_eq!(rig.e.recorder().take(), 0);
     // Recording asked while stopped: nothing either.
-    rig.send(&[M::Stop, M::SetRecording { recording: true }]);
+    rig.send(&[
+        M::Stop,
+        M::SetRecording {
+            recording: true,
+            shift_us: 0,
+        },
+    ]);
     rig.blocks(2);
     rig.on(0, 61);
     rig.blocks(2);
@@ -169,7 +178,13 @@ fn nothing_is_captured_unless_the_transport_records() {
 
 #[test]
 fn the_notes_held_when_the_take_ends_are_cut_there() {
-    for end in [vec![M::SetRecording { recording: false }], vec![M::Stop]] {
+    for end in [
+        vec![M::SetRecording {
+            recording: false,
+            shift_us: 0,
+        }],
+        vec![M::Stop],
+    ] {
         let mut rig = Rig::new();
         rig.record(0);
         rig.blocks(4);
@@ -188,7 +203,10 @@ fn the_notes_held_when_the_take_ends_are_cut_there() {
         rig.blocks(1);
         assert_eq!(rig.notes().len(), 2);
         rig.send(&[
-            M::SetRecording { recording: true },
+            M::SetRecording {
+                recording: true,
+                shift_us: 0,
+            },
             M::Play { from: Tick(0) },
         ]);
         rig.blocks(1);
@@ -336,7 +354,10 @@ fn a_full_held_table_counts_the_lost_notes() {
     rig.on(1, 11);
     rig.blocks(1);
     assert_eq!(rig.e.recorder().dropped(), 2);
-    rig.send(&[M::SetRecording { recording: false }]);
+    rig.send(&[M::SetRecording {
+        recording: false,
+        shift_us: 0,
+    }]);
     rig.blocks(1);
     assert_eq!(rig.e.recorder().total(), 256);
 }
@@ -367,7 +388,10 @@ fn the_report_carries_the_take_its_count_its_last_notes_and_whether_it_captures(
                 track: TrackSlot(0),
                 armed: true,
             },
-            M::SetRecording { recording: true },
+            M::SetRecording {
+                recording: true,
+                shift_us: 0,
+            },
             M::Play { from: Tick(0) },
         ],
     );
@@ -407,7 +431,13 @@ fn the_report_carries_the_take_its_count_its_last_notes_and_whether_it_captures(
     assert_eq!(last.note.velocity, 90);
     assert_eq!(last.note.length, Tick(1));
     // The take ends: the flag drops, the notes stay for the reader.
-    send(&mut prepare, &[M::SetRecording { recording: false }]);
+    send(
+        &mut prepare,
+        &[M::SetRecording {
+            recording: false,
+            shift_us: 0,
+        }],
+    );
     assert_no_alloc(|| host.render(BLOCK));
     host.write_feedback();
     let report = read_feedback(host.feedback()).unwrap();

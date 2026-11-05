@@ -263,6 +263,10 @@ impl Default for Master {
 pub struct Playback {
     pub playing: bool,
     pub recording: bool,
+    /// How much earlier the notes of a take are placed, in microseconds: the value of the
+    /// last `SetRecording { recording: true }`, even one sent while a take runs (#560). The
+    /// recorder takes it when a take begins and keeps its own for the take.
+    pub record_shift_us: i32,
     pub loop_region: Option<LoopRegion>,
     /// The position the last `Play` or `Seek` asked for, not yet taken by the clock.
     pub cue: Option<Tick>,
@@ -1434,9 +1438,13 @@ impl Preparer {
             ControlMsg::AllSoundOff => RtMsg::AllSoundOff,
             ControlMsg::Seek { tick } => RtMsg::Transport(TransportMsg::Seek { tick }),
             ControlMsg::SetLoop { region } => RtMsg::Transport(TransportMsg::SetLoop { region }),
-            ControlMsg::SetRecording { recording } => {
-                RtMsg::Transport(TransportMsg::SetRecording { recording })
-            }
+            ControlMsg::SetRecording {
+                recording,
+                shift_us,
+            } => RtMsg::Transport(TransportMsg::SetRecording {
+                recording,
+                shift_us,
+            }),
             ControlMsg::NoteOn { .. }
             | ControlMsg::NoteOff { .. }
             | ControlMsg::AllNotesOff { .. } => {
@@ -2199,6 +2207,8 @@ impl Engine {
                     frames,
                     anchors: self.transport.anchors(),
                     rate: f64::from(self.transport.sample_rate().hz()),
+                    shift_us: self.state.playback.record_shift_us,
+                    looping: self.transport.armed_loop(),
                 },
                 live,
                 first && self.release_live,
@@ -3037,7 +3047,15 @@ impl Engine {
                     TransportMsg::Stop => p.playing = false,
                     TransportMsg::Seek { tick } => p.cue = Some(tick),
                     TransportMsg::SetLoop { region } => p.loop_region = region,
-                    TransportMsg::SetRecording { recording } => p.recording = recording,
+                    TransportMsg::SetRecording {
+                        recording,
+                        shift_us,
+                    } => {
+                        p.recording = recording;
+                        if recording {
+                            p.record_shift_us = shift_us;
+                        }
+                    }
                 }
                 None
             }

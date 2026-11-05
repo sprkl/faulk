@@ -39,7 +39,10 @@ fn scenario() -> Vec<Step> {
             M::SetLoop {
                 region: LoopRegion::new(Tick(0), Tick(2880 * 2)),
             },
-            M::SetRecording { recording: true },
+            M::SetRecording {
+                recording: true,
+                shift_us: 0,
+            },
             M::Play { from: Tick(0) },
         ],
         0,
