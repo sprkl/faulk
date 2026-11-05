@@ -2889,15 +2889,28 @@ describe('importing an audio file (AU-1)', () => {
     expect(w.storage.audioCache).toEqual({ made: [media[0]!.hash], peaks: [], missing: [], failed: [] })
   })
 
-  it('an attach that ends before the cache work does not leave its wait pending (#707)', async () => {
+  it('an attach that ends without the cache work does not leave its wait pending (#707)', async () => {
     const { w, handle } = await saved()
+    const settled = async () => {
+      let done = false
+      void w.storage.audioCacheDone.then(() => (done = true))
+      await settle()
+      return done
+    }
+    // No media: the work is empty.
     w.storage.sleep()
     w.recents = [{ id: handle.name, name: handle.name, handle, at: 1 }]
     await w.storage.newProject()
-    await w.storage.openRecent(handle.name)
-    await w.storage.audioCacheDone
+    expect(await w.storage.openRecent(handle.name)).toBe(true)
+    expect(await settled()).toBe(true)
+    // An attach that fails before the work starts.
+    w.storage.sleep()
     await w.storage.newProject()
-    await w.storage.audioCacheDone
+    w.host.folderChanged = () => {
+      throw new Error('boom')
+    }
+    await w.storage.openRecent(handle.name).catch(() => undefined)
+    expect(await settled()).toBe(true)
   })
 
   it('reads the waveform peaks of a media from the place, and has them made one media at a time, stopped when the project leaves it (AU-2)', async () => {

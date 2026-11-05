@@ -1029,15 +1029,12 @@ export class ProjectStorage {
     // ends without it.
     let settle: (done?: Promise<void>) => void = () => {}
     this.audioCacheDone = new Promise<void>((resolve) => (settle = resolve))
-    this.settleAudioCache = settle
     try {
-      await this.holdingBarrier(this.attachNow(handle, store, release, wrote, place))
+      await this.holdingBarrier(this.attachNow(handle, store, release, wrote, place, settle))
     } finally {
       settle()
     }
   }
-
-  private settleAudioCache: (done?: Promise<void>) => void = () => {}
 
   /**
    * Sets `attaching` until `running` ends, however it ends. Inside a move that already holds it (the attach
@@ -1063,6 +1060,7 @@ export class ProjectStorage {
     release: () => void,
     wrote: boolean,
     place: { kind: 'folder' | 'browser'; dir: string | null; releaseDir: (() => void) | null; discard?: string | null },
+    settleAudioCache: (done: Promise<void>) => void,
   ) {
     // Remembered before the page says "saved", and before the old project is detached (the project
     // stays reachable meanwhile): a reload right after the first save must still find the folder among
@@ -1118,7 +1116,7 @@ export class ProjectStorage {
     if (this.current !== current) return
     if (current.kind === 'folder') current.stopWatching = this.deps.watch(handle, () => this.folderMayHaveChanged())
     if (this.dirty) this.schedule()
-    this.settleAudioCache(this.refreshAudioCache(current))
+    settleAudioCache(this.refreshAudioCache(current))
   }
 
   // ------------------------------------------------------------------ audio files (AU-1)
