@@ -561,8 +561,9 @@ impl Transport {
         self.open = false;
     }
 
-    /// The loop the playhead is inside of and wraps at the end of, while the clock runs: the
-    /// recorder folds a position it extrapolates past that end (#560).
+    /// The loop the playhead will wrap at the end of, while the clock runs: armed when the
+    /// playhead is before the loop's end, inside the loop or still before its start (the first
+    /// pass). The recorder folds a position it extrapolates past that end (#560).
     pub fn armed_loop(&self) -> Option<LoopRegion> {
         self.active_loop()
             .filter(|_| self.running && self.loop_armed)

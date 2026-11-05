@@ -87,8 +87,9 @@
 //!   note's lag (a loop shorter than about the latency) is placed back from the oldest one, on
 //!   the line, not round the loop;
 //! - a negative shift moves a sample ahead of the block, which the anchor in force places on the
-//!   line: a position it gives past the end of the loop the playhead is inside of is folded
-//!   back into the loop, where the playhead will be.
+//!   line: a position it gives past the end of the loop the playhead will wrap at (inside
+//!   the loop, or before it on the first pass) is folded back into the loop, where the playhead
+//!   will be.
 //!
 //! A note's on and off move by the same shift, so its length does not change. A take without
 //! a shift places its notes exactly as before the shift existed, except a stamp ahead of the
@@ -169,8 +170,8 @@ pub struct RecordClock {
     /// How much earlier the notes of a take that starts are placed, in microseconds
     /// (`ControlMsg::SetRecording`, #560; module doc, "The take's shift").
     pub shift_us: i32,
-    /// The loop the playhead is inside of, when the transport loops
-    /// (`Transport::armed_loop`): it wraps at its end.
+    /// The loop the playhead will wrap at the end of (`Transport::armed_loop`): armed inside
+    /// the loop and before its start on the first pass.
     pub looping: Option<LoopRegion>,
 }
 

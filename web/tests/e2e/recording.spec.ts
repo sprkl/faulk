@@ -346,7 +346,7 @@ test('a note played just before the playhead enters a loop stays before the loop
   const off = times.map((t, k) => (startOf(k) - startOf(0)) * msPerTick - (t - times[0]!))
   console.log(`sweep of ${times.length} notes, worst gap to the line: ${Math.max(...off.map(Math.abs)).toFixed(2)} ms`)
   // Each gap compares two floored starts (one tick, 0.52 ms, of rounding) of notes the page converted to frames one by
-  // one (measured up to 1.25 ms of spread over 8 runs in Chromium on Windows): 2 ms. The defect this guards against
+  // one (measured up to 1.35 ms of spread over 12 runs in Chromium on Windows): 2 ms. The defect this guards against
   // moves a note by the latency (42 ms) or the whole loop (2 s).
   for (const ms of off) expect(Math.abs(ms)).toBeLessThanOrEqual(2)
   // The sweep crossed the entry: notes on both sides of the loop's start, none past its end.
