@@ -1,5 +1,6 @@
 import { untrack } from 'svelte'
 import { MeterBank, SILENT, type MeterSnap } from '../meters/ballistics'
+import { SpectrumTracker, type Shown } from '../contour/spectrum'
 import type { EngineStore } from './engine.svelte'
 import type { ProjectStore } from './project.svelte'
 
@@ -21,7 +22,12 @@ export class MeterStore {
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
   snaps = $state.raw<Map<string, MeterSnap>>(new Map())
 
+  /** Counts the reports fed, so that a spectrum's reader (`spectrum`) follows them. */
+  spectrumTick = $state(0)
+
   private readonly bank = new MeterBank()
+  /** The report's spectra by device id (#156). */
+  private readonly spectra = new SpectrumTracker()
   private lastReportAt = 0
   /** The report the strips were last fed from, to feed them again when the tracks change. */
   private lastReport: NonNullable<EngineStore['feedback']> | null = null
@@ -36,6 +42,12 @@ export class MeterStore {
   /** A strip's snapshot; silence for a strip with none. */
   snap(id: string): MeterSnap {
     return this.snaps.get(id) ?? SILENT
+  }
+
+  /** The spectrum of a device (#156, an equaliser's panel), or `null` when it has none fresh. Follows the reports. */
+  spectrum(device: string): Shown | null {
+    void this.spectrumTick
+    return this.spectra.get(device, performance.now())
   }
 
   /** Clears one strip's peak readout and clip mark. */
@@ -63,6 +75,10 @@ export class MeterStore {
       },
       now / 1000,
     )
+    if (report) {
+      this.spectra.feed(report.epoch, report.spectra ?? [], slots, now)
+      this.spectrumTick++
+    }
   }
 
   /** Follows the engine's reports until the returned function is called. Call it from a component. */

@@ -96,6 +96,11 @@ pub struct DeviceEntry {
     pub(crate) fade: f32,
     /// The slot an outgoing device held: it fades out there.
     pub(crate) slot: u16,
+    /// The number of this instance among the devices its prepare side built (#156), from 1: a
+    /// device moved, rebuilt at a new rate or inserted again is a new instance with a new
+    /// serial, so the page tells the spectrum of an instance from the next one's at the same
+    /// slot ([`crate::analysis`]). 0 for an entry built outside a prepare side.
+    pub serial: u32,
 }
 
 impl DeviceEntry {
@@ -107,6 +112,7 @@ impl DeviceEntry {
             events_out,
             fade: 1.0,
             slot: 0,
+            serial: 0,
         }
     }
 
@@ -587,6 +593,7 @@ pub fn channel_with(
         collected: 0,
         stopped_at: None,
         disk: crate::audio_source::Disk::new(Arc::clone(&disk_stats), disk_rx),
+        serials: core::cell::Cell::new(0),
     };
     let graph = Graph::try_new(&setup, retired_tx)?;
     // TR-1 cuts a block of `frames` in at most `frames + 2` segments (at most `frames + 1`
@@ -819,6 +826,8 @@ pub struct Preparer {
     stopped_at: Option<usize>,
     /// The disk planner (AU-3, [`crate::audio_source::Disk`]).
     disk: crate::audio_source::Disk,
+    /// The serial of the last device built ([`DeviceEntry::serial`]).
+    serials: core::cell::Cell<u32>,
 }
 
 impl core::fmt::Debug for Preparer {
@@ -1621,7 +1630,11 @@ impl Preparer {
             )?),
             _ => None,
         };
-        let value = try_box(DeviceEntry::new(built, events_out))?;
+        let mut entry = DeviceEntry::new(built, events_out);
+        let serial = self.serials.get().wrapping_add(1).max(1);
+        self.serials.set(serial);
+        entry.serial = serial;
+        let value = try_box(entry)?;
         Ok((value, descriptor))
     }
 
@@ -2405,6 +2418,27 @@ impl Engine {
     pub fn active_clips(&self, push: impl FnMut(ActiveClip)) {
         let running = self.transport.state() != TransportState::Stopped;
         launcher::active_clips(&self.state, running, push);
+    }
+
+    /// Calls `f` with each enabled device of every track's chain, in track then device slot
+    /// order, then of the master's chain ([`TrackSlot::MASTER`]): its track slot, its device
+    /// slot, its entry. For the spectrum analysis (#156, [`crate::analysis`]). No allocation.
+    pub fn enabled_devices(&self, mut f: impl FnMut(TrackSlot, DeviceSlot, &DeviceEntry)) {
+        let tracks = self.state.tracks.as_slice();
+        let chains = tracks
+            .iter()
+            .enumerate()
+            .filter_map(|(i, t)| t.as_deref().map(|t| (TrackSlot(i as u32), &t.devices)))
+            .chain(core::iter::once((TrackSlot::MASTER, &self.state.master_devices)));
+        for (track, chain) in chains {
+            for (d, entry) in chain.as_slice().iter().enumerate() {
+                if let Some(entry) = entry.as_deref()
+                    && entry.enabled
+                {
+                    f(track, DeviceSlot(d as u16), entry);
+                }
+            }
+        }
     }
 
     /// Voices sounding in the tracks' devices after the last rendered block (MO-5).

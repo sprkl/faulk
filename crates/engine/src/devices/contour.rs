@@ -290,7 +290,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
     version: 1,
     name: "Contour",
     role: DeviceRole::Effect,
-    memory_bytes: size_of::<Contour>() as u64,
+    memory_bytes: (size_of::<Contour>() + crate::analysis::MAX_WINDOW * size_of::<f32>()) as u64,
     midi_output: None,
     named_keys: &[],
     params: &[
@@ -471,7 +471,7 @@ pub const BUILTIN: Builtin = Builtin {
 
 /// Builds an equaliser for `setup`, off the audio path.
 pub fn factory(setup: &DeviceSetup) -> Result<Box<dyn Device>, MsgError> {
-    Ok(try_box(Contour::new(setup.sample_rate))?)
+    Ok(try_box(Contour::try_new(setup.sample_rate)?)?)
 }
 
 fn sanitize(x: f32) -> f32 {
@@ -735,11 +735,38 @@ pub struct Contour {
     output_gain: f32,
     fade_frames: u32,
     ramp_frames: u32,
+    /// The last frames of the output, the mono sum, for the panel's spectrum (#156,
+    /// [`crate::analysis`]): [`crate::analysis::window_len`] frames at the instance's rate, a
+    /// power of two; empty when the memory was refused (the device then analyses nothing).
+    ring: Box<[f32]>,
+    /// Where the next frame goes in `ring`.
+    write: usize,
+    /// Frames written since the instance was built or reset, up to the ring's length: a
+    /// window is given only once it is full, so a reset hides the ring's old content in
+    /// constant time.
+    filled: usize,
 }
 
 impl Contour {
-    /// An equaliser at its defaults.
+    /// An equaliser at its defaults, its analysis ring allocated fallibly (the factory's way).
+    pub fn try_new(sample_rate: f32) -> Result<Self, MsgError> {
+        let mut c = Self::without_ring(sample_rate);
+        let n = crate::analysis::window_len(c.sample_rate);
+        let mut ring = Vec::new();
+        ring.try_reserve_exact(n)
+            .map_err(|_| MsgError::OutOfMemory { bytes: n * 4 })?;
+        ring.resize(n, 0.0);
+        c.ring = ring.into_boxed_slice();
+        Ok(c)
+    }
+
+    /// An equaliser at its defaults; when the memory of its analysis ring is refused, it
+    /// works without it (and analyses nothing).
     pub fn new(sample_rate: f32) -> Self {
+        Self::try_new(sample_rate).unwrap_or_else(|_| Self::without_ring(sample_rate))
+    }
+
+    fn without_ring(sample_rate: f32) -> Self {
         let sample_rate = if sample_rate.is_finite() && sample_rate >= 8_000.0 {
             sample_rate
         } else {
@@ -782,6 +809,9 @@ impl Contour {
             output_gain: 1.0,
             fade_frames: (FADE_SECONDS * f64::from(sample_rate)).round() as u32,
             ramp_frames: ramp,
+            ring: Box::new([]),
+            write: 0,
+            filled: 0,
         }
     }
 
@@ -880,6 +910,12 @@ impl Contour {
             }
             *l = flush(x * self.output_gain);
             *r = flush(y * self.output_gain);
+            if let Some(slot) = self.ring.get_mut(self.write) {
+                *slot = 0.5 * (*l + *r);
+                // The length is a power of two.
+                self.write = (self.write + 1) & (self.ring.len() - 1);
+                self.filled = (self.filled + 1).min(self.ring.len());
+            }
         }
     }
 }
@@ -913,6 +949,22 @@ impl Device for Contour {
         self.set_value(id, value);
     }
 
+    /// The last frames of the output (mono sum), oldest first, once the ring is full since the
+    /// instance was built or reset.
+    fn analysis_window(&self, out: &mut [f32]) -> usize {
+        let len = self.ring.len();
+        if len == 0 || self.filled < len {
+            return 0;
+        }
+        let n = len.min(out.len());
+        // The oldest of the last `n` frames.
+        let start = (self.write + len - n) & (len - 1);
+        let first = n.min(len - start);
+        out[..first].copy_from_slice(&self.ring[start..start + first]);
+        out[first..n].copy_from_slice(&self.ring[..n - first]);
+        n
+    }
+
     /// Empties every band and snaps the ramps; the parameter values are kept.
     fn reset(&mut self) {
         let sr = self.sample_rate;
@@ -932,5 +984,8 @@ impl Device for Contour {
         }
         self.output.snap();
         self.output_gain = db_to_gain(self.output.current());
+        // The ring's content is hidden, not wiped (constant time): no window until it is full
+        // again.
+        self.filled = 0;
     }
 }

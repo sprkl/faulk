@@ -29524,7 +29524,7 @@
     {
       "kind": "faulk.contour",
       "kind_id": 7,
-      "memory_bytes": 2832,
+      "memory_bytes": 35632,
       "midi_output": null,
       "name": "Contour",
       "named_keys": [],
@@ -32139,6 +32139,23 @@
           "additionalProperties": false,
           "description": "The engine slots of the tracks and scenes that have one. The engine reports the state of\na launch-grid cell by slots (its track slot, its scene slot), never by identifier; the\nlaunch grid reads this table to find the cell of a report. An entity the engine was never\ntold about is absent.",
           "properties": {
+            "devices": {
+              "additionalProperties": false,
+              "description": "Where each device sent to the engine sits (#156): its track slot (4294967295,\n`TrackSlot::MASTER`, for the master's chain) and its device slot, the two numbers a\nspectrum of the report names it by. Left out when the engine holds no device.",
+              "patternProperties": {
+                "^[0-7][0-9A-HJKMNP-TV-Z]{25}$": {
+                  "items": {
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "type": "array"
+                }
+              },
+              "type": "object"
+            },
             "epoch": {
               "description": "The epoch of the engine stream these slots belong to: a report of another epoch (an\nengine behind a snapshot) names other slots and is not read against this table.",
               "format": "uint16",
@@ -38905,7 +38922,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 43,
+  "protocol_version": 44,
   "scale_intervals": [
     {
       "intervals": [

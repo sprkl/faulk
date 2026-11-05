@@ -10,6 +10,10 @@ import { defineFeature } from './feature'
 
 export const contour = defineFeature(
   {
+    'contour.curve': 'Response curve of {name}',
+    'contour.curveHint':
+      'Drag a point to move its band: left and right for the frequency, up and down for the gain. Wheel over a point: its Q. Double-click: on or off. On a focused point, the arrows move it, Shift with up and down sets the Q, Enter switches it.',
+    'contour.bandOff': 'off',
     'contour.hp_on': 'Low cut',
     'contour.hp_freq': 'Low cut frequency',
     'contour.hp_q': 'Low cut Q',
@@ -49,9 +53,9 @@ export const contour = defineFeature(
     'contour.hp_q.hint': 'Resonance of the low cut at its frequency, from 0.1 to 18: 0.707 is flat, higher values add a peak just above the cut.',
     'contour.hp_slope.hint': 'How steeply the low cut falls below its frequency: 12, 24 or 48 dB per octave. A change fades over 10 ms.',
     'contour.low_on.hint': 'Switches the low shelf on or off. A switch fades over 10 ms.',
-    'contour.low_freq.hint': 'Frequency, in hertz, of the low shelf\'s corner, from 20 Hz to 20 kHz: the shelf\'s gain applies below it.',
+    'contour.low_freq.hint': "Frequency, in hertz, of the low shelf's corner, from 20 Hz to 20 kHz: the shelf's gain applies below it.",
     'contour.low_gain.hint': 'Gain of the low shelf, from -24 to +24 dB: what the sound below its frequency gains or loses.',
-    'contour.low_q.hint': 'Steepness of the low shelf\'s corner, from 0.1 to 18: 0.707 is smooth, higher values add a bump at the corner.',
+    'contour.low_q.hint': "Steepness of the low shelf's corner, from 0.1 to 18: 0.707 is smooth, higher values add a bump at the corner.",
     'contour.bell1_on.hint': 'Switches bell 1 on or off. A switch fades over 10 ms.',
     'contour.bell1_freq.hint': 'Centre frequency of bell 1, in hertz, from 20 Hz to 20 kHz.',
     'contour.bell1_gain.hint': 'Gain of bell 1 at its centre frequency, from -24 to +24 dB.',
@@ -65,16 +69,20 @@ export const contour = defineFeature(
     'contour.bell3_gain.hint': 'Gain of bell 3 at its centre frequency, from -24 to +24 dB.',
     'contour.bell3_q.hint': 'Width of bell 3, from 0.1 (wide) to 18 (narrow): its centre frequency over the bandwidth at half its gain.',
     'contour.high_on.hint': 'Switches the high shelf on or off. A switch fades over 10 ms.',
-    'contour.high_freq.hint': 'Frequency, in hertz, of the high shelf\'s corner, from 20 Hz to 20 kHz: the shelf\'s gain applies above it.',
+    'contour.high_freq.hint': "Frequency, in hertz, of the high shelf's corner, from 20 Hz to 20 kHz: the shelf's gain applies above it.",
     'contour.high_gain.hint': 'Gain of the high shelf, from -24 to +24 dB: what the sound above its frequency gains or loses.',
-    'contour.high_q.hint': 'Steepness of the high shelf\'s corner, from 0.1 to 18: 0.707 is smooth, higher values add a bump at the corner.',
+    'contour.high_q.hint': "Steepness of the high shelf's corner, from 0.1 to 18: 0.707 is smooth, higher values add a bump at the corner.",
     'contour.lp_on.hint': 'Switches the high cut (low-pass) on or off. A switch fades over 10 ms.',
     'contour.lp_freq.hint': 'Frequency, in hertz, above which the high cut takes the sound away, from 20 Hz to 20 kHz.',
     'contour.lp_q.hint': 'Resonance of the high cut at its frequency, from 0.1 to 18: 0.707 is flat, higher values add a peak just below the cut.',
     'contour.lp_slope.hint': 'How steeply the high cut falls above its frequency: 12, 24 or 48 dB per octave. A change fades over 10 ms.',
-    'contour.output.hint': 'Gain of the whole equaliser\'s output, from -24 to +24 dB.',
+    'contour.output.hint': "Gain of the whole equaliser's output, from -24 to +24 dB.",
   },
   {
+    'contour.curve': 'Courbe de réponse de {name}',
+    'contour.curveHint':
+      'Fais glisser un point pour déplacer sa bande : à gauche et à droite pour la fréquence, en haut et en bas pour le gain. Molette sur un point : son Q. Double-clic : marche ou arrêt. Sur un point sélectionné, les flèches le déplacent, Maj avec haut et bas règle le Q, Entrée le coupe ou le remet.',
+    'contour.bandOff': 'coupée',
     'contour.hp_on': 'Coupe-bas',
     'contour.hp_freq': 'Fréquence du coupe-bas',
     'contour.hp_q': 'Q du coupe-bas',
@@ -120,15 +128,18 @@ export const contour = defineFeature(
     'contour.bell1_on.hint': 'Active ou coupe la cloche 1. Le passage se fait en fondu sur 10 ms.',
     'contour.bell1_freq.hint': 'Fréquence centrale de la cloche 1, en hertz, de 20 Hz à 20 kHz.',
     'contour.bell1_gain.hint': 'Gain de la cloche 1 à sa fréquence centrale, de -24 à +24 dB.',
-    'contour.bell1_q.hint': 'Largeur de la cloche 1, de 0,1 (large) à 18 (étroite) : sa fréquence centrale divisée par la largeur de bande à la moitié de son gain.',
+    'contour.bell1_q.hint':
+      'Largeur de la cloche 1, de 0,1 (large) à 18 (étroite) : sa fréquence centrale divisée par la largeur de bande à la moitié de son gain.',
     'contour.bell2_on.hint': 'Active ou coupe la cloche 2. Le passage se fait en fondu sur 10 ms.',
     'contour.bell2_freq.hint': 'Fréquence centrale de la cloche 2, en hertz, de 20 Hz à 20 kHz.',
     'contour.bell2_gain.hint': 'Gain de la cloche 2 à sa fréquence centrale, de -24 à +24 dB.',
-    'contour.bell2_q.hint': 'Largeur de la cloche 2, de 0,1 (large) à 18 (étroite) : sa fréquence centrale divisée par la largeur de bande à la moitié de son gain.',
+    'contour.bell2_q.hint':
+      'Largeur de la cloche 2, de 0,1 (large) à 18 (étroite) : sa fréquence centrale divisée par la largeur de bande à la moitié de son gain.',
     'contour.bell3_on.hint': 'Active ou coupe la cloche 3. Le passage se fait en fondu sur 10 ms.',
     'contour.bell3_freq.hint': 'Fréquence centrale de la cloche 3, en hertz, de 20 Hz à 20 kHz.',
     'contour.bell3_gain.hint': 'Gain de la cloche 3 à sa fréquence centrale, de -24 à +24 dB.',
-    'contour.bell3_q.hint': 'Largeur de la cloche 3, de 0,1 (large) à 18 (étroite) : sa fréquence centrale divisée par la largeur de bande à la moitié de son gain.',
+    'contour.bell3_q.hint':
+      'Largeur de la cloche 3, de 0,1 (large) à 18 (étroite) : sa fréquence centrale divisée par la largeur de bande à la moitié de son gain.',
     'contour.high_on.hint': 'Active ou coupe le plateau aigu. Le passage se fait en fondu sur 10 ms.',
     'contour.high_freq.hint': 'Fréquence, en hertz, du coude du plateau aigu, de 20 Hz à 20 kHz : le gain du plateau s’applique au-dessus.',
     'contour.high_gain.hint': 'Gain du plateau aigu, de -24 à +24 dB : ce que le son au-dessus de sa fréquence gagne ou perd.',

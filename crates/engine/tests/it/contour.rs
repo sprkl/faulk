@@ -699,3 +699,102 @@ fn the_reset_empties_the_bands_and_snaps_the_ramps() {
     let out = mono(&mut c, &[0.0; 512]);
     assert_eq!(peak(&out), 0.0);
 }
+
+// ---------------------------------------------------------------- the panel's curve
+
+/// The settings of the curve fixture: each a list of `(key, value)` over the defaults, and a
+/// sample rate.
+fn fixture_cases() -> Vec<(Vec<(&'static str, f32)>, f32)> {
+    vec![
+        (vec![], 48_000.0),
+        (
+            vec![
+                ("hp_on", 1.0),
+                ("hp_freq", 80.0),
+                ("hp_slope", 2.0),
+                ("low_gain", 6.0),
+                ("low_q", 1.5),
+                ("bell1_gain", -9.0),
+                ("bell1_q", 3.0),
+                ("bell2_gain", 12.0),
+                ("bell2_freq", 2500.0),
+                ("bell3_gain", -24.0),
+                ("bell3_q", 18.0),
+                ("high_gain", -6.0),
+                ("lp_on", 1.0),
+                ("lp_freq", 12_000.0),
+                ("lp_slope", 0.0),
+                ("lp_q", 4.0),
+                ("output", -3.0),
+            ],
+            48_000.0,
+        ),
+        (
+            vec![
+                ("hp_on", 1.0),
+                ("hp_q", 0.3),
+                ("lp_on", 1.0),
+                ("lp_freq", 20_000.0),
+                ("lp_slope", 1.0),
+                ("high_gain", 24.0),
+                ("high_freq", 18_000.0),
+                ("bell1_on", 0.0),
+                ("bell1_gain", 24.0),
+            ],
+            44_100.0,
+        ),
+    ]
+}
+
+/// The response the panel draws (`web/src/lib/contour/response.ts`) is held to the engine's by
+/// a fixture this test writes with `FAULK_BLESS=1` and otherwise compares: a change of the
+/// engine's response that the fixture does not follow fails here, and the page's test fails on
+/// a curve that does not follow the fixture.
+#[test]
+fn the_panel_s_curve_fixture_is_the_engine_s_response() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../web/src/lib/contour/response.fixture.json");
+    let hz: Vec<f32> = (0..=60)
+        .map(|i| 20.0 * 1000f32.powf(i as f32 / 60.0))
+        .collect();
+    let cases: Vec<serde_json::Value> = fixture_cases()
+        .into_iter()
+        .map(|(params, sr)| {
+            let mut c = Contour::new(sr);
+            for (key, value) in &params {
+                let p = DESCRIPTOR.params.iter().find(|p| p.key == *key).unwrap();
+                c.set_param(p.id, *value);
+            }
+            c.reset();
+            let values: serde_json::Map<String, serde_json::Value> = DESCRIPTOR
+                .params
+                .iter()
+                .map(|p| {
+                    let v = params
+                        .iter()
+                        .find(|(k, _)| *k == p.key)
+                        .map_or(p.default, |(_, v)| f64::from(*v));
+                    (p.key.to_owned(), serde_json::json!(v))
+                })
+                .collect();
+            let points: Vec<serde_json::Value> = hz
+                .iter()
+                .map(|f| serde_json::json!([f, (c.response_db(*f) * 1e4).round() / 1e4]))
+                .collect();
+            serde_json::json!({ "sample_rate": sr, "params": values, "points": points })
+        })
+        .collect();
+    let text = serde_json::to_string_pretty(&serde_json::json!({ "cases": cases })).unwrap() + "\n";
+    if std::env::var_os("FAULK_BLESS").is_some() {
+        std::fs::write(&path, &text).unwrap();
+        return;
+    }
+    let on_disk = std::fs::read_to_string(&path)
+        .unwrap_or_default()
+        .replace("\r\n", "\n");
+    assert!(
+        on_disk == text,
+        "{} is stale: FAULK_BLESS=1 cargo test -p engine --test it contour::the_panel",
+        path.display()
+    );
+}

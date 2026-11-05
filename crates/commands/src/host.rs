@@ -13,7 +13,7 @@
 
 use std::collections::BTreeMap;
 
-use project::{EngineSlots, Project, SceneId, SessionState, TrackId};
+use project::{DeviceId, EngineSlots, Project, SceneId, SessionState, TrackId};
 use schemars::JsonSchema;
 use serde::Serialize;
 
@@ -173,6 +173,11 @@ pub struct ViewSlots {
     pub epoch: u16,
     pub tracks: BTreeMap<TrackId, u32>,
     pub scenes: BTreeMap<SceneId, u32>,
+    /// Where each device sent to the engine sits (#156): its track slot (4294967295,
+    /// `TrackSlot::MASTER`, for the master's chain) and its device slot, the two numbers a
+    /// spectrum of the report names it by. Left out when the engine holds no device.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub devices: BTreeMap<DeviceId, [u32; 2]>,
 }
 
 impl ViewSlots {
@@ -189,6 +194,13 @@ impl ViewSlots {
                 .scenes
                 .iter()
                 .map(|(slot, id)| (id.clone(), slot))
+                .collect(),
+            devices: engine
+                .track
+                .iter()
+                .filter_map(|(track, slots)| engine.tracks.get(track).map(|t| (t, &slots.devices)))
+                .chain(core::iter::once((u32::MAX, &engine.master_devices)))
+                .flat_map(|(t, devices)| devices.iter().map(move |(d, id)| (id.clone(), [t, d])))
                 .collect(),
         }
     }

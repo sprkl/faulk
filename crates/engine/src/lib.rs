@@ -3,6 +3,7 @@
 //! Pure DSP: no I/O, no allocation after construction, no panic on any input.
 //! The same code runs natively in the helper and as WebAssembly in an `AudioWorklet`.
 
+pub mod analysis;
 pub mod arrangement;
 pub mod audio_source;
 pub mod automation;

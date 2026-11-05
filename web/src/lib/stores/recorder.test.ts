@@ -51,6 +51,7 @@ function report(over: Partial<FeedbackReport>): FeedbackReport {
     recordDropped: 0,
     recordCapturing: false,
     recorded: [],
+    spectra: [],
     ...over,
   }
 }

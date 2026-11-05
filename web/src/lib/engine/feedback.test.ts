@@ -5,7 +5,10 @@ import {
   FEEDBACK_HEADER_BYTES,
   FEEDBACK_VERSION,
   MAX_RECORDED_PER_REPORT,
+  MAX_SPECTRA,
   RECORDED_NOTE_BYTES,
+  SPECTRUM_BANDS,
+  SPECTRUM_BYTES,
   TRACK_METER_BYTES,
   decodeFeedback,
   peakOf,
@@ -184,8 +187,38 @@ describe('decodeFeedback', () => {
     expect(decodeFeedback(report(0, (v) => v.setFloat32(72, -1, true)))!.cpuPeak).toBeNull()
     expect(decodeFeedback(report(0, (v) => v.setFloat32(72, NaN, true)))!.cpuPeak).toBeNull()
     expect(decodeFeedback(report(0, (v) => v.setFloat32(72, 2, true)))!.cpuPeak).toBe(1)
-    // The meters start after it.
-    expect(FEEDBACK_HEADER_BYTES).toBe(100)
+    // The meters start after the header, whose last word is the count of spectra (version 10, #156).
+    expect(FEEDBACK_HEADER_BYTES).toBe(104)
+  })
+
+  it('reads the spectra after the notes (version 10, #156) and refuses a count beyond the bytes or the limit', () => {
+    const base = new Uint8Array(report(1))
+    const buffer = new ArrayBuffer(base.length + 2 * SPECTRUM_BYTES)
+    new Uint8Array(buffer).set(base)
+    const view = new DataView(buffer)
+    view.setUint32(100, 2, true)
+    for (let i = 0; i < 2; i++) {
+      const at = base.length + i * SPECTRUM_BYTES
+      view.setUint32(at, i === 0 ? 0 : 0xffffffff, true)
+      view.setUint32(at + 4, 3 + i, true)
+      view.setUint32(at + 8, 40 + i, true)
+      view.setFloat32(at + 12, 48000, true)
+      for (let b = 0; b < SPECTRUM_BANDS; b++) view.setFloat32(at + 16 + 4 * b, -b, true)
+    }
+    // A corrupt band reads as the floor.
+    view.setFloat32(base.length + 16, NaN, true)
+    const r = decodeFeedback(buffer)!
+    expect(r.spectra).toHaveLength(2)
+    expect(r.spectra[0]).toMatchObject({ track: 0, device: 3, serial: 40, sampleRate: 48000 })
+    expect(r.spectra[1].track).toBe(0xffffffff)
+    expect(r.spectra[0].bands[0]).toBe(-140)
+    expect(r.spectra[0].bands[95]).toBe(-95)
+    // A count past the bytes, or past the limit: refused.
+    expect(decodeFeedback(buffer.slice(0, buffer.byteLength - 1))).toBeNull()
+    view.setUint32(100, MAX_SPECTRA + 1, true)
+    expect(decodeFeedback(buffer)).toBeNull()
+    // None: an empty list.
+    expect(decodeFeedback(report(1))!.spectra).toEqual([])
   })
 
   it('refuses another version, a short buffer and a track count beyond the bytes', () => {
