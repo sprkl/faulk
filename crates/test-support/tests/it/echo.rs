@@ -57,6 +57,7 @@ fn the_echo_follows_the_tempo_the_free_time_the_bypass_and_the_undo() {
     // 2. 90 BPM: the dotted eighth is 0.5 s (the delay glides there).
     s.run(Command::Transport(transport::Command::SetTempo {
         bpm: 90.0,
+        placements: None,
     }));
     s.render_secs(1.0);
     pluck(&mut s, &f.track, 64, 2.0); // starts at 3.0 s

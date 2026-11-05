@@ -23,7 +23,8 @@
 //!   frame fits goes. An edge resized past the clip stops at its first or last frame. A clip
 //!   only moves to a track of its kind (MIDI to MIDI, audio to audio). The commands that
 //!   change what an audio span measures without putting a placement down refuse to make an
-//!   overlap or a span past its clip (#703): `transport.set_tempo`, `clip.audio.set_range`;
+//!   overlap or a span past its clip (#703): `clip.audio.set_range`; `transport.set_tempo` never
+//!   refuses an overlap, it shortens the placement that would run into the next one (#709);
 //!   so do the commands that create a clip there (`clip.import_audio`, `clip.restore_audio`).
 //! - **The overlap rule: the last one put down wins.** The placement a command places,
 //!   moves, resizes or copies keeps its span; the other placements of the track that it
@@ -671,7 +672,7 @@ fn audio_ticks(tempo: Tempo, rate: SampleRate, frames: i64) -> i64 {
 /// The frames that play in the first `ticks` ticks of a read: `floor(ticks × frames per
 /// tick)` (the player starts a read at the floor of its sample, TR-1), at most `cap`, and
 /// never so many that their ticks pass `ticks`.
-fn frames_before(tempo: Tempo, rate: SampleRate, ticks: i64, cap: i64) -> i64 {
+pub(crate) fn frames_before(tempo: Tempo, rate: SampleRate, ticks: i64, cap: i64) -> i64 {
     if ticks < 1 || cap < 1 {
         return 0;
     }

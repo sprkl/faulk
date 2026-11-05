@@ -66,14 +66,18 @@ domain! {
     /// Set the project's tempo in BPM, from 20 to 999. A value outside the range or not
     /// a number is refused, and so is a tempo at which an audio placement (whose length is
     /// in frames of its file, so its end in ticks follows the tempo) would end past 2^40.
-    /// A faster tempo lengthens audio placements in ticks, so one may then reach into the
-    /// next placement of its track: an audio placement never overlaps another, so a tempo
-    /// that would make two placements of a track overlap is refused, naming them (move or
-    /// shorten one first). Undo: set the previous tempo back.
+    /// Starts stay on their tick. A faster tempo lengthens audio placements in ticks: one
+    /// that would then run into the next audio placement of its track is shortened, in whole
+    /// frames, to end where that one starts (the last one put down wins), never refused.
+    /// Undo: set the previous tempo back, with the exact lengths of the shortened placements.
     "transport.set_tempo" (kind = "edit", undo = "inverse", destructive = false)
     SetTempo {
         #[schemars(range(min = 20.0, max = 999.0))]
         bpm: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        // Internal: the exact lengths an undo gives back, not in the schema.
+        #[schemars(skip)]
+        placements: Option<Vec<crate::clip::PlacementFrames>>,
     } => {
         /// The tempo before the command, in BPM.
         previous: f64,
@@ -272,7 +276,7 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
                 count_in_bars: t.metronome.count_in_bars,
             }))
         }
-        Command::SetTempo { bpm } => set_tempo(state, *bpm),
+        Command::SetTempo { bpm, placements } => set_tempo(state, *bpm, placements.as_deref()),
         Command::SetTimeSignature {
             numerator,
             denominator,
@@ -291,40 +295,65 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
     }
 }
 
-/// Two audio placements of a track that overlap at tempo `new` and did not at `old`
-/// (an overlap the project already held does not block a tempo change).
-fn new_audio_overlap(
+/// The audio placements of a track that would run past the start of the next audio
+/// placement at tempo `new`, with their length in frames now and once shortened to end at
+/// that start ("the last one put down wins", AU-6). Starts never move.
+fn trimmed_audio(
     project: &project::Project,
-    old: project::Tempo,
     new: project::Tempo,
-) -> Option<(project::PlacementId, project::PlacementId)> {
+) -> Vec<(project::PlacementId, project::Frame, project::Frame)> {
+    let mut out = Vec::new();
     for t in project.tracks.values() {
-        let audio: Vec<_> = t
+        let mut audio: Vec<_> = t
             .placements
             .iter()
             .filter(|(_, p)| matches!(p.span, project::Span::Frames { .. }))
             .collect();
-        for (i, (a, pa)) in audio.iter().enumerate() {
-            for (b, pb) in &audio[i + 1..] {
-                let clash = |tempo| {
-                    matches!(
-                        (
-                            crate::clip::placement_ticks(tempo, t, pa),
-                            crate::clip::placement_ticks(tempo, t, pb),
-                        ),
-                        (Some((s, e)), Some((os, oe))) if os < e && s < oe
-                    )
-                };
-                if clash(new) && !clash(old) {
-                    return Some(((*a).clone(), (*b).clone()));
-                }
+        audio.sort_by_key(|(_, p)| p.start.get());
+        for (i, (id, p)) in audio.iter().enumerate() {
+            let project::Span::Frames { length, .. } = p.span else {
+                continue;
+            };
+            let Some((start, end)) = crate::clip::placement_ticks(new, t, p) else {
+                continue;
+            };
+            let Some(next) = audio[i + 1..]
+                .iter()
+                .map(|(_, q)| q.start.get())
+                .find(|s| *s > start)
+            else {
+                continue;
+            };
+            if end <= next {
+                continue;
             }
+            let Some(project::ClipContent::Audio { media, .. }) =
+                t.clips.get(&p.clip).map(|c| &c.content)
+            else {
+                continue;
+            };
+            let kept = crate::arrangement::frames_before(
+                new,
+                media.sample_rate,
+                next - start,
+                length.get() as i64,
+            )
+            .max(1) as u64;
+            out.push((
+                (*id).clone(),
+                length,
+                project::Frame::new(kept.min(length.get())),
+            ));
         }
     }
-    None
+    out
 }
 
-fn set_tempo(state: &mut State, bpm: f64) -> Result<Out, CommandError> {
+fn set_tempo(
+    state: &mut State,
+    bpm: f64,
+    explicit: Option<&[crate::clip::PlacementFrames]>,
+) -> Result<Out, CommandError> {
     let new = Tempo::new(bpm).ok_or_else(|| {
         invalid(
             "bpm",
@@ -343,10 +372,51 @@ fn set_tempo(state: &mut State, bpm: f64) -> Result<Out, CommandError> {
     if previous == new {
         return Ok(unchanged(output));
     }
+    // (placement, length before, length after): the shortened ones, or the exact lengths
+    // an undo gives back.
+    let changes: Vec<(project::PlacementId, project::Frame, project::Frame)> = match explicit {
+        Some(list) => {
+            let mut seen = std::collections::HashSet::new();
+            let mut out = Vec::new();
+            for item in list {
+                let current = state
+                    .project
+                    .tracks
+                    .values()
+                    .find_map(|t| t.placements.get(&item.placement))
+                    .and_then(|p| match p.span {
+                        project::Span::Frames { length, .. } => Some(length),
+                        project::Span::Ticks { .. } => None,
+                    })
+                    .filter(|_| seen.insert(&item.placement))
+                    .ok_or_else(|| {
+                        invalid(
+                            "placements",
+                            "an audio placement listed once is needed".into(),
+                        )
+                    })?;
+                if item.length.get() == 0 {
+                    return Err(invalid(
+                        "placements",
+                        "a placement plays at least one frame".into(),
+                    ));
+                }
+                out.push((item.placement.clone(), current, item.length));
+            }
+            out
+        }
+        None => trimmed_audio(&state.project, new),
+    };
     let past = state.project.tracks.values().find_map(|t| {
         t.placements.iter().find_map(|(id, p)| {
-            let (_, end) = crate::clip::placement_ticks(new, t, p)?;
-            (matches!(p.span, project::Span::Frames { .. }) && end > MAX_TICK).then_some(id)
+            let mut q = p.clone();
+            if let (Some((_, _, l)), project::Span::Frames { offset, .. }) =
+                (changes.iter().find(|(c, _, _)| c == id), p.span)
+            {
+                q.span = project::Span::Frames { length: *l, offset };
+            }
+            let (_, end) = crate::clip::placement_ticks(new, t, &q)?;
+            (matches!(q.span, project::Span::Frames { .. }) && end > MAX_TICK).then_some(id)
         })
     });
     if let Some(id) = past {
@@ -355,14 +425,14 @@ fn set_tempo(state: &mut State, bpm: f64) -> Result<Out, CommandError> {
             format!("audio placement {id} would end past {MAX_TICK} ticks at {bpm} BPM"),
         ));
     }
-    if let Some((a, b)) = new_audio_overlap(&state.project, previous, new) {
-        return Err(invalid(
-            "bpm",
-            format!(
-                "at {bpm} BPM audio placement {a} would overlap placement {b}: an audio \
-                 placement never carves; move or shorten one of them first"
-            ),
-        ));
+    for t in state.project.tracks.values_mut() {
+        for (id, _, after) in &changes {
+            if let Some(project::Span::Frames { length, .. }) =
+                t.placements.get_mut(id).map(|p| &mut p.span)
+            {
+                *length = *after;
+            }
+        }
     }
     let point = state
         .project
@@ -370,10 +440,20 @@ fn set_tempo(state: &mut State, bpm: f64) -> Result<Out, CommandError> {
         .first_mut()
         .ok_or_else(|| invalid("bpm", "the project has no tempo point".into()))?;
     point.bpm = new;
+    let placements = (!changes.is_empty() && explicit.is_none()).then(|| {
+        changes
+            .iter()
+            .map(|(id, before, _)| crate::clip::PlacementFrames {
+                placement: id.clone(),
+                length: *before,
+            })
+            .collect()
+    });
     Ok(edited(
         output,
         Command::SetTempo {
             bpm: previous.bpm(),
+            placements,
         },
         ProjectEvent::TempoChanged { bpm: new.bpm() },
     ))

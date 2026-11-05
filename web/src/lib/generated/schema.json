@@ -14181,7 +14181,7 @@
         "undo": "none"
       },
       {
-        "description": "Set the project's tempo in BPM, from 20 to 999. A value outside the range or not\na number is refused, and so is a tempo at which an audio placement (whose length is\nin frames of its file, so its end in ticks follows the tempo) would end past 2^40.\nA faster tempo lengthens audio placements in ticks, so one may then reach into the\nnext placement of its track: an audio placement never overlaps another, so a tempo\nthat would make two placements of a track overlap is refused, naming them (move or\nshorten one first). Undo: set the previous tempo back.",
+        "description": "Set the project's tempo in BPM, from 20 to 999. A value outside the range or not\na number is refused, and so is a tempo at which an audio placement (whose length is\nin frames of its file, so its end in ticks follows the tempo) would end past 2^40.\nStarts stay on their tick. A faster tempo lengthens audio placements in ticks: one\nthat would then run into the next audio placement of its track is shortened, in whole\nframes, to end where that one starts (the last one put down wins), never refused.\nUndo: set the previous tempo back, with the exact lengths of the shortened placements.",
         "destructive": false,
         "input_schema": {
           "additionalProperties": false,
@@ -22812,7 +22812,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Set the project's tempo in BPM, from 20 to 999. A value outside the range or not\na number is refused, and so is a tempo at which an audio placement (whose length is\nin frames of its file, so its end in ticks follows the tempo) would end past 2^40.\nA faster tempo lengthens audio placements in ticks, so one may then reach into the\nnext placement of its track: an audio placement never overlaps another, so a tempo\nthat would make two placements of a track overlap is refused, naming them (move or\nshorten one first). Undo: set the previous tempo back.",
+              "description": "Set the project's tempo in BPM, from 20 to 999. A value outside the range or not\na number is refused, and so is a tempo at which an audio placement (whose length is\nin frames of its file, so its end in ticks follows the tempo) would end past 2^40.\nStarts stay on their tick. A faster tempo lengthens audio placements in ticks: one\nthat would then run into the next audio placement of its track is shortened, in whole\nframes, to end where that one starts (the last one put down wins), never refused.\nUndo: set the previous tempo back, with the exact lengths of the shortened placements.",
               "properties": {
                 "bpm": {
                   "format": "double",

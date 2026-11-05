@@ -17,7 +17,10 @@ fn insert_whole(state: &mut State, f: &ClipFx, start: i64, seed: u128) -> Placem
 }
 
 fn set_tempo(bpm: f64) -> Command {
-    Command::Transport(transport::Command::SetTempo { bpm })
+    Command::Transport(transport::Command::SetTempo {
+        bpm,
+        placements: None,
+    })
 }
 
 #[test]
@@ -90,19 +93,26 @@ fn a_growing_placement_stops_at_the_next_one_and_exact_lengths_are_checked() {
 }
 
 #[test]
-fn a_tempo_that_would_make_two_audio_placements_overlap_is_refused_and_names_them() {
+fn a_faster_tempo_shortens_the_placement_that_would_run_into_the_next_and_undoes_exactly() {
     let f = fx();
     // One second is 1 920 ticks at 120 BPM and 3 840 at 240: the second placement starts
-    // at 2 000, so the first one fits at 120 and overlaps it at 240.
+    // at 2 000, so the first one fits at 120 and would overlap it at 240.
     let (mut state, first) = with_whole(&f, f.state.clone(), 0, 21);
     let second = insert_whole(&mut state, &f, 2_000, 22);
-    let error = check_refusal(&set_tempo(240.0), &state, &context()).unwrap();
-    assert_eq!(error.code(), "invalid");
-    let message = error.to_string();
-    assert!(
-        message.contains(&first.to_string()) && message.contains(&second.to_string()),
-        "{message}"
-    );
+    let (faster, undo) = after(state.clone(), &set_tempo(240.0));
+    let Span::Frames { length, .. } = span_of(&faster, &f, &first) else {
+        panic!()
+    };
+    assert!(length.get() < 44_100, "{length:?}");
+    assert_eq!(span_of(&faster, &f, &second), span_of(&state, &f, &second));
+    for p in faster.project.tracks[&f.audio_track].placements.values() {
+        assert!(p.start.get() == 0 || p.start.get() == 2_000);
+    }
+    audio_placements_hold(&faster);
+    // The undo gives the exact lengths back.
+    let mut back = faster;
+    run(&undo, &mut back, &mut context()).unwrap();
+    assert_eq!(back.project, state.project);
     // Slower is fine, and undoing it comes back.
     let (slower, undo) = after(state.clone(), &set_tempo(60.0));
     let mut back = slower;

@@ -327,7 +327,10 @@ fn the_answers_say_what_the_project_holds() {
     // The transport settings follow the edit.
     let mut s = f.state.clone();
     run(
-        &Command::Transport(transport::Command::SetTempo { bpm: 90.0 }),
+        &Command::Transport(transport::Command::SetTempo {
+            bpm: 90.0,
+            placements: None,
+        }),
         &mut s,
         &mut context(),
     )

@@ -103,12 +103,26 @@ fn tempo_bounds_are_refused_not_clamped() {
         f64::INFINITY,
         f64::NEG_INFINITY,
     ] {
-        let e = refused(&tr(T::SetTempo { bpm }), &f.state);
+        let e = refused(
+            &tr(T::SetTempo {
+                bpm,
+                placements: None,
+            }),
+            &f.state,
+        );
         assert_eq!(invalid_field(e), "bpm", "{bpm}");
     }
     for bpm in [20.0, 999.0] {
         let mut s = f.state.clone();
-        run(&tr(T::SetTempo { bpm }), &mut s, &mut context()).unwrap();
+        run(
+            &tr(T::SetTempo {
+                bpm,
+                placements: None,
+            }),
+            &mut s,
+            &mut context(),
+        )
+        .unwrap();
         assert_eq!(s.project.tempo().bpm(), bpm);
     }
 }
@@ -117,17 +131,23 @@ fn tempo_bounds_are_refused_not_clamped() {
 fn tempo_reports_the_previous_value_and_an_unchanged_one_records_nothing() {
     let f = fixture();
     let mut s = f.state.clone();
-    let out = tr(T::SetTempo { bpm: 100.0 })
-        .apply(&mut s, &mut context())
-        .unwrap();
+    let out = tr(T::SetTempo {
+        bpm: 100.0,
+        placements: None,
+    })
+    .apply(&mut s, &mut context())
+    .unwrap();
     assert_eq!(
         out.output,
         Output::Transport(commands::transport::Output::SetTempo { previous: 120.0 })
     );
     assert_eq!(out.events, vec![ProjectEvent::TempoChanged { bpm: 100.0 }]);
-    let same = tr(T::SetTempo { bpm: 100.0 })
-        .apply(&mut s, &mut context())
-        .unwrap();
+    let same = tr(T::SetTempo {
+        bpm: 100.0,
+        placements: None,
+    })
+    .apply(&mut s, &mut context())
+    .unwrap();
     assert_eq!(same.undo, Undo::None);
     assert!(same.events.is_empty());
 }
@@ -454,7 +474,10 @@ fn edits_are_recorded_and_one_undo_restores_each() {
     let mut s = with_region();
     let start = s.clone();
     let edits = [
-        tr(T::SetTempo { bpm: 77.0 }),
+        tr(T::SetTempo {
+            bpm: 77.0,
+            placements: None,
+        }),
         tr(T::SetTimeSignature {
             numerator: 5,
             denominator: 4,
@@ -484,7 +507,15 @@ fn edits_are_recorded_and_one_undo_restores_each() {
 fn transport_toggles_are_settings_in_the_activity_log() {
     let mut s = with_region();
     let mut ctx = context();
-    run(&tr(T::SetTempo { bpm: 90.0 }), &mut s, &mut ctx).unwrap();
+    run(
+        &tr(T::SetTempo {
+            bpm: 90.0,
+            placements: None,
+        }),
+        &mut s,
+        &mut ctx,
+    )
+    .unwrap();
     let undo_entries = s.history.undo.len();
     for c in [tr(T::ToggleLoop {}), metronome(Some(true), None, None)] {
         let out = run(&c, &mut s, &mut ctx).unwrap();

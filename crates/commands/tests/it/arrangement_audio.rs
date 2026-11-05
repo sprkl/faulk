@@ -612,6 +612,33 @@ fn random_audio_edits_stay_inside_their_clips_overlap_free_and_undo_through_the_
                 end: Frame::new(17_000),
             });
         }
+        // A second placement back to back with the first one (#709): the tempo steps of the
+        // sweep that speed up then shorten the first one instead of being refused.
+        {
+            let tempo = state.project.tempo();
+            let track = state.project.tracks.get_mut(&f.audio_track).unwrap();
+            let ClipContent::Audio { media, .. } = &track.clips[&f.audio_clip].content else {
+                panic!("not audio")
+            };
+            let ticks = tempo
+                .frames_to_ticks(Frame::new(44_100), media.sample_rate)
+                .get()
+                .max(1);
+            track.placements.insert(
+                PlacementId::generate(&mut IdGenerator::new(
+                    1_690_600_000_000 + seed,
+                    0x00AD_0000_0000_0000_0000,
+                )),
+                Placement {
+                    clip: f.audio_clip.clone(),
+                    start: Tick(ticks),
+                    span: Span::Frames {
+                        length: Frame::new(44_100),
+                        offset: Frame::new(0),
+                    },
+                },
+            );
+        }
         // A second audio track, for `move_to_track`.
         let Output::Track(commands::track::Output::Create { track: other, .. }) = run(
             &Command::Track(commands::track::Command::Create {
@@ -658,6 +685,7 @@ fn random_audio_edits_stay_inside_their_clips_overlap_free_and_undo_through_the_
                 if rng.next(2) == 0 {
                     Command::Transport(commands::transport::Command::SetTempo {
                         bpm: 60.0 + rng.next(140) as f64,
+                        placements: None,
                     })
                 } else {
                     Command::Clip(commands::clip::Command::AudioSetRange {

@@ -49,6 +49,7 @@ fn song(secs: f32, lane: impl Fn(&mut Session)) -> Session {
     let mut s = Session::single_synth();
     s.run(Command::Transport(transport::Command::SetTempo {
         bpm: 240.0,
+        placements: None,
     }));
     lane(&mut s);
     s.note_on(57, 110).render_secs(0.3);

@@ -345,7 +345,7 @@ pub fn before(command: &Command, p: &Project) -> Option<Subject> {
                 on: *enabled,
                 ..Subject::default()
             }),
-            tp::Command::SetTempo { bpm } => Some(Subject::default().to(format_bpm(*bpm))),
+            tp::Command::SetTempo { bpm, .. } => Some(Subject::default().to(format_bpm(*bpm))),
             tp::Command::SetTimeSignature {
                 numerator,
                 denominator,
