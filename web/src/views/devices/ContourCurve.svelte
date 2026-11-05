@@ -188,7 +188,6 @@
         break
       }
       case 'Enter':
-      case ' ':
         toggle(band)
         break
       default:
@@ -252,7 +251,7 @@
     width: 100%;
     min-width: 240px;
     max-width: 640px;
-    border-radius: var(--fk-radius-sm);
+    border-radius: var(--fk-radius-work);
     background: var(--fk-surface);
     overflow: hidden;
     touch-action: none;

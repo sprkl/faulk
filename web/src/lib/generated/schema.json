@@ -29524,7 +29524,7 @@
     {
       "kind": "faulk.contour",
       "kind_id": 7,
-      "memory_bytes": 35632,
+      "memory_bytes": 35664,
       "midi_output": null,
       "name": "Contour",
       "named_keys": [],
