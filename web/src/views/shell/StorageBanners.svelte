@@ -9,6 +9,7 @@
   import {
     allowAccess,
     cancelExportPack,
+    cancelImportPack,
     exportPack,
     importPack,
     keepMine,
@@ -118,9 +119,19 @@
     <span>{t('pack.exporting', { percent: Math.floor((storage.exporting ?? 0) * 100) })}</span>
     <button data-testid="export-cancel" onclick={() => dispatcher.run(cancelExportPack())}>{t('pack.cancelExport')}</button>
   </p>
+{:else if storage.banner === 'importing'}
+  <p class="banner" role="status" data-testid="import-banner">
+    <span>{t('pack.importing', { percent: Math.floor((storage.importing ?? 0) * 100) })}</span>
+    <button data-testid="import-cancel" onclick={() => dispatcher.run(cancelImportPack())}>{t('pack.cancelImport')}</button>
+  </p>
 {:else if storage.banner === 'downloading'}
   <p class="banner" role="status" data-testid="download-banner">
-    <span>{t('openUrl.downloading', { host: storage.downloading ?? '' })}</span>
+    <span
+      >{storage.downloadProgress === null
+        ? t('openUrl.downloading', { host: storage.downloading ?? '' })
+        : t('openUrl.downloadingPercent', { host: storage.downloading ?? '', percent: Math.floor(storage.downloadProgress * 100) })}</span
+    >
+    <button data-testid="download-cancel" onclick={() => dispatcher.run(cancelImportPack())}>{t('pack.cancelImport')}</button>
   </p>
 {:else if storage.banner === 'downloadFailed'}
   <p class="banner" role="alert" data-testid="download-failed" title={storage.errorDetail ?? ''}>

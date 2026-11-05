@@ -12,8 +12,9 @@ import {
   type MediaRef,
   type PipelineDeps,
 } from '../audio/import/pipeline'
-import { needsBytes, type FolderEntry, type SaveEntry } from '../project/core'
-import { IGNORED_FILES, SKIPPED_DIRS, StoreError, SWAP_SUFFIX, type ProjectStore, type Signature, type StoreErrorCode } from './types'
+import { needsBytes, type FolderEntry, type PackUnpack, type SaveEntry } from '../project/core'
+import { unpackInWorker } from './pack-worker'
+import { IGNORED_FILES, SKIPPED_DIRS, StoreError, SWAP_SUFFIX, type FileWriter, type ProjectStore, type Signature, type StoreErrorCode } from './types'
 
 /** `FileSystemDirectoryHandle.values()`, which `lib.dom` does not type everywhere. */
 type Listable = { values(): AsyncIterable<FileSystemHandle> }
@@ -361,6 +362,111 @@ export class FolderBackend implements ProjectStore {
     }
   }
 
+  /**
+   * Imports the pack `source` (a file, or the path of a file of this folder) in pieces: its blobs are written to
+   * `blobs/` as they come, its own files answered, not written (`ProjectStore.unpack`). `module`: the compiled
+   * project module, in tests.
+   */
+  async unpack(
+    source: Blob | string,
+    io: { onProgress?: (fraction: number) => void; signal?: AbortSignal; textOnly?: boolean } = {},
+    module?: () => Promise<WebAssembly.Module>,
+  ): Promise<PackUnpack> {
+    let file: Blob
+    try {
+      file = typeof source === 'string' ? await this.fileOf(source) : source
+    } catch (error) {
+      throw classify(error)
+    }
+    try {
+      return await unpackInWorker(
+        file,
+        io.signal ?? new AbortController().signal,
+        {
+          open: (path) => {
+            if (!/^blobs\/[0-9a-f]{64}$/.test(path)) throw new StoreError('io', `not a blob: ${path}`)
+            return this.writer(path)
+          },
+          progress: (fraction) => io.onProgress?.(fraction),
+          module,
+        },
+        io.textOnly,
+      )
+    } catch (error) {
+      throw classify(error)
+    }
+  }
+
+  private async fileOf(path: string): Promise<File> {
+    const parts = path.split('/')
+    const dir = await directory(this.root, parts.slice(0, -1), false)
+    return (await dir.getFileHandle(parts[parts.length - 1])).getFile()
+  }
+
+  /**
+   * A file of the folder written in pieces through `createWritable`: the browser keeps the pieces apart and puts them in
+   * place at `close`; `abort` drops them and the file made for them.
+   */
+  async writer(path: string): Promise<FileWriter> {
+    try {
+      const parts = path.split('/')
+      const dir = await directory(this.root, parts.slice(0, -1), true)
+      const name = parts[parts.length - 1]
+      const writable = await (await dir.getFileHandle(name, { create: true })).createWritable()
+      return {
+        write: async (chunk) => {
+          try {
+            await writable.write(chunk as Uint8Array<ArrayBuffer>)
+          } catch (error) {
+            throw classify(error)
+          }
+        },
+        close: async () => {
+          try {
+            await writable.close()
+          } catch (error) {
+            throw classify(error)
+          }
+        },
+        abort: async () => {
+          await writable.abort().catch(() => undefined)
+          await dir.removeEntry(name).catch(() => undefined)
+        },
+      }
+    } catch (error) {
+      throw classify(error)
+    }
+  }
+
+  /** The writers the page holds through the Worker (`writer` over messages), by id. */
+  private readonly writers = new Map<number, FileWriter>()
+  private nextWriter = 1
+
+  async openWriter(path: string): Promise<number> {
+    const id = this.nextWriter++
+    this.writers.set(id, await this.writer(path))
+    return id
+  }
+
+  async writePiece(id: number, chunk: Uint8Array): Promise<void> {
+    const writer = this.writers.get(id)
+    if (!writer) throw new StoreError('io', `no file is being written under ${id}`)
+    await writer.write(chunk)
+  }
+
+  async closeWriter(id: number): Promise<void> {
+    const writer = this.writers.get(id)
+    this.writers.delete(id)
+    if (!writer) throw new StoreError('io', `no file is being written under ${id}`)
+    await writer.close()
+  }
+
+  async abortWriter(id: number): Promise<void> {
+    const writer = this.writers.get(id)
+    this.writers.delete(id)
+    await writer?.abort()
+  }
+
   async cleanUp(): Promise<void> {
     const sweep = async (dir: FileSystemDirectoryHandle, depth: number) => {
       const found: string[] = []
@@ -389,5 +495,9 @@ export class FolderBackend implements ProjectStore {
     }
   }
 
-  close() {}
+  close() {
+    // A file the page left half written goes.
+    for (const writer of this.writers.values()) void writer.abort()
+    this.writers.clear()
+  }
 }

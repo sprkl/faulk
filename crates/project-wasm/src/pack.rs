@@ -4,8 +4,27 @@
 //! it is produced, every blob checked against its name, the result opened and validated) is
 //! the one rule for a pack that comes from anyone.
 //!
-//! Import is stateless: the zip in the inbox, the save frame's layout out at `pw_out` (status
-//! `0`, revision `0`, the files as write entries; see `save.rs`), or `1` and the message.
+//! Import of a whole pack is stateless: the zip in the inbox, the save frame's layout out at
+//! `pw_out` (status `0`, revision `0`, the files as write entries; see `save.rs`), or `1` and the
+//! message. The page uses it only where the browser keeps no projects (the project then lives in
+//! the tab's memory anyway).
+//!
+//! Import in pieces (#682) is a session too, apart from the export's, run by the store's Worker
+//! on a pack of any size: the reader (`project::file::PackReader`, the one rule for a pack) asks
+//! for ranges of the pack, the Worker reads them from the file and writes the blobs the session
+//! hands it piece by piece; the project's own files are kept and come back at the end, once the
+//! project they make is opened and valid. Every answer starts with a status byte:
+//!
+//! - [`unpack_begin`] and [`unpack_step`]: `0`, `u64` offset, `u32` length: the bytes of the
+//!   pack the next step takes; `2`, `u64` size, `u32` path length, the path: a blob starts;
+//!   `3` and bytes of that blob; `4`: the blob is whole and checked; `5`, `u64` bytes of the
+//!   blobs as the directory declares them, and the save frame of the project's own files: the
+//!   pack is read and its project valid; or `1` and the message.
+//!   A failure, the end and [`unpack_cancel`] end the session.
+//! - [`unpack_texts`]: the same `5` answer for the project's own files read so far (they come
+//!   before the blobs), unchecked; the session goes on. The session keeps the project's own files
+//!   and its lane blobs, `MAX_UNPACK_KEPT` bytes at most, never another blob.
+
 //!
 //! Export is a session that writes the pack file by file, so the memory it holds does not
 //! depend on the size of the project: the page gives the folder (a folder frame, see
@@ -28,7 +47,10 @@ use std::cell::RefCell;
 use std::io::{self, Cursor, Write};
 use std::rc::Rc;
 
-use project::file::{FileSystem, MemFs, PackLimits, PackWriter, import_pack, plan_pack};
+use project::file::{
+    FileSystem, LANE_BLOB_MAGIC, MAX_LANE_BLOB_BYTES, MemFs, OpenOptions, PackLimits, PackReader,
+    PackStep, PackWriter, import_pack, open, plan_pack,
+};
 
 use crate::StagedFs;
 use crate::parse_folder;
@@ -257,5 +279,224 @@ pub fn import(zip: &[u8]) -> Vec<u8> {
             frame(0, &entries)
         }
         Err(error) => failure(error),
+    }
+}
+
+// ------------------------------------------------------------------ import in pieces (#682)
+
+const UNPACK_NEED: u8 = 0;
+const UNPACK_START: u8 = 2;
+const UNPACK_BYTES: u8 = 3;
+const UNPACK_END: u8 = 4;
+const UNPACK_DONE: u8 = 5;
+
+/// What an import in pieces accepts: the format's limits, since the media pass through, but for
+/// the project's own files, which the session keeps and gives back whole at the end, and the page
+/// then stages to open the project (under `MAX_FOLDER_FRAME`).
+pub(crate) fn unpack_limits() -> PackLimits {
+    PackLimits {
+        max_entries: 200_000,
+        max_text_total: 128 << 20,
+        ..PackLimits::default()
+    }
+}
+
+/// The file the reader gives now.
+enum Current {
+    /// One of the project's own files: kept, given at the end.
+    Text { path: String, bytes: Vec<u8> },
+    /// A blob, handed to the page piece by piece. Its bytes are kept while it may be a blob of
+    /// dense automation points (opening reads those): until its first bytes say otherwise, or
+    /// when it is bigger than such a blob may be.
+    Blob {
+        path: String,
+        size: u64,
+        kept: Option<Vec<u8>>,
+    },
+}
+
+struct Unpack {
+    reader: PackReader,
+    current: Option<Current>,
+    /// The project's own files and the lane blobs with their bytes, the other blobs by size:
+    /// what opening the project at the end reads.
+    staged: StagedFs,
+    /// The bytes of the project's own files and lane blobs kept so far, and the most it keeps.
+    kept: u64,
+    keep_max: u64,
+}
+
+/// The most bytes of the project's own files and lane blobs an import keeps to open the project: the
+/// page stages them in one folder frame at the opening ([`crate::MAX_FOLDER_FRAME`]).
+pub(crate) const MAX_UNPACK_KEPT: u64 = crate::MAX_FOLDER_FRAME as u64;
+
+thread_local! {
+    static UNPACK: RefCell<Option<Unpack>> = const { RefCell::new(None) };
+}
+
+/// Starts the import of a pack of `len` bytes, ending the one under way: `0`, `u64` offset and
+/// `u32` length of the first bytes to give.
+pub fn unpack_begin(len: u64) -> Vec<u8> {
+    unpack_begin_keeping(len, MAX_UNPACK_KEPT)
+}
+
+/// [`unpack_begin`] keeping at most `keep_max` bytes of the project's own files and lane blobs.
+pub(crate) fn unpack_begin_keeping(len: u64, keep_max: u64) -> Vec<u8> {
+    unpack_cancel();
+    let reader = PackReader::new(len, unpack_limits());
+    let Some((offset, want)) = reader.wants() else {
+        return failure("the reader wants nothing");
+    };
+    UNPACK.with_borrow_mut(|slot| {
+        *slot = Some(Unpack {
+            reader,
+            current: None,
+            staged: StagedFs::default(),
+            kept: 0,
+            keep_max,
+        });
+    });
+    need(offset, want)
+}
+
+/// The project's own files the import under way has read so far, unchecked, as `5` and a save
+/// frame (they all come before the first blob): the page learns the project of a pack (its
+/// identity) without reading its media. The session goes on.
+pub fn unpack_texts() -> Vec<u8> {
+    UNPACK.with_borrow(|slot| match slot {
+        Some(unpack) => unpack.texts(),
+        None => failure("no import is under way"),
+    })
+}
+
+/// Ends the import under way, if any.
+pub fn unpack_cancel() {
+    UNPACK.with_borrow_mut(|slot| *slot = None);
+}
+
+fn need(offset: u64, len: u64) -> Vec<u8> {
+    let mut out = vec![UNPACK_NEED];
+    out.extend_from_slice(&offset.to_le_bytes());
+    out.extend_from_slice(&(len as u32).to_le_bytes());
+    out
+}
+
+/// The next step of the import under way, `input` being the bytes it asked for last (or
+/// nothing): the bytes to give next, a blob to write (its start, its pieces, its end), or the
+/// end with the project's own files as a save frame, once the project they make is opened and
+/// valid. A failure ends the session.
+pub fn unpack_step(input: &[u8]) -> Vec<u8> {
+    let Some(mut unpack) = UNPACK.with_borrow_mut(Option::take) else {
+        return failure("no import is under way");
+    };
+    match unpack.step(input) {
+        Ok(out) => {
+            if out[0] != UNPACK_DONE {
+                UNPACK.with_borrow_mut(|slot| *slot = Some(unpack));
+            }
+            out
+        }
+        Err(message) => failure(message),
+    }
+}
+
+impl Unpack {
+    fn step(&mut self, input: &[u8]) -> Result<Vec<u8>, String> {
+        let mut input = input;
+        loop {
+            let step = self.reader.step(input).map_err(|e| e.to_string())?;
+            input = &[];
+            match step {
+                PackStep::Need { offset, len } => return Ok(need(offset, len)),
+                PackStep::Start { path, size } => {
+                    if path.starts_with("blobs/") {
+                        let mut out = vec![UNPACK_START];
+                        out.extend_from_slice(&size.to_le_bytes());
+                        out.extend_from_slice(&(path.len() as u32).to_le_bytes());
+                        out.extend_from_slice(path.as_bytes());
+                        let kept = (size <= MAX_LANE_BLOB_BYTES).then(Vec::new);
+                        self.current = Some(Current::Blob { path, size, kept });
+                        return Ok(out);
+                    }
+                    self.current = Some(Current::Text {
+                        path,
+                        bytes: Vec::with_capacity(size as usize),
+                    });
+                }
+                PackStep::Bytes(bytes) => match self.current.as_mut() {
+                    Some(Current::Text { bytes: body, .. }) => {
+                        body.extend_from_slice(&bytes);
+                        self.keep(bytes.len())?;
+                    }
+                    Some(Current::Blob { kept, .. }) => {
+                        if let Some(head) = kept.as_mut() {
+                            head.extend_from_slice(&bytes);
+                            let n = head.len().min(LANE_BLOB_MAGIC.len());
+                            if head[..n] != LANE_BLOB_MAGIC[..n] {
+                                *kept = None;
+                            } else {
+                                self.keep(bytes.len())?;
+                            }
+                        }
+                        let mut out = Vec::with_capacity(1 + bytes.len());
+                        out.push(UNPACK_BYTES);
+                        out.extend_from_slice(&bytes);
+                        return Ok(out);
+                    }
+                    None => return Err("bytes of no file".into()),
+                },
+                PackStep::End => match self.current.take() {
+                    Some(Current::Text { path, bytes }) => {
+                        self.staged.files.insert(path, bytes);
+                    }
+                    Some(Current::Blob { path, size, kept }) => {
+                        match kept {
+                            // A blob shorter than the magic is no lane blob.
+                            Some(bytes) if bytes.len() >= LANE_BLOB_MAGIC.len() => {
+                                self.staged.files.insert(path, bytes);
+                            }
+                            _ => {
+                                self.staged.listed.insert(path, size);
+                            }
+                        }
+                        return Ok(vec![UNPACK_END]);
+                    }
+                    None => return Err("the end of no file".into()),
+                },
+                PackStep::Done => {
+                    // The project the files make, opened and validated as any other.
+                    open(&self.staged, &OpenOptions::default()).map_err(|e| e.to_string())?;
+                    return Ok(self.texts());
+                }
+            }
+        }
+    }
+
+    /// Counts `n` more bytes kept, within the bound.
+    fn keep(&mut self, n: usize) -> Result<(), String> {
+        self.kept += n as u64;
+        if self.kept > self.keep_max {
+            return Err(
+                "the project's own files and automation are too big to open in the page".into(),
+            );
+        }
+        Ok(())
+    }
+
+    /// `5`, `u64` bytes of the blobs (as the directory declares them), and the save frame of the
+    /// project's own files read so far.
+    fn texts(&self) -> Vec<u8> {
+        let entries: Vec<Entry> = self
+            .staged
+            .files
+            .files()
+            .iter()
+            .filter(|(path, _)| !path.starts_with("blobs/"))
+            .map(|(path, bytes)| Entry::Write(path.clone(), bytes.clone()))
+            .collect();
+        let mut out = vec![UNPACK_DONE];
+        out.extend_from_slice(&self.reader.blob_bytes().to_le_bytes());
+        out.extend_from_slice(&frame(0, &entries));
+        out
     }
 }
