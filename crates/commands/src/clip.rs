@@ -546,6 +546,36 @@ domain! {
         added: u32,
     };
 
+    /// Repeat notes of a MIDI clip end to end up to the tick `until` (#710), in one batch
+    /// (one history entry): an arpeggio, a hi-hat or a bass figure of a beat or two filled
+    /// up to the end of a bar. Each source note is addressed by its whole value and must be
+    /// in the clip. The period of the repetition is the span of the notes, from the first
+    /// start to the last end, rounded up to a whole number of `grid` steps (ticks, at least
+    /// 1; leave it out for the exact span): copy k of every note starts k periods later,
+    /// for each copy of the figure that starts before `until`. A copied note that would
+    /// start at or after `until` is left out, and one that would end after it is shortened
+    /// to end there. To fill up to the end of bar N, give the tick where bar N ends. The
+    /// copies never pass the end of the clip: when `until` is past it, a copied note that
+    /// would end past the clip's end is shortened to end there and one that would start
+    /// there or later is left out; `at_clip_end` says whether that happened (a copy shortened
+    /// or left out because the clip ends before `until`). Refused when `grid` is
+    /// below 1, when `until` is not after the start of the first copy, when the first copy
+    /// would start at or after the end of the clip, or when the copies would pass the limit
+    /// of notes. A copy equal to a note already in the clip changes nothing. Undo: remove
+    /// the notes actually added.
+    "clip.notes.repeat" (kind = "edit", undo = "inverse", destructive = false)
+    NotesRepeat {
+        clip: ClipId,
+        notes: Vec<Note>,
+        until: Tick,
+        grid: Option<Tick>,
+    } => {
+        /// How many copies were new.
+        added: u32,
+        /// True when the clip's end, not `until`, shortened or left out a copy.
+        at_clip_end: bool,
+    };
+
     /// Read one clip, MIDI or audio, without its notes (`clip.notes.list` pages them): the
     /// track that holds it, its summary (name, colour, launch-grid slot, kind, length and
     /// note count of a MIDI clip), its own launch quantization when it has one, its content
@@ -1261,6 +1291,12 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             notes,
             offset,
         } => notes_duplicate(state, clip, notes, *offset),
+        Command::NotesRepeat {
+            clip,
+            notes,
+            until,
+            grid,
+        } => notes_repeat(state, clip, notes, *until, *grid),
     }
 }
 
@@ -3022,6 +3058,143 @@ fn notes_duplicate(
     Ok(edited(
         Output::NotesDuplicate {
             added: count(fresh.len()),
+        },
+        Command::NotesRemove {
+            clip: clip_id.clone(),
+            notes: fresh,
+        },
+        changed(clip_id, ClipPart::Notes),
+    ))
+}
+
+/// `clip.notes.repeat` (#710): copies of the notes end to end, one period apart, up to
+/// `until` and never past the end of the clip.
+fn notes_repeat(
+    state: &mut State,
+    clip_id: &ClipId,
+    chosen: &[Note],
+    until: Tick,
+    grid: Option<Tick>,
+) -> Result<Out, CommandError> {
+    let in_project = project_notes(&state.project);
+    let clip = clip_mut(&mut state.project, clip_id)?;
+    let (length, _, notes) = midi_mut(clip)?;
+    let step = grid.map_or(1, Tick::get);
+    if step < 1 {
+        return Err(invalid(
+            "grid",
+            format!("a grid step of at least 1 tick is required, got {step}"),
+        ));
+    }
+    let sources = present_notes(notes, chosen, "notes")?;
+    let (Some(first), Some(last)) = (
+        sources.iter().map(|n| n.start.get()).min(),
+        sources
+            .iter()
+            .map(|n| n.start.get().saturating_add(n.length.get()))
+            .max(),
+    ) else {
+        return Ok(unchanged(Output::NotesRepeat {
+            added: 0,
+            at_clip_end: false,
+        }));
+    };
+    // The span of the figure, rounded up to whole grid steps: every source starts in
+    // `[first, first + period)`, so the copies of one round never meet those of another.
+    let span = last.saturating_sub(first).max(1);
+    let period = span
+        .saturating_add(step - 1)
+        .div_euclid(step)
+        .saturating_mul(step)
+        .max(1);
+    let first_copy = first.saturating_add(period);
+    let until = until.get();
+    if until <= first_copy {
+        return Err(invalid(
+            "until",
+            format!(
+                "repeat up to a tick after the start of the first copy ({first_copy}), got {until}"
+            ),
+        ));
+    }
+    let clip_end = length.get();
+    if first_copy >= clip_end {
+        return Err(invalid(
+            "notes",
+            format!(
+                "no room for a copy: the first one would start at {first_copy}, at or after \
+                 the end of the clip ({clip_end})"
+            ),
+        ));
+    }
+    let end = until.min(clip_end);
+    // The rounds whose start lies before `end`: k = 1 ..= rounds.
+    let rounds = end
+        .saturating_sub(first)
+        .saturating_add(period - 1)
+        .div_euclid(period)
+        .saturating_sub(1)
+        .max(1);
+    // A bound before any allocation: rounds of `sources.len()` notes each, of which at
+    // most the notes already in the clip and the last round's shortened notes can merge.
+    let most = usize::try_from(rounds)
+        .unwrap_or(usize::MAX)
+        .saturating_mul(sources.len());
+    if most > MAX_NOTES_PER_CLIP.saturating_add(notes.len().saturating_add(sources.len())) {
+        return Err(CommandError::Limit {
+            entity: "notes per clip".into(),
+            max: MAX_NOTES_PER_CLIP as u64,
+        });
+    }
+    let mut copies = BTreeSet::new();
+    for k in 1..=rounds {
+        let shift = k.saturating_mul(period);
+        for n in &sources {
+            let start = n.start.get().saturating_add(shift);
+            if start >= end {
+                continue;
+            }
+            let length = n.length.get().min(end - start);
+            copies.insert(Note {
+                start: Tick(start),
+                length: Tick(length),
+                ..*n
+            });
+        }
+    }
+    let fresh: Vec<Note> = copies.into_iter().filter(|n| !notes.contains(n)).collect();
+    // The last guard of `clip.notes.add`: every copy inside the clip, at least one tick long.
+    check_notes(&fresh, *length, "notes")?;
+    // The clip's end, not `until`, stopped a copy: one is shortened there, or the next copy of a
+    // note would start there or later but before `until`.
+    let at_clip_end = until > clip_end
+        && sources.iter().any(|n| {
+            let start = n.start.get();
+            let from_end = clip_end.saturating_sub(start).max(0);
+            let k = from_end
+                .saturating_add(period - 1)
+                .div_euclid(period)
+                .max(1);
+            let next = start.saturating_add(k.saturating_mul(period));
+            let before = next.saturating_sub(period);
+            (before > start && before.saturating_add(n.length.get()) > clip_end)
+                || (next >= clip_end && next < until)
+        });
+    if fresh.is_empty() {
+        return Ok(unchanged(Output::NotesRepeat {
+            added: 0,
+            at_clip_end,
+        }));
+    }
+    check_note_limits(
+        notes.len().saturating_add(fresh.len()),
+        in_project.saturating_add(fresh.len()),
+    )?;
+    notes.extend(fresh.iter().copied());
+    Ok(edited(
+        Output::NotesRepeat {
+            added: count(fresh.len()),
+            at_clip_end,
         },
         Command::NotesRemove {
             clip: clip_id.clone(),

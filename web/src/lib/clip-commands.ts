@@ -21,6 +21,14 @@ export const quantizeNotes = (clip: string, notes: Note[] | null, grid: number, 
 export const transposeNotes = (clip: string, notes: Note[], semitones: number): Command => ({ type: 'clip.notes.transpose', clip, notes, semitones })
 /** Copies of notes shifted by `offset` ticks (null: the span of the selection, so the copies follow it). */
 export const duplicateNotes = (clip: string, notes: Note[], offset: number | null): Command => ({ type: 'clip.notes.duplicate', clip, notes, offset })
+/** Copies of notes end to end up to the tick `until` (#710), their span rounded up to the `grid` step (null: the exact span). */
+export const repeatNotes = (clip: string, notes: Note[], until: number, grid: number | null): Command => ({
+  type: 'clip.notes.repeat',
+  clip,
+  notes,
+  until,
+  grid,
+})
 /** A shorter clip cuts what lies past its end (`trim`): the edit is one history entry, so one undo brings the notes back. */
 export const setClipLength = (clip: string, length: number): Command => ({ type: 'clip.set_length', clip, length, trim: true })
 export const setClipLoop = (clip: string, looping: TickLoop | null): Command => ({ type: 'clip.set_loop', clip, looping })

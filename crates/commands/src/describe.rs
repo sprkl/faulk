@@ -278,6 +278,9 @@ pub fn before(command: &Command, p: &Project) -> Option<Subject> {
             }
             | cl::Command::NotesDuplicate {
                 clip: id, notes: n, ..
+            }
+            | cl::Command::NotesRepeat {
+                clip: id, notes: n, ..
             } => notes(p, id, n.len()),
             cl::Command::NotesUpdate { clip: id, changes } => notes(p, id, changes.len()),
             cl::Command::NotesQuantize {

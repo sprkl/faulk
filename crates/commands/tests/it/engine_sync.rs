@@ -663,6 +663,15 @@ fn quantize_transpose_and_duplicate_reach_the_engine_as_one_upload_of_the_new_no
             "notes": [{"start": 0, "pitch": 65, "length": 10, "velocity": 90}], "offset": 480}),
     );
     assert_eq!(starts_and_pitches(&msgs), [(0, 65), (480, 65)]);
+    // #710: the repeated copies reach the engine too, and their undo takes them back out.
+    let (_, msgs) = run(
+        &mut s,
+        json!({"type": "clip.notes.repeat", "clip": clip,
+            "notes": [{"start": 480, "pitch": 65, "length": 10, "velocity": 90}], "until": 960, "grid": 240}),
+    );
+    assert_eq!(starts_and_pitches(&msgs), [(0, 65), (480, 65), (720, 65)]);
+    let (_, msgs) = run(&mut s, json!({"type": "history.undo"}));
+    assert_eq!(starts_and_pitches(&msgs), [(0, 65), (480, 65)]);
     // Undo of the merging quantize brings both notes back (the other branch of the inverse).
     for _ in 0..2 {
         run(&mut s, json!({"type": "history.undo"}));

@@ -620,3 +620,156 @@ test('piano roll: the Length field sets the written length whatever the snap, an
   await expect(page.getByTestId('roll-draw-length')).toHaveValue('four-bars')
   expect(seen.errors).toEqual([])
 })
+
+// #710: Repeat lays copies of the selection end to end, up to the end of the bar (Ctrl+Shift+R, the arrangement's chord,
+// which then stays out of it), or up to a bar or a bar and a beat typed in "Repeat until…", cut at the clip's end with a
+// message; one history entry; the copies are the selection and hold the focus, so Alt+Up transposes them at once.
+test('piano roll: Repeat fills the bar end to end from the keyboard, Repeat until cuts at the clip end and says so', async ({ page }) => {
+  test.setTimeout(120_000)
+  const { seen } = await openRoll(page)
+  // The arrangement on screen above the roll: its window listener takes the same chord (#555).
+  await page.getByTestId('nav-arrangement').click()
+  await expect(page.getByTestId('arr-said')).toBeAttached()
+  await expect(roll(page)).toBeVisible()
+  await page.getByTestId('roll-snap').selectOption('quarter-beat')
+  // The roll's own grid: the arrangement has one too.
+  const box = (await stage(page).boundingBox())!
+  const ppt = Number(await stage(page).getByTestId('timegrid').getAttribute('data-px-per-tick'))
+  const scrollY = await num(page, 'roll-stage', 'data-scroll-y')
+  const g = { x: (tick: number) => box.x + tick * ppt, y: (pitch: number) => box.y + RULER + (127 - pitch) * ROW - scrollY + ROW / 2 }
+  const shape = async () => (await notes(page)).map((n) => [n.start, n.pitch, n.length])
+  const said = page.getByTestId('roll-said')
+  const focused = page.locator(':focus')
+  // A figure of four sixteenths on beat 1.
+  const figure = [
+    [0, 60],
+    [240, 62],
+    [480, 64],
+    [720, 67],
+  ] as const
+  const written = figure.map(([s, p]) => [s, p, 240])
+  for (const [tick, pitch] of figure) await page.mouse.click(g.x(tick + 10), g.y(pitch))
+  await expect.poll(shape).toEqual(written)
+  await expect(page.getByTestId('roll-repeat')).toHaveText('Repeat')
+  await expect(page.getByTestId('roll-repeat')).toHaveAttribute('title', /end to end, up to the end of the bar/)
+  await expect(page.getByTestId('roll-duplicate')).toHaveAttribute('title', /one bar later/)
+
+  // From a note's cell, the whole figure selected: Ctrl+Shift+R fills bar 1, said, one history entry.
+  await page.getByTestId('roll-item').first().focus()
+  await page.keyboard.press('Control+a')
+  await expect(roll(page)).toHaveAttribute('data-selected-count', '4')
+  await page.keyboard.press('Control+Shift+R')
+  await expect(roll(page)).toHaveAttribute('data-note-count', '16')
+  const filled = [0, 1, 2, 3].flatMap((k) => figure.map(([s, p]) => [s + k * 960, p, 240]))
+  expect(await shape()).toEqual(filled)
+  await expect(said).toHaveText('Repeated: 12 new notes')
+  // The arrangement's own "Repeat until" did not take the same press (it would open, or say to select one clip).
+  await expect(page.getByTestId('repeat-dialog')).not.toBeVisible()
+  await expect(page.getByTestId('arr-said')).not.toContainText('Select one clip')
+  // The copies are the selection, and the focus is on the first one: Alt+Up transposes the copies only.
+  await expect(roll(page)).toHaveAttribute('data-selected-count', '12')
+  await expect(focused).toHaveAttribute('aria-label', /^C4, bar 1 beat 2,/)
+  await page.keyboard.press('Alt+ArrowUp')
+  await expect.poll(shape).toEqual(filled.map(([s, p, l]) => [s, s! >= 960 ? p! + 1 : p, l]).sort((a, b) => a[0]! - b[0]! || a[1]! - b[1]!))
+  // Two undos: the transposition, then the whole repeat at once.
+  await page.keyboard.press('Control+z')
+  await page.keyboard.press('Control+z')
+  await expect.poll(shape).toEqual(written)
+
+  // A selection that ends on the clip's end: no room for a copy, said, nothing written.
+  await page.mouse.click(g.x(3610), g.y(59))
+  await expect.poll(async () => (await notes(page)).length).toBe(5)
+  await page.getByTestId('roll-item').last().focus()
+  await page.keyboard.press('Control+a')
+  await page.keyboard.press('Control+Shift+R')
+  await expect(said).toHaveText('No room for a copy before the end of the clip')
+  await expect(roll(page)).toHaveAttribute('data-note-count', '5')
+  await page.keyboard.press('Control+z')
+  await expect.poll(shape).toEqual(written)
+
+  // "Repeat until…" from the note menu: the field reads a bar or a bar and a beat; past the clip's end the copies are cut.
+  const repeatUntil = async () => {
+    await page.getByTestId('roll-item').first().focus()
+    await page.keyboard.press('Control+a')
+    await page.mouse.click(g.x(10), g.y(60), { button: 'right' })
+    await page.getByRole('menuitem', { name: 'Repeat until…' }).click()
+  }
+  await repeatUntil()
+  const dialog = page.getByTestId('roll-repeat-dialog')
+  await expect(dialog).toBeVisible()
+  await expect(page.getByTestId('roll-repeat-field')).toHaveValue('1')
+  await expect(dialog).toContainText('from 1.2')
+  await page.getByTestId('roll-repeat-field').fill('1.1')
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('roll-repeat-error')).toBeVisible()
+  await page.getByTestId('roll-repeat-field').fill('1.3')
+  await page.keyboard.press('Enter')
+  await expect(dialog).not.toBeVisible()
+  await expect.poll(async () => (await notes(page)).length).toBe(12)
+  await expect(said).toHaveText('Repeated: 8 new notes')
+  await expect(focused).toHaveAttribute('aria-label', /^C4, bar 1 beat 2,/)
+  await page.keyboard.press('Control+z')
+  await expect.poll(shape).toEqual(written)
+  await repeatUntil()
+  await page.getByTestId('roll-repeat-field').fill('2')
+  await page.keyboard.press('Enter')
+  await expect(said).toHaveText('Repeated: 12 new notes, cut at the end of the clip')
+  expect(await shape()).toEqual(filled)
+
+  // From a note's cell with nothing selected, that note alone is repeated, as Alt+arrows act on it.
+  await page.keyboard.press('Control+z')
+  await expect.poll(shape).toEqual(written)
+  await stage(page).getByTestId('timegrid').focus()
+  await page.keyboard.press('Escape')
+  await expect(roll(page)).toHaveAttribute('data-selected-count', '0')
+  await page.getByTestId('roll-item').first().focus()
+  await page.keyboard.press('Control+Shift+R')
+  await expect(said).toHaveText('Repeated: 15 new notes')
+  await expect(roll(page)).toHaveAttribute('data-selected-count', '15')
+
+  // The toolbar button at the keyboard: the focus goes to the first copy too, so Alt+Up reaches the copies.
+  await page.keyboard.press('Control+z')
+  await expect.poll(shape).toEqual(written)
+  await page.getByTestId('roll-item').first().focus()
+  await page.keyboard.press('Control+a')
+  await page.getByTestId('roll-repeat').focus()
+  await page.keyboard.press('Enter')
+  await expect(said).toHaveText('Repeated: 12 new notes')
+  await expect(focused).toHaveAttribute('aria-label', /^C4, bar 1 beat 2,/)
+  expect(seen.errors).toEqual([])
+})
+
+test('piano roll: Repeat speaks French', async ({ page }) => {
+  const { seen } = await openRoll(page, 'fr')
+  await expect(page.getByTestId('roll-repeat')).toHaveText('Répéter')
+  await expect(page.getByTestId('roll-repeat')).toHaveAttribute('title', /à la suite, jusqu’à la fin de la mesure/)
+  await expect(page.getByTestId('roll-duplicate')).toHaveAttribute('title', /une mesure plus loin/)
+  await expect(page.getByTestId('roll-repeat')).toBeDisabled()
+
+  // Without the arrangement on screen, Ctrl+Shift+R in the "Repeat until" field is still cancelled: no reload, the field
+  // stays open with what was typed.
+  await expect(page.getByTestId('arr-said')).toHaveCount(0)
+  const g = await spot(page)
+  await page.mouse.click(g.x(10), g.y(60))
+  await expect(roll(page)).toHaveAttribute('data-note-count', '1')
+  await page.mouse.click(g.x(10), g.y(60), { button: 'right' })
+  await page.getByRole('menuitem', { name: 'Répéter jusqu’à…' }).click()
+  await expect(page.getByTestId('roll-repeat-dialog')).toContainText('Jusqu’à la fin de la mesure')
+  await page.getByTestId('roll-repeat-field').fill('1,3')
+  // Whether the browser's own action (a reload) was cancelled, read once the R press has gone through every listener.
+  await page.evaluate(() =>
+    window.addEventListener(
+      'keydown',
+      (e) => {
+        if (e.key.toLowerCase() === 'r') setTimeout(() => ((window as unknown as { __prevented?: boolean }).__prevented = e.defaultPrevented))
+      },
+      { capture: true },
+    ),
+  )
+  await page.keyboard.press('Control+Shift+R')
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __prevented?: boolean }).__prevented)).toBe(true)
+  await expect(page.getByTestId('roll-repeat-field')).toHaveValue('1,3')
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('roll-said')).toHaveText(/^Répété : \d+ nouvelles notes/)
+  expect(seen.errors).toEqual([])
+})
