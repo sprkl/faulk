@@ -629,15 +629,7 @@ impl core::fmt::Debug for Graph {
     }
 }
 
-fn buffer(frames: usize) -> Result<Box<[f32]>, MsgError> {
-    let mut v = Vec::new();
-    v.try_reserve_exact(frames)
-        .map_err(|_| MsgError::OutOfMemory {
-            bytes: frames.saturating_mul(size_of::<f32>()),
-        })?;
-    v.resize(frames, 0.0);
-    Ok(v.into_boxed_slice())
-}
+use crate::latency::buffer;
 
 /// The voice id of a live note: its key, plus one (0 is not a voice id).
 fn live_voice(pitch: u8) -> Option<VoiceId> {
@@ -727,14 +719,18 @@ impl Graph {
             shortest = shortest.min(latency);
         }
         self.track_latency = longest;
-        self.capped =
-            longest.saturating_sub(shortest) > crate::msg::limits::MAX_COMPENSATION_FRAMES;
         self.master_latency = chain_latency(state.master_devices.as_mut_slice());
+        // A track beyond the limit, or the metronome (when it clicks) beyond its line.
+        let clicks = state.metronome.enabled
+            && longest.saturating_add(self.master_latency) > CLICK_LINE_FRAMES;
+        self.capped = clicks
+            || longest.saturating_sub(shortest) > crate::msg::limits::MAX_COMPENSATION_FRAMES;
     }
 
     /// Whether the compensation is capped (#749): a track would need a longer delay than
     /// [`crate::msg::limits::MAX_COMPENSATION_FRAMES`], gets the limit and plays early by the
-    /// rest. Every track within the limit stays aligned.
+    /// rest, or the metronome (on) would need more than [`CLICK_LINE_FRAMES`]. Every track
+    /// within the limit stays aligned.
     pub fn latency_capped(&self) -> bool {
         self.capped
     }
@@ -749,6 +745,12 @@ impl Graph {
     pub(crate) fn clear_latency(&mut self) {
         self.compensation.clear();
         self.click_line.clear();
+    }
+
+    /// Whether the metronome's line still gives clicks it took (#749): the clicks of a
+    /// metronome switched off ring out of it.
+    pub(crate) fn clicks_busy(&self) -> bool {
+        self.click_line.busy()
     }
 
     /// The block's metronome buffers, zeroed, for the clicker to add into (#749).

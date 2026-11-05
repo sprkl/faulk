@@ -2245,18 +2245,28 @@ impl Engine {
                 &mut left[start..end],
                 &mut right[start..end],
             );
-            // The clicks are delayed with the music (#749).
-            let (click_left, click_right) = self.graph.click_buffers(frames);
-            self.clicker.render(
-                &metronome,
-                self.state.transport.signature,
-                self.segments.as_slice(),
-                click_until,
-                click_left,
-                click_right,
-            );
-            self.graph
-                .add_clicks(&mut left[start..end], &mut right[start..end]);
+            // The clicks are delayed with the music (#749); a metronome off whose line holds
+            // nothing more costs nothing (the clicker only silences itself).
+            let delayed = metronome.enabled || self.graph.clicks_busy();
+            {
+                let (click_left, click_right): (&mut [f32], &mut [f32]) = if delayed {
+                    self.graph.click_buffers(frames)
+                } else {
+                    (&mut left[start..end], &mut right[start..end])
+                };
+                self.clicker.render(
+                    &metronome,
+                    self.state.transport.signature,
+                    self.segments.as_slice(),
+                    click_until,
+                    click_left,
+                    click_right,
+                );
+            }
+            if delayed {
+                self.graph
+                    .add_clicks(&mut left[start..end], &mut right[start..end]);
+            }
             let cut_done = self.apply_cut(&mut left[start..end], &mut right[start..end]);
             // The output's meter: what leaves the engine, the metronome included.
             self.graph
