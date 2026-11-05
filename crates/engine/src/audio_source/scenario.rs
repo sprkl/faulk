@@ -512,12 +512,15 @@ pub fn player_scenario() -> Vec<f32> {
         track: TrackSlot(0),
     }]);
     take(&mut rig, 20);
-    let underruns = rig
-        .host
-        .engine()
-        .disk_stats()
-        .underruns
-        .load(core::sync::atomic::Ordering::Relaxed);
+    let underruns_of = |rig: &Rig| {
+        rig.host
+            .engine()
+            .disk_stats()
+            .underruns
+            .load(core::sync::atomic::Ordering::Relaxed)
+    };
+    // Every rig's underruns, summed.
+    let mut underruns = underruns_of(&rig);
     // Resampled: the same sources in an engine at 11 025 Hz, clip 1 (a loop from memory)
     // then clip 0 through its preload and its ring.
     let mut rig = Rig::new(11_025, MemDisk::standard(), &player_setup());
@@ -526,6 +529,61 @@ pub fn player_scenario() -> Vec<f32> {
     take(&mut rig, 100);
     rig.send(&[launch(0)]);
     take(&mut rig, 200);
+    underruns += underruns_of(&rig);
+    // Clip 0 split in three placements, played through the cuts (#704: the parts take the
+    // stream over), at equal rates, in an engine faster than the source (11 025 Hz) and in
+    // one slower (6 000 Hz), at 130 BPM (a tick is not a whole number of samples).
+    for engine in [RATE, 11_025, 6_000] {
+        let mut rig = Rig::new(engine, MemDisk::standard(), &player_setup());
+        rig.render(200);
+        rig.send(&split_placements(true));
+        take(&mut rig, 100);
+        underruns += underruns_of(&rig);
+    }
     all.push(underruns as f32);
     all
+}
+
+/// Clip 0 placed from tick 0, cut (`split`) at ticks 1 234 and 2 345 the way
+/// `arrangement.split` cuts (`floor(t × frames per tick)`) or whole, at 130 BPM, and the
+/// arrangement playing from 1 000 ticks.
+pub fn split_placements(split: bool) -> Vec<ControlMsg> {
+    use crate::msg::{Placement, PlacementSlot, Span};
+    use crate::time::{Quantize, SampleRate, Tempo, Tick, TimeSignature};
+    let tempo = Tempo::new(130.0).expect("a tempo");
+    let spt = tempo.samples_per_tick(SampleRate::new(RATE).expect("a rate"));
+    let k = |t: i64| (t as f64 * spt).floor() as u64;
+    let whole = 30 * RATE as u64;
+    let cuts = [(0, 0), (1_234, k(1_234)), (2_345, k(2_345))];
+    let bounds = if split { &cuts[..] } else { &cuts[..1] };
+    let placements = bounds
+        .iter()
+        .enumerate()
+        .map(|(i, &(start, offset))| {
+            let end = bounds.get(i + 1).map_or(whole, |b| b.1);
+            Placement {
+                placement: PlacementSlot(i as u32),
+                clip: ClipSlot(0),
+                start: Tick(start),
+                span: Span::Frames {
+                    offset: Frame(offset),
+                    length: Frame(end - offset),
+                },
+            }
+        })
+        .collect();
+    vec![
+        ControlMsg::SetTransport {
+            tempo,
+            signature: TimeSignature::default(),
+            launch_quantize: Quantize::None,
+        },
+        ControlMsg::TrackPlacementsUpload {
+            track: TrackSlot(0),
+            first: 0,
+            total: bounds.len() as u32,
+            placements,
+        },
+        ControlMsg::Play { from: Tick(1_000) },
+    ]
 }
