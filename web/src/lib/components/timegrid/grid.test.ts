@@ -7,6 +7,7 @@ import {
   MIN_LABEL_PX,
   MIN_MARK_PX,
   MIN_PX_PER_TICK,
+  ROLL_SNAP_SETTINGS,
   SNAP_SETTINGS,
   clampView,
   gridStep,
@@ -17,6 +18,7 @@ import {
   snapTick,
   tickToX,
   totalTicksOf,
+  tripletUnit,
   visibleRange,
   xToTick,
   zoomAt,
@@ -291,5 +293,82 @@ describe('rulerMarks', () => {
 
   it('an empty width gives no mark past the first', () => {
     expect(rulerMarks(view(0.1, 0), 0, common, TOTAL).length).toBeLessThanOrEqual(1)
+  })
+})
+
+describe('the triplet snap of the piano roll (#711)', () => {
+  it('offers the two triplets of the quantize grid after the arrangement settings, which keep their list', () => {
+    expect(ROLL_SNAP_SETTINGS).toEqual([...SNAP_SETTINGS, 'eighth-triplet', 'sixteenth-triplet'])
+    expect(SNAP_SETTINGS).not.toContain('eighth-triplet')
+  })
+
+  it('steps by a quarter note in three and in six, whatever the zoom and the signature', () => {
+    for (const sig of SIGNATURES) {
+      for (const px of [0.001, 0.1, MAX_PX_PER_TICK]) {
+        expect(snapStep('eighth-triplet', sig, px)).toBe(PPQ / 3)
+        expect(snapStep('sixteenth-triplet', sig, px)).toBe(PPQ / 6)
+      }
+    }
+    expect(tripletUnit('eighth-triplet')).toBe(320)
+    expect(tripletUnit('sixteenth-triplet')).toBe(160)
+    for (const setting of SNAP_SETTINGS) expect(tripletUnit(setting)).toBeNull()
+  })
+
+  it('draws three lines a beat for an eighth triplet, beats and bars where they fall', () => {
+    const marks = rulerMarks(view(0.1, 0), WIDTH, common, TOTAL, PPQ / 3)
+    const ticks = marks.map((m) => m.tick)
+    expect(ticks.slice(0, 7)).toEqual([0, 320, 640, 960, 1280, 1600, 1920])
+    expect(marks.find((m) => m.tick === 960)?.kind).toBe('beat')
+    expect(marks.find((m) => m.tick === 320)?.kind).toBe('sub')
+    expect(marks.find((m) => m.tick === 3840)?.kind).toBe('bar')
+    // No binary line: every mark is a line of the unit.
+    for (const m of marks) expect(m.tick % 320).toBe(0)
+  })
+
+  it('every sub line is a line of the unit, every bar and beat of the ruler stays, at any zoom and signature, bounded in count', () => {
+    for (const sig of SIGNATURES) {
+      const total = totalTicksOf(DEFAULT_TOTAL_BARS, sig)
+      for (const unit of [PPQ / 3, PPQ / 6]) {
+        for (const px of [MIN_PX_PER_TICK, 0.003, 0.02, 0.05, 0.1, 0.5, MAX_PX_PER_TICK]) {
+          const v = clampView(view(px, total / 3), WIDTH, total)
+          const marks = rulerMarks(v, WIDTH, sig, total, unit)
+          const at = `${sig.numerator}/${sig.denominator} ${px}`
+          expect(marks.length, at).toBeLessThanOrEqual(2 * (WIDTH / MIN_MARK_PX + 2))
+          for (const m of marks) if (m.kind === 'sub') expect(m.tick % unit, at).toBe(0)
+          // In order, one mark per tick.
+          for (let i = 1; i < marks.length; i++) expect(marks[i]!.tick, at).toBeGreaterThan(marks[i - 1]!.tick)
+          // The bars and beats the ruler draws without the unit are all there, with the same names.
+          const ticks = new Map(marks.map((m) => [m.tick, m]))
+          for (const m of rulerMarks(v, WIDTH, sig, total).filter((m) => m.kind !== 'sub'))
+            expect(ticks.get(m.tick), `${at} ${m.tick}`).toMatchObject({ kind: m.kind, label: m.label })
+        }
+      }
+    }
+  })
+
+  it('keeps the bar lines and numbers of a 7/8 bar, which no triplet line meets', () => {
+    const total = totalTicksOf(10, septuple)
+    const marks = rulerMarks(view(0.1, 0), WIDTH, septuple, total, PPQ / 3)
+    const bar2 = marks.find((m) => m.tick === barTicks(septuple))
+    expect(bar2).toMatchObject({ kind: 'bar', label: '2' })
+    expect(marks.find((m) => m.tick === 320)?.kind).toBe('sub')
+    // The 7/8 beats stay as beat lines, for orientation, though no triplet line falls on them.
+    expect(marks.find((m) => m.tick === 480)?.kind).toBe('beat')
+  })
+
+  it('a sixteenth triplet coarsens to the eighth triplet, then to the beat, as the grid zooms out', () => {
+    expect(gridStep(common, 0.1, MIN_MARK_PX, PPQ / 6)).toBe(160)
+    expect(gridStep(common, 0.05, MIN_MARK_PX, PPQ / 6)).toBe(320)
+    expect(gridStep(common, 0.03, MIN_MARK_PX, PPQ / 6)).toBe(960)
+    expect(gridStep(common, 0.001, MIN_MARK_PX, PPQ / 6)).toBe(barTicks(common) * 4)
+  })
+
+  it('a snapped position lands on a drawn line', () => {
+    const v = view(0.1, 5000)
+    const marks = new Set(rulerMarks(v, WIDTH, common, TOTAL, PPQ / 3).map((m) => m.tick))
+    for (let x = 0; x <= WIDTH; x += 37) {
+      const snapped = snapTick(xToTick(x, v), snapStep('eighth-triplet', common, v.pxPerTick))
+      if (snapped >= v.scrollTick && snapped <= visibleRange(v, WIDTH)[1]) expect(marks.has(snapped), `x=${x}`).toBe(true)
+    }
   })
 })
