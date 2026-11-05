@@ -1,0 +1,8 @@
+schema_version: "1.1"
+name: automate-filter-lanes
+expected_outcome: |
+  In French, without asking questions first: a production sheet for a 64-bar acid techno track at 134 bpm in D minor in which
+  the movement of the sound is written as `automation` blocks (not only described in prose): a filter cutoff opening over the
+  first drop, a resonance lane and a volume or pan lane, each aimed at a pattern that exists, with points in bar.beat, values in
+  0-127, at least one non-linear curve and one step, all inside the arrangement. `sheet_tool.py check` passes with the lanes
+  listed, and the rendered MIDI file carries them as control changes.
