@@ -125,7 +125,7 @@
 
   type Tool = 'draw' | 'select'
   type Gesture =
-    | { kind: 'draw'; clip: string; pressTick: number; pitch: number; note: Note | null }
+    | { kind: 'draw'; clip: string; pressTick: number; pitch: number; note: Note | null; dragged?: boolean }
     | { kind: 'move' | 'resize'; clip: string; grabbed: Note; key: string; startX: number; startY: number; changes: Change[] }
     | { kind: 'velocity'; clip: string; grabbed: Note; key: string; startX: number; startY: number; moved: boolean; drag: Drag; changes: Change[] }
     | { kind: 'band'; clip: string; x0: number; y0: number; base: ReadonlySet<string>; rect: Rect }
@@ -530,7 +530,9 @@
     } else if (g.kind === 'draw') {
       const end = snapTick(xToTick(x, shown), drawing)
       const pitch = g.note?.pitch ?? g.pitch
-      gesture = { ...g, note: drawnNote(g.pressTick, end, pitch, drawVelocity, drawing, nextLength, clipLength) }
+      // Dragged as drawnNote counts it: at least one step past the pressed cell; a click keeps the chosen length.
+      const dragged = end - floorTick(g.pressTick, drawing) >= (drawing !== null && drawing > 0 ? drawing : 1)
+      gesture = { ...g, dragged, note: drawnNote(g.pressTick, end, pitch, drawVelocity, drawing, nextLength, clipLength) }
     } else if (g.kind === 'band') {
       const rect = rectBetween(g.x0, g.y0, x, y)
       picked = new Set([...g.base, ...notesInRect(notes, rect, shown, layout)])
@@ -573,8 +575,7 @@
       run(addNotes(g.clip, [g.note]))
       picked = new Set([noteKey(g.note)])
       // A click (no drag) whose length did not fit before the clip's end draws a shorter note: said (#623, #280).
-      if (g.note.start + g.note.length === clipLength && g.note.length < nextLength)
-        announce(t('pianoRoll.saidLengthCut', { length: gestureLength(t, signature, g.note.length) }))
+      if (!g.dragged && g.note.length < nextLength) announce(t('pianoRoll.saidLengthCut', { length: gestureLength(t, signature, g.note.length) }))
       lastLength = g.note.length
     } else if (g.kind === 'move' || g.kind === 'resize' || g.kind === 'velocity') {
       // The notes the gesture holds must still be in the clip: after an undo they are gone and nothing is sent.
