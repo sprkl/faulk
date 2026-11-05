@@ -126,8 +126,16 @@ impl Rig {
     /// Starts recording from tick `from`: returns the engine sample the take plays `from` at
     /// (the start of the next block, which applies the order).
     fn record(&mut self, from: i64) -> u64 {
+        self.record_shifted(from, 0)
+    }
+
+    /// [`Rig::record`] with the take's shift (`SetRecording::shift_us`, #560).
+    fn record_shifted(&mut self, from: i64, shift_us: i32) -> u64 {
         self.send(&[
-            M::SetRecording { recording: true },
+            M::SetRecording {
+                recording: true,
+                shift_us,
+            },
             M::Play { from: Tick(from) },
         ]);
         self.frames
@@ -240,7 +248,10 @@ fn a_stamp_within_a_second_of_its_block_either_way_is_used_and_one_further_count
     let edge_block = rig.frames;
     rig.on(65, Some(rig.host(edge_block - bound)));
     rig.blocks(1);
-    rig.send(&[M::SetRecording { recording: false }]);
+    rig.send(&[M::SetRecording {
+        recording: false,
+        shift_us: 0,
+    }]);
     rig.blocks(1);
     let mut notes = rig.notes();
     notes.sort_by_key(|n| n.note.pitch);
@@ -314,10 +325,11 @@ fn a_note_played_just_before_a_loop_wrap_lands_at_the_end_of_the_loop() {
     assert_eq!(note.length, Tick(((96 + 48) as f64 / SPT).round() as i64));
 }
 
-/// #542: the web page stamps the frame heard plus the output latency (42 ms), and moves the take
-/// back by the same estimate (`record.commit_take`, `shift_ms`). A note heard 20 ms before the
-/// loop's end is stamped 22 ms after the wrap, so the engine places it near the loop's START:
-/// the tick `record.commit_take` must bring back to the loop's end (`crates/commands/tests/it/record_loop.rs`).
+/// #542: the web page stamps the frame heard plus the output latency (42 ms). In a take without
+/// a shift, a note heard 20 ms before the loop's end is stamped 22 ms after the wrap, so the
+/// engine places it near the loop's START: the tick `record.commit_take` brings back to the
+/// loop's end when it is given the shift (`crates/commands/tests/it/record_loop.rs`). The page's
+/// takes carry the shift since #560 (below).
 #[test]
 fn a_note_heard_just_before_the_loop_end_is_placed_after_the_wrap_by_the_latency() {
     let mut rig = Rig::new(true);
@@ -425,4 +437,313 @@ fn a_stamp_before_the_hosts_first_engine_sample_counts_from_its_block() {
         Tick(((block - zero) as f64 / SPT).floor() as i64)
     );
     assert_eq!(rig.e.recorder().unplaced(), 0, "no engine sample: no stamp");
+}
+
+// ---------------------------------------------------------------- the take's shift (#560)
+
+/// The page's estimate of the output latency in these tests: 42 ms, 2 016 samples.
+const LATENCY_US: i32 = 42_000;
+const LATENCY: u64 = 2_016;
+
+/// The criterion of #542, applied in the engine: a note heard 20 ms before the end of the loop,
+/// stamped 42 ms later (after the wrap), is placed 20 ms before the end of the loop.
+#[test]
+fn with_the_shift_a_note_heard_just_before_the_loop_end_stays_there() {
+    for late_blocks in [0u64, 3, 20] {
+        let mut rig = Rig::new(true);
+        rig.send(&[M::SetLoop {
+            region: LoopRegion::new(Tick(0), Tick(4 * PPQ)),
+        }]);
+        let zero = rig.record_shifted(0, LATENCY_US);
+        let wrap = zero + 4 * BEAT;
+        // Heard 20 ms (960 samples) before the end.
+        let heard = wrap - 960;
+        let stamp = heard + LATENCY;
+        rig.until(stamp + late_blocks * BLOCK as u64);
+        rig.on(60, Some(rig.host(stamp)));
+        rig.blocks(1);
+        rig.until(stamp + 480 + late_blocks * BLOCK as u64);
+        rig.off(60, Some(rig.host(stamp + 480)));
+        rig.blocks(1);
+        let note = rig.notes()[0].note;
+        let expected = 4.0 * PPQ as f64 - 960.0 / SPT;
+        assert!(
+            error_ms(note.start, expected).abs() <= 1.0,
+            "{late_blocks} blocks late: {note:?} against {expected}"
+        );
+        assert_eq!(note.start, Tick(4 * PPQ - 39), "3 801.6 ticks, floored");
+        assert_eq!(note.length, Tick(19), "480 samples: the length as played");
+        assert_eq!(rig.e.recorder().unplaced(), 0);
+    }
+}
+
+/// #560: the playhead enters the loop from before it. A note heard 10 ms before the loop's
+/// start on that first pass is stamped 32 ms inside the loop: it stays before the loop's start,
+/// where it was heard (a command could not tell it from a stamp the engine wrapped). The same
+/// take then wraps, and a note heard 20 ms before the loop's end stays there.
+#[test]
+fn with_the_shift_a_note_heard_before_the_loop_on_the_first_pass_stays_before_it() {
+    let mut rig = Rig::new(true);
+    rig.send(&[M::SetLoop {
+        region: LoopRegion::new(Tick(2 * PPQ), Tick(6 * PPQ)),
+    }]);
+    let zero = rig.record_shifted(0, LATENCY_US);
+    let entry = zero + 2 * BEAT;
+    let heard = entry - 480;
+    let stamp = heard + LATENCY;
+    rig.until(stamp + 2 * BLOCK as u64);
+    rig.on(60, Some(rig.host(stamp)));
+    rig.blocks(1);
+    rig.off(60, Some(rig.host(stamp + 240)));
+    rig.blocks(1);
+    // The first wrap, four beats after the loop's start.
+    let wrap = entry + 4 * BEAT;
+    let heard_end = wrap - 960;
+    let stamp_end = heard_end + LATENCY;
+    rig.until(stamp_end + 2 * BLOCK as u64);
+    rig.on(62, Some(rig.host(stamp_end)));
+    rig.blocks(1);
+    rig.off(62, Some(rig.host(stamp_end + 240)));
+    rig.blocks(1);
+    let notes = rig.notes();
+    assert_eq!(notes.len(), 2, "{notes:?}");
+    let before = notes[0].note;
+    assert!(
+        error_ms(before.start, 2.0 * PPQ as f64 - 480.0 / SPT).abs() <= 1.0,
+        "{before:?}"
+    );
+    assert_eq!(
+        before.start,
+        Tick(2 * PPQ - 20),
+        "1 900.8 ticks, floored: before the loop"
+    );
+    let end = notes[1].note;
+    assert!(
+        error_ms(end.start, 6.0 * PPQ as f64 - 960.0 / SPT).abs() <= 1.0,
+        "{end:?}"
+    );
+    assert_eq!(end.start, Tick(6 * PPQ - 39));
+    assert_eq!((before.length, end.length), (Tick(10), Tick(10)));
+}
+
+/// A note heard less than one shift before the take began (its stamp inside the take): kept
+/// where it was heard, before the take's first tick (on the line back from the take's `Play`).
+#[test]
+fn with_the_shift_a_note_heard_just_before_the_take_stays_where_it_was_heard() {
+    let mut rig = Rig::new(true);
+    rig.blocks(40);
+    let zero = rig.record_shifted(1920, LATENCY_US);
+    // Heard 1 000 samples before the take began: stamped 1 016 samples into it.
+    let stamp = zero + LATENCY - 1000;
+    rig.until(stamp + BLOCK as u64);
+    rig.on(60, Some(rig.host(stamp)));
+    rig.blocks(1);
+    rig.off(60, Some(rig.host(stamp + 2400)));
+    rig.blocks(1);
+    let note = rig.notes()[0].note;
+    assert_eq!(
+        note.start,
+        Tick(1920 - 40),
+        "1 000 samples before the take's first tick"
+    );
+    assert_eq!(note.length, Tick(96), "2 400 samples, as played");
+    // Heard more than one shift before: the stamp counts from the take's first sample (as
+    // before the shift), then the shift takes it one shift before the take's first tick.
+    let mut rig = Rig::new(true);
+    rig.blocks(40);
+    let early = rig.frames - 3000;
+    let zero = rig.record_shifted(1920, LATENCY_US);
+    rig.blocks(2);
+    rig.on(60, Some(rig.host(early + LATENCY)));
+    rig.blocks(1);
+    rig.off(60, Some(rig.host(zero + 4 * BLOCK as u64)));
+    rig.blocks(1);
+    let note = rig.notes()[0].note;
+    assert_eq!(
+        note.start,
+        Tick(1920 - 81),
+        "2 016 samples (80.64 ticks), floored"
+    );
+}
+
+/// The ticket's case after a count-in: the take begins on the loop's start, and the first note,
+/// heard 10 ms early, stays 10 ms before the loop's start.
+#[test]
+fn with_the_shift_a_downbeat_anticipated_after_a_count_in_stays_before_the_loop() {
+    let mut rig = Rig::new(true);
+    rig.send(&[
+        M::SetMetronome {
+            enabled: false,
+            volume: 1.0,
+            count_in_bars: 1,
+        },
+        M::SetLoop {
+            region: LoopRegion::new(Tick(4 * PPQ), Tick(8 * PPQ)),
+        },
+    ]);
+    // The count-in plays the bar before the cue: the cue is reached four beats later.
+    let count_in = rig.record_shifted(4 * PPQ, LATENCY_US);
+    let cue = count_in + 4 * BEAT;
+    let heard = cue - 480;
+    let stamp = heard + LATENCY;
+    rig.until(stamp + 2 * BLOCK as u64);
+    rig.on(60, Some(rig.host(stamp)));
+    rig.blocks(1);
+    rig.off(60, Some(rig.host(stamp + 240)));
+    rig.blocks(1);
+    let note = rig.notes()[0].note;
+    assert_eq!(
+        note.start,
+        Tick(4 * PPQ - 20),
+        "1 900.8 ticks past the bar before, floored"
+    );
+    assert_eq!(note.length, Tick(10));
+}
+
+/// A negative shift (an offset larger than the latency) moves a note ahead of its block: past
+/// the loop's end, it is folded into the loop, where the playhead will be.
+#[test]
+fn a_negative_shift_past_the_loop_end_is_folded_into_the_loop() {
+    let mut rig = Rig::new(true);
+    rig.send(&[M::SetLoop {
+        region: LoopRegion::new(Tick(0), Tick(4 * PPQ)),
+    }]);
+    // 20 ms of latency, -100 ms of offset: -80 ms.
+    let zero = rig.record_shifted(0, -80_000);
+    let wrap = zero + 4 * BEAT;
+    // Heard 30 ms (1 440 samples) before the loop's end, stamped 20 ms later, before the wrap.
+    let stamp = wrap - 1440 + 960;
+    rig.until(stamp);
+    rig.on(60, Some(rig.host(stamp)));
+    rig.blocks(1);
+    rig.off(60, Some(rig.host(stamp + 240)));
+    rig.blocks(1);
+    let note = rig.notes()[0].note;
+    // 100 ms after it was heard: 3 360 samples past the wrap, 134.4 ticks.
+    assert_eq!(note.start, Tick(134));
+    assert_eq!(note.length, Tick(10));
+}
+
+/// A new sample rate during a take: the shift keeps its milliseconds (counted again in samples
+/// of the new rate), and a held note keeps its length.
+#[test]
+fn the_shift_follows_a_sample_rate_change_during_the_take() {
+    let run = |shift_us: i32| {
+        let mut rig = Rig::new(false);
+        rig.record_shifted(0, shift_us);
+        rig.blocks(10);
+        rig.on(62, None);
+        rig.blocks(10);
+        rig.p
+            .set_sample_rate(engine::time::SampleRate::HZ_96000)
+            .unwrap();
+        rig.blocks(10);
+        rig.on(60, None);
+        rig.blocks(10);
+        rig.off(60, None);
+        rig.off(62, None);
+        rig.blocks(2);
+        let mut notes = rig.notes();
+        notes.sort_by_key(|n| n.note.pitch);
+        notes.iter().map(|n| n.note).collect::<Vec<_>>()
+    };
+    let plain = run(0);
+    let shifted = run(LATENCY_US);
+    // 42 ms at 120 BPM: 80.64 ticks, whatever the rate.
+    let moved = (plain[0].start.0 - shifted[0].start.0) as f64;
+    assert!((moved - 80.64).abs() <= 2.0, "{plain:?} {shifted:?}");
+    let moved = (plain[1].start.0 - shifted[1].start.0) as f64;
+    assert!((moved - 80.64).abs() <= 2.0, "{plain:?} {shifted:?}");
+    assert_eq!(plain[0].length, shifted[0].length);
+    assert!(
+        (plain[1].length.0 - shifted[1].length.0).abs() <= 1,
+        "{plain:?} {shifted:?}"
+    );
+}
+
+/// Without a stamp the note counts from the start of its block, moved back by the shift too;
+/// a negative shift (a manual offset larger than the latency) places the notes later.
+#[test]
+fn the_shift_moves_unstamped_notes_and_a_negative_shift_places_later() {
+    for (shift_us, samples) in [(LATENCY_US, -(LATENCY as i64)), (-10_000, 480i64)] {
+        let mut rig = Rig::new(true);
+        let zero = rig.record_shifted(0, shift_us);
+        rig.until(zero + BEAT);
+        let taken = rig.frames;
+        rig.on(60, None);
+        rig.blocks(4);
+        rig.off(60, None);
+        rig.blocks(1);
+        let note = rig.notes()[0].note;
+        let at = taken as i64 - zero as i64 + samples;
+        assert_eq!(
+            note.start,
+            Tick((at as f64 / SPT).floor() as i64),
+            "shift {shift_us} us"
+        );
+        assert_eq!(note.length, Tick((4.0 * BLOCK as f64 / SPT).round() as i64));
+    }
+}
+
+/// The notes still held when the take ends are cut on the take's clock: a note keeps the
+/// length it was held as heard, the shift does not lengthen it.
+#[test]
+fn with_the_shift_a_note_cut_by_the_end_of_the_take_keeps_its_heard_length() {
+    let mut rig = Rig::new(true);
+    let zero = rig.record_shifted(0, LATENCY_US);
+    let stamp = zero + BEAT + LATENCY;
+    rig.until(stamp + BLOCK as u64);
+    rig.on(60, Some(rig.host(stamp)));
+    rig.blocks(1);
+    rig.until(stamp + BEAT);
+    let cut = rig.frames;
+    rig.send(&[M::SetRecording {
+        recording: false,
+        shift_us: 0,
+    }]);
+    rig.blocks(1);
+    let note = rig.notes()[0].note;
+    assert_eq!(note.start, Tick(PPQ));
+    assert_eq!(
+        note.length,
+        Tick(((cut - stamp) as f64 / SPT).round() as i64),
+        "the end of the capture, as heard, minus the note's start, as heard"
+    );
+}
+
+/// A shift beyond the engine's bound is clamped (2 s), never a panic; a take keeps the shift
+/// it began with, whatever a later `SetRecording` says.
+#[test]
+fn an_out_of_range_shift_is_clamped_and_a_take_keeps_its_own() {
+    let mut rig = Rig::new(true);
+    rig.blocks(1000);
+    let zero = rig.record_shifted(0, i32::MAX);
+    rig.blocks(1);
+    // A second order while the take runs changes nothing for it.
+    rig.send(&[M::SetRecording {
+        recording: true,
+        shift_us: 0,
+    }]);
+    rig.until(zero + 5 * BEAT);
+    let taken = rig.frames;
+    rig.on(60, None);
+    rig.blocks(1);
+    rig.off(60, None);
+    rig.blocks(1);
+    // Two seconds (96 000 samples) before its block.
+    let at = taken - zero - 96_000;
+    assert_eq!(
+        rig.notes()[0].note.start,
+        Tick((at as f64 / SPT).floor() as i64)
+    );
+    let mut rig = Rig::new(true);
+    rig.blocks(10);
+    let zero = rig.record_shifted(0, i32::MIN);
+    rig.until(zero + BEAT);
+    rig.on(60, None);
+    rig.blocks(1);
+    rig.off(60, None);
+    rig.blocks(1);
+    let note = rig.notes()[0].note;
+    assert!(note.start.0 >= 2 * 2 * PPQ, "two seconds later: {note:?}");
 }

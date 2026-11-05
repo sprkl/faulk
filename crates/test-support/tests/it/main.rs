@@ -26,5 +26,6 @@ mod master_pan;
 mod open;
 mod output_limiter;
 mod presets;
+mod record_loop;
 mod reverb;
 mod scenes;

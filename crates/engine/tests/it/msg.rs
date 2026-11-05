@@ -177,7 +177,10 @@ fn samples() -> Vec<ControlMsg> {
         ControlMsg::Stop,
         ControlMsg::Seek { tick: Tick(0) },
         ControlMsg::SetLoop { region: None },
-        ControlMsg::SetRecording { recording: true },
+        ControlMsg::SetRecording {
+            recording: true,
+            shift_us: -42_000,
+        },
         ControlMsg::NoteOn {
             track: t,
             pitch: 60,

@@ -15254,7 +15254,7 @@
         "undo": "none"
       },
       {
-        "description": "Start recording the armed MIDI tracks (`track.arm`); refused when none is armed or\nwhen a take is still waiting to be committed. `target`: `{\"at\": \"scene\", \"scene\":\n<id>}` (the launch grid: overdub into the cell's clip, or a new clip in an empty\ncell) or `{\"at\": \"arrangement\"}` (the default: each note where it is played). From a\nstopped transport it plays from the play position, after the metronome's count-in\nbars (heard, not recorded), and with a scene target it launches that scene's clip\nof each armed track first; on a running transport it records at once. `latency_ms`\nis the output latency the host estimates (0 to 1000, default 0). The notes come\nback from the engine; `record.stop` ends the take, which the host then writes with\n`record.commit_take`, one history entry. Not undoable itself.",
+        "description": "Start recording the armed MIDI tracks (`track.arm`); refused when none is armed or\nwhen a take is still waiting to be committed. `target`: `{\"at\": \"scene\", \"scene\":\n<id>}` (the launch grid: overdub into the cell's clip, or a new clip in an empty\ncell) or `{\"at\": \"arrangement\"}` (the default: each note where it is played). From a\nstopped transport it plays from the play position, after the metronome's count-in\nbars (heard, not recorded), and with a scene target it launches that scene's clip\nof each armed track first; on a running transport it records at once. `latency_ms`\nis the output latency the host estimates (0 to 1000, default 0). The notes come\nback from the engine, already moved `shift_ms` earlier (the latency plus the session's\noffset) on the engine's clock, so that a note heard before a loop wrap stays before it;\n`record.stop` ends the take, which the host then writes with `record.commit_take`\n(`shift_ms` 0), one history entry. Not undoable itself.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -15390,7 +15390,7 @@
               "type": "boolean"
             },
             "shift_ms": {
-              "description": "How much earlier the notes will be placed: `latency_ms` plus the session's\noffset (`record.set_settings`), in milliseconds.",
+              "description": "How much earlier the engine places the notes: `latency_ms` plus the session's\noffset (`record.set_settings`), in milliseconds. The notes it reports are already\nmoved: they are written with `record.commit_take`'s `shift_ms` 0.",
               "format": "double",
               "type": "number"
             },
@@ -15481,7 +15481,7 @@
         "undo": "none"
       },
       {
-        "description": "Write a take into the project, every track at once, as **one** history entry. Per\ntrack, `notes` are the notes as played: `start` in transport ticks, `length` in\nticks. Every start is first moved `shift_ms` earlier at the project's tempo; when the\ntransport loops and the start is inside the loop, the move wraps round the loop (a note\nthat would go before the loop's start comes from its end). With a\nscene target, a cell that holds a clip takes the notes on top of its own (overdub):\na note lands where the clip played at that moment, from `anchor` (the transport tick\nof the clip's position 0) or else from the bar of the first note, round its loop;\na clip without a loop grows to the bar after the last note. An empty cell gets a new\nclip from the bar of the first note to the bar after the last one (at least one\nbar), looping over its length. With the arrangement target, a note inside a\nplacement goes into its clip where the placement shows it; the other notes make one\nnew clip per gap between placements, from the bar of its first note to the bar after\nits last, cut at the next placement. A note before tick 0 or before its clip is\ndropped and counted; a note longer than its clip is cut at the clip's end. With\n`replace` on (`record.set_settings`), a clip that takes notes first loses the notes\nthat start in the range the track recorded (its first note to the end of its last),\ncounted in `replaced`. With `quantize_on_input` on, the starts of the take's notes\nmove toward the grid of their clip by `quantize_strength` (a note stays inside its\nclip, lengths never change). Undo: `record.restore` puts the clips back as they\nwere, replaced notes included. `replace`, `quantize_on_input` and `quantize_strength`\noverride the session's settings (`record.set_settings`) for this write only; left out,\nthe session's apply.",
+        "description": "Write a take into the project, every track at once, as **one** history entry. Per\ntrack, `notes` are the notes as played: `start` in transport ticks, `length` in\nticks. Every start is first moved `shift_ms` earlier at the project's tempo; when the\ntransport loops and the start is strictly inside the loop, the move wraps round the\nloop (a note that would go before the loop's start comes from its end). The notes the\nengine reported for a `record.start` take are already moved: write them with\n`shift_ms` 0 (the default); `shift_ms` is for notes not moved yet. With a\nscene target, a cell that holds a clip takes the notes on top of its own (overdub):\na note lands where the clip played at that moment, from `anchor` (the transport tick\nof the clip's position 0) or else from the bar of the first note, round its loop;\na clip without a loop grows to the bar after the last note. An empty cell gets a new\nclip from the bar of the first note to the bar after the last one (at least one\nbar), looping over its length. With the arrangement target, a note inside a\nplacement goes into its clip where the placement shows it; the other notes make one\nnew clip per gap between placements, from the bar of its first note to the bar after\nits last, cut at the next placement. A note before tick 0 or before its clip is\ndropped and counted; a note longer than its clip is cut at the clip's end. With\n`replace` on (`record.set_settings`), a clip that takes notes first loses the notes\nthat start in the range the track recorded (its first note to the end of its last),\ncounted in `replaced`. With `quantize_on_input` on, the starts of the take's notes\nmove toward the grid of their clip by `quantize_strength` (a note stays inside its\nclip, lengths never change). Undo: `record.restore` puts the clips back as they\nwere, replaced notes included. `replace`, `quantize_on_input` and `quantize_strength`\noverride the session's settings (`record.set_settings`) for this write only; left out,\nthe session's apply.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -21418,7 +21418,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Start recording the armed MIDI tracks (`track.arm`); refused when none is armed or\nwhen a take is still waiting to be committed. `target`: `{\"at\": \"scene\", \"scene\":\n<id>}` (the launch grid: overdub into the cell's clip, or a new clip in an empty\ncell) or `{\"at\": \"arrangement\"}` (the default: each note where it is played). From a\nstopped transport it plays from the play position, after the metronome's count-in\nbars (heard, not recorded), and with a scene target it launches that scene's clip\nof each armed track first; on a running transport it records at once. `latency_ms`\nis the output latency the host estimates (0 to 1000, default 0). The notes come\nback from the engine; `record.stop` ends the take, which the host then writes with\n`record.commit_take`, one history entry. Not undoable itself.",
+              "description": "Start recording the armed MIDI tracks (`track.arm`); refused when none is armed or\nwhen a take is still waiting to be committed. `target`: `{\"at\": \"scene\", \"scene\":\n<id>}` (the launch grid: overdub into the cell's clip, or a new clip in an empty\ncell) or `{\"at\": \"arrangement\"}` (the default: each note where it is played). From a\nstopped transport it plays from the play position, after the metronome's count-in\nbars (heard, not recorded), and with a scene target it launches that scene's clip\nof each armed track first; on a running transport it records at once. `latency_ms`\nis the output latency the host estimates (0 to 1000, default 0). The notes come\nback from the engine, already moved `shift_ms` earlier (the latency plus the session's\noffset) on the engine's clock, so that a note heard before a loop wrap stays before it;\n`record.stop` ends the take, which the host then writes with `record.commit_take`\n(`shift_ms` 0), one history entry. Not undoable itself.",
               "properties": {
                 "latency_ms": {
                   "format": "double",
@@ -21486,7 +21486,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Write a take into the project, every track at once, as **one** history entry. Per\ntrack, `notes` are the notes as played: `start` in transport ticks, `length` in\nticks. Every start is first moved `shift_ms` earlier at the project's tempo; when the\ntransport loops and the start is inside the loop, the move wraps round the loop (a note\nthat would go before the loop's start comes from its end). With a\nscene target, a cell that holds a clip takes the notes on top of its own (overdub):\na note lands where the clip played at that moment, from `anchor` (the transport tick\nof the clip's position 0) or else from the bar of the first note, round its loop;\na clip without a loop grows to the bar after the last note. An empty cell gets a new\nclip from the bar of the first note to the bar after the last one (at least one\nbar), looping over its length. With the arrangement target, a note inside a\nplacement goes into its clip where the placement shows it; the other notes make one\nnew clip per gap between placements, from the bar of its first note to the bar after\nits last, cut at the next placement. A note before tick 0 or before its clip is\ndropped and counted; a note longer than its clip is cut at the clip's end. With\n`replace` on (`record.set_settings`), a clip that takes notes first loses the notes\nthat start in the range the track recorded (its first note to the end of its last),\ncounted in `replaced`. With `quantize_on_input` on, the starts of the take's notes\nmove toward the grid of their clip by `quantize_strength` (a note stays inside its\nclip, lengths never change). Undo: `record.restore` puts the clips back as they\nwere, replaced notes included. `replace`, `quantize_on_input` and `quantize_strength`\noverride the session's settings (`record.set_settings`) for this write only; left out,\nthe session's apply.",
+              "description": "Write a take into the project, every track at once, as **one** history entry. Per\ntrack, `notes` are the notes as played: `start` in transport ticks, `length` in\nticks. Every start is first moved `shift_ms` earlier at the project's tempo; when the\ntransport loops and the start is strictly inside the loop, the move wraps round the\nloop (a note that would go before the loop's start comes from its end). The notes the\nengine reported for a `record.start` take are already moved: write them with\n`shift_ms` 0 (the default); `shift_ms` is for notes not moved yet. With a\nscene target, a cell that holds a clip takes the notes on top of its own (overdub):\na note lands where the clip played at that moment, from `anchor` (the transport tick\nof the clip's position 0) or else from the bar of the first note, round its loop;\na clip without a loop grows to the bar after the last note. An empty cell gets a new\nclip from the bar of the first note to the bar after the last one (at least one\nbar), looping over its length. With the arrangement target, a note inside a\nplacement goes into its clip where the placement shows it; the other notes make one\nnew clip per gap between placements, from the bar of its first note to the bar after\nits last, cut at the next placement. A note before tick 0 or before its clip is\ndropped and counted; a note longer than its clip is cut at the clip's end. With\n`replace` on (`record.set_settings`), a clip that takes notes first loses the notes\nthat start in the range the track recorded (its first note to the end of its last),\ncounted in `replaced`. With `quantize_on_input` on, the starts of the take's notes\nmove toward the grid of their clip by `quantize_strength` (a note stays inside its\nclip, lengths never change). Undo: `record.restore` puts the clips back as they\nwere, replaced notes included. `replace`, `quantize_on_input` and `quantize_strength`\noverride the session's settings (`record.set_settings`) for this write only; left out,\nthe session's apply.",
               "properties": {
                 "quantize_on_input": {
                   "anyOf": [
@@ -26944,7 +26944,7 @@
                   "type": "boolean"
                 },
                 "shift_ms": {
-                  "description": "How much earlier the notes will be placed: `latency_ms` plus the session's\noffset (`record.set_settings`), in milliseconds.",
+                  "description": "How much earlier the engine places the notes: `latency_ms` plus the session's\noffset (`record.set_settings`), in milliseconds. The notes it reports are already\nmoved: they are written with `record.commit_take`'s `shift_ms` 0.",
                   "format": "double",
                   "type": "number"
                 },
@@ -36653,7 +36653,7 @@
                   "type": "boolean"
                 },
                 "shift_ms": {
-                  "description": "How much earlier the notes will be placed: `latency_ms` plus the session's\noffset (`record.set_settings`), in milliseconds.",
+                  "description": "How much earlier the engine places the notes: `latency_ms` plus the session's\noffset (`record.set_settings`), in milliseconds. The notes it reports are already\nmoved: they are written with `record.commit_take`'s `shift_ms` 0.",
                   "format": "double",
                   "type": "number"
                 },
@@ -38157,7 +38157,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 37,
+  "protocol_version": 38,
   "scale_intervals": [
     {
       "intervals": [
