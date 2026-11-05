@@ -211,7 +211,12 @@ domain! {
     /// bar), looping over its length. With the arrangement target, a note inside a
     /// placement goes into its clip where the placement shows it; the other notes make one
     /// new clip per gap between placements, from the bar of its first note to the bar after
-    /// its last, cut at the next placement. A note that starts at most a sixteenth before
+    /// its last, cut at the next placement. "The bar of the first note" has a sixteenth of
+    /// tolerance for an early downbeat: when the first note starts less than a sixteenth
+    /// before a bar and every note of that sixteenth starts less than 30 ms after it, the
+    /// clip starts on that bar and those notes on its first tick, with their lengths; any
+    /// other note in that sixteenth (a pickup) leaves every note where it was played, the
+    /// clip starting on the bar before. A note that starts at most a sixteenth before
     /// tick 0 starts there with its length; one that starts earlier starts there, cut, when
     /// it ends after it, and is dropped and counted otherwise, as a note before its clip; a
     /// note longer than its clip is cut at the clip's end. With
