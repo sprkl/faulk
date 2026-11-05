@@ -737,6 +737,63 @@ fn a_first_note_played_just_before_the_bar_starts_the_clip_on_that_bar() {
     assert_eq!(p.start, Tick(3840));
 }
 
+/// #732: the rule above takes every note of the sixteenth before the bar, not only the first:
+/// they all start on the bar's first tick, the notes after the bar stay as played. The window
+/// is in ticks, so its length in time follows the tempo (125 ms at 120 BPM, 15 ms at 999 BPM):
+/// the "common floor" of the first notes of a batch the issue measured at 999 BPM.
+#[test]
+fn every_note_of_the_sixteenth_before_the_bar_starts_on_the_bar() {
+    let r = rec();
+    // 160 ticks apart (10 ms at 999 BPM): 7450 and 7610 lie 230 and 70 ticks before bar 2 (7680).
+    let played = vec![note(7450, 60, 80), note(7610, 61, 80), note(7770, 62, 80)];
+    let (state, out, _) = commit(
+        &r,
+        RecordTarget::Scene {
+            scene: r.empty.clone(),
+        },
+        0.0,
+        take(&r, played.clone(), None),
+    );
+    let RO::CommitTake { clips, dropped, .. } = out else {
+        panic!()
+    };
+    assert_eq!(dropped, 0);
+    let ClipContent::Midi { notes, .. } =
+        &state.project.tracks[&r.track].clips[&clips[0].clip].content
+    else {
+        panic!()
+    };
+    let starts: Vec<_> = notes.iter().map(|n| (n.pitch, n.start)).collect();
+    assert_eq!(starts, vec![(60, Tick(0)), (61, Tick(0)), (62, Tick(90))]);
+    // A new clip of the arrangement does the same, in the gap before the placement of bar 2:
+    // the same notes one bar earlier, around bar 1 (3840).
+    let played = played
+        .iter()
+        .map(|n| note(n.start.get() - 3840, n.pitch, 80))
+        .collect();
+    let (state, out, _) = commit(
+        &r,
+        RecordTarget::Arrangement {},
+        0.0,
+        take(&r, played, None),
+    );
+    let RO::CommitTake { clips, .. } = out else {
+        panic!()
+    };
+    let track = &state.project.tracks[&r.track];
+    let p = track
+        .placements
+        .values()
+        .find(|p| p.clip == clips[0].clip)
+        .unwrap();
+    assert_eq!(p.start, Tick(3840));
+    let ClipContent::Midi { notes, .. } = &track.clips[&clips[0].clip].content else {
+        panic!()
+    };
+    let starts: Vec<_> = notes.iter().map(|n| (n.pitch, n.start)).collect();
+    assert_eq!(starts, vec![(60, Tick(0)), (61, Tick(0)), (62, Tick(90))]);
+}
+
 /// #560: the engine applies the take's shift (the latency plus the session's offset), the
 /// same one `record.start` answers.
 #[test]
