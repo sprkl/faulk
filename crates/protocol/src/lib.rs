@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 42;
+pub const PROTOCOL_VERSION: u32 = 45;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -43,6 +43,12 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 45 (#157, provisional: 43 and 44 are held by other open pull requests): the Compressor
+// (kind id 5) gains seven parameters, ids 5 to 11 (knee, detection, release_mode, sidechain_hpf,
+// sidechain_freq, lookahead, mix). No message changes shape, but an earlier helper's Compressor
+// ignores the unknown ids without an error: a project using them would play another sound in Boost
+// than in the page, silently. A refused session is better than that.
 
 // Version 42 (#159): a new built-in device, `faulk.ceiling` (kind id 7, the brick-wall
 // limiter). No message changes shape, but a helper of an earlier version does not know kind 7: its engine

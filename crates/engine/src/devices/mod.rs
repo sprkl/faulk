@@ -15,6 +15,8 @@ pub mod compressor;
 pub mod drums;
 pub mod echo;
 pub mod filter;
+/// The switch of a latency while a device sounds (Ceiling, Compressor).
+pub mod latency_switch;
 pub mod osc_synth;
 pub mod reverb;
 pub mod time_change;

@@ -77,8 +77,21 @@ export const devices = defineFeature(
       'How strongly the sound above the threshold is turned down, from 1 (not at all) to 20: at 4, a signal 8 dB over the threshold comes out 2 dB over it.',
     'compressor.attack.hint':
       'Time the compressor takes to turn the sound down once it passes the threshold, from 0.1 ms to 200 ms: short catches the first hit, long lets it through.',
-    'compressor.release.hint': 'Time the compressor takes to let the sound back up once it falls under the threshold, from 10 ms to 2 s.',
+    'compressor.release.hint': 'In manual release, time the compressor takes to let the sound back up once it falls under the threshold, from 10 ms to 2 s.',
     'compressor.makeup.hint': 'Gain added after the compression to make up for the level it took away, from 0 to 24 dB.',
+    'compressor.knee.hint':
+      'Width, in decibels, of the zone around the threshold where the compression comes in gradually, from 0 (hard: the full ratio right at the threshold) to 24 dB (soft).',
+    'compressor.release_mode.hint':
+      'How the compressor lets the sound back up: manual (the release time) or auto (fast after a short hit, slower after a long compression, so it pumps less).',
+    'compressor.detection.hint':
+      'What level the compressor reacts to: peak (each sample, it catches the hits) or RMS (the average over 10 ms, it follows the loudness and lets short hits through).',
+    'compressor.lookahead.hint':
+      'How far ahead the compressor sees the sound, from 0 to 10 ms, so a short attack catches a hit whole. It delays this track by that time: the other tracks are not delayed to match. A change fades out and back in.',
+    'compressor.sidechain_hpf.hint':
+      'When on, the compressor does not react to the lows under the sidechain frequency (a 12 dB per octave high-pass on what it listens to, not on the sound): a kick or a bass no longer pumps everything else.',
+    'compressor.sidechain_freq.hint': 'With the sidechain high-pass on, the frequency under which the compressor stops reacting, from 20 to 500 Hz.',
+    'compressor.mix.hint':
+      'Balance between the dry sound (0) and the compressed sound (1): in between is parallel compression, the hits keep their attack and the quiet parts come up.',
     'ceiling.ceiling.hint': 'Highest level the output may reach, in decibels of full scale, from -12 to 0 dB: no sample goes above it.',
     'ceiling.gain.hint': 'Gain added before the limiter, from 0 to 24 dB: it pushes the sound against the ceiling, so it gets louder without going over.',
     'ceiling.compensate.hint':
@@ -160,8 +173,21 @@ export const devices = defineFeature(
       'Force avec laquelle le son au-dessus du seuil est baissé, de 1 (pas du tout) à 20 : à 4, un signal 8 dB au-dessus du seuil ressort 2 dB au-dessus.',
     'compressor.attack.hint':
       'Temps que le compresseur met à baisser le son une fois le seuil dépassé, de 0,1 ms à 200 ms : court attrape le début du coup, long le laisse passer.',
-    'compressor.release.hint': 'Temps que le compresseur met à relever le son une fois repassé sous le seuil, de 10 ms à 2 s.',
+    'compressor.release.hint': 'En relâchement manuel, temps que le compresseur met à relever le son une fois repassé sous le seuil, de 10 ms à 2 s.',
     'compressor.makeup.hint': 'Gain ajouté après la compression pour rattraper le niveau qu’elle a retiré, de 0 à 24 dB.',
+    'compressor.knee.hint':
+      'Largeur, en décibels, de la zone autour du seuil où la compression arrive progressivement, de 0 (dur : tout le ratio dès le seuil) à 24 dB (doux).',
+    'compressor.release_mode.hint':
+      'Comment le compresseur relève le son : manuel (le temps de relâchement) ou auto (vite après un coup bref, plus lentement après une longue compression, pour moins pomper).',
+    'compressor.detection.hint':
+      'À quel niveau le compresseur réagit : crête (chaque échantillon, il attrape les coups) ou RMS (la moyenne sur 10 ms, il suit le volume et laisse passer les coups brefs).',
+    'compressor.lookahead.hint':
+      'Avance avec laquelle le compresseur voit venir le son, de 0 à 10 ms, pour qu’une attaque courte attrape un coup en entier. Cette piste est retardée d’autant, les autres pistes ne le sont pas. Un changement se fait par un fondu de sortie puis d’entrée.',
+    'compressor.sidechain_hpf.hint':
+      'Activé, le compresseur ne réagit plus aux graves sous la fréquence du sidechain (un passe-haut à 12 dB par octave sur ce qu’il écoute, pas sur le son) : un kick ou une basse ne fait plus pomper tout le reste.',
+    'compressor.sidechain_freq.hint': 'Avec le passe-haut du sidechain activé, fréquence sous laquelle le compresseur cesse de réagir, de 20 à 500 Hz.',
+    'compressor.mix.hint':
+      'Équilibre entre le son direct (0) et le son compressé (1) : entre les deux, c’est la compression parallèle, les coups gardent leur attaque et les passages calmes remontent.',
     'ceiling.ceiling.hint': 'Niveau le plus haut que la sortie peut atteindre, en décibels de pleine échelle, de -12 à 0 dB : aucun échantillon ne le dépasse.',
     'ceiling.gain.hint': 'Gain ajouté avant le limiteur, de 0 à 24 dB : il pousse le son contre le plafond, qui devient plus fort sans le dépasser.',
     'ceiling.compensate.hint':

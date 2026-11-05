@@ -39,6 +39,10 @@ describe('device panels from the descriptors', () => {
   it('formats values by unit', () => {
     const [attack, sustain] = [knobParams(SYNTH)[0], knobParams(SYNTH)[2]]
     expect(formatValue(attack, 0.005)).toBe('5 ms')
+    // Under 10 ms, to a tenth: Ceiling's 1.5 ms look-ahead, the Compressor's 0.1 ms attack.
+    expect(formatValue(attack, 0.0015)).toBe('1.5 ms')
+    expect(formatValue(attack, 0.0001)).toBe('0.1 ms')
+    expect(formatValue(attack, 0.0123)).toBe('12 ms')
     expect(formatValue(attack, 2.5)).toBe('2.50 s')
     expect(formatValue(sustain, 0.7)).toBe('70 %')
     const gain = knobParams(SYNTH)[4]
@@ -105,6 +109,20 @@ describe('parameters shown in one mode only (#472)', () => {
     // A device with no rule shows everything.
     const drums = descriptorOf('faulk.drums')
     expect(shownParams(drums, () => undefined)).toEqual(drums.params)
+  })
+
+  it('shows the release time of the Compressor in manual release and its sidechain frequency with the high-pass on', () => {
+    const comp = descriptorOf('faulk.compressor')
+    const value = (key: string, choice: string) => choices(comp.params.find((p) => p.key === key)!).find((c) => c.key === choice)!.value
+    const keys = (mode: number | undefined, hpf: number | undefined) =>
+      shownParams(comp, (key) => (key === 'release_mode' ? mode : key === 'sidechain_hpf' ? hpf : undefined)).map((p) => p.key)
+    const all = comp.params.map((p) => p.key)
+    expect(all).toHaveLength(12)
+    expect(keys(value('release_mode', 'manual'), value('sidechain_hpf', 'on'))).toEqual(all)
+    expect(keys(value('release_mode', 'auto'), value('sidechain_hpf', 'on'))).toEqual(all.filter((k) => k !== 'release'))
+    expect(keys(value('release_mode', 'manual'), value('sidechain_hpf', 'off'))).toEqual(all.filter((k) => k !== 'sidechain_freq'))
+    // Manual release and no high-pass are the defaults: the MVP's release time stays in view.
+    expect(keys(undefined, undefined)).toEqual(all.filter((k) => k !== 'sidechain_freq'))
   })
 
   it('shows the release time of Ceiling only in manual release', () => {

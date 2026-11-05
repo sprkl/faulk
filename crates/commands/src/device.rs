@@ -405,6 +405,28 @@ pub(crate) fn descriptor_of<'r>(
         .map(|b| b.descriptor)
 }
 
+/// Gives every built-in device of `project` the parameters its descriptor declares and the
+/// project does not hold, at their defaults (#157): a device saved before its kind gained a
+/// parameter (the MVP's Compressor and its five) opens with the new one at its neutral
+/// default, the value the engine already plays it with, and it can be set, shown and undone
+/// like the others. A key the descriptor does not declare is kept as it is.
+pub(crate) fn add_missing_params(project: &mut project::Project) {
+    let registry = registry();
+    let devices = project
+        .tracks
+        .values_mut()
+        .flat_map(|t| t.devices.values_mut())
+        .chain(project.master_devices.values_mut());
+    for device in devices {
+        let Some(descriptor) = descriptor_of(registry, device) else {
+            continue;
+        };
+        for p in descriptor.params {
+            device.params.entry(p.key.to_owned()).or_insert(p.default);
+        }
+    }
+}
+
 /// A new device of a built-in kind, at its default settings, not bypassed.
 pub(crate) fn built(builtin: &Builtin, role: DeviceRole, order: OrderKey) -> Device {
     let descriptor = builtin.descriptor;

@@ -89,6 +89,8 @@ export function formatValue(p: ParamDescriptor, value: number): string {
   const unit: string = p.unit
   switch (unit) {
     case 'seconds':
+      // Under 10 ms to a tenth (a look-ahead, a short attack), whole milliseconds up to 1 s.
+      if (value < 0.01) return `${+(value * 1000).toFixed(1)} ms`
       return value < 1 ? `${Math.round(value * 1000)} ms` : `${value.toFixed(2)} s`
     case 'hertz':
       return value < 1000 ? `${Math.round(value)} Hz` : `${(value / 1000).toFixed(2)} kHz`
@@ -111,10 +113,15 @@ export function formatValue(p: ParamDescriptor, value: number): string {
  * Parameters that only matter in one mode of their device (display only: the engine keeps every parameter, and a
  * hidden one keeps its value). Per device kind, per parameter key: the choice parameter that decides, and the keys of
  * its values for which the parameter is shown. Echo: the delay time in free mode, the note value in synced mode. Ceiling: the release time in manual release.
+ * Compressor: the release time in manual release, the sidechain frequency with the sidechain high-pass on.
  */
 export const SHOWN_IN_MODE: Readonly<Record<string, Readonly<Record<string, { by: string; values: readonly string[] }>>>> = {
   'faulk.echo': { time: { by: 'mode', values: ['free'] }, division: { by: 'mode', values: ['synced'] } },
   'faulk.ceiling': { release: { by: 'release_mode', values: ['manual'] } },
+  'faulk.compressor': {
+    release: { by: 'release_mode', values: ['manual'] },
+    sidechain_freq: { by: 'sidechain_hpf', values: ['on'] },
+  },
 }
 
 /** The parameters of a device to show now, given the value of each parameter (`valueOf` falls back to the default). */

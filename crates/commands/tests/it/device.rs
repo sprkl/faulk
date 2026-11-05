@@ -638,6 +638,132 @@ fn a_module_device_keeps_the_check_against_what_the_project_holds() {
     assert_eq!(code(&param(&c.a, "other", 1.0), &s), "not_found");
 }
 
+/// #157: each parameter the Compressor gained is set by its key through `device.set_param` as
+/// an agent sends it (JSON), described from the descriptor, sent to the engine by its id, and
+/// undone; a Compressor saved by the MVP (its five keys only) opens with the new keys at
+/// their neutral defaults, so the previous value is the default.
+#[test]
+fn the_compressor_s_new_parameters_are_set_by_key_sent_by_id_and_undone() {
+    use ::project::file::{MemFs, SaveOptions, SaveState, save};
+    use engine::devices::compressor as comp;
+    let c = chain();
+    let mut s = c.state.clone();
+    let out = go(
+        &mut s,
+        &d(device::Command::Insert {
+            track: Some(c.track.clone()),
+            master: false,
+            kind: "faulk.compressor".into(),
+            index: 0,
+        }),
+    );
+    let Output::Device(device::Output::Insert { device: fx }) = out.output else {
+        panic!()
+    };
+    let mvp = ["threshold", "ratio", "attack", "release", "makeup"];
+    s.project
+        .tracks
+        .get_mut(&c.track)
+        .unwrap()
+        .devices
+        .get_mut(&fx)
+        .unwrap()
+        .params
+        .retain(|k, _| mvp.contains(&k.as_str()));
+    // Saved as the MVP wrote it, then opened: the five keys come back with the new ones.
+    let mut fs = MemFs::new();
+    save(
+        &mut fs,
+        &s.project,
+        &mut SaveState::new(),
+        None,
+        &SaveOptions::default(),
+    )
+    .unwrap();
+    let mut ctx = context();
+    ctx.folder = Some(commands::contract::Folder::new("mvp", fs));
+    run(
+        &Command::Project(commands::project::Command::Open {
+            folder: "mvp".into(),
+        }),
+        &mut s,
+        &mut ctx,
+    )
+    .unwrap();
+    let opened = &s.project.tracks[&c.track].devices[&fx].params;
+    assert_eq!(opened.len(), comp::DESCRIPTOR.params.len());
+    for p in comp::DESCRIPTOR.params {
+        assert!(opened.contains_key(p.key), "{}", p.key);
+    }
+    let base = s.clone();
+    let added = [
+        ("knee", comp::KNEE, 12.0, comp::KNEE_DB as f64),
+        ("detection", comp::DETECTION, 1.0, 0.0),
+        ("release_mode", comp::RELEASE_MODE, 1.0, 0.0),
+        ("sidechain_hpf", comp::SIDECHAIN_HPF, 1.0, 0.0),
+        ("sidechain_freq", comp::SIDECHAIN_FREQ, 250.0, 100.0),
+        ("lookahead", comp::LOOKAHEAD, 0.005, 0.0),
+        ("mix", comp::MIX, 0.4, 1.0),
+    ];
+    // Every parameter of the descriptor is either the MVP's or one of these.
+    assert_eq!(comp::DESCRIPTOR.params.len(), mvp.len() + added.len());
+    for (key, id, value, default) in added {
+        let p = comp::DESCRIPTOR
+            .params
+            .iter()
+            .find(|p| p.key == key)
+            .unwrap();
+        assert_eq!((p.id.0, p.default), (id, default), "{key}");
+        assert!(!p.description.is_empty(), "{key}");
+        let command: Command = serde_json::from_value(serde_json::json!({
+            "type": "device.set_param", "device": fx.to_string(), "param": key, "value": value
+        }))
+        .unwrap_or_else(|e| panic!("{key}: {e}"));
+        check(&command, &base, &context()).unwrap();
+        // Through the engine sync, which gives the command its engine messages.
+        let mut synced = Synced::new(base.clone(), context(), 1);
+        synced.setup().unwrap();
+        let (out, bytes) = synced.run(&command).unwrap();
+        let mut h = synced.state.clone();
+        let mut messages = Vec::new();
+        let mut at = 0;
+        while at < bytes.len() {
+            use engine::msg::{HEADER_BYTES, Header};
+            let header = Header::decode(&bytes[at..], 1).unwrap();
+            let end = at + HEADER_BYTES + header.len as usize;
+            messages.push(ControlMsg::decode(&header, &bytes[at + HEADER_BYTES..end]).unwrap());
+            at += Header::frame_len(header.len);
+        }
+        assert_eq!(
+            out.output,
+            Output::Device(device::Output::SetParam {
+                previous: default,
+                value
+            }),
+            "{key}"
+        );
+        assert_eq!(h.project.tracks[&c.track].devices[&fx].params[key], value);
+        let sent: Vec<_> = messages
+            .iter()
+            .filter_map(|m| match m {
+                ControlMsg::ParamSet { param, value, .. } => Some((param.0, *value)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(sent, [(id, value as f32)], "{key}");
+        assert!(
+            matches!(out.undo, Undo::Inverse(_)),
+            "{key}: {:?}",
+            out.undo
+        );
+        run(&undo(), &mut h, &mut context()).unwrap();
+        assert_eq!(
+            h.project, base.project,
+            "{key}: the undo gives the MVP's device back"
+        );
+    }
+}
+
 // ---------------------------------------------------------------- track.set_instrument
 
 #[test]
