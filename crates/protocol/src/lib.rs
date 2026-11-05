@@ -46,7 +46,8 @@ pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
 // Version 40 (#682; 38 is #560's, 39 is #710's): the commands gain `project.cancel_import_pack` (stops the
 // `.faulkpack` imports under way, downloads included); the helper generates its MCP tools from the
-// commands, so a helper of an earlier version would not offer it to an agent. No message changes.
+// commands, so a helper of an earlier version would not offer it to an agent. No message changes. Its output
+// (`cancelled`, `too_late`, #735) was settled before any helper published version 40, so the version stays.
 
 // Version 39 (#710): the commands gain `clip.notes.repeat` (notes repeated end to end up to a
 // tick, cut at the end of the clip). The helper's MCP tools come from the commands, so a helper of

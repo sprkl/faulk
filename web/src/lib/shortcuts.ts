@@ -152,6 +152,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       },
       { label: 'shortcut.noteDuplicate', chords: [['Mod', 'D']] },
       { label: 'shortcut.noteRepeat', chords: [['Mod', 'Shift', 'R']] },
+      { label: 'shortcut.noteGenerate', chords: [['Alt', 'G']] },
       { label: 'shortcut.noteQuantize', chords: [['KeyQ']] },
       {
         label: 'shortcut.noteStep',

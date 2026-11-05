@@ -226,8 +226,13 @@ class FakeHost implements ProjectHost {
   saved(applied: boolean) {
     if (applied) this.clean = this.pending
   }
+  /** Waits here before opening a project, and says when it started to. */
+  openHold: Promise<void> | null = null
+  opening: (() => void) | null = null
   async openProject(name: string, entries: FolderEntry[]): Promise<OpenOutcome> {
     if (this.refuseOpen) return { status: 'refused', reason: 'corrupt' }
+    this.opening?.()
+    if (this.openHold) await this.openHold
     this.opened.push({ name, entries })
     this.revision = this.clean = 0
     return { status: 'opened', name }
@@ -2535,6 +2540,164 @@ describe('import a .faulkpack', () => {
     expect(w.host.opened).toEqual([])
   })
 
+  describe('a cancel of an import, where the pack is read whole and where it is read in pieces (#735)', () => {
+    const LINK = 'https://cdn.example.org/tracks/a/project.faulkpack'
+    /** A file whose stream gives `pieces` of 1 byte, the last after `hold` is released. */
+    const heldFile = (hold: Promise<void>, pieces = 4) =>
+      ({
+        name: 'song.faulkpack',
+        size: pieces,
+        stream: () =>
+          new ReadableStream<Uint8Array>({
+            async pull(controller) {
+              if (controller.desiredSize === null) return
+              this.sent = (this.sent ?? 0) + 1
+              if (this.sent === pieces) await hold
+              controller.enqueue(new Uint8Array(1))
+              if (this.sent === pieces) controller.close()
+            },
+          } as UnderlyingDefaultSource<Uint8Array> & { sent?: number }),
+      }) as unknown as File
+
+    it('stops the read when asked, shows its banner with the cancel, changes nothing and says what it stopped', async () => {
+      const w = world()
+      w.host.unpacked = packOf('pack-1')
+      let release!: () => void
+      const hold = new Promise<void>((resolve) => (release = resolve))
+      w.packs.push(heldFile(hold))
+      const reading = w.storage.importPack()
+      await vi.waitFor(() => expect(w.storage.banner).toBe('importing'))
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 1, tooLate: 0 })
+      // Asked twice, it stopped one import once.
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 0, tooLate: 0 })
+      release()
+      expect(await reading).toBe(false)
+      expect(w.storage.notice).toBe('pack.importCancelled')
+      expect(w.storage.importing).toBeNull()
+      expect(w.host.opened).toEqual([])
+    })
+
+    it('stops an import cancelled before its read started, and one cancelled after the read, before the project opens', async () => {
+      const w = world()
+      w.host.unpacked = packOf('pack-1')
+      // While it waits behind other work: the file is never read.
+      let free!: () => void
+      const busy = (w.storage as unknown as { enqueue(task: () => Promise<void>): Promise<void> }).enqueue(
+        () => new Promise<void>((resolve) => (free = resolve)),
+      )
+      const read = vi.fn()
+      w.packs.push({ name: 'a.faulkpack', size: 3, stream: read } as unknown as File)
+      const waiting = w.storage.importPack()
+      await settle()
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 1, tooLate: 0 })
+      free()
+      await busy
+      expect(await waiting).toBe(false)
+      expect(read).not.toHaveBeenCalled()
+      expect(w.storage.notice).toBe('pack.importCancelled')
+      // Read, then cancelled before the project starts opening: the host unpacks it, the page stops there.
+      const unpack = vi.spyOn(w.host, 'packImport').mockImplementation(async () => {
+        w.storage.cancelImport()
+        return packOf('pack-2')
+      })
+      w.packs.push(packFile())
+      expect(await w.storage.importPack()).toBe(false)
+      expect(unpack).toHaveBeenCalledTimes(1)
+      expect(w.storage.notice).toBe('pack.importCancelled')
+      expect(w.host.opened).toEqual([])
+    })
+
+    it('is too late once the project started to open: it opens, and the cancel says it came too late', async () => {
+      const w = world()
+      w.host.unpacked = packOf('pack-1')
+      let release!: () => void
+      w.host.openHold = new Promise<void>((resolve) => (release = resolve))
+      const started = new Promise<void>((resolve) => (w.host.opening = resolve))
+      w.packs.push(packFile())
+      const importing = w.storage.importPack()
+      await started
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 0, tooLate: 1 })
+      release()
+      expect(await importing).toBe(true)
+      expect(w.host.opened.length).toBe(1)
+      // Over: nothing runs any more.
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 0, tooLate: 0 })
+    })
+
+    it('is cancelled after a link was downloaded, while its import waits its turn', async () => {
+      const w = world()
+      w.host.unpacked = packOf('pack-1')
+      w.served.set(LINK, text('zip'))
+      let free!: () => void
+      const busy = (w.storage as unknown as { enqueue(task: () => Promise<void>): Promise<void> }).enqueue(
+        () => new Promise<void>((resolve) => (free = resolve)),
+      )
+      const opening = w.storage.openUrl(LINK)
+      await settle()
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 1, tooLate: 0 })
+      free()
+      await busy
+      expect(await opening).toBe(false)
+      expect(w.storage.notice).toBe('pack.importCancelled')
+      expect(w.host.opened).toEqual([])
+    })
+
+    it('with browser storage: a cancel comes too late once the project opens, and not before', async () => {
+      const w = world()
+      w.browser.available = true
+      w.host.unpacked = packOf('pack-1')
+      let release!: () => void
+      w.host.openHold = new Promise<void>((resolve) => (release = resolve))
+      const started = new Promise<void>((resolve) => (w.host.opening = resolve))
+      w.packs.push(packFile())
+      const importing = w.storage.importPack()
+      await started
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 0, tooLate: 1 })
+      release()
+      expect(await importing).toBe(true)
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 0, tooLate: 0 })
+    })
+
+    it('with browser storage: a link whose kept copy would open is stopped by a cancel that comes before it', async () => {
+      const w = world()
+      w.browser.available = true
+      w.served.set(LINK, text('zip'))
+      w.host.unpacked = packOf('pack-1')
+      expect(await w.storage.openUrl(LINK)).toBe(true)
+      w.host.id = 'pack-1'
+      await w.storage.newProject()
+      w.storage.dismissNotice()
+      const opened = w.host.opened.length
+      // The cancel lands while the page looks at what the browser keeps.
+      const list = w.browser.list.bind(w.browser)
+      w.browser.list = async () => {
+        w.storage.cancelImport()
+        return list()
+      }
+      expect(await w.storage.openUrl(LINK)).toBe(false)
+      expect(w.storage.notice).toBe('pack.importCancelled')
+      expect(w.host.opened.length).toBe(opened)
+    })
+
+    it('counts a link read whole the same way: cancelled while it downloads', async () => {
+      const w = world()
+      w.host.unpacked = packOf('pack-1')
+      let rest!: () => void
+      const more = new Promise<void>((resolve) => (rest = resolve))
+      w.deps.fetch = async (_input, init) => {
+        await more
+        if (init?.signal?.aborted) throw new DOMException('aborted', 'AbortError')
+        return new Response(text('zip'))
+      }
+      const opening = w.storage.openUrl('https://a.example.org/1.faulkpack')
+      await settle()
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 1, tooLate: 0 })
+      rest()
+      expect(await opening).toBe(false)
+      expect(w.host.opened).toEqual([])
+    })
+  })
+
   it('shows how far a download is when the host announced its length', async () => {
     const w = world()
     w.browser.available = true
@@ -2700,8 +2863,7 @@ describe('import a .faulkpack', () => {
     w.host.unpacked = packOf('pack-1')
     w.packs.push(packFile())
     const importing = w.storage.importPack()
-    await settle()
-    expect(w.storage.confirm?.action).toBe('open')
+    await vi.waitFor(() => expect(w.storage.confirm?.action).toBe('open'))
     w.storage.respond(false)
     expect(await importing).toBe(false)
     expect(w.host.opened).toEqual([])
