@@ -73,6 +73,14 @@ const FILES: &[(&str, &str)] = &[
         "faulk.filter/thin-highpass",
         include_str!("factory/faulk.filter/thin-highpass.json"),
     ),
+    (
+        "faulk.contour/vocal-presence",
+        include_str!("factory/faulk.contour/vocal-presence.json"),
+    ),
+    (
+        "faulk.contour/low-cut-tidy",
+        include_str!("factory/faulk.contour/low-cut-tidy.json"),
+    ),
 ];
 
 /// The raw files, for the tests that hold them to the canonical format.

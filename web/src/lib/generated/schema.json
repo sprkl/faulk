@@ -29520,6 +29520,424 @@
       ],
       "role": "effect",
       "version": 1
+    },
+    {
+      "kind": "faulk.contour",
+      "kind_id": 7,
+      "memory_bytes": 2832,
+      "midi_output": null,
+      "name": "Contour",
+      "named_keys": [],
+      "params": [
+        {
+          "default": 0,
+          "description": "Switches the low cut (high-pass) on or off. A switch fades over 10 ms.",
+          "id": 0,
+          "key": "hp_on",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 30,
+          "description": "Frequency, in hertz, below which the low cut takes the sound away, from 20 Hz to 20 kHz.",
+          "id": 1,
+          "key": "hp_freq",
+          "max": 20000,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 0.707,
+          "description": "Resonance of the low cut at its frequency, from 0.1 to 18: 0.707 is flat, higher values add a peak just above the cut.",
+          "id": 2,
+          "key": "hp_q",
+          "max": 18,
+          "min": 0.1,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "How steeply the low cut falls below its frequency: 12, 24 or 48 dB per octave. A change fades over 10 ms.",
+          "id": 3,
+          "key": "hp_slope",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "db12",
+            "db24",
+            "db48"
+          ]
+        },
+        {
+          "default": 1,
+          "description": "Switches the low shelf on or off. A switch fades over 10 ms.",
+          "id": 4,
+          "key": "low_on",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 100,
+          "description": "Frequency, in hertz, of the low shelf's corner, from 20 Hz to 20 kHz: the shelf's gain applies below it.",
+          "id": 5,
+          "key": "low_freq",
+          "max": 20000,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Gain of the low shelf, from -24 to +24 dB: what the sound below its frequency gains or loses.",
+          "id": 6,
+          "key": "low_gain",
+          "max": 24,
+          "min": -24,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        },
+        {
+          "default": 0.707,
+          "description": "Steepness of the low shelf's corner, from 0.1 to 18: 0.707 is smooth, higher values add a bump at the corner.",
+          "id": 7,
+          "key": "low_q",
+          "max": 18,
+          "min": 0.1,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "Switches bell 1 on or off. A switch fades over 10 ms.",
+          "id": 8,
+          "key": "bell1_on",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 250,
+          "description": "Centre frequency of bell 1, in hertz, from 20 Hz to 20 kHz.",
+          "id": 9,
+          "key": "bell1_freq",
+          "max": 20000,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Gain of bell 1 at its centre frequency, from -24 to +24 dB.",
+          "id": 10,
+          "key": "bell1_gain",
+          "max": 24,
+          "min": -24,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "Width of bell 1, from 0.1 (wide) to 18 (narrow): its centre frequency over the bandwidth at half its gain.",
+          "id": 11,
+          "key": "bell1_q",
+          "max": 18,
+          "min": 0.1,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "Switches bell 2 on or off. A switch fades over 10 ms.",
+          "id": 12,
+          "key": "bell2_on",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 1000,
+          "description": "Centre frequency of bell 2, in hertz, from 20 Hz to 20 kHz.",
+          "id": 13,
+          "key": "bell2_freq",
+          "max": 20000,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Gain of bell 2 at its centre frequency, from -24 to +24 dB.",
+          "id": 14,
+          "key": "bell2_gain",
+          "max": 24,
+          "min": -24,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "Width of bell 2, from 0.1 (wide) to 18 (narrow): its centre frequency over the bandwidth at half its gain.",
+          "id": 15,
+          "key": "bell2_q",
+          "max": 18,
+          "min": 0.1,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "Switches bell 3 on or off. A switch fades over 10 ms.",
+          "id": 16,
+          "key": "bell3_on",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 4000,
+          "description": "Centre frequency of bell 3, in hertz, from 20 Hz to 20 kHz.",
+          "id": 17,
+          "key": "bell3_freq",
+          "max": 20000,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Gain of bell 3 at its centre frequency, from -24 to +24 dB.",
+          "id": 18,
+          "key": "bell3_gain",
+          "max": 24,
+          "min": -24,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "Width of bell 3, from 0.1 (wide) to 18 (narrow): its centre frequency over the bandwidth at half its gain.",
+          "id": 19,
+          "key": "bell3_q",
+          "max": 18,
+          "min": 0.1,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "Switches the high shelf on or off. A switch fades over 10 ms.",
+          "id": 20,
+          "key": "high_on",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 8000,
+          "description": "Frequency, in hertz, of the high shelf's corner, from 20 Hz to 20 kHz: the shelf's gain applies above it.",
+          "id": 21,
+          "key": "high_freq",
+          "max": 20000,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Gain of the high shelf, from -24 to +24 dB: what the sound above its frequency gains or loses.",
+          "id": 22,
+          "key": "high_gain",
+          "max": 24,
+          "min": -24,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        },
+        {
+          "default": 0.707,
+          "description": "Steepness of the high shelf's corner, from 0.1 to 18: 0.707 is smooth, higher values add a bump at the corner.",
+          "id": 23,
+          "key": "high_q",
+          "max": 18,
+          "min": 0.1,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Switches the high cut (low-pass) on or off. A switch fades over 10 ms.",
+          "id": 24,
+          "key": "lp_on",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 18000,
+          "description": "Frequency, in hertz, above which the high cut takes the sound away, from 20 Hz to 20 kHz.",
+          "id": 25,
+          "key": "lp_freq",
+          "max": 20000,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 0.707,
+          "description": "Resonance of the high cut at its frequency, from 0.1 to 18: 0.707 is flat, higher values add a peak just below the cut.",
+          "id": 26,
+          "key": "lp_q",
+          "max": 18,
+          "min": 0.1,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "How steeply the high cut falls above its frequency: 12, 24 or 48 dB per octave. A change fades over 10 ms.",
+          "id": 27,
+          "key": "lp_slope",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "db12",
+            "db24",
+            "db48"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Gain of the whole equaliser's output, from -24 to +24 dB.",
+          "id": 28,
+          "key": "output",
+          "max": 24,
+          "min": -24,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        }
+      ],
+      "role": "effect",
+      "version": 1
     }
   ],
   "error_codes": {
@@ -38487,7 +38905,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 40,
+  "protocol_version": 43,
   "scale_intervals": [
     {
       "intervals": [
