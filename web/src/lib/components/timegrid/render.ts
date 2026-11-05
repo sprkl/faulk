@@ -83,34 +83,62 @@ function channels(color: string): number[] | null {
   const computed = COMPUTED.exec(color)
   return computed ? [computed[1], computed[2], computed[3]].map(Number) : null
 }
-// The mixes of the current theme, by hue: emptied when the theme's text colour or shade changes, so a frame
-// builds no key and a switch serves no stale mix.
+// The mixes of the current theme, by hue: emptied when the theme's text colour, background or shade changes, so a
+// frame builds no key and a switch serves no stale mix.
 const inks = new Map<string, string>()
-let inksOf = { text: '', shade: 0 }
+let inksOf = { text: '', bg: '', shade: 0 }
+
+/** The WCAG relative luminance of three 0 to 255 channels. */
+function luminance(c: number[]): number {
+  const [r, g, b] = c.map((v) => {
+    const x = v / 255
+    return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4
+  })
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!
+}
+function contrast(a: number[], b: number[]): number {
+  const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p)
+  return (x! + 0.05) / (y! + 0.05)
+}
+/** `from` towards `to` by `t` (0 to 1), channel by channel, as whole numbers. */
+const mix = (from: number[], to: number[], t: number): number[] => from.map((v, i) => Math.round(v * (1 - t) + to[i]! * t))
+
+/** How much of its hue a clip's fill takes over the background (`CLIP_FILL_ALPHA` of `views/arrangement/draw.ts`): a line or a note also sits on it. */
+const CLIP_TINT = 0.32
+/** The contrast a track's line or note keeps on the background and on its clip's tint (WCAG 1.4.11). */
+const INK_CONTRAST = 3
 
 /**
  * A track hue as a line or a note is drawn on the background (#687): the hue mixed with the theme's text colour by
- * `trackShade` (none in the dark theme; enough ink in the light one to read at 3:1 on paper and on a clip's tint).
- * The hue itself stays the track's colour for fills. A colour that is neither `#rrggbb` nor a computed `rgb(…)` is
- * kept as it is.
+ * `trackShade` (none in the dark theme; enough ink in the light one to read at 3:1 on paper and on a clip's tint
+ * for the palette's hues). The hue itself stays the track's colour for fills. A track's colour can be any `#rrggbb`
+ * (`track.set_color`): with the background given (`colors.bg`), the mix takes more ink, in steps of 5 %, until the
+ * line holds 3:1 on the background and on the clip's tint (#698), up to the ink itself. A colour that is neither
+ * `#rrggbb` nor a computed `rgb(…)` is kept as it is.
  */
-export function trackInk(color: string, colors: Pick<Colors, 'text' | 'trackShade'>): string {
+export function trackInk(color: string, colors: Pick<Colors, 'text' | 'trackShade'> & { bg?: string }): string {
   const shade = colors.trackShade
   if (!(shade > 0)) return color
-  if (inksOf.text !== colors.text || inksOf.shade !== shade) {
+  const bgText = colors.bg ?? ''
+  if (inksOf.text !== colors.text || inksOf.bg !== bgText || inksOf.shade !== shade) {
     inks.clear()
-    inksOf = { text: colors.text, shade }
+    inksOf = { text: colors.text, bg: bgText, shade }
   }
   const known = inks.get(color)
   if (known) return known
   const a = channels(color)
   const b = channels(colors.text)
   if (!a || !b) return color
-  let out = '#'
-  for (const i of [0, 1, 2])
-    out += Math.round(a[i]! * (1 - shade) + b[i]! * shade)
-      .toString(16)
-      .padStart(2, '0')
+  const bg = colors.bg ? channels(colors.bg) : null
+  const tint = bg ? mix(bg, a, CLIP_TINT) : null
+  let t = shade
+  let ink = mix(a, b, t)
+  if (bg && tint)
+    while (t < 1 && (contrast(ink, bg) < INK_CONTRAST || contrast(ink, tint) < INK_CONTRAST)) {
+      t = Math.min(1, t + 0.05)
+      ink = mix(a, b, t)
+    }
+  const out = '#' + ink.map((v) => v.toString(16).padStart(2, '0')).join('')
   // A track's colour can be any `#rrggbb` (`track.set_color`): the cache never grows past a few hundred.
   if (inks.size >= 256) inks.clear()
   inks.set(color, out)

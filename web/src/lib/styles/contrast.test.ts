@@ -96,6 +96,8 @@ describe.each(Object.entries(THEMES))('the %s palette (#687)', (_, t) => {
     const colors = { text: v('--fk-text'), trackShade: shade }
     for (const hue of TRACK_COLORS) {
       const ink = trackInk(hue, colors)
+      // The palette needs no more ink than the theme's shade: the floor of #698 (given the background) leaves it as it is.
+      expect(trackInk(hue, { ...colors, bg: v('--fk-bg') }), hue).toBe(ink)
       const clip = over(hue, v('--fk-bg'), CLIP_FILL_ALPHA)
       expect(ratio(ink, v('--fk-bg')), `${hue} on the background`).toBeGreaterThanOrEqual(3)
       expect(ratio(ink, clip), `${hue} on its clip`).toBeGreaterThanOrEqual(3)

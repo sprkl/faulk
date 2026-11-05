@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { resolveTheme, setTheme, THEME_KEY, themeScript } from './theme'
-import { browserThemeEnv, Theme, type ThemeEnv } from './theme.svelte'
+import { browserThemeEnv, Theme } from './theme.svelte'
 import { trackInk } from './components/timegrid/render'
 
 /** A system preference the test flips, with the listeners the page added. */
@@ -21,9 +21,20 @@ function system(light: boolean) {
   }
 }
 
-function env(stored: string | null, sys = system(false)): ThemeEnv & { stored: string | null } {
+function env(stored: string | null, sys = system(false)) {
+  const storage = new Set<(key: string | null) => void>()
   const e = {
     stored,
+    storage,
+    /** Another tab writes the store, then the browser tells this one. */
+    elsewhere(value: string | null, key: string | null = THEME_KEY) {
+      e.stored = value
+      for (const f of [...storage]) f(key)
+    },
+    listen: (f: (key: string | null) => void) => {
+      storage.add(f)
+      return () => storage.delete(f)
+    },
     read: () => e.stored,
     write: (value: string) => {
       e.stored = value
@@ -32,6 +43,18 @@ function env(stored: string | null, sys = system(false)): ThemeEnv & { stored: s
     root: () => document.documentElement,
   }
   return e
+}
+
+function contrastOf(a: string, b: string): number {
+  const lum = (hex: string) => {
+    const [r, g, bl] = [1, 3, 5].map((i) => {
+      const v = parseInt(hex.slice(i, i + 2), 16) / 255
+      return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
+    })
+    return 0.2126 * r! + 0.7152 * g! + 0.0722 * bl!
+  }
+  const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p)
+  return (x! + 0.05) / (y! + 0.05)
 }
 
 const shown = () => document.documentElement.getAttribute('data-theme')
@@ -101,8 +124,44 @@ describe('the theme of the DAW (#687)', () => {
 
   it('works without matchMedia: system is dark', () => {
     const e = env('system')
-    e.query = () => null
+    e.query = () => null as unknown as MediaQueryList
     expect(new Theme(e).resolved).toBe('dark')
+  })
+
+  it('follows a choice made in another tab, ignores other keys, and stops after dispose (#698)', () => {
+    const e = env('dark')
+    const page = new Theme(e)
+    e.elsewhere('light')
+    expect(page.choice).toBe('light')
+    expect(shown()).toBe('light')
+    // It reads the other tab's choice back; it does not write it again.
+    expect(e.stored).toBe('light')
+    e.elsewhere('dark', 'something.else')
+    expect(shown()).toBe('light')
+    e.elsewhere('dark')
+    expect(shown()).toBe('dark')
+    // A cleared store (key null) and a value it does not know give the default.
+    e.elsewhere('light')
+    e.elsewhere(null, null)
+    expect(page.choice).toBe('dark')
+    expect(shown()).toBe('dark')
+    e.elsewhere('sepia')
+    expect(page.choice).toBe('dark')
+    page.dispose()
+    expect(e.storage.size).toBe(0)
+    e.elsewhere('light')
+    expect(shown()).toBe('dark')
+  })
+
+  it("listens to the window's storage event by default (#698)", () => {
+    const page = new Theme(browserThemeEnv)
+    localStorage.setItem(THEME_KEY, 'light')
+    window.dispatchEvent(new StorageEvent('storage', { key: THEME_KEY, newValue: 'light' }))
+    expect(shown()).toBe('light')
+    page.dispose()
+    localStorage.setItem(THEME_KEY, 'dark')
+    window.dispatchEvent(new StorageEvent('storage', { key: THEME_KEY, newValue: 'dark' }))
+    expect(shown()).toBe('light')
   })
 
   it('is set by the command the menu and the agents send', () => {
@@ -145,6 +204,33 @@ describe('the script of the head of /app (#687)', () => {
 })
 
 describe('a track hue drawn as a line (#687)', () => {
+  it('takes more ink for any colour until it holds 3:1 on the background and on the clip (#698)', () => {
+    const colors = { text: '#131211', bg: '#fdfcfc', trackShade: 0.4 }
+    // Without the background the fixed shade stays, as before.
+    const plain = trackInk('#ffff00', { text: colors.text, trackShade: 0.4 })
+    const ink = trackInk('#ffff00', colors)
+    expect(ink).not.toBe(plain)
+    expect(contrastOf(ink, colors.bg)).toBeGreaterThanOrEqual(3)
+    // The worst cases: white, and hues the palette never gives.
+    for (const hue of ['#ffffff', '#ffff00', '#00ffff', '#fefefe', '#ffeeaa']) {
+      const out = trackInk(hue, colors)
+      expect(contrastOf(out, colors.bg), hue).toBeGreaterThanOrEqual(3)
+      // On the clip's fill: the hue at 32 % over the background.
+      const tint =
+        '#' +
+        [1, 3, 5]
+          .map((i) =>
+            Math.round(parseInt(hue.slice(i, i + 2), 16) * 0.32 + parseInt(colors.bg.slice(i, i + 2), 16) * 0.68)
+              .toString(16)
+              .padStart(2, '0'),
+          )
+          .join('')
+      expect(contrastOf(out, tint), `${hue} on its clip`).toBeGreaterThanOrEqual(3)
+    }
+    // A colour that already reads keeps the plain shade.
+    expect(trackInk('#000000', colors)).toBe(trackInk('#000000', { text: colors.text, trackShade: 0.4 }))
+  })
+
   it('is the hue itself in the dark theme and the hue with ink in the light one', () => {
     expect(trackInk('#f08098', { text: '#ece9e6', trackShade: 0 })).toBe('#f08098')
     expect(trackInk('#ffffff', { text: '#000000', trackShade: 0.4 })).toBe('#999999')
