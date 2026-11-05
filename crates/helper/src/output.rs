@@ -739,7 +739,13 @@ mod tests {
                 reopened: Box::new(move || {
                     reopened_count.fetch_add(1, Ordering::Relaxed);
                 }),
-                report: Box::new(move |open| told.lock().unwrap().push(open)),
+                // Poison-tolerant: a test that panics while reading the reports must not make
+                // this thread panic too (#743); the production report takes no lock.
+                report: Box::new(move |open| {
+                    told.lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .push(open)
+                }),
             },
             timing,
         )
@@ -821,7 +827,8 @@ mod tests {
         eventually("installed", || r.engine.is_open());
         assert_eq!(r.engine.sample_rate(), Some(44_100.0));
         assert!(play_through_the_slot(&r) > 0.05, "the output plays");
-        assert_eq!(*r.reports.lock().unwrap(), [true]);
+        // The engine is installed a moment before the report (#743).
+        eventually("reported open", || *r.reports.lock().unwrap() == [true]);
         r.supervisor.stop();
         assert!(!r.engine.is_open(), "Quit empties the slot");
         assert_eq!(r.world.lock().unwrap().alive, 0, "Quit drops the stream");
@@ -841,9 +848,13 @@ mod tests {
             world.available = true;
             world.devices = "speakers".into();
         }
-        eventually("installed", || r.engine.is_open());
+        // The engine is installed a moment before `report(true)`: wait for the report itself
+        // (#743), not for the slot.
+        eventually("reported open", || {
+            *r.reports.lock().unwrap() == [false, true]
+        });
+        assert!(r.engine.is_open());
         assert_eq!(r.world.lock().unwrap().opens, 2);
-        assert_eq!(*r.reports.lock().unwrap(), [false, true]);
         r.supervisor.stop();
     }
 
