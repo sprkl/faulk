@@ -507,7 +507,7 @@
         "undo": "none"
       },
       {
-        "description": "Stop the `.faulkpack` imports under way: a pack being downloaded (`project.open_url`) or\nread into the browser's storage, and those waiting their turn, until their project starts\nopening. Nothing of them is kept and the current project is untouched. Nothing happens when\nno import is running. Changes nothing in the project, so it never enters the history.",
+        "description": "Stop the `.faulkpack` imports under way: a pack being downloaded (`project.open_url`) or\nread into the browser's storage, and those waiting their turn, until their project starts\nopening, wherever the browser keeps the project (its storage, or the tab alone, where the\npack is read whole). Nothing of them is kept and the current project is untouched. The\nanswer says what was stopped: `cancelled` imports, and `too_late` imports whose project had\nstarted to open (they are left to finish; when nothing could be stopped and some were too\nlate, the call is refused instead). Both are 0 when no import was running (none asked, or\nthe last one is over). Changes nothing in the project, so it never enters the history.",
         "destructive": false,
         "input_schema": {
           "additionalProperties": false,
@@ -519,8 +519,24 @@
         "name": "project.cancel_import_pack",
         "output_schema": {
           "additionalProperties": false,
-          "properties": {},
-          "required": [],
+          "properties": {
+            "cancelled": {
+              "description": "How many imports (a pack being downloaded, read or waiting its turn) were stopped.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "too_late": {
+              "description": "How many imports were left to finish because their project had started to open.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "cancelled",
+            "too_late"
+          ],
           "type": "object"
         },
         "undo": "none"
@@ -15632,7 +15648,7 @@
         "undo": "none"
       },
       {
-        "description": "Write a take into the project, every track at once, as **one** history entry. Per\ntrack, `notes` are the notes as played: `start` in transport ticks, `length` in\nticks. Every start is first moved `shift_ms` earlier at the project's tempo; when the\ntransport loops and the start is strictly inside the loop, the move wraps round the\nloop (a note that would go before the loop's start comes from its end). The notes the\nengine reported for a `record.start` take are already moved: write them with\n`shift_ms` 0 (the default); `shift_ms` is for notes not moved yet. With a\nscene target, a cell that holds a clip takes the notes on top of its own (overdub):\na note lands where the clip played at that moment, from `anchor` (the transport tick\nof the clip's position 0) or else from the bar of the first note, round its loop;\na clip without a loop grows to the bar after the last note. An empty cell gets a new\nclip from the bar of the first note to the bar after the last one (at least one\nbar), looping over its length. With the arrangement target, a note inside a\nplacement goes into its clip where the placement shows it; the other notes make one\nnew clip per gap between placements, from the bar of its first note to the bar after\nits last, cut at the next placement. A note before tick 0 or before its clip is\ndropped and counted; a note longer than its clip is cut at the clip's end. With\n`replace` on (`record.set_settings`), a clip that takes notes first loses the notes\nthat start in the range the track recorded (its first note to the end of its last),\ncounted in `replaced`. With `quantize_on_input` on, the starts of the take's notes\nmove toward the grid of their clip by `quantize_strength` (a note stays inside its\nclip, lengths never change). Undo: `record.restore` puts the clips back as they\nwere, replaced notes included. `replace`, `quantize_on_input` and `quantize_strength`\noverride the session's settings (`record.set_settings`) for this write only; left out,\nthe session's apply.",
+        "description": "Write a take into the project, every track at once, as **one** history entry. Per\ntrack, `notes` are the notes as played: `start` in transport ticks, `length` in\nticks. Every start is first moved `shift_ms` earlier at the project's tempo; when the\ntransport loops and the start is strictly inside the loop, the move wraps round the\nloop (a note that would go before the loop's start comes from its end). The notes the\nengine reported for a `record.start` take are already moved: write them with\n`shift_ms` 0 (the default); `shift_ms` is for notes not moved yet. With a\nscene target, a cell that holds a clip takes the notes on top of its own (overdub):\na note lands where the clip played at that moment, from `anchor` (the transport tick\nof the clip's position 0) or else from the bar of the first note, round its loop;\na clip without a loop grows to the bar after the last note. An empty cell gets a new\nclip from the bar of the first note to the bar after the last one (at least one\nbar), looping over its length. With the arrangement target, a note inside a\nplacement goes into its clip where the placement shows it; the other notes make one\nnew clip per gap between placements, from the bar of its first note to the bar after\nits last, cut at the next placement. A note that starts at most a sixteenth before\ntick 0 starts there with its length; one that starts earlier starts there, cut, when\nit ends after it, and is dropped and counted otherwise, as a note before its clip; a\nnote longer than its clip is cut at the clip's end. With\n`replace` on (`record.set_settings`), a clip that takes notes first loses the notes\nthat start in the range the track recorded (its first note to the end of its last),\ncounted in `replaced`. With `quantize_on_input` on, the starts of the take's notes\nmove toward the grid of their clip by `quantize_strength` (a note stays inside its\nclip, lengths never change). Undo: `record.restore` puts the clips back as they\nwere, replaced notes included. `replace`, `quantize_on_input` and `quantize_strength`\noverride the session's settings (`record.set_settings`) for this write only; left out,\nthe session's apply.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -21204,7 +21220,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Stop the `.faulkpack` imports under way: a pack being downloaded (`project.open_url`) or\nread into the browser's storage, and those waiting their turn, until their project starts\nopening. Nothing of them is kept and the current project is untouched. Nothing happens when\nno import is running. Changes nothing in the project, so it never enters the history.",
+              "description": "Stop the `.faulkpack` imports under way: a pack being downloaded (`project.open_url`) or\nread into the browser's storage, and those waiting their turn, until their project starts\nopening, wherever the browser keeps the project (its storage, or the tab alone, where the\npack is read whole). Nothing of them is kept and the current project is untouched. The\nanswer says what was stopped: `cancelled` imports, and `too_late` imports whose project had\nstarted to open (they are left to finish; when nothing could be stopped and some were too\nlate, the call is refused instead). Both are 0 when no import was running (none asked, or\nthe last one is over). Changes nothing in the project, so it never enters the history.",
               "properties": {
                 "type": {
                   "const": "project.cancel_import_pack",
@@ -21696,7 +21712,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Write a take into the project, every track at once, as **one** history entry. Per\ntrack, `notes` are the notes as played: `start` in transport ticks, `length` in\nticks. Every start is first moved `shift_ms` earlier at the project's tempo; when the\ntransport loops and the start is strictly inside the loop, the move wraps round the\nloop (a note that would go before the loop's start comes from its end). The notes the\nengine reported for a `record.start` take are already moved: write them with\n`shift_ms` 0 (the default); `shift_ms` is for notes not moved yet. With a\nscene target, a cell that holds a clip takes the notes on top of its own (overdub):\na note lands where the clip played at that moment, from `anchor` (the transport tick\nof the clip's position 0) or else from the bar of the first note, round its loop;\na clip without a loop grows to the bar after the last note. An empty cell gets a new\nclip from the bar of the first note to the bar after the last one (at least one\nbar), looping over its length. With the arrangement target, a note inside a\nplacement goes into its clip where the placement shows it; the other notes make one\nnew clip per gap between placements, from the bar of its first note to the bar after\nits last, cut at the next placement. A note before tick 0 or before its clip is\ndropped and counted; a note longer than its clip is cut at the clip's end. With\n`replace` on (`record.set_settings`), a clip that takes notes first loses the notes\nthat start in the range the track recorded (its first note to the end of its last),\ncounted in `replaced`. With `quantize_on_input` on, the starts of the take's notes\nmove toward the grid of their clip by `quantize_strength` (a note stays inside its\nclip, lengths never change). Undo: `record.restore` puts the clips back as they\nwere, replaced notes included. `replace`, `quantize_on_input` and `quantize_strength`\noverride the session's settings (`record.set_settings`) for this write only; left out,\nthe session's apply.",
+              "description": "Write a take into the project, every track at once, as **one** history entry. Per\ntrack, `notes` are the notes as played: `start` in transport ticks, `length` in\nticks. Every start is first moved `shift_ms` earlier at the project's tempo; when the\ntransport loops and the start is strictly inside the loop, the move wraps round the\nloop (a note that would go before the loop's start comes from its end). The notes the\nengine reported for a `record.start` take are already moved: write them with\n`shift_ms` 0 (the default); `shift_ms` is for notes not moved yet. With a\nscene target, a cell that holds a clip takes the notes on top of its own (overdub):\na note lands where the clip played at that moment, from `anchor` (the transport tick\nof the clip's position 0) or else from the bar of the first note, round its loop;\na clip without a loop grows to the bar after the last note. An empty cell gets a new\nclip from the bar of the first note to the bar after the last one (at least one\nbar), looping over its length. With the arrangement target, a note inside a\nplacement goes into its clip where the placement shows it; the other notes make one\nnew clip per gap between placements, from the bar of its first note to the bar after\nits last, cut at the next placement. A note that starts at most a sixteenth before\ntick 0 starts there with its length; one that starts earlier starts there, cut, when\nit ends after it, and is dropped and counted otherwise, as a note before its clip; a\nnote longer than its clip is cut at the clip's end. With\n`replace` on (`record.set_settings`), a clip that takes notes first loses the notes\nthat start in the range the track recorded (its first note to the end of its last),\ncounted in `replaced`. With `quantize_on_input` on, the starts of the take's notes\nmove toward the grid of their clip by `quantize_strength` (a note stays inside its\nclip, lengths never change). Undo: `record.restore` puts the clips back as they\nwere, replaced notes included. `replace`, `quantize_on_input` and `quantize_strength`\noverride the session's settings (`record.set_settings`) for this write only; left out,\nthe session's apply.",
               "properties": {
                 "quantize_on_input": {
                   "anyOf": [
@@ -26700,13 +26716,27 @@
             {
               "additionalProperties": false,
               "properties": {
+                "cancelled": {
+                  "description": "How many imports (a pack being downloaded, read or waiting its turn) were stopped.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "too_late": {
+                  "description": "How many imports were left to finish because their project had started to open.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
                 "type": {
                   "const": "project.cancel_import_pack",
                   "type": "string"
                 }
               },
               "required": [
-                "type"
+                "type",
+                "cancelled",
+                "too_late"
               ],
               "type": "object"
             },
@@ -36447,13 +36477,27 @@
             {
               "additionalProperties": false,
               "properties": {
+                "cancelled": {
+                  "description": "How many imports (a pack being downloaded, read or waiting its turn) were stopped.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "too_late": {
+                  "description": "How many imports were left to finish because their project had started to open.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
                 "type": {
                   "const": "project.cancel_import_pack",
                   "type": "string"
                 }
               },
               "required": [
-                "type"
+                "type",
+                "cancelled",
+                "too_late"
               ],
               "type": "object"
             },
@@ -38443,7 +38487,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 40,
+  "protocol_version": 41,
   "scale_intervals": [
     {
       "intervals": [

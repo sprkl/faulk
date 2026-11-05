@@ -8,9 +8,33 @@
 //! the count-in is over: a recording started from a stopped clock with `count_in_bars > 0`
 //! runs the playhead from `count_in_bars` before the cue ([`crate::engine`], `start_clock`),
 //! and the recorder waits for the block that reaches the cue (its notes are stamped at the
-//! start of that block, just before the cue). A note played during the count-in is heard,
-//! not captured, and not kept for later. Each time capture switches on a
-//! new **take** begins: its number goes up by one and its notes count from 0.
+//! start of that block, just before the cue). Each time capture switches on a new **take**
+//! begins: its number goes up by one and its notes count from 0.
+//!
+//! # The count-in (#723)
+//!
+//! A note played during the count-in is heard. Its event usually reaches the engine before the
+//! cue's block when the musician anticipates the first beat by more than the rendering runs
+//! ahead of the output (31 to 42 ms in the web build, #499), so the recorder reads the
+//! count-in's live events too. A note on on an armed MIDI track whose heard position (its
+//! sample, below, moved back by the shift of the take to come, placed by the clock's anchors:
+//! the same rules as during the take) falls within [`COUNT_IN_EARLY`] (a sixteenth, the
+//! tolerance of `record.commit_take`'s early rule) before the cue is held for that take, at its
+//! heard position, before the cue, exactly as a note heard as early whose event arrives once
+//! the capture has begun; one heard earlier is not a note of the take: heard, not recorded and
+//! not counted, as a note played before the recording (the musician plays along with the
+//! count-in; lead's decision, #723). A kept note that finds the held table full, or that ends
+//! with [`MAX_HELD`] released notes already waiting, counts in the take's
+//! [`Recorder::dropped`]. A note off, a second press of the key, an all-notes-off or an
+//! overflow ends a held one: it waits, with its played length, and becomes one of the take's
+//! first notes when the take begins; one still held then is a held note of the take, ended by
+//! its note off as any other. The shift of the take to come is taken at every block of the
+//! count-in: a note is placed (and kept or not) with the shift in force when its event arrives,
+//! and one held while a `SetRecording` changes the shift before the cue keeps the length it was
+//! played with (its start stays where it was placed).
+//! A count-in cancelled before its cue (a stop, the recording turned off) forgets what it kept
+//! and what it counted. A stamp the count-in cannot use counts in the take's
+//! [`Recorder::unplaced`] and its event counts from the start of its block, as in the take.
 //!
 //! # What it captures
 //!
@@ -48,9 +72,11 @@
 //!
 //! - a stamp inside the block, or ahead of it by at most [`MAX_STAMP_DISTANCE_SECONDS`]: the stamp;
 //! - a stamp behind the block by at most [`MAX_STAMP_DISTANCE_SECONDS`]: the stamp, but never
-//!   before the take began (a note played during the count-in or before the take counts
-//!   from the take's first sample, as it did before stamps) nor before the oldest sample the
-//!   clock's anchors cover (the last `Play` or `Seek`);
+//!   before the oldest sample the clock's anchors cover (the last `Play` or `Seek`), and, for
+//!   a note on taken once the take began, never before the take's first sample (a note played
+//!   before the take whose event arrives in it counts from that sample, as it did before
+//!   stamps); a note off ends a note at its stamp, so that a note held from the count-in ends
+//!   where it was released;
 //! - no stamp, or a stamp further than that either way (a stalled page, a clock that means
 //!   nothing here): the start of the block, as before stamps existed (128 frames of
 //!   uncertainty, 2.7 ms at 48 kHz, plus the time the note took to arrive).
@@ -78,9 +104,9 @@
 //!   a note heard less than one shift before the take began is kept where it was heard, before
 //!   the take's first tick, and one heard earlier lands one shift before that tick; the
 //!   recorder drops none of those it takes (`record.commit_take` drops a note before tick 0 or
-//!   before its clip). An event that reaches the engine before the capture begins (during the
-//!   count-in, module doc above) is not taken at all, whatever its stamp: after a count-in a
-//!   note anticipated by more than the rendering's real lead over the output is lost. A moved sample older than the oldest anchor (a note heard just before the
+//!   before its clip). An event that reaches the engine during the count-in is placed the same
+//!   way, and kept when it falls within [`COUNT_IN_EARLY`] before the cue ("The count-in"
+//!   above). A moved sample older than the oldest anchor (a note heard just before the
 //!   take's `Play`, or before a seek or a sample-rate change) is placed on the line, back from
 //!   that anchor. The anchors hold the anchor in force and the one before it: a sample older
 //!   than both after two loop wraps or a wrap and a tempo change within the shift and the
@@ -102,7 +128,9 @@
 //! `min(count, RING)` notes, so a reader that misses reports loses nothing until it falls
 //! [`RING`] notes behind, which it can tell from the indices. A note that finds the held
 //! table full (more than [`MAX_HELD`] keys held at once on the armed tracks) is not recorded
-//! and is counted in [`Recorder::dropped`], never hidden.
+//! and is counted in [`Recorder::dropped`], never hidden, as is a kept note of the count-in
+//! ended with [`MAX_HELD`] released notes of the count-in already waiting ("The count-in"
+//! above).
 //!
 //! Nothing here allocates, frees, locks or panics: the tables are built with the engine.
 
@@ -111,12 +139,17 @@ use crate::msg::{
     LiveEvent, MAX_RECORDED_PER_REPORT, MsgError, Note, RecordedNote, Table, TrackKind, TrackSlot,
     limits,
 };
-use crate::time::{LoopRegion, Tick};
+use crate::time::{LoopRegion, PPQ, Tick};
 use crate::transport::Anchors;
 
 /// How far from its block, behind or ahead, a stamped note may have been played and still be
 /// placed at its stamp (module doc): further, it counts from the start of its block.
 pub const MAX_STAMP_DISTANCE_SECONDS: f64 = 1.0;
+
+/// How early before the cue a note heard during a count-in may be and still be a note of the
+/// take, in ticks: a sixteenth, the tolerance of `record.commit_take`'s early rule (#723,
+/// module doc, "The count-in").
+pub const COUNT_IN_EARLY: i64 = PPQ / 4;
 
 /// Keys held at once on the armed tracks that the recorder follows.
 pub const MAX_HELD: usize = 256;
@@ -209,6 +242,15 @@ pub struct Recorder {
     shift: i64,
     /// The sample rate `shift` was counted at.
     shift_rate: f64,
+    /// Notes kept from the count-in in progress and already released (#723, module doc): the
+    /// take's first notes when it begins.
+    early: Table<RecordedNote>,
+    /// How many of [`Recorder::early`] are used.
+    early_len: usize,
+    /// The count-in's lost notes: the take's [`Recorder::dropped`] when it begins.
+    early_dropped: u32,
+    /// The count-in's unusable stamps: the take's [`Recorder::unplaced`] when it begins.
+    early_unplaced: u32,
 }
 
 impl Recorder {
@@ -228,12 +270,20 @@ impl Recorder {
             shift_us: 0,
             shift: 0,
             shift_rate: 0.0,
+            early: Table::try_filled(MAX_HELD)?,
+            early_len: 0,
+            early_dropped: 0,
+            early_unplaced: 0,
         })
     }
 
-    /// A count-in starts and leads to `cue`: capture waits until the playhead reaches it.
+    /// A count-in starts and leads to `cue`: capture waits until the playhead reaches it. What
+    /// an earlier count-in kept is forgotten; while a take still captures (a stop and a new
+    /// recording applied before the next block), its held notes stay, for the next block to
+    /// close in that take.
     pub fn count_in(&mut self, cue: Tick) {
         self.count_in_to = Some(cue.0);
+        self.forget_early(!self.capturing);
     }
 
     /// The tick a running count-in leads to, if one runs.
@@ -263,7 +313,8 @@ impl Recorder {
         self.unplaced
     }
 
-    /// Notes of the current take lost because the held table was full.
+    /// Notes of the current take lost because the held table (or, for notes kept from its
+    /// count-in, the table of released ones) was full.
     pub fn dropped(&self) -> u32 {
         self.dropped
     }
@@ -292,6 +343,7 @@ impl Recorder {
     ) {
         self.follow_pace(clock);
         let wanted = clock.running && clock.recording;
+        let counted_in = self.count_in_to.is_some();
         if let Some(to) = self.count_in_to
             && (!wanted || clock.end() > to as f64)
         {
@@ -299,27 +351,44 @@ impl Recorder {
         }
         let on = wanted && self.count_in_to.is_none();
         if on && !self.capturing {
+            // Without a count-in just ended, nothing kept from one belongs to this take.
+            if !counted_in {
+                self.forget_early(true);
+            }
             self.take = self.take.wrapping_add(1);
             self.total = 0;
-            self.dropped = 0;
-            for held in self.held.as_mut_slice() {
-                held.used = false;
-            }
+            self.dropped = self.early_dropped;
+            self.unplaced = self.early_unplaced;
             self.capturing = true;
             self.take_from = clock.sample;
-            self.unplaced = 0;
-            self.shift_us = clock
-                .shift_us
-                .clamp(-limits::MAX_RECORD_SHIFT_US, limits::MAX_RECORD_SHIFT_US);
-            self.shift = shift_samples(self.shift_us, clock.rate);
-            self.shift_rate = clock.rate;
+            self.adopt_shift(clock);
+            // The count-in's released notes are the take's first; its held ones stay held.
+            for i in 0..self.early_len {
+                if let Some(note) = self.early.as_slice().get(i).copied() {
+                    self.push(note);
+                }
+            }
+            self.forget_early(false);
         } else if !on && self.capturing {
+            // Closed on the ended take's shift, before a count-in that starts here takes its own.
             self.close_all(None, clock);
             self.capturing = false;
         }
-        if !self.capturing {
-            return;
+        if counted_in && !on && self.count_in_to.is_none() {
+            // The count-in was cancelled before its cue (a stop, the recording turned off).
+            self.forget_early(true);
         }
+        // During a count-in its events are read too (module doc, "The count-in"): a note on is
+        // held only when heard within `COUNT_IN_EARLY` before the cue, and what it counts
+        // and ends waits for the take to come.
+        let window = match self.count_in_to {
+            Some(cue) => {
+                self.adopt_shift(clock);
+                Some(cue.saturating_sub(COUNT_IN_EARLY) as f64)
+            }
+            None if self.capturing => None,
+            None => return,
+        };
         for event in live {
             match *event {
                 LiveEvent::NoteOn {
@@ -328,11 +397,18 @@ impl Recorder {
                     velocity,
                     at,
                 } => {
-                    let at = self.placed(at, clock);
+                    let ended = self.placed(at, clock);
                     // The note's previous press is closed first: a key is held once.
-                    self.close(track.0, pitch, at, clock);
-                    if velocity > 0 && armed(state, track) {
-                        self.open(track.0, pitch, velocity, at, clock);
+                    self.close(track.0, pitch, ended, clock);
+                    let at = self.opened(ended);
+                    // A note of the count-in heard earlier than its last sixteenth is not a note
+                    // of the take: heard, not recorded, not counted (as a note before the take).
+                    if velocity > 0
+                        && armed(state, track)
+                        && window.is_none_or(|from| self.start_of(at, clock) >= from)
+                        && !self.open(track.0, pitch, velocity, at, clock)
+                    {
+                        self.lose();
                     }
                 }
                 LiveEvent::NoteOff { track, pitch, at } => {
@@ -347,6 +423,54 @@ impl Recorder {
         }
     }
 
+    /// Counts a lost note: in the take, or, during a count-in, for the take to come.
+    fn lose(&mut self) {
+        let lost = if self.capturing {
+            &mut self.dropped
+        } else {
+            &mut self.early_dropped
+        };
+        *lost = lost.saturating_add(1);
+    }
+
+    /// Forgets what a count-in kept: its released notes and its counts, and its held notes too
+    /// when `held` (the held table then holds only the count-in's).
+    fn forget_early(&mut self, held: bool) {
+        self.early_len = 0;
+        self.early_dropped = 0;
+        self.early_unplaced = 0;
+        if held {
+            for h in self.held.as_mut_slice() {
+                h.used = false;
+            }
+        }
+    }
+
+    /// Takes the shift of the take to come (`clock.shift_us`, clamped) at the clock's rate: the
+    /// held notes' starts move by the difference, so that they stay on its clock.
+    fn adopt_shift(&mut self, clock: RecordClock) {
+        let us = clock
+            .shift_us
+            .clamp(-limits::MAX_RECORD_SHIFT_US, limits::MAX_RECORD_SHIFT_US);
+        self.move_shift(us, clock.rate);
+    }
+
+    /// Sets the shift to `us` at `rate`, moving the held notes' starts by the difference.
+    fn move_shift(&mut self, us: i32, rate: f64) {
+        let shift = shift_samples(us, rate);
+        let delta = self.shift.saturating_sub(shift);
+        if delta != 0 {
+            for held in self.held.as_mut_slice() {
+                if held.used {
+                    held.from = held.from.saturating_add(delta);
+                }
+            }
+        }
+        self.shift_us = us;
+        self.shift = shift;
+        self.shift_rate = rate;
+    }
+
     /// A change of the samples per tick since the last block (a tempo change, a new sample rate):
     /// the held notes keep the ticks they have run. Their elapsed samples, counted at the old
     /// pace up to the start of this block, become the same ticks at the new pace. A new sample
@@ -354,15 +478,7 @@ impl Recorder {
     /// the difference first, so that they stay on the take's clock.
     fn follow_pace(&mut self, clock: RecordClock) {
         if self.capturing && clock.rate != self.shift_rate {
-            let shift = shift_samples(self.shift_us, clock.rate);
-            let delta = self.shift.saturating_sub(shift);
-            for held in self.held.as_mut_slice() {
-                if held.used {
-                    held.from = held.from.saturating_add(delta);
-                }
-            }
-            self.shift = shift;
-            self.shift_rate = clock.rate;
+            self.move_shift(self.shift_us, clock.rate);
         }
         let old = self.last_samples_per_tick;
         let new = clock.samples_per_tick;
@@ -383,25 +499,34 @@ impl Recorder {
     /// The sample a live event counts from (module doc, "The sample a note was played at"):
     /// its stamp when it is usable, `None` (the start of the block) otherwise.
     pub fn sample_of(&self, at: Option<u64>, clock: RecordClock) -> Option<u64> {
-        let at = at?;
-        let start = clock.sample;
-        let bound = MAX_STAMP_DISTANCE_SECONDS * clock.rate;
-        if at >= start {
-            return ((at - start) as f64 <= bound).then_some(at);
-        }
-        if (start - at) as f64 > bound {
-            return None;
-        }
-        Some(at.max(self.take_from).max(clock.anchors.earliest()))
+        usable(at, clock, self.take_from)
     }
 
-    /// [`Recorder::sample_of`], counting a stamp it cannot use.
+    /// The sample an event ends a held note at: its stamp when it is usable (not bounded by the
+    /// take's first sample, so that a note held from the count-in ends where it was released),
+    /// `None` (the start of the block) otherwise, counting a stamp it cannot use; during a
+    /// count-in, for the take to come.
     fn placed(&mut self, at: Option<u64>, clock: RecordClock) -> Option<u64> {
-        let sample = self.sample_of(at, clock);
+        let sample = usable(at, clock, 0);
         if at.is_some() && sample.is_none() {
-            self.unplaced = self.unplaced.saturating_add(1);
+            let unplaced = if self.capturing {
+                &mut self.unplaced
+            } else {
+                &mut self.early_unplaced
+            };
+            *unplaced = unplaced.saturating_add(1);
         }
         sample
+    }
+
+    /// The sample a note on opens a note at, from [`Recorder::placed`]'s: in a take, never
+    /// before its first sample ([`Recorder::sample_of`]); during a count-in, as it is.
+    fn opened(&self, sample: Option<u64>) -> Option<u64> {
+        if self.capturing {
+            sample.map(|s| s.max(self.take_from))
+        } else {
+            sample
+        }
     }
 
     /// The absolute sample `sample` on the take's clock: moved back by the take's shift
@@ -456,7 +581,16 @@ impl Recorder {
         }
     }
 
-    fn open(&mut self, track: u32, pitch: u8, velocity: u8, at: Option<u64>, clock: RecordClock) {
+    /// Holds a new note heard at `at` (or the start of its block); `false` when the held table
+    /// is full: the caller counts it lost.
+    fn open(
+        &mut self,
+        track: u32,
+        pitch: u8,
+        velocity: u8,
+        at: Option<u64>,
+        clock: RecordClock,
+    ) -> bool {
         let start = self.start_of(at, clock).floor();
         let start = if start.is_finite() {
             start.clamp(i64::MIN as f64, i64::MAX as f64) as i64
@@ -474,20 +608,22 @@ impl Recorder {
                     start,
                     from,
                 };
+                true
             }
-            None => self.dropped = self.dropped.saturating_add(1),
+            None => false,
         }
     }
 
+    /// The held note of `track` and `pitch`, if one is held.
+    fn held_index(&self, track: u32, pitch: u8) -> Option<usize> {
+        self.held
+            .as_slice()
+            .iter()
+            .position(|h| h.used && h.track == track && h.pitch == pitch)
+    }
+
     fn close(&mut self, track: u32, pitch: u8, at: Option<u64>, clock: RecordClock) {
-        let mut found = None;
-        for (i, h) in self.held.as_slice().iter().enumerate() {
-            if h.used && h.track == track && h.pitch == pitch {
-                found = Some(i);
-                break;
-            }
-        }
-        if let Some(i) = found {
+        if let Some(i) = self.held_index(track, pitch) {
             self.finish(i, self.event_sample(at, clock), clock);
         }
     }
@@ -502,12 +638,33 @@ impl Recorder {
     }
 
     /// Ends the held note `i` at the absolute sample `at` (on the take's clock, the shift
-    /// applied) and puts it in the ring.
+    /// applied) and puts it in the ring; during a count-in, in [`Recorder::early`] for the take
+    /// to come (counted lost when it is full).
     fn finish(&mut self, i: usize, at: i64, clock: RecordClock) {
-        let Some(held) = self.held.as_mut_slice().get_mut(i) else {
+        let Some(note) = self.take_note(i, at, clock) else {
             return;
         };
+        if self.capturing {
+            self.push(note);
+            return;
+        }
+        match self.early.as_mut_slice().get_mut(self.early_len) {
+            Some(slot) => {
+                *slot = note;
+                self.early_len += 1;
+            }
+            None => self.lose(),
+        }
+    }
+
+    /// Frees the held note `i` and gives it ended at the absolute sample `at` (on the take's
+    /// clock): its length counted at the block's pace, one tick at least.
+    fn take_note(&mut self, i: usize, at: i64, clock: RecordClock) -> Option<RecordedNote> {
+        let held = self.held.as_mut_slice().get_mut(i)?;
         let h = *held;
+        if !h.used {
+            return None;
+        }
         held.used = false;
         let samples = at.saturating_sub(h.from).max(0) as f64;
         let ticks = if clock.samples_per_tick > 0.0 {
@@ -520,7 +677,7 @@ impl Recorder {
         } else {
             1
         };
-        let note = RecordedNote {
+        Some(RecordedNote {
             track: TrackSlot(h.track),
             note: Note {
                 start: Tick(h.start),
@@ -529,7 +686,11 @@ impl Recorder {
                 velocity: h.velocity,
                 ..Note::default()
             },
-        };
+        })
+    }
+
+    /// Puts a finished note of the take in the ring.
+    fn push(&mut self, note: RecordedNote) {
         let at = self.total as usize % RING;
         if let Some(slot) = self.ring.as_mut_slice().get_mut(at) {
             *slot = note;
@@ -549,6 +710,20 @@ fn shift_samples(shift_us: i32, rate: f64) -> i64 {
     } else {
         0
     }
+}
+
+/// [`Recorder::sample_of`], a stamp behind the block never placed before `floor`.
+fn usable(at: Option<u64>, clock: RecordClock, floor: u64) -> Option<u64> {
+    let at = at?;
+    let start = clock.sample;
+    let bound = MAX_STAMP_DISTANCE_SECONDS * clock.rate;
+    if at >= start {
+        return ((at - start) as f64 <= bound).then_some(at);
+    }
+    if (start - at) as f64 > bound {
+        return None;
+    }
+    Some(at.max(floor).max(clock.anchors.earliest()))
 }
 
 /// Whether `track` is an armed MIDI track of the engine's state.
