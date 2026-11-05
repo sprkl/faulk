@@ -180,7 +180,7 @@ impl WindowWriter {
     pub fn end(&mut self, region: &[AtomicU32]) {
         put(region, 1, self.count);
         let done = self.seq.wrapping_add(1);
-        if let Some(w) = region.get(0) {
+        if let Some(w) = region.first() {
             w.store(done, Ordering::Release);
         }
         self.seq = done;
@@ -373,13 +373,17 @@ impl Analyzer {
             .clamp(2, MAX_WINDOW)
             .next_power_of_two()
             .min(MAX_WINDOW);
-        let len = frames.len().min(n);
-        for i in 0..n {
-            let x = if i < len { frames[i] } else { 0.0 };
+        let samples = frames.iter().copied().chain(core::iter::repeat(0.0));
+        for (i, ((re, im), x)) in self.re[..n]
+            .iter_mut()
+            .zip(&mut self.im[..n])
+            .zip(samples)
+            .enumerate()
+        {
             let x = if x.is_finite() { x } else { 0.0 };
             let w = 0.5 - 0.5 * (core::f32::consts::TAU * i as f32 / n as f32).cos();
-            self.re[i] = x * w;
-            self.im[i] = 0.0;
+            *re = x * w;
+            *im = 0.0;
         }
         self.fft(n);
         // A full-scale sine through a Hann window reads n / 4 at its bin.

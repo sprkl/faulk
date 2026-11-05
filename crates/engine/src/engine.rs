@@ -2429,7 +2429,10 @@ impl Engine {
             .iter()
             .enumerate()
             .filter_map(|(i, t)| t.as_deref().map(|t| (TrackSlot(i as u32), &t.devices)))
-            .chain(core::iter::once((TrackSlot::MASTER, &self.state.master_devices)));
+            .chain(core::iter::once((
+                TrackSlot::MASTER,
+                &self.state.master_devices,
+            )));
         for (track, chain) in chains {
             for (d, entry) in chain.as_slice().iter().enumerate() {
                 if let Some(entry) = entry.as_deref()

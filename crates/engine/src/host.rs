@@ -37,8 +37,8 @@ use crate::analysis::{
     Spectrum, WINDOW_REGION_WORDS, WindowWriter, read_spectra, try_region,
 };
 use crate::device::{DeviceSetup, Factory};
-use crate::msg::try_box;
 use crate::engine::{Engine, Preparer, channel as engine_channel};
+use crate::msg::try_box;
 use crate::msg::{
     ACTIVE_CLIP_BYTES, ActiveClip, ClipState, DeviceKind, FEEDBACK_HEADER_BYTES, FEEDBACK_VERSION,
     Feedback, HEADER_BYTES, MAX_RECORDED_PER_REPORT, MSG_VERSION, MsgError, Note,
@@ -1355,7 +1355,10 @@ pub mod testing {
                     track: t,
                     device: DeviceSlot(1),
                     kind: contour::DESCRIPTOR.kind_id,
-                    state: crate::msg::encode_state(&[(ParamId(gain), 12.0), (ParamId(freq), 2000.0)]),
+                    state: crate::msg::encode_state(&[
+                        (ParamId(gain), 12.0),
+                        (ParamId(freq), 2000.0),
+                    ]),
                 },
                 M::DeviceInsert {
                     track: t,
