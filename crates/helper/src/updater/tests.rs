@@ -1062,7 +1062,13 @@ fn apply_is_refused_while_another_helper_runs() {
     *backend.available.lock().unwrap() = Some("0.2.0".into());
     let updater = Updater::start_with(backend.clone(), NEVER).with_instance_lock(Arc::new(mine));
     wait_for(&updater, |s| matches!(s, UpdateStatus::Ready { .. }));
-    assert!(updater.apply_and_restart().is_err());
+    // Idle first: the refusal must come from the instance check, not from the busy lock.
+    wait_idle(&updater);
+    let refusal = updater.apply_and_restart().unwrap_err();
+    assert!(
+        refusal.to_string().contains("another helper is running"),
+        "{refusal}"
+    );
     assert!(backend.applied.lock().unwrap().is_empty());
     // The other helper is still counted after the refusal.
     let probe = InstanceLock::take(&path, QUICK).unwrap();

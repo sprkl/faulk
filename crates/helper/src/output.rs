@@ -893,7 +893,10 @@ mod tests {
             world.devices = "headphones".into();
         }
         eventually("open again", || r.engine.is_open());
-        assert_eq!(*r.reports.lock().unwrap(), [true, false, true]);
+        // The engine is installed a moment before the supervisor reports the output open.
+        eventually("reported open again", || {
+            *r.reports.lock().unwrap() == [true, false, true]
+        });
         // The new output sounds: a note sent through the slot reaches the core it plays.
         assert!(
             play_through_the_slot(&r) > 0.05,
@@ -972,9 +975,60 @@ mod tests {
             std::thread::sleep(Duration::from_millis(1));
         }
         let opens = r.world.lock().unwrap().opens;
-        r.supervisor.stop();
         assert!(opens >= 1, "it tried");
         assert!(opens <= 3, "{opens} opens in 600 ms: the gaps do not grow");
+        // And it keeps trying: a lower bound on a count, which only needs time, not speed.
+        eventually("a third and a fourth attempt", || {
+            if let Some(failed) = r.world.lock().unwrap().last_failed.clone() {
+                failed.store(true, Ordering::Relaxed);
+            }
+            r.world.lock().unwrap().opens >= 4
+        });
+        r.supervisor.stop();
+    }
+
+    #[test]
+    fn a_stream_that_played_a_while_is_reopened_after_the_shortest_gap() {
+        // Every stream plays 60 ms, longer than `stable` (40 ms), then fails: the gap stays 300 ms, so
+        // the sixth open comes about 1.5 s in. Were the count not reset, the gaps would be 300, 600,
+        // 1200, 2400 and 4800 ms (9.3 s). The deadline is four times the nominal time.
+        let timing = Timing {
+            min_gap: Duration::from_millis(300),
+            stable: Duration::from_millis(40),
+            ..FAST
+        };
+        let r = rig(
+            World {
+                available: true,
+                ..World::default()
+            },
+            timing,
+        );
+        let start = Instant::now();
+        loop {
+            let (opens, last, failed) = {
+                let world = r.world.lock().unwrap();
+                (
+                    world.opens,
+                    world.opened_at.last().copied(),
+                    world.last_failed.clone(),
+                )
+            };
+            if opens >= 6 {
+                break;
+            }
+            if let (Some(last), Some(failed)) = (last, failed)
+                && last.elapsed() >= Duration::from_millis(60)
+            {
+                failed.store(true, Ordering::Relaxed);
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(6),
+                "{opens} opens in 6 s: the gaps grew"
+            );
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        r.supervisor.stop();
     }
 
     #[test]
