@@ -69,9 +69,11 @@
 //!
 //! - a stamp inside the block, or ahead of it by at most [`MAX_STAMP_DISTANCE_SECONDS`]: the stamp;
 //! - a stamp behind the block by at most [`MAX_STAMP_DISTANCE_SECONDS`]: the stamp, but never
-//!   before the take began (a note played during the count-in or before the take counts
-//!   from the take's first sample, as it did before stamps) nor before the oldest sample the
-//!   clock's anchors cover (the last `Play` or `Seek`);
+//!   before the oldest sample the clock's anchors cover (the last `Play` or `Seek`), and, for
+//!   a note on taken once the take began, never before the take's first sample (a note played
+//!   before the take whose event arrives in it counts from that sample, as it did before
+//!   stamps); a note off ends a note at its stamp, so that a note held from the count-in ends
+//!   where it was released;
 //! - no stamp, or a stamp further than that either way (a stalled page, a clock that means
 //!   nothing here): the start of the block, as before stamps existed (128 frames of
 //!   uncertainty, 2.7 ms at 48 kHz, plus the time the note took to arrive).
@@ -392,9 +394,10 @@ impl Recorder {
                     velocity,
                     at,
                 } => {
-                    let at = self.placed(at, clock);
+                    let ended = self.placed(at, clock);
                     // The note's previous press is closed first: a key is held once.
-                    self.close(track.0, pitch, at, clock);
+                    self.close(track.0, pitch, ended, clock);
+                    let at = self.opened(ended);
                     if velocity > 0 && armed(state, track) {
                         let kept = window.is_none_or(|from| self.start_of(at, clock) >= from)
                             && self.open(track.0, pitch, velocity, at, clock);
@@ -494,20 +497,31 @@ impl Recorder {
         usable(at, clock, self.take_from)
     }
 
-    /// [`Recorder::sample_of`], counting a stamp it cannot use. During a count-in no take has
-    /// begun: no take's first sample bounds the stamp, and an unusable one counts for the take
-    /// to come.
+    /// The sample an event ends a held note at: its stamp when it is usable (not bounded by the
+    /// take's first sample, so that a note held from the count-in ends where it was released),
+    /// `None` (the start of the block) otherwise, counting a stamp it cannot use; during a
+    /// count-in, for the take to come.
     fn placed(&mut self, at: Option<u64>, clock: RecordClock) -> Option<u64> {
-        let (floor, unplaced) = if self.capturing {
-            (self.take_from, &mut self.unplaced)
-        } else {
-            (0, &mut self.early_unplaced)
-        };
-        let sample = usable(at, clock, floor);
+        let sample = usable(at, clock, 0);
         if at.is_some() && sample.is_none() {
+            let unplaced = if self.capturing {
+                &mut self.unplaced
+            } else {
+                &mut self.early_unplaced
+            };
             *unplaced = unplaced.saturating_add(1);
         }
         sample
+    }
+
+    /// The sample a note on opens a note at, from [`Recorder::placed`]'s: in a take, never
+    /// before its first sample ([`Recorder::sample_of`]); during a count-in, as it is.
+    fn opened(&self, sample: Option<u64>) -> Option<u64> {
+        if self.capturing {
+            sample.map(|s| s.max(self.take_from))
+        } else {
+            sample
+        }
     }
 
     /// The absolute sample `sample` on the take's clock: moved back by the take's shift

@@ -211,9 +211,10 @@ domain! {
     /// bar), looping over its length. With the arrangement target, a note inside a
     /// placement goes into its clip where the placement shows it; the other notes make one
     /// new clip per gap between placements, from the bar of its first note to the bar after
-    /// its last, cut at the next placement. A note that starts before tick 0 starts there
-    /// when it ends after it, or when it starts at most a sixteenth before it (with its
-    /// length); otherwise it is dropped and counted, as a note before its clip; a note longer than its clip is cut at the clip's end. With
+    /// its last, cut at the next placement. A note that starts at most a sixteenth before
+    /// tick 0 starts there with its length; one that starts earlier starts there, cut, when
+    /// it ends after it, and is dropped and counted otherwise, as a note before its clip; a
+    /// note longer than its clip is cut at the clip's end. With
     /// `replace` on (`record.set_settings`), a clip that takes notes first loses the notes
     /// that start in the range the track recorded (its first note to the end of its last),
     /// counted in `replaced`. With `quantize_on_input` on, the starts of the take's notes
@@ -798,24 +799,24 @@ fn plan_track(
             let mut erase: BTreeMap<ClipId, Vec<(i64, i64)>> = BTreeMap::new();
             // Gap (its start and end, `None`: no placement after) → notes outside clips.
             let mut gaps: BTreeMap<(i64, Option<i64>), Vec<&TakeNote>> = BTreeMap::new();
-            // A note that starts before tick 0 (played on the first downbeat, moved earlier by the
-            // latency shift) starts at 0 when it ends after it; one that ends before is moved to
-            // 0 with its length when it starts at most [`EARLY`] before (a short first downbeat
-            // played early, #723), and dropped otherwise.
+            // A note that starts at most [`EARLY`] before tick 0 (the first downbeat played a
+            // little early, or moved earlier by the latency shift, #723) is moved to 0 with its
+            // length, as a new clip's early rule does; one that starts earlier starts at 0 when
+            // it ends after it (cut there), and is dropped otherwise.
             let mut kept = Vec::with_capacity(notes.len());
             for n in notes {
                 let (t, end) = (n.start.get(), n.start.get().saturating_add(n.length.get()));
                 if t >= 0 {
                     kept.push(*n);
+                } else if t >= -EARLY {
+                    kept.push(TakeNote {
+                        start: Tick::ZERO,
+                        ..*n
+                    });
                 } else if end > 0 {
                     kept.push(TakeNote {
                         start: Tick::ZERO,
                         length: Tick(end),
-                        ..*n
-                    });
-                } else if t >= -EARLY {
-                    kept.push(TakeNote {
-                        start: Tick::ZERO,
                         ..*n
                     });
                 } else {

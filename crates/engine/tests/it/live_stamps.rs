@@ -871,6 +871,40 @@ fn a_shift_changed_in_the_count_in_moves_its_held_notes_with_it() {
     assert_eq!(notes[0].note.length, Tick(480), "12 000 samples, as played");
 }
 
+/// A note of the count-in released just before the cue, whose note off reaches the engine once
+/// the take began (stamps behind the block, as a native host gives them): it ends where it was
+/// released, before the take's first sample, not at that sample.
+#[test]
+fn a_count_in_note_released_before_the_cue_ends_at_its_release_after_a_late_note_off() {
+    let mut rig = Rig::new(true);
+    rig.blocks(3);
+    let cue = rig.count_in(0);
+    let played = cue - 2_000;
+    rig.until(played + BLOCK as u64);
+    rig.on(60, Some(rig.host(played)));
+    rig.blocks(1);
+    assert!(!rig.e.recorder().capturing());
+    // Released 1 000 samples later (before the cue), taken some blocks after the cue.
+    rig.until(cue + 4 * BLOCK as u64);
+    assert!(rig.e.recorder().capturing());
+    rig.off(60, Some(rig.host(played + 1_000)));
+    rig.blocks(1);
+    let notes = rig.notes();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(notes[0].note.start, Tick(-80));
+    assert_eq!(notes[0].note.length, Tick(40), "1 000 samples, as played");
+    // In the take, a note played before it whose event arrives in it still counts from the
+    // take's first sample.
+    let early = cue - 3_000;
+    rig.on(62, Some(rig.host(early)));
+    rig.blocks(1);
+    rig.off(62, Some(rig.host(cue + 5 * BLOCK as u64 + 500)));
+    rig.blocks(1);
+    let notes = rig.notes();
+    assert_eq!(notes.len(), 2, "{notes:?}");
+    assert!(notes[1].note.start >= Tick(-6), "{notes:?}");
+}
+
 /// A stamp the count-in cannot use (further than a second from its block) counts for the take
 /// in `unplaced`, and its note counts from the start of its block, as during a take.
 #[test]
