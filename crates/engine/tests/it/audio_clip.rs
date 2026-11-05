@@ -493,7 +493,17 @@ fn a_new_engine_rate_keeps_the_pitch() {
 #[test]
 fn the_audio_side_never_allocates_while_clips_play() {
     let mut rig = standard();
-    let steps: [&[ControlMsg]; 7] = [
+    // Clip 0 split in two at 2 s (#704): the right part takes the stream over.
+    let split = ControlMsg::TrackPlacementsUpload {
+        track: TrackSlot(0),
+        first: 0,
+        total: 2,
+        placements: vec![
+            part(0, 0, 0, 0, 2 * RATE as u64),
+            part(1, 0, 4 * PPQ, 2 * RATE as u64, 28 * RATE as u64),
+        ],
+    };
+    let steps: [&[ControlMsg]; 8] = [
         &[ControlMsg::Play { from: Tick(0) }, launch(0)],
         &[launch(1)],
         &[launch(2)],
@@ -505,12 +515,18 @@ fn the_audio_side_never_allocates_while_clips_play() {
             },
         ],
         &[ControlMsg::Seek { tick: Tick(PPQ) }],
+        &[
+            split,
+            ControlMsg::Seek {
+                tick: Tick(3 * PPQ + PPQ / 2),
+            },
+        ],
         &[ControlMsg::StopTrack {
             track: TrackSlot(0),
         }],
         &[ControlMsg::Stop],
     ];
-    for step in steps {
+    for (i, step) in steps.into_iter().enumerate() {
         rig.send(step);
         for _ in 0..60 {
             assert_no_alloc(|| {
@@ -521,6 +537,21 @@ fn the_audio_side_never_allocates_while_clips_play() {
             rig.disk
                 .step(&mut rig.prepare, rig.frames * 1000 / u64::from(RATE));
             rig.prepare.flush();
+        }
+        if i == 5 {
+            // The split's step played through the cut (clip frame 16 000) under the detector.
+            let at = rig
+                .host
+                .engine()
+                .state()
+                .track(TrackSlot(0))
+                .unwrap()
+                .audio
+                .position();
+            assert!(
+                at.is_some_and(|f| f > CLIP_START + 2 * RATE as u64 + 1_000),
+                "past the cut: {at:?}"
+            );
         }
     }
     // A new rate while a clip plays.
@@ -607,7 +638,7 @@ fn the_parity_scenario_plays_every_part_without_an_underrun() {
     assert!(part(250, 100) > 20_000);
     assert!(part(350, 150) > 30_000);
     assert!(part(500, 250) > 60_000);
-    assert_eq!(frames, 1_070 * BLOCK);
+    assert_eq!(frames, 1_370 * BLOCK);
     // The stop: silent at its end.
     assert!(
         out[2 * 760 * BLOCK..2 * 770 * BLOCK]
@@ -617,6 +648,13 @@ fn the_parity_scenario_plays_every_part_without_an_underrun() {
     // The resampled part (an engine at 11 025 Hz): both clips sound.
     assert!(part(770, 100) > 20_000);
     assert!(part(870, 200) > 40_000);
+    // The split placements (#704), at 8 000, 11 025 and 6 000 Hz: they play through.
+    for from in [1_070, 1_170, 1_270] {
+        assert!(
+            part(from, 100) > 20_000,
+            "the split placements from block {from}"
+        );
+    }
 }
 
 #[test]
@@ -636,4 +674,309 @@ fn a_jump_into_a_spot_that_is_not_resident_waits_for_the_ring_only() {
     );
     assert!(silent <= fade_frames(RATE) as usize + 1);
     assert!(back <= 3 * BLOCK, "{back} frames");
+}
+
+// ------------------------------------------------- contiguous placements of one clip (#704)
+
+/// A frame placement of `clip` on track 0.
+fn part(slot: u32, clip: u32, start: i64, offset: u64, length: u64) -> Placement {
+    Placement {
+        placement: PlacementSlot(slot),
+        clip: ClipSlot(clip),
+        start: Tick(start),
+        span: Span::Frames {
+            offset: Frame(offset),
+            length: Frame(length),
+        },
+    }
+}
+
+type Stereo = (Vec<f32>, Vec<f32>);
+
+/// The tempo of the split tests: a tick is not a whole number of samples.
+const BPM: f64 = 130.0;
+
+/// A 220 Hz sine of 4 s at `rate` (clip 0, and clip 1 on the same frames) in an engine at
+/// `engine` Hz at [`BPM`], with `parts` as track 0's arrangement, played from tick 0 for 600
+/// blocks; `mid`: what is sent after 100 blocks.
+fn play_parts(engine: u32, rate: u32, parts: Vec<Placement>, mid: &[ControlMsg]) -> Stereo {
+    play_parts_at(engine, rate, BPM, parts, mid)
+}
+
+/// [`play_parts`] at `bpm`.
+fn play_parts_at(
+    engine: u32,
+    rate: u32,
+    bpm: f64,
+    parts: Vec<Placement>,
+    mid: &[ControlMsg],
+) -> Stereo {
+    let (mut rig, frames) = sine_rig(engine, rate, 220.0, 4.0, None);
+    rig.send(&[
+        transport(Quantize::None, bpm),
+        ControlMsg::ClipAudioSet {
+            clip: ClipSlot(1),
+            source: SourceSlot(0),
+            start: Frame(0),
+            length: Frame(frames),
+            gain: 1.0,
+            looping: None,
+        },
+        ControlMsg::TrackPlacementsUpload {
+            track: TrackSlot(0),
+            first: 0,
+            total: parts.len() as u32,
+            placements: parts,
+        },
+        ControlMsg::Play { from: Tick(0) },
+    ]);
+    let (mut l, mut r) = rig.render(100);
+    rig.send(mid);
+    let (a, b) = rig.render(500);
+    l.extend(a);
+    r.extend(b);
+    assert_eq!(underruns(&rig), 0);
+    (l, r)
+}
+
+/// The frames of a source at `rate` before tick `t` at [`BPM`]: where the split command cuts
+/// (`floor(t × frames per tick)`).
+fn frames_before(rate: u32, t: i64) -> u64 {
+    frames_before_at(rate, BPM, t)
+}
+
+/// [`frames_before`] at `bpm`.
+fn frames_before_at(rate: u32, bpm: f64, t: i64) -> u64 {
+    let spt = Tempo::new(bpm)
+        .unwrap()
+        .samples_per_tick(SampleRate::new(rate).unwrap());
+    (t as f64 * spt).floor() as u64
+}
+
+/// The block frame where tick `t` plays at [`BPM`] in an engine at `engine` Hz.
+fn cut_frame(engine: u32, t: i64) -> usize {
+    frames_before(engine, t) as usize
+}
+
+/// The largest difference between two renders over `[from, to)`, both channels.
+fn max_diff(a: &Stereo, b: &Stereo, from: usize, to: usize) -> f32 {
+    (from..to)
+        .map(|i| (a.0[i] - b.0[i]).abs().max((a.1[i] - b.1[i]).abs()))
+        .fold(0.0, f32::max)
+}
+
+fn bit_equal(a: &Stereo, b: &Stereo) {
+    assert_eq!(a.0.len(), b.0.len());
+    for (i, (x, y)) in a.0.iter().zip(&b.0).chain(a.1.iter().zip(&b.1)).enumerate() {
+        assert_eq!(x.to_bits(), y.to_bits(), "sample {i}: {x} and {y}");
+    }
+}
+
+const CUT: i64 = 1_234;
+const CUT2: i64 = 2_345;
+
+#[test]
+fn a_placement_split_in_three_plays_like_the_whole_one_sample_for_sample() {
+    // Equal rates, a source slower than the engine (less than one source frame per output
+    // frame) and one faster (several).
+    for (engine, rate) in [(48_000, 48_000), (48_000, 8_000), (11_025, 48_000)] {
+        let frames = u64::from(4 * rate);
+        let whole = play_parts(engine, rate, vec![part(0, 0, 0, 0, frames)], &[]);
+        let (k1, k2) = (frames_before(rate, CUT), frames_before(rate, CUT2));
+        let split = play_parts(
+            engine,
+            rate,
+            vec![
+                part(0, 0, 0, 0, k1),
+                part(1, 0, CUT, k1, k2 - k1),
+                part(2, 0, CUT2, k2, frames - k2),
+            ],
+            &[],
+        );
+        // The cuts fall where the tone is heard, and the whole render is the same to the
+        // bit, the fades included (tolerance 0).
+        let at = cut_frame(engine, CUT2);
+        assert!(at + 1_000 < whole.0.len());
+        assert!(whole.0[at..at + 1_000].iter().any(|s| s.abs() > 0.3));
+        bit_equal(&split, &whole);
+    }
+}
+
+#[test]
+fn a_split_plays_on_when_a_tick_is_shorter_than_two_frames() {
+    // An 8 kHz file at 400 BPM (1.25 frames a tick) and at 999 BPM (0.5): the left part's
+    // end, its frames rounded to ticks, may fall a tick before the cut; that gap, shorter
+    // than one more frame, is closed and the right part takes the stream over.
+    let (engine, rate) = (48_000, 8_000);
+    let frames = u64::from(4 * rate);
+    for bpm in [400.0, 999.0] {
+        let whole = play_parts_at(engine, rate, bpm, vec![part(0, 0, 0, 0, frames)], &[]);
+        let mut gaps = 0;
+        for cut in 1_201..1_221 {
+            let k = frames_before_at(rate, bpm, cut);
+            let own = Tempo::new(bpm).unwrap().audio_end_tick(
+                Tick(0),
+                Frame(k),
+                SampleRate::new(rate).unwrap(),
+            );
+            let gap = own < Tick(cut);
+            gaps += usize::from(gap);
+            let split = play_parts_at(
+                engine,
+                rate,
+                bpm,
+                vec![part(0, 0, 0, 0, k), part(1, 0, cut, k, frames - k)],
+                &[],
+            );
+            bit_equal(&split, &whole);
+            if gap {
+                // The same gap before another clip, or before frames that do not follow, is
+                // kept: the left part fades out at its own end, and the next one fades in.
+                let at = frames_before_at(engine, bpm, own.0) as usize;
+                for (clip, offset) in [(1, k), (0, k + 2)] {
+                    let other = play_parts_at(
+                        engine,
+                        rate,
+                        bpm,
+                        vec![
+                            part(0, 0, 0, 0, k),
+                            part(1, clip, cut, offset, frames - offset),
+                        ],
+                        &[],
+                    );
+                    let first = (0..whole.0.len()).find(|&i| other.0[i] != whole.0[i]);
+                    assert_eq!(first, Some(at), "clip {clip} from {offset}: out at the end");
+                }
+            }
+        }
+        assert!(gaps > 0, "{bpm} BPM: some cut leaves a rounded gap");
+    }
+}
+
+#[test]
+fn contiguous_placements_whose_frames_do_not_follow_still_crossfade() {
+    let (engine, rate) = (48_000, 48_000);
+    let frames = u64::from(4 * rate);
+    let k = frames_before(rate, CUT);
+    let jump = 4_800;
+    let whole = play_parts(engine, rate, vec![part(0, 0, 0, 0, frames)], &[]);
+    let split = play_parts(
+        engine,
+        rate,
+        vec![
+            part(0, 0, 0, 0, k),
+            part(1, 0, CUT, k + jump, frames - k - jump),
+        ],
+        &[],
+    );
+    let f = cut_frame(engine, CUT);
+    let fade = fade_frames(engine) as usize;
+    assert_eq!(
+        max_diff(&split, &whole, 0, f),
+        0.0,
+        "the same before the cut"
+    );
+    // After the fade: the new read, the whole placement's frames `jump` later.
+    let j = jump as usize;
+    let ahead = (whole.0[j..].to_vec(), whole.1[j..].to_vec());
+    let after = max_diff(&split, &ahead, f + fade + 1, whole.0.len() - j);
+    assert_eq!(after, 0.0, "the new read after the fade");
+    // Within the fade, neither the old read nor the new one: both, crossfaded.
+    let old = max_diff(&split, &whole, f + fade / 4, f + 3 * fade / 4);
+    let new = max_diff(&split, &ahead, f + fade / 4, f + 3 * fade / 4);
+    println!("within the fade: {old} from the old read, {new} from the new one");
+    assert!(old > 0.01 && new > 0.01, "a crossfade ({old}, {new})");
+    // And no click.
+    let source_step = (220.0 * core::f64::consts::TAU / f64::from(rate) * 0.5) as f32;
+    let bound = source_step + 1.0 / fade as f32;
+    let around = f - fade..f + 2 * fade;
+    let step = max_step(&split.0[around.clone()], &split.1[around]);
+    assert!(step <= bound, "a click: step {step} > {bound}");
+}
+
+#[test]
+fn only_the_same_clip_within_the_rounding_of_a_cut_and_without_a_jump_plays_on() {
+    let (engine, rate) = (48_000, 48_000);
+    let frames = u64::from(4 * rate);
+    let k = frames_before(rate, CUT);
+    let f = cut_frame(engine, CUT);
+    let fade = fade_frames(engine) as usize;
+    let whole = play_parts(engine, rate, vec![part(0, 0, 0, 0, frames)], &[]);
+    let pair = |clip: u32, offset: u64| {
+        vec![
+            part(0, 0, 0, 0, k),
+            part(1, clip, CUT, offset, frames - offset),
+        ]
+    };
+    // Played from tick 0 at equal rates, the stream is at frame `k` at the cut (`f` is
+    // `floor(CUT × frames per tick)` too). Up to `CONTIGUOUS` (two frames) plus one output
+    // frame (one frame here) off, either way: the stream plays on at its own position.
+    for offset in [k - 3, k - 2, k - 1, k + 1, k + 2, k + 3] {
+        bit_equal(&play_parts(engine, rate, pair(0, offset), &[]), &whole);
+    }
+    // Four frames off, or another clip on the same frames: a crossfade.
+    for (clip, offset) in [(0, k + 4), (0, k - 4), (1, k)] {
+        let other = play_parts(engine, rate, pair(clip, offset), &[]);
+        let d = max_diff(&other, &whole, f, f + fade);
+        assert!(d > 0.001, "clip {clip} from {offset}: a crossfade ({d})");
+    }
+    // A seek into the right part while the left one plays: the transport jumped, the
+    // position is computed again under a crossfade, as for the whole placement. The right
+    // part's position after the seek is its own, which may differ from the whole
+    // placement's by the rounding of its start to a sample (TR-1): one frame.
+    let seek = [ControlMsg::Seek { tick: Tick(2_000) }];
+    let whole_seek = play_parts(engine, rate, vec![part(0, 0, 0, 0, frames)], &seek);
+    let split_seek = play_parts(engine, rate, pair(0, k), &seek);
+    let start = 100 * BLOCK;
+    assert_eq!(max_diff(&split_seek, &whole_seek, 0, start), 0.0);
+    for render in [&whole_seek, &split_seek] {
+        let d = max_diff(render, &whole, start + fade / 4, start + 3 * fade / 4);
+        assert!(d > 0.01, "the seek crossfades ({d})");
+    }
+    let shifted = |d: usize| {
+        (start + 2 * fade..whole.0.len() - 2).all(|i| {
+            split_seek.0[i].to_bits() == whole_seek.0[i + d - 1].to_bits()
+                && split_seek.1[i].to_bits() == whole_seek.1[i + d - 1].to_bits()
+        })
+    };
+    assert!(
+        shifted(0) || shifted(1) || shifted(2),
+        "within a frame of the whole after the seek"
+    );
+    // A tempo change while the left part plays: the stream keeps its frames (a tempo change
+    // does not move a playing clip) while the cut's tick moves, so the right part no longer
+    // starts where the stream is and crossfades in (the module doc's limit). The whole
+    // placement plays on, without a crossfade.
+    let faster = [transport(Quantize::None, 160.0)];
+    let whole_faster = play_parts(engine, rate, vec![part(0, 0, 0, 0, frames)], &faster);
+    let split_faster = play_parts(engine, rate, pair(0, k), &faster);
+    let at = (0..whole_faster.0.len())
+        .find(|&i| split_faster.0[i] != whole_faster.0[i])
+        .expect("the split crossfades");
+    let spt = 60.0 * f64::from(engine) / (160.0 * PPQ as f64);
+    let moved = start
+        + ((CUT as f64 - start as f64 / (60.0 * f64::from(engine) / (130.0 * PPQ as f64))) * spt)
+            .floor() as usize;
+    assert!(
+        at.abs_diff(moved) <= 2,
+        "the crossfade at {at}, the cut at {moved}"
+    );
+    let d = max_diff(&split_faster, &whole_faster, at, at + fade);
+    assert!(d > 0.01, "a crossfade ({d})");
+}
+
+#[test]
+fn the_parity_scenario_s_split_placements_play_like_the_whole_one() {
+    use engine::audio_source::scenario::split_placements;
+    for engine in [RATE, 11_025, 6_000] {
+        let render = |split: bool| {
+            let mut rig = Rig::new(engine, MemDisk::standard(), &player_setup());
+            rig.render(200);
+            rig.send(&split_placements(split));
+            rig.render(100)
+        };
+        let (whole, split) = (render(false), render(true));
+        assert!(whole.0.iter().filter(|s| **s != 0.0).count() > 10_000);
+        bit_equal(&split, &whole);
+    }
 }

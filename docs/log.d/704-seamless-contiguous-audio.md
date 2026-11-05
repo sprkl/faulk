@@ -1,0 +1,2 @@
+2026-11-05
+* **Update** (#704): the audio clip player lets a placement of the same clip that resumes where the playing stream is (the parts of a split placement) take that stream over without the 2 ms crossfade, and closes a gap shorter than one more source frame to the next part of a cut (same clip, next frames: the cut rounded to ticks); a split placement now renders like the whole one, sample for sample. `specs/02-decoupage-mvp.md` (AU-4, AU-6) and `architecture/03-stockage-local.md` § 5.11 follow.
