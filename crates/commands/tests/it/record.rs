@@ -740,7 +740,9 @@ fn a_first_note_played_just_before_the_bar_starts_the_clip_on_that_bar() {
 /// #732: the rule above takes every note of the sixteenth before the bar, not only the first:
 /// they all start on the bar's first tick, the notes after the bar stay as played. The window
 /// is in ticks, so its length in time follows the tempo (125 ms at 120 BPM, 15 ms at 999 BPM):
-/// the "common floor" of the first notes of a batch the issue measured at 999 BPM.
+/// the "common floor" of the first notes of a batch the issue measured at 999 BPM. This pins the
+/// rule as it stands; whether it should move more than the first note is an open product
+/// question (spec 03, implementation state).
 #[test]
 fn every_note_of_the_sixteenth_before_the_bar_starts_on_the_bar() {
     let r = rec();
@@ -765,8 +767,8 @@ fn every_note_of_the_sixteenth_before_the_bar_starts_on_the_bar() {
     };
     let starts: Vec<_> = notes.iter().map(|n| (n.pitch, n.start)).collect();
     assert_eq!(starts, vec![(60, Tick(0)), (61, Tick(0)), (62, Tick(90))]);
-    // A new clip of the arrangement does the same, in the gap before the placement of bar 2:
-    // the same notes one bar earlier, around bar 1 (3840).
+    // A new clip of the arrangement does the same: the same notes one bar earlier, around the
+    // bar of tick 3840.
     let played = played
         .iter()
         .map(|n| note(n.start.get() - 3840, n.pitch, 80))
