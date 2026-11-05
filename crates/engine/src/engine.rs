@@ -2159,6 +2159,14 @@ impl Engine {
         &self.graph
     }
 
+    /// Reads every chain's latency now, as the next block will ([`Graph::latency`], each
+    /// track's [`crate::graph::TrackGraph::latency`]), for the offline render that aligns its
+    /// file on them before rendering (#755). Changes nothing the render reads: the next block
+    /// measures them again. No allocation.
+    pub(crate) fn measure_latency(&mut self) {
+        self.graph.measure_latency(&mut self.state);
+    }
+
     /// Renders the graph ([`crate::graph`]) into `left` and `right` (their common length),
     /// with the live events [`Engine::begin_block`] took: the first render of at least one
     /// frame delivers them, later ones until the next `begin_block` render without them (a

@@ -10,16 +10,35 @@
 //!    the engine first renders [`PREROLL_SECONDS`] with the transport stopped, written
 //!    nowhere, so that the fade in of every new track and device (`graph::FADE_SECONDS`) is
 //!    over before the first frame: the song starts as it does when the user presses play on a
-//!    project already open. Then the start stream goes in.
+//!    project already open. With a device that has a latency the pre-roll lasts until the
+//!    chains' latencies have held still for [`PREROLL_SECONDS`] plus that latency (a device
+//!    fading in holds its fade until it ran its latency, and the compensation moves to its
+//!    delays, #749). Then the start stream goes in.
 //! 1. **Body**: [`Plan::body_frames`] frames, the content of the song (the host computes
-//!    the length from the project). Every frame is written. The last block is cut short so
-//!    that the content ends on its last frame, and the transport stops there.
+//!    the length from the project). Every frame is written. The transport stops on the
+//!    content's last frame: a block is cut short so that the stop lands there.
 //! 2. **Tail**: once the body is rendered the transport is stopped ([`Offline::set_stop`],
 //!    which cuts a loop region or what plays on past the end) and the render goes on while
 //!    the effects ring out. A frame past the body is written only up to the last one
 //!    louder than [`SILENCE_DB`]: the output ends where the sound ends. The render stops
 //!    after [`SILENCE_SECS`] of quiet, or at [`MAX_TAIL_SECS`] whatever sounds
 //!    ([`Offline::tail_cut`]).
+//!
+//! # Device latency: the file starts on the song's first frame (#755)
+//!
+//! The engine delays everything heard by the device latency it compensates, `T + M` frames
+//! (`crate::graph` > Latency, [`Offline::lead`]): the song's first frame comes out `T + M`
+//! frames after the transport starts. The render reads that latency once the pre-roll is over
+//! and drops the first `T + M` frames it renders: the file starts on the song's first frame
+//! and holds the whole body, the transport still stopping on the content's last frame
+//! (transport time), so the tail starts `T + M` frames after it, where the content's last
+//! frame comes out. The file is the same as the project's without the latent device, to the
+//! sample, when that device leaves the signal as it is (a Ceiling below its ceiling). The
+//! levels of the content ([`Offline::measure`]) are taken over the same stretch of the song:
+//! each track's after the latency of its own chain (its meter is read before the
+//! compensation), the output's after `T + M`; the render cuts its blocks and closes a report
+//! at every edge of these windows. A latency that changes during the song (a look-ahead
+//! automated) moves the sound as playback does; the file stays aligned on the start's.
 //!
 //! Samples are encoded here, in the engine, so that every host writes the same bytes: the
 //! page, the helper and the tests read PCM from [`Offline::pcm`] and the header from
@@ -66,6 +85,9 @@ pub const MAX_TAIL_SECS: f32 = 30.0;
 /// What the engine renders, stopped and written nowhere, before the start stream: twice the
 /// fade in of a new track or device ([`crate::graph::FADE_SECONDS`]).
 pub const PREROLL_SECONDS: f64 = 2.0 * crate::graph::FADE_SECONDS;
+/// The longest pre-roll past [`PREROLL_SECONDS`] while the chains' latencies keep moving
+/// (module doc), in seconds: the render never waits for them forever.
+const MAX_PREROLL_SETTLE_SECONDS: f64 = 1.0;
 /// The longest body accepted, in seconds: thirty minutes, which is 518 MB of 24-bit
 /// stereo at 48 kHz, well under the 4 GiB a WAV file can hold.
 pub const MAX_BODY_SECS: f64 = 30.0 * 60.0;
@@ -217,9 +239,20 @@ pub struct Offline {
     stopped: bool,
     start: Vec<u8>,
     started: bool,
-    /// Frames of the pre-roll rendered so far, and how many it has.
+    /// Frames of the pre-roll rendered so far, and how many it has at least.
     preroll: u64,
     preroll_frames: u64,
+    /// The chains' latencies the pre-roll watches ([`Offline::latencies`]), and the pre-roll
+    /// frame at which they last moved.
+    latencies: (u32, u32, u64),
+    latencies_at: u64,
+    /// The device latency dropped from the start of the file (module doc), set at the start.
+    lead: u64,
+    /// The frames (counted from the start, like `rendered`) where a block ends and a report is
+    /// closed: the stop and the edges of the levels' windows, ascending, once each.
+    edges: Vec<u64>,
+    /// The first edge not passed yet.
+    edge: usize,
     phase: Phase,
     /// Frames rendered, written or not.
     rendered: u64,
@@ -300,6 +333,11 @@ impl Offline {
             preroll: 0,
             preroll_frames: ((PREROLL_SECONDS * rate) as u64).div_ceil(QUANTUM as u64)
                 * QUANTUM as u64,
+            latencies: (0, 0, 0),
+            latencies_at: 0,
+            lead: 0,
+            edges: Vec::new(),
+            edge: 0,
             phase: Phase::Body,
             rendered: 0,
             written: 0,
@@ -339,7 +377,10 @@ impl Offline {
     }
 
     /// The stream (already encoded in the render's epoch) that starts the transport after the
-    /// pre-roll (module doc). Without one, the setup starts it and there is no pre-roll.
+    /// pre-roll (module doc). Without one, the setup starts it and there is no pre-roll: the
+    /// file is aligned on the latency the setup leaves before the first block, in which a
+    /// device that is not heard yet (one on the master, which fades in) counts none. The
+    /// export (`commands::export`) always gives one.
     pub fn set_start(&mut self, stream: &[u8]) {
         self.start.clear();
         self.start.extend_from_slice(stream);
@@ -407,22 +448,113 @@ impl Offline {
             return Ok(true);
         }
         if !self.start.is_empty() {
-            while self.preroll < self.preroll_frames {
+            let limit = self.preroll_frames
+                + (MAX_PREROLL_SETTLE_SECONDS * f64::from(self.sample_rate)) as u64;
+            while self.preroll < limit && self.preroll < self.preroll_end() {
                 self.prepare.flush();
                 if !self.settle()? {
                     return Ok(false);
                 }
                 self.preroll += self.render(QUANTUM) as u64;
+                let latencies = self.latencies();
+                if latencies != self.latencies {
+                    self.latencies = latencies;
+                    self.latencies_at = self.preroll;
+                }
             }
             // The pre-roll is not part of the content: the levels start again where the content does.
             self.host.write_feedback();
-            self.host.tally_levels().map_err(OfflineError::Stream)?;
+        }
+        self.align()?;
+        if !self.start.is_empty() {
             let start = std::mem::take(&mut self.start);
             self.submit(&start)?;
             self.start = start;
         }
         self.started = true;
         Ok(true)
+    }
+
+    /// Where the pre-roll may end (module doc): [`PREROLL_SECONDS`] after the chains' latencies
+    /// last moved, plus the latency, in whole blocks. Without a latency, [`PREROLL_SECONDS`].
+    fn preroll_end(&self) -> u64 {
+        let latency =
+            u64::from(self.host.engine().graph().latency()).next_multiple_of(QUANTUM as u64);
+        self.latencies_at + self.preroll_frames + latency
+    }
+
+    /// What the pre-roll watches of the chains' latencies, as the last block measured them: the
+    /// output's, the master's, and the sum of the tracks'.
+    fn latencies(&self) -> (u32, u32, u64) {
+        let engine = self.host.engine();
+        let tracks = engine.state().tracks.as_slice().iter().flatten();
+        (
+            engine.graph().latency(),
+            engine.graph().master_latency(),
+            tracks.map(|t| u64::from(t.graph.latency())).sum(),
+        )
+    }
+
+    /// Reads the device latency the engine compensates and sets the file's start on it, the
+    /// levels' windows and the blocks' edges (module doc > Device latency).
+    fn align(&mut self) -> Result<(), OfflineError> {
+        self.host.engine_mut().measure_latency();
+        let engine = self.host.engine();
+        let body = self.plan.body_frames;
+        let tracks = engine.state().tracks.as_slice();
+        // `T + M`, where every track comes out. Under a capped compensation a track whose delay
+        // is held at the limit comes out earlier (`crate::graph` > Latency): the file starts
+        // where the first track comes out, so that none loses its first frames.
+        let graph = engine.graph();
+        let mut lead = graph.latency();
+        if graph.latency_capped() {
+            let earliest = tracks
+                .iter()
+                .flatten()
+                .map(|t| t.graph.latency().saturating_add(t.graph.delay()))
+                .min()
+                .unwrap_or(0);
+            lead = lead.min(earliest.saturating_add(graph.master_latency()));
+        }
+        self.lead = u64::from(lead);
+        let out_of_memory = |n: usize| OfflineError::Stream(MsgError::OutOfMemory { bytes: n * 8 });
+        // Each track's meter, read before the compensation, shows the song after its own
+        // chain's latency; an empty slot has none.
+        let mut leads = Vec::new();
+        leads
+            .try_reserve_exact(tracks.len())
+            .map_err(|_| out_of_memory(tracks.len()))?;
+        leads.extend(
+            tracks
+                .iter()
+                .map(|t| t.as_deref().map_or(0, |t| u64::from(t.graph.latency()))),
+        );
+        let count = leads.len() * 2 + 3;
+        let mut edges = Vec::new();
+        edges
+            .try_reserve_exact(count)
+            .map_err(|_| out_of_memory(count))?;
+        edges.extend([body, self.lead, body + self.lead]);
+        for (slot, track) in tracks.iter().enumerate() {
+            if track.is_some() {
+                edges.extend([leads[slot], body + leads[slot]]);
+            }
+        }
+        edges.retain(|&e| e > 0);
+        edges.sort_unstable();
+        edges.dedup();
+        self.edges = edges;
+        self.edge = 0;
+        let lead = self.lead;
+        self.host
+            .tally_levels_over(body, |slot| leads.get(slot).copied().unwrap_or(0), lead)
+            .map_err(OfflineError::Stream)
+    }
+
+    /// The device latency the render drops from the start of the file (module doc > Device
+    /// latency): the engine's `T + M` once the render started, 0 before.
+    pub fn lead(&self) -> u64 {
+        self.lead
     }
 
     /// Gets the disk planner idle before a block (module doc): `Ok(true)` when the block can
@@ -621,11 +753,13 @@ impl Offline {
             used = budget;
         }
         while used < budget && self.phase != Phase::Done {
-            if self.phase == Phase::Body && self.rendered >= self.plan.body_frames {
+            if self.phase == Phase::Body && self.rendered >= self.content_end() {
                 self.phase = Phase::Tail;
                 self.freeze_measure();
             }
-            if self.phase == Phase::Tail && !self.stopped {
+            // The transport stops on the content's last frame, `lead` frames before that frame
+            // comes out (module doc > Device latency).
+            if self.rendered >= self.plan.body_frames && !self.stopped {
                 self.stopped = true;
                 if !self.stop.is_empty() {
                     let stop = std::mem::take(&mut self.stop);
@@ -638,15 +772,20 @@ impl Offline {
                 self.disk_waits += 1;
                 break;
             }
-            // The last block of the content ends on its last frame, so that the stop lands there
-            // and not up to a block later (what follows the range must not be heard).
-            let block = match self.phase {
-                Phase::Body => (self.plan.body_frames - self.rendered).min(QUANTUM as u64) as usize,
-                _ => QUANTUM,
+            // A block ends on the next edge: the content's last frame, so that the stop lands
+            // there and not up to a block later (what follows the range must not be heard), and
+            // the levels' windows, whose reports are closed there.
+            let block = match self.edges.get(self.edge) {
+                Some(&edge) => (edge - self.rendered).min(QUANTUM as u64) as usize,
+                None => QUANTUM,
             };
             let n = self.render(block);
             used += n;
             self.take_block(n);
+            if self.edges.get(self.edge) == Some(&self.rendered) {
+                self.edge += 1;
+                self.host.write_feedback();
+            }
         }
         let (rejected, skipped) = (
             self.prepare.preparer().rejected(),
@@ -664,9 +803,15 @@ impl Offline {
         self.measure.as_ref()
     }
 
-    /// Closes the metering period of the content's last block and keeps the levels.
+    /// The frame, counted from the start, after the content's last one comes out: the body
+    /// past the device latency (module doc > Device latency).
+    fn content_end(&self) -> u64 {
+        self.plan.body_frames + self.lead
+    }
+
+    /// Keeps the levels of the content. Its last block ended on an edge, which closed the
+    /// metering period there.
     fn freeze_measure(&mut self) {
-        self.host.write_feedback();
         if let Some(levels) = self.host.levels() {
             self.measure = Some(Measure {
                 frames: levels.frames,
@@ -708,7 +853,11 @@ impl Offline {
             );
             let index = self.rendered;
             self.rendered += 1;
-            if index < self.plan.body_frames {
+            // What comes out before the song's first frame: the device latency.
+            if index < self.lead {
+                continue;
+            }
+            if index < self.content_end() {
                 self.write(l, r);
                 continue;
             }
@@ -733,7 +882,7 @@ impl Offline {
                     continue;
                 }
             }
-            if self.rendered - self.plan.body_frames >= self.tail_frames {
+            if self.rendered - self.content_end() >= self.tail_frames {
                 self.tail_cut = true;
                 self.phase = Phase::Done;
             }

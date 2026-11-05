@@ -15,6 +15,7 @@ mod drums;
 mod echo;
 mod export;
 mod export_audio;
+mod export_latency;
 mod filter;
 mod harness;
 mod journey_pack;

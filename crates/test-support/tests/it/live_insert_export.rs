@@ -1,6 +1,7 @@
 //! #700: an effect inserted by command into a running session (after the session's snapshot)
 //! plays as the export of the same project renders it, sample for sample, natively and in
-//! WASM, for each of the four effects.
+//! WASM, for each of the effects. With a Ceiling the playback is heard its latency after the
+//! `Play` (#749) and the file starts on the song (#755): they are compared from there.
 //!
 //! The gap #700 saw was the harness's: the session ran on a fresh examples' context, whose ids
 //! start from the seed the song's own ids came from, so the inserted effect took the id of the
@@ -59,17 +60,35 @@ fn session_with(kind: Option<&str>) -> Session {
     s
 }
 
-/// Plays the session: half a second stopped, then from bar 1; the `n` frames from the start.
-fn play(s: &mut Session, n: usize, render: impl Fn(&Scenario) -> Render) -> Render {
+/// The device latency the engine compensates with `kind` on the lead (#749): a Ceiling's at
+/// its default look-ahead, without the true-peak detection (its default); none for the others.
+fn latency(kind: Option<&str>) -> usize {
+    use engine::devices::ceiling::{DESCRIPTOR, LOOKAHEAD, lookahead_frames};
+    if kind != Some("faulk.ceiling") {
+        return 0;
+    }
+    let default = DESCRIPTOR
+        .params
+        .iter()
+        .find(|p| p.id.0 == LOOKAHEAD)
+        .expect("the look-ahead")
+        .default;
+    lookahead_frames(default as f32, SAMPLE_RATE) as usize
+}
+
+/// Plays the session: half a second stopped, then from bar 1; the `n` frames heard from the
+/// start, `latency` frames after the `Play` (the export drops that latency, #755).
+fn play(s: &mut Session, n: usize, latency: usize, render: impl Fn(&Scenario) -> Render) -> Render {
     let before = (0.5 * SAMPLE_RATE / QUANTUM as f32).ceil() as usize * QUANTUM as usize;
+    let from = before + latency;
     s.render_secs(0.5);
     s.run(Command::Transport(transport::Command::Play {}));
-    s.render_secs(n as f32 / SAMPLE_RATE + 0.1);
+    s.render_secs((n + latency) as f32 / SAMPLE_RATE + 0.1);
     let played = render(s.scenario());
     Render::new(
         played.sample_rate,
-        played.left[before..before + n].to_vec(),
-        played.right[before..before + n].to_vec(),
+        played.left[from..from + n].to_vec(),
+        played.right[from..from + n].to_vec(),
     )
 }
 
@@ -90,7 +109,7 @@ fn check(kind: Option<&str>) -> Render {
     );
     body.assert_clean();
     body.assert_audible(0.2..3.5, 0.01);
-    let played = play(&mut s, n, render_native);
+    let played = play(&mut s, n, latency(kind), render_native);
     let (diff, at) = body.max_difference(&played);
     assert_eq!(
         diff, 0.0,
@@ -103,7 +122,7 @@ fn check(kind: Option<&str>) -> Render {
         d <= PARITY_TOLERANCE,
         "{kind:?}: the WASM export differs by {d} at {at}"
     );
-    let played_wasm = play(&mut session_with(kind), n, render_wasm);
+    let played_wasm = play(&mut session_with(kind), n, latency(kind), render_wasm);
     let (d, at) = played_wasm.max_difference(&body);
     assert!(
         d <= PARITY_TOLERANCE,
@@ -118,13 +137,25 @@ fn the_song_without_an_effect_plays_as_it_exports() {
 }
 
 /// Each effect is heard (its file differs from the song's without it), so the equality of the
-/// playback and the file also proves the live insert reached the engine.
+/// playback and the file also proves the live insert reached the engine. The Ceiling is the
+/// exception: the song stays below its ceiling, so it only delays the lead by its latency,
+/// which the engine compensates and the export drops (#755): its file is the song's without
+/// it, to the sample. The playback, compared `latency` frames after the `Play`, proves it was
+/// inserted (without it the song would be heard that much earlier).
 #[test]
 fn an_effect_inserted_live_plays_as_the_export_renders_it() {
     let dry = check(None);
     for kind in EFFECTS {
         let wet = check(Some(kind));
         let (d, _) = wet.max_difference(&dry);
-        assert!(d > 0.01, "{kind}: the effect is not heard ({d})");
+        if kind == "faulk.ceiling" {
+            assert!(latency(Some(kind)) > 0);
+            assert_eq!(
+                d, 0.0,
+                "{kind}: below its ceiling, only a compensated delay"
+            );
+        } else {
+            assert!(d > 0.01, "{kind}: the effect is not heard ({d})");
+        }
     }
 }
