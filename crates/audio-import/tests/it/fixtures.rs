@@ -92,6 +92,12 @@ fn reference_gap(name: &str, pcm: &[f32]) -> f32 {
         .fold(0.0, f32::max)
 }
 
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut h = audio_import::Sha256::new();
+    h.update(bytes);
+    h.finish().to_string()
+}
+
 fn outcome(name: &str) -> Value {
     match import(read(name), extension(name)) {
         // MP3 and AAC: their samples are checked against `<name>.pcm` at a tolerance, so the
@@ -104,6 +110,8 @@ fn outcome(name: &str) -> Value {
             "direct": imported.layout.is_some(),
             "pcm_sha256": if REFERENCE_PCM.contains(&name) { Value::Null } else { pcm_digest(&pcm).into() },
             "pcm_reference": if REFERENCE_PCM.contains(&name) { format!("{name}.pcm").into() } else { Value::Null },
+            // The waveform peaks (AU-2): the page's build must give these bytes too.
+            "peaks_sha256": imported.peaks.as_deref().map(sha256_hex),
         }),
         Err(e) => json!({ "error": e.code() }),
     }

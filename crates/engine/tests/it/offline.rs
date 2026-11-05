@@ -239,6 +239,47 @@ fn the_header_is_what_a_reader_expects() {
 }
 
 #[test]
+fn the_content_is_measured_per_track_and_the_tail_is_not() {
+    let frames = u64::from(RATE) * 2;
+    let mut offline = Offline::new(RATE, plan(frames)).unwrap();
+    offline.submit(&stream(0, master(1.0, false))).unwrap();
+    assert!(
+        offline.measure().is_none(),
+        "nothing is measured before the render"
+    );
+    let mut frozen = None;
+    while offline.step(QUANTUM).unwrap() != Phase::Done {
+        if frozen.is_none() && offline.phase() != Phase::Body {
+            frozen = offline.measure().cloned();
+        }
+    }
+    let frozen = frozen.expect("the measure exists as soon as the tail starts");
+    assert_eq!(
+        offline.measure(),
+        Some(&frozen),
+        "the tail changes nothing of the measure"
+    );
+    assert_eq!(frozen.frames, frames, "the content, not the tail");
+    assert_eq!(frozen.tracks.len(), 2, "the bass and the lead");
+    assert_eq!(frozen.silenced, 0);
+    for level in frozen.tracks.iter().chain([&frozen.master]) {
+        for (peak, rms) in [(level.peak_l, level.rms_l), (level.peak_r, level.rms_r)] {
+            assert!(peak.is_finite() && rms.is_finite());
+            assert!(
+                (0.0..=2.0).contains(&peak) && rms <= peak + 1e-6,
+                "peak {peak}, rms {rms}"
+            );
+        }
+    }
+    assert!(frozen.master.peak_l > 0.01, "the song makes sound");
+    assert!(frozen.master.rms_l > 0.0);
+    assert!(
+        frozen.tracks.iter().any(|t| t.peak_l > 0.01),
+        "a track sounds"
+    );
+}
+
+#[test]
 fn integer_formats_round_and_the_output_protection_keeps_the_ceiling() {
     // The synth at full gain into a master far above 0 dB: the output protection (#402)
     // holds the file under its ceiling, so nothing reaches full scale and nothing clips.
@@ -287,4 +328,173 @@ fn integer_formats_round_and_the_output_protection_keeps_the_ceiling() {
             "{format:?}"
         );
     }
+}
+
+// ---------------------------------------------------------------- audio clips (#647)
+
+const TONE: [u8; 32] = [0x64; 32];
+/// Frames of the tone: longer than a short source, so its clip streams through a ring.
+const TONE_FRAMES: u64 = 40 * RATE as u64;
+
+/// A mono 16-bit WAV of a 440 Hz sine at half scale.
+fn tone_wav() -> Vec<u8> {
+    use engine::audio_source::scenario::wav16;
+    wav16(RATE, 1, TONE_FRAMES, |f, _| {
+        ((f as f64 * 440.0 * core::f64::consts::TAU / f64::from(RATE)).sin() * 16_384.0) as i16
+    })
+}
+
+/// The setup of an audio track whose grid clip is the whole tone, and the start that plays it
+/// (`Play` and the launch).
+fn tone_streams() -> (Vec<u8>, Vec<u8>) {
+    use engine::msg::{ClipSlot, SceneSlot, SourceSlot, TrackKind};
+    use engine::time::{Frame, Quantize, Tempo, TimeSignature};
+    let setup = [
+        M::Reset { epoch: EPOCH },
+        M::SetTransport {
+            tempo: Tempo::new(120.0).unwrap(),
+            signature: TimeSignature::default(),
+            launch_quantize: Quantize::None,
+        },
+        M::TrackCreate {
+            track: TrackSlot(0),
+            kind: TrackKind::Audio,
+        },
+        M::AudioSourceDeclare {
+            source: SourceSlot(0),
+            sample_rate: RATE,
+            channels: 1,
+            frames: Frame(TONE_FRAMES),
+            media: TONE,
+        },
+        M::ClipAudioSet {
+            clip: ClipSlot(0),
+            source: SourceSlot(0),
+            start: Frame(0),
+            length: Frame(TONE_FRAMES),
+            gain: 1.0,
+            looping: None,
+        },
+        M::SceneSetSlot {
+            track: TrackSlot(0),
+            scene: SceneSlot(0),
+            clip: Some(ClipSlot(0)),
+        },
+    ];
+    let start = [
+        M::Play { from: Tick(0) },
+        M::LaunchClip {
+            track: TrackSlot(0),
+            scene: SceneSlot(0),
+        },
+    ];
+    (
+        encode_stream(EPOCH, 0, &setup).unwrap(),
+        encode_stream(EPOCH, 1, &start).unwrap(),
+    )
+}
+
+/// Answers the render's reads from `wav` (the tone's blob), or as not found without it.
+fn serve(offline: &mut Offline, wav: Option<&[u8]>) {
+    use engine::audio_source::{Failure, FileKind};
+    for job in offline.take_disk_jobs() {
+        match wav {
+            Some(file) if job.file == FileKind::Blob && job.media == TONE => {
+                let from = (job.offset as usize).min(file.len());
+                let to = from.saturating_add(job.len as usize).min(file.len());
+                offline.disk_done(job.id, &file[from..to], file.len() as u64);
+            }
+            _ => offline.disk_failed(job.id, Failure::NotFound),
+        }
+    }
+}
+
+fn floats(pcm: &[u8]) -> impl Iterator<Item = f32> + '_ {
+    pcm.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|b| f32::from_le_bytes(*b))
+}
+
+#[test]
+fn an_audio_clip_is_rendered_from_its_file_and_the_audio_path_never_allocates() {
+    let wav = tone_wav();
+    let (setup, start) = tone_streams();
+    let body = 10 * u64::from(RATE);
+    let mut offline = Offline::new(RATE, plan(body)).unwrap();
+    // Every block's render runs under the detector; the planner around it may allocate.
+    offline.set_render_guard(|render| assert_no_alloc::assert_no_alloc(render));
+    offline.set_start(&start);
+    offline.submit(&setup).unwrap();
+    let mut left = Vec::new();
+    loop {
+        let phase = offline.step(MAX_STEP_FRAMES).unwrap();
+        // Interleaved stereo floats: the left channel.
+        left.extend(floats(offline.pcm()).step_by(2));
+        if phase == Phase::Done {
+            break;
+        }
+        serve(&mut offline, Some(&wav));
+    }
+    assert!(
+        offline.disk_waits() > 0,
+        "the render never waited for the disk"
+    );
+    assert_eq!(offline.underruns(), 0);
+    assert!(offline.missing().is_empty());
+    assert_eq!(offline.silenced(), 0);
+    // The tone from its first block to the end of the content, past the handover from its
+    // preloaded start (1.5 s) to the ring and through its refills: every 100 ms of the file
+    // holds the tone's peak.
+    let window = RATE as usize / 10;
+    for (i, chunk) in left[..body as usize].chunks(window).enumerate().skip(1) {
+        let peak = chunk.iter().fold(0.0f32, |m, v| m.max(v.abs()));
+        assert!((peak - 0.5).abs() < 0.01, "at {} ms: {peak}", i * 100);
+    }
+}
+
+#[test]
+fn a_render_waits_for_its_reads_and_a_failed_one_does_not_stop_it() {
+    let (setup, start) = tone_streams();
+    let mut offline = Offline::new(RATE, plan(u64::from(RATE))).unwrap();
+    offline.set_start(&start);
+    offline.submit(&setup).unwrap();
+    // The source's probe is under way: nothing is rendered while it is not answered.
+    for _ in 0..3 {
+        assert_eq!(offline.step(MAX_STEP_FRAMES).unwrap(), Phase::Body);
+        assert!(offline.waiting());
+        assert_eq!(offline.rendered(), 0);
+        assert!(offline.pcm().is_empty());
+    }
+    let jobs = offline.take_disk_jobs();
+    assert!(!jobs.is_empty());
+    // Taken but not answered: still waiting.
+    assert!(offline.waiting());
+    offline.step(MAX_STEP_FRAMES).unwrap();
+    assert_eq!(offline.rendered(), 0);
+    for job in jobs {
+        offline.disk_failed(job.id, engine::audio_source::Failure::NotFound);
+    }
+    // The file is missing: the render goes on, silent, every probe again answered at once,
+    // and reports the media once the clip asked for it.
+    let mut peak = 0.0f32;
+    loop {
+        let phase = offline.step(MAX_STEP_FRAMES).unwrap();
+        peak = floats(offline.pcm()).fold(peak, |m, v| m.max(v.abs()));
+        if phase == Phase::Done {
+            break;
+        }
+        serve(&mut offline, None);
+    }
+    assert_eq!(offline.written(), u64::from(RATE));
+    assert_eq!(peak, 0.0);
+    assert_eq!(offline.missing(), &[TONE]);
+}
+
+#[test]
+fn a_render_without_audio_never_waits() {
+    let (offline, loud) = run(&stream(10, master(0.8, false)), 4_800);
+    assert_eq!(offline.disk_waits(), 0);
+    assert!(!offline.waiting());
+    assert!(loud > 0.05);
 }

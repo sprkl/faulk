@@ -99,7 +99,7 @@ pub struct GroupId(pub u64);
 /// that undoing a command restores the state exactly: the slot table depends on the
 /// order things were created and deleted, and belongs to one engine connection, rebuilt
 /// by every snapshot ([`crate::engine_msgs::resync`]).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Context {
     pub author: Author,
     pub group: Option<GroupId>,
@@ -119,6 +119,11 @@ pub struct Context {
     /// The projects the host keeps, staged for `project.list_stored` (#323): taken by the
     /// command, so a list serves one answer and a later one never shows an old list.
     pub stored: Option<StoredProjects>,
+    /// The live meters the host staged for `mixer.levels`: taken by the command.
+    pub levels: Option<crate::levels::LevelsStage>,
+    /// The measures of the offline render the host staged for `project.analyze_render`:
+    /// taken by the command.
+    pub analysis: Option<crate::levels::AnalysisStage>,
     /// The audio files the host imported in this session (AU-1), by their SHA-256: the
     /// metadata it decoded from the file's bytes, which `clip.import_audio` writes into the
     /// clip. Kept for the session (a second clip of the same file, a redo), never taken.
@@ -227,6 +232,8 @@ impl Context {
             folder: None,
             opened: None,
             stored: None,
+            levels: None,
+            analysis: None,
             media: BTreeMap::new(),
             missing_media: BTreeSet::new(),
         }
@@ -382,6 +389,9 @@ pub enum ProjectEvent {
     TempoChanged { bpm: f64 },
     /// The time signature changed (the project's one signature).
     TimeSignatureChanged { numerator: u8, denominator: u8 },
+    /// The project's key and scale changed (#695): `mode` is `chromatic` (and `root` 0) when
+    /// the project has none.
+    ScaleChanged { root: u8, mode: project::ScaleKind },
     /// The launch quantization changed (the project's one value).
     LaunchQuantizeChanged { quantize: Quantize },
     /// The loop region or whether the transport loops changed; `region` is `null` when

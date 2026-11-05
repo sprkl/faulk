@@ -2,6 +2,7 @@ import { defaultLang, LANG_STORAGE_KEY, type Lang, type MessageKey, translate } 
 import type { MainViewId, PanelViewId } from '../../views/registry'
 import { COLLAPSED_KEY, HEIGHTS_KEY, parseHeights } from '../../views/shell/panel-size'
 import { storage } from './storage'
+import { theme, type Theme } from '../theme.svelte'
 import { readLayout, writeLayout, type Layout } from './layout'
 import type { KeyLayout } from '../shortcuts'
 import type { BrowserItem } from '../browser/catalog'
@@ -41,6 +42,8 @@ export class UiStore {
   lang = $state<Lang>(defaultLang(storage()?.getItem(LANG_STORAGE_KEY) ?? null, globalThis.navigator?.language))
   /** The density of the rows, kept in the browser and set as `data-density` on the document (#490). */
   density = $state<Density>(storage()?.getItem(DENSITY_KEY) === 'compact' ? 'compact' : 'comfortable')
+  /** The theme (#687), the page's one: chosen through `view.set_theme`, kept in the browser. */
+  readonly theme: Theme = theme()
   /** The registry's view shown in the main area. */
   view: MainViewId
   /** The registry's view shown in the bottom panel. */
@@ -90,6 +93,8 @@ export class UiStore {
   keyLayout = $state.raw<KeyLayout | null>(null)
   /** The shortcut list is open (#474). Page state, not project state. */
   helpOpen = $state(false)
+  /** The key and scale panel of the transport bar (#695) is open: from its button, or from the bar's "more" menu when the bar folded the button. */
+  scaleOpen = $state(false)
   /** The "Go to" field (#554) is open: a bar, or a bar and a beat, to put the playhead on. Page state, not project state. */
   gotoOpen = $state(false)
   /** The device browser (#190) is open: a column beside the track list. Page state, not project state, not kept. */
@@ -337,6 +342,25 @@ export class UiStore {
   /** The master's lanes (`showLanes` for the master). */
   showMasterLanes() {
     this.showLanes('master')
+  }
+
+  /**
+   * A one-shot request from the Clips panel (#624) that the arrangement select the placements it just made and give the
+   * first one the keyboard focus, so that the next key (Ctrl+Shift+R, Ctrl+D, Delete) applies to them. `ArrangementView`
+   * consumes it with `takePlacedRequest()`; a second request before the first is consumed replaces it.
+   */
+  placedRequest = $state<string[] | null>(null)
+
+  /** Asks the arrangement to select and focus these placements, once. */
+  showPlaced(ids: string[]) {
+    this.placedRequest = ids.length > 0 ? ids : null
+  }
+
+  /** Reads and clears the pending placements request: their ids, or `null` when none was pending. */
+  takePlacedRequest(): string[] | null {
+    const ids = this.placedRequest
+    this.placedRequest = null
+    return ids
   }
 
   /** Reads and clears the pending lanes request: the owner to unfold, or `null` when none was pending. */

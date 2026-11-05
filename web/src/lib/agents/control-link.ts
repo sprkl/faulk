@@ -1,4 +1,4 @@
-import { CONTROL_PUSHED_OUT, type AgentResult, type ClientMessage } from '../generated/protocol'
+import { CONTROL_PUSHED_OUT, PROTOCOL_VERSION, type AgentResult, type ClientMessage } from '../generated/protocol'
 import { HELPER_URL, parseServerMessage } from '../engine/helper-client'
 import { answerOnce } from './agent-call'
 
@@ -9,6 +9,8 @@ export interface ControlEvents {
    * the link closes: the call can no longer be answered (AG-4).
    */
   onAgentCall(agent: string, command: unknown, answer: (result: AgentResult) => void, signal: AbortSignal): void
+  /** An agent left (`agent.left`, #641): its last MCP session ended or it stayed silent too long. */
+  onAgentLeft(agent: string): void
   /**
    * The link closed after it opened: the helper went away or restarted, or (`pushedOut`) it closed this link because
    * newer ones went past its limit (`CONTROL_PUSHED_OUT`).
@@ -24,8 +26,16 @@ export class ControlTimeout extends Error {
   }
 }
 
+/** The helper speaks another protocol than the page (#658): the link is closed, and the page says so as for a probe. */
+export class ControlIncompatible extends Error {
+  constructor(readonly protocol: number) {
+    super(`helper protocol ${protocol}, page ${PROTOCOL_VERSION}`)
+    this.name = 'ControlIncompatible'
+  }
+}
+
 /**
- * The page's control link to the helper (#608): the agents' relay only (`agent.call` in, `agent.result` out). A paired
+ * The page's control link to the helper (#608): the agents' relay only (`agent.call` and `agent.left` in, `agent.result` out). A paired
  * page holds it in Web mode as in Boost, whether or not the helper has an audio output; it never takes the audio role
  * (that is the Boost session's, `NativeEngine`). The helper sends an agent's call to the Boost session if there is
  * one, else to the front control link: the newest, or the last that said `control.front`.
@@ -42,8 +52,9 @@ export class ControlLink {
   ) {}
 
   /**
-   * Opens the link with the pairing token. Resolves once the socket is open: the helper accepted the token in the
-   * handshake (it says nothing more). Rejects when it closes, fails or takes longer than `timeoutMs` first.
+   * Opens the link with the pairing token. Resolves once the helper said `control.hello` with the page's protocol
+   * (the handshake accepted the token). Rejects with `ControlIncompatible` (and closes) when the protocol differs, and
+   * when it closes, fails or takes longer than `timeoutMs` first.
    */
   static open(token: string, events: ControlEvents, timeoutMs = 3000): Promise<ControlLink> {
     return new Promise((resolve, reject) => {
@@ -55,13 +66,22 @@ export class ControlLink {
         ws.close()
         reject(new ControlTimeout())
       }, timeoutMs)
-      ws.onopen = () => {
-        opened = true
-        clearTimeout(timer)
-        resolve(link)
-      }
       ws.onmessage = (event) => {
         const message = parseServerMessage(event.data)
+        if (message?.type === 'control.hello') {
+          if (opened) return
+          clearTimeout(timer)
+          if (message.protocol !== PROTOCOL_VERSION) {
+            opened = true
+            link.closing = true
+            ws.close()
+            return reject(new ControlIncompatible(message.protocol))
+          }
+          opened = true
+          return resolve(link)
+        }
+        if (!opened) return
+        if (message?.type === 'agent.left') return events.onAgentLeft(message.agent)
         if (message?.type !== 'agent.call') return
         events.onAgentCall(
           message.agent,

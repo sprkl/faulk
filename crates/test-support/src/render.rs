@@ -17,8 +17,58 @@ pub const PARITY_TOLERANCE: f32 = 1e-5;
 /// the engine rejected or skipped a message, or when one is still pending or waiting at the
 /// end.
 pub fn render_native(scenario: &Scenario) -> Render {
+    render_native_with_disk(scenario, &Disk::default())
+}
+
+/// The files of a project folder the engine's disk planner reads (AU-3): by media (the
+/// blob's SHA-256) and kind (`engine::audio_source::FileKind`: the blob, or its PCM cache).
+#[derive(Clone, Debug, Default)]
+pub struct Disk {
+    pub files: std::collections::HashMap<([u8; 32], u8), Vec<u8>>,
+}
+
+impl Disk {
+    /// Puts `bytes` as the blob of `media`.
+    pub fn blob(&mut self, media: [u8; 32], bytes: Vec<u8>) -> &mut Self {
+        self.files
+            .insert((media, engine::audio_source::FileKind::Blob as u8), bytes);
+        self
+    }
+
+    /// What `job` reads: its bytes and the file's length, or why it cannot be read.
+    pub fn read(
+        &self,
+        job: &engine::audio_source::Job,
+    ) -> Result<(&[u8], u64), engine::audio_source::Failure> {
+        match self.files.get(&(job.media, job.file as u8)) {
+            Some(file) => {
+                let from = (job.offset as usize).min(file.len());
+                let to = from.saturating_add(job.len as usize).min(file.len());
+                Ok((&file[from..to], file.len() as u64))
+            }
+            None => Err(engine::audio_source::Failure::NotFound),
+        }
+    }
+
+    /// Serves the planner's jobs at `now_ms`: each read at once, from the files.
+    fn serve(&self, prepare: &mut engine::host::Prepare, now_ms: u64) {
+        let jobs = prepare.disk_poll(now_ms).to_vec();
+        for job in jobs {
+            match self.read(&job) {
+                Ok((bytes, len)) => prepare.disk_done(job.id, bytes, len),
+                Err(why) => prepare.disk_failed(job.id, why),
+            }
+        }
+    }
+}
+
+/// [`render_native`] with a project folder's audio files (AU-4): after each block the disk
+/// planner's reads are served from `disk` (its clock is the rendered time), as the page's
+/// executor serves them from the folder.
+pub fn render_native_with_disk(scenario: &Scenario, disk: &Disk) -> Render {
     let (prepare, mut host) = engine::host::channel(SAMPLE_RATE).expect("the channel opens");
     let mut queue = engine::host::StreamQueue::new(prepare);
+    let mut frames = 0u64;
     let mut left = Vec::new();
     let mut right = Vec::new();
     for step in &scenario.steps {
@@ -31,6 +81,9 @@ pub fn render_native(scenario: &Scenario) -> Render {
                     let n = host.render(QUANTUM as usize);
                     left.extend_from_slice(&host.left()[..n]);
                     right.extend_from_slice(&host.right()[..n]);
+                    frames += n as u64;
+                    let now_ms = (frames as f64 * 1000.0 / f64::from(SAMPLE_RATE)) as u64;
+                    disk.serve(queue.prepare_mut(), now_ms);
                 }
             }
         }

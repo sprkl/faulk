@@ -58,6 +58,7 @@
       data-testid="export-dialog"
       data-phase={exporter.phase}
       data-render-ms={exporter.result?.renderMs ?? ''}
+      data-silenced-frames={exporter.result?.silencedFrames ?? ''}
     >
       <h2 id="export-title">{t('export.title')}</h2>
 
@@ -167,6 +168,9 @@
             {t('export.limited', { db: result.reductionDb.toFixed(1) })}
           </p>{/if}
         {#if result.tailCut}<p class="warn" role="status" data-testid="export-tail-cut">{t('export.tailCut')}</p>{/if}
+        {#if result.missing.length > 0}<p class="warn" role="alert" data-testid="export-missing">
+            {t('export.missing', { names: result.missing.join(', ') })}
+          </p>{/if}
         <div class="actions">
           <button bind:this={primary} class="primary" onclick={() => exporter.close()} data-testid="export-close">{t('export.close')}</button>
         </div>
@@ -187,7 +191,7 @@
     z-index: 50;
     display: grid;
     place-items: center;
-    background: rgb(0 0 0 / 0.5);
+    background: var(--fk-scrim);
   }
   .dialog {
     width: min(460px, calc(100vw - 32px));
@@ -310,7 +314,7 @@
   button.primary {
     border-color: var(--fk-accent);
     background: var(--fk-accent);
-    color: #fff;
+    color: var(--fk-on-accent);
     font-weight: 600;
   }
   button.primary:hover:not(:disabled) {

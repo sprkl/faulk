@@ -17,7 +17,7 @@ fn code(command: &Command, state: &State) -> String {
         .to_owned()
 }
 
-fn import_at(f: &ClipFx, at: Option<ClipTarget>) -> Command {
+pub(crate) fn import_at(f: &ClipFx, at: Option<ClipTarget>) -> Command {
     c(clip::Command::ImportAudio {
         track: f.audio_track.clone(),
         media: imported_media().hash,
@@ -26,7 +26,7 @@ fn import_at(f: &ClipFx, at: Option<ClipTarget>) -> Command {
     })
 }
 
-fn range(f: &ClipFx, start: u64, frames: u64) -> Command {
+pub(crate) fn range(f: &ClipFx, start: u64, frames: u64) -> Command {
     c(clip::Command::AudioSetRange {
         clip: f.audio_clip.clone(),
         start: Frame::new(start),
@@ -43,7 +43,7 @@ fn audio(state: &State, f: &ClipFx) -> ClipContent {
 
 /// The fixture with a placement of its audio clip that plays it whole (44 100 frames at
 /// 44.1 kHz, one second: 1 920 ticks at 120 BPM) from `start`.
-fn with_whole(f: &ClipFx, state: State, start: i64, seed: u128) -> (State, PlacementId) {
+pub(crate) fn with_whole(f: &ClipFx, state: State, start: i64, seed: u128) -> (State, PlacementId) {
     let mut state = state;
     let mut ids = ::project::IdGenerator::new(1_690_000_000_000, seed);
     let id = PlacementId::generate(&mut ids);
@@ -68,7 +68,7 @@ fn with_whole(f: &ClipFx, state: State, start: i64, seed: u128) -> (State, Place
     (state, id)
 }
 
-fn span_of(state: &State, f: &ClipFx, id: &PlacementId) -> Span {
+pub(crate) fn span_of(state: &State, f: &ClipFx, id: &PlacementId) -> Span {
     state.project.tracks[&f.audio_track].placements[id].span
 }
 
@@ -367,7 +367,12 @@ fn a_tempo_that_would_push_an_audio_placement_past_the_timeline_is_refused() {
     // 240 (a faster tempo puts more ticks in a second), 960 at 60.
     let start = ::project::limits::MAX_TICK - 3_000;
     let (state, _) = with_whole(&f, f.state.clone(), start, 4);
-    let tempo = |bpm: f64| Command::Transport(transport::Command::SetTempo { bpm });
+    let tempo = |bpm: f64| {
+        Command::Transport(transport::Command::SetTempo {
+            bpm,
+            placements: None,
+        })
+    };
     assert_eq!(code(&tempo(240.0), &state), "invalid");
     let mut slower = state.clone();
     run(&tempo(60.0), &mut slower, &mut context()).unwrap();

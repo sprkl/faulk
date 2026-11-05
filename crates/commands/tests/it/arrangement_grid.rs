@@ -343,7 +343,7 @@ fn sending_from_the_grid_refuses_what_is_not_in_the_grid_and_what_leaves_the_tim
             linked: false,
         },
     );
-    // A scene that holds an audio clip only has nothing to place.
+    // A scene that holds an audio clip only places it (AU-6), whole, as a copy.
     let mut audio = grid.clone();
     audio
         .project
@@ -354,13 +354,34 @@ fn sending_from_the_grid_refuses_what_is_not_in_the_grid_and_what_leaves_the_tim
         .get_mut(&f.audio_clip)
         .unwrap()
         .slot = Some(f.scene_free.clone());
-    refuse(
-        &audio,
+    let (out, _) = ok(
+        &mut audio,
         arrangement::Command::PlaceScene {
             scene: f.scene_free.clone(),
             start: Tick(0),
             linked: false,
         },
+    );
+    let arrangement::Output::PlaceScene {
+        placements, clips, ..
+    } = out
+    else {
+        panic!()
+    };
+    assert_eq!((placements.len(), clips.len()), (1, 1));
+    let track = &audio.project.tracks[&f.audio_track];
+    let placed = &track.placements[&placements[0]];
+    assert_eq!(placed.clip, clips[0]);
+    assert_eq!(
+        placed.span,
+        ::project::Span::Frames {
+            length: ::project::Frame::new(44_100),
+            offset: ::project::Frame::new(0),
+        }
+    );
+    assert_eq!(
+        track.clips[&clips[0]].slot, None,
+        "the copy is not in the grid"
     );
     let mut ids = ::project::IdGenerator::new(1_680_000_000_000, 0x00BB_0000_0000_0000_0000);
     refuse(

@@ -62,19 +62,19 @@ fn project_json_that_is_not_json_is_corrupt_and_names_the_file() {
 fn a_newer_project_is_refused_as_such_even_if_it_has_fields_this_build_does_not_know() {
     let mut fs = song_fs();
     edit(&mut fs, "project.json", |s| {
-        s.replacen("\"format\": 4", "\"format\": 5,\n  \"swing\": 0.5", 1)
+        s.replacen("\"format\": 5", "\"format\": 6,\n  \"swing\": 0.5", 1)
     });
     assert_eq!(
         refused(&fs),
         FileError::NewerFormat {
-            found: 5,
-            supported: 4
+            found: 6,
+            supported: 5
         }
     );
     // Never rewritten: the refusal comes before anything else is read.
     let mut fs = song_fs();
     edit(&mut fs, "project.json", |s| {
-        s.replacen("\"format\": 4", "\"format\": 4000000000", 1)
+        s.replacen("\"format\": 5", "\"format\": 4000000000", 1)
     });
     assert!(matches!(
         refused(&fs),
@@ -89,7 +89,7 @@ fn a_newer_project_is_refused_as_such_even_if_it_has_fields_this_build_does_not_
 fn format_zero_and_older_formats_without_a_migration_are_unsupported() {
     let mut fs = song_fs();
     edit(&mut fs, "project.json", |s| {
-        s.replacen("\"format\": 4", "\"format\": 0", 1)
+        s.replacen("\"format\": 5", "\"format\": 0", 1)
     });
     assert_eq!(refused(&fs), FileError::UnsupportedFormat { found: 0 });
 }
@@ -402,7 +402,7 @@ fn v0_folder() -> MemFs {
     // a project name under `title`.
     let mut fs = song_fs();
     edit(&mut fs, "project.json", |s| {
-        s.replacen("\"format\": 4", "\"format\": 0", 1)
+        s.replacen("\"format\": 5", "\"format\": 0", 1)
             .replacen("\"name\"", "\"title\"", 1)
     });
     for path in fs
@@ -450,6 +450,16 @@ fn three_to_four(fs: &mut MemFs) -> Result<(), String> {
     Ok(())
 }
 
+fn four_to_five(fs: &mut MemFs) -> Result<(), String> {
+    let text = String::from_utf8(fs.read("project.json").map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+    fs.insert(
+        "project.json",
+        text.replacen("\"format\": 4", "\"format\": 5", 1),
+    );
+    Ok(())
+}
+
 fn zero_to_one(fs: &mut MemFs) -> Result<(), String> {
     let paths: Vec<String> = fs.files().keys().cloned().collect();
     for path in paths {
@@ -486,6 +496,10 @@ fn an_older_project_is_migrated_in_memory_and_saving_rewrites_what_the_migration
         Migration {
             from: 3,
             apply: three_to_four,
+        },
+        Migration {
+            from: 4,
+            apply: four_to_five,
         },
     ];
     let mut fs = v0_folder();
@@ -562,6 +576,10 @@ fn a_migration_that_fails_or_leaves_the_wrong_format_is_a_typed_error() {
                 from: 3,
                 apply: three_to_four,
             },
+            Migration {
+                from: 4,
+                apply: four_to_five,
+            },
         ],
     )
     .unwrap_err();
@@ -630,6 +648,57 @@ fn a_pack_round_trips_and_leaves_out_what_the_project_does_not_use() {
     for (path, b) in dest.files() {
         assert_eq!(fs.files().get(path), Some(b), "{path}");
     }
+}
+
+#[test]
+fn a_pack_written_in_pieces_is_the_pack_of_the_whole_files() {
+    let fs = song_fs();
+    let plan = plan_pack(&fs).unwrap();
+    let mut pack = PackWriter::new(Vec::new());
+    for path in &plan.paths {
+        let bytes = fs.read(path).unwrap();
+        pack.start(path, bytes.len() as u64).unwrap();
+        for piece in bytes.chunks(3) {
+            pack.write(piece).unwrap();
+        }
+    }
+    // The compressor may cut its blocks where the pieces end, so the bytes can differ; the files do not.
+    let contents = |bytes: Vec<u8>| {
+        let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+        (0..zip.len())
+            .map(|i| {
+                let mut file = zip.by_index(i).unwrap();
+                let mut body = Vec::new();
+                std::io::Read::read_to_end(&mut file, &mut body).unwrap();
+                (file.name().unwrap().into_owned(), body)
+            })
+            .collect::<std::collections::BTreeMap<_, _>>()
+    };
+    assert_eq!(
+        contents(pack.finish().unwrap()),
+        contents(pack_bytes(&fs).0)
+    );
+}
+
+#[test]
+fn a_file_of_a_gibibyte_or_more_gets_the_64_bit_fields_and_the_pack_reads_back() {
+    // The size announced is what decides the fields; the bytes given can be few.
+    let mut pack = PackWriter::new(Vec::new());
+    pack.start("project.json", 10).unwrap();
+    pack.write(b"{}").unwrap();
+    pack.start("blobs/big", 3 << 30).unwrap();
+    pack.write(b"audio").unwrap();
+    pack.start("tracks/after", 4).unwrap();
+    pack.write(b"next").unwrap();
+    let bytes = pack.finish().unwrap();
+    let mut zip = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+    assert_eq!(zip.len(), 3);
+    let mut big = String::new();
+    std::io::Read::read_to_string(&mut zip.by_name("blobs/big").unwrap(), &mut big).unwrap();
+    assert_eq!(big, "audio");
+    let mut after = String::new();
+    std::io::Read::read_to_string(&mut zip.by_name("tracks/after").unwrap(), &mut after).unwrap();
+    assert_eq!(after, "next");
 }
 
 #[test]

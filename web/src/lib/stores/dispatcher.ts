@@ -11,7 +11,9 @@ import { WebMidiHost } from '../midi/web-midi'
 import { draftName } from '../project/draft-name'
 import { CoreError, coreModule, engineStep, ProjectCore, type EngineStep, type FolderEntry, type StoredProjects } from '../project/core'
 import {
+  analyzeRange,
   isListStored,
+  isMixerLevels,
   isNewProject,
   isSaveCommand,
   isStoredProjectCommand,
@@ -26,10 +28,11 @@ import { audioMediaOf } from '../audio/import/media'
 import type { ProjectHost, ProjectStorage } from '../storage/storage.svelte'
 import { releaseAllNotes, requestMidiInputs } from './housekeeping'
 import { takePairLink } from '../pair-link'
-import { answerAgentCall } from '../agents/agent-call'
+import { agentAuthor, answerAgentCall } from '../agents/agent-call'
+import { LevelHold, type RenderAnalyzer } from '../agents/levels'
 import { AgentConfirmations } from '../agents/confirm.svelte'
 import { agentQuestion, confirmDeadline, isStorageGuarded, notConfirmed, type GuardView } from '../agents/guard'
-import { ControlLink, ControlTimeout } from '../agents/control-link'
+import { ControlIncompatible, ControlLink, ControlTimeout } from '../agents/control-link'
 import { applyEffects } from './effects'
 import type { EngineStore, HelperState } from './engine.svelte'
 import { refusalNotice, type OpenOutcome, type OpenRefusal } from './open'
@@ -40,6 +43,7 @@ import { listPresets as listPresetsCommand } from '../preset-commands'
 import type { Recorder } from './recorder.svelte'
 import { refusalOf } from './refusal'
 import { storage, TOKEN_KEY } from './storage'
+import { isSetTheme, isThemeChoice, SET_THEME_OUTPUT, type ThemeChoice } from '../theme'
 
 /** How `run` runs a command: `quiet` shows no refusal, `author` is the history's (`user` by default). */
 type RunOptions = {
@@ -136,6 +140,9 @@ export class Dispatcher {
     const current = () => this.engine?.kind === kind && generation === (kind === 'native' ? this.boosts : this.webGeneration)
     // Each engine's load is smoothed from its own first report (#486).
     const load = new LoadMeter()
+    // The frames the output protection silenced (#667) count from 0 for the page's own engine, and from the first
+    // report of a helper session: the helper's engine outlives a page, an earlier page's silence is not this one's.
+    let silencedBase: number | null = kind === 'web' ? 0 : null
     return {
       onStatus: (status) => {
         if (current()) this.state.status = status
@@ -143,9 +150,15 @@ export class Dispatcher {
       onFeedback: (report) => {
         if (!current()) return
         this.state.feedback = report
+        silencedBase ??= report.silencedFrames
+        // A count below the base: the helper built a new engine (another output), whose count starts at 0.
+        if (report.silencedFrames < silencedBase) silencedBase = 0
+        const silenced = report.silencedFrames - silencedBase
+        if (this.state.silencedFrames !== silenced) this.state.silencedFrames = silenced
         const shown = load.update(report.cpuLoad, report.cpuPeak, performance.now())
         if (!sameLoad(this.state.load, shown)) this.state.load = shown
         this.state.peak = peakOf(report.master)
+        this.levelHold.feed(report, performance.now())
         this.state.voices = report.voices
         this.recorder?.feedback(report)
       },
@@ -173,6 +186,8 @@ export class Dispatcher {
         }
         void answerAgentCall(this, agent, command, signal).then(answer)
       },
+      // Whichever session tells it, even one no longer played: the agent left all the same (#641).
+      onAgentLeft: (agent) => this.agentLeft(agent),
       onStreamRefused: (code, at, epoch) => {
         if (!current()) return
         if (kind === 'native') this.resyncNative(code, epoch)
@@ -202,6 +217,7 @@ export class Dispatcher {
       onClosed: () => {
         if (kind !== 'native' || !current()) return
         this.native = null
+        this.linkLost()
         this.state.mode = 'web'
         if (this.state.notice !== 'helper.replaced') this.state.notice = 'helper.lost'
         void this.enterWeb()
@@ -376,7 +392,7 @@ export class Dispatcher {
     projectId: () => this.project.view?.project.id ?? null,
     projectName: () => this.project.view?.project.name ?? null,
     renameProject: (name) => this.run(renameProjectCommand(name), { quiet: true }),
-    packExport: async (files) => (await this.ensureCore()).packExport(files),
+    packExport: async (entries, io) => (await this.ensureCore()).packExport(entries, io),
     packImport: async (zip) => (await this.ensureCore()).packImport(zip),
     prepare: async () => void (await this.ensureCore()),
     audioMedia: () => audioMediaOf(this.project.view?.project),
@@ -405,6 +421,12 @@ export class Dispatcher {
   /** The audio export (#297); set once by `createStores`. */
   audioExport: AudioExport | null = null
 
+  /** What the engine's reports showed since the last `mixer.levels` (#665). */
+  readonly levelHold = new LevelHold()
+
+  /** The offline measure of `project.analyze_render` (#665); set once by `createStores`. */
+  analyzer: RenderAnalyzer | null = null
+
   /** What the audio export needs of the page's project. */
   readonly exportHost: ExportHost = {
     // The dialog shows the refusal of the export itself.
@@ -425,6 +447,15 @@ export class Dispatcher {
     hasContent: () => Object.values(this.project.view?.project.tracks ?? {}).some((track) => Object.keys(track?.placements ?? {}).length > 0),
     hasLoop: () => (this.project.view?.project.transport.loop_region ?? null) !== null,
     folder: async () => (await this.storage?.folderHandle()) ?? null,
+    mediaFolder: () => this.folder,
+    analysisRunning: () => this.analyzer?.busy ?? false,
+    mediaNames: (hashes) => {
+      const names = new Map<string, string>()
+      for (const track of Object.values(this.project.view?.project.tracks ?? {}))
+        for (const clip of Object.values(track?.clips ?? {}))
+          if (clip && 'audio' in clip.content) names.set(clip.content.audio.media.hash, clip.content.audio.media.name)
+      return hashes.map((hash) => names.get(hash) ?? hash)
+    },
   }
 
   private refuseOpen(reason: OpenRefusal): OpenOutcome {
@@ -474,6 +505,7 @@ export class Dispatcher {
     this.state.status = null
     this.state.peak = 0
     this.state.voices = 0
+    this.state.silencedFrames = 0
     this.state.activeNotes = []
     await web.close().catch((error: unknown) => console.error(error))
   }
@@ -617,6 +649,15 @@ export class Dispatcher {
       const lists = await this.listStored()
       return { status: 'applied', output: lists }
     }
+    // Needs no project: the theme is the page's (#687).
+    if (isSetTheme(command)) return this.setTheme(command.theme)
+    // The queries that measure levels: the page stages its numbers in the core, then the command answers (#665).
+    if (isMixerLevels(command) && this.core) this.stageLevels(this.core)
+    const range = analyzeRange(command)
+    if (range) {
+      const early = await this.measureRender(range, signal)
+      if (early) return early
+    }
     const question = agentQuestion(command, this.storage ? guardView(this.storage) : null)
     // Without a core, `execute` would make one and run the command later: nothing an agent can be told. Not asked
     // for either. `project.new` makes its own project.
@@ -667,11 +708,72 @@ export class Dispatcher {
     }
   }
 
+  /** Stages what the meters held since the last `mixer.levels` for the core to answer with. */
+  private stageLevels(core: ProjectCore) {
+    const slots = this.project.view?.slots
+    const held = this.levelHold.take(performance.now(), this.state.started ? slots?.epoch : undefined)
+    // What the output protection silenced (#667) is the engine's count, playing or not.
+    core.stageLevels({ ...held, silenced_frames: this.state.silencedFrames })
+  }
+
+  /**
+   * `project.analyze_render`: renders the range offline and stages what it measured in the core, so that the command
+   * answers with it. `null` when the command is to run now; else the answer (refused range, busy, stopped, failed).
+   * Nothing of the project changes, and a stop (the call's signal, the time cap) leaves nothing staged.
+   */
+  private async measureRender(range: { from_bar?: number; to_bar?: number }, signal?: AbortSignal): Promise<AgentResult | null> {
+    const core = this.core
+    const analyzer = this.analyzer
+    if (!core || !this.engine || !analyzer) return { status: 'unavailable', reason: 'the page has no project yet: start audio in the page first' }
+    if (analyzer.busy) return { status: 'unavailable', reason: 'another analysis is running: retry when it is done' }
+    if (this.audioExport?.busy) return { status: 'unavailable', reason: 'the page is exporting a file: retry when it is done' }
+    const job = core.exportJob({ analysis: true, ...range })
+    if (job.status === 'refused') return { status: 'refused', error: job.error }
+    if (job.status !== 'ready') return { status: 'unavailable', reason: `the project could not be prepared for a render (${job.stream_error})` }
+    const outcome = await analyzer.run(job, this.folder, signal)
+    switch (outcome.status) {
+      case 'busy':
+        return { status: 'unavailable', reason: 'another analysis is running: retry when it is done' }
+      case 'aborted':
+        return { status: 'unavailable', reason: 'the call was cancelled: nothing was measured' }
+      case 'failed':
+        return { status: 'unavailable', reason: outcome.reason }
+      case 'done':
+        // The project may have been replaced while it rendered: the command refuses a range that is no longer this one.
+        core.stageAnalysis({
+          start_tick: job.plan.start_tick,
+          end_tick: job.plan.end_tick,
+          slots: job.tracks,
+          tracks: outcome.levels.tracks,
+          master: outcome.levels.master,
+          silenced_frames: outcome.levels.silenced,
+          reduction: outcome.levels.reduction,
+        })
+        return null
+    }
+  }
+
   /** The page's questions before an agent's destructive call runs (AG-4), shown by `views/confirm/`. */
   readonly confirmations = new AgentConfirmations()
 
+  /** Where `view.set_theme` goes: the page's theme (`createStores` sets it); `null` in a bare dispatcher. */
+  theme: { set(choice: ThemeChoice): void } | null = null
+
+  /**
+   * `view.set_theme` (#687): the core declares it and changes nothing, so the page answers it without one. An
+   * agent's call is not checked by the core's schema on this path, hence the check of the value here.
+   */
+  private setTheme(choice: unknown): AgentResult {
+    if (!isThemeChoice(choice)) return { status: 'invalid', message: 'the theme is "system", "dark" or "light"' }
+    if (!this.theme) return { status: 'unavailable', reason: 'the page has no theme to set' }
+    this.theme.set(choice)
+    return { status: 'applied', output: SET_THEME_OUTPUT }
+  }
+
   /** `run`, saying what happened: what an agent is answered (`runForAgent`). */
   private execute(command: Command, options: RunOptions): Ran {
+    // The theme is the user's, kept by the browser (#687): the page applies it, before audio starts too.
+    if (isSetTheme(command)) return this.setTheme(command.theme)
     // A query that waits for the storage: it answers asynchronously, with the lists it read.
     if (isListStored(command)) {
       void this.listStored().catch((error: unknown) => console.error(error))
@@ -757,6 +859,7 @@ export class Dispatcher {
       save: () => void this.storage?.save(),
       saveAs: () => void this.storage?.saveAs(),
       exportPack: () => void this.storage?.exportPack(),
+      cancelExportPack: () => this.storage?.cancelExport(),
       importPack: () => void this.storage?.importPack(),
       openUrl: (url) => track(this.storage?.openUrl(url, allowed)),
       reopenLast: () => track(this.storage?.reopenLast(allowed)),
@@ -982,6 +1085,8 @@ export class Dispatcher {
     if (this.control?.token === token) return
     this.control?.close()
     this.control = null
+    // Another token: maybe another helper, which never heard of this one's agents.
+    this.linkLost()
     const opening = this.openControl(token).finally(() => {
       if (this.controlOpening === opening) this.controlOpening = null
     })
@@ -994,9 +1099,11 @@ export class Dispatcher {
     try {
       link = await ControlLink.open(token, {
         onAgentCall: (agent, command, answer, signal) => void answerAgentCall(this, agent, command, signal).then(answer),
+        onAgentLeft: (agent) => this.agentLeft(agent),
         onClosed: (pushedOut) => {
           if (this.control !== link) return
           this.control = null
+          this.linkLost()
           // Pushed out by newer pages' links: coming back would push another out in turn, so the page waits for
           // its next probe, pairing or Boost.
           if (!pushedOut) this.retryControl()
@@ -1005,6 +1112,14 @@ export class Dispatcher {
     } catch (error) {
       // Too slow to open: a busy helper keeps the pairing, the link is tried again.
       if (error instanceof ControlTimeout) return this.retryControl()
+      // Another protocol than the page's (#658): shown as a probe shows it; no retry, the next probe decides.
+      if (error instanceof ControlIncompatible) {
+        if (!this.native) {
+          this.state.helper = 'incompatible'
+          this.state.helperProtocol = error.protocol
+        }
+        return
+      }
       // Refused while the helper answers its probe: the token is not this helper's (a reinstall). A pairing that
       // happened meanwhile stored a newer token: that one stays.
       const probe = await probeHelper()
@@ -1050,6 +1165,27 @@ export class Dispatcher {
     const link = this.control
     this.control = null
     link?.close()
+    this.linkLost()
+  }
+
+  /**
+   * The agent `agent` left (#641, the helper's `agent.left`): the history group it left open is closed and its turn
+   * ends, so the user can undo at once, and its questions to the user are withdrawn: nothing runs for an agent gone.
+   */
+  private agentLeft(agent: string) {
+    const author = agentAuthor(agent)
+    this.core?.agentLeft(author)
+    this.confirmations.withdraw(author)
+  }
+
+  /**
+   * A link to the helper ended, whoever ended it (#641). With neither the control link nor a Boost session left, no agent
+   * can reach this page, and none can be heard leaving: the group an agent left open is closed and any agent's turn ends,
+   * or a helper restarted meanwhile (which never knew the agents of the one before) would leave the user without undo.
+   * Their questions were withdrawn with their links.
+   */
+  private linkLost() {
+    if (!this.control && !this.native) this.core?.agentsGone()
   }
 
   /** The page came to the front (shown or focused): agents' calls come to it while no Boost session is open (#608). */
@@ -1287,6 +1423,7 @@ export class Dispatcher {
     const native = this.native
     const web = this.web
     this.native = null
+    this.linkLost()
     this.boostSince = null
     this.state.mode = 'web'
     this.state.helperUpdate = null

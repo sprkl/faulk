@@ -6,6 +6,8 @@
  */
 
 import type { Note, Placement, TickLoop } from '../../lib/generated/protocol'
+import type { MediaRef } from '../../lib/audio/import/pipeline'
+import { framesPerTick, framesToTicks } from '../../lib/audio/time'
 import { snapTick, tickToX, type View } from '../../lib/components/timegrid/grid'
 import { RULER_HEIGHT } from '../../lib/components/timegrid/render'
 import { trackColor, type TrackEntry } from '../../lib/project/tracks'
@@ -28,7 +30,27 @@ export const edgeZone = (width: number): number => Math.max(0, Math.min(Math.min
 /** The last tick of the timeline (`project::limits::MAX_TICK`, 2^40). */
 export const MAX_TICK = 2 ** 40
 
-/** A placement of a MIDI clip, with what the view draws of its clip. */
+/**
+ * What an audio placement plays (AU-6), in frames of its file: the clip's range in the file, the placement's part of
+ * the clip, and the clip's loop, for drawing its waveform and bounding its edges.
+ */
+export interface AudioPart {
+  media: MediaRef
+  /** The clip's first frame in the file, and its length in frames. */
+  clipStart: number
+  clipFrames: number
+  /** Where in the clip the placement starts, and how many frames it plays. */
+  offset: number
+  frames: number
+  /** The clip's loop, in frames from the clip's start. */
+  looping: { start: number; end: number } | null
+  /** Clip gain in dB; `null` is silence. */
+  gain: number | null
+  /** Frames of the file one tick holds at the project's tempo. */
+  framesPerTick: number
+}
+
+/** A placement of a clip (MIDI or audio), with what the view draws of its clip. */
 export interface Block {
   id: string
   track: string
@@ -37,11 +59,12 @@ export interface Block {
   clip: string
   start: number
   length: number
-  /** Where in the clip the placement starts. */
+  /** Where in the clip the placement starts, in ticks (an audio placement's frames at the tempo). */
   offset: number
   end: number
   name: string
   color: string
+  /** The clip's length in ticks (an audio clip's frames at the tempo). */
   clipLength: number
   looping: TickLoop | null
   notes: readonly Note[]
@@ -50,9 +73,12 @@ export interface Block {
    * it changes every use, and the block is marked so. A copy is another clip and counts on its own.
    */
   uses: number
+  /** An audio placement's frames (AU-6); `null` for a MIDI one. */
+  audio: AudioPart | null
 }
 
 const ticksOf = (placement: Placement): { length: number; offset: number } | null => ('ticks' in placement.span ? placement.span.ticks : null)
+const framesOf = (placement: Placement): { length: number; offset: number } | null => ('frames' in placement.span ? placement.span.frames : null)
 
 /** How many times each clip of a track is used: its placements, plus one for a launch-grid slot. */
 export function usesOf(entry: TrackEntry): Map<string, number> {
@@ -66,38 +92,95 @@ export function usesOf(entry: TrackEntry): Map<string, number> {
   return uses
 }
 
-function blocksOfTrack(entry: TrackEntry): Block[] {
+const NO_NOTES: readonly Note[] = []
+
+function blocksOfTrack(entry: TrackEntry, bpm: number): Block[] {
   const blocks: Block[] = []
   const uses = usesOf(entry)
   for (const [id, placement] of Object.entries(entry.track.placements as Record<string, Placement | undefined>)) {
-    const span = placement && ticksOf(placement)
     const clip = placement && entry.track.clips[placement.clip]
-    // An audio placement (frames) comes with the audio import and is not drawn; a placement of a missing clip cannot be.
-    if (!placement || !span || !clip || !('midi' in clip.content)) continue
-    const { length, looping, notes } = clip.content.midi
-    blocks.push({
+    // A placement of a missing clip cannot be drawn.
+    if (!placement || !clip) continue
+    const common = {
       id,
       track: entry.id,
       row: entry.index,
       clip: placement.clip,
       start: placement.start,
-      length: span.length,
-      offset: span.offset,
-      end: placement.start + span.length,
       name: clip.name.trim(),
       color: clip.color ?? trackColor(entry.track.color, entry.index),
-      clipLength: length,
-      looping: looping ?? null,
-      notes,
       uses: uses.get(placement.clip) ?? 1,
+    }
+    const ticks = ticksOf(placement)
+    if (ticks && 'midi' in clip.content) {
+      const { length, looping, notes } = clip.content.midi
+      blocks.push({
+        ...common,
+        length: ticks.length,
+        offset: ticks.offset,
+        end: placement.start + ticks.length,
+        clipLength: length,
+        looping: looping ?? null,
+        notes,
+        audio: null,
+      })
+      continue
+    }
+    const frames = framesOf(placement)
+    if (!frames || !('audio' in clip.content)) continue
+    // An audio placement (AU-6): its ticks are its frames at the project's tempo, as the project computes them.
+    const a = clip.content.audio
+    const rate = a.media.sample_rate
+    const length = framesToTicks(frames.length, rate, bpm)
+    blocks.push({
+      ...common,
+      length,
+      offset: frames.offset > 0 ? framesToTicks(frames.offset, rate, bpm) : 0,
+      end: placement.start + length,
+      clipLength: framesToTicks(a.frames, rate, bpm),
+      looping: null,
+      notes: NO_NOTES,
+      audio: {
+        media: { hash: a.media.hash, sample_rate: rate, channels: a.media.channels, frames: a.media.frames },
+        clipStart: a.start,
+        clipFrames: a.frames,
+        offset: frames.offset,
+        frames: frames.length,
+        looping: a.looping ?? null,
+        gain: a.gain_db ?? null,
+        framesPerTick: framesPerTick(rate, bpm),
+      },
     })
   }
   return blocks
 }
 
-/** Every placement of every track as a block, earliest first within a lane. */
-export function blocksOf(entries: readonly TrackEntry[]): Block[] {
-  return entries.flatMap(blocksOfTrack).sort((a, b) => a.row - b.row || a.start - b.start || (a.id < b.id ? -1 : 1))
+/** Every placement of every track as a block, earliest first within a lane; `bpm` sets the ticks of audio placements. */
+export function blocksOf(entries: readonly TrackEntry[], bpm = 120): Block[] {
+  return entries.flatMap((entry) => blocksOfTrack(entry, bpm)).sort((a, b) => a.row - b.row || a.start - b.start || (a.id < b.id ? -1 : 1))
+}
+
+/**
+ * The passes of an audio block's read through its clip (AU-6), the player's rule: from the placement's offset straight
+ * to the clip's loop end, then round the loop, until the placement's frames are played. Each pass: the frame of the
+ * block where it starts (from the block's first), the clip frame it reads from, and how many frames. At most `max`.
+ */
+export function audioPasses(audio: AudioPart, max = 256): { at: number; from: number; frames: number }[] {
+  const out: { at: number; from: number; frames: number }[] = []
+  const loop = audio.looping && audio.looping.start < audio.looping.end && audio.looping.end <= audio.clipFrames ? audio.looping : null
+  let at = 0
+  let from = audio.offset
+  if (loop && from >= loop.end) from = loop.start + ((from - loop.end) % (loop.end - loop.start))
+  while (at < audio.frames && out.length < max) {
+    const upto = loop && from < loop.end ? loop.end : audio.clipFrames
+    const frames = Math.min(audio.frames - at, upto - from)
+    if (frames <= 0) break
+    out.push({ at, from, frames })
+    at += frames
+    if (!loop) break
+    from = loop.start
+  }
+  return out
 }
 
 /** The tick the last block ends at, 0 when there is none. */
@@ -183,14 +266,15 @@ export type TrackTargets = { moves: { placement: string; track: string }[] } | {
 
 /**
  * Each selected block with the track `rows` tracks from its own, in track order (lanes and the master are not tracks). A target
- * past the first or last track, or a track that is not a MIDI track, refuses the whole move: the command is all or none.
+ * past the first or last track, or a track of the other kind (a MIDI clip goes to a MIDI track, an audio clip to an audio
+ * track, AU-6), refuses the whole move: the command is all or none.
  */
 export function trackTargets(selection: readonly Block[], rows: number, tracks: readonly { id: string; midi: boolean }[]): TrackTargets {
   const moves: { placement: string; track: string }[] = []
   for (const b of selection) {
     const target = tracks[b.row + rows]
     if (!target) return { refused: 'edge' }
-    if (!target.midi) return { refused: 'incompatible', track: target.id }
+    if (target.midi === (b.audio !== null)) return { refused: 'incompatible', track: target.id }
     moves.push({ placement: b.id, track: target.id })
   }
   return { moves }
@@ -204,7 +288,9 @@ export function trackTargets(selection: readonly Block[], rows: number, tracks: 
 export function resizeTo(block: Block, edge: 'start' | 'end', tick: number, step: number | null): number | null {
   const snapped = snapTick(tick, step)
   let to: number
-  if (edge === 'end') to = Math.min(MAX_TICK, Math.max(block.start + 1, snapped))
+  // An audio placement stays inside its clip (AU-6): its end stops at the clip's last frame (the command clamps there too).
+  const high = block.audio ? block.start + (block.clipLength - block.offset) : MAX_TICK
+  if (edge === 'end') to = Math.min(MAX_TICK, high, Math.max(block.start + 1, snapped))
   else {
     // The content must not slide: not before the clip's first tick (it repeats past its last, #473).
     const high = block.end - 1
@@ -218,6 +304,17 @@ export function resizeTo(block: Block, edge: 'start' | 'end', tick: number, step
 
 /** The block as it would be after the resize. */
 export function resized(block: Block, edge: 'start' | 'end', to: number): Block {
+  const audio = block.audio
+  if (audio) {
+    // The frames the command keeps, near enough for the preview (it computes them exactly).
+    if (edge === 'end') {
+      const frames = Math.max(1, Math.min(audio.clipFrames - audio.offset, Math.floor((to - block.start) * audio.framesPerTick)))
+      return { ...block, end: to, length: to - block.start, audio: { ...audio, frames } }
+    }
+    const offset = Math.max(0, Math.min(audio.offset + audio.frames - 1, audio.offset + Math.round((to - block.start) * audio.framesPerTick)))
+    const ticks = Math.max(0, block.offset + (to - block.start))
+    return { ...block, start: to, length: block.end - to, offset: ticks, audio: { ...audio, offset, frames: audio.frames - (offset - audio.offset) } }
+  }
   if (edge === 'end') return { ...block, end: to, length: to - block.start }
   const offset = to < block.start ? block.offset - (block.start - to) : clipPosition(block, block.offset + (to - block.start))
   return { ...block, start: to, length: block.end - to, offset }

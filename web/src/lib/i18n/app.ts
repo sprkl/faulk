@@ -7,6 +7,7 @@
 import { arrangement } from './arrangement'
 import { automation } from './automation'
 import { browser } from './browser'
+import { audio } from './audio'
 import { clips } from './clips'
 import { audioExport } from './export'
 import { engine } from './engine'
@@ -32,6 +33,7 @@ import { pianoRoll } from './piano-roll'
 import { presets } from './presets'
 import { project } from './project'
 import { refusal } from './refusal'
+import { scale } from './scale'
 import { shell } from './shell'
 import { shortcuts } from './shortcuts'
 import { synth } from './synth'
@@ -48,6 +50,7 @@ export const features = {
   tracks,
   browser,
   transport,
+  scale,
   engine,
   helper,
   midi,
@@ -69,6 +72,7 @@ export const features = {
   arrangement,
   automation,
   clips,
+  audio,
   audioExport,
   history,
   refusal,

@@ -4,6 +4,7 @@
    * an effect: whatever reactive state it reads makes the surface draw again, once per change burst.
    */
   import { readColors, type Colors } from '../../lib/components/timegrid/render'
+  import { theme } from '../../lib/theme.svelte'
 
   let {
     draw,
@@ -36,6 +37,17 @@
     })
     observer.observe(root)
     return () => observer.disconnect()
+  })
+
+  // A new theme (#687): the colours are read again and the surface draws again, at the same size.
+  const page = theme()
+  let seenTheme = page.resolved
+  $effect(() => {
+    const now = page.resolved
+    if (now === seenTheme || !root) return
+    seenTheme = now
+    colors = readColors(root)
+    epoch++
   })
 
   $effect(() => {

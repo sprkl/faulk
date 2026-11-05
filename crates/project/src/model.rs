@@ -25,7 +25,9 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Format 4 (#191): a device may name the preset it was set from (`preset`), and the folder
 /// may hold presets (`presets/<id>.json`); a build of format 3 would refuse the device field
 /// as corrupt.
-pub const FORMAT_VERSION: u32 = 4;
+/// Format 5 (#695): the project may hold a key and scale (`scale`); a build of format 4 would
+/// refuse the field as corrupt.
+pub const FORMAT_VERSION: u32 = 5;
 
 /// The built-in instrument of audio tracks: the clip player.
 pub const CLIP_PLAYER: &str = "faulk.clip_player";
@@ -57,6 +59,10 @@ pub struct Project {
     pub meter: Vec<MeterPoint>,
     /// Saved transport settings.
     pub transport: TransportSettings,
+    /// The project's key and scale (#695). Absent (not written) when there is none: the project
+    /// is chromatic and every tool behaves as without a scale.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale: Option<crate::scale::Scale>,
     /// The rows of the launch grid.
     #[serde(deserialize_with = "unique_map")]
     pub scenes: BTreeMap<SceneId, Scene>,
@@ -569,6 +575,7 @@ impl Project {
                 signature: TimeSignature::COMMON,
             }],
             transport: TransportSettings::default(),
+            scale: None,
             scenes: BTreeMap::new(),
             master: Mixer::default(),
             master_devices: BTreeMap::new(),

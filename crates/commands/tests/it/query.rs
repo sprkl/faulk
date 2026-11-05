@@ -77,6 +77,16 @@ fn a_query_changes_nothing_not_even_the_context_the_history_or_the_engine() {
     assert!(queries >= 20);
 }
 
+/// The queries the host answers (their numbers come from the page): `midi.list_inputs`,
+/// `project.list_stored`, and the two that measure levels (`mixer.levels`,
+/// `project.analyze_render`, #665). Their contract is checked in `contract.rs` and `levels.rs`.
+const HOST_QUERIES: [&str; 4] = [
+    "midi.list_inputs",
+    "project.list_stored",
+    "mixer.levels",
+    "project.analyze_render",
+];
+
 #[test]
 fn every_query_command_is_covered_by_an_example() {
     let mut declared: Vec<_> = Command::metas()
@@ -95,7 +105,7 @@ fn every_query_command_is_covered_by_an_example() {
     let new: Vec<_> = declared
         .iter()
         .copied()
-        .filter(|n| !["midi.list_inputs", "project.list_stored"].contains(n))
+        .filter(|n| !HOST_QUERIES.contains(n))
         .collect();
     assert_eq!(new, covered);
     assert_eq!(
@@ -317,7 +327,10 @@ fn the_answers_say_what_the_project_holds() {
     // The transport settings follow the edit.
     let mut s = f.state.clone();
     run(
-        &Command::Transport(transport::Command::SetTempo { bpm: 90.0 }),
+        &Command::Transport(transport::Command::SetTempo {
+            bpm: 90.0,
+            placements: None,
+        }),
         &mut s,
         &mut context(),
     )
@@ -472,10 +485,7 @@ fn a_device_is_described_with_its_parameters_and_its_kind() {
 fn every_field_of_every_query_answer_is_documented() {
     let tools: Vec<_> = catalog()
         .into_iter()
-        .filter(|t| {
-            t.kind == Kind::Query
-                && !["midi.list_inputs", "project.list_stored"].contains(&t.name.as_str())
-        })
+        .filter(|t| t.kind == Kind::Query && !HOST_QUERIES.contains(&t.name.as_str()))
         .collect();
     assert_eq!(tools.len(), 12);
     for tool in tools {

@@ -165,6 +165,9 @@ pub struct Track {
     pub instance: u32,
     /// Its stream ports (AU-3, [`crate::audio_source`]): what its voices read from disk.
     pub ports: [crate::audio_source::Port; crate::audio_source::PORTS_PER_TRACK],
+    /// The audio clip player (AU-4, [`crate::devices::clip_player`]): the instrument stage of
+    /// an audio track.
+    pub audio: crate::devices::clip_player::AudioPlayer,
 }
 
 /// What a clip plays.
@@ -607,6 +610,8 @@ pub fn channel_with(
         recorder: Recorder::try_new()?,
         disk_tx,
         disk_stats,
+        #[cfg(feature = "testing")]
+        poison: 0,
     };
     Ok((preparer, engine))
 }
@@ -1489,6 +1494,7 @@ impl Preparer {
             player: ClipPlayer::default(),
             instance: 0,
             ports: Default::default(),
+            audio: Default::default(),
         })?;
         let shadow = TrackShadow::try_new()?;
         let grown = grow_for(self.shadow.tracks.len(), slot, limits::MAX_TRACKS)?;
@@ -2041,6 +2047,11 @@ pub struct Engine {
     disk_tx: crate::audio_source::RequestTx,
     /// What the disk planner and the voices report.
     disk_stats: Arc<crate::audio_source::DiskStats>,
+    /// Frames of the left channel still to turn non-finite before the output protection
+    /// ([`Engine::poison_next_frames`], #667). Test builds only: a shipped engine has no way
+    /// to make a non-finite sample on purpose.
+    #[cfg(feature = "testing")]
+    poison: u32,
 }
 
 /// An `AllSoundOff` in progress: the output fades out linearly over one graph fade, then
@@ -2207,6 +2218,7 @@ impl Engine {
                 &clock,
                 live,
                 first && self.release_live,
+                (&mut self.disk_tx, &self.disk_stats),
                 &mut left[start..end],
                 &mut right[start..end],
             );
@@ -2222,6 +2234,8 @@ impl Engine {
             // The output's meter: what leaves the engine, the metronome included.
             self.graph
                 .meter_output(&left[start..end], &right[start..end]);
+            #[cfg(feature = "testing")]
+            self.apply_poison(&mut left[start..end]);
             // The output protection (#402), after the meter: the meter shows the level
             // before it, the speakers and the export get the protected signal.
             self.limiter
@@ -2287,6 +2301,8 @@ impl Engine {
             }
             track.graph.outgoing().end();
             track.graph.release_notes();
+            // The audio clips start again at the next block, from where they are (AU-4).
+            track.audio.reset();
         }
         for entry in self
             .state
@@ -2332,6 +2348,24 @@ impl Engine {
     /// Clears the protection's silenced-frame counter, before a render pass.
     pub fn reset_limiter_silenced(&mut self) {
         self.limiter.reset_silenced();
+    }
+
+    /// Makes the next `frames` frames of the left channel non-finite (NaN) just before the
+    /// output protection, as a broken device would (#667): the protection silences them and
+    /// counts them ([`Engine::limiter_silenced`]), which the report carries. Test builds only.
+    #[cfg(feature = "testing")]
+    pub fn poison_next_frames(&mut self, frames: u32) {
+        self.poison = self.poison.saturating_add(frames);
+    }
+
+    /// Writes the armed NaNs into the start of `left` (one slice of a block). No allocation.
+    #[cfg(feature = "testing")]
+    fn apply_poison(&mut self, left: &mut [f32]) {
+        let n = (self.poison as usize).min(left.len());
+        for s in &mut left[..n] {
+            *s = f32::NAN;
+        }
+        self.poison -= n as u32;
     }
 
     /// The musical clock (TR-1), as of the start of the next block.

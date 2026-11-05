@@ -27,8 +27,12 @@ export function sortedScenes(project: Pick<Project, 'scenes'>): SceneEntry[] {
 export interface CellClip {
   id: string
   clip: Clip
-  /** Whether the engine can launch it: a MIDI clip (an audio clip is refused until AU-4). */
+  /** Whether the engine can launch it: a MIDI or an audio clip (AU-4). */
   launchable: boolean
+  /** Whether the grid edits it: renamed, copied, dragged, sent to the arrangement; a MIDI or an audio clip (AU-6). */
+  editable: boolean
+  /** Whether it opens in the piano roll: a MIDI clip (an audio clip shows in its track's Clips panel). */
+  opens: boolean
 }
 
 /** Key of a cell in the maps below. */
@@ -41,7 +45,7 @@ export function cellClips(project: Pick<Project, 'tracks'>): Map<string, CellCli
     if (!track) continue
     for (const [id, clip] of Object.entries(track.clips)) {
       if (!clip?.slot) continue
-      cells.set(cellKey(trackId, clip.slot), { id, clip, launchable: 'midi' in clip.content })
+      cells.set(cellKey(trackId, clip.slot), { id, clip, launchable: true, editable: true, opens: 'midi' in clip.content })
     }
   }
   return cells

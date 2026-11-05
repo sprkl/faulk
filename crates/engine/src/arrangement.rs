@@ -5,8 +5,9 @@
 //! # What a track reads
 //!
 //! A track's arrangement is a content table of [`Placement`]s (`TrackPlacementsUpload`),
-//! sorted by start by `prepare` (which also drops the placements of no length and the audio
-//! ones, whose reading is AU-4's). A placement does not copy any note: it reads the notes
+//! sorted by start by `prepare` (which also drops the placements of no length). The audio
+//! ones (`Span::Frames`) are the audio clip player's ([`crate::devices::clip_player`], AU-4):
+//! here they are gaps. A placement does not copy any note: it reads the notes
 //! of its clip, in the clip's own table, through the MO-4 cursor, exactly as the clip player
 //! reads a launched clip ([`crate::clip_player::read_pieces`]); two placements of the same
 //! clip (linked clips) cost one table.
@@ -134,11 +135,16 @@ fn locate(table: &[Placement], t: Tick) -> Located {
     Located::Gap { until }
 }
 
-/// Sorts the placements by start (then slot) and drops those the engine does not play: no
-/// tick length, or a length in source frames (AU-4). A negative offset into the clip, which
-/// no project writes, counts as 0. Off the audio path (`prepare`); no allocation.
+/// Sorts the placements by start (then slot) and drops those of no length (in ticks, or in
+/// source frames for an audio clip's, which the audio clip player reads:
+/// [`crate::devices::clip_player`], AU-4; this player takes them for gaps). A negative offset
+/// into the clip, which no project writes, counts as 0. Off the audio path (`prepare`); no
+/// allocation.
 pub fn prepare_table(placements: &mut Vec<Placement>) {
-    placements.retain(|p| matches!(p.span, Span::Ticks { length, .. } if length.0 > 0));
+    placements.retain(|p| match p.span {
+        Span::Ticks { length, .. } => length.0 > 0,
+        Span::Frames { length, .. } => length.0 > 0,
+    });
     for p in placements.iter_mut() {
         if let Span::Ticks { offset, .. } = &mut p.span {
             offset.0 = offset.0.max(0);

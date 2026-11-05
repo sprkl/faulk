@@ -4,7 +4,9 @@
    * launches it, the button of a row launches the scene, the button of a column stops its track,
    * "Stop all" stops everything; each cell shows its state from the engine's report with a glyph
    * as well as a colour. A double-click on an empty cell of a MIDI track creates a clip there and
-   * opens it in the piano roll. Every action is a command through the dispatcher; what the grid
+   * opens it in the piano roll. An audio clip (AU-6) shows its waveform, is copied, dragged and sent
+   * to the arrangement like a MIDI one, and opens in its track's Clips panel; audio files dropped
+   * on an empty cell of an audio track are imported there. Every action is a command through the dispatcher; what the grid
    * keeps itself (the cell the keyboard is on, the scene being renamed, the open menu) is view
    * state. The cells are one button each and share the handlers of the board, so a 32 by 64 grid
    * stays light; they redraw only when a state changes, not at each report of the engine.
@@ -20,15 +22,22 @@
   import { chordText } from '../../lib/shortcuts'
   import { createClipInCell, createScene, deleteScene, launchClip, launchScene, moveScene, renameScene, stopAll, stopTrack } from '../../lib/scene-commands'
   import { useStores } from '../../lib/stores'
-  import { beginGroup, endGroup, selectTrack } from '../../lib/track-commands'
+  import { inGroup } from '../../lib/history-group'
+  import { selectTrack } from '../../lib/track-commands'
   import { activeCells, activeSignature, cellClips, cellKey, clipCounts, clipHomes, sortedScenes, visibleRange } from './cells'
   import Glyph from './Glyph.svelte'
   import LinkMark from '../../lib/components/LinkMark.svelte'
   import { CLIP_DRAG_TYPE, clipTrackType, gridCommand, poolOf } from '../../lib/clip-pool'
+  import { dragsFiles } from '../../lib/browser/dnd'
+  import { isAudioFile, placeInGrid } from '../../lib/browser/audio-drop'
+  import Waveform from '../../lib/components/Waveform.svelte'
 
   type CellClipState = 'idle' | 'restarting' | ClipState
 
-  const { project, engine, ui, dispatcher } = useStores()
+  const stores = useStores()
+  const { project, engine, ui, dispatcher, peaks } = stores
+  /** What the last file drop on a cell started (AU-6), said in the grid's status line. */
+  let dropSaid = $state('')
   const t = ui.t
   const run = (command: Command) => dispatcher.run(command)
 
@@ -88,8 +97,13 @@
     }
     return out
   })
-  /** The scenes that hold a MIDI clip: only those can be sent to the arrangement. */
-  const scenesWithClips = $derived(new Set([...homes.values()].filter((home) => home.cell.launchable).map((home) => home.scene)))
+  /** The scenes that hold a clip (MIDI or audio, AU-6): only those can be sent to the arrangement. */
+  const scenesWithClips = $derived(new Set([...homes.values()].filter((home) => home.cell.editable).map((home) => home.scene)))
+  /** Whether a clip of the grid may go into the empty cell `cell`: a MIDI clip into a MIDI track, an audio clip into an audio track. */
+  const fitsCell = (clip: string, cell: HTMLElement) => {
+    const home = homes.get(clip)
+    return home !== undefined && cell.dataset.midi === String(home.cell.opens)
+  }
   const sceneHasClip = (scene: string) => scenesWithClips.has(scene)
   /** The name of a clip: the one stored in the project (every MIDI clip has one); an audio clip without a name is just "Clip". */
   const nameOf = (clip: { name: string }) => clip.name.trim() || t('grid.clipPlain')
@@ -152,17 +166,17 @@
     if (event.ctrlKey || event.metaKey) {
       if (event.altKey || event.shiftKey || event.repeat) return
       const key = event.key.toLowerCase()
-      if (key === 'c' && cell.dataset.clip && cell.dataset.launchable === 'true') {
+      if (key === 'c' && cell.dataset.clip && cell.dataset.editable === 'true') {
         event.preventDefault()
         copied = cell.dataset.clip
-      } else if (key === 'v' && !cell.dataset.clip && cell.dataset.midi === 'true') {
+      } else if (key === 'v' && !cell.dataset.clip && copied && fitsCell(copied, cell)) {
         event.preventDefault()
         paste(cell)
       }
       return
     }
     if (event.altKey) return
-    if (cell.dataset.clip && cell.dataset.launchable === 'true') {
+    if (cell.dataset.clip && cell.dataset.editable === 'true') {
       if (event.key === 'F2') {
         event.preventDefault()
         void startClipRename(cell.dataset.clip)
@@ -203,9 +217,16 @@
     if (project.selected?.id !== track) run(selectTrack(track))
   }
 
-  /** Points the piano roll at a clip of a track; `show` also brings the roll forward. */
+  /**
+   * Points the piano roll at a clip of a track; `show` also brings the roll forward. An audio clip has no piano roll: its
+   * track's Clips panel shows it (its gain, its file, AU-6).
+   */
   function open(track: string, clip: string, show: boolean) {
     select(track)
+    if (homes.get(clip)?.cell.opens === false) {
+      if (show) ui.showPanel('clips')
+      return
+    }
     ui.editClip(clip)
     if (show) ui.showPanel('piano-roll')
   }
@@ -216,12 +237,16 @@
    * quiet would read as a broken launch (the roll's Loop button turns it off).
    */
   function create(track: string, scene: string) {
-    run(beginGroup())
-    run(createClipInCell(track, scene))
-    const made = cellClips(project.view!.project).get(cellKey(track, scene))
-    const content = made?.clip.content
-    if (made && content && 'midi' in content) run(setClipLoop(made.id, { start: 0, end: content.midi.length }))
-    run(endGroup())
+    const made = inGroup(
+      (command, options) => dispatcher.run(command, options),
+      () => {
+        run(createClipInCell(track, scene))
+        const cell = cellClips(project.view!.project).get(cellKey(track, scene))
+        const content = cell?.clip.content
+        if (cell && content && 'midi' in content) run(setClipLoop(cell.id, { start: 0, end: content.midi.length }))
+        return cell
+      },
+    )
     if (made) open(track, made.id, true)
   }
 
@@ -247,7 +272,8 @@
       // The clicks of a double-click (`detail` 2 and more) launch nothing more: the double-click opens the clip.
       if (event.detail >= 2) return
       run(launchClip(clip))
-      open(track!, clip, false)
+      // The piano roll follows a MIDI clip; an audio clip selects its track.
+      if (cell.dataset.editable === 'true') open(track!, clip, false)
       return release(event, cell)
     }
     // An empty cell: a click selects its track, a key press (`detail` 0) creates the clip.
@@ -259,7 +285,7 @@
     const cell = (event.target as Element).closest<HTMLElement>('[data-cell]')
     if (!cell) return
     if (cell.dataset.clip) {
-      if (cell.dataset.launchable === 'true') open(cell.dataset.track!, cell.dataset.clip, true)
+      if (cell.dataset.editable === 'true') open(cell.dataset.track!, cell.dataset.clip, true)
     } else if (cell.dataset.midi === 'true') create(cell.dataset.track!, cell.dataset.scene!)
   }
 
@@ -289,7 +315,7 @@
     return null
   }
 
-  /** Copies a clip into a cell of a MIDI track: the same track, or another one (the command names it then). */
+  /** Copies a clip into a cell of a track of its kind: the same track, or another one (the command names it then). */
   function copyTo(clip: string, track: string, scene: string) {
     const home = homes.get(clip)
     if (!home || clips.has(cellKey(track, scene))) return
@@ -348,14 +374,19 @@
     if (event.defaultPrevented) return
     const cell = (event.target as Element | null)?.closest?.<HTMLElement>('[data-cell]')
     if (!cell) return
-    const { track, scene, clip, launchable } = cell.dataset
+    const { track, scene, clip, editable } = cell.dataset
     const ti = Number(cell.dataset.ti)
     const si = Number(cell.dataset.si)
     const items: MenuItem[] = []
     if (clip) {
-      if (launchable === 'true') {
+      if (editable === 'true') {
+        const home = homes.get(clip)
         items.push(
-          { id: 'open', label: t('grid.editClip', { clip: nameOf(homes.get(clip)?.cell.clip ?? { name: '' }) }), run: () => open(track!, clip, true) },
+          {
+            id: 'open',
+            label: home?.cell.opens === false ? t('audio.openInClips') : t('grid.editClip', { clip: nameOf(home?.cell.clip ?? { name: '' }) }),
+            run: () => open(track!, clip, true),
+          },
           { id: 'rename', label: t('grid.rename'), shortcut: chordText(['F2']), run: () => void startClipRename(clip) },
           { id: 'copy', label: t('grid.copy'), shortcut: chordText(['Mod', 'C']), run: () => (copied = clip) },
           { id: 'duplicate', label: t('grid.duplicate'), disabled: freeBelow(track!, si) === null, run: () => duplicateFromMenu(clip) },
@@ -367,14 +398,14 @@
         {
           id: 'delete',
           label: t('grid.delete'),
-          shortcut: launchable === 'true' ? chordText(['Delete']) : undefined,
+          shortcut: editable === 'true' ? chordText(['Delete']) : undefined,
           separator: true,
           run: () => removeClip(clip, ti, si),
         },
       )
-    } else if (cell.dataset.midi === 'true') {
-      items.push({ id: 'create', label: t('pianoRoll.createClip'), run: () => create(track!, scene!) })
-      if (copied && homes.has(copied)) items.push({ id: 'paste', label: t('grid.paste'), shortcut: chordText(['Mod', 'V']), run: () => paste(cell) })
+    } else {
+      if (cell.dataset.midi === 'true') items.push({ id: 'create', label: t('pianoRoll.createClip'), run: () => create(track!, scene!) })
+      if (copied && fitsCell(copied, cell)) items.push({ id: 'paste', label: t('grid.paste'), shortcut: chordText(['Mod', 'V']), run: () => paste(cell) })
     }
     ui.openMenu(event, items, t('grid.menu'))
   }
@@ -383,14 +414,50 @@
   /** The empty cell a clip of the pool is dragged over. */
   let poolOver = $state<string | null>(null)
   function onPoolDragOver(event: DragEvent, key: string, midi: boolean, track: string) {
+    if (!event.dataTransfer) return
+    // Audio files from the desktop: an empty cell of an audio track takes them (AU-6).
+    if (dragsFiles(event)) {
+      if (midi) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'copy'
+      poolOver = key
+      return
+    }
     // The data is hidden until the drop, its types are not: only a cell of the clip's own track takes it.
-    if (!midi || !event.dataTransfer?.types.includes(clipTrackType(track))) return
+    if (!event.dataTransfer.types.includes(clipTrackType(track))) return
     event.preventDefault()
     event.dataTransfer.dropEffect = event.altKey ? 'link' : 'copy'
     poolOver = key
   }
+  /**
+   * Audio files dropped on an empty cell of an audio track (AU-6): imported into the track, the first into this cell, the
+   * next ones into the free cells below it (the pool when none is left), one history entry each once read.
+   */
+  function dropFiles(event: DragEvent, track: string, scene: string) {
+    const files = Array.from(event.dataTransfer?.files ?? []).filter(isAudioFile)
+    if (files.length === 0) return
+    const from = scenes.findIndex((entry) => entry.id === scene)
+    select(track)
+    const placer = placeInGrid(
+      run,
+      track,
+      // The first free cell at or below the drop's, now (an earlier file may have taken one).
+      () => {
+        for (let i = Math.max(0, from); i < scenes.length; i++) if (!clips.has(cellKey(track, scenes[i]!.id))) return scenes[i]!.id
+        return null
+      },
+    )
+    const entry = tracks.find((e) => e.id === track)
+    dropSaid = t('audio.importingCell', { track: entry ? trackLabel(entry, t) : '' })
+    void stores.audioImport.importFiles(track, files, placer).catch(() => undefined)
+  }
   function onPoolDrop(event: DragEvent, track: string, scene: string) {
     poolOver = null
+    if (dragsFiles(event)) {
+      if (project.view?.project.tracks[track]?.kind !== 'audio') return
+      event.preventDefault()
+      return dropFiles(event, track, scene)
+    }
     const raw = event.dataTransfer?.getData(CLIP_DRAG_TYPE)
     if (!raw || !project.view) return
     let dragged: { clip?: unknown; track?: unknown }
@@ -427,7 +494,7 @@
 
   async function startClipRename(id: string) {
     const home = homes.get(id)
-    if (!home?.cell.launchable) return
+    if (!home?.cell.editable) return
     cellMenu = null
     clipDraft = nameOf(home.cell.clip)
     renamingClip = id
@@ -464,21 +531,21 @@
   let dragging = $state<{ clip: string; name: string } | null>(null)
   let dragAt = $state({ x: 0, y: 0 })
   let dragCopy = $state(false)
-  /** The cell the clip would land on (`track|scene`), only ever an empty cell of a MIDI track. */
+  /** The cell the clip would land on (`track|scene`), only ever an empty cell of a track of its kind. */
   let dropKey = $state<string | null>(null)
   let suppressClick = false
 
   function onBoardPointerDown(event: PointerEvent) {
     if (event.button !== 0 || press) return
     const cell = (event.target as Element).closest<HTMLElement>('[data-cell]')
-    if (!cell?.dataset.clip || cell.dataset.launchable !== 'true') return
+    if (!cell?.dataset.clip || cell.dataset.editable !== 'true') return
     press = { clip: cell.dataset.clip, track: cell.dataset.track!, x: event.clientX, y: event.clientY, active: false, aborted: false }
   }
 
-  /** The empty cell of a MIDI track under the pointer, or null: nothing else is a place to drop. */
+  /** The empty cell of a track of the dragged clip's kind under the pointer, or null: nothing else is a place to drop. */
   function dropCell(x: number, y: number, copy: boolean): HTMLElement | null {
     const cell = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-cell]')
-    if (!cell || cell.dataset.clip || cell.dataset.midi !== 'true') return null
+    if (!cell || cell.dataset.clip || !press || !fitsCell(press.clip, cell)) return null
     // A clip the arrangement plays stays in its track: it can be copied to another one, not moved there.
     if (!copy && press && cell.dataset.track !== press.track && isPlaced(press.track, press.clip)) return null
     return cell
@@ -522,7 +589,7 @@
     }
   }
 
-  /** A drop on an empty cell of a MIDI track moves the clip, or copies it with Alt: one command either way. */
+  /** A drop on an empty cell of a track of its kind moves the clip, or copies it with Alt: one command either way. */
   function onWindowPointerUp(event: PointerEvent) {
     const current = press
     if (!current?.active) return endPress()
@@ -875,17 +942,26 @@
                   data-scene={sc.id}
                   data-clip={cell.id}
                   data-launchable={cell.launchable}
+                  data-editable={cell.editable}
                   data-copied={copied === cell.id ? 'true' : undefined}
                   data-lifted={dragging?.clip === cell.id ? 'true' : undefined}
                   data-ti={entry.index}
                   data-si={si}
                   disabled={!cell.launchable}
-                  aria-label={(cell.launchable
+                  aria-label={(cell.opens
                     ? t('grid.cell', { track: label, scene: name, clip: clipName, state: stateText(state) })
-                    : t('grid.cellAudio', { track: label, scene: name, clip: clipName })) + (linked.has(cell.id) ? `, ${t('arrangement.clipLinked')}` : '')}
+                    : t('grid.cellAudio', { track: label, scene: name, clip: clipName, state: stateText(state) })) +
+                    (linked.has(cell.id) ? `, ${t('arrangement.clipLinked')}` : '')}
                   data-linked={linked.has(cell.id) ? 'true' : undefined}
-                  title={cell.launchable ? `${stateText(state)}. ${t('grid.clipHint')}` : undefined}
+                  title={cell.editable ? `${stateText(state)}. ${t('grid.clipHint')}` : stateText(state)}
                 >
+                  {#if 'audio' in cell.clip.content}
+                    {@const audio = cell.clip.content.audio}
+                    <!-- The part of its file the clip plays (AU-6), under its name. -->
+                    <span class="cwave" data-testid="cell-waveform" data-media={audio.media.hash}>
+                      <Waveform peaks={peaks.of(audio.media).peaks} from={audio.start} frames={audio.frames} lanes={false} />
+                    </span>
+                  {/if}
                   <Glyph kind={state} />
                   <span class="cname">{clipName}</span>
                   {#if linked.has(cell.id)}<LinkMark />{/if}
@@ -903,7 +979,7 @@
                     onblur={() => finishClipRename(true, cell.id)}
                   />
                 {/if}
-                {#if cell.launchable}
+                {#if cell.opens}
                   <button
                     class="edit"
                     type="button"
@@ -915,6 +991,8 @@
                     aria-label={t('grid.editClip', { clip: clipName })}
                     title={t('grid.editClip', { clip: clipName })}>✎</button
                   >
+                {/if}
+                {#if cell.editable}
                   <button
                     class="cmore"
                     type="button"
@@ -991,6 +1069,7 @@
     {#if scenes.length === 0}
       <p class="note" data-testid="grid-no-scenes">{t('grid.noScenes')}</p>
     {/if}
+    <p class="said" role="status" data-testid="grid-drop-said">{dropSaid}</p>
   </div>
 {/if}
 
@@ -1186,7 +1265,24 @@
     outline: 2px dashed var(--fk-accent);
     outline-offset: -3px;
   }
+  .cwave {
+    position: absolute;
+    inset: 4px var(--fk-space-1);
+    /* The track's ink, as `trackInk` mixes it for the canvases (#687): the hue, towards the text by the theme's shade. */
+    color: color-mix(in srgb, var(--track-color, var(--fk-text-muted)), var(--fk-text) var(--fk-track-shade));
+    opacity: 0.45;
+    pointer-events: none;
+  }
+  .said {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
   .cname {
+    position: relative;
     min-width: 0;
     overflow: hidden;
     color: var(--fk-text);
@@ -1209,11 +1305,11 @@
   .cell[data-state='playing'],
   .cell[data-state='restarting'] {
     background: var(--track-color, var(--fk-accent));
-    color: #141414;
+    color: var(--fk-on-signal);
   }
   .cell[data-state='playing'] .cname,
   .cell[data-state='restarting'] .cname {
-    color: #141414;
+    color: var(--fk-on-signal);
   }
   .cell[data-state='queued'],
   .cell[data-state='restarting'] {
@@ -1395,7 +1491,7 @@
   }
   .actions .danger {
     border-color: var(--fk-rec);
-    color: var(--fk-rec);
+    color: var(--fk-rec-fg);
   }
 
   :where(button, input):focus-visible {

@@ -12,6 +12,7 @@
   import { setLaunchQuantize } from '../../lib/transport-commands'
   import Transport from '../transport/Transport.svelte'
   import { QUANTIZE_ORDER } from '../transport/time'
+  import { scaleName } from '../../lib/scale'
   import ProjectMenu from './ProjectMenu.svelte'
 
   const { engine, project, ui, dispatcher, keys, meters, storage } = useStores()
@@ -23,14 +24,16 @@
    *   1  the master meter gets shorter (64 px, still readable),
    *   2  the keyboard octave readout moves to the "more" menu (it plays in every view, so it keeps a place), the project
    *      name's room and the tabs' padding get tighter,
-   *   3  the launch quantization moves to that menu too (the command is the same, the menu runs it),
-   *   4  the idle take target text hides (the record button's title and a status line for screen readers keep it; the live
+   *   3  the key and scale button (#695) moves to that menu: its entry opens the same panel. The scale is set once per
+   *      song and not read while playing, the launch quantization is (clips are launched live): the scale goes first,
+   *   4  the launch quantization moves to that menu too (the command is the same, the menu runs it),
+   *   5  the idle take target text hides (the record button's title and a status line for screen readers keep it; the live
    *      count-in and a lost-note notice never hide), and the master meter shrinks again to 40 px. The target goes last: it
    *      says where the next take lands (spec § 4.1).
    * The project name keeps its minimum room at every step (`ProjectMenu.svelte`). Never hidden: the project, the views, the
    * transport's main controls, the engine pill with its latency and load, the help.
    */
-  const LAST_FIT = 4
+  const LAST_FIT = 5
   let fit = $state(0)
   let bar = $state<HTMLElement | null>(null)
   let moreButton = $state<HTMLElement | null>(null)
@@ -63,14 +66,27 @@
   onMount(() => {
     if (!bar || typeof ResizeObserver === 'undefined') return
     // The bar and every one of its children: a longer text (a language, a take's target, a tempo tap) is a change of width too.
-    const observer = new ResizeObserver(measure)
+    // `measure` changes the layout (it folds parts and flushes the DOM), so it never runs inside the observer's callback: the
+    // browser would then report "ResizeObserver loop completed with undelivered notifications" (#674). The callback asks for
+    // one measure on the next frame, before the next layout; the observer sees the folded bar then and asks again until it fits.
+    let frame = 0
+    const observer = new ResizeObserver(() => {
+      if (frame !== 0) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        measure()
+      })
+    })
     observer.observe(bar)
     for (const child of bar.children) observer.observe(child)
     measure()
-    return () => observer.disconnect()
+    return () => {
+      observer.disconnect()
+      cancelAnimationFrame(frame)
+    }
   })
 
-  /** The menu of what the bar folded: the launch quantization (a radio group) and the keyboard octave. */
+  /** The menu of what the bar folded: the launch quantization (a radio group), the keyboard octave and the key and scale. */
   function openMore(event: MouseEvent) {
     const box = (event.currentTarget as HTMLElement).getBoundingClientRect()
     const current = project.view?.project.transport.launch_quantize ?? 'bar'
@@ -81,7 +97,7 @@
       [
         // The octave readout, folded from the bar at step 2 (the keys play in every view, even with the keyboard panel closed).
         { id: 'more-octave', label: t('keys.octaveShort', { n: keys.octave }), disabled: true, run: () => {} },
-        ...(fit >= 3
+        ...(fit >= 4
           ? [
               { id: 'more-quantize', label: t('transport.launchQuantize'), separator: true, disabled: true, run: () => {} },
               ...QUANTIZE_ORDER.map((q) => ({
@@ -93,6 +109,17 @@
                   if (q !== current) void dispatcher.run(setLaunchQuantize(q))
                 },
               })),
+            ]
+          : []),
+        ...(fit >= 3
+          ? [
+              {
+                id: 'more-scale',
+                label: t('scale.title', { name: scaleName(project.view?.project.scale, t) }),
+                separator: true,
+                disabled: !ready,
+                run: () => (ui.scaleOpen = true),
+              },
             ]
           : []),
       ],
@@ -115,6 +142,10 @@
   )
   // The helper runs without an audio output (#525): the page plays in Web mode until it has one.
   const waiting = $derived(engine.mode === 'web' && engine.awaitingOutput ? t('engine.boostWaiting') : null)
+  // The output protection silenced a non-finite signal (#667): a red dot in the pill and the words in its tooltip and
+  // accessible name, for as long as this engine plays; the dialog says how much.
+  const silenced = $derived(engine.silencedFrames > 0 ? t('engine.silenced') : null)
+  const notes = $derived([loadPeak, waiting, silenced].filter((n): n is string => n !== null))
 </script>
 
 <header class="top" bind:this={bar} data-fit={fit} style:--fk-project-max={fit >= 2 ? '128px' : '160px'}>
@@ -138,7 +169,7 @@
 
   <div class="spacer"></div>
 
-  <Transport hideTarget={fit >= 4} hideQuantize={fit >= 3} />
+  <Transport hideTarget={fit >= 5} hideQuantize={fit >= 4} hideScale={fit >= 3} />
   <button
     class="more"
     bind:this={moreButton}
@@ -161,8 +192,14 @@
         class:boost={engine.mode === 'native'}
         type="button"
         aria-haspopup="dialog"
-        aria-label={`${engine.mode === 'native' ? t('engine.boost') : t('engine.web')}, ${latency}${loadPeak ? `, ${loadPeak}` : ''}${waiting ? `, ${waiting}` : ''}. ${t('engine.settings')}`}
-        title={`${t('engine.settings')}: ${engine.mode === 'native' ? t('engine.boost') : t('engine.web')}, ${latency}${loadPeak ? `, ${loadPeak}` : ''}${waiting ? `. ${waiting}` : ''}`}
+        aria-label={`${[engine.mode === 'native' ? t('engine.boost') : t('engine.web'), latency, ...notes].join(', ')}. ${t('engine.settings')}`}
+        title={`${t('engine.settings')}: ${[engine.mode === 'native' ? t('engine.boost') : t('engine.web'), latency, loadPeak].filter(Boolean).join(', ')}${[
+          waiting,
+          silenced,
+        ]
+          .filter(Boolean)
+          .map((n) => `. ${n}`)
+          .join('')}`}
         data-testid="engine-mode"
         onclick={() => (ui.engineOpen = true)}
       >
@@ -178,9 +215,10 @@
         <span class="value" data-testid="latency">{latencyShort}</span>
         {#if load}<span class="value load" data-testid="engine-load">{load}</span>{/if}
         {#if waiting}<span class="waiting" aria-hidden="true" data-testid="engine-waiting"></span>{/if}
+        {#if silenced}<span class="silenced" aria-hidden="true" data-testid="engine-silenced"></span>{/if}
       </button>
       <!-- The master's level, in every view: the output is what the listener hears, whatever the view shows. -->
-      <div class="master-meter" class:short={fit >= 1} class:shortest={fit >= 4}>
+      <div class="master-meter" class:short={fit >= 1} class:shortest={fit >= 5}>
         <LevelMeter
           snap={meters.snap(MASTER_METER)}
           orientation="horizontal"
@@ -326,7 +364,7 @@
   }
   .mode.boost {
     background: var(--fk-accent);
-    color: #fff;
+    color: var(--fk-on-accent);
   }
   /* The load changes about 30 times a second: fixed-width digits keep the pill still while its digit count stays. */
   .mode .load {
@@ -338,6 +376,17 @@
     height: 7px;
     border-radius: 50%;
     background: var(--fk-solo);
+    /* The light theme's yellow is pale on paper: an ink ring keeps the dot in sight (#687). */
+    box-shadow: 0 0 0 1px var(--fk-on-signal);
+  }
+  /* The output protection silenced a non-finite signal (#667): red, apart from the yellow wait; ringed so that it
+     reads on the Boost pill's accent too. */
+  .silenced {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--fk-rec);
+    box-shadow: 0 0 0 1px var(--fk-surface-2);
   }
   .help {
     flex: none;
@@ -399,7 +448,7 @@
   .more[aria-expanded='true'] {
     border-color: var(--fk-line);
   }
-  .top:is([data-fit='2'], [data-fit='3'], [data-fit='4']) .views button {
+  .top:is([data-fit='2'], [data-fit='3'], [data-fit='4'], [data-fit='5']) .views button {
     padding: 0 var(--fk-space-2);
   }
   button.primary {
@@ -408,7 +457,7 @@
     border: 1px solid var(--fk-accent);
     border-radius: var(--fk-radius-pill);
     background: var(--fk-accent);
-    color: #fff;
+    color: var(--fk-on-accent);
     font-weight: 600;
     cursor: pointer;
     white-space: nowrap;

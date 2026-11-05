@@ -410,82 +410,6 @@ pub unsafe extern "C" fn fk_disk_set_budget(ch: *mut Channel, bytes: f64) {
     }
 }
 
-/// Starts the host's test voice (render instance; until AU-4's clip player, the consumer of
-/// the disk rings): `port` of `track`, `source` from `start` to `end`, looping in
-/// `[loop_start, loop_end)` when `loop_end > loop_start`. Frames as JavaScript numbers.
-/// Returns 1 when it started, 0 when the track or source does not exist. No allocation.
-///
-/// # Safety
-/// `ch` as in [`host`].
-#[unsafe(no_mangle)]
-#[allow(clippy::too_many_arguments)]
-pub unsafe extern "C" fn fk_probe_start(
-    ch: *mut Channel,
-    track: u32,
-    port: u32,
-    source: u32,
-    start: f64,
-    end: f64,
-    loop_start: f64,
-    loop_end: f64,
-) -> i32 {
-    let frame = |v: f64| {
-        if (0.0..=MAX_SAFE_FRAME).contains(&v) {
-            v as u64
-        } else {
-            0
-        }
-    };
-    let looping = (loop_end > loop_start).then(|| (frame(loop_start), frame(loop_end)));
-    let path = engine::audio_source::Path {
-        start: frame(start),
-        end: frame(end),
-        looping,
-    };
-    // SAFETY: forwarded from this function's contract.
-    unsafe { host(ch) }.map_or(0, |h| {
-        i32::from(h.probe_start(
-            engine::msg::TrackSlot(track),
-            port.min(255) as u8,
-            engine::msg::SourceSlot(source),
-            path,
-        ))
-    })
-}
-
-/// Reads `frames` frames (clamped to [`MAX_FRAMES`]) of the test voice into
-/// [`fk_probe_out`] (render instance). Returns the frames that came from the source.
-///
-/// # Safety
-/// `ch` as in [`host`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn fk_probe_read(ch: *mut Channel, frames: u32) -> u32 {
-    // SAFETY: forwarded from this function's contract.
-    unsafe { host(ch) }.map_or(0, |h| {
-        h.probe_read((frames as usize).min(MAX_FRAMES)) as u32
-    })
-}
-
-/// The test voice's output, interleaved, [`fk_probe_channels`] per frame (render instance).
-///
-/// # Safety
-/// `ch` as in [`host`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn fk_probe_out(ch: *mut Channel) -> *const f32 {
-    // SAFETY: forwarded from this function's contract.
-    unsafe { host(ch) }.map_or(core::ptr::null(), |h| h.probe_out().as_ptr())
-}
-
-/// Channels of the test voice's frames.
-///
-/// # Safety
-/// `ch` as in [`host`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn fk_probe_channels(ch: *mut Channel) -> u32 {
-    // SAFETY: forwarded from this function's contract.
-    unsafe { host(ch) }.map_or(0, |h| u32::from(h.probe().channels()))
-}
-
 /// Applies what arrived on the rt ring and takes the live events (render instance; the
 /// first half of [`fk_render`]). Returns the rt messages applied.
 ///
@@ -867,6 +791,59 @@ pub mod stream_exports {
     pub extern "C" fn fk_stream_len() -> u32 {
         scenario().len() as u32
     }
+
+    /// The audio clip player's scenario (AU-4, `engine::audio_source::scenario::player_scenario`).
+    fn player() -> &'static [f32] {
+        static OUT: OnceLock<Box<[f32]>> = OnceLock::new();
+        OUT.get_or_init(|| engine::audio_source::scenario::player_scenario().into_boxed_slice())
+    }
+
+    /// Address of the player scenario's output, null when it is empty.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fk_player_scenario() -> *const f32 {
+        let out = player();
+        if out.is_empty() {
+            core::ptr::null()
+        } else {
+            out.as_ptr()
+        }
+    }
+
+    /// Number of `f32` values [`fk_player_scenario`] points to.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fk_player_len() -> u32 {
+        player().len() as u32
+    }
+}
+
+/// The non-finite test scenario (`engine::host::testing::nonfinite_scenario`, #667), as
+/// [`events_exports`]: only in the test build (`--features nonfinite-scenario`), never in the
+/// worklet's module.
+#[cfg(feature = "nonfinite-scenario")]
+pub mod nonfinite_exports {
+    use std::sync::OnceLock;
+
+    fn scenario() -> &'static [u8] {
+        static OUT: OnceLock<Box<[u8]>> = OnceLock::new();
+        OUT.get_or_init(|| engine::host::testing::nonfinite_scenario().into_boxed_slice())
+    }
+
+    /// Address of the scenario's bytes, null when it is empty.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fk_nonfinite_scenario() -> *const u8 {
+        let out = scenario();
+        if out.is_empty() {
+            core::ptr::null()
+        } else {
+            out.as_ptr()
+        }
+    }
+
+    /// Number of bytes [`fk_nonfinite_scenario`] points to.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fk_nonfinite_len() -> u32 {
+        scenario().len() as u32
+    }
 }
 
 // ---------------------------------------------------------------- the offline export
@@ -875,10 +852,21 @@ pub mod stream_exports {
 /// engine, in the instance of the Worker that runs it (never the worklet's). The Worker
 /// writes the project's stream into the inbox ([`fk_export_inbox`]), submits it
 /// ([`fk_export_submit`]), steps ([`fk_export_step`]) and reads the PCM of each step
-/// ([`fk_export_pcm`]) and the header at the end ([`fk_export_header`]).
+/// ([`fk_export_pcm`]) and the header at the end ([`fk_export_header`]). Between steps it
+/// serves the render's disk reads (#647): [`fk_export_disk_jobs`] and the table at
+/// [`fk_export_disk_table`], each answered with [`fk_export_disk_done`] (bytes written at
+/// [`fk_export_disk_inbox`]) or [`fk_export_disk_failed`]; at the end it reads the media that
+/// could not be read ([`fk_export_missing`]).
 pub struct Export {
     offline: engine::offline::Offline,
     header: Vec<u8>,
+    /// The levels of the content as [`fk_export_levels`] lays them out.
+    levels: Vec<f32>,
+    /// The last jobs taken, as `engine::audio_source::JOB_WIRE_BYTES` each.
+    jobs: Vec<u8>,
+    disk_inbox: Vec<u8>,
+    /// The missing media, 32 bytes each.
+    missing: Vec<u8>,
 }
 
 /// An error of the offline render as the code the exports return.
@@ -922,6 +910,10 @@ pub extern "C" fn fk_export_new(
         Ok(offline) => Box::into_raw(Box::new(Export {
             offline,
             header: Vec::new(),
+            levels: Vec::new(),
+            jobs: Vec::new(),
+            disk_inbox: Vec::new(),
+            missing: Vec::new(),
         })),
         Err(_) => core::ptr::null_mut(),
     }
@@ -979,6 +971,23 @@ pub unsafe extern "C" fn fk_export_set_stop(ex: *mut Export, len: u32) -> i32 {
     match unsafe { export(ex) } {
         Some(e) => {
             e.offline.set_stop_from_inbox(len as usize);
+            0
+        }
+        None => -1,
+    }
+}
+
+/// Takes the first `len` bytes of the inbox as the stream that starts the transport after the
+/// pre-roll (`Offline::set_start`). 0, or -1 for a null export.
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_set_start(ex: *mut Export, len: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    match unsafe { export(ex) } {
+        Some(e) => {
+            e.offline.set_start_from_inbox(len as usize);
             0
         }
         None => -1,
@@ -1050,11 +1059,52 @@ pub unsafe extern "C" fn fk_export_header_len(ex: *mut Export) -> u32 {
     unsafe { export(ex) }.map_or(0, |e| e.header.len() as u32)
 }
 
+/// The levels the content measured, as `f32` values: four per strip (peak left, peak right,
+/// RMS left, RMS right, linear), one strip per track slot up to the last occupied one, then
+/// the output's. Returns the address (valid until the next call) and sets nothing else:
+/// [`fk_export_levels_len`] is the number of strips. Null until the content is rendered.
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_levels(ex: *mut Export) -> *const f32 {
+    // SAFETY: forwarded from this function's contract.
+    let Some(e) = (unsafe { export(ex) }) else {
+        return core::ptr::null();
+    };
+    let Some(m) = e.offline.measure() else {
+        return core::ptr::null();
+    };
+    e.levels.clear();
+    for l in m.tracks.iter().chain([&m.master]) {
+        e.levels
+            .extend_from_slice(&[l.peak_l, l.peak_r, l.rms_l, l.rms_r]);
+    }
+    e.levels.as_ptr()
+}
+
+/// The number of strips [`fk_export_levels`] laid out (the tracks, then the output), 0 until
+/// the content is rendered.
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_levels_len(ex: *mut Export) -> u32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { export(ex) }
+        .and_then(|e| e.offline.measure())
+        .map_or(0, |m| m.tracks.len() as u32 + 1)
+}
+
 /// A figure of the export, by number: 0 frames rendered, 1 frames written, 2 frames of
 /// content, 3 the peak (linear), 4 samples clipped, 5 the tail was cut (0 or 1), 6 the
 /// header's length, 7 the output protection's peak gain reduction (linear, 0 = never
 /// engaged; #402), 8 the count of frames the protection silenced for a non-finite sample (0 on
-/// a clean render; #402). -1 for a null export or an unknown number.
+/// a clean render; #402), 9 the render waits for disk reads (0 or 1; #647), 10 the blocks in
+/// which an audio clip lacked frames (#647), 11 the steps that stopped to wait for the disk,
+/// 12 the frames the content measured, 13 the frames silenced and 14 the peak gain reduction
+/// over the content only (-1 until the content is rendered; #665).
+/// -1 for a null export or an unknown number.
 ///
 /// # Safety
 /// `ex` as in [`export`].
@@ -1075,6 +1125,148 @@ pub unsafe extern "C" fn fk_export_stat(ex: *mut Export, which: u32) -> f64 {
         6 => o.header_len() as f64,
         7 => f64::from(o.reduction()),
         8 => o.silenced() as f64,
+        9 => f64::from(u8::from(o.waiting())),
+        10 => f64::from(o.underruns()),
+        11 => o.disk_waits() as f64,
+        // What the content measured ([`fk_export_levels`]), -1 until the content is rendered.
+        12 => o.measure().map_or(-1.0, |m| m.frames as f64),
+        13 => o.measure().map_or(-1.0, |m| m.silenced as f64),
+        14 => o.measure().map_or(-1.0, |m| f64::from(m.reduction)),
         _ => -1.0,
     }
+}
+
+/// Takes the disk reads the render waits for (#647) into the table at
+/// [`fk_export_disk_table`] and returns their count (0 when the memory is refused: the jobs
+/// are then answered as unreadable, and read again later by the planner).
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_disk_jobs(ex: *mut Export) -> u32 {
+    use engine::audio_source::{Failure, JOB_WIRE_BYTES, encode_jobs};
+    // SAFETY: forwarded from this function's contract.
+    let Some(e) = (unsafe { export(ex) }) else {
+        return 0;
+    };
+    let jobs = e.offline.take_disk_jobs();
+    let bytes = jobs.len() * JOB_WIRE_BYTES;
+    if bytes > e.jobs.len() {
+        if e.jobs.try_reserve_exact(bytes - e.jobs.len()).is_err() {
+            for job in &jobs {
+                e.offline.disk_failed(job.id, Failure::Unreadable);
+            }
+            return 0;
+        }
+        e.jobs.resize(bytes, 0);
+    }
+    encode_jobs(&jobs, &mut e.jobs) as u32
+}
+
+/// The table of the jobs [`fk_export_disk_jobs`] took (valid until its next call).
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_disk_table(ex: *mut Export) -> *const u8 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { export(ex) }.map_or(core::ptr::null(), |e| e.jobs.as_ptr())
+}
+
+/// The address of an inbox of at least `len` bytes for a read's bytes (it may move between
+/// calls); null when the memory is refused.
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_disk_inbox(ex: *mut Export, len: u32) -> *mut u8 {
+    // SAFETY: forwarded from this function's contract.
+    let Some(e) = (unsafe { export(ex) }) else {
+        return core::ptr::null_mut();
+    };
+    let len = len as usize;
+    if len > e.disk_inbox.len() {
+        if e.disk_inbox
+            .try_reserve_exact(len - e.disk_inbox.len())
+            .is_err()
+        {
+            return core::ptr::null_mut();
+        }
+        e.disk_inbox.resize(len, 0);
+    }
+    e.disk_inbox.as_mut_ptr()
+}
+
+/// Job `id` read the first `len` bytes of the disk inbox from a file of `file_len` bytes.
+/// Returns 0, or -1 when `len` is beyond the inbox (the job is then answered as unreadable).
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_disk_done(
+    ex: *mut Export,
+    id: u32,
+    len: u32,
+    file_len: f64,
+) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    let Some(e) = (unsafe { export(ex) }) else {
+        return -1;
+    };
+    let len = len as usize;
+    if len > e.disk_inbox.len() || !(0.0..=MAX_SAFE_FRAME).contains(&file_len) {
+        // Never left in flight: the render would wait for it forever.
+        e.offline
+            .disk_failed(id, engine::audio_source::Failure::Unreadable);
+        return -1;
+    }
+    e.offline
+        .disk_done(id, &e.disk_inbox[..len], file_len as u64);
+    0
+}
+
+/// Job `id` failed: 1 not found, 2 unreadable, 3 the file changed.
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_disk_failed(ex: *mut Export, id: u32, code: u32) {
+    // SAFETY: forwarded from this function's contract.
+    if let Some(e) = unsafe { export(ex) } {
+        e.offline
+            .disk_failed(id, engine::audio_source::Failure::from_code(code));
+    }
+}
+
+/// Puts the media found offline during the render (`Offline::missing`) at
+/// [`fk_export_missing_table`], 32 bytes (the SHA-256 of the blob) each, and returns their
+/// count (0 when the memory is refused).
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_missing(ex: *mut Export) -> u32 {
+    // SAFETY: forwarded from this function's contract.
+    let Some(e) = (unsafe { export(ex) }) else {
+        return 0;
+    };
+    let missing = e.offline.missing();
+    e.missing.clear();
+    if e.missing.try_reserve_exact(missing.len() * 32).is_err() {
+        return 0;
+    }
+    for media in missing {
+        e.missing.extend_from_slice(media);
+    }
+    missing.len() as u32
+}
+
+/// The table [`fk_export_missing`] filled (valid until its next call).
+///
+/// # Safety
+/// `ex` as in [`export`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn fk_export_missing_table(ex: *mut Export) -> *const u8 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { export(ex) }.map_or(core::ptr::null(), |e| e.missing.as_ptr())
 }

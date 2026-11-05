@@ -203,6 +203,11 @@ impl StreamQueue {
         &self.prepare
     }
 
+    /// The prepare side, to drive its disk planner (AU-3: [`Prepare::disk_poll`]).
+    pub fn prepare_mut(&mut self) -> &mut Prepare {
+        &mut self.prepare
+    }
+
     /// Changes the sample rate ([`Prepare::set_sample_rate`], #236): the devices are built
     /// again for `rate` and go in before the streams that wait here, which the prepare side
     /// then builds at `rate` too. Nothing changes on an error.
@@ -424,6 +429,86 @@ pub const TAKE_REPORTS: u32 = 90;
 /// Reports per second (the page reads the region at about this rate).
 pub const REPORTS_PER_SECOND: f32 = 30.0;
 
+/// The level of a strip over a stretch of render, linear amplitude: the largest sample of
+/// each channel and the root mean square of each channel over all the frames. Non-finite
+/// samples are left out of both, as in the live meters.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Level {
+    pub peak_l: f32,
+    pub peak_r: f32,
+    pub rms_l: f32,
+    pub rms_r: f32,
+}
+
+/// What [`Host::levels`] measured: the frames it covers, the level of every track slot up
+/// to the last one that was occupied at a report, and the output's.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Levels {
+    /// Frames rendered since the tally started, up to the last report.
+    pub frames: u64,
+    /// By track slot.
+    pub tracks: Vec<Level>,
+    /// The output, after the master and before the output protection.
+    pub master: Level,
+}
+
+/// The sums behind [`Levels`]: one `(peak, sum of squares)` pair per channel, per slot and
+/// for the output (last).
+#[derive(Debug)]
+struct Tally {
+    frames: u64,
+    /// Slots up to the last one a report carried.
+    used: usize,
+    peak: Box<[[f32; 2]]>,
+    squares: Box<[[f64; 2]]>,
+}
+
+impl Tally {
+    fn new() -> Result<Box<Tally>, MsgError> {
+        let n = limits::MAX_TRACKS as usize + 1;
+        Ok(Box::new(Tally {
+            frames: 0,
+            used: 0,
+            peak: try_slice(n, [0.0; 2])?,
+            squares: try_slice(n, [0.0; 2])?,
+        }))
+    }
+
+    /// Folds one report's meters, taken over `frames` frames. A meter's RMS is the root of
+    /// its mean square over its period, so the squares are put back with the period's length.
+    fn add(&mut self, frames: u32, tracks: &[TrackMeter], master: TrackMeter) {
+        let master_at = self.peak.len() - 1;
+        let n = f64::from(frames.max(1));
+        let mut fold = |at: usize, m: &TrackMeter| {
+            self.peak[at][0] = self.peak[at][0].max(m.peak_l);
+            self.peak[at][1] = self.peak[at][1].max(m.peak_r);
+            self.squares[at][0] += f64::from(m.rms_l) * f64::from(m.rms_l) * n;
+            self.squares[at][1] += f64::from(m.rms_r) * f64::from(m.rms_r) * n;
+        };
+        for (at, m) in tracks.iter().enumerate().take(master_at) {
+            fold(at, m);
+        }
+        fold(master_at, &master);
+        self.used = self.used.max(tracks.len().min(master_at));
+        self.frames += u64::from(frames);
+    }
+
+    fn levels(&self) -> Levels {
+        let n = self.frames.max(1) as f64;
+        let level = |at: usize| Level {
+            peak_l: self.peak[at][0],
+            peak_r: self.peak[at][1],
+            rms_l: (self.squares[at][0] / n).sqrt() as f32,
+            rms_r: (self.squares[at][1] / n).sqrt() as f32,
+        };
+        Levels {
+            frames: self.frames,
+            tracks: (0..self.used).map(level).collect(),
+            master: level(self.peak.len() - 1),
+        }
+    }
+}
+
 /// The audio side (module doc).
 pub struct Host {
     engine: Engine,
@@ -437,6 +522,9 @@ pub struct Host {
     load: Load,
     /// Where the engine puts the track meters of a report.
     meters: Box<[TrackMeter]>,
+    /// The meters of every report folded together, when a caller asked for them
+    /// ([`Host::tally_levels`]); `None` on the real-time hosts.
+    tally: Option<Box<Tally>>,
     /// Scalar fields of the report the engine fills (`Engine::report_transport`); its
     /// vectors stay empty.
     scratch: Feedback,
@@ -452,10 +540,14 @@ pub struct Host {
     /// The clock's rate the host last saw (#236): a change makes the report period and the
     /// load follow it.
     clock_rate: u32,
-    /// A test voice ([`Host::probe_start`]): the consumer of the disk rings until AU-4's clip
-    /// player, so the web build's two instances are exercised end to end.
+    /// A test voice ([`Host::probe_start`]): reads one port's ring and segments outside any
+    /// clip, so the stream layer (AU-3) is tested on its own. Test builds only: the audio
+    /// clip player (AU-4) is the consumer of the rings.
+    #[cfg(feature = "testing")]
     probe: crate::audio_source::Voice,
+    #[cfg(feature = "testing")]
     probe_port: (crate::msg::TrackSlot, u8),
+    #[cfg(feature = "testing")]
     probe_out: Box<[f32]>,
 }
 
@@ -502,6 +594,7 @@ pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
         meter_frames: 0,
         load: Load::new(),
         meters: try_slice(limits::MAX_TRACKS as usize, TrackMeter::default())?,
+        tally: None,
         scratch: Feedback::default(),
         voices: 0,
         period_voices: 0,
@@ -510,8 +603,11 @@ pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
         feedback: Arc::from(feedback.into_boxed_slice()),
         feedback_seq: 0,
         clock_rate: 0,
+        #[cfg(feature = "testing")]
         probe: crate::audio_source::Voice::default(),
+        #[cfg(feature = "testing")]
         probe_port: (TrackSlot(0), 0),
+        #[cfg(feature = "testing")]
         probe_out: try_slice(frames * crate::audio_source::MAX_CHANNELS, 0.0)?,
     };
     let prepare = Prepare { preparer, status };
@@ -535,9 +631,10 @@ fn word(bytes: [u8; 4]) -> u32 {
 }
 
 impl Host {
-    /// Starts the test voice on `port` of `track`, playing `path` of `source` (AU-3, until
-    /// AU-4's clip player). `false` when the track or the source does not exist. No
-    /// allocation.
+    /// Starts the test voice on `port` of `track`, playing `path` of `source` (AU-3's stream
+    /// layer on its own; test builds only). `false` when the track or the source does not
+    /// exist. No allocation.
+    #[cfg(feature = "testing")]
     pub fn probe_start(
         &mut self,
         track: TrackSlot,
@@ -587,6 +684,7 @@ impl Host {
 
     /// Reads `frames` frames of the test voice into [`Host::probe_out`]; returns how many
     /// came from the source. No allocation.
+    #[cfg(feature = "testing")]
     pub fn probe_read(&mut self, frames: usize) -> usize {
         let (track, port) = self.probe_port;
         let source = self.probe.source();
@@ -614,11 +712,13 @@ impl Host {
     }
 
     /// The test voice's last frames, interleaved ([`crate::audio_source::Voice::channels`]).
+    #[cfg(feature = "testing")]
     pub fn probe_out(&self) -> &[f32] {
         &self.probe_out
     }
 
     /// The test voice.
+    #[cfg(feature = "testing")]
     pub fn probe(&self) -> &crate::audio_source::Voice {
         &self.probe
     }
@@ -740,6 +840,22 @@ impl Host {
         Arc::clone(&self.feedback)
     }
 
+    /// Starts folding the meters of every report into one set of levels over all the frames
+    /// rendered from now on ([`Host::levels`]), for a caller that measures a whole render (the
+    /// offline render). Allocates, so it is called before rendering, never on the audio
+    /// thread. A second call starts again from zero. `Err` when the memory is refused.
+    pub fn tally_levels(&mut self) -> Result<(), MsgError> {
+        self.tally = Some(Tally::new()?);
+        Ok(())
+    }
+
+    /// The levels folded since [`Host::tally_levels`] up to the last report written
+    /// ([`Host::write_feedback`] writes the one that closes the period now); `None` when
+    /// the tally was not started.
+    pub fn levels(&self) -> Option<Levels> {
+        self.tally.as_deref().map(Tally::levels)
+    }
+
     /// Writes the report now and starts a new metering period (the render calls it about
     /// [`REPORTS_PER_SECOND`] times per second). The `seq` word is odd while the body is
     /// written: a reader takes an even `seq`, the body, then the same `seq` again.
@@ -748,7 +864,8 @@ impl Host {
     /// prepare side published, the most voices sounding during the period, the meters of
     /// every track slot up to the last track and the output's, then the active clips (GR-1),
     /// then the take's number, count and last notes (RE-2), the disk's underruns, offline
-    /// sources, budget flag and PCM in memory (AU-3).
+    /// sources, budget flag and PCM in memory (AU-3), and the frames the output protection
+    /// silenced because a sample was non-finite (#667).
     /// No allocation.
     pub fn write_feedback(&mut self) {
         let seq = self.feedback_seq.wrapping_add(1) | 1;
@@ -763,6 +880,9 @@ impl Host {
 
         let frames = self.meter_frames;
         let (tracks, master) = self.engine.take_meters(frames, &mut self.meters);
+        if let Some(tally) = self.tally.as_deref_mut() {
+            tally.add(frames, &self.meters[..tracks], master);
+        }
         self.engine.report_transport(&mut self.scratch);
         let (load, peak) = self.load.take(self.sample_rate);
 
@@ -789,6 +909,7 @@ impl Host {
             84,
             (disk.pcm_bytes.load(Ordering::Relaxed) / 1024).min(u64::from(u32::MAX)) as u32,
         );
+        put(88, silenced_word(self.engine.limiter_silenced()));
         put(40, tracks as u32);
         put(52, self.period_voices);
         let mut at = FEEDBACK_HEADER_BYTES;
@@ -858,6 +979,12 @@ impl Host {
         }
         self.feedback_seq = done;
     }
+}
+
+/// The report's word for the protection's silenced-frame count (offset 88): the count,
+/// saturated at `u32::MAX` (at 48 kHz, about a day of frames silenced).
+pub fn silenced_word(frames: u64) -> u32 {
+    frames.min(u64::from(u32::MAX)) as u32
 }
 
 /// The voices word of a report region (offset 52), as [`read_feedback`] reads it.
@@ -1006,6 +1133,7 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
         offline_sources: u32_at(76)?,
         pcm_flags: u32_at(80)?,
         pcm_kib: u32_at(84)?,
+        silenced_frames: u32_at(88)?,
         meters,
         master: meter(tracks as usize)?,
         voices: u32_at(52)?,
@@ -1016,4 +1144,82 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
         record_dropped: u32_at(64)?,
         record_capturing: u32_at(68)? & 1 == 1,
     })
+}
+
+/// Test scenarios of the host (test builds only).
+#[cfg(feature = "testing")]
+pub mod testing {
+    use super::{channel, copy_feedback};
+
+    /// The non-finite scenario (#667): a host at 48 kHz renders clean blocks and writes a
+    /// report, then 3 frames turned NaN before the output protection and a report, then a whole
+    /// block of 128 and a report. Returns the three reports' bytes, end to end, then the left
+    /// and right output of the last block as little-endian `f32` bytes: the reports carry 0, 3
+    /// and 131 silenced frames, the output is finite. Empty if the channel could not be built.
+    pub fn nonfinite_scenario() -> Vec<u8> {
+        let Ok((_prepare, mut host)) = channel(48_000.0) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        let mut report = Vec::new();
+        let mut take = |host: &mut super::Host, out: &mut Vec<u8>| {
+            host.write_feedback();
+            if copy_feedback(host.feedback(), &mut report) {
+                out.extend_from_slice(&report);
+            }
+        };
+        host.render(128);
+        host.render(128);
+        take(&mut host, &mut out);
+        host.engine_mut().poison_next_frames(3);
+        host.render(128);
+        take(&mut host, &mut out);
+        host.engine_mut().poison_next_frames(128);
+        host.render(128);
+        take(&mut host, &mut out);
+        for s in host.left()[..128].iter().chain(&host.right()[..128]) {
+            out.extend_from_slice(&s.to_le_bytes());
+        }
+        out
+    }
+}
+
+#[cfg(test)]
+mod tally_tests {
+    use super::*;
+
+    fn meter(peak: f32, rms: f32) -> TrackMeter {
+        TrackMeter {
+            peak_l: peak,
+            peak_r: peak / 2.0,
+            rms_l: rms,
+            rms_r: rms,
+            gain_reduction_db: 0.0,
+        }
+    }
+
+    #[test]
+    fn periods_fold_into_the_largest_peak_and_a_root_mean_square_weighted_by_frames() {
+        let mut tally = Tally::new().unwrap();
+        // 100 frames at RMS 1, then 300 frames of silence: the mean square is 100/400.
+        tally.add(100, &[meter(0.5, 1.0)], meter(0.9, 1.0));
+        tally.add(300, &[meter(0.25, 0.0)], meter(0.1, 0.0));
+        let levels = tally.levels();
+        assert_eq!(levels.frames, 400);
+        assert_eq!(levels.tracks.len(), 1);
+        let t = levels.tracks[0];
+        assert_eq!((t.peak_l, t.peak_r), (0.5, 0.25));
+        assert!((t.rms_l - 0.5).abs() < 1e-6, "{}", t.rms_l);
+        assert!((levels.master.peak_l - 0.9).abs() < 1e-6);
+        assert!((levels.master.rms_r - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_period_without_frames_weighs_nothing() {
+        let mut tally = Tally::new().unwrap();
+        tally.add(0, &[meter(0.0, 0.0)], meter(0.0, 0.0));
+        let levels = tally.levels();
+        assert_eq!(levels.frames, 0);
+        assert!(levels.master.rms_l == 0.0 && levels.master.peak_l == 0.0);
+    }
 }

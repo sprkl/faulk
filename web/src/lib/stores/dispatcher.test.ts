@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { NativeEngine, NoOutputError } from '../engine/native-engine'
 import type { EngineEvents } from '../engine/engine'
-import { AGENT_CONFIRM_MS, DESTRUCTIVE_COMMANDS, SINGLE_SYNTH, type Command } from '../generated/protocol'
+import { AGENT_CONFIRM_MS, DESTRUCTIVE_COMMANDS, PROTOCOL_VERSION, SINGLE_SYNTH, type Command } from '../generated/protocol'
 import { STORAGE_GUARDED } from '../agents/guard'
 import { DEFAULT_PARAMS } from '../params'
 import { CoreError, ProjectCore, type FolderEntry } from '../project/core'
@@ -97,6 +97,11 @@ const controlOpen = vi.fn<(token: string, events: ControlEvents) => Promise<Fake
 vi.mock('../agents/control-link', () => ({
   ControlLink: { open: (token: string, events: ControlEvents) => controlOpen(token, events) },
   ControlTimeout: class ControlTimeout extends Error {},
+  ControlIncompatible: class ControlIncompatible extends Error {
+    constructor(readonly protocol: number) {
+      super('incompatible')
+    }
+  },
 }))
 // Web MIDI is off, except in the tests that turn it on: then `releaseAll` is what the test controls.
 let midiOn = false
@@ -112,6 +117,28 @@ vi.mock('../midi/web-midi', () => ({
 }))
 
 const { createStores } = await import('./index')
+
+/** An engine report as far as the dispatcher reads it, with `silencedFrames` (#667). */
+const silencedReport = (silencedFrames: number) =>
+  ({
+    seq: 2,
+    epoch: 1,
+    transport: 'stopped',
+    cpuLoad: null,
+    cpuPeak: null,
+    liveOverflows: 0,
+    silencedFrames,
+    voices: 0,
+    tracks: [],
+    master: { peakL: 0, peakR: 0, rmsL: 0, rmsR: 0, gainReductionDb: 0 },
+    clips: [],
+    held: [],
+    recordTake: 0,
+    recordTotal: 0,
+    recordDropped: 0,
+    recordCapturing: false,
+    recorded: [],
+  }) as never
 
 const newSession = () => createStores('arrangement', 'devices')
 
@@ -514,6 +541,54 @@ describe('running commands through the project core', () => {
     expect(webs[0].push.mock.calls.length).toBe(pushes + 1)
     expect(session.engine.mode).toBe('web')
     expect(session.project.params[firstParam]).toBe(0.5)
+  })
+
+  it('forgets the frames silenced by a Web engine it stopped, and a new one counts from 0 (#667)', async () => {
+    const session = newSession()
+    await session.dispatcher.start()
+    webEvents!.onFeedback(silencedReport(5))
+    expect(session.engine.silencedFrames).toBe(5)
+    webEvents!.onStreamRefused?.(-3, 0)
+    expect(session.engine.silencedFrames).toBe(0)
+    await session.dispatcher.start()
+    webEvents!.onFeedback(silencedReport(2))
+    expect(session.engine.silencedFrames).toBe(2)
+  })
+
+  it('shows the frames silenced by the engine that plays: from 0 in Web, from its first report for a helper (#667)', async () => {
+    const report = silencedReport
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
+      close: vi.fn(() => Promise.resolve()),
+    }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    const web = webEvents!
+    // The page's own engine counts from 0: its first report already counts.
+    web.onFeedback(report(3))
+    expect(session.engine.silencedFrames).toBe(3)
+    // The helper's engine silenced 500 frames for an earlier page: not this one's.
+    await session.dispatcher.enterBoost()
+    const native = nativeEvents!
+    native.onFeedback(report(500))
+    expect(session.engine.silencedFrames).toBe(0)
+    native.onFeedback(report(503))
+    expect(session.engine.silencedFrames).toBe(3)
+    // A report of the suspended Web engine changes nothing while the helper plays.
+    web.onFeedback(report(9))
+    expect(session.engine.silencedFrames).toBe(3)
+    // A count below the base: the helper built a new engine, counted from 0.
+    native.onFeedback(report(2))
+    expect(session.engine.silencedFrames).toBe(2)
+    // Back to Web: the same Web engine, its own count (3 silenced in it before Boost, 9 since).
+    await session.dispatcher.enterWeb()
+    web.onFeedback(report(9))
+    expect(session.engine.silencedFrames).toBe(9)
   })
 
   it("keeps the helper's update state while its session is current, and forgets it in Web mode (#515)", async () => {
@@ -1486,9 +1561,19 @@ describe('the project in a folder (SV-2)', () => {
     if (frame?.status !== 'ok') throw new Error('no frame')
     const files = frame.entries.flatMap((e) => (e.type === 'write' ? [{ path: e.path, bytes: e.bytes }] : []))
     expect(session.dispatcher.host.projectName()).toBe(session.project.view!.project.name)
-    const packed = await session.dispatcher.host.packExport(files)
-    if (packed.status !== 'ok') throw new Error(packed.message)
-    const unpacked = await session.dispatcher.host.packImport(packed.zip)
+    const parts: Uint8Array[] = []
+    const packed = await session.dispatcher.host.packExport(files, {
+      read: async () => new Uint8Array(),
+      sink: { write: async (chunk) => void parts.push(chunk) },
+    })
+    if (packed.status !== 'ok') throw new Error(JSON.stringify(packed))
+    const zip = new Uint8Array(parts.reduce((n, p) => n + p.length, 0))
+    let at = 0
+    for (const part of parts) {
+      zip.set(part, at)
+      at += part.length
+    }
+    const unpacked = await session.dispatcher.host.packImport(zip)
     expect(unpacked.status === 'ok' && unpacked.files.some((f) => f.path === 'project.json')).toBe(true)
   })
 
@@ -1526,8 +1611,11 @@ describe('the project in a folder (SV-2)', () => {
     const importPack = vi.spyOn(session.storage, 'importPack').mockResolvedValue(true)
     session.dispatcher.run({ type: 'project.save' })
     session.dispatcher.run({ type: 'project.save_as' })
+    const cancelExport = vi.spyOn(session.storage, 'cancelExport')
     session.dispatcher.run({ type: 'project.export_pack' })
+    session.dispatcher.run({ type: 'project.cancel_export_pack' })
     session.dispatcher.run({ type: 'project.import_pack' })
+    expect(cancelExport).toHaveBeenCalledTimes(1)
     expect(save).toHaveBeenCalledTimes(1)
     expect(saveAs).toHaveBeenCalledTimes(1)
     expect(exportPack).toHaveBeenCalledTimes(1)
@@ -2035,6 +2123,7 @@ describe('the preset library and its reads (#191)', () => {
 describe("an agent's calls in Boost (AG-1)", () => {
   beforeEach(() => {
     webs = []
+    controls.length = 0
     midiOn = false
     midiReleaseAll = () => Promise.resolve()
     localStorage.clear()
@@ -2134,6 +2223,32 @@ describe("an agent's calls in Boost (AG-1)", () => {
     expect(session.dispatcher.history().undo).toEqual([])
   })
 
+  it('sets the theme for an agent (#687): applied in the page, nothing in the project, the history or the engine', async () => {
+    const session = await boosted()
+    const sends = nativeEngine!.send.mock.calls.length
+    const before = session.dispatcher.history()
+    expect(await call('a', { type: 'view.set_theme', theme: 'light' })).toEqual({ status: 'applied', output: { type: 'view.set_theme' } })
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light')
+    expect(session.ui.theme.choice).toBe('light')
+    expect(localStorage.getItem('faulk.theme')).toBe('light')
+    expect(nativeEngine!.send.mock.calls.length).toBe(sends)
+    expect(session.dispatcher.history()).toEqual(before)
+    // The core does not check this path: a theme the command does not take is refused here, and nothing changes.
+    expect(await call('a', { type: 'view.set_theme', theme: 'sepia' })).toMatchObject({ status: 'invalid' })
+    expect(await call('a', { type: 'view.set_theme' })).toMatchObject({ status: 'invalid' })
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light')
+    expect(await call('a', { type: 'view.set_theme', theme: 'dark' })).toMatchObject({ status: 'applied' })
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+  })
+
+  it('sets the theme before audio starts, for the menu and for an agent (#687)', async () => {
+    const session = newSession()
+    expect(session.dispatcher.run({ type: 'view.set_theme', theme: 'light' })).toBe(true)
+    expect(document.documentElement.getAttribute('data-theme')).toBe('light')
+    expect(await session.dispatcher.runForAgent({ type: 'view.set_theme', theme: 'dark' }, 'agent:a')).toMatchObject({ status: 'applied' })
+    expect(document.documentElement.getAttribute('data-theme')).toBe('dark')
+  })
+
   it('answers the stored projects for project.list_stored', async () => {
     await boosted()
     expect(await call('a', { type: 'project.list_stored' })).toEqual({
@@ -2151,6 +2266,57 @@ describe("an agent's calls in Boost (AG-1)", () => {
     expect(answer).toHaveBeenCalledWith(expect.objectContaining({ status: 'unavailable' }))
     expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
   })
+
+  /** The agent `agent` opens a history group and edits in it; the user cannot undo meanwhile. */
+  async function groupOpenedBy(session: Awaited<ReturnType<typeof boosted>>, agent: string) {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(await call(agent, { type: 'history.begin_group' })).toMatchObject({ status: 'applied' })
+    expect(await call(agent, setParamCommand(firstParam, 0.3))).toMatchObject({ status: 'applied' })
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam], 'undo is refused while the group is open').toBe(0.3)
+  }
+
+  it('closes the group of an agent that left: the user undoes it at once (#641)', async () => {
+    const session = await boosted()
+    await groupOpenedBy(session, 'claude-code')
+    nativeEvents!.onAgentLeft!('claude-code')
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+  })
+
+  it("leaves an agent's group open when another agent leaves, or when Boost ends while the control link stays (#641)", async () => {
+    const session = await boosted()
+    await vi.waitFor(() => expect(controls).toHaveLength(1))
+    await groupOpenedBy(session, 'a')
+    nativeEvents!.onAgentLeft!('b')
+    controls[0].events.onAgentLeft('b')
+    await session.dispatcher.enterWeb()
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam]).toBe(0.3)
+    // Its calls now come on the control link, and it closes its own group.
+    expect(await call2(controls[0], 'a', { type: 'history.end_group' })).toMatchObject({ status: 'applied' })
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+  })
+
+  it("closes an agent's group when the page loses both its Boost session and its control link (#641)", async () => {
+    const session = await boosted()
+    await vi.waitFor(() => expect(controls).toHaveLength(1))
+    await groupOpenedBy(session, 'a')
+    controls[0].events.onClosed(false)
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam], 'the Boost session still links the page').toBe(0.3)
+    nativeEvents!.onClosed()
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+  })
+
+  async function call2(link: FakeControl, agent: string, command: unknown) {
+    const answer = vi.fn()
+    link.events.onAgentCall(agent, command, answer, new AbortController().signal)
+    await vi.waitFor(() => expect(answer).toHaveBeenCalledTimes(1))
+    return answer.mock.calls[0][0]
+  }
 })
 
 describe("an agent's calls on the control link, in Web mode and without an output (#608)", () => {
@@ -2186,6 +2352,42 @@ describe("an agent's calls on the control link, in Web mode and without an outpu
     await vi.waitFor(() => expect(answer).toHaveBeenCalledTimes(1))
     return answer.mock.calls[0][0]
   }
+
+  /** The agent `agent` opens a history group on the control link and edits in it; the user cannot undo meanwhile. */
+  async function groupOpenedBy(session: Awaited<ReturnType<typeof linked>>, agent: string) {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    expect(await call(controls[0], agent, { type: 'history.begin_group' })).toMatchObject({ status: 'applied' })
+    expect(await call(controls[0], agent, setParamCommand(firstParam, 0.3))).toMatchObject({ status: 'applied' })
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam], 'undo is refused while the group is open').toBe(0.3)
+  }
+
+  it('closes the group of an agent that left, in Web mode (#641)', async () => {
+    const session = await linked()
+    await groupOpenedBy(session, 'claude-code')
+    controls[0].events.onAgentLeft('claude-code')
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+  })
+
+  it("closes an agent's group when the helper drops the page's only link (#641)", async () => {
+    const session = await linked()
+    await groupOpenedBy(session, 'a')
+    controls[0].events.onClosed(false)
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+  })
+
+  it("closes an agent's group when the page itself replaces its only link for another helper's (#641)", async () => {
+    pairHelper.mockResolvedValue({ status: 'paired', token: 'second' })
+    const session = await linked()
+    await groupOpenedBy(session, 'a')
+    await session.dispatcher.pair('12345678')
+    await vi.waitFor(() => expect(controls.map((c) => c.token)).toEqual(['x', 'second']))
+    expect(controls[0].close).toHaveBeenCalled()
+    session.dispatcher.run({ type: 'history.undo' } as Command)
+    expect(session.project.params[firstParam]).toBe(DEFAULT_PARAMS[firstParam])
+  })
 
   it('runs the call in Web mode like the user, through the Web engine: history author, undo, refusal', async () => {
     const session = await linked()
@@ -2332,6 +2534,20 @@ describe("an agent's calls on the control link, in Web mode and without an outpu
     session.dispatcher.toFront()
     expect(controls[2].front).toHaveBeenCalledTimes(1)
     expect(controls).toHaveLength(3)
+  })
+
+  it('a helper of another protocol on the link is shown as incompatible, keeps the pairing and is not retried (#658)', async () => {
+    const { ControlIncompatible } = await import('../agents/control-link')
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    controlOpen.mockRejectedValueOnce(new ControlIncompatible(PROTOCOL_VERSION + 1))
+    await session.dispatcher.linkControl()
+    expect(session.engine.helper).toBe('incompatible')
+    expect(session.engine.helperProtocol).toBe(PROTOCOL_VERSION + 1)
+    expect(localStorage.getItem(TOKEN_KEY)).toBe('x')
+    await vi.advanceTimersByTimeAsync(CONTROL_RETRY_MS[0] * 2)
+    expect(controls).toHaveLength(0)
   })
 
   it('a link too slow to open keeps the pairing and is tried again', async () => {
@@ -2522,6 +2738,95 @@ describe("an agent's destructive calls wait for the user's answer in the page (A
     expect(session.storage.confirm).toBeNull()
   })
 
+  it('answers mixer.levels from the meters held since the last call, in dBFS, and changes nothing (#665)', async () => {
+    const session = await started()
+    const slots = session.project.view!.slots
+    const slot = slots.tracks[SINGLE_SYNTH.track]!
+    const m = (peak: number) => ({ peakL: peak, peakR: peak, rmsL: peak / 2, rmsR: peak / 2, gainReductionDb: 0 })
+    const tracks = Array.from({ length: slot + 1 }, (_, i) => m(i === slot ? 0.5 : 0))
+    session.engine.started = true
+    session.dispatcher.levelHold.feed({ epoch: slots.epoch, transport: 'playing', tracks, master: m(1) } as never, performance.now())
+    const history = session.dispatcher.history().undo.length
+    const first = await session.dispatcher.runForAgent({ type: 'mixer.levels' }, 'agent:a')
+    if (first.status !== 'applied') throw new Error(JSON.stringify(first))
+    const out = first.output as { playing: boolean; tracks: { track: string; peak_db: number | null }[]; master: { peak_db: number | null } }
+    expect(out.playing).toBe(true)
+    expect(out.master.peak_db).toBeCloseTo(0, 6)
+    expect(out.tracks.find((t) => t.track === SINGLE_SYNTH.track)!.peak_db).toBeCloseTo(20 * Math.log10(0.5), 6)
+    expect(session.dispatcher.history().undo).toHaveLength(history)
+    // Taken: nothing heard since.
+    const second = await session.dispatcher.runForAgent({ type: 'mixer.levels' }, 'agent:a')
+    expect(second).toMatchObject({ status: 'applied', output: { playing: true, master: { peak_db: null } } })
+    expect((first.output as { silenced_frames: number }).silenced_frames).toBe(0)
+  })
+
+  it('tells an agent through mixer.levels how many frames the output protection silenced (#667)', async () => {
+    const session = await started()
+    session.engine.silencedFrames = 131
+    const answer = await session.dispatcher.runForAgent({ type: 'mixer.levels' }, 'agent:a')
+    expect(answer).toMatchObject({ status: 'applied', output: { silenced_frames: 131 } })
+  })
+
+  describe('project.analyze_render (#665)', () => {
+    const levels = {
+      frames: 192_000,
+      tracks: [{ peak_l: 0.5, peak_r: 0.5, rms_l: 0.1, rms_r: 0.1 }],
+      master: { peak_l: 0.5, peak_r: 0.5, rms_l: 0.1, rms_r: 0.1 },
+      silenced: 2,
+      reduction: 0,
+    }
+    async function withSong(outcome: (...args: never[]) => Promise<unknown>) {
+      const session = await started()
+      const run = (command: Command) => session.dispatcher.run(command, { quiet: true })
+      run({ type: 'clip.create', track: SINGLE_SYNTH.track, at: { at: 'arrangement', start: 0 }, length: 7680 } as Command)
+      const analyzer = { busy: false, run: vi.fn(outcome) }
+      session.dispatcher.analyzer = analyzer as never
+      return { session, analyzer }
+    }
+
+    it('renders offline, stages what it measured and answers, changing nothing', async () => {
+      const { session, analyzer } = await withSong(async () => ({ status: 'done', levels }))
+      const history = session.dispatcher.history().undo.length
+      const result = await session.dispatcher.runForAgent({ type: 'project.analyze_render' }, 'agent:a')
+      if (result.status !== 'applied') throw new Error(JSON.stringify(result))
+      expect(analyzer.run).toHaveBeenCalledTimes(1)
+      const out = result.output as { silenced_frames: number; master: { peak_db: number }; tracks: { peak_db: number | null }[] }
+      expect(out.silenced_frames).toBe(2)
+      expect(out.master.peak_db).toBeCloseTo(20 * Math.log10(0.5), 6)
+      expect(out.tracks[0].peak_db).toBeCloseTo(20 * Math.log10(0.5), 6)
+      expect(session.dispatcher.history().undo).toHaveLength(history)
+      // Nothing is left staged for a later call.
+      expect(await session.dispatcher.runForAgent({ type: 'project.analyze_render' }, 'agent:a')).toMatchObject({ status: 'applied' })
+    })
+
+    it('refuses an empty range before any render, and a bound range over the limit', async () => {
+      const { session, analyzer } = await withSong(async () => ({ status: 'done', levels }))
+      const refused = await session.dispatcher.runForAgent({ type: 'project.analyze_render', from_bar: 90, to_bar: 91 } as Command, 'agent:a')
+      expect(refused).toMatchObject({ status: 'refused', error: { code: 'invalid' } })
+      const bad = await session.dispatcher.runForAgent({ type: 'project.analyze_render', from_bar: 2 } as Command, 'agent:a')
+      expect(bad).toMatchObject({ status: 'refused' })
+      expect(analyzer.run).not.toHaveBeenCalled()
+    })
+
+    it('answers unavailable, with nothing staged, when the render is busy, cancelled, or failed', async () => {
+      for (const outcome of [{ status: 'busy' }, { status: 'aborted' }, { status: 'failed', reason: 'boom' }]) {
+        const { session } = await withSong(async () => outcome)
+        const result = await session.dispatcher.runForAgent({ type: 'project.analyze_render' }, 'agent:a')
+        expect(result, outcome.status).toMatchObject({ status: 'unavailable' })
+        // A later call with a working render still measures.
+        session.dispatcher.analyzer = { busy: false, run: async () => ({ status: 'done', levels }) } as never
+        expect(await session.dispatcher.runForAgent({ type: 'project.analyze_render' }, 'agent:a')).toMatchObject({ status: 'applied' })
+      }
+    })
+
+    it('does not start while another analysis runs or the page exports a file', async () => {
+      const { session, analyzer } = await withSong(async () => ({ status: 'done', levels }))
+      analyzer.busy = true
+      expect(await session.dispatcher.runForAgent({ type: 'project.analyze_render' }, 'agent:a')).toMatchObject({ status: 'unavailable' })
+      expect(analyzer.run).not.toHaveBeenCalled()
+    })
+  })
+
   it('runs at once what can be undone, track.delete included: one undo brings it back', async () => {
     const session = await started()
     const result = await session.dispatcher.runForAgent({ type: 'track.delete', track: SINGLE_SYNTH.track } as Command, 'agent:a')
@@ -2573,6 +2878,24 @@ describe("an agent's destructive calls wait for the user's answer in the page (A
     expect(await answer).toMatchObject({ status: 'unavailable' })
     expect(session.dispatcher.confirmations.pending).toEqual([])
     expect(spies.reopenLast).not.toHaveBeenCalled()
+  })
+
+  it('withdraws the questions of an agent that left, and runs nothing for it (#641)', async () => {
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = await started()
+    controls.length = 0
+    await session.dispatcher.linkControl()
+    const link = controls[0]
+    const spies = storageSpies(session)
+    const answer = session.dispatcher.runForAgent({ type: 'project.reopen_last' }, 'agent:a')
+    const other = session.dispatcher.runForAgent({ type: 'project.new' }, 'agent:b')
+    await vi.waitFor(() => expect(session.dispatcher.confirmations.pending).toHaveLength(2))
+    link.events.onAgentLeft('a')
+    expect(await answer).toMatchObject({ status: 'unavailable' })
+    expect(session.dispatcher.confirmations.pending.map((p) => p.agent)).toEqual(['agent:b'])
+    expect(spies.reopenLast).not.toHaveBeenCalled()
+    session.dispatcher.confirmations.answer(false)
+    expect(await other).toMatchObject({ status: 'refused' })
   })
 
   it('answers an allowed storage action once the storage did it, told it was allowed', async () => {

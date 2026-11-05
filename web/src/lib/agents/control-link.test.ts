@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CONTROL_PUSHED_OUT } from '../generated/protocol'
-import { ControlLink, type ControlEvents } from './control-link'
+import { CONTROL_PUSHED_OUT, PROTOCOL_VERSION } from '../generated/protocol'
+import { ControlIncompatible, ControlLink, type ControlEvents } from './control-link'
 
 class FakeSocket {
   static last: FakeSocket
@@ -14,9 +14,11 @@ class FakeSocket {
   constructor(readonly url: string) {
     FakeSocket.last = this
   }
-  open() {
+  /** The socket opens and the helper says `control.hello` with its protocol (#658). */
+  open(protocol: number = PROTOCOL_VERSION) {
     this.readyState = 1
     this.onopen?.()
+    this.onmessage?.({ data: JSON.stringify({ type: 'control.hello', protocol }) })
   }
   send(data: string) {
     this.sent.push(data)
@@ -37,7 +39,7 @@ afterEach(() => {
 })
 
 function events() {
-  return { onAgentCall: vi.fn(), onClosed: vi.fn() } satisfies ControlEvents
+  return { onAgentCall: vi.fn(), onAgentLeft: vi.fn(), onClosed: vi.fn() } satisfies ControlEvents
 }
 
 describe("the page's control link (#608)", () => {
@@ -49,6 +51,34 @@ describe("the page's control link (#608)", () => {
     socket.open()
     const link = await opening
     expect(link.token).toBe('a b')
+  })
+
+  it('refuses a helper of another protocol, older or newer, and does not tell it as a loss (#658)', async () => {
+    vi.stubGlobal('WebSocket', FakeSocket)
+    for (const protocol of [PROTOCOL_VERSION - 1, PROTOCOL_VERSION + 1]) {
+      const told = events()
+      const opening = ControlLink.open('t', told)
+      const socket = FakeSocket.last
+      socket.open(protocol)
+      const error = await opening.catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(ControlIncompatible)
+      expect((error as ControlIncompatible).protocol).toBe(protocol)
+      expect(socket.closed).toBe(true)
+      socket.drop()
+      expect(told.onClosed).not.toHaveBeenCalled()
+      expect(told.onAgentCall).not.toHaveBeenCalled()
+    }
+  })
+
+  it('does not take the link for open before the helper said its protocol', async () => {
+    vi.stubGlobal('WebSocket', FakeSocket)
+    vi.useFakeTimers()
+    const opening = ControlLink.open('t', events(), 1000)
+    const socket = FakeSocket.last
+    socket.readyState = 1
+    socket.onopen?.()
+    vi.advanceTimersByTime(1000)
+    await expect(opening).rejects.toThrow(/timeout/)
   })
 
   it('rejects a link the helper refuses, or that takes too long', async () => {
@@ -83,6 +113,18 @@ describe("the page's control link (#608)", () => {
     answer({ status: 'applied', output: null })
     answer({ status: 'invalid', message: 'twice' })
     expect(socket.sent.map((s) => JSON.parse(s))).toEqual([{ type: 'agent.result', id: 7, result: { status: 'applied', output: null } }])
+  })
+
+  it('tells that an agent left (#641)', async () => {
+    vi.stubGlobal('WebSocket', FakeSocket)
+    const told = events()
+    const opening = ControlLink.open('t', told)
+    const socket = FakeSocket.last
+    socket.open()
+    await opening
+    socket.onmessage!({ data: JSON.stringify({ type: 'agent.left', agent: 'claude-code' }) })
+    expect(told.onAgentLeft).toHaveBeenCalledExactlyOnceWith('claude-code')
+    expect(told.onAgentCall).not.toHaveBeenCalled()
   })
 
   it('says it came to the front, tells a loss, and not its own close', async () => {

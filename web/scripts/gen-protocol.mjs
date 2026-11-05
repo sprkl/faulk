@@ -70,6 +70,8 @@ const parts = [
   `export const PARAM_DEFAULTS = ${JSON.stringify(bundle.param_defaults)} as const`,
   '/** The law of the fader (#389), `[position, dB]` points from the bottom (silence) to the top: defined in `engine::fader`. */',
   `export const FADER_TAPER = ${JSON.stringify(bundle.fader_taper)} as const`,
+  '/** The scales of the project (#695): the degrees of each one in semitones above its root, rising, in the order to list them (`project::ScaleMode`). */',
+  `export const SCALE_INTERVALS = ${JSON.stringify(bundle.scale_intervals)} as const`,
   '/** A parameter id of the built-in synth, as `device.set_param` takes it. */',
   'export type SynthParam = keyof typeof PARAM_IDS',
   "/** The ids of the default project's synth track and device (`commands::engine_msgs::single_synth`), and its device kind. */",

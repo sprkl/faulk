@@ -48,7 +48,7 @@
     background: var(--fk-text-muted);
     transform-origin: left;
     transform: scaleX(var(--f, 0));
-    mask-image: repeating-linear-gradient(to right, #000 0 2px, transparent 2px 3px);
+    mask-image: repeating-linear-gradient(to right, var(--fk-text) 0 2px, transparent 2px 3px);
   }
   .value {
     min-width: 8ch;

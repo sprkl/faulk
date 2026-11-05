@@ -246,8 +246,10 @@ domain! {
     /// that plays the clip whole (offset 0, length equal to its old length in frames) takes
     /// the new length in the same command; a growing placement stops at the start of the
     /// next placement of its track; a placement that plays only part of the clip is left
-    /// alone. Refused for a MIDI clip. Undo: set the range back, with the lengths of the
-    /// placements.
+    /// alone, and the command is refused when that would leave one ending past the new
+    /// length (an audio placement always ends inside its clip) or overlapping another
+    /// placement of the track: move or resize it first. Refused for a MIDI clip. Undo: set
+    /// the range back, with the lengths of the placements.
     "clip.audio.set_range" (kind = "edit", undo = "inverse", destructive = false)
     AudioSetRange {
         clip: ClipId,
@@ -304,7 +306,9 @@ domain! {
     /// frames of the file. Refused when the track is not an audio track, when the clip's
     /// identifier or a placement's already exists in the project, when the slot is taken
     /// or its scene is gone, or when the snapshot breaks a rule of the project (a range
-    /// outside the file, a loop outside the range, a gain that is not a number). Undo:
+    /// outside the file, a loop outside the range, a gain that is not a number, a
+    /// placement ending past the clip: `offset + length` at most the clip's frames, or
+    /// overlapping another placement of the track or of the snapshot). Undo:
     /// `clip.delete`.
     "clip.restore_audio" (kind = "edit", undo = "inverse", destructive = false)
     RestoreAudio {
@@ -332,10 +336,12 @@ domain! {
     "clip.cancel_audio_import" (kind = "live", undo = "none", destructive = false)
     CancelAudioImport {} => {};
 
-    /// Copy a MIDI clip into a new, independent clip with the same name ("Bass 2" stays
-    /// "Bass 2": a copy plays the same part), colour, length, loop and notes; editing one never changes the other. The copy always sits in a
-    /// launch-grid slot: of the source's track, or of `track` when given (another MIDI
-    /// track). `slot` when given must be free in that track, otherwise the copy takes
+    /// Copy a clip into a new, independent clip with the same name ("Bass 2" stays
+    /// "Bass 2": a copy plays the same part), colour, length, loop and notes (an audio clip:
+    /// the same file, range, gain and loop; its file is not copied); editing one never
+    /// changes the other. The copy always sits in a launch-grid slot: of the source's
+    /// track, or of `track` when given (another track of its kind: a MIDI clip to a MIDI
+    /// track, an audio clip to an audio track). `slot` when given must be free in that track, otherwise the copy takes
     /// the first free slot (below the source's scene in the same track, from the top in
     /// another). Refused, with no effect, when the track has no free slot to give. A
     /// second placement of the same clip is an option of the arrangement commands, not
@@ -1090,6 +1096,49 @@ pub(crate) fn placement_ticks(tempo: Tempo, track: &Track, p: &Placement) -> Opt
     }
 }
 
+/// The snapshot `clip.restore_audio` (and `arrangement.restore`) needs to bring an audio
+/// clip back; `None` for a MIDI clip.
+pub(crate) fn audio_snapshot(clip: &Clip) -> Option<AudioClipSnapshot> {
+    let ClipContent::Audio {
+        media,
+        start,
+        frames,
+        gain_db,
+        looping,
+    } = &clip.content
+    else {
+        return None;
+    };
+    Some(AudioClipSnapshot {
+        name: clip.name.clone(),
+        color: clip.color,
+        slot: clip.slot.clone(),
+        launch_quantize: clip.launch_quantize,
+        media: media.clone(),
+        start: *start,
+        frames: *frames,
+        gain_db: *gain_db,
+        looping: *looping,
+    })
+}
+
+/// The audio clip an [`AudioClipSnapshot`] describes.
+pub(crate) fn audio_clip_of(snap: &AudioClipSnapshot) -> Clip {
+    Clip {
+        name: snap.name.clone(),
+        color: snap.color,
+        slot: snap.slot.clone(),
+        launch_quantize: snap.launch_quantize,
+        content: ClipContent::Audio {
+            media: snap.media.clone(),
+            start: snap.start,
+            frames: snap.frames,
+            gain_db: snap.gain_db,
+            looping: snap.looping,
+        },
+    }
+}
+
 /// The snapshot `clip.restore` needs to bring a MIDI clip back.
 pub(crate) fn snapshot(clip: &Clip) -> Result<ClipSnapshot, CommandError> {
     let (length, looping, notes) = midi_ref(clip)?;
@@ -1420,7 +1469,7 @@ fn check_media(media: &AudioMedia, field: &str) -> Result<(), CommandError> {
 }
 
 /// Refuses an audio clip's content that the project's validation would refuse.
-fn check_audio(snap: &AudioClipSnapshot, field: &str) -> Result<(), CommandError> {
+pub(crate) fn check_audio(snap: &AudioClipSnapshot, field: &str) -> Result<(), CommandError> {
     check_media(&snap.media, &format!("{field}.media"))?;
     let media = &snap.media;
     let end = snap.start.get().checked_add(snap.frames.get());
@@ -1651,6 +1700,7 @@ fn audio_set_range(
         Some(list) => explicit_frames(tempo, old.rate, track, clip_id, list)?,
         None => following_frames(tempo, old.rate, track, clip_id, old.frames, frames),
     };
+    check_audio_placements(tempo, track, clip_id, old.frames, frames, &follow)?;
     let output = Output::AudioSetRange {
         previous_start: old.start,
         previous_frames: old.frames,
@@ -1682,6 +1732,81 @@ fn audio_set_range(
     *s = start;
     *f = frames;
     Ok(edited(output, inverse, changed(clip_id, ClipPart::Length)))
+}
+
+/// What `clip.audio.set_range` must never leave behind: an audio placement of the clip
+/// ending past the clip (`offset + length > frames`), or one of the placements it changes
+/// overlapping another placement of the track. Only what the command newly breaks is
+/// refused: a state the project already held (an older file) does not block the command.
+fn check_audio_placements(
+    tempo: Tempo,
+    track: &Track,
+    clip_id: &ClipId,
+    old_frames: Frame,
+    frames: Frame,
+    follow: &[(PlacementId, Frame, Frame)],
+) -> Result<(), CommandError> {
+    let new_length = |id: &PlacementId, length: Frame| {
+        follow
+            .iter()
+            .find(|(f, _, _)| f == id)
+            .map_or(length, |(_, _, new)| *new)
+    };
+    for (id, p) in &track.placements {
+        let Span::Frames { length, offset } = p.span else {
+            continue;
+        };
+        if p.clip != *clip_id {
+            continue;
+        }
+        let end = offset.get().saturating_add(new_length(id, length).get());
+        if end > frames.get() && offset.get().saturating_add(length.get()) <= old_frames.get() {
+            return Err(invalid(
+                "frames",
+                format!(
+                    "placement {id} would end past the clip's {} frames; resize or move the \
+                     placement first",
+                    frames.get()
+                ),
+            ));
+        }
+    }
+    let spans = |changed: bool| -> Vec<(&PlacementId, Option<(i64, i64)>)> {
+        track
+            .placements
+            .iter()
+            .map(|(id, p)| {
+                let mut q = p.clone();
+                if let (true, Span::Frames { offset, length }) = (changed, p.span) {
+                    q.span = Span::Frames {
+                        offset,
+                        length: new_length(id, length),
+                    };
+                }
+                (id, placement_ticks(tempo, track, &q))
+            })
+            .collect()
+    };
+    let (before, after) = (spans(false), spans(true));
+    for (i, (id, new)) in after.iter().enumerate() {
+        if !follow.iter().any(|(f, _, _)| f == *id) {
+            continue;
+        }
+        for (j, (other, other_new)) in after.iter().enumerate() {
+            let clash = |a: &Option<(i64, i64)>, b: &Option<(i64, i64)>| matches!((a, b), (Some((s, e)), Some((os, oe))) if os < e && s < oe);
+            if i == j || !clash(new, other_new) || clash(&before[i].1, &before[j].1) {
+                continue;
+            }
+            return Err(invalid(
+                "frames",
+                format!(
+                    "placement {id} would overlap placement {other}: an audio placement never \
+                     carves; move or resize one of them first"
+                ),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// The placements of an audio clip that play it whole (offset 0, length `old` frames),
@@ -2015,6 +2140,32 @@ fn restore_audio(
         if p.offset >= snap.frames {
             return Err(invalid(field, "a placement's offset is inside the clip"));
         }
+        if p.offset.saturating_add(p.length) > snap.frames {
+            return Err(invalid(
+                field,
+                "a placement ends inside the clip: `offset + length` is at most the clip's frames",
+            ));
+        }
+    }
+    // An audio placement never overlaps another one of the track, nor one of the others
+    // restored with it (the same rule as `arrangement.restore`).
+    let mut spans = taken_spans(tempo, track);
+    for (i, p) in placements.iter().enumerate() {
+        let start = p.start.get();
+        let end = start.saturating_add(
+            tempo
+                .frames_to_ticks(p.length, snap.media.sample_rate)
+                .get()
+                .max(1),
+        );
+        if spans.iter().any(|(s, e)| *s < end && start < *e) {
+            return Err(invalid(
+                format!("placements[{i}]"),
+                "the placement would overlap another placement of the track: an audio \
+                 placement never carves",
+            ));
+        }
+        spans.push((start, end));
     }
     insert_audio(state, track_id, clip_id, snap, placements)?;
     Ok(edited(
@@ -2136,18 +2287,28 @@ fn duplicate(
     let from_id = locate(&state.project, clip_id)?;
     let track_id = to.cloned().unwrap_or_else(|| from_id.clone());
     let project = &state.project;
-    let from = midi_track(project, &from_id)?;
-    let track = midi_track(project, &track_id)?;
+    let from = project
+        .tracks
+        .get(&from_id)
+        .ok_or_else(|| not_found("track", &from_id))?;
     let source = from
         .clips
         .get(clip_id)
         .ok_or_else(|| not_found("clip", clip_id))?;
-    let (_, _, notes) = midi_ref(source)?;
+    // An audio clip is copied into an audio track (the same file, range, gain and loop),
+    // a MIDI clip into a MIDI track (AU-6).
+    let track = match &source.content {
+        ClipContent::Midi { notes, .. } => {
+            let track = midi_track(project, &track_id)?;
+            check_note_limits(
+                notes.len(),
+                project_notes(project).saturating_add(notes.len()),
+            )?;
+            track
+        }
+        ClipContent::Audio { .. } => audio_track(project, &track_id)?,
+    };
     check_clips(project, track)?;
-    check_note_limits(
-        notes.len(),
-        project_notes(project).saturating_add(notes.len()),
-    )?;
     let target = match slot {
         Some(scene) => {
             check_slot(project, track, scene, "slot")?;

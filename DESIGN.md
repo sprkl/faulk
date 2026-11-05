@@ -23,6 +23,14 @@ colors:
   rec-red: "#ee3533"
   solo-yellow: "#efcc36"
   mute-blue: "#4baeed"
+  play-green-on-paper: "#2c9a50"
+  rec-red-on-paper: "#d42f2c"
+  solo-yellow-on-paper: "#e5bb1f"
+  mute-blue-on-paper: "#2b8bd0"
+  mute-text-on-paper: "#1d6aa8"
+  rec-text-on-paper: "#be2a28"
+  rec-text-on-ink: "#f26b5f"
+  muted-on-paper-app: "#67625d"
   track-01: "#f08098"
   track-02: "#f18a76"
   track-03: "#ea9356"
@@ -165,7 +173,7 @@ components:
 
 Faulk looks like a precision instrument: typographic, frank, every control where the hand expects it, labelled in plain words, with a single ultraviolet signal for what matters now. The instrument is dressed in sound matter: soft, grainy gradients that belong to sound only (a module's sound object, the landing's stage, empty states), never to chrome. The founder fixed this direction in the DS-0.1 canvas on 2026-10-13 and chose this North Star on 2026-11-01.
 
-The system has one token set and two surfaces. The **site** (light, paper) speaks loudly: giant uppercase Archivo, airy spacing, the grain in hero. The **app** (dark, ink) disappears behind the music during sessions of several hours on large monitors: small, dense, very legible type, flat surfaces, quasi-square work areas, the sound itself (waveforms, meters, clips, playhead) as the visual hero. The app is built for experienced producers on large screens; comfort density is the default, compact is a setting.
+The system has one token set and two surfaces. The **site** (light, paper) speaks loudly: giant uppercase Archivo, airy spacing, the grain in hero. The **app** (dark, ink, by default; a light working palette is a setting, see Themes) disappears behind the music during sessions of several hours on large monitors: small, dense, very legible type, flat surfaces, quasi-square work areas, the sound itself (waveforms, meters, clips, playhead) as the visual hero. The app is built for experienced producers on large screens; comfort density is the default, compact is a setting.
 
 Confirmed rejections: uppercase everywhere in the app (illegible in dense UI), decorative 3D volumes unrelated to sound, decorative motion during playback.
 
@@ -196,6 +204,13 @@ A warm, near-monochrome ink-and-paper ramp with one ultraviolet voice and a four
 
 ### Tracks
 - **Sixteen track hues** (track-01 #f08098 to track-16 #e189c5): oklch(0.74 0.13 h) with h every 22.5°, all equally bright, ink text on each at 7:1 or more. They identify tracks, never states.
+
+### Themes
+The app has two working palettes (#687), chosen in the project menu (Theme: System, Dark, Light; Dark by default, the user's choice kept by the browser for every project, also set by the `view.set_theme` command; System follows `prefers-color-scheme` live). Both read the same tokens (`web/src/lib/styles/tokens.css`), so a view never writes a colour (a static test enumerates the views and components); a contrast test computes every pair below from the stylesheets.
+- **Dark (ink):** the neutrals of Ink, the signals as above, ultraviolet on ink for accent text and focus.
+- **Light (paper):** the neutrals of Paper, with secondary text one step darker in the app (#67625d, AA on paper surface 2; the site keeps #6e6964). Signals go deeper so a meter, a glyph or a pressed state reads on paper: Play Green #2c9a50, Rec Red #d42f2c, Mute Blue #2b8bd0 (3:1 or more on paper and paper surface, ink letters on them AA), Solo Yellow #e5bb1f (its pressed state is the ink S and its underline). Signals written as text take their own AA tokens: mute #1d6aa8 and rec #be2a28 on paper (rec #f26b5f on ink).
+- **Tokens of both:** `--fk-on-accent` (white on ultraviolet), `--fk-on-signal` (ink on a signal fill or a track hue), `--fk-scrim` (behind dialogs), `--fk-danger` (a refused value), `--fk-mute-fg` and `--fk-rec-fg` (signals as text), `--fk-track-shade`.
+- **Track hues** stay the same sixteen in both themes and fill clips, swatches, colour bars and launched cells as they are. Where a hue is drawn as a line or a note on the background (a clip's outline, its notes, an automation curve, a piano-roll note), the light theme mixes 40% of ink into it (`--fk-track-shade`; 0% in dark), so it reads at 3:1 or more on paper and on the clip's tint; the hue's fill keeps naming the track.
 
 ### Named Rules
 **The One Voice Rule.** Ultraviolet is the only accent. In the app it marks selection, focus, the main action and Boost, nothing else; if two ultraviolet things compete on one screen, one of them is wrong.
@@ -268,7 +283,8 @@ Components describe the DS-0.1 target. Where today's app differs, the entry says
 
 ### Engine indicator (signature)
 - A permanent pill in the top bar. Web: ink surface pill, dot, "WEB", estimated latency and CPU in mono. Boost: ultraviolet pill with a lightning glyph, "BOOST", measured latency, driver and CPU. Helper lost: amber outline with "Helper disconnected, back to Web".
-- **Today:** the app shows the mode and the latency ("Web ~42 ms (estimated)") with the voice count; CPU load, driver and the amber helper-lost state are not shipped yet.
+- **Today:** the app shows the mode and the latency ("Web ~42 ms (estimated)") with the voice count, and the CPU load ("CPU 12 %", with the peak of the last 3 s; #594); the driver and the amber helper-lost state are not shipped yet.
+- **Protection mark (#667):** a small red dot in the pill once the output protection has silenced a non-finite signal from the engine that plays; it stays while that engine plays (its count is cumulative), the tooltip and the accessible name say it in words, and the engine dialog's "Protection" row gives the duration. Apart from the yellow dot of a Boost waiting for an output.
 
 ### Track header and clips
 - **Track header:** one row per track in the arrangement, at the `lane` height: the track colour as a 3px bar (also the grip that reorders the track), the name in normal case with the type and instrument under it (in the accessible name only below 40px), M, S and In toggles (letters, so state is not colour alone; In is live input, neutral inverted fill when on), and a level meter. A track silenced by another track's solo shows a dashed M (implied mute). No fader or pan in the row: the volume shows on hover and on focus, and is typed on the selected row (a digit starts the entry, Enter or F2 open it). The row's bottom edge sets its height.

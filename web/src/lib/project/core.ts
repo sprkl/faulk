@@ -23,9 +23,13 @@ interface CoreExports {
   pw_live_routing(core: number): number
   pw_set_author(core: number, len: number): number
   pw_set_clock(core: number, nowMs: number): number
+  pw_agent_left(core: number, len: number): number
+  pw_agents_gone(core: number): number
   pw_export_job(core: number, len: number): number
   pw_stage(core: number, len: number): number
   pw_stage_stored(core: number, len: number): number
+  pw_stage_levels(core: number, len: number): number
+  pw_stage_analysis(core: number, len: number): number
   pw_stage_library(core: number, len: number): number
   pw_preset_file(core: number, location: number, len: number): number
   pw_stage_media(core: number, len: number): number
@@ -33,7 +37,10 @@ interface CoreExports {
   pw_saved(core: number, applied: number): number
   pw_dirty(core: number): number
   pw_project_dirty(core: number): number
-  pw_pack_export(len: number): number
+  pw_pack_begin(len: number): number
+  pw_pack_next(): number
+  pw_pack_feed(len: number): number
+  pw_pack_cancel(): void
   pw_pack_import(len: number): number
 }
 
@@ -43,6 +50,37 @@ export interface StoredProjects {
   recent: { id: string; name: string }[]
   /** The projects kept in the browser's storage, newest first. */
   browser: { dir: string; name: string }[]
+}
+
+/** One meter, linear amplitude (`MeterReading` in `crates/commands/src/levels.rs`). */
+export interface MeterReading {
+  peak_l: number
+  peak_r: number
+  rms_l: number
+  rms_r: number
+}
+
+/** The live meters `mixer.levels` answers with (`LevelsStage`, #665): by engine track slot. */
+export interface LevelsStage {
+  playing: boolean
+  tracks: MeterReading[]
+  master: MeterReading
+  /** Frames the output protection silenced for a non-finite sample since the engine that plays started (#667); 0 when left out. */
+  silenced_frames?: number
+}
+
+/** The measures of an offline render `project.analyze_render` answers with (`AnalysisStage`, #665). */
+export interface AnalysisStage {
+  start_tick: number
+  end_tick: number
+  /** The tracks by engine slot of the render, as the job named them. */
+  slots: string[]
+  /** The readings by engine slot of the render. */
+  tracks: MeterReading[]
+  master: MeterReading
+  silenced_frames: number
+  /** The output protection's peak gain reduction, linear in [0, 1]. */
+  reduction: number
 }
 
 /** What staging the preset library did (`LibraryReport` in `crates/commands/src/host.rs`, #191). */
@@ -56,8 +94,27 @@ export interface LibraryReport {
 export const ERR_NO_PRESET = -5
 const PRESET_LOCATIONS = { project: 1, library: 2 } as const
 
-/** A `.faulkpack` made by `ProjectCore.packExport`. */
-export type PackExport = { status: 'ok'; zip: Uint8Array; files: number; missingBlobs: number } | { status: 'failed'; message: string }
+/** How a `.faulkpack` export ended (`ProjectCore.packExport`): the pack went to the sink whole, or did not. */
+export type PackExport = { status: 'ok'; files: number; missingBlobs: number } | { status: 'failed'; message: string } | { status: 'cancelled' }
+
+/** Where the zip of an export goes, piece by piece, in order. */
+export interface PackSink {
+  write(chunk: Uint8Array): Promise<void>
+}
+
+/** What an export reads and writes: the project's blobs are read in pieces and the pack is written in pieces, so no more than a piece of each is in memory. */
+export interface PackIO {
+  /** Bytes `[start, end)` of a file of the folder (a blob listed by size). */
+  read(path: string, start: number, end: number): Promise<Uint8Array>
+  sink: PackSink
+  /** Stops the export at the next piece. */
+  signal?: AbortSignal
+  /** The fraction of the blobs' bytes read so far. */
+  onProgress?(fraction: number): void
+}
+
+/** The bytes of a blob an export reads at once. */
+export const PACK_CHUNK_BYTES = 1 << 20
 
 /** The files of a `.faulkpack` read by `ProjectCore.packImport`, in the order of a save frame. */
 export type PackImport = { status: 'ok'; files: { path: string; bytes: Uint8Array }[] } | { status: 'failed'; message: string }
@@ -223,11 +280,13 @@ export interface ExportRequest {
   sample_rate?: number
   from_bar?: number
   to_bar?: number
+  /** The render of `project.analyze_render`: only `from_bar` and `to_bar` go with it; the range is bounded (10 minutes). */
+  analysis?: boolean
 }
 
 /** An export the core prepared: its plan and the two streams of the engine that renders it. */
 export type ExportJob =
-  | { status: 'ready'; plan: Extract<ExportReport, { status: 'ready' }>['plan']; setup: Uint8Array; stop: Uint8Array }
+  | { status: 'ready'; plan: Extract<ExportReport, { status: 'ready' }>['plan']; tracks: string[]; setup: Uint8Array; start: Uint8Array; stop: Uint8Array }
   | Exclude<ExportReport, { status: 'ready' }>
 
 /** What running a command means for the engine. */
@@ -326,6 +385,23 @@ export class ProjectCore {
     return { report, engine: this.engine() }
   }
 
+  /**
+   * The agent `author` (`agent:<name>`) left (#641): the history group it left open is closed and its turn ends, so the
+   * user can undo at once. Whether anything changed; an author that is no agent's changes nothing.
+   */
+  agentLeft(author: string): boolean {
+    const code = this.exports.pw_agent_left(this.live(), this.input(author))
+    return code === 1
+  }
+
+  /**
+   * The page lost every link to the helper (#641): no agent can reach it nor be heard leaving, so the group an agent left
+   * open is closed and any agent's turn ends. Whether anything changed.
+   */
+  agentsGone(): boolean {
+    return this.exports.pw_agents_gone(this.live()) === 1
+  }
+
   /** The undo history as the history panel shows it: the entries of both stacks, oldest first. */
   history(): HistoryView {
     return this.output<HistoryView>('history', this.exports.pw_history(this.live()))
@@ -385,7 +461,15 @@ export class ProjectCore {
     const report = this.output<ExportReport>('export_job', this.exports.pw_export_job(this.live(), len))
     if (report.status !== 'ready') return report
     const bytes = this.engine()
-    return { status: 'ready', plan: report.plan, setup: bytes.slice(0, report.setup_len), stop: bytes.slice(report.setup_len) }
+    const started = report.setup_len + report.start_len
+    return {
+      status: 'ready',
+      plan: report.plan,
+      tracks: report.tracks,
+      setup: bytes.slice(0, report.setup_len),
+      start: bytes.slice(report.setup_len, started),
+      stop: bytes.slice(started),
+    }
   }
 
   /**
@@ -409,6 +493,20 @@ export class ProjectCore {
     const len = this.input(JSON.stringify(list))
     const code = this.exports.pw_stage_stored(this.live(), len)
     if (code !== 0) throw new CoreError('stage_stored', code)
+  }
+
+  /** Stages the live meters (linear, by engine slot) for the next `mixer.levels` to answer with (once). */
+  stageLevels(stage: LevelsStage) {
+    const len = this.input(JSON.stringify(stage))
+    const code = this.exports.pw_stage_levels(this.live(), len)
+    if (code !== 0) throw new CoreError('stage_levels', code)
+  }
+
+  /** Stages the measures of an offline render for the next `project.analyze_render` to answer with (once); `null` clears them. */
+  stageAnalysis(stage: AnalysisStage | null) {
+    const len = this.input(JSON.stringify(stage))
+    const code = this.exports.pw_stage_analysis(this.live(), len)
+    if (code !== 0) throw new CoreError('stage_analysis', code)
   }
 
   /**
@@ -481,18 +579,67 @@ export class ProjectCore {
   }
 
   /**
-   * The `.faulkpack` of a project folder given whole (every file with its bytes: `project.json`,
-   * the tracks, the blobs): `project::file::export_pack` in the core, so the archive is the one every
-   * host reads. A folder that is not a valid project is `failed`, with the reason. Throws a
-   * `CoreError` when the folder cannot be carried into the core at all (too big).
+   * Writes the `.faulkpack` of a project folder to `io.sink` (`project::file::PackWriter` in the core, so
+   * the archive is the one every host reads), one file at a time: the entries with their bytes (the
+   * project's files) are given to the core whole, the ones with a size (the blobs) are read from `io` in
+   * pieces of `PACK_CHUNK_BYTES` as the core asks for them, so memory does not depend on the size of the
+   * project. A folder that is not a valid project, or a file that is not the size it was listed with,
+   * is `failed` with the reason; an aborted `io.signal` is `cancelled`. Either way the core forgets the export.
+   * Throws a `CoreError` when the folder cannot be carried into the core at all.
    */
-  packExport(files: { path: string; bytes: Uint8Array }[]): PackExport {
-    const frame = folderFrame('pack', files)
-    this.inbox(frame)
-    const out = this.packOut('pack_export', this.exports.pw_pack_export(frame.length))
-    if (out[0] !== 0) return { status: 'failed', message: new TextDecoder().decode(out.subarray(1)) }
-    const view = new DataView(out.buffer, out.byteOffset, out.byteLength)
-    return { status: 'ok', files: view.getUint32(1, true), missingBlobs: view.getUint32(5, true), zip: out.subarray(9) }
+  async packExport(entries: FolderEntry[], io: PackIO): Promise<PackExport> {
+    const sizes = new Map<string, number>()
+    let total = 0
+    for (const entry of entries) {
+      if ('size' in entry) {
+        sizes.set(entry.path, entry.size)
+        total += entry.size
+      }
+    }
+    let given = 0
+    try {
+      const frame = folderFrame('pack', entries)
+      this.inbox(frame)
+      const begun = this.packOut('pack_begin', this.exports.pw_pack_begin(frame.length))
+      if (begun[0] !== 0) return { status: 'failed', message: new TextDecoder().decode(begun.subarray(1)) }
+      const view = new DataView(begun.buffer, begun.byteOffset, begun.byteLength)
+      const result = { status: 'ok' as const, files: view.getUint32(1, true), missingBlobs: view.getUint32(5, true) }
+      for (;;) {
+        if (io.signal?.aborted) return { status: 'cancelled' }
+        const out = this.packOut('pack_next', this.exports.pw_pack_next())
+        if (out[0] === 1) return { status: 'failed', message: new TextDecoder().decode(out.subarray(1)) }
+        if (out[0] === 3) {
+          await this.packWrite(io, out.subarray(1))
+          io.onProgress?.(1)
+          return result
+        }
+        // 2: the core wants the bytes of a blob, after the zip bytes it has written since.
+        const pathLength = new DataView(out.buffer, out.byteOffset, out.byteLength).getUint32(1, true)
+        const path = new TextDecoder().decode(out.subarray(5, 5 + pathLength))
+        await this.packWrite(io, out.subarray(5 + pathLength))
+        const size = sizes.get(path)
+        if (size === undefined) return { status: 'failed', message: `${path}: not a file of the folder` }
+        for (let start = 0; start < size; start += PACK_CHUNK_BYTES) {
+          if (io.signal?.aborted) return { status: 'cancelled' }
+          const end = Math.min(size, start + PACK_CHUNK_BYTES)
+          const chunk = await io.read(path, start, end)
+          if (chunk.length !== end - start) return { status: 'failed', message: `${path}: changed while it was exported` }
+          this.inbox(chunk)
+          const fed = this.packOut('pack_feed', this.exports.pw_pack_feed(chunk.length))
+          if (fed[0] !== 0) return { status: 'failed', message: new TextDecoder().decode(fed.subarray(1)) }
+          await this.packWrite(io, fed.subarray(1))
+          given += chunk.length
+          io.onProgress?.(total > 0 ? given / total : 1)
+        }
+      }
+    } finally {
+      this.exports.pw_pack_cancel()
+    }
+  }
+
+  /** Hands zip bytes to the sink (a copy: the core's memory is reused by the next call). */
+  private async packWrite(io: PackIO, bytes: Uint8Array): Promise<void> {
+    if (bytes.length > 0) await io.sink.write(bytes.slice())
   }
 
   /**

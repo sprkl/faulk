@@ -52,7 +52,8 @@
   import { useStores } from '../../lib/stores'
   import { MASTER } from '../../lib/stores/automated.svelte'
   import { MASTER_METER } from '../../lib/stores'
-  import { beginGroup, endGroup, moveTrack, selectTrack } from '../../lib/track-commands'
+  import { inGroup as inHistoryGroup } from '../../lib/history-group'
+  import { moveTrack, selectTrack } from '../../lib/track-commands'
   import LevelMeter from '../../lib/components/LevelMeter.svelte'
   import { seek, setLoopRegion, toggleLoop } from '../../lib/transport-commands'
   import { liveTick, settle } from '../piano-roll/playhead'
@@ -105,16 +106,19 @@
   } from './automation/gestures'
   import { CLIP_ROW, CLIP_ROW_MIN, clampClipRow, layoutOf, rowsBetween, type Row } from './automation/layout'
   import LaneHeader from './LaneHeader.svelte'
-  import { dropTarget } from '../../lib/browser/dnd'
+  import { dragsFiles, dropTarget } from '../../lib/browser/dnd'
+  import { isAudioFile, placeOnLane } from '../../lib/browser/audio-drop'
+  import { framesToTicks } from '../../lib/audio/time'
   import { createsTrack } from '../../lib/browser/drop'
   import { putItem } from '../../lib/browser/put'
   import BarDialog from './BarDialog.svelte'
   import { lanesOf, optionsOf, pointAtTick, pointsOf, targetKey, valueAt, type LaneInfo, type LanePoint, type Labels } from './automation/model'
 
   const stores = useStores()
-  const { project, engine, ui, dispatcher, meters } = stores
+  const { project, engine, ui, dispatcher, meters, peaks } = stores
   const t = ui.t
   const run = (command: Command) => dispatcher.run(command)
+  const group = <T,>(body: () => T) => inHistoryGroup((command, options) => dispatcher.run(command, options), body)
 
   /** Bars the grid keeps free after the last clip, so that there is always room to place one. */
   const SPARE_BARS = 16
@@ -203,7 +207,10 @@
   const trackHeightOf = (id: string) => (entryById.get(id)?.track as { height?: number | null } | undefined)?.height
   // The tracks the launch grid holds: their timeline is silent until they are given back.
   const detached = $derived(engine.started ? offTimeline(engine.feedback, project.view?.slots) : new Set<string>())
-  const blocks = $derived(blocksOf(entries))
+  // An audio placement's ticks are its frames at the project's tempo (AU-6).
+  const blocks = $derived(blocksOf(entries, project.view?.project.tempo[0]?.bpm ?? 120))
+  /** Whether the peaks of each audio block's media are in: the grid draws again when some arrive. */
+  const waveforms = $derived(blocks.map((b) => (b.audio ? peaks.of(b.audio.media).state : '')).join())
   /** The tracks that make no sound: muted, or silenced by another track's solo. */
   const silent = $derived(new Set(entries.filter((e) => e.track.mixer.mute || project.silencedBySolo(e.id)).map((e) => e.id)))
   const signature = $derived(project.view?.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 })
@@ -399,6 +406,7 @@
       looping: null,
       notes: [],
       uses: 1,
+      audio: null,
     }
     return { span, ghost }
   })
@@ -755,7 +763,7 @@
   })
 
   const body = (ctx: CanvasRenderingContext2D, frame: BodyFrame) => {
-    drawArrangement(ctx, frame, {
+    const drawn = drawArrangement(ctx, frame, {
       layout,
       scrollY: y0,
       blocks,
@@ -769,6 +777,7 @@
       silent,
       markers,
       handles: handlesNow,
+      peaksOf: (media) => peaks.of(media).peaks,
     })
     const lanes: LaneScene[] = []
     for (const row of rowsBetween(layout, y0, y0 + frame.height)) {
@@ -794,6 +803,8 @@
     const stats = drawAutomation(ctx, frame, { lanes, box })
     // For the e2e measure: how many points the last frame looked at, and whether it drew them as columns.
     if (stage) {
+      // The audio placements drawn with their waveform (AU-6).
+      stage.dataset.waveforms = String(drawn.waveforms)
       stage.dataset.lanePoints = String(stats.visible)
       stage.dataset.laneDense = String(stats.dense)
     }
@@ -801,7 +812,25 @@
 
   // The grid draws in its own frame and cannot see this state: tell it when something it draws changed.
   $effect(() => {
-    void [blocks, silent, selectedIds, ghosts, hidden, loopNow, loopOn, timeNow, y0, layout, laneRefs, autoPick, hover, pointPreview, gesture, handlesNow]
+    void [
+      blocks,
+      waveforms,
+      silent,
+      selectedIds,
+      ghosts,
+      hidden,
+      loopNow,
+      loopOn,
+      timeNow,
+      y0,
+      layout,
+      laneRefs,
+      autoPick,
+      hover,
+      pointPreview,
+      gesture,
+      handlesNow,
+    ]
     grid?.invalidate()
   })
 
@@ -817,9 +846,9 @@
   /** Runs several commands as one history entry. */
   function inGroup(commands: Command[]) {
     if (commands.length === 1) return run(commands[0]!)
-    run(beginGroup())
-    for (const command of commands) run(command)
-    run(endGroup())
+    group(() => {
+      for (const command of commands) run(command)
+    })
   }
 
   const cancel = () => {
@@ -837,6 +866,18 @@
 
   function select(trackId: string) {
     if (project.selected?.id !== trackId) run(selectTrack(trackId))
+  }
+
+  /** The piano roll follows the MIDI clip a gesture picks (#470); an audio clip has no editor there (AU-6). */
+  function followClip(block: Block) {
+    if (!block.audio) ui.editClip(block.clip, block.id)
+  }
+
+  /** Opens a clip below: a MIDI clip in the piano roll, an audio clip in its track's Clips panel (its gain, its file). */
+  function openBlock(block: Block) {
+    followClip(block)
+    select(block.track)
+    ui.showPanel(block.audio ? 'clips' : 'piano-roll')
   }
 
   function onPointerDown(event: PointerEvent) {
@@ -882,7 +923,7 @@
       if (!on) return
     } else if (!picked.has(block.id)) picked = new Set([block.id])
     // The piano roll follows the clip selected here (#470); a double click still brings the panel up.
-    ui.editClip(block.clip, block.id)
+    followClip(block)
     if (zone === 'body') {
       const ids = blocks.filter((b) => picked.has(b.id)).map((b) => b.id)
       gesture = {
@@ -1031,7 +1072,7 @@
     const made = blocks.find((b) => !before.has(b.id) && b.row === g.row)
     if (!made) return
     picked = new Set([made.id])
-    ui.editClip(made.clip, made.id)
+    followClip(made)
     announce(t('arrangement.saidDrawn', { bar: barsOf(made).from }))
   }
 
@@ -1040,7 +1081,7 @@
     if (!g.moved) return
     const found = blocksInBox(blocks, layout, shown, y0, { x0: g.startX, y0: g.startY, x1: g.x, y1: g.y })
     picked = new Set([...(g.add ? picked : []), ...found.map((b) => b.id)])
-    if (found.length === 1) ui.editClip(found[0]!.clip, found[0]!.id)
+    if (found.length === 1) followClip(found[0]!)
   }
 
   /** The tracks a clip may move to, in track order: a MIDI clip only goes to a MIDI track. */
@@ -1057,7 +1098,9 @@
       if (targets.refused === 'edge') announce(t('arrangement.saidNoTrack'))
       else {
         const entry = entries.find((e) => e.id === targets.track)
-        announce(t('arrangement.saidNotMidiTrack', { track: entry ? trackLabel(entry, t) : '' }))
+        const track = entry ? trackLabel(entry, t) : ''
+        // A MIDI clip only goes to a MIDI track, an audio clip to an audio track (AU-6).
+        announce(entry && isMidi(entry.track) ? t('audio.saidNotAudioTrack', { track }) : t('arrangement.saidNotMidiTrack', { track }))
       }
       return null
     }
@@ -1073,7 +1116,7 @@
     const lead = (follow ? landed[follow] : undefined) ?? all[0]!
     const entry = entries[lead.row]
     select(lead.track)
-    ui.editClip(lead.clip, lead.id)
+    followClip(lead)
     announce(t('arrangement.saidMovedTrack', { n: all.length, track: entry ? trackLabel(entry, t) : '', bar: barsOf(lead).from }))
     return landed
   }
@@ -1236,17 +1279,14 @@
     if (block) {
       if (!picked.has(block.id)) picked = new Set([block.id])
       select(block.track)
-      ui.editClip(block.clip, block.id)
+      followClip(block)
       const mod = (key: string[]) => chordText(['Mod', ...key])
       items.push(
         {
           id: 'open',
-          label: t('arrangement.openInRoll'),
+          label: block.audio ? t('audio.openInClips') : t('arrangement.openInRoll'),
           shortcut: chordText(['Enter']),
-          run: () => {
-            ui.editClip(block.clip, block.id)
-            ui.showPanel('piano-roll')
-          },
+          run: () => openBlock(block),
         },
         { id: 'duplicate', label: t('arrangement.duplicate'), shortcut: mod(['D']), separator: true, run: () => duplicate(false) },
         { id: 'duplicate-linked', label: t('arrangement.duplicateLinked'), shortcut: mod(['Shift', 'D']), run: () => duplicate(true) },
@@ -1447,10 +1487,8 @@
     if (where?.kind === 'add') return
     const hit = hitBlock(blocks, layout, x, y, shown, y0)
     if (hit) {
-      // The clip opens in the piano roll below.
-      ui.editClip(hit.block.clip, hit.block.id)
-      select(hit.block.track)
-      ui.showPanel('piano-roll')
+      // The clip opens below: in the piano roll, or an audio clip in the Clips panel.
+      openBlock(hit.block)
       return
     }
     const row = where ? where.track : null
@@ -1475,25 +1513,67 @@
       return null
     }
   }
-  /** The track of the clip row under a drop, when it is a MIDI track's. */
-  function dropRow(event: DragEvent): string | null {
+  /** The track of the clip row under a drop (the master's row is none), and its row. */
+  function dropEntry(event: DragEvent): { id: string; row: number; audio: boolean } | null {
     const { y } = local(event)
     if (y < RULER_HEIGHT) return null
     const where = rowAt(layout, y, y0)
     if (!where || where.kind !== 'track') return null
     const entry = entries[where.track]
-    return entry && isMidi(entry.track) ? entry.id : null
+    return entry ? { id: entry.id, row: where.track, audio: !isMidi(entry.track) } : null
   }
+  const dropRow = (event: DragEvent): string | null => dropEntry(event)?.id ?? null
   function onDragOver(event: DragEvent) {
+    if (!event.dataTransfer) return
+    // Audio files from the desktop: an audio track's lane takes them (AU-6).
+    if (dragsFiles(event)) {
+      if (!dropEntry(event)?.audio) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'copy'
+      return
+    }
     // The data is hidden until the drop, its types are not: only the clip's own track takes it.
     const track = dropRow(event)
-    if (!event.dataTransfer || track === null || !event.dataTransfer.types.includes(clipTrackType(track))) return
+    if (track === null || !event.dataTransfer.types.includes(clipTrackType(track))) return
     event.preventDefault()
     event.dataTransfer.dropEffect = event.altKey ? 'link' : 'copy'
   }
+  /**
+   * Audio files dropped on an audio track's lane (AU-6): imported into the track and placed from the drop point (on the
+   * snap; Ctrl free), one after the other. Each file is one history entry once it is read: its clip is made in the
+   * arrangement where the span is free, else made in the pool and placed (carving what it covers) in one group.
+   */
+  function dropFiles(event: DragEvent, target: { id: string; row: number }) {
+    const files = Array.from(event.dataTransfer?.files ?? []).filter(isAudioFile)
+    if (files.length === 0) return announce(t('audio.noAudioFile'))
+    const { x } = local(event)
+    const start = Math.max(0, snapTick(xToTick(x, shown), stepOf(event)))
+    select(target.id)
+    const placer = placeOnLane(
+      {
+        run,
+        group,
+        clipsOf: (track) => Object.keys(project.view?.project.tracks[track]?.clips ?? {}),
+        // Read when each file's clip is made, by the track (its row may have moved meanwhile).
+        free: (from, to) => from >= 0 && !blocks.some((b) => b.track === target.id && b.start < to && from < b.end),
+        ticksOf: (media) => framesToTicks(media.frames, media.sample_rate, project.view?.project.tempo[0]?.bpm ?? 120),
+      },
+      target.id,
+      start,
+    )
+    const entry = entries.find((e) => e.id === target.id)
+    announce(t('audio.importingHere', { track: entry ? trackLabel(entry, t) : '' }))
+    void stores.audioImport.importFiles(target.id, files, placer).catch(() => undefined)
+  }
   function onDrop(event: DragEvent) {
+    const target = dropEntry(event)
+    if (dragsFiles(event)) {
+      if (!target?.audio) return
+      event.preventDefault()
+      return dropFiles(event, target)
+    }
     const dragged = poolDrag(event)
-    const track = dropRow(event)
+    const track = target?.id ?? null
     if (!dragged || track === null || dragged.track !== track || !project.view) return
     event.preventDefault()
     const entry = poolOf(project.view.project, track).find((c) => c.id === dragged.clip)
@@ -1577,6 +1657,21 @@
     if (owner !== null && untrack(() => allEntries.some((e) => e.id === owner)) && !open.has(owner)) open = new Set([...open, owner])
   })
 
+  // The Clips panel placed clips and asks (once) that they be the selection and hold the keyboard focus (#624). The
+  // request is consumed once the placements are in `blocks`; ids the project does not have are dropped.
+  $effect(() => {
+    if (ui.placedRequest === null) return
+    const wanted = new Set(ui.placedRequest)
+    const found = blocks.filter((b) => wanted.has(b.id))
+    // Consumed at once, found or not: a request that matches nothing now must not select a placement that comes back later.
+    untrack(() => ui.takePlacedRequest())
+    if (found.length === 0) return
+    picked = new Set(found.map((b) => b.id))
+    const first = [...found].sort((x, y) => x.start - y.start)[0]!
+    followClip(first)
+    void focusItem(first.id)
+  })
+
   // --- the clips from the keyboard and for assistive technology (#471) ---------------------------------------------
   // The canvas has no children: a layer of named cells lies over it, one per clip in sight (and the focused one), in a
   // grid whose rows are the tracks. One cell is in the tab order (roving focus); the arrows move it (the selection
@@ -1601,9 +1696,10 @@
     const name = b.name || t('arrangement.clipDefault')
     const where = barsOf(b)
     const parts = [t('arrangement.clipItem', { name, track: entry ? trackLabel(entry, t) : '', from: where.from, to: where.to })]
+    if (b.audio) parts.push(t('audio.clipAudio'))
     // A linked clip and a repeated content are said (#473), as they are drawn.
     if (b.uses > 1) parts.push(t('arrangement.clipLinked'))
-    const passes = passCount(b)
+    const passes = b.audio ? 1 : passCount(b)
     if (passes > 1) parts.push(t('arrangement.clipPasses', { n: passes }))
     if (selectedIds.has(b.id)) parts.push(t('arrangement.clipSelected'))
     return parts.join(', ')
@@ -1684,9 +1780,7 @@
       return
     }
     if (key.kind === 'open') {
-      ui.editClip(current.clip, current.id)
-      select(current.track)
-      ui.showPanel('piano-roll')
+      openBlock(current)
       announce(t('arrangement.saidOpened', { name: current.name || t('arrangement.clipDefault') }))
       return
     }
@@ -1758,7 +1852,7 @@
       if (key.kind === 'extend' && !selectedIds.has(current.id)) {
         picked = new Set([current.id])
         select(current.track)
-        ui.editClip(current.clip, current.id)
+        followClip(current)
         announce(t('arrangement.saidSelected', { name: current.name || t('arrangement.clipDefault') }))
       }
       return
@@ -1769,7 +1863,7 @@
     if (key.kind === 'extend') picked = new Set(selectedIds.has(current.id) ? [...selectedIds, target.id] : [current.id, target.id])
     else picked = new Set([target.id])
     select(block.track)
-    ui.editClip(block.clip, block.id)
+    followClip(block)
     void focusItem(target.id)
   }
 
@@ -1900,7 +1994,7 @@
       const block = blocks.find((b) => b.id === under.id)!
       picked = new Set([block.id])
       select(block.track)
-      ui.editClip(block.clip, block.id)
+      followClip(block)
       void focusItem(block.id)
       return
     }
@@ -1912,7 +2006,7 @@
     const made = blocks.find((b) => b.row === at.row && b.start === at.tick)
     if (!made) return
     picked = new Set([made.id])
-    ui.editClip(made.clip, made.id)
+    followClip(made)
     announce(t('arrangement.saidCreated', { bar: Math.floor(at.tick / bar) + 1 }))
     void focusItem(made.id)
   }

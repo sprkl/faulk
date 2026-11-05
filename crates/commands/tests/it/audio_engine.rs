@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::clip_examples::{ClipFx, c, fx, with_audio_placement};
-use ::project::{Frame, FrameLoop, Hash};
+use ::project::{Frame, FrameLoop, Hash, Tick};
 use commands::clip::{self, ClipTarget};
 use commands::engine_msgs::{Synced, snapshot};
 use commands::testing::{context, imported_media};
@@ -223,12 +223,23 @@ fn the_snapshot_declares_each_media_once_before_its_clips_and_sends_frame_placem
 #[test]
 fn every_audio_edit_and_its_undo_leave_the_engine_as_a_snapshot_would() {
     let f = fx();
-    let (state, _) = with_audio_placement(&f);
+    let (state, placement) = with_audio_placement(&f);
     let mut r = Rig::new(state);
     let steps = [
         c(clip::Command::AudioSetGain {
             clip: f.audio_clip.clone(),
             gain_db: Some(-6.0),
+        }),
+        // The placement goes (the clip and its source stay).
+        Command::Arrangement(commands::arrangement::Command::Delete {
+            placements: vec![placement],
+        }),
+        // The pool clip comes back to the arrangement (#666).
+        Command::Arrangement(commands::arrangement::Command::Place {
+            clip: f.audio_clip.clone(),
+            start: Tick(3840),
+            length: None,
+            offset: None,
         }),
         c(clip::Command::AudioSetGain {
             clip: f.audio_clip.clone(),
@@ -325,4 +336,114 @@ fn duplicating_a_track_and_deleting_a_scene_keep_the_engine_in_step() {
     for _ in &steps {
         r.run(&undo());
     }
+}
+
+#[test]
+fn deleting_an_audio_placement_empties_the_track_but_keeps_the_source() {
+    let f = fx();
+    let (state, placement) = with_audio_placement(&f);
+    let mut r = Rig::new(state);
+    assert_eq!(r.model.placements.values().flatten().count(), 1);
+    r.run(&Command::Arrangement(
+        commands::arrangement::Command::Delete {
+            placements: vec![placement],
+        },
+    ));
+    assert_eq!(
+        r.model.placements.values().flatten().count(),
+        0,
+        "no placement left for the engine to play"
+    );
+    assert_eq!(r.model.sources.len(), 1, "the clip still holds its source");
+    assert_eq!(r.model.clips.len(), 1, "and the clip stays in the engine");
+    r.run(&undo());
+    assert_eq!(r.model.placements.values().flatten().count(), 1);
+}
+
+#[test]
+fn the_arrangement_edits_of_audio_placements_keep_the_engine_in_step_both_ways() {
+    use commands::arrangement::{Command as A, Edge};
+    let f = fx();
+    let (state, placement) = with_audio_placement(&f);
+    let mut r = Rig::new(state);
+    let sources = r.model.sources.len();
+    let ar = Command::Arrangement;
+    let steps = [
+        ar(A::Move {
+            placements: vec![placement.clone()],
+            by: Tick(960),
+        }),
+        ar(A::Resize {
+            placement: placement.clone(),
+            edge: Edge::End,
+            to: Tick(4800 + 480),
+        }),
+        ar(A::Resize {
+            placement: placement.clone(),
+            edge: Edge::Start,
+            to: Tick(4800 - 240),
+        }),
+        ar(A::Split {
+            placement: placement.clone(),
+            at: Tick(4800),
+        }),
+        // An independent copy: a new clip of the same media, so no new source.
+        ar(A::Duplicate {
+            placements: vec![placement.clone()],
+            linked: false,
+            by: Some(Tick(7680)),
+        }),
+        ar(A::Duplicate {
+            placements: vec![placement.clone()],
+            linked: true,
+            by: Some(Tick(15_360)),
+        }),
+        ar(A::Repeat {
+            placement: placement.clone(),
+            until: Tick(30_000),
+        }),
+        ar(A::InsertTime {
+            at: Tick(4700),
+            length: Tick(3840),
+        }),
+        ar(A::DeleteTime {
+            from: Tick(100),
+            to: Tick(2000),
+        }),
+        c(clip::Command::Duplicate {
+            clip: f.audio_clip.clone(),
+            slot: Some(f.scene_free.clone()),
+            track: None,
+        }),
+    ];
+    for step in &steps {
+        r.run(step);
+        assert_eq!(
+            r.model.sources.len(),
+            sources,
+            "{step:?}: one source per media"
+        );
+    }
+    for _ in &steps {
+        r.run(&undo());
+    }
+    for _ in &steps {
+        r.run(&Command::History(history::Command::Redo {}));
+    }
+}
+
+#[test]
+fn a_faster_tempo_that_shortens_an_audio_placement_reaches_the_engine_and_undoes() {
+    use crate::audio_clip::with_whole;
+    let f = fx();
+    // Two whole placements back to back at 120 BPM: a faster tempo shortens the first (#709).
+    let (state, _) = with_whole(&f, f.state.clone(), 0, 41);
+    let (state, _) = with_whole(&f, state, 1_920, 42);
+    let mut r = Rig::new(state);
+    let faster = Command::Transport(commands::transport::Command::SetTempo {
+        bpm: 240.0,
+        placements: None,
+    });
+    r.run(&faster);
+    r.run(&undo());
 }

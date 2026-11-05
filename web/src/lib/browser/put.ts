@@ -11,7 +11,8 @@ import { applyItem, type DropHost, type DropResult, type DropTarget } from './dr
 
 /** The host of the page: its dispatcher to run commands, its project store to read the tracks back after each one. */
 export const hostOf = ({ project, ui, dispatcher }: DropStores): DropHost => ({
-  run: (command) => dispatcher.run(command),
+  // The options come from the shared group helper: its quiet `history.begin_group` shows no toast when a group is already open (#643, #653).
+  run: (command, options) => dispatcher.run(command, options),
   tracks: () => project.tracks,
   masterDevices: () => project.view?.project.master_devices,
   selectedTrack: () => project.selected?.id ?? null,

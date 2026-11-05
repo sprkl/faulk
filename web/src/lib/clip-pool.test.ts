@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Project } from './generated/protocol'
-import { freeScene, gridCommand, placeCommand, poolOf } from './clip-pool'
+import { freeScene, gridCommand, placeCommand, poolNames, poolOf } from './clip-pool'
 
 const midi = (name: string, slot: string | null = null) => ({
   name,
@@ -53,6 +53,50 @@ describe('the clip pool (#473)', () => {
     expect(gridCommand(arr!, 's9', true)).toEqual({ type: 'clip.move', clip: 'arr', slot: 's9', track: null })
     // A clip in the grid already is copied (a clip sits in one slot at most).
     expect(gridCommand(grid!, 's9', true)).toEqual({ type: 'clip.duplicate', clip: 'grid', slot: 's9', track: null })
+  })
+
+  it('tells two clips of one name apart by a number (#624)', () => {
+    const twins = {
+      tracks: { t: { clips: { b: midi('Riff'), a: midi('Riff'), c: midi('Bass'), d: midi('') }, placements: {} } },
+    } as unknown as Pick<Project, 'tracks'>
+    expect(poolNames(poolOf(twins, 't'), 'Audio clip')).toEqual({ c: 'Bass', a: 'Riff (1)', b: 'Riff (2)', d: 'Audio clip' })
+  })
+
+  it('puts an audio clip in a slot or the arrangement like a MIDI one (AU-6): itself when unused, else a copy', () => {
+    const audio = (slot: string | null) => ({
+      name: 'Loop',
+      color: null,
+      slot,
+      content: { audio: { media: { hash: 'a', sample_rate: 48000, channels: 2, frames: 48000, name: 'loop.wav' } } },
+    })
+    const withAudio = {
+      scenes: project.scenes,
+      tracks: { a: { clips: { loose: audio(null), used: audio('s1') }, placements: {} } },
+    } as unknown as Pick<Project, 'tracks' | 'scenes'>
+    const [loose, used] = poolOf(withAudio, 'a')
+    expect(loose!.midi).toBe(false)
+    expect(gridCommand(loose!, 's2', false)).toEqual({ type: 'clip.move', clip: 'loose', slot: 's2', track: null })
+    expect(gridCommand(used!, 's2', false)).toMatchObject({ type: 'clip.duplicate', clip: 'used', slot: 's2' })
+    expect(placeCommand(loose!, 3840, false)).toEqual({ type: 'arrangement.place', clip: 'loose', start: 3840 })
+    expect(placeCommand(used!, 3840, false)).toMatchObject({ type: 'arrangement.place_from_slot', clip: 'used', start: 3840, linked: false })
+  })
+
+  it('measures an audio placement in ticks at the project tempo (AU-6), so a copy lands after it', () => {
+    const clip = {
+      name: 'Loop',
+      color: null,
+      slot: null,
+      content: { audio: { media: { hash: 'a', sample_rate: 48000, channels: 2, frames: 96000, name: 'loop.wav' }, start: 0, frames: 96000 } },
+    }
+    const placed = {
+      tempo: [{ tick: 0, bpm: 120 }],
+      tracks: { a: { clips: { c: clip }, placements: { p: { clip: 'c', start: 0, span: { frames: { length: 48000, offset: 0 } } } } } },
+    } as unknown as Pick<Project, 'tracks' | 'tempo'>
+    const [entry] = poolOf(placed, 'a')
+    // One second at 120 bpm is 1920 ticks.
+    expect(entry!.placements).toEqual([{ id: 'p', start: 0, length: 1920 }])
+    // A copy at the playhead inside the placement goes right after it.
+    expect(placeCommand(entry!, 960, false)).toMatchObject({ type: 'arrangement.duplicate', placements: ['p'], linked: false, by: 1920 })
   })
 
   it('finds the first free slot of the track in scene order', () => {

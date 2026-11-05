@@ -28,6 +28,7 @@ import {
   wholeSongView,
   clipPosition,
   splittable,
+  audioPasses,
   type Block,
 } from './arrangement'
 import { layoutOf } from './automation/layout'
@@ -79,10 +80,71 @@ describe('blocks', () => {
     expect(get('p1').color).toBe('#ff0000')
   })
 
-  it('leaves out an audio placement and a placement of a missing clip', () => {
+  it('leaves out a frame span on a MIDI clip and a placement of a missing clip', () => {
     const t = entry('t', 0, { a: midi() }, { ok: place('a', 0, 10), gone: place('zz', 0, 10) })
     ;(t.track.placements as Record<string, unknown>).audio = { clip: 'a', start: 0, span: { frames: { length: 10, offset: 0 } } }
     expect(blocksOf([t]).map((b) => b.id)).toEqual(['ok'])
+  })
+})
+
+describe('audio blocks (AU-6)', () => {
+  // One second of a 44.1 kHz clip: 1920 ticks at 120 bpm.
+  const sound = (looping: { start: number; end: number } | null = null): Clip =>
+    ({
+      name: 'Take',
+      content: {
+        audio: {
+          media: { hash: 'f'.repeat(64), sample_rate: 44100, channels: 2, frames: 88200, name: 'take.wav' },
+          start: 100,
+          frames: 44100,
+          gain_db: -3,
+          looping,
+        },
+      },
+    }) as unknown as Clip
+  const framed = (clip: string, start: number, length: number, offset = 0) => ({ clip, start, span: { frames: { length, offset } } })
+  const audioEntry = (looping: { start: number; end: number } | null = null) =>
+    entry('a', 0, { s: sound(looping) }, { w: framed('s', 3840, 22050, 11025) } as unknown as Record<string, ReturnType<typeof place>>)
+
+  it('measures an audio placement in ticks at the tempo, as the project does', () => {
+    const [b] = blocksOf([audioEntry()], 120)
+    expect(b).toMatchObject({ start: 3840, length: 960, end: 4800, offset: 480, clipLength: 1920, notes: [] })
+    expect(b!.audio).toMatchObject({ clipStart: 100, clipFrames: 44100, offset: 11025, frames: 22050, gain: -3 })
+    // Twice the tempo: twice the ticks.
+    expect(blocksOf([audioEntry()], 240)[0]).toMatchObject({ length: 1920, end: 5760 })
+  })
+
+  it('reads an audio clip through its loop, as the player does', () => {
+    const [plain] = blocksOf([audioEntry()], 120)
+    expect(audioPasses(plain!.audio!)).toEqual([{ at: 0, from: 11025, frames: 22050 }])
+    const [looped] = blocksOf([audioEntry({ start: 0, end: 4410 })], 120)
+    const passes = audioPasses(looped!.audio!)
+    // The offset is past the loop's end: the read starts inside the loop (11 025 = 2 × 4 410 + 2 205).
+    expect(passes[0]).toEqual({ at: 0, from: 2205, frames: 2205 })
+    expect(passes[1]).toEqual({ at: 2205, from: 0, frames: 4410 })
+    expect(passes.reduce((n, p) => n + p.frames, 0)).toBe(22050)
+  })
+
+  it('stops an edge at the clip: the end at its last frame, the start at its first', () => {
+    const [b] = blocksOf([audioEntry()], 120)
+    expect(resizeTo(b!, 'end', 100_000, null)).toBe(3840 + (1920 - 480))
+    expect(resizeTo(b!, 'start', 0, null)).toBe(3840 - 480)
+    expect(resized(b!, 'end', 4320).audio).toMatchObject({ offset: 11025, frames: 11025 })
+    expect(resized(b!, 'start', 4320).audio).toMatchObject({ offset: 22050, frames: 11025 })
+  })
+
+  it('moves an audio clip to an audio track only, a MIDI clip to a MIDI track only', () => {
+    const blocksBoth = blocksOf([entry('m', 0, { c: midi() }, { p: place('c', 0, 3840) }), { ...audioEntry(), id: 'a', index: 1 }], 120)
+    const tracks = [
+      { id: 'm', midi: true },
+      { id: 'a', midi: false },
+      { id: 'a2', midi: false },
+    ]
+    const audioBlock = blocksBoth.find((b) => b.audio)!
+    expect(trackTargets([audioBlock], 1, tracks)).toEqual({ moves: [{ placement: 'w', track: 'a2' }] })
+    expect(trackTargets([audioBlock], -1, tracks)).toEqual({ refused: 'incompatible', track: 'm' })
+    const midiBlock = blocksBoth.find((b) => !b.audio)!
+    expect(trackTargets([midiBlock], 1, tracks)).toEqual({ refused: 'incompatible', track: 'a' })
   })
 })
 

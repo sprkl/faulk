@@ -45,9 +45,27 @@ pub fn examples() -> Vec<(Command, State)> {
         (tr(T::Stop {}), base.clone()),
         (tr(T::Seek { tick: Tick(1920) }), base.clone()),
         (tr(T::Pause { tick: Tick(1920) }), base.clone()),
-        (tr(T::SetTempo { bpm: 90.5 }), base.clone()),
-        (tr(T::SetTempo { bpm: 20.0 }), base.clone()),
-        (tr(T::SetTempo { bpm: 999.0 }), base.clone()),
+        (
+            tr(T::SetTempo {
+                bpm: 90.5,
+                placements: None,
+            }),
+            base.clone(),
+        ),
+        (
+            tr(T::SetTempo {
+                bpm: 20.0,
+                placements: None,
+            }),
+            base.clone(),
+        ),
+        (
+            tr(T::SetTempo {
+                bpm: 999.0,
+                placements: None,
+            }),
+            base.clone(),
+        ),
         (
             tr(T::SetTimeSignature {
                 numerator: 7,

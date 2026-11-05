@@ -9,7 +9,20 @@ import GridView from './GridView.svelte'
 
 const midi = (name = ''): Clip => ({ name, slot: null, content: { midi: { length: 7680, notes: [] } } }) as unknown as Clip
 const inSlot = (scene: string, name = ''): Clip => ({ ...midi(name), slot: scene })
-const audio = (scene: string): Clip => ({ name: '', slot: scene, content: { audio: {} } }) as unknown as Clip
+const audio = (scene: string): Clip =>
+  ({
+    name: '',
+    slot: scene,
+    content: {
+      audio: {
+        media: { hash: 'ab'.repeat(32), sample_rate: 48000, channels: 2, frames: 48000, name: 'loop.wav' },
+        start: 0,
+        frames: 48000,
+        gain_db: 0,
+        looping: null,
+      },
+    },
+  }) as unknown as Clip
 
 const slots = { epoch: 3, tracks: { t1: 0, t2: 1 }, scenes: { s1: 0, s2: 1, s3: 2 } }
 
@@ -51,8 +64,9 @@ describe('the cells of the grid', () => {
   it('finds the clip of each cell, leaves out the clips that are only in the arrangement, and counts a scene', () => {
     const cells = cellClips(view().project)
     expect([...cells.keys()].sort()).toEqual(['t1|s1', 't1|s2', 't2|s1'])
-    expect(cells.get('t1|s1')).toMatchObject({ id: 'c1', launchable: true })
-    expect(cells.get('t2|s1')).toMatchObject({ id: 'c3', launchable: false })
+    expect(cells.get('t1|s1')).toMatchObject({ id: 'c1', launchable: true, editable: true, opens: true })
+    // An audio clip is launched (AU-4), renamed, copied, dragged and sent like a MIDI one (AU-6); it has no piano roll.
+    expect(cells.get('t2|s1')).toMatchObject({ id: 'c3', launchable: true, editable: true, opens: false })
     expect(Object.fromEntries(clipCounts(cells))).toEqual({ s1: 2, s2: 1 })
   })
 
@@ -166,11 +180,11 @@ describe('what the grid shows', () => {
     expect(html({ project: none })).toContain('data-testid="grid-no-scenes"')
   })
 
-  it('shows idle clips, empty cells and an audio clip that cannot be launched', () => {
+  it('shows idle clips, empty cells and an audio clip with its state', () => {
     const found = states(html())
     expect(found).toEqual({ 't1|s1': 'idle', 't1|s2': 'idle', 't2|s1': 'idle', 't2|s2': 'empty', 't1|s3': 'empty', 't2|s3': 'empty' })
     const body = html()
-    expect(body).toContain('Vox, Intro: Clip, audio clip, cannot be launched yet')
+    expect(body).toContain('Vox, Intro: Clip, audio clip, stopped')
     expect(body).toContain('Vox, Scene 2: empty')
     expect(body).toContain('Bass, Intro: Riff, stopped')
     expect(body).toContain('Bass, Scene 2: Clip 2, stopped')

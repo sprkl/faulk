@@ -523,11 +523,13 @@ fn kind_name(kind: &ViolationKind) -> &'static str {
         MissingInstrument => "MissingInstrument",
         BadSampleRate => "BadSampleRate",
         BadPreset => "BadPreset",
+        ScaleRoot(_) => "ScaleRoot",
         TooMany { .. } => "TooMany",
     }
 }
 
-const ALL_KINDS: [&str; 34] = [
+const ALL_KINDS: [&str; 35] = [
+    "ScaleRoot",
     "BadPreset",
     "MissingInstrument",
     "BadSampleRate",
@@ -572,7 +574,21 @@ fn cases() -> Vec<(&'static str, Mutation, &'static str)> {
         })
     };
     vec![
-        ("format 5", Box::new(|fx| fx.project.format = 5), "Format"),
+        (
+            "a newer format",
+            Box::new(|fx| fx.project.format = FORMAT_VERSION + 1),
+            "Format",
+        ),
+        (
+            "scale root 12",
+            Box::new(|fx| {
+                fx.project.scale = Some(project::Scale {
+                    root: 12,
+                    mode: project::ScaleMode::Major,
+                })
+            }),
+            "ScaleRoot",
+        ),
         (
             "project preset with an untrimmed name",
             Box::new(|fx| {
@@ -1281,7 +1297,7 @@ fn every_kind_has_a_failing_case() {
 #[test]
 fn violations_carry_their_path_and_are_all_reported() {
     let mut fx = fixture();
-    fx.project.format = 5;
+    fx.project.format = FORMAT_VERSION + 1;
     midi_track(&mut fx).mixer.pan = 2.0;
     let violations = fx.project.validate().unwrap_err();
     assert_eq!(violations.len(), 2, "{violations:?}");

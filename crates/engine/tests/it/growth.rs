@@ -632,6 +632,7 @@ fn a_growth_that_is_not_larger_never_loses_a_live_entry() {
             player: Default::default(),
             instance: 0,
             ports: Default::default(),
+            audio: Default::default(),
         }),
         grown: Some(Table::try_filled(2).unwrap()),
     });

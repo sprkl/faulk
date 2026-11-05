@@ -3,7 +3,7 @@
 // is a small seam, so the controller (`storage.svelte.ts`) is tested without a dialog.
 import { OpfsProjects } from './opfs'
 import { openStore } from './rpc'
-import type { StorageDeps } from './storage.svelte'
+import type { PackTarget, StorageDeps } from './storage.svelte'
 import { MAX_RECENT, type FolderHandle, type FolderPicker, type RecentProject, type RecentProjects } from './types'
 
 type PickerWindow = { showDirectoryPicker?: (options: { id: string; mode: 'readwrite' }) => Promise<FolderHandle> }
@@ -186,6 +186,43 @@ export function downloadFile(name: string, blob: Blob): void {
   setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
+type SaveWindow = {
+  showSaveFilePicker?: (options: { suggestedName: string; types: { description: string; accept: Record<string, string[]> }[] }) => Promise<{
+    createWritable(): Promise<{ write(data: Uint8Array<ArrayBuffer>): Promise<void>; close(): Promise<void>; abort(): Promise<void> }>
+  }>
+}
+
+/**
+ * `showSaveFilePicker` (Chromium on a computer): the user chooses where a big file goes and it is written to the
+ * disk in pieces. `null` where the browser has no such dialog, or when none can open (no click behind the call).
+ */
+export async function saveFile(name: string): Promise<PackTarget | 'cancelled' | null> {
+  const picker = (window as SaveWindow).showSaveFilePicker
+  if (typeof picker !== 'function') return null
+  try {
+    const handle = await picker.call(window, { suggestedName: name, types: [{ description: 'Faulk pack', accept: { 'application/zip': ['.faulkpack'] } }] })
+    const writable = await handle.createWritable()
+    return {
+      write: (chunk) => writable.write(chunk as Uint8Array<ArrayBuffer>),
+      close: () => writable.close(),
+      abort: () => writable.abort(),
+    }
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') return 'cancelled'
+    return null
+  }
+}
+
+/** What the browser says it can still keep for the page. */
+export async function freeSpace(): Promise<number | null> {
+  try {
+    const { quota, usage } = await navigator.storage.estimate()
+    return quota === undefined || usage === undefined ? null : quota - usage
+  } catch {
+    return null
+  }
+}
+
 /** The controller's browser: the real picker, IndexedDB, Web Locks, the OPFS and a Worker per page. */
 export const browserDeps: StorageDeps = {
   picker: browserPicker,
@@ -199,6 +236,8 @@ export const browserDeps: StorageDeps = {
   browser: new OpfsProjects(),
   pickPack: pickPackFile,
   download: downloadFile,
+  saveFile,
+  freeSpace,
   fetch: (input, init) => fetch(input, init),
   pageHostname: () => location.hostname,
 }

@@ -1,8 +1,8 @@
 <script lang="ts">
   /**
    * The transport bar: play, stop, back to start, record (MIDI, the armed tracks, #470), loop,
-   * metronome, position in bars.beats.ticks and minutes:seconds, tempo and time signature, and the
-   * launch quantization (`transport.set_launch_quantize`). It holds no state of its own
+   * metronome, position in bars.beats.ticks and minutes:seconds, tempo and time signature, the project's
+   * key and scale (`ScalePicker.svelte`, #695), and the launch quantization (`transport.set_launch_quantize`). It holds no state of its own
    * but the text being typed: it reads the stores and every control is a command (`transport-commands.ts`)
    * through the dispatcher.
    */
@@ -10,7 +10,7 @@
   import { ignoreKeyEvent, isTapChord, spaceTogglesTransport, tapShortcut, trackFocusOrigin } from '../../lib/keyboard'
   import type { MessageKey } from '../../lib/i18n/index'
   import { useStores } from '../../lib/stores'
-  import { beginGroup, endGroup } from '../../lib/track-commands'
+  import { inGroup } from '../../lib/history-group'
   import { offTimeline } from '../../lib/off-timeline'
   import { backToArrangement } from '../../lib/scene-commands'
   import { pause, play, seek, setLaunchQuantize, setLoopRegion, setMetronome, setTempo, setTimeSignature, stop, toggleLoop } from '../../lib/transport-commands'
@@ -32,14 +32,16 @@
     stepTempo,
     type Signature,
   } from './time'
+  import ScalePicker from './ScalePicker.svelte'
   import { createSeries } from './series'
   import { NO_TAPS, TAP_RESET_MS, tap, type TapState } from './tap-tempo'
 
   /**
    * What the top bar folds away when it is full (#604, `TopBar.svelte`): the take's target text turns screen-reader-only
-   * (the record button's title still says it), and the launch quantization leaves for the bar's overflow menu.
+   * (the record button's title still says it), and the key and scale button, then the launch quantization, leave for the
+   * bar's overflow menu (the scale's panel then opens from that menu).
    */
-  let { hideTarget = false, hideQuantize = false }: { hideTarget?: boolean; hideQuantize?: boolean } = $props()
+  let { hideTarget = false, hideQuantize = false, hideScale = false }: { hideTarget?: boolean; hideQuantize?: boolean; hideScale?: boolean } = $props()
 
   const { engine, project, ui, dispatcher, recorder } = useStores()
   const t = ui.t
@@ -266,10 +268,10 @@
       run(toggleLoop())
       return
     }
-    run(beginGroup())
-    run(setLoopRegion(0, DEFAULT_LOOP_BARS * barTicks(signature)))
-    run(toggleLoop())
-    run(endGroup())
+    inGroup(run, () => {
+      run(setLoopRegion(0, DEFAULT_LOOP_BARS * barTicks(signature)))
+      run(toggleLoop())
+    })
   }
 
   /**
@@ -506,6 +508,8 @@
       {#each DENOMINATORS as d (d)}<option value={String(d)}>{d}</option>{/each}
     </select>
   </div>
+
+  <ScalePicker disabled={!ready} folded={hideScale} />
 
   <label class="field" hidden={hideQuantize} data-folds>
     <span class="sr-only">{t('transport.launchQuantize')}</span>

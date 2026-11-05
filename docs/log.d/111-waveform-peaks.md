@@ -1,0 +1,2 @@
+2026-11-04
+* **Update** (#111): AU-2 done: waveform peaks in `.faulk/cache/peaks/` and the `Waveform` component; `architecture/03-stockage-local.md` § 5.12, AU-2 in `specs/02-decoupage-mvp.md`, `agents/verification.md`.

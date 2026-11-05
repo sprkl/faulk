@@ -8,10 +8,12 @@ use crate::contract::{
     StoredBrowserProject, StoredFolder, StoredProjects, Undo,
 };
 use crate::export::{self, ExportBitDepth, ExportRegion, ExportSettings};
+use crate::levels::{self, Level, TrackLevel};
 use crate::macros::domain;
 use crate::query::DeviceSummary;
 use project::file::{OpenOptions, SessionLoad, load_session, open};
-use project::{EngineSlots, Mixer, ProjectId, Tick, TrackId};
+use project::scale::MAX_ROOT;
+use project::{EngineSlots, Mixer, ProjectId, Scale, ScaleKind, Tick, TrackId};
 use std::collections::BTreeSet;
 
 /// Longest project name accepted, in characters: the project's own limit.
@@ -30,6 +32,27 @@ domain! {
     Rename { name: String } => {
         /// The name before the command.
         previous: String,
+    };
+
+    /// Set the project's key and scale: `root` is the tonic's pitch class, 0 (C) to 11 (B), and
+    /// `mode` one of `major`, `natural_minor`, `harmonic_minor`, `melodic_minor` (its rising
+    /// form), `dorian`, `phrygian`, `lydian`, `mixolydian`, `locrian`, `major_pentatonic`,
+    /// `minor_pentatonic`, `blues` (the six-note minor blues), or `chromatic` for no scale (the
+    /// default: every tool works on all twelve notes; `root` is then not kept). F minor is
+    /// `{"root": 5, "mode": "natural_minor"}`. The piano roll shows the scale's notes, and
+    /// `project.get` answers the scale and its pitch classes. One scale for the whole project.
+    /// A root outside 0 to 11 is refused; the scale the project already has changes nothing.
+    /// Undo: set the previous scale back.
+    "project.set_scale" (kind = "edit", undo = "inverse", destructive = false)
+    SetScale {
+        #[schemars(range(min = 0, max = 11))]
+        root: u8,
+        mode: ScaleKind,
+    } => {
+        /// The tonic before the command (0 when there was no scale).
+        previous_root: u8,
+        /// The scale before the command; `chromatic` when there was none.
+        previous_mode: ScaleKind,
     };
 
     /// Open the project folder the host staged under `folder` (the host reads the folder
@@ -95,6 +118,13 @@ domain! {
     /// enters the history.
     "project.export_pack" (kind = "live", undo = "none", destructive = false)
     ExportPack {} => {};
+
+    /// Stop the `.faulkpack` export under way, from the moment it was asked for: nothing is handed
+    /// over (a download is not started; a file the user chose is left empty). Nothing happens when
+    /// no export is running. Changes nothing in the project, so
+    /// it never enters the history.
+    "project.cancel_export_pack" (kind = "live", undo = "none", destructive = false)
+    CancelExportPack {} => {};
 
     /// Open a `.faulkpack` the user chooses: its project replaces the current one and is kept
     /// in the browser as a new project of its own (an import never overwrites a project that
@@ -220,6 +250,52 @@ domain! {
     "project.allow_access" (kind = "live", undo = "none", destructive = false)
     AllowAccess {} => {};
 
+    /// Measure how loud the song is without playing it nor writing a file: the same
+    /// offline render as `project.export_audio` (the engine that plays the song, run
+    /// faster than real time), but only the levels come back, per track and for the
+    /// master, so an agent without ears learns whether its song sounds, whether it is too
+    /// loud, and whether a track is silent. The range is the whole song by default, or
+    /// bars `from_bar` to `to_bar` (both, counted from 1, the last one included); the
+    /// tail after the range is not measured. Levels are in dBFS (0 is full scale), `null`
+    /// is silence; a peak is the larger of the two channels, an RMS the power mean of
+    /// both, over the whole range (not the loudest short window that `mixer.levels`
+    /// gives). The metronome and the loop are off, the solo and mute state are on. Audio
+    /// clips are measured as they play: the render reads their files from the project's
+    /// folder, and a file that cannot be read leaves its clip silent. Refused, as an export
+    /// is, when there is nothing to render (empty arrangement, a range that starts after
+    /// the end of the arrangement or is out of order), and when the range lasts more than
+    /// 10 minutes (a `limit` error). The page runs the render in the background (a few
+    /// seconds for a few minutes of music), one at a time; it answers `unavailable` when
+    /// another analysis runs or the page's engine is not ready. A query: changes nothing
+    /// in the project and never enters the history.
+    "project.analyze_render" (kind = "query", undo = "none", destructive = false)
+    AnalyzeRender {
+        #[serde(default)]
+        #[schemars(range(min = 1))]
+        from_bar: Option<u32>,
+        #[serde(default)]
+        #[schemars(range(min = 1))]
+        to_bar: Option<u32>,
+    } => {
+        /// Where the measured range starts, in ticks (960 per quarter note).
+        start_tick: Tick,
+        /// Where it ends, in ticks.
+        end_tick: Tick,
+        /// Seconds of content measured.
+        duration_secs: f64,
+        /// The level of each track over the range, in display order.
+        tracks: Vec<TrackLevel>,
+        /// The level of the output over the range, after the master and before the output
+        /// protection: above 0 dBFS it is the protection that holds the sound.
+        master: Level,
+        /// Frames the output protection turned to silence because a sample was not a
+        /// number (NaN or infinity): 0 on a healthy mix.
+        silenced_frames: u64,
+        /// How deep the output protection attenuated the mix at its worst, in dB (0 when
+        /// it never engaged): above a dB or two, the mix is too loud.
+        limiter_reduction_db: f64,
+    };
+
     /// Render the project to an audio file (WAV) and save it, offline: the same engine
     /// that plays the song, run faster than real time, so the file is the song as it
     /// sounds, not a recording of the speakers. `region` is `song` (default: from bar 1
@@ -230,9 +306,14 @@ domain! {
     /// counted from 1, required with it and refused without it, the last one included,
     /// then the same tail). `bit_depth` is `pcm16`, `pcm24` (default) or `float32`;
     /// `sample_rate` is 44100, 48000 (default) or 96000. The metronome is never in the
-    /// file; the solo and mute state are. It is refused when there is nothing to render
-    /// (empty arrangement, no loop region for `loop`, a `bars` range that starts after the
-    /// end of the arrangement or is out of order) or the range lasts more than 30 minutes
+    /// file; the solo and mute state are. Audio clips are in the file as they play: the
+    /// render reads their files from the project's folder, in the page in both modes (so in
+    /// Boost too, where they are not heard yet), and waits for each read; a file that cannot
+    /// be read leaves its clips silent and the page names it when the render ends. It is
+    /// refused when there is
+    /// nothing to render (empty arrangement, no loop region for `loop`, a `bars` range that
+    /// starts after the end of the arrangement or is out of order) or the range lasts more
+    /// than 30 minutes
     /// (a `limit` error). The output says what will be rendered; the page runs the render, shows its progress and asks
     /// where to save the file (a folder picker needs a click), so an agent that is not
     /// driven by a user gets the render in the page to confirm. Changes nothing in the
@@ -268,7 +349,8 @@ domain! {
     };
 
     /// Read the project's summary: its id, name, file format version, tempo in BPM, time
-    /// signature, master mixer (gain in dB, `null` is silence; pan; mute), how many tracks,
+    /// signature, key and scale (as `project.set_scale` takes them, with the scale's pitch
+    /// classes, 0 = C to 11 = B), master mixer (gain in dB, `null` is silence; pan; mute), how many tracks,
     /// scenes, clips, placements, automation lanes it holds, the master's effect chain (each device with its id, role, bypass state, source and English name), the selected
     /// track, and whether there is something to undo or redo. It lists nothing: use
     /// `track.list`, `scene.list` and `transport.get` for the rest. A query: changes nothing,
@@ -287,6 +369,13 @@ domain! {
         numerator: u8,
         /// The time signature's denominator.
         denominator: u8,
+        /// The scale's tonic, 0 (C) to 11 (B); 0 when there is no scale.
+        scale_root: u8,
+        /// The scale; `chromatic` when the project has none.
+        scale_mode: ScaleKind,
+        /// The pitch classes of the scale (0 = C to 11 = B), rising; all twelve when there is
+        /// no scale.
+        scale_pitch_classes: Vec<u8>,
         /// The master's gain (dB, `null` is silence), pan and mute.
         master: Mixer,
         /// How many tracks.
@@ -326,6 +415,9 @@ pub fn apply(
                 tempo_bpm: p.tempo_bpm,
                 numerator: p.numerator,
                 denominator: p.denominator,
+                scale_root: p.scale_root,
+                scale_mode: p.scale_mode,
+                scale_pitch_classes: p.scale_pitch_classes,
                 master: p.master,
                 track_count: p.track_count,
                 scene_count: p.scene_count,
@@ -338,6 +430,7 @@ pub fn apply(
                 can_redo: p.can_redo,
             }))
         }
+        Command::SetScale { root, mode } => set_scale(state, *root, *mode),
         Command::Open { folder } => open_folder(folder, state, ctx),
         Command::New { name } => {
             let name = name.as_deref().map(check_project_name).transpose()?;
@@ -348,6 +441,7 @@ pub fn apply(
         Command::Save {} => Ok(nothing(Output::Save {})),
         Command::SaveAs {} => Ok(nothing(Output::SaveAs {})),
         Command::ExportPack {} => Ok(nothing(Output::ExportPack {})),
+        Command::CancelExportPack {} => Ok(nothing(Output::CancelExportPack {})),
         Command::ImportPack {} => Ok(nothing(Output::ImportPack {})),
         // The download and the pack belong to the page (the core checks the pack itself when the
         // page hands it over): the command only checks that the link may be fetched at all.
@@ -383,6 +477,41 @@ pub fn apply(
         // Like a save, the render belongs to the host (the page's worker and file picker):
         // the command checks the request against the project and says what will be
         // rendered.
+        // The numbers belong to the host (the page's offline render): the command checks the
+        // range against the project, takes what the host staged and names the tracks.
+        Command::AnalyzeRender { from_bar, to_bar } => {
+            let plan = export::analysis_plan(&state.project, *from_bar, *to_bar)?;
+            let Some(stage) = ctx.analysis.take() else {
+                return Err(CommandError::Invalid {
+                    field: "render".into(),
+                    message:
+                        "this host measured nothing: the page renders the range before it answers"
+                            .into(),
+                });
+            };
+            if (stage.start_tick, stage.end_tick) != (plan.start_tick, plan.end_tick) {
+                return Err(CommandError::Invalid {
+                    field: "render".into(),
+                    message: "the project changed while it was measured: ask again".into(),
+                });
+            }
+            if export::track_slots(&state.project, &state.session) != stage.slots {
+                return Err(CommandError::Invalid {
+                    field: "render".into(),
+                    message: "the tracks changed while the project was measured: ask again".into(),
+                });
+            }
+            let slot_of = |id: &TrackId| stage.slots.iter().position(|s| s == id).map(|i| i as u32);
+            Ok(crate::query::answer(Output::AnalyzeRender {
+                start_tick: plan.start_tick,
+                end_tick: plan.end_tick,
+                duration_secs: plan.duration_secs,
+                tracks: levels::track_levels(&state.project, slot_of, &stage.tracks),
+                master: levels::level_of(&stage.master),
+                silenced_frames: stage.silenced_frames,
+                limiter_reduction_db: levels::reduction_db(stage.reduction),
+            }))
+        }
         Command::ExportAudio {
             region,
             bit_depth,
@@ -427,6 +556,49 @@ pub fn apply(
                 control: vec![],
             })
         }
+    }
+}
+
+/// `project.set_scale`: `chromatic` is no scale, whatever the root.
+fn set_scale(
+    state: &mut State,
+    root: u8,
+    mode: ScaleKind,
+) -> Result<Outcome<Command, Output>, CommandError> {
+    if root > MAX_ROOT {
+        return Err(CommandError::Invalid {
+            field: "root".into(),
+            message: format!("a root is a pitch class, 0 (C) to {MAX_ROOT} (B), not {root}"),
+        });
+    }
+    let new = mode.mode().map(|mode| Scale { root, mode });
+    let previous = state.project.scale;
+    let (previous_root, previous_mode) = kind_of(previous);
+    let output = Output::SetScale {
+        previous_root,
+        previous_mode,
+    };
+    if previous == new {
+        return Ok(nothing(output));
+    }
+    state.project.scale = new;
+    let (root, mode) = kind_of(new);
+    Ok(Outcome {
+        output,
+        undo: Undo::Inverse(Box::new(Command::SetScale {
+            root: previous_root,
+            mode: previous_mode,
+        })),
+        events: vec![ProjectEvent::ScaleChanged { root, mode }],
+        control: vec![],
+    })
+}
+
+/// A project's scale as the commands name it: `(0, chromatic)` for none.
+pub(crate) fn kind_of(scale: Option<Scale>) -> (u8, ScaleKind) {
+    match scale {
+        None => (0, ScaleKind::Chromatic),
+        Some(s) => (s.root, ScaleKind::from(Some(s.mode))),
     }
 }
 

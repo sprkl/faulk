@@ -213,6 +213,10 @@ impl Core {
             from_bar: Option<u32>,
             #[serde(default)]
             to_bar: Option<u32>,
+            /// The render of `project.analyze_render` (#665): only `from_bar` and `to_bar`
+            /// are read, and the range is bounded by `MAX_ANALYZE_SECS`.
+            #[serde(default)]
+            analysis: bool,
         }
         let refused = |error| (ExportReport::Refused { error }, Vec::new());
         let request = match serde_json::from_slice::<Request>(json) {
@@ -224,26 +228,48 @@ impl Core {
                 });
             }
         };
-        let settings = match ExportSettings::of(
-            request.region,
-            request.bit_depth,
-            request.sample_rate,
-            request.from_bar,
-            request.to_bar,
-        ) {
-            Ok(settings) => settings,
-            Err(error) => return refused(error),
-        };
         let state = &self.synced.state;
+        let settings = if request.analysis {
+            let given = request.region.is_some()
+                || request.bit_depth.is_some()
+                || request.sample_rate.is_some();
+            if given {
+                return refused(commands::CommandError::Invalid {
+                    field: "analysis".into(),
+                    message: "an analysis takes only from_bar and to_bar".into(),
+                });
+            }
+            let planned =
+                commands::export::analysis_plan(&state.project, request.from_bar, request.to_bar);
+            match planned {
+                Ok(plan) => plan.settings,
+                Err(error) => return refused(error),
+            }
+        } else {
+            match ExportSettings::of(
+                request.region,
+                request.bit_depth,
+                request.sample_rate,
+                request.from_bar,
+                request.to_bar,
+            ) {
+                Ok(settings) => settings,
+                Err(error) => return refused(error),
+            }
+        };
         match job(&state.project, &state.session, settings) {
             Ok(job) => {
                 let setup_len = job.setup.len() as u32;
+                let start_len = job.start.len() as u32;
                 let mut bytes = job.setup;
+                bytes.extend(job.start);
                 bytes.extend(job.stop);
                 (
                     ExportReport::Ready {
                         plan: job.plan,
+                        tracks: job.tracks,
                         setup_len,
+                        start_len,
                     },
                     bytes,
                 )
@@ -290,6 +316,25 @@ impl Core {
         Ok(())
     }
 
+    /// The agent `author` (`agent:<name>`) went away (#641, the helper's `agent.left`): the
+    /// group it left open is closed and its turn ends (`History::agent_left`). Whether
+    /// anything changed; a string that is no agent's author changes nothing.
+    pub fn agent_left(&mut self, author: &[u8]) -> Result<bool, AuthorError> {
+        let text = core::str::from_utf8(author).map_err(|_| AuthorError)?;
+        let author = Author::try_from(text.to_owned()).map_err(|_| AuthorError)?;
+        if author == Author::User {
+            return Err(AuthorError);
+        }
+        Ok(self.synced.state.history.agent_left(&author))
+    }
+
+    /// The page lost every link to the helper (#641): no agent can reach it nor be heard
+    /// leaving, so an agent's open group is closed and any agent's turn ends
+    /// (`History::agents_gone`). Whether anything changed.
+    pub fn agents_gone(&mut self) -> bool {
+        self.synced.state.history.agents_gone()
+    }
+
     /// The host's clock for the commands run next, in milliseconds since the Unix epoch:
     /// the history stamps it on the entries it records.
     pub fn set_clock(&mut self, now_ms: u64) {
@@ -311,6 +356,25 @@ impl Core {
     pub fn stage_stored(&mut self, json: &[u8]) -> Result<(), StoredJsonError> {
         let stored = serde_json::from_slice(json).map_err(|_| StoredJsonError)?;
         self.synced.ctx.stored = Some(stored);
+        Ok(())
+    }
+
+    /// Stages the live meters for the next `mixer.levels` (#665), as the JSON of a
+    /// [`commands::levels::LevelsStage`], replacing a reading staged before. Nothing is staged
+    /// when the JSON is not that.
+    pub fn stage_levels(&mut self, json: &[u8]) -> Result<(), StoredJsonError> {
+        let stage = serde_json::from_slice(json).map_err(|_| StoredJsonError)?;
+        self.synced.ctx.levels = Some(stage);
+        Ok(())
+    }
+
+    /// Stages the measures of an offline render for the next `project.analyze_render`
+    /// (#665), as the JSON of a [`commands::levels::AnalysisStage`], replacing one staged
+    /// before. `None` (JSON `null`) clears it. Nothing is staged when the JSON is not that.
+    pub fn stage_analysis(&mut self, json: &[u8]) -> Result<(), StoredJsonError> {
+        let stage: Option<commands::levels::AnalysisStage> =
+            serde_json::from_slice(json).map_err(|_| StoredJsonError)?;
+        self.synced.ctx.analysis = stage;
         Ok(())
     }
 
@@ -464,6 +528,13 @@ pub struct StagedFs {
     files: MemFs,
     /// `blobs/<name>` to its size.
     listed: std::collections::BTreeMap<String, u64>,
+}
+
+impl StagedFs {
+    /// The size of a blob the folder lists without its bytes.
+    pub(crate) fn listed_size(&self, path: &str) -> Option<u64> {
+        self.listed.get(path).copied()
+    }
 }
 
 impl FileSystem for StagedFs {
@@ -842,6 +913,33 @@ pub unsafe extern "C" fn pw_set_author(core: *mut Core, len: u32) -> i32 {
     }
 }
 
+/// [`Core::agent_left`] with the agent's author (`agent:<name>`) in the first `len` bytes of
+/// the inbox: 1 when its group or its turn ended, 0 when it had neither, or
+/// [`ERR_BAD_INPUT`] (not an agent's author; nothing changed).
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_agent_left(core: *mut Core, len: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe {
+        with_core(core, |core| match with_inbox(len, |a| core.agent_left(a)) {
+            Ok(changed) => i32::from(changed),
+            Err(AuthorError) => ERR_BAD_INPUT,
+        })
+    }
+}
+
+/// [`Core::agents_gone`]: 1 when an agent's group or turn ended, else 0.
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_agents_gone(core: *mut Core) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe { with_core(core, |core| i32::from(core.agents_gone())) }
+}
+
 /// [`Core::stage`] with the folder frame in the first `len` bytes of the inbox: 0, or
 /// [`ERR_BAD_FOLDER`] (nothing staged). The folder is opened by running `project.open`
 /// with its name ([`pw_run`]).
@@ -876,6 +974,43 @@ pub unsafe extern "C" fn pw_stage_stored(core: *mut Core, len: u32) -> i32 {
     unsafe {
         with_core(core, |core| {
             match with_inbox(len, |json| core.stage_stored(json)) {
+                Ok(()) => 0,
+                Err(StoredJsonError) => ERR_BAD_INPUT,
+            }
+        })
+    }
+}
+
+/// [`Core::stage_levels`] with the JSON in the first `len` bytes of the inbox: 0, or
+/// [`ERR_BAD_INPUT`] (nothing staged). The reading is taken by running `mixer.levels`.
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_stage_levels(core: *mut Core, len: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe {
+        with_core(core, |core| {
+            match with_inbox(len, |json| core.stage_levels(json)) {
+                Ok(()) => 0,
+                Err(StoredJsonError) => ERR_BAD_INPUT,
+            }
+        })
+    }
+}
+
+/// [`Core::stage_analysis`] with the JSON in the first `len` bytes of the inbox: 0, or
+/// [`ERR_BAD_INPUT`] (nothing staged). The measures are taken by running
+/// `project.analyze_render`.
+///
+/// # Safety
+/// `core` must be null or a live pointer from [`pw_new`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_stage_analysis(core: *mut Core, len: u32) -> i32 {
+    // SAFETY: forwarded from this function's contract.
+    unsafe {
+        with_core(core, |core| {
+            match with_inbox(len, |json| core.stage_analysis(json)) {
                 Ok(()) => 0,
                 Err(StoredJsonError) => ERR_BAD_INPUT,
             }
@@ -963,12 +1098,14 @@ pub unsafe extern "C" fn pw_save(core: *mut Core, mode: u32) -> i32 {
     }
 }
 
-/// Publishes the bytes of a pack call at [`pw_out`] and gives the inbox's memory back (a
-/// pack can be large and the inbox only grows). The length returned, or [`ERR_SERIALIZE`]
-/// when it does not fit the return type.
-fn publish_pack(bytes: Vec<u8>) -> i32 {
+/// Publishes the bytes of a pack call at [`pw_out`] and, with `free_inbox`, gives the inbox's
+/// memory back (a pack can be large and the inbox only grows). The length returned, or
+/// [`ERR_SERIALIZE`] when it does not fit the return type.
+fn publish_pack(bytes: Vec<u8>, free_inbox: bool) -> i32 {
     ENGINE.with_borrow_mut(Vec::clear);
-    INBOX.with_borrow_mut(|inbox| *inbox = Vec::new());
+    if free_inbox {
+        INBOX.with_borrow_mut(|inbox| *inbox = Vec::new());
+    }
     let Ok(len) = i32::try_from(bytes.len()) else {
         OUT.with_borrow_mut(Vec::clear);
         return ERR_SERIALIZE;
@@ -977,18 +1114,38 @@ fn publish_pack(bytes: Vec<u8>) -> i32 {
     len
 }
 
-/// The `.faulkpack` of the folder frame in the first `len` bytes of the inbox (see [`pack`]):
-/// the answer at [`pw_out`], its length returned.
+/// Starts the export of a `.faulkpack` of the folder frame in the first `len` bytes of the inbox
+/// (see [`pack`]): the answer at [`pw_out`], its length returned.
 #[unsafe(no_mangle)]
-pub extern "C" fn pw_pack_export(len: u32) -> i32 {
-    publish_pack(with_inbox(len, pack::export))
+pub extern "C" fn pw_pack_begin(len: u32) -> i32 {
+    publish_pack(with_inbox(len, pack::begin), true)
+}
+
+/// The next file of the export under way that the page must supply, or its end (see [`pack`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_pack_next() -> i32 {
+    publish_pack(pack::next(), false)
+}
+
+/// The first `len` bytes of the inbox as the next bytes of the file the export asked for (see
+/// [`pack`]).
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_pack_feed(len: u32) -> i32 {
+    publish_pack(with_inbox(len, pack::feed), false)
+}
+
+/// Ends the export under way, if any, and frees what it holds.
+#[unsafe(no_mangle)]
+pub extern "C" fn pw_pack_cancel() {
+    pack::cancel();
+    INBOX.with_borrow_mut(|inbox| *inbox = Vec::new());
 }
 
 /// The files of the `.faulkpack` in the first `len` bytes of the inbox, validated as a project
 /// folder (see [`pack`]): the answer at [`pw_out`], its length returned.
 #[unsafe(no_mangle)]
 pub extern "C" fn pw_pack_import(len: u32) -> i32 {
-    publish_pack(with_inbox(len, pack::import))
+    publish_pack(with_inbox(len, pack::import), true)
 }
 
 /// [`Core::saved`]: `applied` is 1 when the page wrote every entry of the last frame.

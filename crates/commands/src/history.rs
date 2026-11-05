@@ -203,6 +203,37 @@ impl History {
         }
     }
 
+    /// The agent `author` went away (#641: the helper says its last MCP session ended): closes
+    /// the group it left open ([`Self::abandon_group`]) and ends its turn, so that the user can
+    /// undo at once and an agent of the same name that comes back starts a new turn. Nothing
+    /// for the user, nor for another agent. Returns whether anything changed.
+    pub fn agent_left(&mut self, author: &Author) -> bool {
+        if !matches!(author, Author::Agent { .. }) {
+            return false;
+        }
+        let closed = self.abandon_group(author);
+        let ended = self.turn.as_ref().is_some_and(|t| t.author == *author);
+        if ended {
+            self.turn = None;
+        }
+        closed || ended
+    }
+
+    /// Every agent is gone (#641: the page lost every link to the helper, so it can learn no
+    /// agent's leave and no agent can reach it): closes the group an agent left open, never
+    /// the user's, and ends any agent's turn. Returns whether anything changed.
+    pub fn agents_gone(&mut self) -> bool {
+        let closed = match &self.open_group {
+            Some((_, opener @ Author::Agent { .. })) => {
+                let opener = opener.clone();
+                self.abandon_group(&opener)
+            }
+            _ => false,
+        };
+        let ended = self.turn.take().is_some();
+        closed || ended
+    }
+
     /// The entries as the history panel shows them (oldest first).
     pub fn view(&self) -> crate::host::HistoryView {
         let rows = |entries: &[Entry]| {

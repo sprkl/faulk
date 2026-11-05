@@ -3,13 +3,13 @@
    * The Clips panel (#473): the pool of the selected track, every clip it has, wherever it is used (its placements, its
    * launch-grid slot) or nowhere (a clip that lost its last placement stays in its track). A linked clip (used more than
    * once) is marked. A row is dragged onto a lane of the arrangement or a cell of the grid, or sent there by its
-   * buttons; every action is a command (`lib/clip-pool.ts` picks which, by the founder's decision 11: a copy of a clip
-   * already used, the clip itself with Alt).
+   * buttons; every action is a command (`lib/clip-pool.ts` picks which: Place sends the clip itself (linked), Alt a copy (#624); the grid and the drag keep the
+   * founder's decision 11: a copy of a clip already used, the clip itself with Alt).
    */
   import LinkMark from '../../lib/components/LinkMark.svelte'
+  import Waveform from '../../lib/components/Waveform.svelte'
   import { barStart } from '../../lib/arrangement-commands'
-  import { CLIP_DRAG_TYPE, clipTrackType, freeScene, gridCommand, placeCommand, poolOf, type PoolClip } from '../../lib/clip-pool'
-  import { AUDIO_IMPORT_UI } from '../../lib/features'
+  import { CLIP_DRAG_TYPE, clipTrackType, freeScene, gridCommand, placeCommand, poolNames, poolOf, type PoolClip } from '../../lib/clip-pool'
   import { cancelAudioImport, chooseAudio, deleteClip } from '../../lib/clip-commands'
   import type { ImportFailure } from '../../lib/audio/import/audio-import.svelte'
   import type { MessageKey } from '../../lib/i18n'
@@ -17,7 +17,7 @@
   import { barTicks } from '../transport/time'
   import { trackColor } from '../../lib/project/tracks'
 
-  const { project, dispatcher, ui, engine, audioImport } = useStores()
+  const { project, dispatcher, ui, engine, audioImport, peaks } = useStores()
   const t = ui.t
 
   /** What a failed import says: by why the file was refused, or that the folder refused it. */
@@ -59,15 +59,46 @@
     return barStart(engine.started ? (engine.feedback?.playheadTick ?? 0) : 0, barTicks(signature))
   }
 
-  function place(entry: PoolClip, linked: boolean) {
-    const command = placeCommand(entry, playheadBar(), linked)
-    if (command) dispatcher.run(command)
+  /**
+   * Places a clip at the playhead: the same clip, linked, by default (#624); `copy` (Alt) makes an independent copy of a
+   * clip already used. The placements it made become the arrangement's selection and take the keyboard focus.
+   */
+  function place(entry: PoolClip, copy: boolean) {
+    const command = placeCommand(entry, playheadBar(), !copy)
+    if (!command) return
+    const placements = () => (trackId ? (project.view?.project.tracks[trackId]?.placements ?? {}) : {})
+    const before = new Set(Object.keys(placements()))
+    dispatcher.run(command)
+    // A placement that lands inside another carves it: the right-hand piece is new too but starts later, so the one placed is
+    // the new placement that starts first.
+    const fresh = Object.entries(placements() as Record<string, { start: number } | undefined>)
+      .filter(([id, p]) => !before.has(id) && p)
+      .sort(([, a], [, b]) => a!.start - b!.start)[0]
+    if (fresh && ui.view === 'arrangement') ui.showPlaced([fresh[0]])
   }
+
+  /** The name a row shows: two clips of one name get a number, so that they tell apart (#624). */
+  const names = $derived(poolNames(pool, t('clips.audio')))
 
   function toGrid(entry: PoolClip, linked: boolean) {
     if (!free) return
     const command = gridCommand(entry, free, linked)
     if (command) dispatcher.run(command)
+  }
+
+  /**
+   * An audio clip's gain from its field (AU-6): a number from -96 to +6 dB, or empty for silence; anything else puts the
+   * field back to the clip's gain without a command.
+   */
+  function setGain(entry: PoolClip, input: HTMLInputElement) {
+    if (!('audio' in entry.clip.content)) return
+    const current = entry.clip.content.audio.gain_db ?? null
+    const text = input.value.trim()
+    const value = text === '' ? null : Number(text)
+    const valid = value === null || (Number.isFinite(value) && value >= -96 && value <= 6)
+    if (!valid || value === current || !dispatcher.run({ type: 'clip.audio.set_gain', clip: entry.id, gain_db: value })) {
+      input.value = current === null ? '' : String(Math.round(current * 10) / 10)
+    }
   }
 
   function onDragStart(event: DragEvent, entry: PoolClip) {
@@ -92,7 +123,7 @@
 </script>
 
 <div class="clips" data-testid="clips-panel">
-  {#if AUDIO_IMPORT_UI && track && trackId && track.kind === 'audio'}
+  {#if track && trackId && track.kind === 'audio'}
     <div class="import" data-testid="audio-import">
       <button
         class="ghost"
@@ -117,6 +148,9 @@
       {:else if audioImport.needsClick}
         <span class="failure" role="status" data-testid="audio-import-needs-click">{t('clips.importNeedsClick')}</span>
         <button class="ghost" type="button" onclick={() => audioImport.dismiss()}>{t('clips.dismiss')}</button>
+      {:else if engine.mode === 'native'}
+        <!-- The helper reads no project folder yet (AU-7): its engine keeps audio clips silent. -->
+        <span class="note" role="status" data-testid="audio-boost-silent">{t('clips.boostSilent')}</span>
       {/if}
     </div>
   {/if}
@@ -132,31 +166,60 @@
             class="handle"
             role="button"
             tabindex="0"
-            draggable={entry.midi}
+            draggable="true"
             title={t('clips.dragHint')}
-            aria-label={t('clips.row', { name: entry.clip.name, where: where(entry) }) + (entry.uses > 1 ? `, ${t('clips.linked')}` : '')}
+            aria-label={t('clips.row', { name: names[entry.id], where: where(entry) }) + (entry.uses > 1 ? `, ${t('clips.linked')}` : '')}
             data-testid="pool-handle"
             ondragstart={(event) => onDragStart(event, entry)}
             onkeydown={(event) => onKey(event, entry)}
           >
             <span class="swatch" style:background={entry.clip.color ?? color} aria-hidden="true"></span>
-            <span class="name">{entry.clip.name || t('clips.audio')}</span>
+            <span class="name">{names[entry.id]}</span>
+            {#if 'audio' in entry.clip.content}
+              {@const audio = entry.clip.content.audio}
+              <!-- The part of its file the clip plays (AU-2), drawn from the file's peaks. -->
+              <span class="wave" data-testid="pool-waveform" data-media={audio.media.hash}>
+                <Waveform peaks={peaks.of(audio.media).peaks} from={audio.start} frames={audio.frames} color={entry.clip.color ?? color} track />
+              </span>
+            {/if}
           </span>
           {#if entry.uses > 1}<span class="linked" title={t('clips.linkedHint')}><LinkMark />{t('clips.linked')}</span>{/if}
           <span class="where">{where(entry)}</span>
           <span class="actions">
-            <button
-              class="ghost"
-              type="button"
-              disabled={!entry.midi}
-              title={t('clips.placeHint')}
-              data-testid="pool-place"
-              onclick={(event) => place(entry, event.altKey)}>{t('clips.place')}</button
+            {#if 'audio' in entry.clip.content}
+              {@const gain = entry.clip.content.audio.gain_db}
+              <!-- The clip's gain (AU-6): one command per value typed; empty is silence. -->
+              <label class="gain" title={t('audio.gainHint')}>
+                <span>{t('audio.gain')}</span>
+                <input
+                  type="number"
+                  min="-96"
+                  max="6"
+                  step="0.1"
+                  value={gain === null || gain === undefined ? '' : Math.round(gain * 10) / 10}
+                  placeholder={t('audio.gainSilent')}
+                  aria-label={t('audio.gainOf', { name: names[entry.id] ?? '' })}
+                  data-testid="pool-gain"
+                  onchange={(event) => setGain(entry, event.currentTarget)}
+                />
+                <span class="unit" aria-hidden="true">{t('audio.gainUnit')}</span>
+              </label>
+            {/if}
+            <button class="ghost" type="button" title={t('clips.placeHint')} data-testid="pool-place" onclick={(event) => place(entry, event.altKey)}
+              >{t('clips.place')}</button
             >
             <button
               class="ghost"
               type="button"
-              disabled={!entry.midi || !free}
+              disabled={entry.uses === 0}
+              title={t('clips.placeCopyHint')}
+              data-testid="pool-place-copy"
+              onclick={() => place(entry, true)}>{t('clips.placeCopy')}</button
+            >
+            <button
+              class="ghost"
+              type="button"
+              disabled={!free}
               title={free ? t('clips.toGridHint') : t('clips.noFreeSlot')}
               data-testid="pool-grid"
               onclick={(event) => toGrid(entry, event.altKey)}>{t('clips.toGrid')}</button
@@ -216,6 +279,12 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .wave {
+    flex: 1 1 64px;
+    min-width: 32px;
+    max-width: 240px;
+    height: 20px;
+  }
   .row.unused .name {
     font-style: italic;
   }
@@ -236,7 +305,22 @@
   .actions {
     grid-column: 4;
     display: flex;
+    align-items: center;
     gap: var(--fk-space-1);
+  }
+  .gain {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--fk-space-1);
+    margin-right: var(--fk-space-2);
+    color: var(--fk-text-muted);
+    font-size: 0.85em;
+  }
+  .gain input {
+    width: 60px;
+    padding: 0 var(--fk-space-1);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
   }
   .empty {
     margin: 0;

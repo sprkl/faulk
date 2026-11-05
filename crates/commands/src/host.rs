@@ -39,14 +39,18 @@ pub enum RunReport {
 }
 
 /// What preparing an export (`project.export_audio`, #297) gave: the render's plan, with the
-/// engine bytes returned beside it (the setup stream, then the stream that stops the
-/// transport, `setup_len` bytes then the rest).
+/// engine bytes returned beside it: the setup stream (`setup_len` bytes), the stream that
+/// starts the transport after the render's pre-roll (`start_len` bytes), then the stream that
+/// stops it (the rest).
 #[derive(Clone, Debug, PartialEq, Serialize, JsonSchema)]
 #[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ExportReport {
     Ready {
         plan: crate::export::ExportPlan,
+        /// The tracks by the engine slot the render gives them (what a measure is of).
+        tracks: Vec<project::TrackId>,
         setup_len: u32,
+        start_len: u32,
     },
     /// The project cannot be exported as asked (nothing to render, no loop region...).
     Refused { error: CommandError },

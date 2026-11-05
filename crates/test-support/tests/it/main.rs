@@ -2,6 +2,8 @@
 
 mod all_sound_off;
 mod arrangement_commands;
+mod audio_arrangement;
+mod audio_replay;
 mod big_project;
 mod clip_edit_playback;
 mod compiler;
@@ -11,6 +13,7 @@ mod device_fade;
 mod drums;
 mod echo;
 mod export;
+mod export_audio;
 mod filter;
 mod harness;
 mod journey_pack;

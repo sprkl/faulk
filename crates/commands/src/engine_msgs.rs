@@ -597,16 +597,29 @@ fn compile_event(
         ProjectEvent::TrackSelected { track } => out.push(ControlMsg::SelectTrack {
             track: track.as_ref().and_then(|t| track_slot(sync, t)),
         }),
-        ProjectEvent::TempoChanged { .. }
-        | ProjectEvent::TimeSignatureChanged { .. }
-        | ProjectEvent::LaunchQuantizeChanged { .. } => {
+        ProjectEvent::TempoChanged { .. } => {
+            out.push(set_transport(project));
+            // A tempo change can shorten audio placements (#709): the engine hears the
+            // new lengths of every track that holds one.
+            for (id, t) in &project.tracks {
+                if t.placements
+                    .values()
+                    .any(|p| matches!(p.span, Span::Frames { .. }))
+                {
+                    placements_msgs(id, t, sync, out);
+                }
+            }
+        }
+        ProjectEvent::TimeSignatureChanged { .. } | ProjectEvent::LaunchQuantizeChanged { .. } => {
             out.push(set_transport(project));
         }
         ProjectEvent::LoopChanged { .. } => out.push(set_loop(project)),
         ProjectEvent::MetronomeChanged { .. } => out.push(set_metronome(project)),
         // `project.open` has no per-command messages: the host sends a snapshot of the
         // new project (`Synced::run`).
+        // No device reads the scale yet (#695): it stays in the project.
         ProjectEvent::ProjectRenamed { .. }
+        | ProjectEvent::ScaleChanged { .. }
         | ProjectEvent::MarkersChanged {}
         | ProjectEvent::ProjectOpened { .. }
         | ProjectEvent::ControlChange { .. }

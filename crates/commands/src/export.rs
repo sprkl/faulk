@@ -12,14 +12,20 @@
 //!   matter: the region is what the user marked, and a render is never looped.
 //! - **What is not played.** The metronome (a click is not the song) and the loop. The
 //!   session is kept: a solo left on is heard, as it is when playing.
-//! - **Not yet**: audio clips are not streamed to the engine (AU-3), so they do not sound
-//!   in the render, though a placement of one counts for the song's length.
+//! - **Audio clips** (#647): the render's engine reads their files through its disk planner,
+//!   and the host serves its reads from the project's folder (the page's export Worker, in
+//!   both modes): `engine::offline` renders a block only once the reads it needs are served,
+//!   so the file is what playback gives. A file that cannot be read leaves its clips silent;
+//!   the render reports its media (`Offline::missing`).
+//! - **The start.** The setup holds no `Play`: [`ExportJob::start`] goes in after the
+//!   engine's pre-roll (`engine::offline::PREROLL_SECONDS`), once the fade in of the new
+//!   tracks and devices is over, so the first frame is heard as when playing.
 
 use engine::msg::{ControlMsg, MsgError};
 use engine::offline::{self, MAX_BODY_SECS, SampleFormat};
 
 const _: () = assert!(MAX_BODY_SECS as u64 == MAX_EXPORT_SECS);
-use project::{ClipContent, Project, SampleRate, SessionState, Span, Tick};
+use project::{ClipContent, Project, SampleRate, SessionState, Span, Tick, TrackId};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
@@ -268,15 +274,53 @@ pub fn plan(project: &Project, settings: ExportSettings) -> Result<ExportPlan, C
     })
 }
 
-/// A render ready to run: its plan and the two streams `engine::offline::Offline` takes.
+/// The tracks of the project by the engine slot a render gives them ([`ExportJob::tracks`]).
+pub fn track_slots(project: &Project, session: &SessionState) -> Vec<TrackId> {
+    let (_, slots) = snapshot(project, session);
+    slots.tracks.iter().map(|(_, id)| id.clone()).collect()
+}
+
+/// What `project.analyze_render` measures: the song, or bars `from_bar` to `to_bar` (both
+/// or neither), at the default sample rate. Refused like an export, and when the range lasts
+/// more than [`crate::levels::MAX_ANALYZE_SECS`].
+pub fn analysis_settings(
+    from_bar: Option<u32>,
+    to_bar: Option<u32>,
+) -> Result<ExportSettings, CommandError> {
+    let region = (from_bar.is_some() || to_bar.is_some()).then_some(ExportRegion::Bars);
+    ExportSettings::of(region, None, None, from_bar, to_bar)
+}
+
+/// The plan of an analysis ([`analysis_settings`]), or why nothing can be measured.
+pub fn analysis_plan(
+    project: &Project,
+    from_bar: Option<u32>,
+    to_bar: Option<u32>,
+) -> Result<ExportPlan, CommandError> {
+    let plan = plan(project, analysis_settings(from_bar, to_bar)?)?;
+    if plan.duration_secs > crate::levels::MAX_ANALYZE_SECS as f64 {
+        return Err(CommandError::Limit {
+            entity: "analyze seconds".into(),
+            max: crate::levels::MAX_ANALYZE_SECS,
+        });
+    }
+    Ok(plan)
+}
+
+/// A render ready to run: its plan and the three streams `engine::offline::Offline` takes,
+/// encoded one after the other in the same stream: `setup`, `start`, `stop`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExportJob {
     pub plan: ExportPlan,
-    /// A `Reset`, the snapshot of the project (no metronome, no loop) and the `Play` from
-    /// the start of the range.
+    /// The tracks by the engine slot the render gives them (display order): what the levels
+    /// the render measures are of ([`track_slots`]).
+    pub tracks: Vec<TrackId>,
+    /// A `Reset` and the snapshot of the project (no metronome, no loop).
     pub setup: Vec<u8>,
-    /// The `Stop` sent when the content has been rendered (it follows `setup` in the same
-    /// stream).
+    /// The `Play` from the start of the range, sent after the pre-roll
+    /// (`Offline::set_start`).
+    pub start: Vec<u8>,
+    /// The `Stop` sent when the content has been rendered (`Offline::set_stop`).
     pub stop: Vec<u8>,
 }
 
@@ -290,19 +334,28 @@ pub fn job(
     let mut project = project.clone();
     project.transport.metronome.enabled = false;
     project.transport.loop_enabled = false;
-    let (snapshot, _) = snapshot(&project, session);
-    let mut msgs = Vec::with_capacity(snapshot.len() + 2);
+    let (snapshot, slots) = snapshot(&project, session);
+    let tracks = slots.tracks.iter().map(|(_, id)| id.clone()).collect();
+    let mut msgs = Vec::with_capacity(snapshot.len() + 1);
     msgs.push(ControlMsg::Reset { epoch: EPOCH });
     msgs.extend(snapshot);
-    msgs.push(ControlMsg::Play {
-        from: plan.start_tick,
-    });
     let mut stream = EngineStream::new(EPOCH);
     let setup = stream.encode(&msgs).map_err(ExportError::Stream)?;
+    let start = stream
+        .encode(&[ControlMsg::Play {
+            from: plan.start_tick,
+        }])
+        .map_err(ExportError::Stream)?;
     let stop = stream
         .encode(&[ControlMsg::Stop])
         .map_err(ExportError::Stream)?;
-    Ok(ExportJob { plan, setup, stop })
+    Ok(ExportJob {
+        plan,
+        tracks,
+        setup,
+        start,
+        stop,
+    })
 }
 
 /// Why no render could be prepared.
