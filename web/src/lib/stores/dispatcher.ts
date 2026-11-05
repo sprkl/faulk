@@ -128,6 +128,12 @@ export class Dispatcher {
   /** MIDI recording (#470): told of every command applied and every report of the current engine. */
   recorder: Recorder | null = null
 
+  /** Dev checks only (#733): the Web engine's clock, `null` when it does not play. */
+  webClock(): { sampleRate: number; heardFrameAt(timeStamp: number): number | null } | null {
+    const web = this.web
+    return !this.native && web ? { sampleRate: web.sampleRate, heardFrameAt: (t) => web.heardFrameAt(t) } : null
+  }
+
   private get engine(): Engine | null {
     return this.native ?? this.web
   }

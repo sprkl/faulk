@@ -48,6 +48,10 @@ export class WebEngine implements Engine {
     }, FEEDBACK_MS)
   }
 
+  get sampleRate(): number {
+    return this.context.sampleRate
+  }
+
   /** Must be called from a user gesture (browsers start audio only then). */
   static async create(events: EngineEvents): Promise<WebEngine> {
     const context = new AudioContext({ latencyHint: 'interactive' })
@@ -119,6 +123,15 @@ export class WebEngine implements Engine {
   frameAt(timeStamp: number | undefined): number | null {
     if (this.context.state !== 'running' || typeof this.context.getOutputTimestamp !== 'function') return null
     return contextFrameAt(this.outputClock.observe(this.context.getOutputTimestamp()), timeStamp, this.reportedLatency, this.context.sampleRate)
+  }
+
+  /**
+   * Dev checks only (#733): the context frame the output plays at the page instant `timeStamp`, by the clock the stamps use
+   * but without the latency a stamp adds back, so that a check can place a stamped note on the engine's own line.
+   */
+  heardFrameAt(timeStamp: number): number | null {
+    if (this.context.state !== 'running' || typeof this.context.getOutputTimestamp !== 'function') return null
+    return contextFrameAt(this.outputClock.observe(this.context.getOutputTimestamp()), timeStamp, 0, this.context.sampleRate)
   }
 
   private sampleClock() {
