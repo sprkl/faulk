@@ -136,6 +136,52 @@ export const DOWNLOAD_PATH = '.faulk/tmp/download.faulkpack'
 /** The pieces a download is handed to the store's Worker in. */
 const DOWNLOAD_PIECE_BYTES = 1 << 20
 
+/** An import under way: its cancel, and whether its project started to open (then a cancel comes too late). */
+interface ImportRun {
+  abort: AbortController
+  committed: boolean
+}
+
+/** What `cancelImport` did: the imports it stopped, and those it left to finish because their project had started to open. */
+export interface ImportCancel {
+  cancelled: number
+  tooLate: number
+}
+
+/**
+ * A file read whole, piece by piece (`File.stream()`; else at once, the cancel then only drops what was read), so that a
+ * cancel stops the read at the next piece. `null` when cancelled. `onProgress`: the fraction read.
+ */
+export async function readWhole(file: Blob, signal: AbortSignal, onProgress: (fraction: number) => void): Promise<Uint8Array | null> {
+  if (signal.aborted) return null
+  if (typeof file.stream !== 'function') {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    return signal.aborted ? null : bytes
+  }
+  const out = new Uint8Array(file.size)
+  const reader = file.stream().getReader()
+  let at = 0
+  try {
+    for (;;) {
+      if (signal.aborted) {
+        await reader.cancel().catch(() => undefined)
+        return null
+      }
+      const { done, value } = await reader.read()
+      if (done) break
+      // A file that grew under the reader: the pack is no longer the one that was picked.
+      if (at + value.length > out.length) throw new Error('the file changed while it was read')
+      out.set(value, at)
+      at += value.length
+      onProgress(out.length === 0 ? 1 : at / out.length)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  if (signal.aborted) return null
+  return at === out.length ? out : out.subarray(0, at)
+}
+
 /** A new directory of the browser's storage made for an import, its lock and its store. */
 interface ImportDir {
   dir: string
@@ -304,9 +350,9 @@ export class ProjectStorage {
   private exportAbort: AbortController | null = null
   /** An export is under way, from the click on: the file dialog and the preparation included. */
   private exportBusy = false
-  /** The imports asked for and not over (#682): `cancelImport` stops them all. */
+  /** The imports asked for and not over (#682): `cancelImport` stops them all, but those whose project started to open. */
   // eslint-disable-next-line svelte/prefer-svelte-reactivity -- never read by the interface
-  private readonly importAborts = new Set<AbortController>()
+  private readonly importRuns = new Map<AbortSignal, ImportRun>()
   private queue: Promise<unknown> = Promise.resolve()
   /** The downloads of `openUrl`, one at a time, outside `queue` so a slow host never holds a save back. */
   private downloads: Promise<unknown> = Promise.resolve()
@@ -1788,19 +1834,40 @@ export class ProjectStorage {
   }
 
   /** Stops the `.faulkpack` imports under way and those waiting their turn (`project.cancel_import_pack`), until their project starts opening. */
-  cancelImport() {
-    for (const abort of this.importAborts) abort.abort()
+  cancelImport(): ImportCancel {
+    let cancelled = 0
+    let tooLate = 0
+    for (const run of this.importRuns.values()) {
+      if (run.committed) tooLate++
+      else if (!run.abort.signal.aborted) {
+        run.abort.abort()
+        cancelled++
+      }
+    }
+    return { cancelled, tooLate }
   }
 
   /** An import from the moment it is asked for: `cancelImport` reaches it while it waits, downloads or reads. */
   private beginImport(): AbortController {
     const abort = new AbortController()
-    this.importAborts.add(abort)
+    this.importRuns.set(abort.signal, { abort, committed: false })
     return abort
   }
 
   private endImport(abort: AbortController) {
-    this.importAborts.delete(abort)
+    this.importRuns.delete(abort.signal)
+  }
+
+  /**
+   * The point of no return of an import: its project starts to open. From here `cancelImport` leaves it alone and says it
+   * came too late. `false` when it was cancelled before (nothing is committed then). No `await` between the caller's last
+   * look at the signal and this, so a cancel cannot slip in between.
+   */
+  private commitImport(signal: AbortSignal): boolean {
+    if (signal.aborted) return false
+    const run = this.importRuns.get(signal)
+    if (run) run.committed = true
+    return true
   }
 
   private async importFile(file: File, signal: AbortSignal): Promise<boolean> {
@@ -1816,7 +1883,23 @@ export class ProjectStorage {
       this.notice = 'pack.tooBig'
       return false
     }
-    return this.importBytes(new Uint8Array(await file.arrayBuffer()), name)
+    // Read whole, in pieces so that a cancel stops the read itself (#735); the banner shows it with its Cancel button.
+    this.importing = 0
+    let bytes: Uint8Array | null
+    try {
+      bytes = await readWhole(file, signal, (fraction) => (this.importing = fraction))
+    } catch (error) {
+      this.errorDetail = error instanceof Error ? error.message : String(error)
+      this.notice = 'pack.invalid'
+      return false
+    } finally {
+      this.importing = null
+    }
+    if (!bytes) {
+      this.notice = 'pack.importCancelled'
+      return false
+    }
+    return this.importBytes(bytes, name, {}, signal)
   }
 
   /**
@@ -1871,7 +1954,7 @@ export class ProjectStorage {
           this.notice = 'pack.importCancelled'
           return Promise.resolve(false)
         }
-        return this.importBytes(bytes, packNameOf(checked.url), { reuseKept: true, allowed })
+        return this.importBytes(bytes, packNameOf(checked.url), { reuseKept: true, allowed }, abort.signal)
       })
     }
   }
@@ -2041,6 +2124,8 @@ export class ProjectStorage {
       if (signal.aborted) return await stop('pack.importCancelled')
       const known = await this.knownProject(head.files, name, options)
       if (known) {
+        // Opening the copy the browser keeps is the point of no return too.
+        if (known.open !== undefined && !this.commitImport(signal)) return await stop('pack.importCancelled')
         await this.dropImportDir(target)
         return known.open !== undefined ? this.openKept(known.open, allowed) : known.result
       }
@@ -2062,7 +2147,7 @@ export class ProjectStorage {
       this.importing = null
     }
     // The last moment a cancel reaches it: once the project starts opening, it opens.
-    if (signal.aborted) return this.cancelledAfterWrite(target)
+    if (!this.commitImport(signal)) return this.cancelledAfterWrite(target)
     target.store.close()
     target.release?.()
     const opened = await this.openHandle(target.handle, { kind: 'browser', dir: target.dir, allowed })
@@ -2103,7 +2188,7 @@ export class ProjectStorage {
   }
 
   /** The pack's bytes, checked by the core, kept in a new directory of the browser's storage and opened. */
-  private async importBytes(bytes: Uint8Array, name: string, options: { reuseKept?: boolean; allowed?: boolean } = {}): Promise<boolean> {
+  private async importBytes(bytes: Uint8Array, name: string, options: { reuseKept?: boolean; allowed?: boolean }, signal: AbortSignal): Promise<boolean> {
     const allowed = options.allowed ?? false
     // Read and checked before anything is touched: a file that is no pack changes nothing.
     let unpacked: PackImport
@@ -2120,9 +2205,27 @@ export class ProjectStorage {
       return false
     }
     const files = unpacked.files
+    // A cancel holds until the project starts opening (#735).
+    if (signal.aborted) {
+      this.notice = 'pack.importCancelled'
+      return false
+    }
     const known = await this.knownProject(files, name, options)
-    if (known) return known.open !== undefined ? this.openKept(known.open, allowed) : known.result
-    if (!this.deps.browser.available) return this.openImported(name, files, allowed)
+    if (known) {
+      if (known.open === undefined) return known.result
+      if (!this.commitImport(signal)) {
+        this.notice = 'pack.importCancelled'
+        return false
+      }
+      return this.openKept(known.open, allowed)
+    }
+    if (!this.deps.browser.available) {
+      if (!this.commitImport(signal)) {
+        this.notice = 'pack.importCancelled'
+        return false
+      }
+      return this.openImported(name, files, allowed)
+    }
     // (Not reached from the page, which reads a pack in pieces where the browser keeps projects.) Into a directory of the browser's storage first, as a pack is written into an empty folder: the
     // page's own project is untouched until the pack is whole there, `project.json` last.
     const dir = crypto.randomUUID()
@@ -2145,6 +2248,11 @@ export class ProjectStorage {
       return false
     }
     releaseDir?.()
+    if (!this.commitImport(signal)) {
+      await this.deps.browser.remove(dir).catch(() => undefined)
+      this.notice = 'pack.importCancelled'
+      return false
+    }
     const opened = await this.openHandle(handle, { kind: 'browser', dir, allowed })
     // Declined (the question before replacing a project) or refused: the copy made for it goes.
     if (!opened) await this.deps.browser.remove(dir).catch(() => undefined)
