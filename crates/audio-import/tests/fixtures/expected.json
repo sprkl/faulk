@@ -161,5 +161,25 @@
     "peaks_sha256": "d5a559b701da64ced16291f9d5d0ae219f0d58bbcb96a4eac71a2cd2d61f8f5c",
     "sample_rate": 48000,
     "sha256": "c3cac0ac38f2f12270f69871d134a8f9417b68aaf6c18cedd2f70a92d3a8e336"
+  },
+  "voip-mono.opus": {
+    "channels": 1,
+    "direct": false,
+    "frames": 24000,
+    "pcm_reference": null,
+    "pcm_sha256": "2f6e8c4a3bd3d9ba3f5b733c0552117106de3030c0b9b982c60900277233951a",
+    "peaks_sha256": "1fde2ef8b2ab10180f55823a4bd7962be345f45b36c39f13e88d0e4c40a9e446",
+    "sample_rate": 48000,
+    "sha256": "ae2e636a8af93e4c001702d0a7087d14b962c14e926bfe1988f4f9aaa62fd555"
+  },
+  "voip.webm": {
+    "channels": 2,
+    "direct": false,
+    "frames": 24000,
+    "pcm_reference": null,
+    "pcm_sha256": "511d203b97c66b69d6f49e6474a8a4e5baa97e871644ab8a672b699f18adf76f",
+    "peaks_sha256": "a1038dfab89cc4ef73435e01e859cdb700b7005742aa01a00d2bec62ca1fccc2",
+    "sample_rate": 48000,
+    "sha256": "f596be698a7de5985192b68d8c497a6247c533efd16309b5919c2bb495f7af2f"
   }
 }

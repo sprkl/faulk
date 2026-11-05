@@ -52,12 +52,14 @@ def out(name):
     return os.path.join(HERE, name)
 
 
-def encode(name, codec, samples, rate, fmt, layout="stereo", bit_rate=None, container=None):
+def encode(name, codec, samples, rate, fmt, layout="stereo", bit_rate=None, container=None, options=None):
     with av.open(out(name), "w", format=container) as box:
         stream = box.add_stream(codec, rate=rate)
         stream.layout = layout
         if bit_rate:
             stream.bit_rate = bit_rate
+        if options:
+            stream.codec_context.options = options
         frame_size = stream.codec_context.frame_size or 4096
         data = samples.astype(np.float32) / 32768.0 if fmt == "fltp" else samples
         at = 0
@@ -96,6 +98,11 @@ def main():
     # DiscardPadding), and a mono stream in Ogg.
     encode("sine.webm", "libopus", source(rate=48_000, frames=24_000), 48_000, "fltp", bit_rate=96_000, container="webm")
     encode("sine-mono.opus", "libopus", source(rate=48_000, frames=24_000, channels=1), 48_000, "fltp", layout="mono", bit_rate=64_000, container="ogg")
+    # Opus's speech modes, so that the page/helper parity covers them (the files above are CELT):
+    # SILK alone (mono, 10 kb/s), and hybrid then SILK then CELT (stereo, 16 kb/s), both with
+    # libopus's voip application and 20 ms frames.
+    encode("voip-mono.opus", "libopus", source(rate=48_000, frames=24_000, channels=1), 48_000, "fltp", layout="mono", bit_rate=10_000, container="ogg", options={"application": "voip"})
+    encode("voip.webm", "libopus", source(rate=48_000, frames=24_000), 48_000, "fltp", bit_rate=16_000, container="webm", options={"application": "voip"})
     with open(out("not-audio.txt"), "w", newline="\n") as f:
         f.write("This is a text file, not audio.\n")
 

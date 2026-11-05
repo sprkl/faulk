@@ -62,7 +62,7 @@ const TOLERATED = ['sine.mp3', 'sine.m4a']
 describe('the import module, as the page runs it', () => {
   it('gives every reference file the hash and the PCM the native build gives', () => {
     const names = Object.keys(expected)
-    expect(names.length).toBe(17)
+    expect(names.length).toBe(19)
     for (const name of names) {
       const bytes = fixture(name)
       const record = expected[name]!

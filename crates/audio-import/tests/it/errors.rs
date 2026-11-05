@@ -25,6 +25,8 @@ const AUDIO: &[&str] = &[
     "sine-mono.opus",
     "sine.webm",
     "recorded.webm",
+    "voip-mono.opus",
+    "voip.webm",
 ];
 
 /// A small deterministic generator (xorshift64*), so a failing run replays from its seed.

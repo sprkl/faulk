@@ -98,9 +98,20 @@ pub fn paddings(r: &mut (impl Read + Seek), len: u64) -> Option<Paddings> {
                 found.set(vint(&body)?.0, 0);
             }
             BLOCK_GROUP => {
-                // `body` refuses a group over `MAX_BODY` (a block of audio is a few kilobytes).
-                let (track, padding) = block_group(&r.body(size?)?)?;
-                found.set(track, padding);
+                let size = size?;
+                if size > MAX_BODY {
+                    // A video frame (a block of audio is a few kilobytes): skipped by the
+                    // track its block names, which comes first in the group.
+                    let head = r.peek(32)?.to_vec();
+                    let track = block_group(&head).map(|(track, _)| track);
+                    if track.is_none_or(|t| found.0.iter().any(|o| o.0 == t)) {
+                        return None;
+                    }
+                    r.skip(size)?;
+                } else {
+                    let (track, padding) = block_group(&r.body(size)?)?;
+                    found.set(track, padding);
+                }
             }
             EBML => return None,
             _ => r.skip(size?)?,
@@ -372,6 +383,25 @@ mod tests {
         segment.extend(unknown(CLUSTER));
         segment.extend(group(1, Some(1_000_000)));
         assert_eq!(walk(&file(segment, false)).unwrap().of(1), 48);
+        // A video frame of more than `MAX_BODY` in a block group: skipped by its track.
+        let big = |track: u8| {
+            let mut block = vec![0x80 | track, 0, 0, 0x80];
+            block.resize(1_200_000, 7);
+            el(BLOCK_GROUP, &el(BLOCK, &block))
+        };
+        let video = el(
+            CLUSTER,
+            &[big(2), group(1, Some(13_500_000)), big(2)].concat(),
+        );
+        assert_eq!(
+            walk(&file([tracks.clone(), video].concat(), true))
+                .unwrap()
+                .of(1),
+            648
+        );
+        // Of the Opus track: not a file this walk reads.
+        let huge = el(CLUSTER, &big(1));
+        assert_eq!(walk(&file([tracks.clone(), huge].concat(), true)), None);
         // A negative padding is not an end padding.
         let negative = el(CLUSTER, &group(1, Some(-1_000_000)));
         assert_eq!(

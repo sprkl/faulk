@@ -30,6 +30,8 @@ const FIXTURES: &[&str] = &[
     "sine-mono.opus",
     "sine.webm",
     "recorded.webm",
+    "voip-mono.opus",
+    "voip.webm",
     "not-audio.txt",
 ];
 
@@ -106,6 +108,26 @@ const LOSSY: &[Lossy] = &[
         channels: 2,
     },
 ];
+
+#[test]
+fn opus_speech_modes_keep_the_source_length() {
+    // SILK (`voip-mono.opus`) and hybrid then SILK then CELT (`voip.webm`), at speech
+    // bitrates: the length is the source's, the pre-skip and the padding cut. They are not
+    // compared with the source: SILK codes a sine at 10 kb/s at about 9 dB and does not keep
+    // its phase to the sample. Their decode is held to the native one by `expected.json`.
+    for (name, channels) in [("voip-mono.opus", 1), ("voip.webm", 2)] {
+        let (imported, _) = import(read(name), extension(name)).unwrap();
+        assert_eq!(
+            (
+                imported.info.sample_rate,
+                imported.info.channels,
+                imported.info.frames
+            ),
+            (48_000, channels, 24_000),
+            "{name}"
+        );
+    }
+}
 
 /// The lossy files whose native decode is kept whole beside them (`<name>.pcm`, little-endian
 /// `f32`): MP3 and AAC decode with transcendental functions (`powf`, `cos`) whose last bit
@@ -449,4 +471,11 @@ fn a_webm_padding_is_cut_from_the_last_block_only() {
     assert_eq!(with(u32::MAX >> 1), 25 * 960 - 312);
     // A negative padding (at the start, by the specification) is not an end padding.
     assert_eq!(with(u32::MAX), 26 * 960 - 312);
+    // A pre-skip of more than two packets: their blocks hold no frame and are not held back,
+    // and the padding is still cut from the last block.
+    let mut long_skip = whole.clone();
+    let head = long_skip.windows(8).position(|w| w == b"OpusHead").unwrap();
+    long_skip[head + 10..head + 12].copy_from_slice(&2_000u16.to_le_bytes());
+    let (imported, _) = import(long_skip, Some("webm")).unwrap();
+    assert_eq!(imported.info.frames, 26 * 960 - 2_000 - 648);
 }
