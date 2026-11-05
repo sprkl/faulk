@@ -242,40 +242,298 @@ fn a_note_across_a_loop_wrap_keeps_the_length_it_was_played_with() {
     );
 }
 
+/// One bar of count-in at 120 BPM: 3 840 ticks, 96 000 frames, 750 blocks before the cue.
+const COUNT_IN: i64 = 3840;
+
+impl Rig {
+    /// Starts recording from tick 0 after a one-bar count-in: returns the frames rendered before.
+    fn count_in(&mut self) -> usize {
+        self.send(&[M::SetMetronome {
+            enabled: false,
+            volume: 1.0,
+            count_in_bars: 1,
+        }]);
+        self.record(0)
+    }
+}
+
+/// A sixteenth at 960 ticks per beat (`engine::recorder::COUNT_IN_EARLY`, #723).
 #[test]
-fn the_count_in_is_heard_not_captured() {
+fn the_count_in_tolerance_is_a_sixteenth() {
+    assert_eq!(engine::recorder::COUNT_IN_EARLY, 240);
+}
+
+#[test]
+fn the_count_in_is_heard_and_only_its_last_sixteenth_is_kept() {
     let mut rig = Rig::new();
-    rig.send(&[M::SetMetronome {
-        enabled: false,
-        volume: 1.0,
-        count_in_bars: 1,
-    }]);
-    // One bar is 2 s: 96 000 frames, 750 blocks.
-    rig.record(0);
+    let played = rig.count_in();
     rig.blocks(10);
     assert!(rig.e.clock().playhead_tick() < Tick(0));
+    // Played along with the count-in, long before the cue: not a note of the take, counted lost.
     rig.on(0, 60);
     rig.blocks(10);
     rig.off(0, 60);
-    rig.blocks(700);
+    rig.blocks(670);
+    // 60 blocks (307 ticks) before the cue, held across it: lost too, its note off ignored.
+    rig.on(0, 61);
+    rig.blocks(30);
+    // 30 blocks (154 ticks, 80 ms) before the cue: a note of the take, where it was heard.
+    let early = rig.tick_since(played, -COUNT_IN);
+    assert_eq!(early, -154);
+    rig.on(0, 62);
+    rig.blocks(10);
+    // On an unarmed track: neither kept nor counted.
+    rig.on(1, 50);
+    rig.blocks(10);
     assert!(!rig.e.recorder().capturing());
     assert_eq!(rig.e.recorder().take(), 0);
-    // A key pressed in the count-in and released after the cue is not a note of the take.
-    rig.on(0, 62);
-    rig.blocks(40);
+    assert_eq!(
+        rig.e.recorder().dropped(),
+        0,
+        "the count-in counts for its take"
+    );
+    rig.blocks(20);
     assert!(rig.e.recorder().capturing());
     assert_eq!(rig.e.recorder().take(), 1);
+    assert_eq!(rig.e.recorder().dropped(), 2);
+    rig.off(0, 61);
     rig.off(0, 62);
+    rig.off(1, 50);
     rig.blocks(1);
-    assert!(rig.notes().is_empty(), "{:?}", rig.notes());
-    // After the cue a note is captured.
+    let notes = rig.notes();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(notes[0].track, TrackSlot(0));
+    assert_eq!(notes[0].note.pitch, 62);
+    assert_eq!(notes[0].note.start, Tick(early));
+    assert_eq!(
+        notes[0].note.length,
+        Tick((40.0 * BLOCK as f64 / SPT).round() as i64),
+        "its played length"
+    );
+    // After the cue a note is captured as before.
     rig.on(0, 64);
     rig.blocks(4);
     rig.off(0, 64);
     rig.blocks(1);
     let notes = rig.notes();
-    assert_eq!(notes.len(), 1);
-    assert!(notes[0].note.start >= Tick(0));
+    assert_eq!(notes.len(), 2);
+    assert!(notes[1].note.start >= Tick(0));
+    assert_eq!(rig.e.recorder().dropped(), 2);
+}
+
+/// Released before the cue, pressed twice, ended by an all-notes-off or an overflow: each note
+/// of the count-in's last sixteenth is one of the take's first notes, with its played length.
+#[test]
+fn the_count_in_notes_ended_before_the_cue_open_the_take() {
+    let blocks = |n: f64| Tick((n * BLOCK as f64 / SPT).round() as i64);
+    let mut rig = Rig::new();
+    let played = rig.count_in();
+    rig.blocks(705);
+    // Track 0, key 60: pressed, released, pressed again, pressed once more, released.
+    let first = rig.tick_since(played, -COUNT_IN);
+    rig.on(0, 60);
+    rig.blocks(5);
+    rig.off(0, 60);
+    rig.blocks(5);
+    let second = rig.tick_since(played, -COUNT_IN);
+    rig.on(0, 60);
+    rig.blocks(3);
+    // A second press without a release in between ends the first.
+    let third = rig.tick_since(played, -COUNT_IN);
+    rig.on(0, 60);
+    rig.blocks(2);
+    rig.off(0, 60);
+    // Track 2: ended by an all-notes-off of its track, while track 0's key 61 still holds.
+    let held = rig.tick_since(played, -COUNT_IN);
+    rig.on(2, 70);
+    rig.on(0, 61);
+    rig.blocks(4);
+    rig.send(&[M::AllNotesOff {
+        track: TrackSlot(2),
+    }]);
+    rig.blocks(1);
+    // An overflow of the live queue ends key 61 in the next block.
+    for i in 0..=limits::LIVE_QUEUE_CAPACITY {
+        let _ = rig.p.handle(M::NoteOff {
+            track: TrackSlot(1),
+            pitch: (i % 128) as u8,
+            at: None,
+        });
+    }
+    rig.blocks(2);
+    assert!(!rig.e.recorder().capturing());
+    rig.blocks(40);
+    assert!(rig.e.recorder().capturing());
+    // Late note offs of the ended keys change nothing.
+    rig.off(0, 60);
+    rig.off(0, 61);
+    rig.off(2, 70);
+    rig.blocks(1);
+    let mut notes: Vec<_> = rig
+        .notes()
+        .into_iter()
+        .map(|n| (n.track.0, n.note.pitch, n.note.start, n.note.length))
+        .collect();
+    notes.sort_by_key(|n| (n.2, n.0, n.1));
+    assert_eq!(
+        notes,
+        vec![
+            (0, 60, Tick(first), blocks(5.0)),
+            (0, 60, Tick(second), blocks(3.0)),
+            (0, 60, Tick(third), blocks(2.0)),
+            (0, 61, Tick(held), blocks(5.0)),
+            (2, 70, Tick(held), blocks(4.0)),
+        ]
+    );
+    assert_eq!(rig.e.recorder().dropped(), 0);
+}
+
+/// A stop, or the recording turned off, before the cue: what the count-in kept and counted is
+/// forgotten, and the next take starts clean.
+#[test]
+fn a_cancelled_count_in_forgets_what_it_kept() {
+    for cancel in [
+        M::Stop,
+        M::SetRecording {
+            recording: false,
+            shift_us: 0,
+        },
+    ] {
+        let mut rig = Rig::new();
+        rig.count_in();
+        rig.blocks(10);
+        rig.on(0, 59); // too early: counted
+        rig.blocks(700);
+        rig.on(0, 60); // kept, held
+        rig.on(2, 62);
+        rig.blocks(2);
+        rig.off(2, 62); // kept, released
+        rig.blocks(2);
+        rig.send(std::slice::from_ref(&cancel));
+        rig.blocks(60);
+        assert!(!rig.e.recorder().capturing(), "{cancel:?}");
+        assert_eq!(rig.e.recorder().take(), 0);
+        // A new recording without a count-in: none of it comes back.
+        rig.send(&[
+            M::Stop,
+            M::SetMetronome {
+                enabled: false,
+                volume: 1.0,
+                count_in_bars: 0,
+            },
+        ]);
+        rig.blocks(1);
+        rig.record(0);
+        rig.blocks(2);
+        rig.off(0, 60);
+        rig.blocks(1);
+        assert!(rig.e.recorder().capturing());
+        assert_eq!(rig.e.recorder().take(), 1);
+        assert!(rig.notes().is_empty(), "{cancel:?}: {:?}", rig.notes());
+        assert_eq!(rig.e.recorder().dropped(), 0, "{cancel:?}");
+    }
+}
+
+/// A stop, then a new recording with a count-in: the note still held when the take stopped is
+/// cut in that take, and is not carried into the next one. (A stop and a play applied in the
+/// same block do not count in: the clock still runs, `Engine::start_clock`.)
+#[test]
+fn a_note_held_when_a_take_restarts_with_a_count_in_stays_in_the_ended_take() {
+    let mut rig = Rig::new();
+    rig.record(0);
+    rig.blocks(4);
+    rig.on(0, 60);
+    rig.blocks(4);
+    rig.send(&[M::Stop]);
+    rig.blocks(1);
+    rig.send(&[
+        M::SetMetronome {
+            enabled: false,
+            volume: 1.0,
+            count_in_bars: 1,
+        },
+        M::SetRecording {
+            recording: true,
+            shift_us: 30_000,
+        },
+        M::Play { from: Tick(0) },
+    ]);
+    rig.blocks(1);
+    assert!(!rig.e.recorder().capturing());
+    assert_eq!(rig.e.recorder().take(), 1);
+    let notes = rig.notes();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(
+        notes[0].note.length,
+        Tick((4.0 * BLOCK as f64 / SPT).round() as i64),
+        "cut on the ended take's clock"
+    );
+    rig.blocks(800);
+    assert!(rig.e.recorder().capturing());
+    assert_eq!(rig.e.recorder().take(), 2);
+    rig.off(0, 60);
+    rig.blocks(1);
+    assert!(rig.notes().is_empty(), "{:?}", rig.notes());
+    assert_eq!(rig.e.recorder().dropped(), 0);
+}
+
+/// More keys than the held table keeps during a count-in: the extra notes count for the take.
+#[test]
+fn a_full_held_table_in_the_count_in_counts_for_the_take() {
+    let mut rig = Rig::new();
+    rig.count_in();
+    rig.blocks(720);
+    rig.send(&[M::TrackArm {
+        track: TrackSlot(1),
+        armed: true,
+    }]);
+    for pitch in 0..128u8 {
+        rig.on(0, pitch);
+        rig.on(1, pitch);
+        rig.on(2, pitch);
+    }
+    rig.blocks(41);
+    assert!(rig.e.recorder().capturing());
+    assert_eq!(rig.e.recorder().dropped(), (3 * 128 - MAX_HELD) as u32);
+    rig.send(&[M::SetRecording {
+        recording: false,
+        shift_us: 0,
+    }]);
+    rig.blocks(1);
+    assert_eq!(rig.e.recorder().total(), MAX_HELD as u32);
+}
+
+/// A tempo change in the count-in: a note released before the cue keeps the ticks it ran, one
+/// held across the cue too.
+#[test]
+fn a_tempo_change_in_the_count_in_keeps_the_ticks_its_notes_ran() {
+    let tempo = |bpm: f64| M::SetTransport {
+        tempo: Tempo::new(bpm).unwrap(),
+        signature: TimeSignature::new(4, 4).unwrap(),
+        launch_quantize: Quantize::default(),
+    };
+    let mut rig = Rig::new();
+    rig.count_in();
+    rig.blocks(720);
+    rig.on(0, 60);
+    rig.blocks(10);
+    rig.send(&[tempo(60.0)]);
+    rig.blocks(10);
+    rig.off(0, 60);
+    rig.on(0, 62);
+    rig.blocks(10);
+    rig.send(&[tempo(120.0)]);
+    rig.blocks(40);
+    assert!(rig.e.recorder().capturing());
+    rig.off(0, 62);
+    rig.blocks(1);
+    let notes = rig.notes();
+    assert_eq!(notes.len(), 2, "{notes:?}");
+    assert_eq!(notes[0].note.pitch, 60);
+    assert_eq!(notes[0].note.length, HELD_ACROSS_A_CHANGE);
+    // 10 blocks at 60 BPM (25.6 ticks), then 40 at 120 BPM (204.8): 230.4.
+    assert_eq!(notes[1].note.pitch, 62);
+    assert_eq!(notes[1].note.length, Tick(230));
 }
 
 #[test]

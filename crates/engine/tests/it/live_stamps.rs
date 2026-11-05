@@ -747,3 +747,150 @@ fn an_out_of_range_shift_is_clamped_and_a_take_keeps_its_own() {
     let note = rig.notes()[0].note;
     assert!(note.start.0 >= 2 * 2 * PPQ, "two seconds later: {note:?}");
 }
+
+// ---------------------------------------------------------------- the count-in (#723)
+
+impl Rig {
+    /// Records from tick 0 after a one-bar count-in with the take's shift: returns the engine
+    /// sample of the cue (one bar after the play).
+    fn count_in(&mut self, shift_us: i32) -> u64 {
+        self.send(&[M::SetMetronome {
+            enabled: false,
+            volume: 1.0,
+            count_in_bars: 1,
+        }]);
+        self.record_shifted(0, shift_us) + 4 * BEAT
+    }
+
+    /// Renders up to the block before the cue's (the last that ends before the cue, the
+    /// count-in's last), so that the next event is taken during the count-in.
+    fn until_last_count_in_block(&mut self, cue: u64) {
+        self.until(cue - 2 * BLOCK as u64);
+    }
+}
+
+/// The ticket's criterion: after a one-bar count-in, a downbeat heard 35 ms early, stamped
+/// with the page's 42 ms estimate, whose event reaches the engine during the count-in (the
+/// rendering runs 31 ms ahead of the output: the event comes before the cue's block), is
+/// recorded where it was heard, 67.2 ticks before beat 1 (`record.commit_take`'s early rule
+/// then writes it on beat 1, `test-support`'s `record_loop`); one heard 130 ms early (more than
+/// a sixteenth, 125 ms) is counted lost.
+#[test]
+fn after_a_count_in_a_downbeat_anticipated_by_35_ms_is_recorded() {
+    for hosted in [true, false] {
+        let mut rig = Rig::new(hosted);
+        rig.blocks(10);
+        let cue = rig.count_in(LATENCY_US);
+        let too_early = cue - 6_240;
+        rig.until(too_early);
+        rig.on(59, Some(rig.host(too_early + LATENCY)));
+        rig.blocks(1);
+        let heard = cue - 1_680;
+        rig.until_last_count_in_block(cue);
+        rig.on(60, Some(rig.host(heard + LATENCY)));
+        rig.blocks(1);
+        assert!(
+            !rig.e.recorder().capturing(),
+            "taken during the count-in, before the capture began"
+        );
+        rig.blocks(1);
+        assert!(rig.e.recorder().capturing());
+        rig.until(heard + 6_000 + 3 * BLOCK as u64);
+        rig.off(60, Some(rig.host(heard + 6_000 + LATENCY)));
+        rig.off(59, None);
+        rig.blocks(1);
+        let notes = rig.notes();
+        assert_eq!(notes.len(), 1, "hosted {hosted}: {notes:?}");
+        assert_eq!(notes[0].note.pitch, 60);
+        assert_eq!(
+            notes[0].note.start,
+            Tick(-68),
+            "1 680 samples before the cue"
+        );
+        assert_eq!(notes[0].note.length, Tick(240), "6 000 samples, as played");
+        assert_eq!(rig.e.recorder().dropped(), 1, "the note heard 130 ms early");
+        assert_eq!(rig.e.recorder().unplaced(), 0);
+    }
+}
+
+/// The tolerance's edges, heard exactly a sixteenth before the cue (kept) and one sample more
+/// (lost); without a shift, as the take places them.
+#[test]
+fn the_count_in_keeps_a_note_heard_a_sixteenth_before_the_cue_and_no_earlier() {
+    let sixteenth = BEAT / 4;
+    for (early, kept) in [(sixteenth, true), (sixteenth + 1, false)] {
+        let mut rig = Rig::new(true);
+        rig.blocks(3);
+        let cue = rig.count_in(0);
+        let heard = cue - early;
+        rig.until(heard + BLOCK as u64);
+        rig.on(60, Some(rig.host(heard)));
+        rig.blocks(1);
+        rig.off(60, Some(rig.host(heard + 2_500)));
+        rig.blocks(1);
+        rig.until(cue + BLOCK as u64);
+        assert!(rig.e.recorder().capturing());
+        let notes = rig.notes();
+        if kept {
+            assert_eq!(notes.len(), 1, "{notes:?}");
+            assert_eq!(notes[0].note.start, Tick(-PPQ / 4));
+            assert_eq!(notes[0].note.length, Tick(100));
+            assert_eq!(rig.e.recorder().dropped(), 0);
+        } else {
+            assert!(notes.is_empty(), "{notes:?}");
+            assert_eq!(rig.e.recorder().dropped(), 1);
+        }
+    }
+}
+
+/// A `SetRecording` that changes the shift during the count-in: the take begins with the new
+/// shift, and a note of the count-in held across the cue moves with it, so that it keeps the
+/// length it was played with.
+#[test]
+fn a_shift_changed_in_the_count_in_moves_its_held_notes_with_it() {
+    let mut rig = Rig::new(true);
+    rig.blocks(3);
+    let cue = rig.count_in(LATENCY_US);
+    let heard = cue - 1_000;
+    rig.until_last_count_in_block(cue);
+    rig.on(60, Some(rig.host(heard)));
+    rig.blocks(1);
+    assert!(!rig.e.recorder().capturing());
+    // 10 ms of shift less, before the cue.
+    rig.send(&[M::SetRecording {
+        recording: true,
+        shift_us: LATENCY_US - 10_000,
+    }]);
+    rig.blocks(1);
+    assert!(rig.e.recorder().capturing());
+    rig.until(cue + BEAT);
+    rig.off(60, Some(rig.host(heard + 12_000)));
+    rig.blocks(1);
+    let notes = rig.notes();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(notes[0].note.length, Tick(480), "12 000 samples, as played");
+}
+
+/// A stamp the count-in cannot use (further than a second from its block) counts for the take
+/// in `unplaced`, and its note counts from the start of its block, as during a take.
+#[test]
+fn an_unusable_stamp_in_the_count_in_counts_from_its_block() {
+    let mut rig = Rig::new(true);
+    rig.blocks(3);
+    let cue = rig.count_in(0);
+    rig.until_last_count_in_block(cue);
+    let taken = rig.frames;
+    rig.on(60, Some(rig.host(taken + 10 * RATE as u64)));
+    rig.blocks(1);
+    assert!(!rig.e.recorder().capturing());
+    rig.blocks(1);
+    assert!(rig.e.recorder().capturing());
+    assert_eq!(rig.e.recorder().unplaced(), 1);
+    rig.off(60, None);
+    rig.blocks(1);
+    let notes = rig.notes();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    let start = -(((cue - taken) as f64 / SPT).ceil() as i64);
+    assert_eq!(notes[0].note.start, Tick(start), "the start of its block");
+    assert_eq!(rig.e.recorder().dropped(), 0);
+}

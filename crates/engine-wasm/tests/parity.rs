@@ -878,6 +878,113 @@ fn native_and_wasm_record_stamped_notes_on_their_beats() {
     assert_eq!(native_out.len(), wasm_out.len());
 }
 
+/// A take after a one-bar count-in, with a shift of 42 ms (#723): two notes of the count-in's
+/// last sixteenth taken before the cue (one released before it, one held across it), and one
+/// heard 130 ms before the cue, counted lost.
+fn count_in_session() -> Vec<Step> {
+    use engine::msg::{ControlMsg as M, encode_stream};
+    use engine::time::Tick;
+    const ORIGIN: u64 = 1_000_000;
+    const LATENCY: u64 = 2_016;
+    let mut seq = 0;
+    let mut push = |msgs: &[M]| {
+        let bytes = encode_stream(1, seq, msgs).unwrap();
+        seq += msgs.len() as u32;
+        Step::Push(bytes)
+    };
+    let setup = [
+        M::Reset { epoch: 1 },
+        M::SetMetronome {
+            enabled: false,
+            volume: 1.0,
+            count_in_bars: 1,
+        },
+        M::TrackCreate {
+            track: TrackSlot(0),
+            kind: TrackKind::Midi,
+        },
+        M::TrackArm {
+            track: TrackSlot(0),
+            armed: true,
+        },
+        M::SetRecording {
+            recording: true,
+            shift_us: 42_000,
+        },
+        M::Play { from: Tick(0) },
+    ];
+    // Heard at `sample`, stamped one latency later.
+    let note = |on: bool, pitch: u8, heard: u64| {
+        let at = Some(ORIGIN + heard + LATENCY);
+        let track = TrackSlot(0);
+        if on {
+            M::NoteOn {
+                track,
+                pitch,
+                velocity: 100,
+                at,
+            }
+        } else {
+            M::NoteOff { track, pitch, at }
+        }
+    };
+    // The count-in plays from sample 0: the cue (tick 0) is at sample 96 000, block 750.
+    vec![
+        push(&setup),
+        // Heard 130 ms before the cue, taken at block 700.
+        Step::Render(700),
+        push(&[note(true, 59, 89_760)]),
+        // Heard 35 ms and 1 000 samples before the cue, taken at block 748 (the count-in's).
+        Step::Render(48),
+        push(&[
+            note(true, 60, 94_320),
+            note(true, 62, 95_000),
+            note(false, 62, 95_500),
+        ]),
+        Step::Render(10),
+        push(&[note(false, 60, 100_320), note(false, 59, 100_320)]),
+        Step::Render(5),
+        push(&[M::SetRecording {
+            recording: false,
+            shift_us: 0,
+        }]),
+        // Long enough for a report after the take.
+        Step::Render(30),
+    ]
+}
+
+#[test]
+fn native_and_wasm_keep_the_count_in_notes_alike() {
+    use engine::host::decode_feedback;
+    use engine::time::Tick;
+    let steps = count_in_session();
+    let (native_out, native, _) = run_native_at(&steps, Some(1_000_000));
+    let (wasm_out, wasm) = run_wasm_at(&steps, Some(1_000_000));
+    let n = decode_feedback(&native).expect("a native report");
+    let w = decode_feedback(&wasm).expect("a wasm report");
+    assert_eq!(n.record_take, 1);
+    assert_eq!(n.record_total, 2);
+    assert_eq!(n.record_dropped, 1, "the note heard 130 ms early");
+    assert_eq!(n.recorded, w.recorded);
+    assert_eq!(
+        (n.record_take, n.record_total, n.record_dropped),
+        (w.record_take, w.record_total, w.record_dropped)
+    );
+    let mut starts: Vec<(u8, Tick, Tick)> = n
+        .recorded
+        .iter()
+        .map(|r| (r.note.pitch, r.note.start, r.note.length))
+        .collect();
+    starts.sort();
+    // Where each was heard: 1 680 samples (67.2 ticks) and 1 000 samples (40 ticks) before
+    // the cue, with their played lengths (6 000 and 500 samples).
+    assert_eq!(
+        starts,
+        [(60, Tick(-68), Tick(240)), (62, Tick(-40), Tick(20))]
+    );
+    assert_eq!(native_out, wasm_out);
+}
+
 /// A take with a shift of 42 ms (#560) whose playhead enters a loop from before it, then wraps:
 /// a note heard 10 ms before the loop's start and one heard 20 ms before its end, each stamped
 /// 42 ms after it was heard and taken some blocks later.

@@ -1,0 +1,2 @@
+2026-11-05
+* **Update** (#723): `specs/03-enregistrement-midi.md` § 5 and § 8: a note heard at most a sixteenth before the cue whose event reaches the engine during the count-in is a note of the take, where it was heard; an earlier note of the count-in counts in the take's lost notes; `record.commit_take` moves to tick 0 a note of the arrangement that starts at most a sixteenth before it and ends before it.
