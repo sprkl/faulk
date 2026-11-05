@@ -305,9 +305,10 @@ test('places a MIDI note where its time says it was played', async ({ page }) =>
 // engine's frame, note by note, plus that tick. Measured in Chromium on Windows, 40 runs of 60 notes: worst 0.42 ms with
 // the smoothed clock (`OutputClock`, #725); 10 runs of 40 beyond 1 ms (worst 3.5 ms) when each note was converted with
 // the pair of the moment. The constant bias of the take is not measured here: the test of #499 above bounds it.
-// The batch must not start in the sixteenth before a bar: `record.commit_take` starts the clip on that bar and puts every
-// note of that sixteenth on its first tick (#732; at 999 BPM, where a bar lasts 240 ms, 6 takes of 30 had their first
-// notes 3 to 14 ms late that way). Here it starts about 0.75 s into a take whose first bar lasts 2 s; checked below.
+// The batch must not start in the sixteenth before a bar with only an early downbeat there: `record.commit_take` then
+// starts the clip on that bar and puts that downbeat on its first tick (#732; at 999 BPM, where a bar lasts 240 ms and a
+// sixteenth 15 ms, 6 takes of 30 had their first notes 3 to 14 ms late that way). Here it starts about 0.75 s into a
+// take whose first bar lasts 2 s; checked below.
 // The worst gap is printed.
 test('each simulated MIDI note lands within 1 ms of its own time', async ({ page }) => {
   const { errors } = watch(page)

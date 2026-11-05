@@ -33,16 +33,51 @@ export function checkOpenUrl(raw: string, pageHostname: string): CheckedUrl {
   return { status: 'ok', url, host: url.host }
 }
 
-export type Download = { status: 'ok'; bytes: Uint8Array } | { status: 'unreachable'; detail: string } | { status: 'tooBig' }
+export type Download = { status: 'ok'; bytes: Uint8Array } | { status: 'unreachable'; detail: string } | { status: 'tooBig' } | { status: 'cancelled' }
+
+/** A download written somewhere as it comes (#682): how many bytes it took, or why it stopped. */
+export type Streamed = { status: 'ok'; size: number } | { status: 'unreachable'; detail: string } | { status: 'tooBig' } | { status: 'cancelled' }
+
+/** The most bytes read whole when an answer has no stream (not seen in the supported browsers): the page's own limit. */
+const WHOLE_MAX = 192 << 20
+
+export interface DownloadOptions {
+  fetch: typeof fetch
+  max: number
+  pageHostname: string
+  stallMs?: number
+  /** Stops the download (`cancelled`). */
+  signal?: AbortSignal
+  /** The bytes received so far, and the length the host announced (`null` when it announced none). */
+  onProgress?(received: number, announced: number | null): void
+}
 
 /**
- * Downloads a pack: no cookies or credentials, no referrer, CORS. Refused as `tooBig` before reading when
- * the announced length passes `max`, and while reading as soon as the bytes do (the body is cancelled, so
- * a host that lies about the length or sends no length cannot fill the memory). A network error, a CORS
- * refusal, an answer that is not a success, a redirect to a link the page would not fetch itself, and a
- * download that stalls for `stallMs` are all `unreachable`.
+ * Downloads a pack into memory (where the browser keeps no projects, the pack's project lives in the tab):
+ * `streamPack` into an array, with the same checks.
  */
-export async function downloadPack(url: URL, options: { fetch: typeof fetch; max: number; pageHostname: string; stallMs?: number }): Promise<Download> {
+export async function downloadPack(url: URL, options: DownloadOptions): Promise<Download> {
+  const chunks: Uint8Array[] = []
+  const streamed = await streamPack(url, { ...options, sink: { write: async (chunk) => void chunks.push(chunk) } })
+  if (streamed.status !== 'ok') return streamed
+  const bytes = new Uint8Array(streamed.size)
+  let at = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, at)
+    at += chunk.byteLength
+  }
+  return { status: 'ok', bytes }
+}
+
+/**
+ * Downloads a pack into `sink`, piece by piece: no cookies or credentials, no referrer, CORS. Refused as `tooBig`
+ * before reading when the announced length passes `max`, and while reading as soon as the bytes do (the body is
+ * cancelled, so a host that lies about the length or sends no length cannot fill the disk or the memory). A network
+ * error, a CORS refusal, an answer that is not a success, a redirect to a link the page would not fetch itself, and a
+ * download that stalls for `stallMs` are all `unreachable`; the time the sink takes to write a piece is not a stall.
+ * An aborted `signal` is `cancelled`. A sink that fails rejects with its error.
+ */
+export async function streamPack(url: URL, options: DownloadOptions & { sink: { write(chunk: Uint8Array): Promise<void> } }): Promise<Streamed> {
   const stallMs = options.stallMs ?? STALL_MS
   const abort = new AbortController()
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -52,7 +87,15 @@ export async function downloadPack(url: URL, options: { fetch: typeof fetch; max
     if (timer) clearTimeout(timer)
     timer = setTimeout(() => abort.abort(new Error(`no data for ${stallMs} ms`)), stallMs)
   }
-  const unreachable = (error: unknown): Download => ({ status: 'unreachable', detail: error instanceof Error ? error.message : String(error) })
+  const pause = () => {
+    if (timer) clearTimeout(timer)
+    timer = null
+  }
+  const cancel = () => abort.abort(new DOMException('cancelled', 'AbortError'))
+  if (options.signal?.aborted) return { status: 'cancelled' }
+  options.signal?.addEventListener('abort', cancel, { once: true })
+  const unreachable = (error: unknown): Streamed =>
+    options.signal?.aborted ? { status: 'cancelled' } : { status: 'unreachable', detail: error instanceof Error ? error.message : String(error) }
   alive()
   try {
     let response: Response
@@ -77,18 +120,25 @@ export async function downloadPack(url: URL, options: { fetch: typeof fetch; max
       void response.body?.cancel().catch(() => undefined)
       return unreachable(new Error(`HTTP ${response.status}`))
     }
-    const announced = Number(response.headers.get('content-length'))
+    const header = response.headers.get('content-length')
+    const announced = header === null ? NaN : Number(header)
     if (Number.isFinite(announced) && announced > options.max) {
       void response.body?.cancel().catch(() => undefined)
       return { status: 'tooBig' }
     }
+    const length = Number.isFinite(announced) ? announced : null
     if (!response.body) {
-      // No stream to count (not seen in the supported browsers): read whole, then the same limit.
+      // No stream to count: read whole, then the same limit, and only for a download into memory (whose limit is the
+      // page's own): a pack too big for memory needs a stream.
+      if (options.max > WHOLE_MAX) return unreachable(new Error('the answer cannot be read in pieces'))
       const whole = new Uint8Array(await response.arrayBuffer())
-      return whole.byteLength > options.max ? { status: 'tooBig' } : { status: 'ok', bytes: whole }
+      if (whole.byteLength > options.max) return { status: 'tooBig' }
+      pause()
+      await options.sink.write(whole)
+      options.onProgress?.(whole.byteLength, length)
+      return { status: 'ok', size: whole.byteLength }
     }
     const reader = response.body.getReader()
-    const chunks: Uint8Array[] = []
     let total = 0
     for (;;) {
       let next: ReadableStreamReadResult<Uint8Array>
@@ -98,23 +148,30 @@ export async function downloadPack(url: URL, options: { fetch: typeof fetch; max
         return unreachable(error)
       }
       if (next.done) break
-      alive()
       total += next.value.byteLength
       if (total > options.max) {
         await reader.cancel().catch(() => undefined)
         return { status: 'tooBig' }
       }
-      chunks.push(next.value)
+      // The sink's time is the page's, not the host's.
+      pause()
+      try {
+        await options.sink.write(next.value)
+      } catch (error) {
+        await reader.cancel().catch(() => undefined)
+        throw error
+      }
+      if (options.signal?.aborted) {
+        await reader.cancel().catch(() => undefined)
+        return { status: 'cancelled' }
+      }
+      alive()
+      options.onProgress?.(total, length)
     }
-    const bytes = new Uint8Array(total)
-    let at = 0
-    for (const chunk of chunks) {
-      bytes.set(chunk, at)
-      at += chunk.byteLength
-    }
-    return { status: 'ok', bytes }
+    return { status: 'ok', size: total }
   } finally {
     if (timer) clearTimeout(timer)
+    options.signal?.removeEventListener('abort', cancel)
   }
 }
 

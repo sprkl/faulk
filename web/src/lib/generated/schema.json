@@ -507,6 +507,25 @@
         "undo": "none"
       },
       {
+        "description": "Stop the `.faulkpack` imports under way: a pack being downloaded (`project.open_url`) or\nread into the browser's storage, and those waiting their turn, until their project starts\nopening. Nothing of them is kept and the current project is untouched. Nothing happens when\nno import is running. Changes nothing in the project, so it never enters the history.",
+        "destructive": false,
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "kind": "live",
+        "name": "project.cancel_import_pack",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "undo": "none"
+      },
+      {
         "description": "Open a `.faulkpack` hosted at `url`: `https`, with no user name or password in it (plain\n`http` only to `localhost`, `127.0.0.1` or `[::1]`, and the page takes it only when Faulk\nitself runs on this computer). The page downloads it without cookies or credentials,\nchecks it whole (size, files, format) and opens its project as a new project of its own,\nas `project.import_pack` does with a file: kept in the browser's storage where the\nbrowser has one, in the tab alone where it has none. Nothing in the pack runs as code.\nWhen the browser already keeps the project of that pack (the same link opened before), the\npage opens the copy it keeps instead of a second one. The current project is never\noverwritten: it stays where it is kept (its folder, or the browser), and\n`project.list_stored` then `project.open_browser_project` or `project.open_recent` bring\nit back; the page asks first when that project has changes that are kept nowhere. A link\nthat cannot be downloaded, a file that is not a valid pack and a pack that is too big are\nrefused in the page with a notice, and nothing changes. The result only says the command\nwas accepted, not how the download ended. Not undoable: opening a project is not an edit\nof one; go back to the previous project through the project list.",
         "destructive": false,
         "input_schema": {
@@ -15613,7 +15632,7 @@
         "undo": "none"
       },
       {
-        "description": "Write a take into the project, every track at once, as **one** history entry. Per\ntrack, `notes` are the notes as played: `start` in transport ticks, `length` in\nticks. Every start is first moved `shift_ms` earlier at the project's tempo; when the\ntransport loops and the start is strictly inside the loop, the move wraps round the\nloop (a note that would go before the loop's start comes from its end). The notes the\nengine reported for a `record.start` take are already moved: write them with\n`shift_ms` 0 (the default); `shift_ms` is for notes not moved yet. With a\nscene target, a cell that holds a clip takes the notes on top of its own (overdub):\na note lands where the clip played at that moment, from `anchor` (the transport tick\nof the clip's position 0) or else from the bar of the first note, round its loop;\na clip without a loop grows to the bar after the last note. An empty cell gets a new\nclip from the bar of the first note to the bar after the last one (at least one\nbar), looping over its length. With the arrangement target, a note inside a\nplacement goes into its clip where the placement shows it; the other notes make one\nnew clip per gap between placements, from the bar of its first note to the bar after\nits last, cut at the next placement. A note before tick 0 or before its clip is\ndropped and counted; a note longer than its clip is cut at the clip's end. With\n`replace` on (`record.set_settings`), a clip that takes notes first loses the notes\nthat start in the range the track recorded (its first note to the end of its last),\ncounted in `replaced`. With `quantize_on_input` on, the starts of the take's notes\nmove toward the grid of their clip by `quantize_strength` (a note stays inside its\nclip, lengths never change). Undo: `record.restore` puts the clips back as they\nwere, replaced notes included. `replace`, `quantize_on_input` and `quantize_strength`\noverride the session's settings (`record.set_settings`) for this write only; left out,\nthe session's apply.",
+        "description": "Write a take into the project, every track at once, as **one** history entry. Per\ntrack, `notes` are the notes as played: `start` in transport ticks, `length` in\nticks. Every start is first moved `shift_ms` earlier at the project's tempo; when the\ntransport loops and the start is strictly inside the loop, the move wraps round the\nloop (a note that would go before the loop's start comes from its end). The notes the\nengine reported for a `record.start` take are already moved: write them with\n`shift_ms` 0 (the default); `shift_ms` is for notes not moved yet. With a\nscene target, a cell that holds a clip takes the notes on top of its own (overdub):\na note lands where the clip played at that moment, from `anchor` (the transport tick\nof the clip's position 0) or else from the bar of the first note, round its loop;\na clip without a loop grows to the bar after the last note. An empty cell gets a new\nclip from the bar of the first note to the bar after the last one (at least one\nbar), looping over its length. With the arrangement target, a note inside a\nplacement goes into its clip where the placement shows it; the other notes make one\nnew clip per gap between placements, from the bar of its first note to the bar after\nits last, cut at the next placement. A note that starts at most a sixteenth before\ntick 0 starts there with its length; one that starts earlier starts there, cut, when\nit ends after it, and is dropped and counted otherwise, as a note before its clip; a\nnote longer than its clip is cut at the clip's end. With\n`replace` on (`record.set_settings`), a clip that takes notes first loses the notes\nthat start in the range the track recorded (its first note to the end of its last),\ncounted in `replaced`. With `quantize_on_input` on, the starts of the take's notes\nmove toward the grid of their clip by `quantize_strength` (a note stays inside its\nclip, lengths never change). Undo: `record.restore` puts the clips back as they\nwere, replaced notes included. `replace`, `quantize_on_input` and `quantize_strength`\noverride the session's settings (`record.set_settings`) for this write only; left out,\nthe session's apply.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -21185,6 +21204,23 @@
             },
             {
               "additionalProperties": false,
+              "description": "Stop the `.faulkpack` imports under way: a pack being downloaded (`project.open_url`) or\nread into the browser's storage, and those waiting their turn, until their project starts\nopening. Nothing of them is kept and the current project is untouched. Nothing happens when\nno import is running. Changes nothing in the project, so it never enters the history.",
+              "properties": {
+                "type": {
+                  "const": "project.cancel_import_pack",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "live",
+              "x-undo": "none"
+            },
+            {
+              "additionalProperties": false,
               "description": "Open a `.faulkpack` hosted at `url`: `https`, with no user name or password in it (plain\n`http` only to `localhost`, `127.0.0.1` or `[::1]`, and the page takes it only when Faulk\nitself runs on this computer). The page downloads it without cookies or credentials,\nchecks it whole (size, files, format) and opens its project as a new project of its own,\nas `project.import_pack` does with a file: kept in the browser's storage where the\nbrowser has one, in the tab alone where it has none. Nothing in the pack runs as code.\nWhen the browser already keeps the project of that pack (the same link opened before), the\npage opens the copy it keeps instead of a second one. The current project is never\noverwritten: it stays where it is kept (its folder, or the browser), and\n`project.list_stored` then `project.open_browser_project` or `project.open_recent` bring\nit back; the page asks first when that project has changes that are kept nowhere. A link\nthat cannot be downloaded, a file that is not a valid pack and a pack that is too big are\nrefused in the page with a notice, and nothing changes. The result only says the command\nwas accepted, not how the download ended. Not undoable: opening a project is not an edit\nof one; go back to the previous project through the project list.",
               "properties": {
                 "type": {
@@ -21660,7 +21696,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Write a take into the project, every track at once, as **one** history entry. Per\ntrack, `notes` are the notes as played: `start` in transport ticks, `length` in\nticks. Every start is first moved `shift_ms` earlier at the project's tempo; when the\ntransport loops and the start is strictly inside the loop, the move wraps round the\nloop (a note that would go before the loop's start comes from its end). The notes the\nengine reported for a `record.start` take are already moved: write them with\n`shift_ms` 0 (the default); `shift_ms` is for notes not moved yet. With a\nscene target, a cell that holds a clip takes the notes on top of its own (overdub):\na note lands where the clip played at that moment, from `anchor` (the transport tick\nof the clip's position 0) or else from the bar of the first note, round its loop;\na clip without a loop grows to the bar after the last note. An empty cell gets a new\nclip from the bar of the first note to the bar after the last one (at least one\nbar), looping over its length. With the arrangement target, a note inside a\nplacement goes into its clip where the placement shows it; the other notes make one\nnew clip per gap between placements, from the bar of its first note to the bar after\nits last, cut at the next placement. A note before tick 0 or before its clip is\ndropped and counted; a note longer than its clip is cut at the clip's end. With\n`replace` on (`record.set_settings`), a clip that takes notes first loses the notes\nthat start in the range the track recorded (its first note to the end of its last),\ncounted in `replaced`. With `quantize_on_input` on, the starts of the take's notes\nmove toward the grid of their clip by `quantize_strength` (a note stays inside its\nclip, lengths never change). Undo: `record.restore` puts the clips back as they\nwere, replaced notes included. `replace`, `quantize_on_input` and `quantize_strength`\noverride the session's settings (`record.set_settings`) for this write only; left out,\nthe session's apply.",
+              "description": "Write a take into the project, every track at once, as **one** history entry. Per\ntrack, `notes` are the notes as played: `start` in transport ticks, `length` in\nticks. Every start is first moved `shift_ms` earlier at the project's tempo; when the\ntransport loops and the start is strictly inside the loop, the move wraps round the\nloop (a note that would go before the loop's start comes from its end). The notes the\nengine reported for a `record.start` take are already moved: write them with\n`shift_ms` 0 (the default); `shift_ms` is for notes not moved yet. With a\nscene target, a cell that holds a clip takes the notes on top of its own (overdub):\na note lands where the clip played at that moment, from `anchor` (the transport tick\nof the clip's position 0) or else from the bar of the first note, round its loop;\na clip without a loop grows to the bar after the last note. An empty cell gets a new\nclip from the bar of the first note to the bar after the last one (at least one\nbar), looping over its length. With the arrangement target, a note inside a\nplacement goes into its clip where the placement shows it; the other notes make one\nnew clip per gap between placements, from the bar of its first note to the bar after\nits last, cut at the next placement. A note that starts at most a sixteenth before\ntick 0 starts there with its length; one that starts earlier starts there, cut, when\nit ends after it, and is dropped and counted otherwise, as a note before its clip; a\nnote longer than its clip is cut at the clip's end. With\n`replace` on (`record.set_settings`), a clip that takes notes first loses the notes\nthat start in the range the track recorded (its first note to the end of its last),\ncounted in `replaced`. With `quantize_on_input` on, the starts of the take's notes\nmove toward the grid of their clip by `quantize_strength` (a note stays inside its\nclip, lengths never change). Undo: `record.restore` puts the clips back as they\nwere, replaced notes included. `replace`, `quantize_on_input` and `quantize_strength`\noverride the session's settings (`record.set_settings`) for this write only; left out,\nthe session's apply.",
               "properties": {
                 "quantize_on_input": {
                   "anyOf": [
@@ -26653,6 +26689,19 @@
               "properties": {
                 "type": {
                   "const": "project.import_pack",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "project.cancel_import_pack",
                   "type": "string"
                 }
               },
@@ -36399,6 +36448,19 @@
               "additionalProperties": false,
               "properties": {
                 "type": {
+                  "const": "project.cancel_import_pack",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
                   "const": "project.open_url",
                   "type": "string"
                 }
@@ -38381,7 +38443,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 39,
+  "protocol_version": 40,
   "scale_intervals": [
     {
       "intervals": [

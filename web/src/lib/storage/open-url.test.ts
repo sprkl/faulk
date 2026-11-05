@@ -1,6 +1,6 @@
 // Which links the page fetches for `project.open_url`, and the download's guards (#497).
 import { describe, expect, it, vi } from 'vitest'
-import { checkOpenUrl, downloadPack, packNameOf } from './open-url'
+import { checkOpenUrl, downloadPack, packNameOf, streamPack } from './open-url'
 
 const ok = (raw: string, page = 'faulk.app') => checkOpenUrl(raw, page).status === 'ok'
 
@@ -148,6 +148,95 @@ describe('downloadPack', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+})
+
+describe('streamPack (#682)', () => {
+  const big = { max: 16 * 2 ** 30, pageHostname: 'faulk.app' }
+
+  it('hands each piece to the sink as it comes, with the bytes so far and the length announced', async () => {
+    const { fetch } = serving([new Uint8Array([1, 2]), new Uint8Array([3])], { headers: { 'content-length': '3' } })
+    const pieces: number[][] = []
+    const progress: [number, number | null][] = []
+    const result = await streamPack(URL_, {
+      ...big,
+      fetch,
+      sink: { write: async (chunk) => void pieces.push([...chunk]) },
+      onProgress: (received, announced) => progress.push([received, announced]),
+    })
+    expect(result).toEqual({ status: 'ok', size: 3 })
+    expect(pieces).toEqual([[1, 2], [3]])
+    expect(progress).toEqual([
+      [2, 3],
+      [3, 3],
+    ])
+  })
+
+  it('stops reading at the limit, whatever the host announced, and a failing sink stops it with its error', async () => {
+    const lying = serving([new Uint8Array(6), new Uint8Array(6)], { headers: { 'content-length': '3' } })
+    expect(await streamPack(URL_, { ...base, fetch: lying.fetch, sink: { write: async () => undefined } })).toEqual({ status: 'tooBig' })
+    const full = serving([new Uint8Array(2), new Uint8Array(2)])
+    const refused = streamPack(URL_, {
+      ...big,
+      fetch: full.fetch,
+      sink: {
+        write: async () => {
+          throw new DOMException('disk full', 'QuotaExceededError')
+        },
+      },
+    })
+    await expect(refused).rejects.toMatchObject({ name: 'QuotaExceededError' })
+    expect(full.cancelled()).toBe(true)
+  })
+
+  it('is cancelled by its signal, before the answer and between two pieces', async () => {
+    const before = new AbortController()
+    before.abort()
+    const { fetch } = serving([new Uint8Array(1)])
+    expect(await streamPack(URL_, { ...big, fetch, signal: before.signal, sink: { write: async () => undefined } })).toEqual({ status: 'cancelled' })
+    expect(fetch).not.toHaveBeenCalled()
+    const midway = new AbortController()
+    const two = serving([new Uint8Array(1), new Uint8Array(1)])
+    const result = await streamPack(URL_, {
+      ...big,
+      fetch: two.fetch,
+      signal: midway.signal,
+      sink: { write: async () => midway.abort() },
+    })
+    expect(result).toEqual({ status: 'cancelled' })
+    // An abort while the answer is awaited ends the fetch, and says cancelled, not unreachable.
+    const waiting = new AbortController()
+    const silent = vi.fn(
+      (_url: string, init: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => init.signal?.addEventListener('abort', () => reject(init.signal?.reason as Error))),
+    ) as unknown as typeof fetch
+    const pending = streamPack(URL_, { ...big, fetch: silent, signal: waiting.signal, sink: { write: async () => undefined } })
+    waiting.abort()
+    expect(await pending).toEqual({ status: 'cancelled' })
+  })
+
+  it('does not count the time the sink takes to write as a stall of the host', async () => {
+    vi.useFakeTimers()
+    try {
+      const { fetch } = serving([new Uint8Array(1), new Uint8Array(1)])
+      const slowSink = {
+        write: () => new Promise<void>((resolve) => setTimeout(resolve, 5000)),
+      }
+      const pending = streamPack(URL_, { ...big, fetch, stallMs: 1000, sink: slowSink })
+      await vi.advanceTimersByTimeAsync(11_000)
+      expect(await pending).toEqual({ status: 'ok', size: 2 })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reads an answer with no stream whole only within the page limit', async () => {
+    const whole = vi.fn(async () => {
+      const response = new Response(new Uint8Array(4))
+      Object.defineProperty(response, 'body', { value: null })
+      return response
+    }) as unknown as typeof fetch
+    expect(await streamPack(URL_, { ...big, fetch: whole, sink: { write: async () => undefined } })).toMatchObject({ status: 'unreachable' })
   })
 })
 

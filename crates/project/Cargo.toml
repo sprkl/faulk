@@ -7,7 +7,10 @@ publish.workspace = true
 description = "Faulk project document and its folder format: tracks, clips, devices, automation, transport settings. Pure Rust, I/O only through an abstract file system."
 
 [dependencies]
+crc32fast = "1.5.2"
 engine = { path = "../engine", features = ["serde", "schema"] }
+# Inflating a pack piece by piece (`PackReader`), with the backend `zip` deflates with.
+flate2 = { version = "1.1.10", default-features = false, features = ["zlib-rs"] }
 schemars = "1.2.3"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["float_roundtrip"] }

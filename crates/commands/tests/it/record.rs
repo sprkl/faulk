@@ -472,6 +472,8 @@ fn the_arrangement_puts_each_note_where_it_was_played() {
                 note(12000, 65, 240),
                 note(-300, 66, 240),
                 note(-10, 67, 240),
+                note(-200, 68, 100),
+                note(-300, 69, 400),
             ],
             None,
         ),
@@ -479,7 +481,10 @@ fn the_arrangement_puts_each_note_where_it_was_played() {
     let RO::CommitTake { clips, dropped, .. } = out else {
         panic!()
     };
-    assert_eq!(dropped, 1, "the note that ends before tick 0");
+    assert_eq!(
+        dropped, 1,
+        "the note that ends before tick 0, more than a sixteenth before it"
+    );
     assert_eq!(clips.len(), 3, "{clips:?}");
     assert!(notes_of(&state, &r.placed_clip).contains(&Note::new(Tick(320), 60, Tick(240), 100)));
     let track = &state.project.tracks[&r.track];
@@ -507,8 +512,12 @@ fn the_arrangement_puts_each_note_where_it_was_played() {
     assert_eq!(
         placed[0].2,
         vec![
-            // Played across tick 0: it starts there.
-            Note::new(Tick(0), 67, Tick(230), 100),
+            // Played at most a sixteenth before tick 0, across it or ended before it (#723):
+            // moved there, with its length.
+            Note::new(Tick(0), 67, Tick(240), 100),
+            Note::new(Tick(0), 68, Tick(100), 100),
+            // Played earlier, across tick 0: it starts there, cut.
+            Note::new(Tick(0), 69, Tick(100), 100),
             Note::new(Tick(1000), 62, Tick(240), 100),
             Note::new(Tick(5000), 64, Tick(2680), 100),
         ]

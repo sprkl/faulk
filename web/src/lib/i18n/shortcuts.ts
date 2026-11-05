@@ -60,6 +60,7 @@ export const shortcuts = defineFeature(
     'shortcut.noteCopy': 'Copy, cut, paste notes',
     'shortcut.noteDuplicate': 'Duplicate the selected notes one bar later',
     'shortcut.noteRepeat': 'Repeat the selected notes end to end, up to the end of the bar',
+    'shortcut.noteGenerate': 'Open the euclidean rhythm generator, which writes notes from steps, hits and rotation',
     'shortcut.noteQuantize': 'Quantize the selected notes (all notes if none is selected)',
     'shortcut.noteStep': 'On a note: go to the previous or next note in time, or the nearest note above or below (Shift: add it to the selection)',
     'shortcut.noteShift': 'Move the selected notes by the drawing step (from a note, the grid or the free cursor)',
@@ -144,6 +145,7 @@ export const shortcuts = defineFeature(
     'shortcut.noteCopy': 'Copier, couper, coller des notes',
     'shortcut.noteDuplicate': 'Dupliquer les notes sélectionnées une mesure plus loin',
     'shortcut.noteRepeat': 'Répéter les notes sélectionnées à la suite, jusqu’à la fin de la mesure',
+    'shortcut.noteGenerate': 'Ouvrir le générateur de rythme euclidien, qui écrit des notes à partir de pas, de coups et d’une rotation',
     'shortcut.noteQuantize': 'Quantifier les notes sélectionnées (toutes les notes si aucune n’est sélectionnée)',
     'shortcut.noteStep':
       'Sur une note : aller à la note précédente ou suivante dans le temps, ou à la note la plus proche au-dessus ou en dessous (Maj : l’ajouter à la sélection)',
