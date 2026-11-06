@@ -9,7 +9,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { FolderBackend } from '../../storage/backend'
 import { MemoryDir } from '../../storage/memory-dir'
 import { StoreError } from '../../storage/types'
-import { CACHE_HEADER_BYTES, HEAD_BYTES, ImportError, ImportModule, type ReadSync } from './abi'
+import { CACHE_HEADER_BYTES, HEAD_BYTES, ImportError, ImportModule, MAX_DECODED_BYTES, type ReadSync } from './abi'
 import { cachePath, ensureAudioCache, importAudio, importLock, IMPORT_TMP_PREFIX, mediaName, type PipelineDeps } from './pipeline'
 import { peaksPath } from '../peaks/format'
 
@@ -140,6 +140,12 @@ describe('the import module, as the page runs it', () => {
     expect(() => module.open(readerOf(ambisonic()), ambisonic().length, 'webm')).toThrow(expect.objectContaining({ code: 'unsupported_codec' }) as Error)
   })
 
+  it('caps the decoded size at the limit the page shows, 16 GiB (#780)', () => {
+    const module = new ImportModule(compiled)
+    expect(module.maxDecoded()).toBe(MAX_DECODED_BYTES)
+    expect(MAX_DECODED_BYTES).toBe(16 * 2 ** 30)
+  })
+
   it('refuses a damaged file by name, and the same instance imports the next one', () => {
     const module = new ImportModule(compiled)
     const wav = fixture('sine-s16.wav')
@@ -205,6 +211,24 @@ describe('the import pipeline over a project folder', () => {
     const cancelled = importAudio(dir.handle(), file('sine.flac'), deps({ signal: abort.signal, onProgress: () => abort.abort() }))
     await expect(cancelled).rejects.toMatchObject({ code: 'cancelled' })
     expect(dir.paths()).toEqual([])
+  })
+
+  it('stores nothing for a file that decodes past the cap, refused at its header or by its blocks (#780)', async () => {
+    // `sine.mp3` declares no length and decodes to 176 400 bytes: refused while its cache is being written.
+    // `sine.flac` declares its length: refused at the opening, before any cache is made.
+    for (const name of ['sine.mp3', 'sine.flac']) {
+      const dir = new MemoryDir('song')
+      const capped = deps({ module: async () => new ImportModule(compiled, 100_000) })
+      await expect(importAudio(dir.handle(), file(name), capped)).rejects.toMatchObject({
+        code: 'too_large',
+        message: 'the file decodes to more than 100000 bytes of audio, the most a project keeps of one file',
+      })
+      expect(dir.paths()).toEqual([])
+    }
+    // Under the cap, the same instance setting imports.
+    const dir = new MemoryDir('song')
+    const outcome = await importAudio(dir.handle(), file('sine.mp3'), deps({ module: async () => new ImportModule(compiled, 200_000) }))
+    expect(dir.paths()).toContain(cachePath(outcome.media.hash))
   })
 
   it('stores nothing when the folder refuses a write, and says so as the folder did', async () => {
@@ -343,6 +367,16 @@ describe('the PCM caches an opening makes again', () => {
     dir.hooks.failWrite = (name) => name.endsWith('.peaks')
     expect(await ensureAudioCache(dir.handle(), [m], deps())).toEqual({ made: [m.hash], peaks: [], missing: [], failed: [] })
     expect(dir.paths().sort()).toEqual([cachePath(m.hash), `blobs/${m.hash}`])
+  })
+
+  it('reports a blob that decodes past the cap and keeps no cache of it (#780)', async () => {
+    const dir = new MemoryDir('song')
+    const m = ref('sine.mp3')
+    dir.put(`blobs/${m.hash}`, fixture('sine.mp3'))
+    const report = await ensureAudioCache(dir.handle(), [m], deps({ module: async () => new ImportModule(compiled, 100_000) }))
+    expect(report.failed).toEqual([{ hash: m.hash, code: 'too_large' }])
+    expect(report.made).toEqual([])
+    expect(dir.paths()).toEqual([`blobs/${m.hash}`])
   })
 
   it('reports a blob that does not decode as the project says, and keeps no cache of it', async () => {

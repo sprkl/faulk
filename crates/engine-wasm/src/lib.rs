@@ -729,6 +729,35 @@ pub mod transport_exports {
     }
 }
 
+/// The event stream of Trim's scenario (`engine::devices::trim::testing::scenario`, #693),
+/// as [`transport_exports`]: only in the test build (`--features trim-scenario`).
+#[cfg(feature = "trim-scenario")]
+pub mod trim_exports {
+    use std::sync::OnceLock;
+
+    fn scenario() -> &'static [i64] {
+        static OUT: OnceLock<Box<[i64]>> = OnceLock::new();
+        OUT.get_or_init(|| engine::devices::trim::testing::scenario().into_boxed_slice())
+    }
+
+    /// Address of the scenario's output, null when it is empty.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fk_trim_scenario() -> *const i64 {
+        let out = scenario();
+        if out.is_empty() {
+            core::ptr::null()
+        } else {
+            out.as_ptr()
+        }
+    }
+
+    /// Number of `i64` values [`fk_trim_scenario`] points to.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fk_trim_len() -> u32 {
+        scenario().len() as u32
+    }
+}
+
 /// The timed events' test scenario (`engine::events::testing::scenario`, MO-4), rendered
 /// once and kept: the address of its `f32` output ([`fk_events_len`] values), null when it
 /// could not render. Only in the test build (`--features events-scenario`), for the

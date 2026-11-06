@@ -18,6 +18,7 @@ pub mod osc_synth;
 pub mod reverb;
 pub mod stack;
 pub mod time_change;
+pub mod trim;
 
 /// A built-in device: its static descriptor and the factory that builds it off the audio
 /// path.
@@ -44,6 +45,7 @@ pub const REGISTRY: &[Builtin] = &[
     compressor::BUILTIN,
     filter::BUILTIN,
     stack::BUILTIN,
+    trim::BUILTIN,
 ];
 
 /// The registry's line of `kind`.

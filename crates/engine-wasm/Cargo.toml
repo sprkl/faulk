@@ -29,6 +29,9 @@ stream-scenario = ["engine/testing"]
 # silence and counted in the report), for the native/WASM parity test only
 # (`tests/nonfinite_parity.rs` builds the module with it).
 nonfinite-scenario = ["engine/testing"]
+# Exports the event stream of Trim's scenario (`fk_trim_scenario`, #693), for the
+# native/WASM parity test only (`tests/trim_parity.rs` builds the module with it).
+trim-scenario = ["engine/testing"]
 
 [dependencies]
 engine = { path = "../engine" }

@@ -7542,7 +7542,7 @@
         "undo": "none"
       },
       {
-        "description": "Import the audio file hosted at `url` into an audio track, for an agent (#664): `https`,\nwith no user name or password in it (plain `http` only to `localhost`, `127.0.0.1` or\n`[::1]`, and the page takes it only when Faulk itself runs on this computer). The page\nfirst asks the user, for up to 45 s, showing the link's host and the file's name (the\nlast part of the link's path); nothing is sent to the host before the user allows it, so\nthe size is known only once the download starts. Then it downloads the file without\ncookies, credentials or referrer, as a CORS request (the host must allow any origin with\n`Access-Control-Allow-Origin`), at most 192 MiB, given up after 30 s without data, and\nimports it as `clip.choose_audio` imports a file the user picks: its bytes kept in the\nproject's `blobs/`, its content decoded and checked whatever its extension or type\n(formats: those of `clip.choose_audio`), then a clip in the track's pool made by\n`clip.import_audio`, one history entry the user can undo. The answer, once the file is\nin, gives the `clip` made and the file's SHA-256 (`media`); both are `null` only from a\nhost that imports nothing. Refused at once when the track is not an audio track or the\nlink is not one the page fetches. Otherwise the page answers `command.refused` with the\nerror code `confirmation.declined` or `confirmation.timeout` (the user refused or did\nnot answer), `url.refused` (a link the page does not fetch), `import.busy` (the same\nlink is already being imported), `download.too_big`, `download.unreachable` (network,\nCORS, an answer that is not a success, a redirect to a link the page would not fetch, a\nstall: the message says which), `import.cancelled` (`clip.cancel_audio_import`),\n`import.project_changed` (another project was opened before the file's turn) or\n`import.<reason>` (the file is not audio the page reads: `import.unsupported_format`,\n`import.corrupt`…); nothing changed then. A large download can still end in\n`page.timeout` although it ran: the same call again (same link and track, within 10\nminutes, the clip still there) answers the clip already made, without asking or\ndownloading again; `track.get` lists the track's clips too. Not undoable itself.",
+        "description": "Import the audio file hosted at `url` into an audio track, for an agent (#664): `https`,\nwith no user name or password in it (plain `http` only to `localhost`, `127.0.0.1` or\n`[::1]`, and the page takes it only when Faulk itself runs on this computer). The page\nfirst asks the user, for up to 45 s, showing the link's host and the file's name (the\nlast part of the link's path); nothing is sent to the host before the user allows it, so\nthe size is known only once the download starts. Then it downloads the file without\ncookies, credentials or referrer, as a CORS request (the host must allow any origin with\n`Access-Control-Allow-Origin`), at most 192 MiB, given up after 30 s without data, and\nimports it as `clip.choose_audio` imports a file the user picks: its bytes kept in the\nproject's `blobs/`, its content decoded and checked whatever its extension or type\n(formats: those of `clip.choose_audio`), then a clip in the track's pool made by\n`clip.import_audio`, one history entry the user can undo. The answer, once the file is\nin, gives the `clip` made and the file's SHA-256 (`media`); both are `null` only from a\nhost that imports nothing. Refused at once when the track is not an audio track or the\nlink is not one the page fetches. Otherwise the page answers `command.refused` with the\nerror code `confirmation.declined` or `confirmation.timeout` (the user refused or did\nnot answer), `url.refused` (a link the page does not fetch), `import.busy` (the same\nlink is already being imported), `download.too_big`, `download.unreachable` (network,\nCORS, an answer that is not a success, a redirect to a link the page would not fetch, a\nstall: the message says which), `import.cancelled` (`clip.cancel_audio_import`),\n`import.project_changed` (another project was opened before the file's turn) or\n`import.<reason>` (the file is not audio the page reads: `import.unsupported_format`,\n`import.corrupt`…, or `import.too_large`: it decodes to more than 16 GiB of audio, the\nmost a project keeps of one file, whatever its download size); nothing changed then. A large download can still end in\n`page.timeout` although it ran: the same call again (same link and track, within 10\nminutes, the clip still there) answers the clip already made, without asking or\ndownloading again; `track.get` lists the track's clips too. Not undoable itself.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -18696,7 +18696,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Import the audio file hosted at `url` into an audio track, for an agent (#664): `https`,\nwith no user name or password in it (plain `http` only to `localhost`, `127.0.0.1` or\n`[::1]`, and the page takes it only when Faulk itself runs on this computer). The page\nfirst asks the user, for up to 45 s, showing the link's host and the file's name (the\nlast part of the link's path); nothing is sent to the host before the user allows it, so\nthe size is known only once the download starts. Then it downloads the file without\ncookies, credentials or referrer, as a CORS request (the host must allow any origin with\n`Access-Control-Allow-Origin`), at most 192 MiB, given up after 30 s without data, and\nimports it as `clip.choose_audio` imports a file the user picks: its bytes kept in the\nproject's `blobs/`, its content decoded and checked whatever its extension or type\n(formats: those of `clip.choose_audio`), then a clip in the track's pool made by\n`clip.import_audio`, one history entry the user can undo. The answer, once the file is\nin, gives the `clip` made and the file's SHA-256 (`media`); both are `null` only from a\nhost that imports nothing. Refused at once when the track is not an audio track or the\nlink is not one the page fetches. Otherwise the page answers `command.refused` with the\nerror code `confirmation.declined` or `confirmation.timeout` (the user refused or did\nnot answer), `url.refused` (a link the page does not fetch), `import.busy` (the same\nlink is already being imported), `download.too_big`, `download.unreachable` (network,\nCORS, an answer that is not a success, a redirect to a link the page would not fetch, a\nstall: the message says which), `import.cancelled` (`clip.cancel_audio_import`),\n`import.project_changed` (another project was opened before the file's turn) or\n`import.<reason>` (the file is not audio the page reads: `import.unsupported_format`,\n`import.corrupt`…); nothing changed then. A large download can still end in\n`page.timeout` although it ran: the same call again (same link and track, within 10\nminutes, the clip still there) answers the clip already made, without asking or\ndownloading again; `track.get` lists the track's clips too. Not undoable itself.",
+              "description": "Import the audio file hosted at `url` into an audio track, for an agent (#664): `https`,\nwith no user name or password in it (plain `http` only to `localhost`, `127.0.0.1` or\n`[::1]`, and the page takes it only when Faulk itself runs on this computer). The page\nfirst asks the user, for up to 45 s, showing the link's host and the file's name (the\nlast part of the link's path); nothing is sent to the host before the user allows it, so\nthe size is known only once the download starts. Then it downloads the file without\ncookies, credentials or referrer, as a CORS request (the host must allow any origin with\n`Access-Control-Allow-Origin`), at most 192 MiB, given up after 30 s without data, and\nimports it as `clip.choose_audio` imports a file the user picks: its bytes kept in the\nproject's `blobs/`, its content decoded and checked whatever its extension or type\n(formats: those of `clip.choose_audio`), then a clip in the track's pool made by\n`clip.import_audio`, one history entry the user can undo. The answer, once the file is\nin, gives the `clip` made and the file's SHA-256 (`media`); both are `null` only from a\nhost that imports nothing. Refused at once when the track is not an audio track or the\nlink is not one the page fetches. Otherwise the page answers `command.refused` with the\nerror code `confirmation.declined` or `confirmation.timeout` (the user refused or did\nnot answer), `url.refused` (a link the page does not fetch), `import.busy` (the same\nlink is already being imported), `download.too_big`, `download.unreachable` (network,\nCORS, an answer that is not a success, a redirect to a link the page would not fetch, a\nstall: the message says which), `import.cancelled` (`clip.cancel_audio_import`),\n`import.project_changed` (another project was opened before the file's turn) or\n`import.<reason>` (the file is not audio the page reads: `import.unsupported_format`,\n`import.corrupt`…, or `import.too_large`: it decodes to more than 16 GiB of audio, the\nmost a project keeps of one file, whatever its download size); nothing changed then. A large download can still end in\n`page.timeout` although it ran: the same call again (same link and track, within 10\nminutes, the clip still there) answers the clip already made, without asking or\ndownloading again; `track.get` lists the track's clips too. Not undoable itself.",
               "properties": {
                 "track": {
                   "$ref": "#/$defs/TrackId"
@@ -30382,6 +30382,132 @@
       ],
       "role": "midi_effect",
       "version": 1
+    },
+    {
+      "kind": "faulk.trim",
+      "kind_id": 10,
+      "memory_bytes": 1316960,
+      "midi_output": {
+        "per_block": 128,
+        "per_input": 2
+      },
+      "name": "Trim",
+      "named_keys": [],
+      "params": [
+        {
+          "default": 1,
+          "description": "How the length is set: a time in seconds (free) or a note value that follows the project tempo (synced).",
+          "id": 0,
+          "key": "mode",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "free",
+            "synced"
+          ]
+        },
+        {
+          "default": 0.1,
+          "description": "Length of every note in free mode, in seconds, from 1 ms to 10 s.",
+          "id": 1,
+          "key": "time",
+          "max": 10,
+          "min": 0.001,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 2,
+          "description": "Length of every note in synced mode, as a note value of the project tempo, from a 64th note to 4 bars of the time signature.",
+          "id": 2,
+          "key": "division",
+          "max": 8,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "sixty_fourth",
+            "thirty_second",
+            "sixteenth",
+            "eighth",
+            "quarter",
+            "half",
+            "bar",
+            "two_bars",
+            "four_bars"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Straight, triplet (two thirds of the note value) or dotted (one and a half times the note value), in synced mode.",
+          "id": 3,
+          "key": "feel",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "straight",
+            "triplet",
+            "dotted"
+          ]
+        },
+        {
+          "default": 100,
+          "description": "Share of the note value a note lasts in synced mode, from 1 % to 200 % (100 %: exactly the note value).",
+          "id": 4,
+          "key": "gate",
+          "max": 200,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "When a note comes out: when the key is pressed (start), or when it is let go (release), at the velocity it was pressed with.",
+          "id": 5,
+          "key": "trigger",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "start",
+            "release"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "How the length follows the pitch, from -100 % to +100 %: at +100 % it doubles one octave below C4 and halves one octave above.",
+          "id": 6,
+          "key": "key_track",
+          "max": 100,
+          "min": -100,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        }
+      ],
+      "role": "midi_effect",
+      "version": 1
     }
   ],
   "error_codes": {
@@ -39470,7 +39596,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 48,
+  "protocol_version": 46,
   "scale_intervals": [
     {
       "intervals": [

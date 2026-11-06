@@ -250,6 +250,20 @@ describe("an agent's file from a link (#664)", () => {
     expect(importer.failure).toMatchObject({ name: 'kick.wav', code: 'unsupported_format' })
   })
 
+  it('answers a file that decodes past the cap with import.too_large (#780)', async () => {
+    const text = 'the file decodes to more than 16 GiB of audio, the most a project keeps of one file'
+    const { importer } = setup({
+      importFile: async () => {
+        throw new ImportError('too_large', text)
+      },
+    })
+    const made: AudioMedia[] = []
+    const got = await importer.importUrl('T1', LINK, 'example.org', 'silence.flac', placer(made))
+    expect(got).toEqual({ status: 'refused', code: 'import.too_large', message: `${text}: nothing changed` })
+    expect(made).toEqual([])
+    expect(importer.failure).toMatchObject({ name: 'silence.flac', code: 'too_large' })
+  })
+
   it('refuses a second import of a link under way, and takes it again once the first ended', async () => {
     let finish: () => void = () => {}
     const { importer } = setup({
