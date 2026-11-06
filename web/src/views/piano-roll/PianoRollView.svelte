@@ -1314,6 +1314,7 @@
     const inCells = !!itemsEl && document.activeElement instanceof Node && itemsEl.contains(document.activeElement)
     if (!withRoomFor(endOf(copies), () => run(duplicateNotes(id, source, offset)))) return
     picked = new Set(copies.map(noteKey))
+    announce(copies.length === 1 ? t('pianoRoll.saidDuplicatedOne') : t('pianoRoll.saidDuplicated', { n: copies.length }))
     const first = [...copies].sort((a, b) => a.start - b.start || b.pitch - a.pitch)[0]
     if (inCells && first && notes.some((n) => noteKey(n) === noteKey(first))) void focusNote(noteKey(first))
   }
@@ -1582,7 +1583,8 @@
     const beatsPerBar = bar / PPQ
     const beat = first.start / PPQ
     const where = { bar: Math.floor(beat / beatsPerBar) + 1, beat: Number(((beat % beatsPerBar) + 1).toFixed(2)) }
-    announce(added === 1 ? t('pianoRoll.saidPastedOne', where) : t('pianoRoll.saidPasted', { n: added, ...where }))
+    // The notes pasted, already there or not: they are the selection.
+    announce(pasted.length === 1 ? t('pianoRoll.saidPastedOne', where) : t('pianoRoll.saidPasted', { n: pasted.length, ...where }))
     if (anchor.cell) void focusNote(noteKey(first))
   }
 </script>

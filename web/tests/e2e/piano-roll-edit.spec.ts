@@ -777,8 +777,6 @@ test('piano roll: Repeat speaks French', async ({ page }) => {
   expect(seen.errors).toEqual([])
 })
 
-// #711: the snap's triplets. The cursor steps by a third of a beat (bar 1 beat 1.33, 1.67), Enter writes a note of that
-// length, Alt+Left and Right move it by that step, a click draws on it, and a sixteenth triplet halves the step.
 // #771: at the keyboard, a bare arrow moves the focus and keeps the selection, Space or Enter selects the focused note, Shift
 // extends; Ctrl+V pastes at the focused cursor or note with the pitches kept, said, and a paste that writes nothing is said;
 // Home, End and Ctrl+Left or Right take the cursor to the clip's start, its end and by a bar, whatever the snap; each in the
@@ -795,6 +793,7 @@ for (const lang of ['en', 'fr'] as const) {
       ends: 'Move the free cursor to the start or the end of the clip',
       byBar: 'Move the free cursor by a bar, whatever the snap',
       select: 'On a note: select it (and hear it)',
+      duplicated: 'Duplicated: 3 notes, selected',
     },
     fr: {
       selected: 'Note sélectionnée',
@@ -806,6 +805,7 @@ for (const lang of ['en', 'fr'] as const) {
       ends: 'Amener le curseur libre au début ou à la fin du clip',
       byBar: 'Déplacer le curseur libre d’une mesure, quel que soit le magnétisme',
       select: 'Sur une note : la sélectionner (et l’entendre)',
+      duplicated: 'Dupliqué : 3 notes, sélectionnées',
     },
   }[lang]
   const at = (bar: number, beat: string) => new RegExp(`${words.bar} ${bar} ${words.beat} ${beat.replace('.', '\\.')}$`)
@@ -874,6 +874,19 @@ for (const lang of ['en', 'fr'] as const) {
     await page.keyboard.press('Control+z')
     await expect.poll(shape).toEqual(written)
 
+    // Ctrl+D from a note: the copies are the selection, said, and the first one takes the focus, so Alt+Up moves them.
+    await page.getByTestId('roll-item').first().focus()
+    await page.keyboard.press('Control+a')
+    await page.keyboard.press('Control+d')
+    await expect(said).toHaveText(words.duplicated)
+    await expect(focused).toHaveAttribute('data-note', /^3840:60:/)
+    await page.keyboard.press('ArrowRight')
+    await page.keyboard.press('Alt+ArrowUp')
+    await expect.poll(shape).toEqual([...written, ...written.map(([st, p, l]) => [st! + 3840, p! + 1, l])])
+    await page.keyboard.press('Control+z')
+    await page.keyboard.press('Control+z')
+    await expect.poll(shape).toEqual(written)
+
     // End: the last step of the clip; Ctrl+Left a bar back, twice: stopped at the start.
     await page.getByTestId('roll-item').first().focus()
     await page.keyboard.press('Escape')
@@ -897,6 +910,8 @@ for (const lang of ['en', 'fr'] as const) {
   })
 }
 
+// #711: the snap's triplets. The cursor steps by a third of a beat (bar 1 beat 1.33, 1.67), Enter writes a note of that
+// length, Alt+Left and Right move it by that step, a click draws on it, and a sixteenth triplet halves the step.
 test('piano roll: a triplet snap steps the cursor, writes, moves and draws on triplet positions', async ({ page }) => {
   test.setTimeout(120_000)
   const { seen } = await openRoll(page)
