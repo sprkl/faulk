@@ -62,4 +62,53 @@ mod tests {
         );
         assert_eq!(degree_shift(61, 2, PitchSet::EMPTY), 63);
     }
+
+    /// The formula `degree_shift` had before it was built on `scale_step` (#788).
+    fn old_degree_shift(key: u8, degrees: i32, scale: PitchSet) -> i32 {
+        let mut classes = [0u8; 12];
+        let mut m = 0usize;
+        for pc in 0..12u8 {
+            if scale.contains(pc) {
+                classes[m] = pc;
+                m += 1;
+            }
+        }
+        if m == 0 {
+            return i32::from(key) + degrees;
+        }
+        let key = i32::from(key);
+        let mut octave = key.div_euclid(12);
+        let pc = key.rem_euclid(12);
+        let index = match classes[..m].iter().rposition(|&c| i32::from(c) <= pc) {
+            Some(i) => i,
+            None => {
+                octave -= 1;
+                m - 1
+            }
+        };
+        let base = octave * 12 + i32::from(classes[index]);
+        let offset = key - base;
+        let total = index as i32 + degrees;
+        let m = m as i32;
+        (octave + total.div_euclid(m)) * 12
+            + i32::from(classes[total.rem_euclid(m) as usize])
+            + offset
+    }
+
+    #[test]
+    fn degree_shift_equals_its_former_formula_for_every_key_degree_and_scale() {
+        // Every non-empty scale of 1 to 12 notes would be 4095 sets: take them all.
+        for bits in 0u16..4096 {
+            let scale = PitchSet::from_bits(bits);
+            for key in 0..=127u8 {
+                for degrees in -36..=36 {
+                    assert_eq!(
+                        degree_shift(key, degrees, scale),
+                        old_degree_shift(key, degrees, scale),
+                        "scale {bits:#b}, key {key}, degrees {degrees}"
+                    );
+                }
+            }
+        }
+    }
 }
