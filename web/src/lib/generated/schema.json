@@ -29957,7 +29957,7 @@
     {
       "kind": "faulk.stack",
       "kind_id": 9,
-      "memory_bytes": 1341672,
+      "memory_bytes": 1341680,
       "midi_output": {
         "per_block": 896,
         "per_input": 14

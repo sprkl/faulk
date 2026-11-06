@@ -65,9 +65,12 @@
 
 use super::Builtin;
 use super::draw::{Draw, Place};
+use super::held::HeldTable;
+use super::params::{choice, stepped};
+pub use super::scale::degree_shift;
 use crate::device::{
     AudioIo, BlockCtx, Device, DeviceDescriptor, DeviceRole, DeviceSetup, Event, MidiOutput,
-    ParamDescriptor, PitchSet, Scale, Unit, VoiceId, clamp_tune_cents, event_frame,
+    ParamDescriptor, PitchSet, Unit, VoiceId, clamp_tune_cents, event_frame,
 };
 use crate::msg::{DeviceKind, MsgError, ParamId, try_box};
 
@@ -108,54 +111,6 @@ pub const HELD: usize = 128;
 pub const STRUM_MAX: f64 = 0.4;
 /// The lowest velocity a note of the chord gets.
 const MIN_VELOCITY: f32 = 1.0 / 127.0;
-
-const fn choice(
-    id: u32,
-    key: &'static str,
-    description: &'static str,
-    default: f64,
-    values: &'static [&'static str],
-) -> ParamDescriptor {
-    ParamDescriptor {
-        id: ParamId(id),
-        key,
-        description,
-        unit: Unit::None,
-        min: 0.0,
-        max: (values.len() - 1) as f64,
-        default,
-        scale: Scale::Linear,
-        step: 1.0,
-        smoothing_seconds: 0.0,
-        values,
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-const fn stepped(
-    id: u32,
-    key: &'static str,
-    description: &'static str,
-    unit: Unit,
-    min: f64,
-    max: f64,
-    default: f64,
-    step: f64,
-) -> ParamDescriptor {
-    ParamDescriptor {
-        id: ParamId(id),
-        key,
-        description,
-        unit,
-        min,
-        max,
-        default,
-        scale: Scale::Linear,
-        step,
-        smoothing_seconds: 0.0,
-        values: &[],
-    }
-}
 
 /// The four parameters of one voice.
 macro_rules! voice {
@@ -314,7 +269,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
     // The device, its table and its list of due notes, and the most output the host gives it
     // (`MidiOutput::capacity` is at most `MAX_MIDI_OUTPUT_EVENTS`).
     memory_bytes: (size_of::<Stack>()
-        + size_of::<[Held; HELD]>()
+        + HeldTable::<Chord, HELD>::BYTES
         + size_of::<[(u64, u16, u8); HELD * CHORD]>()
         + crate::device::MAX_MIDI_OUTPUT_EVENTS * size_of::<Event>()) as u64,
     midi_output: Some(MidiOutput {
@@ -350,14 +305,9 @@ enum NoteState {
     Sounding,
 }
 
-/// A received note that sounds, with its chord.
+/// The chord of a received note that sounds.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-struct Held {
-    /// The entry holds a note when this is the table's generation ([`Stack::generation`]): a
-    /// reset empties the table in O(1) by moving the generation on.
-    generation: u32,
-    /// The received note's voice id.
-    voice: u32,
+struct Chord {
     tune_cents: f32,
     notes: [ChordNote; CHORD],
 }
@@ -383,10 +333,8 @@ pub struct Stack {
     down: bool,
     seed: u64,
     voices: [VoiceSettings; VOICES],
-    held: Box<[Held; HELD]>,
-    /// The generation of the entries that hold a note (never 0, the generation of an entry
-    /// never used).
-    generation: u32,
+    /// The received notes that sound, with their chords.
+    held: HeldTable<Chord, HELD>,
     /// The strum notes due in the block being rendered, sorted by frame (built in the factory).
     due: Box<[(u64, u16, u8); HELD * CHORD]>,
     /// Frames rendered since the last reset.
@@ -402,7 +350,7 @@ pub struct Stack {
 
 impl Stack {
     pub fn new(setup: &DeviceSetup) -> Result<Self, MsgError> {
-        let held = try_box([Held::default(); HELD])?;
+        let held = HeldTable::new()?;
         let due = try_box([(0u64, 0u16, 0u8); HELD * CHORD])?;
         let mut stack = Self {
             in_scale: false,
@@ -418,7 +366,6 @@ impl Stack {
                 chance: 1.0,
             }; VOICES],
             held,
-            generation: 1,
             due,
             now: 0,
             stopped: 0,
@@ -446,10 +393,7 @@ impl Stack {
         }
         let mut n = 0;
         let mut next = u64::MAX;
-        for (e, held) in self.held.iter().enumerate() {
-            if held.generation != self.generation {
-                continue;
-            }
+        for (e, held) in self.held.iter() {
             for (j, note) in held.notes.iter().enumerate() {
                 if note.state != NoteState::Pending {
                     continue;
@@ -468,11 +412,11 @@ impl Stack {
         self.due[..n].sort_unstable();
         for &(due, e, j) in &self.due[..n] {
             let (e, j) = (usize::from(e), usize::from(j));
-            let Some(held) = self.held.get_mut(e) else {
+            let Some(chord) = self.held.get_mut(e) else {
                 continue;
             };
-            let tune_cents = held.tune_cents;
-            let Some(note) = held.notes.get_mut(j) else {
+            let tune_cents = chord.tune_cents;
+            let Some(note) = chord.notes.get_mut(j) else {
                 continue;
             };
             note.state = NoteState::Sounding;
@@ -501,8 +445,7 @@ impl Stack {
     ) {
         // A note-on for a voice already held (a broken guarantee) ends that one first.
         self.note_off(at, voice, out);
-        let generation = self.generation;
-        let Some(entry) = self.held.iter().position(|h| h.generation != generation) else {
+        let Some(entry) = self.held.free() else {
             return;
         };
         let key = key.min(127);
@@ -547,12 +490,15 @@ impl Stack {
         }
         let tune_cents = clamp_tune_cents(tune_cents);
         let start = self.now.saturating_add(at as u64);
-        let held = &mut self.held[entry];
-        *held = Held {
-            generation,
-            voice: voice.get(),
-            tune_cents,
-            notes: [ChordNote::default(); CHORD],
+        let Some(held) = self.held.insert(
+            entry,
+            voice.get(),
+            Chord {
+                tune_cents,
+                notes: [ChordNote::default(); CHORD],
+            },
+        ) else {
+            return;
         };
         let span = self.strum_seconds * self.sample_rate;
         let w = tension_weight(self.tension);
@@ -601,14 +547,12 @@ impl Stack {
     }
 
     fn note_off(&mut self, at: usize, voice: VoiceId, out: &mut crate::device::EventBuffer) {
-        let Some(entry) = self
-            .held
-            .iter()
-            .position(|h| h.generation == self.generation && h.voice == voice.get())
-        else {
+        let Some(entry) = self.held.find(voice.get()) else {
             return;
         };
-        let held = &mut self.held[entry];
+        let Some(held) = self.held.get_mut(entry) else {
+            return;
+        };
         for (j, note) in held.notes.iter_mut().enumerate() {
             match note.state {
                 NoteState::Sounding => {
@@ -623,15 +567,12 @@ impl Stack {
             }
             note.state = NoteState::None;
         }
-        held.generation = 0;
+        self.held.release(entry);
     }
 
     /// Empties the table in O(1): the entries of the old generation hold nothing any more.
     fn clear(&mut self) {
-        self.generation = match self.generation.wrapping_add(1) {
-            0 => 1,
-            g => g,
-        };
+        self.held.clear();
         self.pending = 0;
         self.next_due = u64::MAX;
     }
@@ -765,39 +706,6 @@ fn crescendo_factor(c: f32, x: f32) -> f32 {
     } else {
         1.0 + c * x
     }
-}
-
-/// `key` moved by `degrees` degrees of `scale` (not empty), as a MIDI key (may fall outside
-/// 0..=127). A key outside the scale counts from the scale's note below it.
-pub fn degree_shift(key: u8, degrees: i32, scale: PitchSet) -> i32 {
-    let mut classes = [0u8; 12];
-    let mut m = 0usize;
-    for pc in 0..12u8 {
-        if scale.contains(pc) {
-            classes[m] = pc;
-            m += 1;
-        }
-    }
-    if m == 0 {
-        return i32::from(key) + degrees;
-    }
-    let key = i32::from(key);
-    let mut octave = key.div_euclid(12);
-    let pc = key.rem_euclid(12);
-    let index = match classes[..m].iter().rposition(|&c| i32::from(c) <= pc) {
-        Some(i) => i,
-        None => {
-            octave -= 1;
-            m - 1
-        }
-    };
-    let base = octave * 12 + i32::from(classes[index]);
-    let offset = key - base;
-    let total = index as i32 + degrees;
-    let m = m as i32;
-    let target_octave = octave + total.div_euclid(m);
-    let target = classes[total.rem_euclid(m) as usize];
-    target_octave * 12 + i32::from(target) + offset
 }
 
 fn sane_rate(rate: f32) -> f64 {
