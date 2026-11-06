@@ -218,8 +218,20 @@ test('in Boost the page names its folder by a marker it writes there, never a pa
   // The helper opened the folder: nothing more to say.
   await expect(page.getByTestId('audio-boost-folder')).toBeHidden()
   // The project still saves in the page: the marker is no change of the folder.
+  const tracksOf = () =>
+    page.evaluate(
+      () => Object.keys((window as unknown as { __faulkView(): { project: { tracks: Record<string, unknown> } } }).__faulkView().project.tracks).length,
+    )
+  const before = await tracksOf()
   await run({ type: 'track.create', kind: 'midi' })
-  await expect(page.getByTestId('save-state')).toHaveText(/^Saved at/)
+  await expect.poll(tracksOf).toBe(before + 1)
+  await expect(page.getByTestId('save-state')).toHaveText(/^Saved at/, { timeout: 8000 })
+  // Read back in Web mode: a reload plays in the page again and opens the same folder, the change made in Boost included.
+  await page.reload()
+  await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
+  await engineUp(page, 'Web')
+  await expect.poll(tracksOf).toBe(before + 1)
+  await expect(page.getByTestId('project-name')).toHaveText('Song')
   expect(errors).toEqual([])
 })
 

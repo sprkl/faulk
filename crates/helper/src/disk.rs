@@ -222,7 +222,13 @@ fn below(root: &Path, path: &Path) -> Option<Vec<String>> {
 
 /// Reads the `id` of the `project.json` in `dir`; `None` when there is none, or none valid.
 pub fn project_id_of(dir: &Path) -> Option<String> {
-    let file = File::open(dir.join("project.json")).ok()?;
+    // Read only inside the folder: a `project.json` that is a link leading out is no project.
+    let root = canonical(dir).ok()?;
+    let real = canonical(&root.join("project.json")).ok()?;
+    if !real.starts_with(&root) {
+        return None;
+    }
+    let file = File::open(&real).ok()?;
     if !file.metadata().ok()?.is_file() {
         return None;
     }
@@ -416,6 +422,29 @@ impl ProjectFolder {
         Ok(())
     }
 
+    /// The components of the directory at `parts` below the root as they will be once made, links
+    /// followed, without making anything: the canonical path of its deepest existing ancestor
+    /// (which must stay inside the root), then the components still missing.
+    fn probe(&self, parts: &[&str]) -> Result<Vec<String>, PathError> {
+        let mut existing = self.root.clone();
+        let mut depth = 0;
+        for part in parts {
+            let next = existing.join(part);
+            match fs::symlink_metadata(&next) {
+                Ok(_) => {
+                    existing = next;
+                    depth += 1;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => break,
+                Err(e) => return Err(io(e)),
+            }
+        }
+        let real = canonical(&existing).map_err(io)?;
+        let mut out = below(&self.root, &real).ok_or(PathError::Escapes)?;
+        out.extend(parts[depth..].iter().map(|p| (*p).to_owned()));
+        Ok(out)
+    }
+
     /// The canonical directory at `parts` below the root, made on the way; each component must
     /// stay inside the root once made (a link inside the folder is followed, one leading out
     /// refused).
@@ -451,8 +480,10 @@ impl ProjectFolder {
     /// into a new file of `.faulk/tmp/`, flushed to the disk, then moved over the target. Refuses a
     /// path the text check refuses, a path of the project's own files or of the folder's own data
     /// ([`PathError::Reserved`], before and after the links are followed), a path that leaves the
-    /// folder, and a folder that is not the one opened any more. On a refusal or a failure nothing is
-    /// left: no temporary file, the target as it was.
+    /// folder, and a folder that is not the one opened any more. Every check of the path comes
+    /// before anything is made, so a refused path makes no directory (`.faulk/tmp/` itself aside,
+    /// made once the target passed). On a refusal or a failure no temporary file is left and the
+    /// target is as it was.
     pub fn write(&self, path: &str, bytes: &[u8]) -> Result<(), PathError> {
         self.write_with(path, bytes, || {})
     }
@@ -471,23 +502,23 @@ impl ProjectFolder {
         }
         self.still_the_same()?;
         let (name, dirs) = parts.split_last().ok_or(PathError::Empty)?;
-        let parent = self.directory(dirs)?;
-        // After the links: `Blobs/x`, an 8.3 alias of `.faulk`, a link inside the folder to
-        // `blobs/`.
-        let mut real = below(&self.root, &parent).ok_or(PathError::Escapes)?;
+        // Every check before anything is made: the path after the links (`Blobs/x`, an 8.3
+        // alias of `.faulk`, a link inside the folder to `blobs/`), then the temporary folder.
+        let mut real = self.probe(dirs)?;
         real.push((*name).to_owned());
         if reserved(&real) {
             return Err(PathError::Reserved);
-        }
-        let target = parent.join(name);
-        if fs::symlink_metadata(&target).is_ok_and(|m| m.is_dir()) {
-            return Err(PathError::IsDirectory);
         }
         let tmp_dir = self.directory(&[".faulk", "tmp"])?;
         if tmp_dir != self.root.join(".faulk").join("tmp") {
             // `.faulk` or `tmp` is a link, even to inside the folder: the temporary file would
             // not be where the cleaning of `.faulk/tmp/` looks.
             return Err(PathError::Escapes);
+        }
+        let parent = self.directory(dirs)?;
+        let target = parent.join(name);
+        if fs::symlink_metadata(&target).is_ok_and(|m| m.is_dir()) {
+            return Err(PathError::IsDirectory);
         }
         let tmp = tmp_dir.join(format!("helper-{}.tmp", crate::security::random_hex(8)));
         let result = (|| {
@@ -843,13 +874,19 @@ fn run_picker(program: &str, args: &[&str]) -> Picked {
 pub struct DialogGate(AtomicBool);
 
 impl DialogGate {
-    /// Takes the gate; `false` when a dialog is open already.
-    pub fn take(&self) -> bool {
-        !self.0.swap(true, Ordering::AcqRel)
+    /// Takes the gate; `None` when a dialog is open already. The gate opens again when the
+    /// guard is dropped, however the dialog ends (a picker that panics included).
+    pub fn take(self: &Arc<Self>) -> Option<DialogTaken> {
+        (!self.0.swap(true, Ordering::AcqRel)).then(|| DialogTaken(self.clone()))
     }
+}
 
-    pub fn release(&self) {
-        self.0.store(false, Ordering::Release);
+/// The dialog gate, held: released on drop.
+pub struct DialogTaken(Arc<DialogGate>);
+
+impl Drop for DialogTaken {
+    fn drop(&mut self) {
+        self.0.0.store(false, Ordering::Release);
     }
 }
 

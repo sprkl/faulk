@@ -842,10 +842,78 @@ fn the_remembered_file_is_read_leniently_bounded_and_kept_most_recent_first() {
 // ---------------------------------------------------------------- T6: one dialog at a time
 
 #[test]
-fn the_dialog_gate_lets_one_dialog_through_at_a_time() {
-    let gate = DialogGate::default();
-    assert!(gate.take());
-    assert!(!gate.take());
-    gate.release();
-    assert!(gate.take());
+fn the_dialog_gate_lets_one_dialog_through_at_a_time_and_opens_again_however_it_ends() {
+    let gate = Arc::new(DialogGate::default());
+    let taken = gate.take().unwrap();
+    assert!(gate.take().is_none());
+    drop(taken);
+    let taken = gate.take().unwrap();
+    // A picker that panics with the gate held: the gate opens all the same.
+    let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+        let _held = taken;
+        panic!("the dialog failed");
+    }));
+    assert!(panicked.is_err());
+    assert!(gate.take().is_some());
+}
+
+// ---------------------------------------------------------------- refused before anything is made
+
+#[test]
+fn a_refused_write_makes_no_directory_not_even_its_parents() {
+    // A missing parent below a link inside the folder to `blobs/`: a reserved zone once the link
+    // is followed, refused before `blobs/new/` is made.
+    let s = setup("noparents");
+    fs::create_dir_all(s.root.join("blobs")).unwrap();
+    dir_link(&s.root.join("blobs"), &s.root.join("renders"));
+    let before = s.snapshot();
+    assert_eq!(
+        s.folder
+            .write("renders/2026/mix.wav", b"attack")
+            .unwrap_err(),
+        PathError::Reserved
+    );
+    assert_eq!(s.snapshot(), before);
+    assert!(!s.root.join("blobs").join("2026").exists());
+    // A missing parent while `.faulk/tmp` leads out: refused before `exports/new/` is made.
+    let s = setup("noparents-tmp");
+    fs::create_dir_all(s.root.join(".faulk")).unwrap();
+    dir_link(&s.outside, &s.root.join(".faulk").join("tmp"));
+    let before = s.snapshot();
+    assert_eq!(
+        s.folder
+            .write("exports/new/mix.wav", b"attack")
+            .unwrap_err(),
+        PathError::Escapes
+    );
+    assert_eq!(s.snapshot(), before);
+    assert!(!s.root.join("exports").exists());
+    // A missing parent below a directory link leading out: nothing made outside either.
+    let s = setup("noparents-out");
+    dir_link(&s.outside, &s.root.join("exports"));
+    let before = s.snapshot();
+    assert_eq!(
+        s.folder
+            .write("exports/new/mix.wav", b"attack")
+            .unwrap_err(),
+        PathError::Escapes
+    );
+    assert_eq!(s.snapshot(), before);
+    assert!(!s.outside.join("new").exists());
+}
+
+#[test]
+fn a_project_file_that_is_a_link_leading_out_is_no_project() {
+    let s = setup("projectlink");
+    let decoy = project_dir(&s.outside, "Decoy", PROJECT);
+    let dir = s.root.parent().unwrap().join("Linked");
+    fs::create_dir_all(&dir).unwrap();
+    if !file_link(&decoy.join("project.json"), &dir.join("project.json")) {
+        return;
+    }
+    assert_eq!(project_id_of(&dir), None);
+    assert_eq!(
+        ProjectFolder::open(&dir, Some(PROJECT)).unwrap_err(),
+        OpenError::NoProject
+    );
 }

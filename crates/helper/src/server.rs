@@ -732,13 +732,23 @@ impl Shared {
     }
 
     /// Makes `link` the place of its session, when that session is the current one: under the
-    /// session lock, so it never follows the session's end (which clears its place).
+    /// session lock, so it never follows the session's end (which clears its place). A place of
+    /// another project or marker closes the folder open now at once: the helper never reads the
+    /// folder of a place the page left, while the new one is looked up, nor after a refused or
+    /// cancelled dialog.
     fn name_place(&self, link: &Link) -> bool {
         let session = self.session.lock().expect("session lock");
         if !session.as_ref().is_some_and(|s| s.id == link.session) {
             return false;
         }
-        *self.link.lock().expect("link lock") = Some(link.clone());
+        let mut current = self.link.lock().expect("link lock");
+        let same = current.as_ref().is_some_and(|c| {
+            c.session == link.session && c.project == link.project && c.nonce == link.nonce
+        });
+        if !same {
+            self.open_folder.set(None);
+        }
+        *current = Some(link.clone());
         true
     }
 
@@ -819,14 +829,14 @@ impl Shared {
             project: Some(link.project.clone()),
             state: FolderStatus::Choosing,
         };
-        if !self.dialog.take() {
+        let Some(taken) = self.dialog.take() else {
             return Some(choosing);
-        }
+        };
         let shared = self.clone();
         let title = crate::tray_text::folder_dialog_title(self.lang, name);
         tokio::task::spawn_blocking(move || {
             let picked = shared.picker.pick(&title);
-            shared.dialog.release();
+            drop(taken);
             if let Some(message) = shared.take_pick(&link, picked) {
                 shared.to_session_of(link.session, message);
                 return;

@@ -465,7 +465,8 @@ export class Dispatcher {
 
   /**
    * Tells the helper session where the project lives now (`folder.open` or `folder.close`, AU-7). A marker
-   * the folder refused is said in the Clips panel, and tried again when the user allows the access.
+   * the folder refused closes the helper's folder too (it never keeps reading a folder the page left), is
+   * said in the Clips panel, and is tried again when the user allows the access.
    */
   private async tellHelperPlace() {
     const native = this.native
@@ -473,7 +474,7 @@ export class Dispatcher {
     const place = await this.helperPlace()
     if (this.native !== native) return
     this.state.helperLinkFailed = place === 'failed'
-    if (place !== 'failed') native.place(place === 'no_folder' ? null : place)
+    native.place(typeof place === 'string' ? null : place)
   }
 
   /**
@@ -494,6 +495,7 @@ export class Dispatcher {
     const place = await this.helperPlace()
     if (this.native !== native) return
     this.state.helperLinkFailed = place === 'failed'
+    if (typeof place === 'string') native.place(null)
     if (place === 'no_folder') this.state.notice = 'helper.folderInBrowser'
     else if (place === 'failed') this.state.notice = 'helper.folderNoMarker'
     else {

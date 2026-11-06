@@ -44,7 +44,9 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
-// Version 45 (#116, AU-7; 42 to 44 are reserved for #664 and two other open pull requests): the helper reads the audio files of the project's folder. The session gains
+// Version 45 (#116, AU-7; 42 to 44 are reserved by the lead for three open pull requests planned to merge
+// first, #664 among them: the number is given again at the merge if that order changes): the helper reads
+// the audio files of the project's folder. The session gains
 // `folder.open`, `folder.choose` and `folder.close` (page → helper) and `folder.state` (helper → page);
 // `hello`'s `disk` is `true`; the commands gain `project.choose_helper_folder`.
 

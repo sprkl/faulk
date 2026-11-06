@@ -568,6 +568,42 @@ async fn a_page_that_replaced_another_during_its_dialog_is_answered_when_the_dia
 }
 
 #[tokio::test]
+async fn naming_another_project_closes_the_folder_open_even_when_its_dialog_is_cancelled() {
+    let h = start(|temp| vec![project_dir(temp, "Song", PROJECT, Some(NONCE))]).await;
+    let mut ws = session(&h).await;
+    send(&mut ws, &open(PROJECT, NONCE)).await;
+    assert!(matches!(
+        state(next(&mut ws).await).1,
+        FolderStatus::Open { .. }
+    ));
+    assert!(h.shared.open_folder().get().1.is_some());
+    // The page opened another project: the helper stops reading the first one's folder at once.
+    send(&mut ws, &choose(OTHER, NONCE)).await;
+    assert_eq!(state(next(&mut ws).await).1, FolderStatus::Choosing);
+    assert!(h.shared.open_folder().get().1.is_none());
+    h.user.send(Picked::Cancelled).unwrap();
+    assert_eq!(
+        state(next(&mut ws).await).1,
+        FolderStatus::Refused {
+            reason: FolderRefusal::Cancelled
+        }
+    );
+    assert!(h.shared.open_folder().get().1.is_none());
+    // The same place named again keeps its folder (a second open of the first project).
+    send(&mut ws, &open(PROJECT, NONCE)).await;
+    assert!(matches!(
+        state(next(&mut ws).await).1,
+        FolderStatus::Open { .. }
+    ));
+    send(&mut ws, &open(PROJECT, NONCE)).await;
+    assert!(h.shared.open_folder().get().1.is_some());
+    assert!(matches!(
+        state(next(&mut ws).await).1,
+        FolderStatus::Open { .. }
+    ));
+}
+
+#[tokio::test]
 async fn the_folder_closes_with_the_session_and_on_folder_close() {
     let h = start(|temp| vec![project_dir(temp, "Song", PROJECT, Some(NONCE))]).await;
     let mut ws = session(&h).await;

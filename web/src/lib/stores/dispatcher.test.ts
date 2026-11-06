@@ -3090,17 +3090,19 @@ describe('the project folder in Boost (AU-7)', () => {
     }
   })
 
-  it('a marker the folder refused says so, closes nothing, and is tried again once the access is allowed', async () => {
+  it('a marker the folder refused closes the helper folder, says so, and is tried again once the access is allowed', async () => {
     const session = await boosted()
-    const write = vi.spyOn(session.storage, 'writeHelperLink').mockResolvedValue({ status: 'failed' })
+    const write = vi.spyOn(session.storage, 'writeHelperLink').mockResolvedValue({ status: 'written', name: 'Old' })
     const resume = vi.spyOn(session.storage, 'resume').mockResolvedValue(true)
     await session.dispatcher.enterBoost()
+    session.dispatcher.host.folderChanged!(folder('Old'))
     await settle()
-    const told = nativeEngine!.place!.mock.calls.length
+    expect(nativeEngine!.place).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'Old' }))
+    write.mockResolvedValue({ status: 'failed' })
     session.dispatcher.host.folderChanged!(folder('Song'))
     await settle()
-    // Not taken for a browser project: the helper is told nothing, and the Clips panel says why.
-    expect(nativeEngine!.place!.mock.calls.length).toBe(told)
+    // The helper stops reading the folder the page left; the Clips panel says why (not taken for a browser project).
+    expect(nativeEngine!.place).toHaveBeenLastCalledWith(null)
     expect(session.engine.helperLinkFailed).toBe(true)
     session.dispatcher.run({ type: 'project.choose_helper_folder' })
     await settle()
