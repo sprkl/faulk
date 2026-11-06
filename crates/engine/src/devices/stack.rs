@@ -32,10 +32,15 @@
 //!
 //! # The draw
 //!
-//! `chance` draws per voice and per received note: a hash (splitmix64) of the `seed`, a count of
-//! the notes received and the voice, against `chance / 100`. The count restarts at
-//! [`Device::reset`] and when the transport starts playing, so a render from the start draws the
-//! same chords at equal seed, on both targets.
+//! `chance` draws per voice and per received note, as Scatter does ([`super::draw`]): a hash
+//! (splitmix64) of the `seed`, the note's place and its key, one number per voice (the voice's
+//! index is the salt), against `chance / 100`. While the transport plays, a note's place is its
+//! position in the song, in whole ticks (the block's `position_ticks` plus the offset at the
+//! tempo): the same note draws the same chord on every play, from wherever it starts, after a
+//! seek or a loop, and in the export, natively and in WebAssembly; a live note played meanwhile
+//! takes the playhead's place and shifts no other draw. While the transport is stopped, a live
+//! note's place is a count of the notes received stopped, restarted by [`Device::reset`]. A
+//! chance of 0 % or 100 % draws nothing: the chord is the same whatever the place.
 //!
 //! # Notes held, none stuck
 //!
@@ -59,6 +64,7 @@
 //! events, so the output stays sorted.
 
 use super::Builtin;
+use super::draw::{Draw, Place};
 use crate::device::{
     AudioIo, BlockCtx, Device, DeviceDescriptor, DeviceRole, DeviceSetup, Event, MidiOutput,
     ParamDescriptor, PitchSet, Scale, Unit, VoiceId, clamp_tune_cents, event_frame,
@@ -385,9 +391,8 @@ pub struct Stack {
     due: Box<[(u64, u16, u8); HELD * CHORD]>,
     /// Frames rendered since the last reset.
     now: u64,
-    /// Notes received since the last reset or the last start of the transport (the draw).
-    received: u64,
-    playing: bool,
+    /// Notes received while the transport is stopped, since the last reset (their place).
+    stopped: u64,
     /// Notes the table holds still to start (0: nothing to look for).
     pending: u32,
     /// The earliest frame a pending note is due at (`u64::MAX` when none; never later than it).
@@ -416,8 +421,7 @@ impl Stack {
             generation: 1,
             due,
             now: 0,
-            received: 0,
-            playing: false,
+            stopped: 0,
             pending: 0,
             next_due: u64::MAX,
             sample_rate: sane_rate(setup.sample_rate),
@@ -492,6 +496,7 @@ impl Stack {
         velocity: f32,
         tune_cents: f32,
         scale: PitchSet,
+        place: Place,
         out: &mut crate::device::EventBuffer,
     ) {
         // A note-on for a voice already held (a broken guarantee) ends that one first.
@@ -500,9 +505,8 @@ impl Stack {
         let Some(entry) = self.held.iter().position(|h| h.generation != generation) else {
             return;
         };
-        let draw = self.received;
-        self.received = self.received.wrapping_add(1);
         let key = key.min(127);
+        let draw = Draw::new(self.seed, place, key);
         let velocity = if velocity.is_finite() {
             velocity.clamp(0.0, 1.0)
         } else {
@@ -517,7 +521,7 @@ impl Stack {
         let mut n = 1;
         let in_scale = self.in_scale && !scale.is_empty();
         for (v, settings) in self.voices.iter().enumerate() {
-            if !settings.on || !wins(self.seed, draw, v as u64, settings.chance) {
+            if !settings.on || !draw.chance(v as u64, settings.chance) {
                 continue;
             }
             let target = if in_scale {
@@ -640,10 +644,6 @@ impl Device for Stack {
 
     fn process(&mut self, ctx: &BlockCtx, events: &[Event], io: &mut AudioIo<'_>) {
         let frames = (ctx.frames as usize).max(1);
-        if ctx.transport.playing && !self.playing {
-            self.received = 0;
-        }
-        self.playing = ctx.transport.playing;
         let scale = ctx.transport.scale;
         let mut cursor = 0;
         for event in events {
@@ -658,7 +658,20 @@ impl Device for Stack {
                     ..
                 } => {
                     self.start_due(at, io.events_out);
-                    self.note_on(at, voice, key, velocity, tune_cents, scale, io.events_out);
+                    if !ctx.transport.playing {
+                        self.stopped = self.stopped.wrapping_add(1);
+                    }
+                    let place = Place::of(ctx, at, self.stopped);
+                    self.note_on(
+                        at,
+                        voice,
+                        key,
+                        velocity,
+                        tune_cents,
+                        scale,
+                        place,
+                        io.events_out,
+                    );
                 }
                 Event::NoteOff { voice, .. } => {
                     // A strum note due at the note-off's frame would end at once: it is dropped.
@@ -708,8 +721,7 @@ impl Device for Stack {
     fn reset(&mut self) {
         self.clear();
         self.now = 0;
-        self.received = 0;
-        self.playing = false;
+        self.stopped = 0;
     }
 }
 
@@ -753,26 +765,6 @@ fn crescendo_factor(c: f32, x: f32) -> f32 {
     } else {
         1.0 + c * x
     }
-}
-
-/// Whether a voice with `chance` plays on the `draw`-th received note.
-fn wins(seed: u64, draw: u64, voice: u64, chance: f64) -> bool {
-    if chance >= 1.0 {
-        return true;
-    }
-    if chance <= 0.0 {
-        return false;
-    }
-    let h = splitmix64(seed.wrapping_mul(0x1_0000_0001) ^ draw.wrapping_mul(8) ^ voice);
-    let u = (h >> 11) as f64 / (1u64 << 53) as f64;
-    u < chance
-}
-
-fn splitmix64(mut z: u64) -> u64 {
-    z = z.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    z ^ (z >> 31)
 }
 
 /// `key` moved by `degrees` degrees of `scale` (not empty), as a MIDI key (may fall outside
