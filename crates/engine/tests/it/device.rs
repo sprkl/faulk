@@ -1051,3 +1051,31 @@ fn the_scenario_fills_its_output() {
     assert_eq!(out[..SCENARIO_FRAMES], out[SCENARIO_FRAMES..]);
     assert_eq!(testing::scenario(&mut out[..10]), 0);
 }
+
+/// #219: chained MIDI effects that each multiply their notes would multiply their output
+/// buffers too; the capacity stops at `MAX_MIDI_OUTPUT_EVENTS`, past which the buffer's
+/// safety net ends the notes.
+#[test]
+fn a_midi_output_is_capped() {
+    use engine::device::{MAX_MIDI_OUTPUT_EVENTS, MidiOutput};
+    let chord = MidiOutput {
+        per_input: 7,
+        per_block: 896,
+    };
+    assert_eq!(chord.capacity(10), 7 * 10 + 896 + 1);
+    let first = chord.capacity(5_123);
+    assert!(first < MAX_MIDI_OUTPUT_EVENTS, "{first}");
+    assert_eq!(chord.capacity(first), MAX_MIDI_OUTPUT_EVENTS);
+    assert_eq!(chord.capacity(usize::MAX), MAX_MIDI_OUTPUT_EVENTS);
+}
+
+/// #219: the effects of a chain share one budget of MIDI output: what those before took is not
+/// the next one's, down to a floor.
+#[test]
+fn a_chain_shares_its_midi_output_budget() {
+    use engine::engine::{CHAIN_MIDI_OUTPUT_EVENTS, MIN_MIDI_OUTPUT_EVENTS, midi_room};
+    assert_eq!(midi_room(0), CHAIN_MIDI_OUTPUT_EVENTS);
+    assert_eq!(midi_room(100_000), CHAIN_MIDI_OUTPUT_EVENTS - 100_000);
+    assert_eq!(midi_room(CHAIN_MIDI_OUTPUT_EVENTS), MIN_MIDI_OUTPUT_EVENTS);
+    assert_eq!(midi_room(usize::MAX), MIN_MIDI_OUTPUT_EVENTS);
+}

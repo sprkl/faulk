@@ -1,13 +1,14 @@
 <script lang="ts">
   /**
-   * The device panel: the selected track's chain (instrument first, then the effects) as cards
+   * The device panel: the selected track's chain (its MIDI effects, its instrument, then its audio effects) as cards
    * generated from the descriptors, and the browser to add devices. It writes nothing per device.
    * A device or a preset dragged out of the device browser (#190) is dropped on the chain: an effect lands where the
-   * mark shows, an instrument takes the instrument's place.
+   * mark shows among the audio effects, a MIDI effect among the MIDI effects (#219), an instrument takes the instrument's
+   * place.
    */
   import { dropTarget, insertionIndex, type CardBox } from '../../lib/browser/dnd'
   import { putItem } from '../../lib/browser/put'
-  import { effectCount, chainOf, masterChainOf } from '../../lib/project/chain'
+  import { chainOf, masterChainOf } from '../../lib/project/chain'
   import { isMidi, trackLabel } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
   import DeviceBrowser from './DeviceBrowser.svelte'
@@ -26,12 +27,27 @@
   const chain = $derived(master ? masterChainOf(project.view?.project.master_devices) : selected ? chainOf(selected.track) : [])
 
   let chainEl = $state<HTMLElement | null>(null)
-  /** Among the effects, where the dragged effect would land; null when nothing is dragged over the chain. */
+  /** Among the effects of the dragged item's section, where it would land; null when nothing is dragged over the chain. */
   let insertAt = $state<number | null>(null)
+  /** The section the dragged item lands in: a MIDI effect among the MIDI effects, anything else among the audio effects. */
+  const dragSection = $derived(ui.dragged?.category === 'midi_effect' ? 'midi' : 'effect')
+  /**
+   * The card the mark stands before (its id), `END` for after the last card, or null for no mark: the card at `insertAt`
+   * in the dragged item's section, else the end of that section (a MIDI effect's ends before the instrument).
+   */
+  const END = Symbol('end')
+  const markBefore = $derived.by((): string | typeof END | null => {
+    if (insertAt === null) return null
+    const at = chain.find((e) => e.section === dragSection && e.index === insertAt)
+    if (at) return at.id
+    const afterMidi = chain.find((e) => e.section !== 'midi')
+    return dragSection === 'midi' && afterMidi ? afterMidi.id : END
+  })
 
-  /** The boxes of the effect cards, in chain order. */
+  /** The boxes of the cards of the dragged item's section, in chain order. */
   function boxes(): CardBox[] {
-    const cards = chainEl?.querySelectorAll<HTMLElement>('[data-testid="device-card"][data-role="effect"]') ?? []
+    const role = dragSection === 'midi' ? 'midi_effect' : 'effect'
+    const cards = chainEl?.querySelectorAll<HTMLElement>(`[data-testid="device-card"][data-role="${role}"]`) ?? []
     return Array.from(cards, (card, index) => {
       const r = card.getBoundingClientRect()
       return { index, left: r.left, top: r.top, right: r.right, bottom: r.bottom }
@@ -47,12 +63,14 @@
   }
 </script>
 
+{#snippet mark()}<span class="mark" aria-hidden="true" data-testid="insert-mark"></span>{/snippet}
+
 {#snippet cards(track: string | undefined)}
   {#each chain as entry (entry.id)}
-    {#if insertAt !== null && entry.effectIndex === insertAt}<span class="mark" aria-hidden="true" data-testid="insert-mark"></span>{/if}
+    {#if markBefore === entry.id}{@render mark()}{/if}
     <DeviceCard {entry} {chain} {track} {master} />
   {/each}
-  {#if insertAt !== null && insertAt >= effectCount(chain)}<span class="mark" aria-hidden="true" data-testid="insert-mark"></span>{/if}
+  {#if markBefore === END}{@render mark()}{/if}
 {/snippet}
 
 {#if master}
@@ -66,7 +84,7 @@
       bind:this={chainEl}
       use:dropTarget={{
         ui,
-        accepts: (item) => item.category !== 'instrument',
+        accepts: (item) => item.category === 'effect',
         move: (event) => (insertAt = where(event)),
         over: (over) => !over && (insertAt = null),
         drop: dropOnChain,
@@ -87,7 +105,9 @@
       use:dropTarget={{
         ui,
         accepts: () => true,
-        move: (event) => (insertAt = ui.dragged?.category === 'instrument' ? null : where(event)),
+        // An instrument takes the instrument's place; a MIDI effect has no place on an audio track: no mark for either.
+        move: (event) =>
+          (insertAt = ui.dragged?.category === 'instrument' || (ui.dragged?.category === 'midi_effect' && !isMidi(selected.track)) ? null : where(event)),
         over: (over) => !over && (insertAt = null),
         drop: dropOnChain,
       }}

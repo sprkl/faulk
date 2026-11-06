@@ -64,6 +64,9 @@ fn samples() -> Vec<ControlMsg> {
             pan: 0.0,
             mute: false,
         },
+        ControlMsg::SetScale {
+            pitch_classes: 0x0AB5,
+        },
         ControlMsg::TrackCreate {
             track: t,
             kind: TrackKind::Midi,

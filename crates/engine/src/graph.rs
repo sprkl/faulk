@@ -709,6 +709,7 @@ impl Graph {
                 tempo: state.transport.tempo,
                 signature: state.transport.signature,
                 position_ticks: clock.position,
+                scale: state.scale,
             },
         };
         let fade = self.fade;

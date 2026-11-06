@@ -44,11 +44,17 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
-// Version 48 (#319; 44 to 47 are given to other tasks): the audio export in Boost. The session
+// Version 48 (#319; 44 is #690's, 45 to 47 go to other tasks): the audio export in Boost. The session
 // gains `export.start` and `export.cancel` (page → helper) and `export.progress`, `export.done`
 // and `export.failed` (helper → page); `hello`'s capabilities gain `export`. The helper renders
 // the page's export job and writes the file into the project's folder (`exports/`); the schema
 // bundle gains `max_export_stream_bytes`, `export_name` and `export_error_codes`.
+
+// Version 44 (#690, #219; 43 is #783's): the engine takes `ControlMsg::SetScale` (tag 4, the project's
+// scale as a set of pitch classes), the registry gains the MIDI effect `faulk.stack` (device kind 9), and
+// the device commands insert, move and remove MIDI effects (role `midi_effect`). A helper of an earlier
+// version would skip the message and not build the device: a page and a helper of different versions
+// refuse each other.
 
 // Version 43 (#116, AU-7): the helper reads the audio files of the project's folder. The session gains
 // `folder.open`, `folder.choose` and `folder.close` (page → helper) and `folder.state` (helper → page);

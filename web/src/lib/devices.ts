@@ -26,6 +26,10 @@ export const instrumentDescriptors = (devices: readonly DeviceDescriptor[] = DEV
 export const effectDescriptors = (devices: readonly DeviceDescriptor[] = DEVICES): readonly DeviceDescriptor[] =>
   devices.filter((d) => (d.role as string) === 'effect')
 
+/** The descriptors of the MIDI effects (#219), in registry order: they go before a MIDI track's instrument. */
+export const midiEffectDescriptors = (devices: readonly DeviceDescriptor[] = DEVICES): readonly DeviceDescriptor[] =>
+  devices.filter((d) => (d.role as string) === 'midi_effect')
+
 /**
  * A text of the catalogue, or `undefined` when it has none: a device registered without its
  * translations still gets a panel (the parameter's key and the descriptor's description stand in);
@@ -110,10 +114,21 @@ export function formatValue(p: ParamDescriptor, value: number): string {
 /**
  * Parameters that only matter in one mode of their device (display only: the engine keeps every parameter, and a
  * hidden one keeps its value). Per device kind, per parameter key: the choice parameter that decides, and the keys of
- * its values for which the parameter is shown. Echo: the delay time in free mode, the note value in synced mode.
+ * its values for which the parameter is shown. Echo: the delay time in free mode, the note value in synced mode. Stack:
+ * a voice's settings while the voice is on.
  */
 export const SHOWN_IN_MODE: Readonly<Record<string, Readonly<Record<string, { by: string; values: readonly string[] }>>>> = {
   'faulk.echo': { time: { by: 'mode', values: ['free'] }, division: { by: 'mode', values: ['synced'] } },
+  'faulk.stack': stackVoices(),
+}
+
+/** Stack (#690): a voice's interval, velocity and chance show while the voice is on. */
+function stackVoices(): Record<string, { by: string; values: readonly string[] }> {
+  const rules: Record<string, { by: string; values: readonly string[] }> = {}
+  for (let n = 1; n <= 6; n++) {
+    for (const part of ['interval', 'velocity', 'chance']) rules[`voice${n}_${part}`] = { by: `voice${n}`, values: ['on'] }
+  }
+  return rules
 }
 
 /** The parameters of a device to show now, given the value of each parameter (`valueOf` falls back to the default). */
