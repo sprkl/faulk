@@ -1201,3 +1201,50 @@ fn every_pass_of_a_loop_draws_the_loop_starts_point() {
         }
     }
 }
+
+/// A block of no frame while the clock runs is no jump: a capture in the last frame of the
+/// block before it is kept, so a host that sends one and a host that does not render alike.
+#[test]
+fn a_block_of_no_frame_while_playing_changes_nothing() {
+    let input = marked(120_000, SR);
+    let play = Play::at(SR, 97.0);
+    let reference = run(&mut with(SR, &[(GATE, 100.0)]), play.blocks(1), &input, &[]);
+    // The same, with an empty block after every block.
+    let mut h = with(SR, &[(GATE, 100.0)]);
+    let tempo = Tempo::new(97.0).unwrap();
+    let spt = play.samples_per_tick();
+    let mut unused = EventBuffer::try_with_capacity(1).unwrap();
+    let mut out = Vec::new();
+    for (i, x) in input.iter().enumerate() {
+        let position = i as f64 / spt;
+        for frames in [1usize, 0] {
+            let mut left = vec![*x; frames];
+            let mut right = left.clone();
+            let ctx = BlockCtx {
+                sample_rate: SR,
+                frames: frames as u32,
+                transport: Transport {
+                    playing: true,
+                    tempo,
+                    // The empty block sits where the next frame starts.
+                    position_ticks: if frames == 0 {
+                        position + 1.0 / spt
+                    } else {
+                        position
+                    },
+                    ..Transport::default()
+                },
+            };
+            assert_no_alloc(|| {
+                let mut io = AudioIo {
+                    left: &mut left,
+                    right: &mut right,
+                    events_out: &mut unused,
+                };
+                h.process(&ctx, &[], &mut io);
+            });
+            out.extend(left);
+        }
+    }
+    assert_eq!(out, reference);
+}

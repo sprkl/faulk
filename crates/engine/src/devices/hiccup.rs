@@ -1082,7 +1082,8 @@ impl Device for Hiccup {
             -GRID_EPSILON_FRAMES
         };
         let mut n = if playing { grid.first_from(first) } else { 0 };
-        self.expected = (playing && transport.playing)
+        // A block of no frame while the clock runs moves nothing: the next block is no jump.
+        self.expected = (transport.playing && position.abs() < MAX_GRID_TICKS)
             .then(|| position + frames as f64 / self.samples_per_tick);
         let position_at = |grid: &Grid, frame: usize| {
             if transport.playing {
