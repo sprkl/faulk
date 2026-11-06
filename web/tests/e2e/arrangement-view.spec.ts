@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { engineUp, watch } from './support'
+import { engineUp, skipWithoutDevHooks, watch } from './support'
 
 // AR-4 (#80): the arrangement view in a real browser, with the real worklet, engine and project core. Every
 // gesture reaches the project as an arrangement command (a refused command would be a console warning, which
@@ -470,3 +470,48 @@ test('arrangement view: the headers and the canvas scroll together, with a verti
   await expect(page.getByTestId('arr-lane')).toBeInViewport()
   expect(seen.errors).toEqual([])
 })
+
+// #772: Ctrl+E on a placement cut at the playhead says how many placements it cut (the count was read after the cut, from a
+// selection the cut had replaced, and said 0). Both languages; the toolbar's Split says the same.
+for (const [lang, said] of [
+  ['en', 'Clips split: 1'],
+  ['fr', 'Clips coupés : 1'],
+] as const) {
+  test(`arrangement: the split says the count it cut (${lang})`, async ({ page }) => {
+    test.setTimeout(120_000)
+    const seen = watch(page)
+    await page.addInitScript((l) => localStorage.setItem('faulk.lang', l), lang)
+    await page.setViewportSize({ width: 1600, height: 900 })
+    await page.goto('/app')
+    await startAudio(page)
+    await engineUp(page)
+    await skipWithoutDevHooks(page)
+    await page.getByTestId('panel-piano-roll').click()
+    await page.getByTestId('roll-create-clip').click()
+    await page.getByTestId('nav-arrangement').click()
+    await expect(arr(page)).toHaveAttribute('data-block-count', '1')
+    const seek = (tick: number) =>
+      page.evaluate((t) => (window as unknown as { __faulkRun(c: object): void }).__faulkRun({ type: 'transport.seek', tick: t }), tick)
+    const playheadX = async () => Number(await stage(page).getByTestId('timegrid').getAttribute('data-playhead-x'))
+    const x0 = await playheadX()
+    await seek(BAR / 2)
+    await expect.poll(playheadX).toBeGreaterThan(x0)
+
+    // From the keyboard: the placement focused and selected, Ctrl+E.
+    await page.getByTestId('arr-item').first().focus()
+    await page.keyboard.press('Control+e')
+    await expect.poll(async () => (await blocks(page)).length).toBe(2)
+    await expect(page.getByTestId('arr-said')).toHaveText(said)
+
+    // From the toolbar: both halves selected, only the second holds the playhead moved into it, so one is cut.
+    const x1 = await playheadX()
+    await seek(BAR / 2 + BAR / 4)
+    await expect.poll(playheadX).toBeGreaterThan(x1)
+    await page.keyboard.press('Control+a')
+    await expect(page.getByTestId('arr-split')).toBeEnabled()
+    await page.getByTestId('arr-split').click()
+    await expect.poll(async () => (await blocks(page)).length).toBe(3)
+    await expect(page.getByTestId('arr-said')).toHaveText(said)
+    expect(seen.errors).toEqual([])
+  })
+}
