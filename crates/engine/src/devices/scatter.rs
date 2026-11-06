@@ -33,19 +33,23 @@
 //! `[0, 1)`, the same on both targets. The first, against `chance / 100`, decides whether the
 //! note moves; with `order` at `random`, the second picks the choice (`floor(u × choices)`).
 //!
-//! While the transport plays, a note's place is its position in the song, in whole ticks: the
-//! block's `position_ticks` plus its offset at the tempo, rounded to the nearest tick (a clip's
-//! note falls within a few hundredths of a tick of its own, whatever the cut of the blocks). So
-//! the same note at the same place moves the same way on every play, from wherever the play
-//! starts, and in the export, natively and in WebAssembly; a live note played meanwhile takes
-//! the playhead's place and shifts nothing. A loop plays the same draw on every pass (the
+//! While the transport plays, a note's place is its position in the song, in whole ticks. The
+//! engine plays a clip's note at tick `T` on the frame its fractional position falls in, so the
+//! playhead at that frame, `p` (the block's `position_ticks` plus the offset at the tempo), is
+//! within one frame's ticks `f` below `T`: the place is `round(p + f / 2)`, which is `T` while a
+//! frame is shorter than a tick (above 16 kHz at any tempo up to 999 BPM; 44.1 and 48 kHz
+//! always), with a margin of `(1 − f) / 2` tick against rounding, whatever the cut of the
+//! blocks. So the same note at the same place moves the same way on every play, from wherever
+//! the play starts, and in the export, natively and in WebAssembly; a live note played meanwhile
+//! takes the playhead's place and shifts nothing. A loop plays the same draw on every pass (the
 //! lead's decision of 2026-11-06: the engine counts no passes, and a repeated loop that keeps
 //! its variation is musical). While the transport is stopped, a live note's place is a count
 //! of the note-ons received stopped, restarted by [`Device::reset`].
 //!
 //! With `order` at `cycle`, each moved note takes the next choice, wrapping: a count of the
-//! moved notes, restarted at [`Device::reset`] and when the transport starts playing (a turn
-//! follows the notes, not their place).
+//! moved notes, restarted at [`Device::reset`] and when the transport starts playing. A turn
+//! follows the notes, not their place: it goes on across the passes of a loop and a seek, so
+//! only a play from the same start repeats it (the chance draw stays by place).
 //!
 //! # Notes held, none stuck
 //!
@@ -340,8 +344,21 @@ impl Scatter {
         scale: PitchSet,
         out: &mut crate::device::EventBuffer,
     ) {
-        // A note-on for a voice already held (a broken guarantee) ends that one first.
-        if let Some(entry) = self.find(voice) {
+        // One pass over the table: the entry of this voice if it is held, else the first free.
+        let generation = self.generation;
+        let mut free = None;
+        let mut same = None;
+        for (e, h) in self.held.iter().enumerate() {
+            if h.generation != generation {
+                free = free.or(Some(e));
+            } else if h.voice == voice.get() {
+                same = Some(e);
+                break;
+            }
+        }
+        // A note-on for a voice already held (a broken guarantee) ends that one first, and
+        // takes its entry.
+        if let Some(entry) = same {
             let held = &mut self.held[entry];
             out.push(Event::NoteOff {
                 offset: at as u32,
@@ -349,13 +366,13 @@ impl Scatter {
                 key: held.key,
             });
             held.generation = 0;
+            free = Some(entry);
         }
         let key = key.min(127);
         // A note beyond a full table still takes its turn in `cycle` order and its count when
         // stopped, so it shifts nothing of the next ones'.
         let moved = self.target(key, place, scale);
-        let generation = self.generation;
-        let out_key = match self.held.iter().position(|h| h.generation != generation) {
+        let out_key = match free {
             Some(entry) => {
                 self.held[entry] = Held {
                     generation,
@@ -550,16 +567,16 @@ pub enum Place {
 fn ticks_per_frame(ctx: &BlockCtx) -> f64 {
     let rate = f64::from(ctx.sample_rate);
     if rate.is_finite() && rate > 0.0 {
-        // 960 ticks per quarter note, `bpm` quarter notes per 60 s.
-        ctx.transport.tempo.bpm() * 16.0 / rate
+        ctx.transport.tempo.ticks_per_second() / rate
     } else {
         0.0
     }
 }
 
-/// The whole tick a note at frame `at` of a block starting at `position` (in ticks) falls on.
+/// The whole tick a note at frame `at` of a block starting at `position` (in ticks) is placed
+/// at: the middle of the frame's ticks, rounded (module doc).
 pub fn song_tick(position: f64, at: usize, ticks_per_frame: f64) -> i64 {
-    let tick = (position + at as f64 * ticks_per_frame).round();
+    let tick = (position + (at as f64 + 0.5) * ticks_per_frame).round();
     if tick.is_finite() {
         // Saturating: a position past the range of `i64` stays at its end.
         tick as i64

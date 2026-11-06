@@ -11,7 +11,7 @@ use engine::device::{
 };
 use engine::devices::scatter::{
     AROUND, CHANCE, CHOICES, CYCLE, DESCRIPTOR, DIRECTION, DOWN, HELD, IN_SCALE, INTERVAL, MODE,
-    ORDER, SEED, Scatter, UP, scale_step, steps,
+    ORDER, SEED, Scatter, UP, scale_step, song_tick, steps,
 };
 use engine::msg::ParamId;
 use std::collections::{BTreeMap, BTreeSet};
@@ -893,4 +893,34 @@ fn the_descriptor_is_valid_and_declares_its_memory() {
         ]
     );
     assert!(DESCRIPTOR.params.iter().all(|p| !p.description.is_empty()));
+}
+
+/// A clip's note at tick `T` plays on the frame its position falls in (`floor`, as the engine's
+/// transport does): its place is `T` from any block start, at every tempo and rate where a
+/// frame is shorter than a tick, the slowest and the fastest included.
+#[test]
+fn a_clip_note_is_placed_on_its_own_tick_from_any_block_start() {
+    for (bpm, rate) in [
+        (120.0, 48_000.0),
+        (999.0, 48_000.0),
+        (999.0, 22_050.0),
+        (999.0, 16_000.0),
+        (20.0, 8_000.0),
+        (174.0, 44_100.0),
+    ] {
+        let tpf = bpm * 16.0 / rate;
+        let samples_per_tick = 1.0 / tpf;
+        for tick in (0..20_000i64).step_by(7) {
+            let frame = (tick as f64 * samples_per_tick).floor() as i64;
+            for start in [0i64, 1, frame / 3, frame - 1, frame].map(|s| s.clamp(0, frame)) {
+                let position = start as f64 * tpf;
+                let at = (frame - start) as usize;
+                assert_eq!(
+                    song_tick(position, at, tpf),
+                    tick,
+                    "{bpm} BPM at {rate} Hz, tick {tick} from frame {start}"
+                );
+            }
+        }
+    }
 }
