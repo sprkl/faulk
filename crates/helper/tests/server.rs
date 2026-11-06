@@ -1755,6 +1755,49 @@ async fn a_destructive_call_waits_for_the_users_answer_and_a_refusal_reaches_the
 }
 
 #[tokio::test]
+async fn an_audio_file_from_a_link_is_relayed_to_the_page_and_its_typed_answers_reach_the_agent() {
+    // #664: the helper only relays `clip_import_audio_url`; the page asks the user, downloads and
+    // imports. Its clip comes back as the tool's structured content, its refusals typed.
+    let h = start().await;
+    let (mut page, _) = open_session(&h).await;
+    let mut lines = initialize();
+    let args = serde_json::json!({"track":"t1","url":"https://example.org/kick.wav"});
+    lines.push(tool_call(2, "clip_import_audio_url", args.clone()));
+    lines.push(tool_call(3, "clip_import_audio_url", args));
+    let running = bridge(h.port, Some(MCP_TOKEN), lines);
+    let media = "ab".repeat(32);
+    let answers = [
+        AgentResult::Applied {
+            output: serde_json::json!({"type":"clip.import_audio_url","clip":"c1","media":media}),
+        },
+        AgentResult::Refused {
+            error: serde_json::json!({"code":"download.too_big","message":"the file is over 192 MiB: nothing changed"}),
+        },
+    ];
+    for result in answers {
+        let ServerMessage::AgentCall { id, command, .. } = next(&mut page).await else {
+            panic!("expected agent.call")
+        };
+        assert_eq!(
+            command,
+            serde_json::json!({"type":"clip.import_audio_url","track":"t1","url":"https://example.org/kick.wav"})
+        );
+        send(&mut page, &ClientMessage::AgentResult { id, result }).await;
+    }
+    let answers = running.await.unwrap();
+    let made = answer(&answers, 2);
+    assert_eq!(made["result"]["isError"], false, "{made}");
+    assert_eq!(
+        made["result"]["structuredContent"],
+        serde_json::json!({"clip":"c1","media":media})
+    );
+    let refused = answer(&answers, 3);
+    assert_eq!(refused["result"]["isError"], true);
+    assert_eq!(result_text(refused)["code"], "command.refused");
+    assert_eq!(result_text(refused)["error"]["code"], "download.too_big");
+}
+
+#[tokio::test]
 async fn a_refusal_of_the_page_reaches_the_agent_as_a_typed_error() {
     let h = start().await;
     let (mut page, _) = open_session(&h).await;

@@ -25,6 +25,8 @@ export type AgentQuestion =
   | { kind: 'loadFolder'; target: string | null }
   /** Any other destructive command, named. */
   | { kind: 'command'; command: string }
+  /** An audio file from a link (`clip.import_audio_url`, #664): the link's host, the file's name, the track's name. */
+  | { kind: 'importAudio'; host: string; name: string; track: string }
 
 /** A question waiting for the user. */
 export interface PendingQuestion {

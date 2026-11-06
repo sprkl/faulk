@@ -25,7 +25,9 @@ import {
   renameProject as renameProjectCommand,
 } from '../project-commands'
 import type { AudioExport, ExportHost } from '../export/audio-export.svelte'
-import type { AudioImport } from '../audio/import/audio-import.svelte'
+import { importCommand, type AudioImport, type ImportPlacer } from '../audio/import/audio-import.svelte'
+import { audioNameOf } from '../audio/import/from-url'
+import { importAudioUrlOutput, isImportAudioUrl, type ImportAudioUrl } from '../clip-commands'
 import { audioMediaOf } from '../audio/import/media'
 import type { ProjectHost, ProjectStorage } from '../storage/storage.svelte'
 import { releaseAllNotes, requestMidiInputs } from './housekeeping'
@@ -661,6 +663,8 @@ export class Dispatcher {
     if (isSetTheme(command)) return this.setTheme(command.theme)
     // Needs no project either: the imports are the storage's, which says what it stopped (#735).
     if (isCancelImportPack(command)) return this.cancelImportPack()
+    // An audio file from a link (#664): its own path, where the user's answer comes before any byte is fetched.
+    if (isImportAudioUrl(command)) return this.importAudioUrl(command, author, deadline, signal)
     // The queries that measure levels: the page stages its numbers in the core, then the command answers (#665).
     if (isMixerLevels(command) && this.core) this.stageLevels(this.core)
     const range = analyzeRange(command)
@@ -716,6 +720,52 @@ export class Dispatcher {
     } finally {
       stopWatching?.()
     }
+  }
+
+  /**
+   * `clip.import_audio_url` for an agent (#664). The core checks the track and the link's shape first, so that a wrong
+   * call is refused before the user is asked; then the page checks the link with the browser's parser and its own host
+   * (`url.refused`); then the user is asked, with the link's host and the file's name, until the call's `deadline`.
+   * Nothing is sent to the host before "Allow". Only then is the file downloaded and imported as a picked file, its clip
+   * made by `clip.import_audio` as `author`. The download and the import exist only here, after the answer: a `run` of
+   * the command (`applyEffects` has no case for it) only gets the core's check. Every way it ends without a clip is a
+   * typed refusal, nothing changed; `signal` (the call's link closed) stops it.
+   */
+  private async importAudioUrl(command: ImportAudioUrl, author: string, deadline: number, signal?: AbortSignal): Promise<AgentResult> {
+    const audioImport = this.audioImport
+    if (!this.core || !audioImport) return { status: 'unavailable', reason: 'the page has no project yet: start audio in the page first' }
+    const checked = this.execute(command, { quiet: true, author })
+    if (checked.status === 'started') return { status: 'unavailable', reason: 'the page answers this command later' }
+    if (checked.status !== 'applied') return checked
+    const link = audioImport.checkLink(command.url)
+    if (link.status !== 'ok') {
+      return {
+        status: 'refused',
+        error: {
+          code: 'url.refused',
+          message: 'the page does not fetch this link (https only; plain http only to this computer, from a page served by it): nothing changed',
+        },
+      }
+    }
+    // A second call for a link under way (an agent retrying after `page.timeout`) would import the file twice.
+    if (audioImport.importing(link.url)) {
+      return { status: 'refused', error: { code: 'import.busy', message: 'this link is already being imported: wait for its answer, then check clip.list' } }
+    }
+    const track = this.project.view?.project.tracks[command.track]?.name ?? command.track
+    const name = audioNameOf(link.url)
+    const answer = await this.confirmations.ask(author, { kind: 'importAudio', host: link.host, name, track }, deadline, signal)
+    if (answer !== 'confirmed') return notConfirmed(answer)
+    let clip: string | null = null
+    const place: ImportPlacer = (media) => {
+      const made = this.execute(importCommand(command.track, media.hash), { quiet: true, author })
+      if (made.status !== 'applied') return false
+      clip = (made.output as { clip: string }).clip
+      return true
+    }
+    const outcome = await audioImport.importUrl(command.track, link.url, link.host, name, place, signal)
+    if (signal?.aborted && outcome.status !== 'ok') return { status: 'unavailable', reason: 'the call ended before the file was imported: nothing changed' }
+    if (outcome.status !== 'ok') return { status: 'refused', error: { code: outcome.code, message: outcome.message } }
+    return { status: 'applied', output: importAudioUrlOutput(clip, outcome.hash) }
   }
 
   /** Stages what the meters held since the last `mixer.levels` for the core to answer with. */

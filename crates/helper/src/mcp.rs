@@ -181,7 +181,8 @@ loses its link to this helper. A destructive tool (annotation `destructiveHint`:
 undone) and the tools that replace the open project, delete a project kept in the browser or \
 settle a conflict with the project's folder (`project_open_recent`, \
 `project_open_browser_project`, `project_reopen_last`, `project_open_url`, \
-`project_delete_browser_project`, `project_keep_mine`, `project_load_folder_version`) wait for \
+`project_delete_browser_project`, `project_keep_mine`, `project_load_folder_version`), and \
+`clip_import_audio_url` (an audio file the page downloads from a link), wait for \
 the user to allow them in the page, for up to 45 s, then answer once the page did the action \
 (a slow one, such as a large download, can still end in `page.timeout` although it ran: check \
 with `project_list_stored` or the project before calling again). When the user refuses, or does \

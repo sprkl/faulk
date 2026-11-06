@@ -2,7 +2,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { NativeEngine, NoOutputError } from '../engine/native-engine'
 import type { EngineEvents } from '../engine/engine'
-import { AGENT_CONFIRM_MS, DESTRUCTIVE_COMMANDS, PROTOCOL_VERSION, SINGLE_SYNTH, type Command } from '../generated/protocol'
+import { AGENT_CONFIRM_MS, DESTRUCTIVE_COMMANDS, MAX_AUDIO_URL_BYTES, PROTOCOL_VERSION, SINGLE_SYNTH, type Command } from '../generated/protocol'
+import { ImportError } from '../audio/import/abi'
 import { STORAGE_GUARDED } from '../agents/guard'
 import { DEFAULT_PARAMS } from '../params'
 import { CoreError, ProjectCore, type FolderEntry } from '../project/core'
@@ -2971,5 +2972,193 @@ describe("an agent's destructive calls wait for the user's answer in the page (A
     expect(session.dispatcher.confirmations.pending).toEqual([])
     expect(spies.keepMine).not.toHaveBeenCalled()
     expect(spies.loadDisk).not.toHaveBeenCalled()
+  })
+})
+
+describe("an agent's audio file from a link waits for the user's answer, then imports as the user would (#664)", () => {
+  const HASH = '7c'.repeat(32)
+  const LINK = 'https://example.org/loops/kick%2001.wav'
+
+  beforeEach(() => {
+    webs = []
+    nativeEngine = null
+    midiOn = false
+    midiReleaseAll = () => Promise.resolve()
+    localStorage.clear()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  /** A started page with an audio track, a host serving `body`, and the store's import of a file mocked. */
+  async function withAudioTrack(body: Uint8Array = new Uint8Array(64).fill(1)) {
+    const session = newSession()
+    await session.dispatcher.start()
+    session.dispatcher.run({ type: 'track.create', kind: 'audio' } as Command)
+    const view = session.project.view!.project
+    const track = Object.entries(view.tracks).find(([, t]) => t?.kind === 'audio')![0]
+    const midiTrack = Object.entries(view.tracks).find(([, t]) => t?.kind !== 'audio')![0]
+    const serve = async () => new Response(body.slice() as Uint8Array<ArrayBuffer>, { headers: { 'content-length': String(body.length) } })
+    const fetch = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(serve)
+    vi.stubGlobal('fetch', fetch)
+    const imported: File[] = []
+    vi.spyOn(session.storage, 'importAudio').mockImplementation(async (file) => {
+      imported.push(file)
+      return { hash: HASH, sample_rate: 44_100, channels: 2, frames: 22_050, name: file.name }
+    })
+    const history = session.dispatcher.history().undo.length
+    const clips = () => Object.values(session.project.view!.project.tracks[track]!.clips)
+    return { session, track, midiTrack, fetch, imported, history, clips }
+  }
+
+  const call = (track: string, url = LINK): Command => ({ type: 'clip.import_audio_url', track, url })
+
+  it("asks with the link's host, the file's name and the track, sends nothing before Allow, then makes the clip as the agent", async () => {
+    const { session, track, fetch, imported, history, clips } = await withAudioTrack()
+    const answer = session.dispatcher.runForAgent(call(track), 'agent:claude-code')
+    await vi.waitFor(() => expect(session.dispatcher.confirmations.current).not.toBeNull())
+    const trackName = session.project.view!.project.tracks[track]!.name
+    expect(session.dispatcher.confirmations.current).toMatchObject({
+      agent: 'agent:claude-code',
+      question: { kind: 'importAudio', host: 'example.org', name: 'kick 01.wav', track: trackName },
+    })
+    // Nothing reached the host while the user reads the question.
+    expect(fetch).not.toHaveBeenCalled()
+    session.dispatcher.confirmations.answer(true)
+    const result = await answer
+    expect(result).toMatchObject({ status: 'applied', output: { media: HASH } })
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(fetch).toHaveBeenCalledWith(new URL(LINK).href, expect.objectContaining({ credentials: 'omit', referrerPolicy: 'no-referrer', mode: 'cors' }))
+    // The file the store imported is the download, as a picked file would be; one clip, one entry of the agent's.
+    expect(imported.map((f) => [f.name, f.size, f.type])).toEqual([['kick 01.wav', 64, '']])
+    expect(clips()).toHaveLength(1)
+    expect((result as { output: { clip: string } }).output.clip).toBe(Object.keys(session.project.view!.project.tracks[track]!.clips)[0])
+    expect(session.dispatcher.history().undo).toHaveLength(history + 1)
+    expect(session.dispatcher.history().undo.at(-1)).toMatchObject({ name: 'clip.import_audio', author: 'agent:claude-code' })
+    // The user can undo it.
+    session.dispatcher.run({ type: 'history.undo' })
+    expect(clips()).toHaveLength(0)
+  })
+
+  it('a refusal, a timeout or a call that ended download nothing and change nothing, each answered typed', async () => {
+    for (const end of ['declined', 'timeout', 'withdrawn'] as const) {
+      const { session, track, fetch, imported, history, clips } = await withAudioTrack()
+      const link = new AbortController()
+      if (end === 'timeout') vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      const answer = session.dispatcher.runForAgent(call(track), 'agent:a', link.signal)
+      await vi.waitFor(() => expect(session.dispatcher.confirmations.current).not.toBeNull())
+      if (end === 'declined') session.dispatcher.confirmations.answer(false)
+      else if (end === 'timeout') vi.advanceTimersByTime(AGENT_CONFIRM_MS)
+      else link.abort()
+      const result = await answer
+      if (end === 'withdrawn') expect(result, end).toMatchObject({ status: 'unavailable' })
+      else expect(result, end).toMatchObject({ status: 'refused', error: { code: `confirmation.${end}` } })
+      expect(fetch, end).not.toHaveBeenCalled()
+      expect(imported, end).toEqual([])
+      expect(clips(), end).toEqual([])
+      expect(session.dispatcher.history().undo, end).toHaveLength(history)
+      vi.useRealTimers()
+    }
+  })
+
+  it('a call whose deadline passed before its question is a timeout, not a download', async () => {
+    const { session, track, fetch } = await withAudioTrack()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    const ask = vi.spyOn(session.dispatcher.confirmations, 'ask')
+    // The page is slow to reach the question (a busy tab): the call's deadline, set when it arrived, has passed.
+    const clock = vi.spyOn(session.dispatcher.confirmations.clock, 'now')
+    clock.mockReturnValueOnce(0).mockReturnValue(AGENT_CONFIRM_MS + 1)
+    expect(await session.dispatcher.runForAgent(call(track), 'agent:a')).toMatchObject({ status: 'refused', error: { code: 'confirmation.timeout' } })
+    expect(ask).toHaveBeenCalledTimes(1)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('refuses a wrong track or a link the core or the page refuses before asking anything', async () => {
+    const { session, track, midiTrack, fetch } = await withAudioTrack()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const refusals: [Command, string][] = [
+      [call(midiTrack), 'invalid'],
+      [call(track, 'file:///C:/kick.wav'), 'invalid'],
+      [call(track, 'http://example.org/kick.wav'), 'invalid'],
+      [call(track, 'https://user:pw@example.org/kick.wav'), 'invalid'],
+      [call(track, 'data:audio/wav;base64,UklGRg=='), 'invalid'],
+    ]
+    for (const [command, code] of refusals) {
+      expect(await session.dispatcher.runForAgent(command, 'agent:a'), JSON.stringify(command)).toMatchObject({ status: 'refused', error: { code } })
+    }
+    // A link the core takes but the page does not: plain http to this computer from a page that is not served by it.
+    vi.spyOn(session.audioImport, 'checkLink').mockReturnValue({ status: 'refused' })
+    expect(await session.dispatcher.runForAgent(call(track, 'http://localhost:5491/kick.wav'), 'agent:a')).toMatchObject({
+      status: 'refused',
+      error: { code: 'url.refused' },
+    })
+    expect(session.dispatcher.confirmations.pending).toEqual([])
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("a user's run of the command, or the dev hook's, never downloads without the question", async () => {
+    const { session, track, fetch } = await withAudioTrack()
+    expect(session.dispatcher.run(call(track))).toBe(true)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(fetch).not.toHaveBeenCalled()
+    expect(session.dispatcher.confirmations.pending).toEqual([])
+  })
+
+  it('answers download.too_big, download.unreachable and import.<reason> typed, with nothing changed', async () => {
+    const cases: [Response | Error, string][] = [
+      [new Response(new Uint8Array(4), { headers: { 'content-length': String(MAX_AUDIO_URL_BYTES + 1) } }), 'download.too_big'],
+      [new Response(null, { status: 403 }), 'download.unreachable'],
+      [new TypeError('Failed to fetch'), 'download.unreachable'],
+    ]
+    for (const [served, code] of cases) {
+      const { session, track, fetch, imported, history, clips } = await withAudioTrack()
+      fetch.mockImplementation(async () => {
+        if (served instanceof Error) throw served
+        return served
+      })
+      const answer = session.dispatcher.runForAgent(call(track), 'agent:a')
+      await vi.waitFor(() => expect(session.dispatcher.confirmations.current).not.toBeNull())
+      session.dispatcher.confirmations.answer(true)
+      expect(await answer, code).toMatchObject({ status: 'refused', error: { code } })
+      expect(imported).toEqual([])
+      expect(clips()).toEqual([])
+      expect(session.dispatcher.history().undo).toHaveLength(history)
+    }
+    // A page of HTML under an audio name: the decoder refuses it (`audio-import`'s own tests); the agent hears why.
+    const { session, track, clips } = await withAudioTrack(new TextEncoder().encode('<!doctype html><p>404</p>'))
+    vi.spyOn(session.storage, 'importAudio').mockRejectedValue(new ImportError('unsupported_format', 'not an audio file'))
+    const answer = session.dispatcher.runForAgent(call(track), 'agent:a')
+    await vi.waitFor(() => expect(session.dispatcher.confirmations.current).not.toBeNull())
+    session.dispatcher.confirmations.answer(true)
+    expect(await answer).toMatchObject({ status: 'refused', error: { code: 'import.unsupported_format' } })
+    expect(clips()).toEqual([])
+  })
+
+  it('refuses a second call for a link under way without asking again, and stops on clip.cancel_audio_import', async () => {
+    const { session, track, fetch, clips } = await withAudioTrack()
+    // A host that answers and then sends nothing more.
+    fetch.mockImplementation(
+      async (...[, init]: [string, RequestInit?]) =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              init?.signal?.addEventListener('abort', () => controller.error(init?.signal?.reason), { once: true })
+            },
+          }),
+        ),
+    )
+    const first = session.dispatcher.runForAgent(call(track), 'agent:a')
+    await vi.waitFor(() => expect(session.dispatcher.confirmations.current).not.toBeNull())
+    session.dispatcher.confirmations.answer(true)
+    await vi.waitFor(() => expect(session.audioImport.downloads).toHaveLength(1))
+    expect(await session.dispatcher.runForAgent(call(track), 'agent:a')).toMatchObject({ status: 'refused', error: { code: 'import.busy' } })
+    expect(session.dispatcher.confirmations.pending).toEqual([])
+    expect(await session.dispatcher.runForAgent({ type: 'clip.cancel_audio_import' }, 'agent:a')).toMatchObject({ status: 'applied' })
+    expect(await first).toMatchObject({ status: 'refused', error: { code: 'import.cancelled' } })
+    expect(clips()).toEqual([])
+    expect(session.audioImport.downloads).toEqual([])
   })
 })

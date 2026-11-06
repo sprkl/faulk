@@ -250,6 +250,65 @@ test('a file that is not audio, or in a format Faulk does not read, is refused b
   expect(errors).toEqual([])
 })
 
+test("an agent's audio file from a link (#664): the user is asked first, nothing reaches the host before Allow, then it imports as a chosen file", async ({
+  page,
+}) => {
+  const { errors } = watch(page)
+  const track = await audioTrack(page)
+  const hash = sha256(fixture('sine-s16.wav'))
+  const link = 'https://audio.example/loops/sine-s16.wav?v=1'
+  // The host, as Playwright serves it: any origin may read it (CORS); every request it gets is counted.
+  let body: Buffer | string = readFileSync(fixture('sine-s16.wav'))
+  const hits: { method: string; cookie?: string; referer?: string }[] = []
+  await page.route('https://audio.example/**', async (route) => {
+    const headers = route.request().headers()
+    hits.push({ method: route.request().method(), cookie: headers['cookie'], referer: headers['referer'] })
+    await route.fulfill({ body, headers: { 'access-control-allow-origin': '*', 'content-type': 'audio/wav', 'cross-origin-resource-policy': 'cross-origin' } })
+  })
+  const ask = () =>
+    page.evaluate(
+      ([track, url]) => {
+        const w = window as unknown as { __faulkAgent(c: object, author: string): Promise<unknown>; __answer?: Promise<unknown> }
+        w.__answer = w.__faulkAgent({ type: 'clip.import_audio_url', track, url }, 'agent:claude-code')
+      },
+      [track, link],
+    )
+  const answer = () => page.evaluate(() => (window as unknown as { __answer: Promise<unknown> }).__answer)
+  const dialog = page.getByTestId('agent-confirm')
+
+  // Refused: nothing was ever sent to the host.
+  await ask()
+  await expect(dialog).toBeVisible()
+  await expect(dialog.getByRole('heading')).toHaveText('claude-code wants to download an audio file from audio.example')
+  await expect(dialog).toContainText('File: sine-s16.wav.')
+  await expect(dialog).toContainText('up to 192 MB')
+  await page.getByTestId('agent-confirm-refuse').click()
+  expect(await answer()).toMatchObject({ status: 'refused', error: { code: 'confirmation.declined' } })
+  expect(hits).toEqual([])
+  await expect(page.getByTestId('pool-clip')).toHaveCount(0)
+
+  // Allowed: one request, without cookies or referrer; the clip is the agent's, the file kept under its SHA-256.
+  await ask()
+  await page.getByTestId('agent-confirm-allow').click()
+  expect(await answer()).toMatchObject({ status: 'applied', output: { media: hash } })
+  expect(hits).toEqual([{ method: 'GET', cookie: undefined, referer: undefined }])
+  await expect(page.getByTestId('pool-clip')).toHaveCount(1)
+  await expect(page.getByTestId('pool-clip')).toContainText('sine-s16')
+  expect((await audioClips(page, track))[0]!.content.audio!.media).toMatchObject({ hash, frames: 22_050, name: 'sine-s16.wav' })
+  const history = await page.evaluate(() => (window as unknown as { __faulkHistory(): { undo: { name: string; author: string }[] } }).__faulkHistory())
+  expect(history.undo.at(-1)).toMatchObject({ name: 'clip.import_audio', author: 'agent:claude-code' })
+  await expect.poll(async () => Object.keys(await opfsFiles(page))).toContain(`blobs/${hash}`)
+
+  // A web page served under the same audio name and type: the decoder refuses it, the agent hears why, no clip is made.
+  body = '<!doctype html><p>Not found</p>'.repeat(40)
+  await ask()
+  await page.getByTestId('agent-confirm-allow').click()
+  expect(await answer()).toMatchObject({ status: 'refused', error: { code: 'import.unsupported_format' } })
+  await expect(page.getByTestId('audio-import-failure')).toHaveAttribute('data-code', 'unsupported_format')
+  await expect(page.getByTestId('pool-clip')).toHaveCount(1)
+  expect(errors).toEqual([])
+})
+
 // The helper's session, as a stand-in (helper.spec.ts has the full one): enough for the page to switch to Boost.
 const CODE = '12345678'
 const TOKEN = 'e2e-token'
