@@ -20,6 +20,15 @@ pub const MAX_TICK: i64 = 1 << 40;
 /// Largest frame index or frame count in an audio clip: 2^40 (about 260 days at 48 kHz).
 pub const MAX_FRAME: u64 = 1 << 40;
 
+/// Most bytes one audio file may decode to (#780), counted as its PCM cache counts them:
+/// frames × channels × 4 (`f32`). 16 GiB, the most a whole project's `.faulkpack` carries
+/// (`file::pack::PackLimits::max_total`): a file that compresses very well (a FLAC of
+/// silence, a low-rate Opus) would otherwise fill the disk with its decoded copy. An hour
+/// of stereo at 192 kHz (5.5 GB) or of 7.1 at 96 kHz (11.1 GB) fits; an hour of 16 channels
+/// at 96 kHz (22.1 GB) does not. A WAV or AIFF read directly (no cache) never reaches it:
+/// its 32-bit chunk sizes hold less than 4 GiB of samples of 16 bits or more.
+pub const MAX_DECODED_BYTES: u64 = 16 << 30;
+
 /// Longest name (project, track, scene, clip, module, audio file), in characters.
 pub const MAX_NAME_CHARS: usize = 200;
 

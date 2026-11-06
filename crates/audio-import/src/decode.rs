@@ -3,10 +3,12 @@
 
 use crate::ImportError;
 use crate::opus::{self, OpusStream};
-use project::limits::{MAX_CHANNELS, MAX_FRAME, SAMPLE_RATES};
+use project::limits::{MAX_CHANNELS, MAX_DECODED_BYTES, MAX_FRAME, SAMPLE_RATES};
 use std::io::{Read, Seek, SeekFrom};
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use symphonia::core::codecs::audio::well_known::CODEC_ID_OPUS;
+use symphonia::core::codecs::audio::well_known::{
+    CODEC_ID_OPUS, CODEC_ID_PCM_MULAW, CODEC_ID_PCM_S32LE,
+};
 use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
 use symphonia::core::errors::Error;
 use symphonia::core::formats::probe::Hint;
@@ -81,6 +83,16 @@ pub struct Decoding {
     tail: u64,
     held: Option<Vec<f32>>,
     spare: Vec<f32>,
+    /// The most bytes of `f32` samples this decoding may give ([`MAX_DECODED_BYTES`], or a
+    /// host's lower cap): a block that would pass it fails instead of being handed out.
+    max_bytes: u64,
+}
+
+/// Bytes of `f32` samples `frames` frames of `channels` channels hold (saturating).
+fn decoded_bytes(frames: u64, channels: usize) -> u64 {
+    frames
+        .saturating_mul(channels.max(1) as u64)
+        .saturating_mul(4)
 }
 
 /// What decodes the packets: one of symphonia's decoders, or the Opus one.
@@ -115,12 +127,28 @@ fn decode_error(error: Error, what: &str) -> ImportError {
 }
 
 impl Decoding {
-    /// Reads the headers and makes the decoder. `hint` is the file's extension, if any.
+    /// Reads the headers and makes the decoder. `hint` is the file's extension, if any. The
+    /// decoded size is capped at [`MAX_DECODED_BYTES`] ([`ImportError::TooLarge`]).
     pub fn open(source: Box<dyn Source>, hint: Option<&str>) -> Result<Self, ImportError> {
-        guarded("the headers", || Self::open_inner(source, hint))
+        Self::open_capped(source, hint, MAX_DECODED_BYTES)
     }
 
-    fn open_inner(mut source: Box<dyn Source>, hint: Option<&str>) -> Result<Self, ImportError> {
+    /// [`Self::open`] with a lower cap on the decoded size, in bytes of `f32` samples (a cap
+    /// above [`MAX_DECODED_BYTES`] is that limit: a host can only lower it).
+    pub fn open_capped(
+        source: Box<dyn Source>,
+        hint: Option<&str>,
+        max_bytes: u64,
+    ) -> Result<Self, ImportError> {
+        let max_bytes = max_bytes.min(MAX_DECODED_BYTES);
+        guarded("the headers", || Self::open_inner(source, hint, max_bytes))
+    }
+
+    fn open_inner(
+        mut source: Box<dyn Source>,
+        hint: Option<&str>,
+        max_bytes: u64,
+    ) -> Result<Self, ImportError> {
         let len = source.byte_len();
         if len == 0 {
             return Err(ImportError::Empty);
@@ -160,6 +188,7 @@ impl Decoding {
             .ok_or(ImportError::Empty)?
             .clone();
         let id = track.id;
+        let declared = track.num_frames;
         let container = format.format_info().format;
         // Matroska and WebM are read for Opus only (#609): another codec there is refused by
         // name (no fixture checks its encoder delay and padding in that container).
@@ -180,8 +209,12 @@ impl Decoding {
             // The pre-skip, in both containers: symphonia marks it on no packet. The end: the
             // last packet's trim (Ogg's last granule position, which symphonia applies), or the
             // last block's `DiscardPadding` (WebM, which symphonia drops).
+            // Never more than one packet holds (120 ms): the cut is from the last block only, and a
+            // forged `DiscardPadding` must not hide the frames handed out from the limits (#780).
             let tail = if container == FORMAT_ID_MKV {
-                paddings.map_or(0, |p| p.of(u64::from(id)))
+                paddings
+                    .map_or(0, |p| p.of(u64::from(id)))
+                    .min(opus::MAX_FRAMES as u64)
             } else {
                 0
             };
@@ -215,6 +248,21 @@ impl Decoding {
         if channels > usize::from(MAX_CHANNELS) {
             return Err(ImportError::BadChannels(channels as u32));
         }
+        // The length the headers declare (FLAC's `STREAMINFO`, an Ogg's last granule, MP4, CAF,
+        // a WAV's `fact`, an ADPCM data size), known before a packet is decoded: beyond the cap,
+        // refused now. Plain PCM is left to the decoding's own count: it decodes only the bytes
+        // the file holds (at most 4 bytes of `f32` per byte), so a header that overstates its
+        // length (a WAV or AIFF written in a stream) costs nothing, and such a file is read
+        // directly without a cache.
+        // symphonia 0.6 numbers its PCM codecs 0x100 (`CODEC_ID_PCM_S32LE`) to 0x125
+        // (`CODEC_ID_PCM_MULAW`), every integer, float, A-law and µ-law layout; ADPCM starts at 0x200
+        // (`pcm_codecs_are_one_range` pins it).
+        let pcm = (CODEC_ID_PCM_S32LE..=CODEC_ID_PCM_MULAW).contains(&params.codec);
+        if let Some(frames) = declared.filter(|_| !pcm)
+            && decoded_bytes(frames, channels) > max_bytes
+        {
+            return Err(ImportError::TooLarge(max_bytes));
+        }
         Ok(Self {
             format,
             decoder,
@@ -229,6 +277,7 @@ impl Decoding {
             tail,
             held: None,
             spare: Vec::new(),
+            max_bytes,
         })
     }
 
@@ -378,9 +427,14 @@ impl Decoding {
             out.drain(..skip * channels);
             out.truncate(kept * channels);
             self.frames = self.frames.saturating_add(kept as u64);
-            // Less the tail still to cut: the limit is on the frames kept.
+            // Less the tail still to cut (one packet at most): the limit is on the frames kept.
             if self.frames.saturating_sub(self.tail) > MAX_FRAME {
                 return Err(ImportError::TooLong);
+            }
+            // Every frame counted so far, the tail included, has been or is about to be handed
+            // to the host, which writes it: the block that would pass the cap is not (#780).
+            if decoded_bytes(self.frames, channels) > self.max_bytes {
+                return Err(ImportError::TooLarge(self.max_bytes));
             }
             return Ok(true);
         }
@@ -402,5 +456,74 @@ impl Decoding {
             channels: self.channels,
             frames: self.frames,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use symphonia::core::codecs::audio::well_known::*;
+
+    /// The plain-PCM exemption of the header check is one range of codec ids: every PCM codec
+    /// symphonia has is inside it, and every other codec Faulk decodes outside (#780).
+    #[test]
+    fn pcm_codecs_are_one_range() {
+        let range = CODEC_ID_PCM_S32LE..=CODEC_ID_PCM_MULAW;
+        for pcm in [
+            CODEC_ID_PCM_S32LE,
+            CODEC_ID_PCM_S32LE_PLANAR,
+            CODEC_ID_PCM_S32BE,
+            CODEC_ID_PCM_S32BE_PLANAR,
+            CODEC_ID_PCM_S24LE,
+            CODEC_ID_PCM_S24LE_PLANAR,
+            CODEC_ID_PCM_S24BE,
+            CODEC_ID_PCM_S24BE_PLANAR,
+            CODEC_ID_PCM_S16LE,
+            CODEC_ID_PCM_S16LE_PLANAR,
+            CODEC_ID_PCM_S16BE,
+            CODEC_ID_PCM_S16BE_PLANAR,
+            CODEC_ID_PCM_S8,
+            CODEC_ID_PCM_S8_PLANAR,
+            CODEC_ID_PCM_U32LE,
+            CODEC_ID_PCM_U32LE_PLANAR,
+            CODEC_ID_PCM_U32BE,
+            CODEC_ID_PCM_U32BE_PLANAR,
+            CODEC_ID_PCM_U24LE,
+            CODEC_ID_PCM_U24LE_PLANAR,
+            CODEC_ID_PCM_U24BE,
+            CODEC_ID_PCM_U24BE_PLANAR,
+            CODEC_ID_PCM_U16LE,
+            CODEC_ID_PCM_U16LE_PLANAR,
+            CODEC_ID_PCM_U16BE,
+            CODEC_ID_PCM_U16BE_PLANAR,
+            CODEC_ID_PCM_U8,
+            CODEC_ID_PCM_U8_PLANAR,
+            CODEC_ID_PCM_F32LE,
+            CODEC_ID_PCM_F32LE_PLANAR,
+            CODEC_ID_PCM_F32BE,
+            CODEC_ID_PCM_F32BE_PLANAR,
+            CODEC_ID_PCM_F64LE,
+            CODEC_ID_PCM_F64LE_PLANAR,
+            CODEC_ID_PCM_F64BE,
+            CODEC_ID_PCM_F64BE_PLANAR,
+            CODEC_ID_PCM_ALAW,
+            CODEC_ID_PCM_MULAW,
+        ] {
+            assert!(range.contains(&pcm), "{pcm}");
+        }
+        for other in [
+            CODEC_ID_ADPCM_MS,
+            CODEC_ID_ADPCM_IMA_WAV,
+            CODEC_ID_FLAC,
+            CODEC_ID_MP3,
+            CODEC_ID_AAC,
+            CODEC_ID_ALAC,
+            CODEC_ID_VORBIS,
+            CODEC_ID_OPUS,
+            CODEC_ID_MP1,
+            CODEC_ID_MP2,
+        ] {
+            assert!(!range.contains(&other), "{other}");
+        }
     }
 }

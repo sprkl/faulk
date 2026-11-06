@@ -13,6 +13,7 @@
   import { cancelAudioImport, chooseAudio, deleteClip } from '../../lib/clip-commands'
   import { boostFolderNotice, chooseHelperFolder } from '../../lib/audio/boost-folder'
   import type { DownloadProgress, ImportFailure } from '../../lib/audio/import/audio-import.svelte'
+  import { MAX_DECODED_BYTES } from '../../lib/audio/import/abi'
   import { MAX_AUDIO_URL_MB } from '../../lib/agents/confirm-text'
   import type { MessageKey } from '../../lib/i18n'
   import { useStores } from '../../lib/stores'
@@ -32,12 +33,13 @@
       bad_sample_rate: 'clips.importFailed.badSampleRate',
       bad_channels: 'clips.importFailed.badChannels',
       too_long: 'clips.importFailed.tooLong',
+      too_large: 'clips.importFailed.tooLarge',
       unavailable: 'clips.importFailed.unavailable',
       io: 'clips.importFailed.unreadable',
       download_unreachable: 'clips.importFailed.downloadUnreachable',
       download_too_big: 'clips.importFailed.downloadTooBig',
     }
-    return t(known[failure.code] ?? 'clips.importFailed.store', { name: failure.name, max: MAX_AUDIO_URL_MB })
+    return t(known[failure.code] ?? 'clips.importFailed.store', { name: failure.name, max: MAX_AUDIO_URL_MB, gb: MAX_DECODED_BYTES / 2 ** 30 })
   }
 
   const trackId = $derived(project.view?.session.selected_track ?? null)
