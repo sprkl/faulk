@@ -18,7 +18,8 @@
 //! With a scale (`project` or `device`), a note of the scale stays, and `rule` moves one outside
 //! it: `nearest` to the scale's closest note (a tie goes down), `down` to the scale's note below
 //! it, `up` to the one above it, `block` nowhere (it plays nothing). The matrix ignores `rule`:
-//! its cells say where each note goes. `transpose` (−24 to +24 semitones) is added after. A note
+//! its cells say where each note goes. Near an end of the keyboard, `nearest` picks the closest
+//! scale note on it (`down` and `up` keep their direction, and may find none). `transpose` (−24 to +24 semitones) is added after. A note
 //! that would land outside 0 to 127 is not played (never clamped). The received velocity and
 //! fine tuning (`tune_cents`) are kept.
 //!
@@ -486,6 +487,15 @@ impl Device for Lattice {
     }
 }
 
+impl Lattice {
+    /// Sets the generation counter, for the tests that cross its wrap (2^32 clears away
+    /// otherwise). Not part of the device's contract.
+    #[doc(hidden)]
+    pub fn set_generation_for_tests(&mut self, generation: u32) {
+        self.generation = generation.max(1);
+    }
+}
+
 /// The output voice id of `key`: one per key sounding.
 fn out_voice(key: u8) -> VoiceId {
     VoiceId::new(u32::from(key)).unwrap_or_default()
@@ -506,7 +516,9 @@ pub fn quantize(key: u8, scale: PitchSet, rule: u32) -> Option<i32> {
         BLOCK => None,
         DOWN => below,
         UP => above,
-        _ => match (below, above) {
+        // The nearest among the scale's notes on the keyboard: near an end, the one inside it
+        // rather than none.
+        _ => match (below.filter(|b| *b >= 0), above.filter(|a| *a <= 127)) {
             (Some(b), Some(a)) => Some(if key - b <= a - key { b } else { a }),
             (b, a) => b.or(a),
         },

@@ -235,10 +235,11 @@ fn reference(key: u8, scale: &[u8], rule: u32) -> Option<i32> {
         BLOCK => None,
         DOWN => below,
         UP => above,
-        _ => {
-            let (b, a) = (below?, above?);
-            Some(if key - b <= a - key { b } else { a })
-        }
+        // The nearest on the keyboard.
+        _ => match (below.filter(|b| *b >= 0), above.filter(|a| *a <= 127)) {
+            (Some(b), Some(a)) => Some(if key - b <= a - key { b } else { a }),
+            (b, a) => b.or(a),
+        },
     }
 }
 
@@ -621,6 +622,40 @@ fn many_resets_wrap_the_generation_and_keep_the_table_sound() {
     r.block(&[(0, on(1, 61, 1.0))], 64);
     r.block(&[(0, off(1, 61))], 64);
     assert_eq!((r.ons(), r.offs()), (vec![60, 60], vec![60]));
+}
+
+#[test]
+fn the_generation_wrap_wipes_the_tables_and_nothing_old_holds_again() {
+    // Notes held at generation 1 (C, played by two voices), then cleared; the counter is moved
+    // to its last value and cleared once more: it wraps to 1, where the old entries were.
+    let mut r = Rig::new(&[]);
+    r.lattice.set_generation_for_tests(1);
+    r.block(&[(0, on(1, 61, 1.0)), (0, on(2, 60, 1.0))], 64);
+    r.lattice.reset();
+    r.lattice.set_generation_for_tests(u32::MAX);
+    let lattice = &mut r.lattice;
+    assert_no_alloc(|| lattice.reset());
+    r.log.clear();
+    // The old voices' note-offs end nothing, and C starts again at once.
+    r.block(&[(0, off(1, 61)), (0, off(2, 60))], 64);
+    assert!(r.log.is_empty(), "{:?}", r.log);
+    assert_eq!(r.play(61), Some(60));
+    assert_eq!((r.ons(), r.offs()), (vec![60], vec![60]));
+}
+
+#[test]
+fn near_an_end_of_the_keyboard_nearest_picks_the_scale_note_on_it() {
+    // Only A: from C#0 (1) the A below would be -3, off the keyboard, so A0 (9) plays; from G9
+    // (127) the A above would be 129, so the A below (117) plays. `down` and `up` keep their
+    // direction and find none.
+    let mut r = Rig::new(&[]);
+    r.scale = PitchSet::from_bits(1 << 9);
+    assert_eq!(r.play(1), Some(9));
+    assert_eq!(r.play(127), Some(117));
+    r.set(RULE, DOWN as f32);
+    assert_eq!(r.play(1), None);
+    r.set(RULE, UP as f32);
+    assert_eq!(r.play(127), None);
 }
 
 // ---------------------------------------------------------------- sweeps and descriptor
