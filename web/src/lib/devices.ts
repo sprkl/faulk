@@ -115,11 +115,12 @@ export function formatValue(p: ParamDescriptor, value: number): string {
  * Parameters that only matter in one mode of their device (display only: the engine keeps every parameter, and a
  * hidden one keeps its value). Per device kind, per parameter key: the choice parameter that decides, and the keys of
  * its values for which the parameter is shown. Echo: the delay time in free mode, the note value in synced mode. Stack:
- * a voice's settings while the voice is on.
+ * a voice's settings while the voice is on. Lattice: the rule with a scale, the root and scale with its own, the cells with the matrix.
  */
 export const SHOWN_IN_MODE: Readonly<Record<string, Readonly<Record<string, { by: string; values: readonly string[] }>>>> = {
   'faulk.echo': { time: { by: 'mode', values: ['free'] }, division: { by: 'mode', values: ['synced'] } },
   'faulk.stack': stackVoices(),
+  'faulk.lattice': latticeSources(),
 }
 
 /** Stack (#690): a voice's interval, velocity and chance show while the voice is on. */
@@ -144,4 +145,17 @@ export function shownParams(device: DeviceDescriptor, valueOf: (key: string) => 
     const chosen = choices(by).find((choice) => choice.value === value)
     return chosen ? rule.values.includes(chosen.key) : true
   })
+}
+
+/** Lattice (#692): the rule applies to a scale, the root and scale to the device's own, the twelve cells to the matrix. */
+function latticeSources(): Record<string, { by: string; values: readonly string[] }> {
+  const rules: Record<string, { by: string; values: readonly string[] }> = {
+    rule: { by: 'source', values: ['project', 'device'] },
+    root: { by: 'source', values: ['device'] },
+    scale: { by: 'source', values: ['device'] },
+  }
+  // The cells are the descriptor's `map_` parameters, so a cell renamed there needs no change here.
+  const lattice = DEVICES.find((d) => d.kind === 'faulk.lattice')
+  for (const p of lattice?.params ?? []) if (p.key.startsWith('map_')) rules[p.key] = { by: 'source', values: ['matrix'] }
+  return rules
 }

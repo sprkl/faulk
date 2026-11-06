@@ -15,11 +15,13 @@ pub mod draw;
 pub mod drums;
 pub mod echo;
 pub mod filter;
+pub mod lattice;
 pub mod osc_synth;
 pub mod reverb;
 pub mod scatter;
 pub mod stack;
 pub mod time_change;
+pub mod trim;
 
 /// A built-in device: its static descriptor and the factory that builds it off the audio
 /// path.
@@ -46,6 +48,8 @@ pub const REGISTRY: &[Builtin] = &[
     compressor::BUILTIN,
     filter::BUILTIN,
     stack::BUILTIN,
+    trim::BUILTIN,
+    lattice::BUILTIN,
     scatter::BUILTIN,
 ];
 

@@ -21,12 +21,17 @@
 //! - **Layout and cache**: [`ai_layout`] says whether the file is read directly (no cache);
 //!   [`ai_cache_header`] and [`ai_cache_valid`] write and check the cache's header.
 //!
+//! - **Decoded size** (#780): a job decodes at most `project::limits::MAX_DECODED_BYTES`
+//!   ([`ai_max_decoded_bytes`]); [`ai_limit`] lowers it for the next job.
+//!
 //! A failure returns a negative code (`-ImportError` code, below) and leaves its text at
 //! [`ai_error`]. A panic aborts the instance (a trap in the Worker): the Worker reports the
 //! file as damaged and makes a new instance. Natively (tests) the reader is a buffer set by
 //! [`set_source`].
 
-use audio_import::{Decoding, ImportError, MediaInfo, PcmLayout, Sha256, Source, cache, peaks};
+use audio_import::{
+    Decoding, ImportError, MAX_DECODED_BYTES, MediaInfo, PcmLayout, Sha256, Source, cache, peaks,
+};
 use std::cell::RefCell;
 use std::io::{Read, Seek, SeekFrom};
 
@@ -50,6 +55,7 @@ pub fn error_code(error: &ImportError) -> i32 {
         ImportError::BadChannels(_) => 6,
         ImportError::TooLong => 7,
         ImportError::Io(_) => 8,
+        ImportError::TooLarge(_) => 9,
     }
 }
 
@@ -85,6 +91,8 @@ thread_local! {
     static POSITION: RefCell<u64> = const { RefCell::new(0) };
     /// The length of the file being decoded.
     static LEN: RefCell<u64> = const { RefCell::new(0) };
+    /// The cap on the decoded size of the next job ([`ai_limit`]); the limit when none is set.
+    static LIMIT: RefCell<u64> = const { RefCell::new(MAX_DECODED_BYTES) };
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -244,7 +252,9 @@ pub extern "C" fn ai_open(len_lo: u32, len_hi: u32, hint_len: u32) -> i32 {
             position: 0,
             len: file_len(len_lo, len_hi),
         };
-        match Decoding::open(Box::new(file), hint.as_deref()) {
+        // The cap set for this job only: taken (and the limit put back) whatever the opening gives.
+        let max_bytes = LIMIT.replace(MAX_DECODED_BYTES);
+        match Decoding::open_capped(Box::new(file), hint.as_deref(), max_bytes) {
             Ok(job) => {
                 // Opening may read up to the end of the file before the first packet (a WebM's
                 // paddings, the last Ogg page, an MP4 whose `moov` is at the end, Matroska's
@@ -258,6 +268,26 @@ pub extern "C" fn ai_open(len_lo: u32, len_hi: u32, hint_len: u32) -> i32 {
             Err(e) => fail(s, &e),
         }
     })
+}
+
+/// Lowers the cap on the decoded size of the next [`ai_open`] to `max_bytes` bytes of `f32`
+/// samples (tests reach the refusal without decoding 16 GiB). A cap above the limit, or one
+/// that is not a finite number of bytes (NaN, negative), is the limit: a host can only lower
+/// it. The next [`ai_open`] puts the limit back, whether it succeeds or not.
+#[unsafe(no_mangle)]
+pub extern "C" fn ai_limit(max_bytes: f64) {
+    let cap = if max_bytes.is_finite() && max_bytes >= 0.0 {
+        (max_bytes as u64).min(MAX_DECODED_BYTES)
+    } else {
+        MAX_DECODED_BYTES
+    };
+    LIMIT.set(cap);
+}
+
+/// The most bytes of `f32` samples a file may decode to (`project::limits::MAX_DECODED_BYTES`).
+#[unsafe(no_mangle)]
+pub extern "C" fn ai_max_decoded_bytes() -> f64 {
+    MAX_DECODED_BYTES as f64
 }
 
 /// Decodes the next packet into the block: [`BLOCK`], [`END`], or a negative error code.

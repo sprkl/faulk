@@ -123,6 +123,11 @@ export class NativeEngine implements Engine {
           case 'folder.state':
             events.onFolderState?.(message.project ?? null, message.state)
             break
+          case 'export.progress':
+          case 'export.done':
+          case 'export.failed':
+            events.onExport?.(message)
+            break
           case 'update.status':
             engine.update = { current: message.current ?? null, checkedAt: message.checked_at ?? null, status: message.status }
             events.onHelperUpdate?.(engine.update)
@@ -206,6 +211,16 @@ export class NativeEngine implements Engine {
   /** Asks the helper to show its folder dialog for the project's folder (`folder.choose`, AU-7). */
   chooseFolder(place: HelperPlace) {
     this.message({ type: 'folder.choose', ...place })
+  }
+
+  /** Asks the helper to render an export job and write its file into the project's folder (`export.start`, #319). */
+  exportStart(start: Omit<Extract<ClientMessage, { type: 'export.start' }>, 'type'>) {
+    this.message({ type: 'export.start', ...start })
+  }
+
+  /** Stops the helper's export `id` (`export.cancel`, #319): it writes nothing. */
+  exportCancel(id: number) {
+    this.message({ type: 'export.cancel', id })
   }
 
   private message(message: ClientMessage) {
