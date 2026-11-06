@@ -743,52 +743,67 @@ test('piano roll: Repeat fills the bar end to end from the keyboard, Repeat unti
 })
 
 // #770: a bar of drums whose last note ends before the bar line repeats every bar, whatever the quantize grid: copied into
-// bar 2, said with its period.
-test('piano roll: Repeat copies a bar of drums into the next bar and says the period', async ({ page }) => {
-  test.setTimeout(120_000)
-  const { seen } = await openRoll(page)
-  await page.getByTestId('roll-longer').click()
-  await expect(page.getByTestId('roll-length')).toHaveValue('2')
-  await page.getByTestId('roll-snap').selectOption('quarter-beat')
-  const g = await spot(page)
-  const shape = async () => (await notes(page)).map((n) => [n.start, n.pitch, n.length])
-  // Kick (C4) on every beat, snare (D4) on 2 and 4, a hi-hat (E4) on each off-beat: the last one ends at beat 4.75.
-  const bar = [
-    [0, 60],
-    [480, 64],
-    [960, 60],
-    [960, 62],
-    [1440, 64],
-    [1920, 60],
-    [2400, 64],
-    [2880, 60],
-    [2880, 62],
-    [3360, 64],
-  ] as const
-  for (const [tick, pitch] of bar) await page.mouse.click(g.x(tick + 10), g.y(pitch))
-  await expect.poll(async () => (await notes(page)).length).toBe(10)
-  const written = await shape()
-  await page.getByTestId('roll-item').first().focus()
-  await page.keyboard.press('Control+a')
-  await page.keyboard.press('Control+Shift+R')
-  await expect(roll(page)).toHaveAttribute('data-note-count', '20')
-  await expect(page.getByTestId('roll-said')).toHaveText('Repeated: 10 notes, every 1 bar')
-  const copied = written.map(([s, p, l]) => [s! + 3840, p, l])
-  expect(await shape()).toEqual([...written, ...copied])
-  // "Repeat until…" keeps that period: up to the end of bar 2, the same ten copies.
-  await page.keyboard.press('Control+z')
-  await expect.poll(shape).toEqual(written)
-  await page.getByTestId('roll-item').first().focus()
-  await page.keyboard.press('Control+a')
-  await page.mouse.click(g.x(10), g.y(60), { button: 'right' })
-  await page.getByRole('menuitem', { name: 'Repeat until…' }).click()
-  await expect(page.getByTestId('roll-repeat-dialog')).toContainText('from 2.1')
-  await page.getByTestId('roll-repeat-field').fill('2')
-  await page.keyboard.press('Enter')
-  await expect(page.getByTestId('roll-said')).toHaveText('Repeated: 10 notes, every 1 bar')
-  expect(await shape()).toEqual([...written, ...copied])
-  expect(seen.errors).toEqual([])
-})
+// bar 2, said with its period, in English and in French; once bar 2 is full, a second press has no room and says so.
+for (const lang of ['en', 'fr'] as const) {
+  const words = {
+    en: { said: 'Repeated: 10 notes, every 1 bar', noRoom: 'No room for a copy before the end of the clip', until: 'Repeat until…', from: 'from 2.1' },
+    fr: {
+      said: 'Répété : 10 notes, toutes les 1 mesure',
+      noRoom: 'Pas de place pour une copie avant la fin du clip',
+      until: 'Répéter jusqu’à…',
+      from: 'à partir de 2.1',
+    },
+  }[lang]
+  test(`piano roll: Repeat copies a bar of drums into the next bar and says the period (${lang})`, async ({ page }) => {
+    test.setTimeout(120_000)
+    const { seen } = await openRoll(page, lang === 'fr' ? 'fr' : undefined)
+    await page.getByTestId('roll-longer').click()
+    await expect(page.getByTestId('roll-length')).toHaveValue('2')
+    await page.getByTestId('roll-snap').selectOption('quarter-beat')
+    const g = await spot(page)
+    const shape = async () => (await notes(page)).map((n) => [n.start, n.pitch, n.length])
+    // Kick (C4) on every beat, snare (D4) on 2 and 4, a hi-hat (E4) on each off-beat: the last one ends at beat 4.75.
+    const bar = [
+      [0, 60],
+      [480, 64],
+      [960, 60],
+      [960, 62],
+      [1440, 64],
+      [1920, 60],
+      [2400, 64],
+      [2880, 60],
+      [2880, 62],
+      [3360, 64],
+    ] as const
+    for (const [tick, pitch] of bar) await page.mouse.click(g.x(tick + 10), g.y(pitch))
+    await expect.poll(async () => (await notes(page)).length).toBe(10)
+    const written = await shape()
+    await page.getByTestId('roll-item').first().focus()
+    await page.keyboard.press('Control+a')
+    await page.keyboard.press('Control+Shift+R')
+    await expect(roll(page)).toHaveAttribute('data-note-count', '20')
+    await expect(page.getByTestId('roll-said')).toHaveText(words.said)
+    const copied = written.map(([s, p, l]) => [s! + 3840, p, l])
+    expect(await shape()).toEqual([...written, ...copied])
+    // The copies are the selection: again, they would start at the clip's end.
+    await page.keyboard.press('Control+Shift+R')
+    await expect(page.getByTestId('roll-said')).toHaveText(words.noRoom)
+    await expect(roll(page)).toHaveAttribute('data-note-count', '20')
+    // "Repeat until…" keeps that period: up to the end of bar 2, the same ten copies.
+    await page.keyboard.press('Control+z')
+    await expect.poll(shape).toEqual(written)
+    await page.getByTestId('roll-item').first().focus()
+    await page.keyboard.press('Control+a')
+    await page.mouse.click(g.x(10), g.y(60), { button: 'right' })
+    await page.getByRole('menuitem', { name: words.until }).click()
+    await expect(page.getByTestId('roll-repeat-dialog')).toContainText(words.from)
+    await page.getByTestId('roll-repeat-field').fill('2')
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('roll-said')).toHaveText(words.said)
+    expect(await shape()).toEqual([...written, ...copied])
+    expect(seen.errors).toEqual([])
+  })
+}
 
 test('piano roll: Repeat speaks French', async ({ page }) => {
   const { seen } = await openRoll(page, 'fr')
