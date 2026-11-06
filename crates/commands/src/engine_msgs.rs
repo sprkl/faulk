@@ -621,9 +621,9 @@ fn compile_event(
         ProjectEvent::MetronomeChanged { .. } => out.push(set_metronome(project)),
         // `project.open` has no per-command messages: the host sends a snapshot of the
         // new project (`Synced::run`).
-        // No device reads the scale yet (#695): it stays in the project.
+        // The MIDI effects that work in the scale read it (#690).
+        ProjectEvent::ScaleChanged { .. } => out.push(set_scale(project)),
         ProjectEvent::ProjectRenamed { .. }
-        | ProjectEvent::ScaleChanged { .. }
         | ProjectEvent::MarkersChanged {}
         | ProjectEvent::ProjectOpened { .. }
         | ProjectEvent::ControlChange { .. }
@@ -649,6 +649,10 @@ fn compile_event(
 pub fn snapshot(project: &Project, session: &SessionState) -> (Vec<ControlMsg>, EngineSlots) {
     let mut sync = EngineSlots::default();
     let mut out = vec![set_transport(project)];
+    // A `Reset` leaves the engine without a scale: only a project with one sends it.
+    if project.scale.is_some() {
+        out.push(set_scale(project));
+    }
     if project.transport.loop_enabled && project.transport.loop_region.is_some() {
         out.push(set_loop(project));
     }
@@ -1467,6 +1471,17 @@ fn set_transport(project: &Project) -> ControlMsg {
         signature: project.time_signature(),
         launch_quantize: project.transport.launch_quantize,
     }
+}
+
+/// The project's scale as the engine takes it: a set of pitch classes, 0 for none (#690).
+fn set_scale(project: &Project) -> ControlMsg {
+    let pitch_classes = project.scale.map_or(0, |scale| {
+        scale
+            .pitch_classes()
+            .iter()
+            .fold(0u16, |bits, pc| bits | 1 << (pc % 12))
+    });
+    ControlMsg::SetScale { pitch_classes }
 }
 
 fn set_loop(project: &Project) -> ControlMsg {

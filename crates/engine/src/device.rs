@@ -376,6 +376,9 @@ pub struct Transport {
     pub signature: TimeSignature,
     /// Position of the block's first frame, in ticks (fractional: 960 per quarter note).
     pub position_ticks: f64,
+    /// The project's scale (`ControlMsg::SetScale`, #690): what a MIDI effect that works "in
+    /// the scale" reads. Empty when the project has none (chromatic).
+    pub scale: PitchSet,
 }
 
 impl Default for Transport {
@@ -385,7 +388,38 @@ impl Default for Transport {
             tempo: Tempo::default(),
             signature: TimeSignature::default(),
             position_ticks: 0.0,
+            scale: PitchSet::EMPTY,
         }
+    }
+}
+
+/// A set of pitch classes, bit `c` for pitch class `c` (0 = C … 11 = B): the notes of a
+/// scale, whatever its root. Empty: no scale.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct PitchSet(u16);
+
+impl PitchSet {
+    /// No pitch class: a project without a scale.
+    pub const EMPTY: PitchSet = PitchSet(0);
+    /// The bits that name a pitch class.
+    pub const MASK: u16 = 0x0FFF;
+
+    /// The set of these bits; the bits above the twelfth are ignored.
+    pub const fn from_bits(bits: u16) -> Self {
+        Self(bits & Self::MASK)
+    }
+
+    pub const fn bits(self) -> u16 {
+        self.0
+    }
+
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Whether pitch class `pc` (taken modulo 12) is in the set.
+    pub const fn contains(self, pc: u8) -> bool {
+        self.0 & (1 << (pc % 12)) != 0
     }
 }
 

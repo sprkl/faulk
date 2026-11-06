@@ -23,6 +23,7 @@ import { compressor } from './compressor'
 import { agentConfirm } from './confirm'
 import { echo } from './echo'
 import { filter } from './filter'
+import { stack } from './stack'
 import { reverb } from './reverb'
 import { keys } from './keys'
 import { layout } from './layout'
@@ -59,6 +60,7 @@ export const features = {
   echo,
   reverb,
   filter,
+  stack,
   compressor,
   devices,
   presets,

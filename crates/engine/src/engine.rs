@@ -427,6 +427,8 @@ fn sanitize_points(points: &mut Vec<AutomationPoint>) {
 #[derive(Debug)]
 pub struct State {
     pub transport: TransportSettings,
+    /// The project's scale (`SetScale`, #690), copied into every block's transport.
+    pub scale: crate::device::PitchSet,
     pub metronome: Metronome,
     pub master: Master,
     /// The master's timed gain, pan and mute ([`crate::mixer`], MX-1): set off the audio
@@ -467,6 +469,7 @@ impl State {
     pub fn try_new() -> Result<Self, MsgError> {
         Ok(State {
             transport: TransportSettings::default(),
+            scale: crate::device::PitchSet::EMPTY,
             metronome: Metronome::default(),
             master: Master::default(),
             master_schedule: None,
@@ -1101,6 +1104,9 @@ impl Preparer {
                 count_in_bars,
             },
             ControlMsg::SetMaster { gain, pan, mute } => RtMsg::SetMaster { gain, pan, mute },
+            ControlMsg::SetScale { pitch_classes } => {
+                RtMsg::SetScale(crate::device::PitchSet::from_bits(pitch_classes))
+            }
             ControlMsg::TrackCreate { track, kind } => self.prepare_track(track, kind)?,
             ControlMsg::TrackRemove { track } => {
                 self.existing_track(track)?;
@@ -2603,6 +2609,10 @@ impl Engine {
                     signature,
                     launch_quantize,
                 };
+                None
+            }
+            RtMsg::SetScale(scale) => {
+                state.scale = scale;
                 None
             }
             RtMsg::SetMetronome {
