@@ -702,6 +702,8 @@ describe('the export in Boost, written by the helper (#319)', () => {
       [{ type: 'export.failed', id: 0, code: 'export.busy', message: '' }, 'export.helperBusy'],
       [{ type: 'export.failed', id: 0, code: 'export.render', message: '' }, 'export.failed'],
       [{ type: 'export.failed', id: 0, code: 'export.invalid', message: '' }, 'export.failed'],
+      // The helper cancelled on its own (its session was replaced).
+      [{ type: 'export.failed', id: 0, code: 'export.cancelled', message: '' }, 'export.failed'],
     ]
     vi.spyOn(console, 'error').mockImplementation(() => undefined)
     for (const [message, key] of cases) {

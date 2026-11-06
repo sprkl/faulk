@@ -628,6 +628,7 @@ pub fn schema_bundle() -> serde_json::Value {
         "param_ids": param_ids,
         "error_codes": { "no_output": errors::NO_OUTPUT, "audio_stream": errors::AUDIO_STREAM },
         "max_export_stream_bytes": MAX_EXPORT_STREAM_BYTES,
+        "export_progress_ms": EXPORT_PROGRESS_MS,
         "export_name": {
             "max_bytes": EXPORT_NAME_MAX_BYTES,
             "devices": WINDOWS_DEVICE_NAMES,

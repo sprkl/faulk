@@ -8,6 +8,8 @@ export const ERROR_CODES = {"audio_stream":"audio.stream","no_output":"audio.no_
 export const EXPORT_ERROR_CODES = {"busy":"export.busy","cancelled":"export.cancelled","folder_changed":"export.folder_changed","invalid":"export.invalid","no_folder":"export.no_folder","render":"export.render","write":"export.write"} as const
 /** The most bytes the three streams of an `export.start` hold together (`protocol::MAX_EXPORT_STREAM_BYTES`, #319): a larger job renders in the page. */
 export const MAX_EXPORT_STREAM_BYTES = 67108864
+/** The helper's shortest time between two `export.progress` of one export, in ms (`protocol::EXPORT_PROGRESS_MS`, #319): it says one at least this often while it renders and writes. */
+export const EXPORT_PROGRESS_MS = 100
 /** The helper's rule for an export's file name (#319): its most UTF-8 bytes before `.wav`, and the Windows device names it refuses. */
 export const EXPORT_NAME = {"devices":["con","prn","aux","nul","conin$","conout$","com1","com2","com3","com4","com5","com6","com7","com8","com9","com0","lpt1","lpt2","lpt3","lpt4","lpt5","lpt6","lpt7","lpt8","lpt9","lpt0","com¹","com²","com³","lpt¹","lpt²","lpt³"],"max_bytes":120} as const
 /** The longest engine stream the page sends the helper in one binary frame (`protocol::MAX_STREAM_BYTES`, BO-1). */

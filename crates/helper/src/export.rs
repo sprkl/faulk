@@ -23,6 +23,8 @@ pub const STEP_FRAMES: usize = 16_384;
 /// Steps in a row that may wait for the disk with no read handed over before the render counts as
 /// stuck (the page's Worker fails at the first one; a few more cost nothing).
 const MAX_IDLE_WAITS: u32 = 64;
+/// How often the run looks whether its commit is done.
+const COMMIT_POLL: Duration = Duration::from_millis(10);
 
 /// An export the page asked for, checked (`export.start`).
 #[derive(Clone, Debug, PartialEq)]
@@ -281,7 +283,28 @@ pub fn run(
     if let Some(stop) = watch.stop() {
         return Err(stop);
     }
-    let path = file.commit(Collision::Unique).map_err(write_error)?;
+    // The flush to the disk of a long file can take long on a slow disk: the commit runs beside
+    // this thread, which goes on telling the page that the export is alive, so that the page's
+    // watchdog never takes a slow commit for a silent helper.
+    let last = Progress {
+        rendered: offline.body_frames(),
+        body: offline.body_frames(),
+        tail: true,
+    };
+    let path = std::thread::scope(|scope| {
+        let commit = scope.spawn(move || file.commit(Collision::Unique));
+        while !commit.is_finished() {
+            std::thread::sleep(COMMIT_POLL);
+            if told.elapsed() >= every {
+                told = Instant::now();
+                progress(last);
+            }
+        }
+        commit
+            .join()
+            .unwrap_or_else(|_| Err(crate::disk::PathError::Io("the commit panicked".into())))
+    })
+    .map_err(write_error)?;
     // A cancel that came during the move: the file it made goes again (it is the export's own,
     // just made), so a cancelled export leaves nothing. One later than this check finds the
     // export done; the page, which has moved on, says nothing of it.

@@ -63,6 +63,8 @@ const parts = [
   `export const EXPORT_ERROR_CODES = ${JSON.stringify(bundle.export_error_codes)} as const`,
   '/** The most bytes the three streams of an `export.start` hold together (`protocol::MAX_EXPORT_STREAM_BYTES`, #319): a larger job renders in the page. */',
   `export const MAX_EXPORT_STREAM_BYTES = ${bundle.max_export_stream_bytes}`,
+  "/** The helper's shortest time between two `export.progress` of one export, in ms (`protocol::EXPORT_PROGRESS_MS`, #319): it says one at least this often while it renders and writes. */",
+  `export const EXPORT_PROGRESS_MS = ${bundle.export_progress_ms}`,
   "/** The helper's rule for an export's file name (#319): its most UTF-8 bytes before `.wav`, and the Windows device names it refuses. */",
   `export const EXPORT_NAME = ${JSON.stringify(bundle.export_name)} as const`,
   '/** The longest engine stream the page sends the helper in one binary frame (`protocol::MAX_STREAM_BYTES`, BO-1). */',

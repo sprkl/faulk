@@ -680,3 +680,61 @@ async fn an_export_started_right_after_a_cancel_is_not_refused_busy() {
     assert!(!h.song.join("exports").join("Long.wav").exists());
     assert!(files(&h.song.join(".faulk").join("tmp")).is_empty());
 }
+
+/// A watch whose export is cancelled once its render is over: the cancel reaches the run between
+/// the commit and its last check.
+struct CancelledAtTheCommit;
+
+impl helper::export::Watch for CancelledAtTheCommit {
+    fn stop(&self) -> Option<helper::export::ExportFailure> {
+        None
+    }
+
+    fn cancelled(&self) -> bool {
+        true
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_cancel_that_reaches_the_commit_removes_the_file_just_made() {
+    let h = start(&Disk::default()).await;
+    let folder = helper::disk::ProjectFolder::open(&h.song, Some(PROJECT)).unwrap();
+    let job = job_of(&demo_song(1, None), ExportSettings::default());
+    let ClientMessage::ExportStart {
+        id,
+        project,
+        name,
+        sample_rate,
+        bits,
+        body_frames,
+        setup,
+        start,
+        stop,
+    } = start_of(30, PROJECT, "Song", &job)
+    else {
+        unreachable!()
+    };
+    let request = helper::export::parse(helper::export::StartFields {
+        id,
+        project: &project,
+        name: &name,
+        sample_rate,
+        bits,
+        body_frames,
+        setup: &setup,
+        start: &start,
+        stop: &stop,
+    })
+    .unwrap();
+    let mut told = 0;
+    let outcome = helper::export::run(
+        &request,
+        &folder,
+        &CancelledAtTheCommit,
+        Duration::ZERO,
+        |_| told += 1,
+    );
+    assert_eq!(outcome.unwrap_err().code, errors::EXPORT_CANCELLED);
+    assert!(told > 0);
+    nothing_written(&h.song);
+}

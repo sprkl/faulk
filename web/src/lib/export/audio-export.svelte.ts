@@ -11,7 +11,7 @@
 // writes the file into that folder (`exports/<name>.wav`): no file dialog, the page sends the job and shows the
 // helper's progress. A job too large to send, or no folder the helper holds, renders in the page as in Web mode.
 import type { HelperExportMessage } from '../engine/engine'
-import { EXPORT_ERROR_CODES, MAX_EXPORT_STREAM_BYTES, type Command } from '../generated/protocol'
+import { EXPORT_ERROR_CODES, EXPORT_PROGRESS_MS, MAX_EXPORT_STREAM_BYTES, type Command } from '../generated/protocol'
 import type { MessageKey } from '../i18n'
 import { exportAudio } from '../project-commands'
 import type { ExportJob, ExportRequest } from '../project/core'
@@ -546,8 +546,11 @@ export class AudioExport {
   }
 }
 
-/** How long the page waits for a word of the helper's export before it fails it, in ms (#319). */
-export const HELPER_SILENCE_MS = 30_000
+/**
+ * How long the page waits for a word of the helper's export before it fails it, in ms (#319): 300 of the
+ * helper's progress periods, which it keeps through its render and its final write.
+ */
+export const HELPER_SILENCE_MS = 300 * EXPORT_PROGRESS_MS
 
 /** The message the dialog shows for the helper's `export.failed` code (#319). */
 export function helperFailure(code: string): MessageKey {

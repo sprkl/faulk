@@ -54,7 +54,7 @@ export const audioExport = defineFeature(
     'export.savedInFolder': 'Saved in the project folder: “{name}” ({size} MB, {duration}).',
     'export.folderChanged': 'The project folder changed during the export. Nothing was saved. Export again.',
     'export.helperBusy': 'The helper is already exporting. Wait for it to finish, then export again.',
-    'export.helperLost': 'The connection to the helper was lost during the export. Nothing was saved.',
+    'export.helperLost': 'The connection to the helper was lost during the export. If it was almost done, the file may be in the project folder, in “exports”.',
     'export.helperSilent': 'The helper stopped answering during the export. Nothing was saved. Export again.',
   },
   {
@@ -109,7 +109,8 @@ export const audioExport = defineFeature(
     'export.savedInFolder': 'Enregistré dans le dossier du projet : « {name} » ({size} Mo, {duration}).',
     'export.folderChanged': 'Le dossier du projet a changé pendant l’export. Rien n’a été enregistré. Exporte à nouveau.',
     'export.helperBusy': 'Le helper exporte déjà. Attends qu’il ait fini, puis exporte à nouveau.',
-    'export.helperLost': 'La connexion au helper a été perdue pendant l’export. Rien n’a été enregistré.',
+    'export.helperLost':
+      'La connexion au helper a été perdue pendant l’export. S’il était presque fini, le fichier est peut-être dans le dossier du projet, dans « exports ».',
     'export.helperSilent': 'Le helper a cessé de répondre pendant l’export. Rien n’a été enregistré. Exporte à nouveau.',
   },
 )
