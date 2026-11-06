@@ -1000,6 +1000,45 @@ fn a_mix_ramped_to_0_lands_on_the_dry_signal_exactly() {
 }
 
 #[test]
+fn playback_started_just_after_a_sound_ended_still_matches_a_render_from_that_point() {
+    // A pad, then 3,072 frames of silence (more than a line), then playback: the lines are
+    // silent but the tone filter still holds a tail; the start drops it, as an export starts.
+    let params = [(TONE, 20.0), (DEPTH, 60.0), (MIX, 0.7)];
+    let (sound, wait) = (12_032, 15_104);
+    let len = 30_000;
+    let tone = pad(len);
+    let mut input = pad(sound);
+    input.extend(vec![0.0; wait - sound]);
+    input.extend_from_slice(&tone);
+    let mut later = bloom_with(&params);
+    let (l, r) = run(
+        &mut later,
+        &input,
+        &input,
+        128,
+        |start| {
+            if start < wait {
+                stopped()
+            } else {
+                playing_at(120.0, (start - wait) as f64 * TPF_120)
+            }
+        },
+        &[],
+    );
+    let mut fresh = bloom_with(&params);
+    let (fl, fr) = run(
+        &mut fresh,
+        &tone,
+        &tone,
+        128,
+        |start| playing_at(120.0, start as f64 * TPF_120),
+        &[],
+    );
+    assert_eq!(&l[wait..], &fl[..]);
+    assert_eq!(&r[wait..], &fr[..]);
+}
+
+#[test]
 fn playback_started_while_a_sound_rings_glides_instead_of_clicking() {
     // A 220 Hz tone through a deep chorus, stopped, then playback starts: the free phase starts
     // again at 0 but the voices glide there (the lines hold sound), so the output does not step.
@@ -1088,12 +1127,14 @@ fn above_the_declared_rate_the_delays_stay_within_the_lines() {
             frames: cl.len() as u32,
             transport: stopped(),
         };
-        let mut io = AudioIo {
-            left: cl,
-            right: cr,
-            events_out: &mut unused,
-        };
-        b.process(&c, &[], &mut io);
+        assert_no_alloc(|| {
+            let mut io = AudioIo {
+                left: cl,
+                right: cr,
+                events_out: &mut unused,
+            };
+            b.process(&c, &[], &mut io);
+        });
     }
     check(&l);
     check(&r);

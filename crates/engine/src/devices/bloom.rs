@@ -818,6 +818,9 @@ impl Device for Bloom {
         // are silent (as when an export starts): a sound ringing through Bloom glides instead.
         if self.lfo.begin(&ctx.transport, self.sample_rate) && self.quiet >= self.lines[0].len() {
             self.snap = true;
+            // The tone filter's tail of a silent line is all that is left: an export starts
+            // without it.
+            self.filters = [HighPass { state: 0.0 }; 2];
         }
         let mut cursor = 0;
         for event in events {
