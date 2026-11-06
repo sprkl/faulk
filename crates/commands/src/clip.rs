@@ -348,11 +348,13 @@ domain! {
     /// not answer), `url.refused` (a link the page does not fetch), `import.busy` (the same
     /// link is already being imported), `download.too_big`, `download.unreachable` (network,
     /// CORS, an answer that is not a success, a redirect to a link the page would not fetch, a
-    /// stall: the message says which), `import.cancelled` (`clip.cancel_audio_import`) or
+    /// stall: the message says which), `import.cancelled` (`clip.cancel_audio_import`),
+    /// `import.project_changed` (another project was opened before the file's turn) or
     /// `import.<reason>` (the file is not audio the page reads: `import.unsupported_format`,
     /// `import.corrupt`…); nothing changed then. A large download can still end in
-    /// `page.timeout` although it ran: check with `clip.list` before calling again. Not
-    /// undoable itself.
+    /// `page.timeout` although it ran: the same call again (same link and track, within 10
+    /// minutes, the clip still there) answers the clip already made, without asking or
+    /// downloading again; `clip.list` shows it too. Not undoable itself.
     "clip.import_audio_url" (kind = "live", undo = "none", destructive = false)
     ImportAudioUrl {
         track: TrackId,

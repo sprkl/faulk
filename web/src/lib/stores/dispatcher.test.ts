@@ -8,7 +8,7 @@ import { STORAGE_GUARDED } from '../agents/guard'
 import { DEFAULT_PARAMS } from '../params'
 import { CoreError, ProjectCore, type FolderEntry } from '../project/core'
 import { readFolder, SONG_FOLDER } from '../project/reference-folder'
-import { CONTROL_RETRY_MS, OUTPUT_POLL_MS, REFUSAL_TOAST_MS } from './dispatcher'
+import { CONTROL_RETRY_MS, LINK_IMPORT_KEPT_MS, OUTPUT_POLL_MS, REFUSAL_TOAST_MS } from './dispatcher'
 import type { ControlEvents } from '../agents/control-link'
 import { TOKEN_KEY } from './storage'
 import type { PresetLibrary } from '../storage/presets'
@@ -3135,6 +3135,46 @@ describe("an agent's audio file from a link waits for the user's answer, then im
     session.dispatcher.confirmations.answer(true)
     expect(await answer).toMatchObject({ status: 'refused', error: { code: 'import.unsupported_format' } })
     expect(clips()).toEqual([])
+  })
+
+  it('answers a retry of a finished call with its clip, without asking or downloading, while the clip is there and for 10 minutes', async () => {
+    const { session, track, fetch, clips } = await withAudioTrack()
+    const allow = async () => {
+      const answer = session.dispatcher.runForAgent(call(track), 'agent:a')
+      await vi.waitFor(() => expect(session.dispatcher.confirmations.current).not.toBeNull())
+      session.dispatcher.confirmations.answer(true)
+      return answer
+    }
+    const first = (await allow()) as { status: string; output: { clip: string; media: string } }
+    expect(first.status).toBe('applied')
+    // The agent heard `page.timeout` and calls again: the same answer, nothing asked, fetched or made.
+    expect(await session.dispatcher.runForAgent(call(track), 'agent:a')).toEqual(first)
+    expect(session.dispatcher.confirmations.pending).toEqual([])
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(clips()).toHaveLength(1)
+    // Its clip undone: the call asks and imports again.
+    session.dispatcher.run({ type: 'history.undo' })
+    expect(await allow()).toMatchObject({ status: 'applied' })
+    expect(fetch).toHaveBeenCalledTimes(2)
+    // Ten minutes later, the same: a new question.
+    const clock = vi.spyOn(session.dispatcher.confirmations.clock, 'now')
+    clock.mockReturnValue(Date.now() + LINK_IMPORT_KEPT_MS + 1)
+    const later = session.dispatcher.runForAgent(call(track), 'agent:a')
+    await vi.waitFor(() => expect(session.dispatcher.confirmations.current).not.toBeNull())
+    session.dispatcher.confirmations.answer(false)
+    expect(await later).toMatchObject({ status: 'refused', error: { code: 'confirmation.declined' } })
+  })
+
+  it('imports nothing into a project opened after the user allowed it', async () => {
+    const { session, track, imported } = await withAudioTrack()
+    const answer = session.dispatcher.runForAgent(call(track), 'agent:a')
+    await vi.waitFor(() => expect(session.dispatcher.confirmations.current).not.toBeNull())
+    // Another project is open by the time the file's turn comes.
+    const view = session.project.view!
+    session.project.view = { ...view, project: { ...view.project, id: 'another-project' } }
+    session.dispatcher.confirmations.answer(true)
+    expect(await answer).toMatchObject({ status: 'refused', error: { code: 'import.project_changed' } })
+    expect(imported).toEqual([])
   })
 
   it('refuses a second call for a link under way without asking again, and stops on clip.cancel_audio_import', async () => {

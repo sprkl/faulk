@@ -209,6 +209,34 @@ describe("an agent's file from a link (#664)", () => {
     }
   })
 
+  it('a download that throws is a failed download, and the link is free again', async () => {
+    const { importer, log } = setup({ download: () => Promise.reject(new RangeError('Array buffer allocation failed')) })
+    const made: AudioMedia[] = []
+    expect(await importer.importUrl('T1', LINK, 'example.org', 'kick.wav', placer(made))).toMatchObject({
+      status: 'refused',
+      code: 'download.unreachable',
+      message: expect.stringContaining('Array buffer allocation failed'),
+    })
+    expect(log).toEqual([])
+    expect(importer.downloads).toEqual([])
+    expect(importer.importing(LINK)).toBe(false)
+  })
+
+  it('imports nothing when the project it was allowed for was replaced before its turn', async () => {
+    let wanted = true
+    const { importer, log } = setup({
+      download: async (_url, name) => {
+        wanted = false
+        return { status: 'ok', file: new File([new Uint8Array(4)], name) }
+      },
+    })
+    const made: AudioMedia[] = []
+    const got = await importer.importUrl('T1', LINK, 'example.org', 'kick.wav', placer(made), undefined, () => wanted)
+    expect(got).toMatchObject({ status: 'refused', code: 'import.project_changed' })
+    expect(log).toEqual([])
+    expect(made).toEqual([])
+  })
+
   it('answers a file the decoder refuses with import.<its reason>, whatever the link called it', async () => {
     const { importer } = setup({
       importFile: async () => {

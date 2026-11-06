@@ -49,6 +49,9 @@ import { refusalOf } from './refusal'
 import { storage, TOKEN_KEY } from './storage'
 import { isSetTheme, isThemeChoice, SET_THEME_OUTPUT, type ThemeChoice } from '../theme'
 
+/** How long a link's import answers a retry of the same call with its clip (#664), in ms: 10 minutes. */
+export const LINK_IMPORT_KEPT_MS = 10 * 60_000
+
 /** How `run` runs a command: `quiet` shows no refusal, `author` is the history's (`user` by default). */
 type RunOptions = {
   quiet?: boolean
@@ -751,7 +754,14 @@ export class Dispatcher {
     if (audioImport.importing(link.url)) {
       return { status: 'refused', error: { code: 'import.busy', message: 'this link is already being imported: wait for its answer, then check clip.list' } }
     }
-    const track = this.project.view?.project.tracks[command.track]?.name ?? command.track
+    // The same call again, soon after it imported (its answer was lost to `page.timeout`): the clip it made, while it is
+    // there; nothing is asked, downloaded or changed.
+    const project = this.project.view?.project
+    const done = this.linkImports.get(link.url.href)
+    if (done && project && done.project === project.id && done.track === command.track && this.confirmations.clock.now() - done.at < LINK_IMPORT_KEPT_MS) {
+      if (project.tracks[command.track]?.clips[done.clip]) return { status: 'applied', output: importAudioUrlOutput(done.clip, done.media) }
+    }
+    const track = project?.tracks[command.track]?.name ?? command.track
     const name = audioNameOf(link.url)
     const answer = await this.confirmations.ask(author, { kind: 'importAudio', host: link.host, name, track }, deadline, signal)
     if (answer !== 'confirmed') return notConfirmed(answer)
@@ -762,9 +772,15 @@ export class Dispatcher {
       clip = (made.output as { clip: string }).clip
       return true
     }
-    const outcome = await audioImport.importUrl(command.track, link.url, link.host, name, place, signal)
+    // The project the user allowed it for: another one opened meanwhile gets nothing of it.
+    const allowedFor = project?.id
+    const stillWanted = () => this.project.view?.project.id === allowedFor
+    const outcome = await audioImport.importUrl(command.track, link.url, link.host, name, place, signal, stillWanted)
     if (signal?.aborted && outcome.status !== 'ok') return { status: 'unavailable', reason: 'the call ended before the file was imported: nothing changed' }
     if (outcome.status !== 'ok') return { status: 'refused', error: { code: outcome.code, message: outcome.message } }
+    if (clip !== null && allowedFor) {
+      this.linkImports.set(link.url.href, { project: allowedFor, track: command.track, clip, media: outcome.hash, at: this.confirmations.clock.now() })
+    }
     return { status: 'applied', output: importAudioUrlOutput(clip, outcome.hash) }
   }
 
@@ -815,6 +831,9 @@ export class Dispatcher {
 
   /** The page's questions before an agent's destructive call runs (AG-4), shown by `views/confirm/`. */
   readonly confirmations = new AgentConfirmations()
+
+  /** The files imported from links lately (#664), by link: a retry of the same call answers the clip already made. */
+  private linkImports = new Map<string, { project: string; track: string; clip: string; media: string; at: number }>()
 
   /** Where `view.set_theme` goes: the page's theme (`createStores` sets it); `null` in a bare dispatcher. */
   theme: { set(choice: ThemeChoice): void } | null = null

@@ -117,9 +117,18 @@ export class AudioImport {
    * An agent's file from a link (#664), once the user allowed it: downloaded at once (not behind the imports under
    * way, so that a long batch of the user's does not hold it), then imported in turn like a picked file, its clip
    * made by `place` (the dispatcher runs `clip.import_audio` as the agent). `signal` is the agent's call: when it
-   * ends, nothing more is done. `cancel` stops it too.
+   * ends, nothing more is done. `cancel` stops it too. `stillWanted` is asked when the import's turn comes: false (the
+   * project the user allowed it for was replaced meanwhile) imports nothing (`import.project_changed`).
    */
-  async importUrl(track: string, url: URL, host: string, name: string, place: ImportPlacer, signal?: AbortSignal): Promise<UrlImport> {
+  async importUrl(
+    track: string,
+    url: URL,
+    host: string,
+    name: string,
+    place: ImportPlacer,
+    signal?: AbortSignal,
+    stillWanted: () => boolean = () => true,
+  ): Promise<UrlImport> {
     const link = url.href
     if (this.links.has(link))
       return { status: 'refused', code: 'import.busy', message: 'this link is already being imported: wait for its answer, then check clip.list' }
@@ -149,6 +158,9 @@ export class AudioImport {
           },
           stop.signal,
         )
+      } catch (error) {
+        // A download that throws (memory for the file) is a download that failed, told as such.
+        downloaded = { status: 'unreachable', detail: error instanceof Error ? error.message : String(error) }
       } finally {
         progress(null)
       }
@@ -163,6 +175,13 @@ export class AudioImport {
       }
       return await this.enqueue(async () => {
         if (stop.signal.aborted) return { status: 'refused', code: 'import.cancelled', message: 'the import was cancelled: nothing changed' } as const
+        if (!stillWanted()) {
+          return {
+            status: 'refused',
+            code: 'import.project_changed',
+            message: 'another project was opened since the user allowed it: nothing changed',
+          } as const
+        }
         const abort = new AbortController()
         const onStop = () => abort.abort()
         stop.signal.addEventListener('abort', onStop, { once: true })

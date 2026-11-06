@@ -428,6 +428,34 @@ mod tests {
     }
 
     #[test]
+    fn every_tool_the_instructions_name_exists() {
+        // The tools named in backticks (`project_open_url`, `clip_import_audio_url`…) are real
+        // tools: a renamed command would leave the instructions naming a tool that is gone.
+        let tools: Vec<String> = commands::catalog()
+            .into_iter()
+            .map(|spec| tool_name(&spec.name))
+            .collect();
+        let named: Vec<&str> = INSTRUCTIONS
+            .split('`')
+            .skip(1)
+            .step_by(2)
+            .filter(|word| {
+                word.contains('_')
+                    && word.chars().all(|c| c.is_ascii_lowercase() || c == '_')
+                    && !word.contains("confirmation")
+            })
+            .collect();
+        assert!(named.contains(&"clip_import_audio_url"), "{named:?}");
+        assert!(named.contains(&"project_open_url"), "{named:?}");
+        for word in named {
+            assert!(
+                tools.iter().any(|t| t == word),
+                "`{word}` is named but no tool"
+            );
+        }
+    }
+
+    #[test]
     fn the_instructions_say_how_long_a_turn_waits() {
         let seconds = commands::history::TURN_GAP_MS / 1000;
         assert!(INSTRUCTIONS.contains(&format!("after {seconds} s without an edit")));
