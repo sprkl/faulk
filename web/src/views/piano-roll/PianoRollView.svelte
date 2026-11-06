@@ -1336,16 +1336,17 @@
   }
 
   /**
-   * Copies of the chosen notes end to end (#710), their span rounded up to the quantize grid, up to `until` (the end of the
-   * bar where the copies begin by default), cut at the clip's end with a message (#280). One `clip.notes.repeat`, so one
-   * undo. The copies become the selection, and the focus goes to the first one when it was on a note or the cursor.
+   * Copies of the chosen notes end to end (#710), one period apart (#770: their extent rounded up to the quantize grid, the
+   * beat or the bar, `repeatPeriod`), up to `until` (the end of the bar where the copies begin by default), cut at the
+   * clip's end with a message (#280). One `clip.notes.repeat`, so one undo. The message says the period. The copies become
+   * the selection, and the focus goes to the first one when it was on a note or the cursor.
    */
   function repeatChosen(until?: number, source: readonly Note[] = chosenNotes, focusCopies = false) {
     if (!edited || gesture) return
     if (source.length === 0) return announce(t('pianoRoll.saidNoSelection'))
     const sources = [...source]
-    const target = until ?? defaultRepeatUntil(sources, gridTicks, bar)
-    const result = repeatCopies(sources, gridTicks, target, clipLength)
+    const target = until ?? defaultRepeatUntil(sources, gridTicks, signature)
+    const result = repeatCopies(sources, gridTicks, target, clipLength, signature)
     // The page never asks for a grid below a tick nor an end before the first copy (the default and the field see to it):
     // what is left is no room in the clip.
     if (!result.ok) return announce(t('pianoRoll.saidRepeatNoRoom'))
@@ -1355,18 +1356,36 @@
     // Refused by the project after all (a limit, a note gone under an agent): the dispatcher says why; nothing here.
     if (added > 0 && !run(repeatNotes(edited.id, sources, target, gridTicks))) return
     picked = new Set(result.copies.map(noteKey))
-    const n = added
-    announce(added === 0 ? t('pianoRoll.saidRepeatNone') : result.atClipEnd ? t('pianoRoll.saidRepeatedCut', { n }) : t('pianoRoll.saidRepeated', { n }))
+    const one = added === 1
+    const vars = { n: added, period: repeatPeriodText(result.period) }
+    announce(
+      added === 0
+        ? t('pianoRoll.saidRepeatNone')
+        : result.atClipEnd
+          ? t(one ? 'pianoRoll.saidRepeatedCutOne' : 'pianoRoll.saidRepeatedCut', vars)
+          : t(one ? 'pianoRoll.saidRepeatedOne' : 'pianoRoll.saidRepeated', vars),
+    )
     if (focusInCells && result.copies[0]) void focusNote(noteKey(result.copies[0]))
+  }
+
+  /** "every 1 bar", "every 2 beats", "every 0.25 beat": the period of a repeat (#770), in bars when it is whole bars. */
+  function repeatPeriodText(period: number): string {
+    const plain = (n: number) => Number(n.toFixed(3))
+    if (period % bar === 0) {
+      const n = period / bar
+      return t(n === 1 ? 'pianoRoll.everyBar' : 'pianoRoll.everyBars', { n })
+    }
+    const n = plain(period / beatTicks(signature))
+    return t(n === 1 ? 'pianoRoll.everyBeat' : 'pianoRoll.everyBeats', { n })
   }
 
   /** "Repeat until…": the field, filled with the default end; Enter repeats there. */
   function openRepeat() {
     if (!edited || chosenNotes.length === 0) return announce(t('pianoRoll.saidNoSelection'))
     repeatSource = [...chosenNotes]
-    const result = repeatCopies(repeatSource, gridTicks, Number.MAX_SAFE_INTEGER, clipLength)
+    const result = repeatCopies(repeatSource, gridTicks, Number.MAX_SAFE_INTEGER, clipLength, signature)
     if (!result.ok && result.refusal === 'room') return announce(t('pianoRoll.saidRepeatNoRoom'))
-    repeating = { firstCopy: result.firstCopy, initial: untilText(defaultRepeatUntil(repeatSource, gridTicks, bar) - 1) }
+    repeating = { firstCopy: result.firstCopy, initial: untilText(defaultRepeatUntil(repeatSource, gridTicks, signature) - 1) }
   }
 
   /** The field's answer: the notes it was opened for that are still in the clip, repeated there; the copies take the focus. */
