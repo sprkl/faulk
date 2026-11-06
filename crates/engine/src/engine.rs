@@ -1543,7 +1543,8 @@ impl Preparer {
         let capacity = shadow.devices.len();
         // A MIDI effect receives at most what the track gives a sub-block, or what the
         // largest MIDI effect before it writes (MO-4: chained outputs never fill). One
-        // inserted later before it does not resize it: CT-5's safety net covers that.
+        // inserted before it moves it to the next slot (the project's slot band, #219), where it
+        // is built again and sized from the new one.
         let input_events = shadow
             .devices
             .iter()
@@ -3195,10 +3196,6 @@ fn forget_lane(state: &mut State, graph: &mut Graph, track: TrackSlot, target: A
     }
 }
 
-/// Whether a chain entry receives notes (a MIDI effect or an instrument): changing one
-/// (insert, remove, enable, disable) switches the instrument's note stream, or skips the
-/// note-offs a bypassed one would have needed, so the graph releases the track's notes at
-/// its next block (MO-3). An audio effect receives no notes: changing it releases nothing.
 /// The MIDI output a chain's effects share, in events (#219): each effect takes what its bounds
 /// ask ([`crate::device::MidiOutput::capacity`], at most [`crate::device::MAX_MIDI_OUTPUT_EVENTS`])
 /// within what the effects before it left, and never less than [`MIN_MIDI_OUTPUT_EVENTS`]. So a
@@ -3217,6 +3214,10 @@ pub fn midi_room(used: usize) -> usize {
         .max(MIN_MIDI_OUTPUT_EVENTS)
 }
 
+/// Whether a chain entry receives notes (a MIDI effect or an instrument): changing one
+/// (insert, remove, enable, disable) switches the instrument's note stream, or skips the
+/// note-offs a bypassed one would have needed, so the graph releases the track's notes at
+/// its next block (MO-3). An audio effect receives no notes: changing it releases nothing.
 fn takes_notes(entry: &DeviceEntry) -> bool {
     entry.device.descriptor().role != DeviceRole::Effect
 }

@@ -387,3 +387,57 @@ fn a_track_holds_at_most_sixteen_midi_effects() {
     // Audio effects still go in.
     run(&insert(Some(&c.track), EFFECT, 0), &mut s, &mut ctx).unwrap();
 }
+
+/// #690: every parameter of Stack, the registry's MIDI effect, is set by `device.set_param`
+/// through the contract check (schema, description, undo), at both ends of its range and
+/// beyond (clamped), and its value reads back as the descriptor sanitizes it.
+#[test]
+fn every_stack_parameter_is_set_and_undone_through_device_set_param() {
+    let MidiChain { chain: c, .. } = midi_chain();
+    let mut s = c.state.clone();
+    let stack = inserted(
+        run(
+            &insert(Some(&c.track), "faulk.stack", 0),
+            &mut s,
+            &mut fresh(),
+        )
+        .unwrap(),
+    );
+    let descriptor = engine::devices::stack::DESCRIPTOR;
+    assert_eq!(
+        s.project.tracks[&c.track].devices[&stack].role,
+        DeviceRole::MidiEffect
+    );
+    assert_eq!(
+        s.project.tracks[&c.track].devices[&stack].params.len(),
+        descriptor.params.len()
+    );
+    let ctx = context();
+    for p in descriptor.params {
+        for value in [
+            p.min,
+            p.max,
+            p.max + 100.0,
+            p.min - 100.0,
+            (p.min + p.max) / 2.0,
+        ] {
+            let command = d(device::Command::SetParam {
+                device: stack.clone(),
+                param: p.key.into(),
+                value,
+            });
+            // A value that lands on the one stored changes nothing (no inverse, no event).
+            if p.sanitize_f64(value) == Some(p.default) {
+                continue;
+            }
+            check(&command, &s, &ctx).unwrap_or_else(|e| panic!("{} = {value}: {e}", p.key));
+            let mut after = s.clone();
+            run(&command, &mut after, &mut fresh()).unwrap();
+            let stored = after.project.tracks[&c.track].devices[&stack].params[p.key];
+            assert_eq!(Some(stored), p.sanitize_f64(value), "{} = {value}", p.key);
+        }
+    }
+    // The agents read every one of them in the schema bundle's descriptors.
+    let schema = serde_json::to_string(&commands::schema()).unwrap();
+    assert!(schema.contains("device.set_param"));
+}

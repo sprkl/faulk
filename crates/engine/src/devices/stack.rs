@@ -52,8 +52,9 @@
 //!
 //! # Output bounds
 //!
-//! A received note-on writes at most its 7 note-ons, a note-off its 7 note-offs, an
-//! `AllNotesOff` one event: `per_input` 7. The strum notes that start in a block are at most
+//! A received note-on writes at most its 7 note-ons, and 7 note-offs before them when it
+//! repeats a voice Stack holds (a broken guarantee: the held chord ends first); a note-off its 7
+//! note-offs, an `AllNotesOff` one event: `per_input` 14. The strum notes that start in a block are at most
 //! the table's: `per_block` `HELD × 7`. Pending notes are written in time order between the
 //! events, so the output stays sorted.
 
@@ -207,8 +208,8 @@ macro_rules! voice {
     };
 }
 
-const V1: [ParamDescriptor; 4] = voice!(0, "1", 1.0, 4.0);
-const V2: [ParamDescriptor; 4] = voice!(1, "2", 1.0, 7.0);
+const V1: [ParamDescriptor; 4] = voice!(0, "1", 1.0, 7.0);
+const V2: [ParamDescriptor; 4] = voice!(1, "2", 0.0, 4.0);
 const V3: [ParamDescriptor; 4] = voice!(2, "3", 0.0, 12.0);
 const V4: [ParamDescriptor; 4] = voice!(3, "4", 0.0, -12.0);
 const V5: [ParamDescriptor; 4] = voice!(4, "5", 0.0, 19.0);
@@ -296,8 +297,8 @@ const PARAMS: [ParamDescriptor; 30] = [
 ];
 
 /// The descriptor of Stack (CT-5): `faulk.stack`, displayed "Stack" (one English name, never
-/// translated, founder's decision of 2026-11-06). The defaults are a major triad in semitones,
-/// played at once.
+/// translated, founder's decision of 2026-11-06). The defaults add a fifth in semitones, played
+/// at once: the root and its fifth, which sounds right in any key; the presets hold the chords.
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
     kind: "faulk.stack",
     kind_id: DeviceKind(9),
@@ -311,7 +312,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         + size_of::<[(u64, u16, u8); HELD * CHORD]>()
         + crate::device::MAX_MIDI_OUTPUT_EVENTS * size_of::<Event>()) as u64,
     midi_output: Some(MidiOutput {
-        per_input: CHORD as u32,
+        per_input: (2 * CHORD) as u32,
         per_block: (HELD * CHORD) as u32,
     }),
     named_keys: &[],
