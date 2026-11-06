@@ -30303,6 +30303,122 @@
       ],
       "role": "midi_effect",
       "version": 1
+    },
+    {
+      "kind": "faulk.scatter",
+      "kind_id": 11,
+      "memory_bytes": 1312320,
+      "midi_output": {
+        "per_block": 0,
+        "per_input": 2
+      },
+      "name": "Scatter",
+      "named_keys": [],
+      "params": [
+        {
+          "default": 50,
+          "description": "Chance that a received note comes out at another pitch, from 0 (never: the notes go through unchanged) to 100 % (every note): a repeatable draw, set by the seed.",
+          "id": 0,
+          "key": "chance",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 2,
+          "description": "How many pitches a moved note can take, from 1 to 24, each one interval further from the received note.",
+          "id": 1,
+          "key": "choices",
+          "max": 24,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 12,
+          "description": "Distance between two choices, from 1 to 12: semitones, or degrees of the project's scale in scale mode (12 semitones is an octave).",
+          "id": 2,
+          "key": "interval",
+          "max": 12,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 2,
+          "description": "Where the choices lie: above the received note, below it, or around it (alternately above and below).",
+          "id": 3,
+          "key": "direction",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "up",
+            "down",
+            "around"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "How the interval is read: in semitones, or in degrees of the project's scale, so that every moved note is in the scale. Without a project scale, in semitones.",
+          "id": 4,
+          "key": "mode",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "semitones",
+            "scale"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "How a moved note picks its choice: at random (a repeatable draw, set by the seed), or in turn, each moved note taking the next choice.",
+          "id": 5,
+          "key": "order",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "random",
+            "cycle"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Seed of the draws, from 0 to 1000: the same seed moves the same notes the same way on every play from the start; another seed, another draw.",
+          "id": 6,
+          "key": "seed",
+          "max": 1000,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        }
+      ],
+      "role": "midi_effect",
+      "version": 1
     }
   ],
   "error_codes": {
@@ -39343,7 +39459,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 44,
+  "protocol_version": 46,
   "scale_intervals": [
     {
       "intervals": [

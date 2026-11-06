@@ -44,6 +44,7 @@ mod render;
 mod reverb;
 mod reverb_glide_fingerprint;
 mod sample_rate;
+mod scatter;
 mod stack;
 mod stream_queue;
 mod time;

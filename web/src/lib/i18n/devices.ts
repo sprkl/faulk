@@ -106,6 +106,18 @@ export const devices = defineFeature(
     'stack.voice6_interval.hint': "Interval of voice 6 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
     'stack.voice6_velocity.hint': "Velocity of voice 6, from 1 to 200 % of the received note's.",
     'stack.voice6_chance.hint': 'Chance that voice 6 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.',
+    'scatter.chance.hint':
+      'Chance that a received note comes out at another pitch, from 0 (never: the notes go through unchanged) to 100 % (every note): a repeatable draw, set by the seed.',
+    'scatter.choices.hint': 'How many pitches a moved note can take, from 1 to 24, each one interval further from the received note.',
+    'scatter.interval.hint':
+      "Distance between two choices, from 1 to 12: semitones, or degrees of the project's scale in scale mode (12 semitones is an octave).",
+    'scatter.direction.hint': 'Where the choices lie: above the received note, below it, or around it (alternately above and below).',
+    'scatter.mode.hint':
+      "How the interval is read: in semitones, or in degrees of the project's scale, so that every moved note is in the scale. Without a project scale, in semitones.",
+    'scatter.order.hint':
+      'How a moved note picks its choice: at random (a repeatable draw, set by the seed), or in turn, each moved note taking the next choice.',
+    'scatter.seed.hint':
+      'Seed of the draws, from 0 to 1000: the same seed moves the same notes the same way on every play from the start; another seed, another draw.',
     'compressor.threshold.hint': 'Level, in decibels, above which the compressor turns the sound down, from -60 to 0 dB.',
     'compressor.ratio.hint':
       'How strongly the sound above the threshold is turned down, from 1 (not at all) to 20: at 4, a signal 8 dB over the threshold comes out 2 dB over it.',
@@ -218,6 +230,18 @@ export const devices = defineFeature(
       'Intervalle de la voix 6 depuis la note reçue, de -36 à +36 : en demi-tons, ou en degrés de la gamme du projet dans le mode gamme.',
     'stack.voice6_velocity.hint': 'Vélocité de la voix 6, de 1 à 200 % de celle de la note reçue.',
     'stack.voice6_chance.hint': 'Chance que la voix 6 joue à chaque note reçue, de 0 à 100 % : un tirage reproductible, fixé par la graine.',
+    'scatter.chance.hint':
+      'Chance qu’une note reçue sorte à une autre hauteur, de 0 (jamais : les notes passent telles quelles) à 100 % (chaque note) : un tirage reproductible, fixé par la graine.',
+    'scatter.choices.hint': 'Nombre de hauteurs possibles pour une note changée, de 1 à 24, chacune un intervalle plus loin de la note reçue.',
+    'scatter.interval.hint':
+      'Écart entre deux choix, de 1 à 12 : en demi-tons, ou en degrés de la gamme du projet dans le mode gamme (12 demi-tons font une octave).',
+    'scatter.direction.hint': 'Où sont les choix : au-dessus de la note reçue, au-dessous, ou autour (tour à tour au-dessus et au-dessous).',
+    'scatter.mode.hint':
+      'Comment lire l’intervalle : en demi-tons, ou en degrés de la gamme du projet, pour que chaque note changée soit dans la gamme. Sans gamme réglée, en demi-tons.',
+    'scatter.order.hint':
+      'Comment une note changée prend son choix : au hasard (un tirage reproductible, fixé par la graine), ou tour à tour, chaque note changée prenant le choix suivant.',
+    'scatter.seed.hint':
+      'Graine des tirages, de 0 à 1000 : la même graine change les mêmes notes de la même façon à chaque lecture depuis le début ; une autre graine, un autre tirage.',
     'compressor.threshold.hint': 'Niveau, en décibels, au-dessus duquel le compresseur baisse le son, de -60 à 0 dB.',
     'compressor.ratio.hint':
       'Force avec laquelle le son au-dessus du seuil est baissé, de 1 (pas du tout) à 20 : à 4, un signal 8 dB au-dessus du seuil ressort 2 dB au-dessus.',

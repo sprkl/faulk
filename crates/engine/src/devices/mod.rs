@@ -16,6 +16,7 @@ pub mod echo;
 pub mod filter;
 pub mod osc_synth;
 pub mod reverb;
+pub mod scatter;
 pub mod stack;
 pub mod time_change;
 
@@ -44,6 +45,7 @@ pub const REGISTRY: &[Builtin] = &[
     compressor::BUILTIN,
     filter::BUILTIN,
     stack::BUILTIN,
+    scatter::BUILTIN,
 ];
 
 /// The registry's line of `kind`.

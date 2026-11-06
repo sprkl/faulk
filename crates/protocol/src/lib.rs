@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 44;
+pub const PROTOCOL_VERSION: u32 = 46;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -43,6 +43,11 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 46 (#691; 45 is #693's): the registry gains the MIDI effect `faulk.scatter` (device
+// kind 11: a note's pitch moved, at a chance, to one of up to 24 choices, in semitones or in the
+// project's scale). A helper of an earlier version would not build the device: a page and a
+// helper of different versions refuse each other.
 
 // Version 44 (#690, #219; 43 is #783's): the engine takes `ControlMsg::SetScale` (tag 4, the project's
 // scale as a set of pitch classes), the registry gains the MIDI effect `faulk.stack` (device kind 9), and

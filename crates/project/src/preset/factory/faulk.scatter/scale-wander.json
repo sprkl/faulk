@@ -1,0 +1,16 @@
+{
+  "category": "Variation",
+  "device": "faulk.scatter",
+  "format": 1,
+  "name": "Scale Wander",
+  "params": {
+    "chance": 50.0,
+    "choices": 4.0,
+    "direction": 2.0,
+    "interval": 1.0,
+    "mode": 1.0,
+    "order": 0.0,
+    "seed": 0.0
+  },
+  "version": 1
+}
