@@ -65,6 +65,8 @@ const parts = [
   `export const CONTROL_PUSHED_OUT = ${bundle.control_pushed_out}`,
   "/** How long the page waits for the user's answer to an agent's destructive call, in ms (`protocol::AGENT_CONFIRM_MS`, AG-4). */",
   `export const AGENT_CONFIRM_MS = ${bundle.agent_confirm_ms}`,
+  '/** The largest audio file the page downloads for `clip.import_audio_url`, in bytes (`commands::clip::MAX_AUDIO_URL_BYTES`, #664). */',
+  `export const MAX_AUDIO_URL_BYTES = ${bundle.max_audio_url_bytes}`,
   "/** The `x-destructive` commands, from the catalog: an agent's call of one waits for the user's confirmation (AG-4). */",
   `export const DESTRUCTIVE_COMMANDS: readonly string[] = ${JSON.stringify(bundle.destructive_commands)}`,
   `export const PARAM_DEFAULTS = ${JSON.stringify(bundle.param_defaults)} as const`,

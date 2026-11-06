@@ -329,6 +329,44 @@ domain! {
     "clip.choose_audio" (kind = "live", undo = "none", destructive = false)
     ChooseAudio { track: TrackId } => {};
 
+    /// Import the audio file hosted at `url` into an audio track, for an agent (#664): `https`,
+    /// with no user name or password in it (plain `http` only to `localhost`, `127.0.0.1` or
+    /// `[::1]`, and the page takes it only when Faulk itself runs on this computer). The page
+    /// first asks the user, for up to 45 s, showing the link's host and the file's name (the
+    /// last part of the link's path); nothing is sent to the host before the user allows it, so
+    /// the size is known only once the download starts. Then it downloads the file without
+    /// cookies, credentials or referrer, as a CORS request (the host must allow any origin with
+    /// `Access-Control-Allow-Origin`), at most 192 MiB, given up after 30 s without data, and
+    /// imports it as `clip.choose_audio` imports a file the user picks: its bytes kept in the
+    /// project's `blobs/`, its content decoded and checked whatever its extension or type
+    /// (formats: those of `clip.choose_audio`), then a clip in the track's pool made by
+    /// `clip.import_audio`, one history entry the user can undo. The answer, once the file is
+    /// in, gives the `clip` made and the file's SHA-256 (`media`); both are `null` only from a
+    /// host that imports nothing. Refused at once when the track is not an audio track or the
+    /// link is not one the page fetches. Otherwise the page answers `command.refused` with the
+    /// error code `confirmation.declined` or `confirmation.timeout` (the user refused or did
+    /// not answer), `url.refused` (a link the page does not fetch), `import.busy` (the same
+    /// link is already being imported), `download.too_big`, `download.unreachable` (network,
+    /// CORS, an answer that is not a success, a redirect to a link the page would not fetch, a
+    /// stall: the message says which), `import.cancelled` (`clip.cancel_audio_import`),
+    /// `import.project_changed` (another project was opened before the file's turn) or
+    /// `import.<reason>` (the file is not audio the page reads: `import.unsupported_format`,
+    /// `import.corrupt`…); nothing changed then. A large download can still end in
+    /// `page.timeout` although it ran: the same call again (same link and track, within 10
+    /// minutes, the clip still there) answers the clip already made, without asking or
+    /// downloading again; `track.get` lists the track's clips too. Not undoable itself.
+    "clip.import_audio_url" (kind = "live", undo = "none", destructive = false)
+    ImportAudioUrl {
+        track: TrackId,
+        #[schemars(length(min = 1, max = 2048))]
+        url: String,
+    } => {
+        /// The clip made of the file (in the track's pool).
+        clip: Option<ClipId>,
+        /// The SHA-256 of the file, the name of its blob.
+        media: Option<Hash>,
+    };
+
     /// Stop the audio import under way in the page (the files chosen by `clip.choose_audio`):
     /// the file being imported is dropped (nothing of it is kept) and the files after it are
     /// not imported; the clips of the files already imported stay. Does nothing when no import
@@ -1253,6 +1291,17 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             audio_track(&state.project, track)?;
             Ok(unchanged(Output::ChooseAudio {}))
         }
+        // The question, the download and the import belong to the page, which answers an agent with
+        // the clip it made (`runForAgent`): the command only checks the track and the link's shape,
+        // so that a wrong one is refused before the user is asked anything.
+        Command::ImportAudioUrl { track, url } => {
+            audio_track(&state.project, track)?;
+            crate::project::check_link(url, "an audio file")?;
+            Ok(unchanged(Output::ImportAudioUrl {
+                clip: None,
+                media: None,
+            }))
+        }
         // The import runs in the page: the command only says it is to stop.
         Command::CancelAudioImport {} => Ok(unchanged(Output::CancelAudioImport {})),
         Command::Duplicate { clip, slot, track } => {
@@ -1440,6 +1489,11 @@ fn delete(state: &mut State, clip_id: &ClipId) -> Result<Out, CommandError> {
         }],
     ))
 }
+
+/// The largest audio file `clip.import_audio_url` downloads, in bytes (192 MiB): the page holds
+/// it in memory before it imports it, as it holds a `.faulkpack` where the browser keeps no
+/// projects.
+pub const MAX_AUDIO_URL_BYTES: u64 = 192 << 20;
 
 pub(crate) fn audio_track<'a>(
     project: &'a Project,
