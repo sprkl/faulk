@@ -62,9 +62,12 @@
 
 use super::Builtin;
 use super::draw::{Draw, Place};
+use super::held::HeldTable;
+use super::params::{choice, stepped};
+pub use super::scale::scale_step;
 use crate::device::{
     AudioIo, BlockCtx, Device, DeviceDescriptor, DeviceRole, DeviceSetup, Event, MidiOutput,
-    ParamDescriptor, PitchSet, Scale, Unit, VoiceId, event_frame,
+    ParamDescriptor, PitchSet, Unit, VoiceId, event_frame,
 };
 use crate::msg::{DeviceKind, MsgError, ParamId, try_box};
 
@@ -93,52 +96,6 @@ pub const MAX_CHOICES: u32 = 24;
 /// Received notes held at once.
 pub const HELD: usize = 128;
 
-const fn choice(
-    id: u32,
-    key: &'static str,
-    description: &'static str,
-    default: f64,
-    values: &'static [&'static str],
-) -> ParamDescriptor {
-    ParamDescriptor {
-        id: ParamId(id),
-        key,
-        description,
-        unit: Unit::None,
-        min: 0.0,
-        max: (values.len() - 1) as f64,
-        default,
-        scale: Scale::Linear,
-        step: 1.0,
-        smoothing_seconds: 0.0,
-        values,
-    }
-}
-
-const fn stepped(
-    id: u32,
-    key: &'static str,
-    description: &'static str,
-    unit: Unit,
-    min: f64,
-    max: f64,
-    default: f64,
-) -> ParamDescriptor {
-    ParamDescriptor {
-        id: ParamId(id),
-        key,
-        description,
-        unit,
-        min,
-        max,
-        default,
-        scale: Scale::Linear,
-        step: 1.0,
-        smoothing_seconds: 0.0,
-        values: &[],
-    }
-}
-
 const PARAMS: [ParamDescriptor; 7] = [
     stepped(
         CHANCE,
@@ -148,6 +105,7 @@ const PARAMS: [ParamDescriptor; 7] = [
         0.0,
         100.0,
         50.0,
+        1.0,
     ),
     stepped(
         CHOICES,
@@ -157,6 +115,7 @@ const PARAMS: [ParamDescriptor; 7] = [
         1.0,
         MAX_CHOICES as f64,
         2.0,
+        1.0,
     ),
     stepped(
         INTERVAL,
@@ -166,6 +125,7 @@ const PARAMS: [ParamDescriptor; 7] = [
         1.0,
         12.0,
         12.0,
+        1.0,
     ),
     choice(
         DIRECTION,
@@ -196,6 +156,7 @@ const PARAMS: [ParamDescriptor; 7] = [
         0.0,
         1000.0,
         0.0,
+        1.0,
     ),
 ];
 
@@ -211,7 +172,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
     // The device, its table, and the most output the host gives it (`MidiOutput::capacity` is
     // at most `MAX_MIDI_OUTPUT_EVENTS`).
     memory_bytes: (size_of::<Scatter>()
-        + size_of::<[Held; HELD]>()
+        + HeldTable::<u8, HELD>::BYTES
         + crate::device::MAX_MIDI_OUTPUT_EVENTS * size_of::<Event>()) as u64,
     midi_output: Some(MidiOutput {
         per_input: 2,
@@ -227,18 +188,6 @@ pub const BUILTIN: Builtin = Builtin {
     factory: Scatter::build,
 };
 
-/// A received note that sounds.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct Held {
-    /// The entry holds a note when this is the table's generation ([`Scatter::generation`]):
-    /// a reset empties the table in O(1) by moving the generation on.
-    generation: u32,
-    /// The received note's voice id, which is also the output's.
-    voice: u32,
-    /// The key it came out at.
-    key: u8,
-}
-
 /// The device (module doc).
 pub struct Scatter {
     /// 0 to 1.
@@ -249,10 +198,8 @@ pub struct Scatter {
     in_scale: bool,
     cycle: bool,
     seed: u64,
-    held: Box<[Held; HELD]>,
-    /// The generation of the entries that hold a note (never 0, the generation of an entry
-    /// never used).
-    generation: u32,
+    /// The received notes that sound, with the key each came out at.
+    held: HeldTable<u8, HELD>,
     /// Note-ons received while the transport is stopped, since the last reset: their place.
     stopped: u64,
     /// Notes moved in `cycle` order since the last reset or the last start of the transport.
@@ -262,7 +209,7 @@ pub struct Scatter {
 
 impl Scatter {
     pub fn new(_setup: &DeviceSetup) -> Result<Self, MsgError> {
-        let held = try_box([Held::default(); HELD])?;
+        let held = HeldTable::new()?;
         let mut scatter = Self {
             chance: 0.0,
             choices: 1,
@@ -272,7 +219,6 @@ impl Scatter {
             cycle: false,
             seed: 0,
             held,
-            generation: 1,
             stopped: 0,
             moved: 0,
             playing: false,
@@ -337,27 +283,18 @@ impl Scatter {
         out: &mut crate::device::EventBuffer,
     ) {
         // One pass over the table: the entry of this voice if it is held, else the first free.
-        let generation = self.generation;
-        let mut free = None;
-        let mut same = None;
-        for (e, h) in self.held.iter().enumerate() {
-            if h.generation != generation {
-                free = free.or(Some(e));
-            } else if h.voice == voice.get() {
-                same = Some(e);
-                break;
-            }
-        }
+        let (mut free, same) = self.held.free_and_find(voice.get());
         // A note-on for a voice already held (a broken guarantee) ends that one first, and
         // takes its entry.
         if let Some(entry) = same {
-            let held = &mut self.held[entry];
-            out.push(Event::NoteOff {
-                offset: at as u32,
-                voice,
-                key: held.key,
-            });
-            held.generation = 0;
+            if let Some(held_key) = self.held.get_mut(entry).map(|k| *k) {
+                out.push(Event::NoteOff {
+                    offset: at as u32,
+                    voice,
+                    key: held_key,
+                });
+            }
+            self.held.release(entry);
             free = Some(entry);
         }
         let key = key.min(127);
@@ -366,11 +303,7 @@ impl Scatter {
         let moved = self.target(key, place, scale);
         let out_key = match free {
             Some(entry) => {
-                self.held[entry] = Held {
-                    generation,
-                    voice: voice.get(),
-                    key: moved,
-                };
+                self.held.insert(entry, voice.get(), moved);
                 moved
             }
             // The table is full: the note goes through unchanged, as its note-off will.
@@ -392,11 +325,11 @@ impl Scatter {
         key: u8,
         out: &mut crate::device::EventBuffer,
     ) {
-        let key = match self.find(voice) {
+        let key = match self.held.find(voice.get()) {
             Some(entry) => {
-                let held = &mut self.held[entry];
-                held.generation = 0;
-                held.key
+                let held_key = self.held.get_mut(entry).map_or(key, |k| *k);
+                self.held.release(entry);
+                held_key
             }
             None => key,
         };
@@ -405,21 +338,6 @@ impl Scatter {
             voice,
             key,
         });
-    }
-
-    /// The entry holding `voice`, if any.
-    fn find(&self, voice: VoiceId) -> Option<usize> {
-        self.held
-            .iter()
-            .position(|h| h.generation == self.generation && h.voice == voice.get())
-    }
-
-    /// Empties the table in O(1): the entries of the old generation hold nothing any more.
-    fn clear(&mut self) {
-        self.generation = match self.generation.wrapping_add(1) {
-            0 => 1,
-            g => g,
-        };
     }
 }
 
@@ -464,7 +382,7 @@ impl Device for Scatter {
                 }
                 Event::NoteOff { voice, key, .. } => self.note_off(at, voice, key, io.events_out),
                 Event::AllNotesOff { .. } => {
-                    self.clear();
+                    self.held.clear();
                     io.events_out.push(Event::AllNotesOff { offset: at as u32 });
                 }
                 Event::ParamValue { id, value, .. } => self.set_param(id, value),
@@ -491,7 +409,7 @@ impl Device for Scatter {
     }
 
     fn reset(&mut self) {
-        self.clear();
+        self.held.clear();
         self.stopped = 0;
         self.moved = 0;
         self.playing = false;
@@ -512,33 +430,4 @@ pub fn steps(k: u32, direction: u32) -> i32 {
             }
         }
     }
-}
-
-/// The scale's note `steps` degrees from `key`'s degree (the scale's note at or below it), as a
-/// MIDI key (may fall outside 0..=127); `key + steps` when `scale` is empty.
-pub fn scale_step(key: u8, steps: i32, scale: PitchSet) -> i32 {
-    let mut classes = [0u8; 12];
-    let mut m = 0usize;
-    for pc in 0..12u8 {
-        if scale.contains(pc) {
-            classes[m] = pc;
-            m += 1;
-        }
-    }
-    if m == 0 {
-        return i32::from(key) + steps;
-    }
-    let key = i32::from(key);
-    let mut octave = key.div_euclid(12);
-    let pc = key.rem_euclid(12);
-    let index = match classes[..m].iter().rposition(|&c| i32::from(c) <= pc) {
-        Some(i) => i,
-        None => {
-            octave -= 1;
-            m - 1
-        }
-    };
-    let total = index as i32 + steps;
-    let m = m as i32;
-    (octave + total.div_euclid(m)) * 12 + i32::from(classes[total.rem_euclid(m) as usize])
 }

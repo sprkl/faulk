@@ -30209,7 +30209,7 @@
     {
       "kind": "faulk.stack",
       "kind_id": 9,
-      "memory_bytes": 1341672,
+      "memory_bytes": 1341680,
       "midi_output": {
         "per_block": 896,
         "per_input": 14
@@ -30290,7 +30290,7 @@
         },
         {
           "default": 0,
-          "description": "Seed of the chance draws, from 0 to 1000: the same seed gives the same chords on every play from the start; another seed, another draw.",
+          "description": "Seed of the chance draws, from 0 to 1000: a note draws from the seed, its position in the song and its pitch, so the same seed gives the same chords at the same place on every play, from any start; another seed, another draw.",
           "id": 5,
           "key": "seed",
           "max": 1000,
