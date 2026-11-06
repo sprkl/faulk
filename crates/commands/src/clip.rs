@@ -354,7 +354,7 @@ domain! {
     /// `import.corrupt`…); nothing changed then. A large download can still end in
     /// `page.timeout` although it ran: the same call again (same link and track, within 10
     /// minutes, the clip still there) answers the clip already made, without asking or
-    /// downloading again; `clip.list` shows it too. Not undoable itself.
+    /// downloading again; `track.get` lists the track's clips too. Not undoable itself.
     "clip.import_audio_url" (kind = "live", undo = "none", destructive = false)
     ImportAudioUrl {
         track: TrackId,

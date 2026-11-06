@@ -131,7 +131,7 @@ export class AudioImport {
   ): Promise<UrlImport> {
     const link = url.href
     if (this.links.has(link))
-      return { status: 'refused', code: 'import.busy', message: 'this link is already being imported: wait for its answer, then check clip.list' }
+      return { status: 'refused', code: 'import.busy', message: 'this link is already being imported: wait for its answer, then check track.get' }
     this.links.add(link)
     const stop = new AbortController()
     const onEnd = () => stop.abort()

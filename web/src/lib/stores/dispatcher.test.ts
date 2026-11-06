@@ -3165,6 +3165,20 @@ describe("an agent's audio file from a link waits for the user's answer, then im
     expect(await later).toMatchObject({ status: 'refused', error: { code: 'confirmation.declined' } })
   })
 
+  it('two calls for one link asked at once: the second allowed after the first imported answers its clip, one download', async () => {
+    const { session, track, fetch, clips } = await withAudioTrack()
+    const first = session.dispatcher.runForAgent(call(track), 'agent:a')
+    const second = session.dispatcher.runForAgent(call(track), 'agent:a')
+    await vi.waitFor(() => expect(session.dispatcher.confirmations.pending).toHaveLength(2))
+    session.dispatcher.confirmations.answer(true)
+    const made = (await first) as { status: string; output: { clip: string } }
+    expect(made.status).toBe('applied')
+    session.dispatcher.confirmations.answer(true)
+    expect(await second).toEqual(made)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(clips()).toHaveLength(1)
+  })
+
   it('imports nothing into a project opened after the user allowed it', async () => {
     const { session, track, imported } = await withAudioTrack()
     const answer = session.dispatcher.runForAgent(call(track), 'agent:a')

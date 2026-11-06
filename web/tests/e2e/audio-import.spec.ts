@@ -259,6 +259,8 @@ test("an agent's audio file from a link (#664): the user is asked first, nothing
   const link = 'https://audio.example/loops/sine-s16.wav?v=1'
   // The host, as Playwright serves it: any origin may read it (CORS); every request it gets is counted.
   let body: Buffer | string = readFileSync(fixture('sine-s16.wav'))
+  // The host has a cookie in this browser: the download must not send it.
+  await page.context().addCookies([{ name: 'session', value: 'secret', domain: 'audio.example', path: '/', secure: true, sameSite: 'None' }])
   const hits: { method: string; cookie?: string; referer?: string }[] = []
   await page.route('https://audio.example/**', async (route) => {
     const headers = route.request().headers()

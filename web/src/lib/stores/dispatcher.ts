@@ -753,20 +753,21 @@ export class Dispatcher {
     }
     // A second call for a link under way (an agent retrying after `page.timeout`) would import the file twice.
     if (audioImport.importing(link.url)) {
-      return { status: 'refused', error: { code: 'import.busy', message: 'this link is already being imported: wait for its answer, then check clip.list' } }
+      return { status: 'refused', error: { code: 'import.busy', message: 'this link is already being imported: wait for its answer, then check track.get' } }
     }
     // The same call again, soon after it imported (its answer was lost to `page.timeout`): the clip it made, while it is
     // there; nothing is asked, downloaded or changed.
+    const replay = this.linkReplay(link.url.href, command.track)
+    if (replay) return replay
     const project = this.project.view?.project
-    const done = this.linkImports.get(link.url.href)
-    if (done && project && done.project === project.id && done.track === command.track && this.confirmations.clock.now() - done.at < LINK_IMPORT_KEPT_MS) {
-      if (project.tracks[command.track]?.clips[done.clip]) return { status: 'applied', output: importAudioUrlOutput(done.clip, done.media) }
-    }
     const entry = project ? sortedTracks(project).find((e) => e.id === command.track) : undefined
     const track = { name: entry?.track.name ?? '', index: entry?.index ?? 0 }
     const name = audioNameOf(link.url)
     const answer = await this.confirmations.ask(author, { kind: 'importAudio', host: link.host, name, track }, deadline, signal)
     if (answer !== 'confirmed') return notConfirmed(answer)
+    // Two calls for the link asked at once: the first one allowed may have imported it meanwhile.
+    const late = this.linkReplay(link.url.href, command.track)
+    if (late) return late
     let clip: string | null = null
     const place: ImportPlacer = (media) => {
       const made = this.execute(importCommand(command.track, media.hash), { quiet: true, author })
@@ -781,9 +782,21 @@ export class Dispatcher {
     if (signal?.aborted && outcome.status !== 'ok') return { status: 'unavailable', reason: 'the call ended before the file was imported: nothing changed' }
     if (outcome.status !== 'ok') return { status: 'refused', error: { code: outcome.code, message: outcome.message } }
     if (clip !== null && allowedFor) {
-      this.linkImports.set(link.url.href, { project: allowedFor, track: command.track, clip, media: outcome.hash, at: this.confirmations.clock.now() })
+      const now = this.confirmations.clock.now()
+      // Only the recent ones are kept: the map never grows past the links of the last 10 minutes.
+      for (const [href, kept] of this.linkImports) if (now - kept.at >= LINK_IMPORT_KEPT_MS) this.linkImports.delete(href)
+      this.linkImports.set(link.url.href, { project: allowedFor, track: command.track, clip, media: outcome.hash, at: now })
     }
     return { status: 'applied', output: importAudioUrlOutput(clip, outcome.hash) }
+  }
+
+  /** The answer of a link's import already done (#664): the same link and track, the same project, recent, its clip still there. */
+  private linkReplay(href: string, track: string): AgentResult | null {
+    const project = this.project.view?.project
+    const done = this.linkImports.get(href)
+    if (!done || !project || done.project !== project.id || done.track !== track) return null
+    if (this.confirmations.clock.now() - done.at >= LINK_IMPORT_KEPT_MS || !project.tracks[track]?.clips[done.clip]) return null
+    return { status: 'applied', output: importAudioUrlOutput(done.clip, done.media) }
   }
 
   /** Stages what the meters held since the last `mixer.levels` for the core to answer with. */

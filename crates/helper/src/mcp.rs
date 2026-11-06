@@ -185,7 +185,8 @@ settle a conflict with the project's folder (`project_open_recent`, \
 `clip_import_audio_url` (an audio file the page downloads from a link), wait for \
 the user to allow them in the page, for up to 45 s, then answer once the page did the action \
 (a slow one, such as a large download, can still end in `page.timeout` although it ran: check \
-with `project_list_stored` or the project before calling again). When the user refuses, or does \
+with `project_list_stored`, `track_get` for an audio file from a link, or the project before \
+calling again). When the user refuses, or does \
 not answer in time, the call answers `command.refused` with the error code \
 `confirmation.declined` or `confirmation.timeout`, and nothing changed. Without a paired page open every tool answers the error \
 `page.absent`: ask the user to open Faulk in the browser.";
