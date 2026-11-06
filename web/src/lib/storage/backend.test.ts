@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classify, FolderBackend } from './backend'
+import { classify, FolderBackend, HELPER_TMP_FRESH_MS } from './backend'
 import { MemoryDir } from './memory-dir'
 import { StoreError } from './types'
 
@@ -217,6 +217,17 @@ describe('FolderBackend blobs and swap files', () => {
     dir.put('.faulk/tmp/1-a', 'half a new file').put('.faulk/session.json', '{}')
     await store.cleanUp()
     expect(dir.paths().sort()).toEqual(['.faulk/session.json', 'tracks/a/notes.tsv'])
+  })
+
+  it("leaves the temporary file of a helper's export that runs, and removes one left over (#319)", async () => {
+    const { dir, store } = folder()
+    dir.put('.faulk/tmp/helper-0011223344556677.tmp', 'rendering').put('.faulk/tmp/helper-8899aabbccddeeff.tmp', 'left over')
+    const tmp = await (await dir.getDirectoryHandle('.faulk')).getDirectoryHandle('tmp')
+    // The running export wrote a moment ago; the other one stopped long ago.
+    ;(await tmp.getFileHandle('helper-0011223344556677.tmp')).modified = Date.now()
+    ;(await tmp.getFileHandle('helper-8899aabbccddeeff.tmp')).modified = Date.now() - HELPER_TMP_FRESH_MS - 1
+    await store.cleanUp()
+    expect(dir.paths()).toEqual(['.faulk/tmp/helper-0011223344556677.tmp'])
   })
 })
 

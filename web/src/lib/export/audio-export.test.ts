@@ -2,7 +2,7 @@
 // its states, what it asks the core for, the order of the file's bytes, cancelling at every
 // point, and every way it can fail.
 import { describe, expect, it, vi } from 'vitest'
-import type { Command } from '../generated/protocol'
+import { MAX_EXPORT_STREAM_BYTES, type Command } from '../generated/protocol'
 import type { ExportJob } from '../project/core'
 import {
   AudioExport,
@@ -16,7 +16,9 @@ import {
   type ExportWorkerPort,
   type SinkChoice,
 } from './audio-export.svelte'
+import type { HelperExportMessage } from '../engine/engine'
 import type { FromExport, ToExport, ToStart } from './export-render'
+import type { HelperExportPort, HelperExportStart } from './helper-export'
 
 const PLAN = {
   settings: { region: 'song', bit_depth: 'pcm24', sample_rate: 48_000 },
@@ -80,6 +82,7 @@ function setup(
     refuse?: boolean
     canChoose?: boolean
     analysing?: boolean
+    helper?: FakeHelper | null
   } = {},
 ) {
   const sink = new FakeSink()
@@ -102,6 +105,8 @@ function setup(
     mediaFolder: () => null,
     analysisRunning: () => overrides.analysing ?? false,
     mediaNames: (hashes) => hashes.map((hash) => (hash === 'ab12' ? 'drums.wav' : hash)),
+    helperExport: () => overrides.helper ?? null,
+    projectId: () => '01J0000000000000000000000A',
   }
   const deps: ExportDeps = {
     pick: vi.fn(async () => overrides.pick ?? ({ status: 'chosen', sink } as SinkChoice)),
@@ -133,6 +138,28 @@ const done = (over: Partial<Extract<FromExport, { type: 'done' }>> = {}): FromEx
   missing: [],
   ...over,
 })
+/** The helper's export as the dispatcher hands it over (#319): what the page sent, and the helper's answers. */
+class FakeHelper implements HelperExportPort {
+  started: HelperExportStart[] = []
+  cancelled: number[] = []
+  listener: ((message: HelperExportMessage | null) => void) | null = null
+  start(start: HelperExportStart) {
+    this.started.push(start)
+  }
+  cancel(id: number) {
+    this.cancelled.push(id)
+  }
+  listen(listener: (message: HelperExportMessage | null) => void) {
+    this.listener = listener
+    return () => {
+      if (this.listener === listener) this.listener = null
+    }
+  }
+  say(message: HelperExportMessage | null) {
+    this.listener?.(message)
+  }
+}
+
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 describe('the export dialog', () => {
@@ -592,5 +619,125 @@ describe('an export', () => {
     exporter.show()
     expect(exporter.phase).toBe('options')
     expect(exporter.result).toBeNull()
+  })
+})
+
+describe('the export in Boost, written by the helper (#319)', () => {
+  const doneBy = (id: number, over: Partial<Extract<HelperExportMessage, { type: 'export.done' }>> = {}): HelperExportMessage => ({
+    type: 'export.done',
+    id,
+    path: 'exports/My- song-.wav',
+    bytes: 720_044,
+    written: 240_000,
+    peak: 0.5,
+    clipped: 0,
+    reduction: 0,
+    silenced: 0,
+    tail_cut: false,
+    missing: ['ab12'],
+    ...over,
+  })
+
+  it('sends the job to the helper, opens no file dialog and shows where the helper saved the file', async () => {
+    const helper = new FakeHelper()
+    const { exporter, deps, worker } = setup({ helper })
+    exporter.show()
+    expect(exporter.inFolder).toBe(true)
+    exporter.start()
+    await flush()
+    expect(deps.pick).not.toHaveBeenCalled()
+    expect(worker.started).toBeNull()
+    expect(exporter.phase).toBe('rendering')
+    expect(helper.started).toHaveLength(1)
+    const sent = helper.started[0]!
+    expect(sent).toMatchObject({ project: '01J0000000000000000000000A', name: 'My- song-', sample_rate: 48_000, bits: 24, body_frames: 192_000 })
+    // The job's own bytes, in standard base64.
+    expect([...Uint8Array.from(atob(sent.setup), (c) => c.charCodeAt(0))]).toEqual([1, 2, 3])
+    expect(atob(sent.start).charCodeAt(0)).toBe(5)
+    expect(atob(sent.stop).charCodeAt(0)).toBe(4)
+    helper.say({ type: 'export.progress', id: sent.id, rendered: 96_000, body: 192_000, tail: false })
+    expect(exporter.fraction).toBe(0.5)
+    helper.say({ type: 'export.progress', id: sent.id, rendered: 192_000, body: 192_000, tail: true })
+    expect(exporter.tail).toBe(true)
+    helper.say(doneBy(sent.id))
+    expect(exporter.phase).toBe('done')
+    expect(exporter.result).toMatchObject({ name: 'exports/My- song-.wav', kind: 'folder', bytes: 720_044, seconds: 5, missing: ['drums.wav'] })
+    expect(helper.listener).toBeNull()
+    expect(helper.cancelled).toEqual([])
+  })
+
+  it("cancels the helper's export and ignores what it still says", async () => {
+    const helper = new FakeHelper()
+    const { exporter } = setup({ helper })
+    exporter.show()
+    exporter.start()
+    await flush()
+    const id = helper.started[0]!.id
+    exporter.cancel()
+    expect(helper.cancelled).toEqual([id])
+    expect(exporter.phase).toBe('options')
+    // A late answer of the cancelled run changes nothing, and neither does the session's end.
+    helper.say(doneBy(id))
+    helper.say(null)
+    expect(exporter.phase).toBe('options')
+    expect(exporter.result).toBeNull()
+    // The next run has its own number; an answer of the old one is not taken for it.
+    exporter.start()
+    await flush()
+    const next = helper.started[1]!.id
+    expect(next).not.toBe(id)
+    helper.say(doneBy(id))
+    expect(exporter.phase).toBe('rendering')
+    helper.say(doneBy(next))
+    expect(exporter.phase).toBe('done')
+  })
+
+  it('fails when the helper session ends or the helper refuses, with the matching message', async () => {
+    const cases: [HelperExportMessage | null, string][] = [
+      [null, 'export.helperLost'],
+      [{ type: 'export.failed', id: 0, code: 'export.folder_changed', message: '' }, 'export.folderChanged'],
+      [{ type: 'export.failed', id: 0, code: 'export.no_folder', message: '' }, 'export.folderChanged'],
+      [{ type: 'export.failed', id: 0, code: 'export.write', message: 'path.io' }, 'export.writeFailed'],
+      [{ type: 'export.failed', id: 0, code: 'export.busy', message: '' }, 'export.helperBusy'],
+      [{ type: 'export.failed', id: 0, code: 'export.render', message: '' }, 'export.failed'],
+      [{ type: 'export.failed', id: 0, code: 'export.invalid', message: '' }, 'export.failed'],
+    ]
+    vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    for (const [message, key] of cases) {
+      const helper = new FakeHelper()
+      const { exporter } = setup({ helper })
+      exporter.show()
+      exporter.start()
+      await flush()
+      const id = helper.started[0]!.id
+      helper.say(message ? { ...message, id } : null)
+      expect(exporter.phase).toBe('failed')
+      expect(exporter.error).toBe(key)
+      // An end it said itself is not cancelled again.
+      expect(helper.cancelled).toEqual([])
+      expect(helper.listener).toBeNull()
+    }
+  })
+
+  it('renders in the page, with the file dialog, when the helper holds no folder or the job is too big to send', async () => {
+    const { exporter, deps, worker } = setup({ helper: null })
+    exporter.show()
+    expect(exporter.inFolder).toBe(false)
+    exporter.start()
+    await flush()
+    await flush()
+    expect(deps.pick).toHaveBeenCalled()
+    expect(worker.started).not.toBeNull()
+
+    const helper = new FakeHelper()
+    const big = ready()
+    if (big.status === 'ready') big.setup = new Uint8Array(MAX_EXPORT_STREAM_BYTES + 1)
+    const page = setup({ helper, job: big })
+    page.exporter.show()
+    page.exporter.start()
+    await flush()
+    await flush()
+    expect(helper.started).toEqual([])
+    expect(page.deps.pick).toHaveBeenCalled()
   })
 })

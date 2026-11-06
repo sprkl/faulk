@@ -141,6 +141,8 @@ pub struct Shared {
     picker: Arc<dyn FolderPicker>,
     /// One folder dialog at a time.
     dialog: Arc<DialogGate>,
+    /// The export under way (#319): one at a time.
+    export: Mutex<Option<RunningExport>>,
     /// The language of the dialog's title.
     lang: crate::tray_text::Lang,
 }
@@ -273,6 +275,7 @@ impl Shared {
             remembered: Mutex::new(Remembered::default()),
             picker: Arc::new(NoPicker),
             dialog: Arc::new(DialogGate::default()),
+            export: Mutex::new(None),
             lang: crate::tray_text::Lang::En,
         }
     }
@@ -586,6 +589,7 @@ impl Shared {
             capabilities: Capabilities {
                 midi: self.midi_available,
                 disk: true,
+                export: true,
             },
         };
         Some((hello, generation))
@@ -691,6 +695,34 @@ impl Shared {
                 Err(error) => vec![error],
             },
             Ok(ClientMessage::FolderClose) => self.folder_close(id).into_iter().collect(),
+            Ok(ClientMessage::ExportStart {
+                id: run,
+                project,
+                name,
+                sample_rate,
+                bits,
+                body_frames,
+                setup,
+                start,
+                stop,
+            }) => {
+                let fields = crate::export::StartFields {
+                    id: run,
+                    project: &project,
+                    name: &name,
+                    sample_rate,
+                    bits,
+                    body_frames,
+                    setup: &setup,
+                    start: &start,
+                    stop: &stop,
+                };
+                self.export_start(id, fields).into_iter().collect()
+            }
+            Ok(ClientMessage::ExportCancel { id: run }) => {
+                self.export_cancel(id, run);
+                Vec::new()
+            }
             Ok(ClientMessage::Pair { .. } | ClientMessage::ControlFront) | Err(_) => {
                 vec![ServerMessage::Error {
                     code: "protocol.invalid".into(),
@@ -903,6 +935,169 @@ impl Shared {
             *link = None;
             self.open_folder.set(None);
         }
+    }
+}
+
+/// The export under way (#319): the session that asked for it, its number, its cancel flag.
+struct RunningExport {
+    session: u64,
+    id: u32,
+    cancel: Arc<AtomicBool>,
+}
+
+impl Shared {
+    /// Sends `message` to session `id` while it is the current one.
+    fn to_session_id(&self, id: u64, message: ServerMessage) {
+        if let Ok(session) = self.session.lock()
+            && let Some(s) = session.as_ref().filter(|s| s.id == id)
+        {
+            let _ = s.tx.send(Out::Msg(message));
+        }
+    }
+
+    /// `export.start` of session `id` (#319): checked, then rendered and written on a thread of
+    /// its own, in the folder the session has open for the export's project (`crate::export`).
+    /// The answer: `export.failed` at once for a refused one, else `export.progress` and one
+    /// `export.done` or `export.failed` from the thread. Nothing for a session that is not the
+    /// current one.
+    fn export_start(
+        self: &Arc<Self>,
+        id: u64,
+        fields: crate::export::StartFields<'_>,
+    ) -> Option<ServerMessage> {
+        let run = fields.id;
+        let failed = |failure: crate::export::ExportFailure| ServerMessage::ExportFailed {
+            id: run,
+            code: failure.code.into(),
+            message: failure.message,
+        };
+        // The session and its place: under the session lock, then the link's, as everywhere.
+        let session = self.session.lock().expect("session lock");
+        if !session.as_ref().is_some_and(|s| s.id == id) {
+            return None;
+        }
+        let request = match crate::export::parse(fields) {
+            Ok(request) => request,
+            Err(failure) => return Some(failed(failure)),
+        };
+        let place = self
+            .link
+            .lock()
+            .expect("link lock")
+            .as_ref()
+            .is_some_and(|l| l.session == id && l.project == request.project);
+        let (_, folder) = self.open_folder.get();
+        let Some(folder) = folder.filter(|f| place && f.project() == request.project) else {
+            return Some(failed(crate::export::ExportFailure {
+                code: protocol::errors::EXPORT_NO_FOLDER,
+                message: "the helper has no folder open for this project".into(),
+            }));
+        };
+        let cancel = Arc::new(AtomicBool::new(false));
+        {
+            let mut running = self.export.lock().expect("export lock");
+            if running.is_some() {
+                return Some(failed(crate::export::ExportFailure {
+                    code: protocol::errors::EXPORT_BUSY,
+                    message: "an export runs already".into(),
+                }));
+            }
+            *running = Some(RunningExport {
+                session: id,
+                id: run,
+                cancel: cancel.clone(),
+            });
+        }
+        drop(session);
+        let shared = self.clone();
+        let spawned = std::thread::Builder::new()
+            .name("faulk-export".into())
+            .spawn(move || {
+                crate::export::lower_priority();
+                let watch = crate::export::RunWatch {
+                    cancel: &cancel,
+                    open: &shared.open_folder,
+                    folder: &folder,
+                };
+                let every = Duration::from_millis(protocol::EXPORT_PROGRESS_MS);
+                let outcome = crate::export::run(&request, &folder, &watch, every, |p| {
+                    shared.to_session_id(
+                        id,
+                        ServerMessage::ExportProgress {
+                            id: run,
+                            rendered: p.rendered,
+                            body: p.body,
+                            tail: p.tail,
+                        },
+                    );
+                });
+                // The slot is free before the end is told: the page may start the next at once.
+                if let Ok(mut running) = shared.export.lock()
+                    && running
+                        .as_ref()
+                        .is_some_and(|r| r.session == id && r.id == run)
+                {
+                    *running = None;
+                }
+                let message = match outcome {
+                    Ok(done) => ServerMessage::ExportDone {
+                        id: run,
+                        path: done.path,
+                        bytes: done.bytes,
+                        written: done.written,
+                        peak: done.peak,
+                        clipped: done.clipped,
+                        reduction: done.reduction,
+                        silenced: done.silenced,
+                        tail_cut: done.tail_cut,
+                        missing: done.missing,
+                    },
+                    Err(failure) => {
+                        crate::log!(
+                            "export {run} ended without a file: {} ({})",
+                            failure.code,
+                            failure.message
+                        );
+                        ServerMessage::ExportFailed {
+                            id: run,
+                            code: failure.code.into(),
+                            message: failure.message,
+                        }
+                    }
+                };
+                shared.to_session_id(id, message);
+            });
+        if spawned.is_err() {
+            self.export.lock().expect("export lock").take();
+            return Some(failed(crate::export::ExportFailure {
+                code: protocol::errors::EXPORT_RENDER,
+                message: "the export's thread did not start".into(),
+            }));
+        }
+        None
+    }
+
+    /// `export.cancel` of session `id`: its export `run` stops (it answers `export.cancelled`).
+    fn export_cancel(&self, id: u64, run: u32) {
+        if let Ok(running) = self.export.lock()
+            && let Some(r) = running.as_ref().filter(|r| r.session == id && r.id == run)
+        {
+            r.cancel.store(true, Ordering::Release);
+        }
+    }
+
+    /// Session `id` ended or was replaced: its export stops.
+    fn export_cancel_all(&self, id: u64) {
+        if let Ok(running) = self.export.lock()
+            && let Some(r) = running.as_ref().filter(|r| r.session == id)
+        {
+            r.cancel.store(true, Ordering::Release);
+        }
+    }
+
+    /// Whether an export runs now.
+    pub fn export_running(&self) -> bool {
+        self.export.lock().is_ok_and(|r| r.is_some())
     }
 }
 
@@ -1214,6 +1409,8 @@ async fn session(mut ws: Ws, shared: &Arc<Shared>) {
             shared.drop_calls(previous.id);
             // Its project's folder closes with it: the next page names its own (AU-7).
             shared.end_link(previous.id);
+            // Its export stops: nothing is written for a page that is gone (#319).
+            shared.export_cancel_all(previous.id);
         }
         *current = Some(Session {
             id,
@@ -1300,6 +1497,7 @@ async fn session(mut ws: Ws, shared: &Arc<Shared>) {
         shared.drop_calls(id);
         // The page and its project are gone: so is its folder (AU-7).
         shared.end_link(id);
+        shared.export_cancel_all(id);
         if let Ok(mut midi) = shared.midi.lock() {
             midi.disconnect();
         }

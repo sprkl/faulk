@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 43;
+pub const PROTOCOL_VERSION: u32 = 48;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -43,6 +43,12 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 48 (#319; 44 to 47 are given to other tasks): the audio export in Boost. The session
+// gains `export.start` and `export.cancel` (page → helper) and `export.progress`, `export.done`
+// and `export.failed` (helper → page); `hello`'s capabilities gain `export`. The helper renders
+// the page's export job and writes the file into the project's folder (`exports/`); the schema
+// bundle gains `max_export_stream_bytes`, `export_name` and `export_error_codes`.
 
 // Version 43 (#116, AU-7): the helper reads the audio files of the project's folder. The session gains
 // `folder.open`, `folder.choose` and `folder.close` (page → helper) and `folder.state` (helper → page);
@@ -188,7 +194,45 @@ pub mod errors {
     /// The audio output failed and its engine is gone: the page plays itself again. Before
     /// `hello`, the page takes it as [`NO_OUTPUT`].
     pub const AUDIO_STREAM: &str = "audio.stream";
+    /// `export.failed` (#319): an export runs already (one at a time).
+    pub const EXPORT_BUSY: &str = "export.busy";
+    /// `export.failed`: the helper has no folder open for the export's project.
+    pub const EXPORT_NO_FOLDER: &str = "export.no_folder";
+    /// `export.failed`: the request is not one the helper renders (name, format, rate, length,
+    /// streams).
+    pub const EXPORT_INVALID: &str = "export.invalid";
+    /// `export.failed`: the engine refused the streams or the render failed.
+    pub const EXPORT_RENDER: &str = "export.render";
+    /// `export.failed`: the disk refused the file (`message` holds the path error's code).
+    pub const EXPORT_WRITE: &str = "export.write";
+    /// `export.failed`: the project's folder changed during the export (another place named, the
+    /// folder closed, moved or replaced on disk).
+    pub const EXPORT_FOLDER_CHANGED: &str = "export.folder_changed";
+    /// `export.failed`: the page cancelled it, or its session ended.
+    pub const EXPORT_CANCELLED: &str = "export.cancelled";
 }
+
+/// The shortest time between two `export.progress` of one export, in milliseconds.
+pub const EXPORT_PROGRESS_MS: u64 = 100;
+
+/// The longest file name of an `export.start` (#319), in UTF-8 bytes, before `.wav`: the page
+/// cuts its names to it, the helper refuses a longer one.
+pub const EXPORT_NAME_MAX_BYTES: usize = 120;
+
+/// The Windows device names (#319, AU-7): a file of that name, with any extension, is the device
+/// in every folder. The helper refuses them as a path's component; the page changes an export
+/// name that is one.
+pub const WINDOWS_DEVICE_NAMES: &[&str] = &[
+    "con", "prn", "aux", "nul", "conin$", "conout$", "com1", "com2", "com3", "com4", "com5",
+    "com6", "com7", "com8", "com9", "com0", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7",
+    "lpt8", "lpt9", "lpt0", "com¹", "com²", "com³", "lpt¹", "lpt²", "lpt³",
+];
+
+/// The most bytes the three streams of an `export.start` may hold together, before base64
+/// (#319). The page renders a larger job in its own export Worker (the browser's file dialog),
+/// as in Web mode: the streams travel as base64 in one JSON message, encoded on the page's main
+/// thread and parsed on the session's reader, which also carries the live engine streams.
+pub const MAX_EXPORT_STREAM_BYTES: usize = 64 << 20;
 
 /// Name the helper announces in its probe answer.
 pub const HELPER_NAME: &str = "faulk-helper";
@@ -276,6 +320,30 @@ pub enum ClientMessage {
     /// its folder (its audio clips go offline). Only on a session.
     #[serde(rename = "folder.close")]
     FolderClose,
+    /// Render the page's export job and write the file into the project's folder (#319): the
+    /// helper renders the three streams of `commands::export::job` (`setup`, `start`, `stop`, each
+    /// in standard base64) with `engine::offline`, as the page's export Worker does, and writes
+    /// the WAV file as `exports/<name>.wav` in the folder it has open for `project` (AU-7's
+    /// confined write; an existing file is kept and the first free `<name> (2).wav`... is taken).
+    /// `id` is the page's number for this run: every answer carries it (`export.progress`, then
+    /// one `export.done` or `export.failed`). One export at a time. Only on a session.
+    #[serde(rename = "export.start")]
+    ExportStart {
+        id: u32,
+        project: String,
+        name: String,
+        sample_rate: u32,
+        /// 16, 24 or 32 (float).
+        bits: u32,
+        body_frames: u64,
+        setup: String,
+        start: String,
+        stop: String,
+    },
+    /// Stop the export `id`: nothing is written (answered `export.failed` `export.cancelled`).
+    /// Only on a session.
+    #[serde(rename = "export.cancel")]
+    ExportCancel { id: u32 },
 }
 
 /// What running an agent's command in the page did (`agent.result`).
@@ -307,6 +375,9 @@ pub struct Capabilities {
     /// The helper reads the audio files of the project's folder for its engine (AU-7): it takes
     /// `folder.open`, `folder.choose` and `folder.close`.
     pub disk: bool,
+    /// The helper renders an export and writes it into the project's folder (#319): it takes
+    /// `export.start` and `export.cancel`.
+    pub export: bool,
 }
 
 /// Where the helper's folder of the page's project stands (`folder.state`, AU-7).
@@ -461,6 +532,40 @@ pub enum ServerMessage {
         project: Option<String>,
         state: FolderStatus,
     },
+    /// How far the export `id` is (#319), at most every [`EXPORT_PROGRESS_MS`]: frames of the
+    /// content rendered, of `body`, and whether the content is done and the effects ring out.
+    #[serde(rename = "export.progress")]
+    ExportProgress {
+        id: u32,
+        rendered: u64,
+        body: u64,
+        tail: bool,
+    },
+    /// The export `id` is written (#319): `path` is the file's path in the project's folder
+    /// (`/` separated, `exports/<name>.wav` or the free name taken), `bytes` its size, `written`
+    /// its frames; the figures are `engine::offline::Offline`'s, as the page's Worker reports
+    /// them; `missing` the media (hex SHA-256) whose file could not be read (silent clips).
+    #[serde(rename = "export.done")]
+    ExportDone {
+        id: u32,
+        path: String,
+        bytes: u64,
+        written: u64,
+        peak: f32,
+        clipped: u64,
+        reduction: f32,
+        silenced: u64,
+        tail_cut: bool,
+        missing: Vec<String>,
+    },
+    /// The export `id` ended without a file (#319): `code` is one of [`errors`]' `EXPORT_*`,
+    /// `message` is for developers. Nothing is left in the folder, not even a temporary file.
+    #[serde(rename = "export.failed")]
+    ExportFailed {
+        id: u32,
+        code: String,
+        message: String,
+    },
     /// The helper could not do something; `code` is stable, `message` is for developers.
     #[serde(rename = "error")]
     Error { code: String, message: String },
@@ -516,6 +621,20 @@ pub fn schema_bundle() -> serde_json::Value {
         "protocol_version": PROTOCOL_VERSION,
         "param_ids": param_ids,
         "error_codes": { "no_output": errors::NO_OUTPUT, "audio_stream": errors::AUDIO_STREAM },
+        "max_export_stream_bytes": MAX_EXPORT_STREAM_BYTES,
+        "export_name": {
+            "max_bytes": EXPORT_NAME_MAX_BYTES,
+            "devices": WINDOWS_DEVICE_NAMES,
+        },
+        "export_error_codes": {
+            "busy": errors::EXPORT_BUSY,
+            "no_folder": errors::EXPORT_NO_FOLDER,
+            "invalid": errors::EXPORT_INVALID,
+            "render": errors::EXPORT_RENDER,
+            "write": errors::EXPORT_WRITE,
+            "folder_changed": errors::EXPORT_FOLDER_CHANGED,
+            "cancelled": errors::EXPORT_CANCELLED,
+        },
         "max_stream_bytes": MAX_STREAM_BYTES,
         "control_pushed_out": CONTROL_PUSHED_OUT,
         "agent_confirm_ms": AGENT_CONFIRM_MS,

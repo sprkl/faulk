@@ -1,4 +1,4 @@
-import type { Engine, EngineEvents } from '../engine/engine'
+import type { Engine, EngineEvents, HelperExportMessage } from '../engine/engine'
 import { probeHelper, pairHelper } from '../engine/helper-client'
 import { peakOf } from '../engine/feedback'
 import { LoadMeter, sameLoad } from '../engine/load'
@@ -131,6 +131,8 @@ export class Dispatcher {
   private engineStarts = 0
   private web: WebEngine | null = null
   private native: NativeEngine | null = null
+  /** Who listens to the helper's export messages (the export dialog, #319): told `null` when the session ends. */
+  private exportListener: ((message: HelperExportMessage | null) => void) | null = null
   private midi: WebMidiHost | null = null
 
   constructor(
@@ -213,6 +215,11 @@ export class Dispatcher {
         if (project !== null && project !== (this.project.view?.project.id ?? null)) return
         this.state.helperFolder = { project, state }
       },
+      onExport: (message) => {
+        // The helper's export messages go to the export of the session the page plays (#319).
+        if (kind !== 'native' || !current()) return
+        this.exportListener?.(message)
+      },
       onStreamRefused: (code, at, epoch) => {
         if (!current()) return
         if (kind === 'native') this.resyncNative(code, epoch)
@@ -242,6 +249,7 @@ export class Dispatcher {
       onClosed: () => {
         if (kind !== 'native' || !current()) return
         this.native = null
+        this.helperExportLost()
         this.linkLost()
         this.state.mode = 'web'
         if (this.state.notice !== 'helper.replaced') this.state.notice = 'helper.lost'
@@ -469,6 +477,13 @@ export class Dispatcher {
     return { project, nonce: this.helperLink!.nonce, name: this.helperLink!.name }
   }
 
+  /** The Boost session ended: the helper's export it carried ends with it (#319). */
+  private helperExportLost() {
+    const listener = this.exportListener
+    this.exportListener = null
+    listener?.(null)
+  }
+
   /**
    * Tells the helper session where the project lives now (`folder.open` or `folder.close`, AU-7). A marker
    * the folder refused closes the helper's folder too (it never keeps reading a folder the page left), is
@@ -555,6 +570,24 @@ export class Dispatcher {
     folder: async () => (await this.storage?.folderHandle()) ?? null,
     mediaFolder: () => this.folder,
     analysisRunning: () => this.analyzer?.busy ?? false,
+    helperExport: () => {
+      // Boost, a helper that exports, and the project's folder open in it (AU-7): the helper writes the file (#319).
+      const native = this.native
+      const folder = this.state.helperFolder
+      const project = this.project.view?.project.id ?? null
+      if (!native || !native.capabilities?.export || !folder || folder.state.status !== 'open' || folder.project !== project) return null
+      return {
+        start: (start) => native.exportStart(start),
+        cancel: (id) => native.exportCancel(id),
+        listen: (listener) => {
+          this.exportListener = listener
+          return () => {
+            if (this.exportListener === listener) this.exportListener = null
+          }
+        },
+      }
+    },
+    projectId: () => this.project.view?.project.id ?? '',
     mediaNames: (hashes) => {
       const names = new Map<string, string>()
       for (const track of Object.values(this.project.view?.project.tracks ?? {}))
@@ -1632,6 +1665,7 @@ export class Dispatcher {
     const native = this.native
     const web = this.web
     this.native = null
+    this.helperExportLost()
     this.linkLost()
     this.boostSince = null
     this.state.mode = 'web'

@@ -79,6 +79,9 @@ pub enum PathError {
     Trailing,
     /// A Windows device name (`CON`, `NUL`, `COM1`...), with or without an extension.
     Device,
+    /// A file name holding a character a name cannot hold (`/`, or one Windows refuses:
+    /// `<>"|?*`): an export's name ([`export_path`]).
+    Forbidden,
     /// A path of the project's own files or of the folder's own data (`project.json`, `tracks/`,
     /// `master/`, `presets/`, `blobs/`, `.faulk/`, `.git*`): the page's, never written by the
     /// helper through a path.
@@ -107,6 +110,7 @@ impl PathError {
             Self::Control => "path.control",
             Self::Trailing => "path.trailing",
             Self::Device => "path.device",
+            Self::Forbidden => "path.forbidden",
             Self::Reserved => "path.reserved",
             Self::Escapes => "path.escapes",
             Self::FolderChanged => "path.folder_changed",
@@ -121,11 +125,7 @@ fn io(error: std::io::Error) -> PathError {
 }
 
 /// Windows device names: a file of that name (any extension) is the device, in any folder.
-const DEVICES: &[&str] = &[
-    "con", "prn", "aux", "nul", "conin$", "conout$", "com1", "com2", "com3", "com4", "com5",
-    "com6", "com7", "com8", "com9", "com0", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7",
-    "lpt8", "lpt9", "lpt0", "com¹", "com²", "com³", "lpt¹", "lpt²", "lpt³",
-];
+const DEVICES: &[&str] = protocol::WINDOWS_DEVICE_NAMES;
 
 /// The first components the helper never writes through a path (compared without case: the
 /// folder may be on a case-insensitive disk).
@@ -496,6 +496,20 @@ impl ProjectFolder {
         bytes: &[u8],
         before_commit: impl FnOnce(),
     ) -> Result<(), PathError> {
+        let mut pending = self.begin(path)?;
+        pending.write(bytes)?;
+        pending.finish()?;
+        before_commit();
+        pending.commit(Collision::Replace).map(|_| ())
+    }
+
+    /// Begins a confined write of the file at `path` (relative, `/` separated) in a stream (the
+    /// export of #319): every check of [`write`](Self::write) is made now, before anything is
+    /// made but `.faulk/tmp/` and the target's parent, then a new temporary file of `.faulk/tmp/`
+    /// takes the bytes ([`PendingWrite::write`]) until [`PendingWrite::commit`] moves it over the
+    /// target. A pending write dropped before its commit (cancelled, failed) removes its
+    /// temporary file: the target is as it was.
+    pub fn begin(&self, path: &str) -> Result<PendingWrite<'_>, PathError> {
         let parts = check_relative(path)?;
         if reserved(&parts) {
             return Err(PathError::Reserved);
@@ -533,32 +547,212 @@ impl ProjectFolder {
             return Err(PathError::IsDirectory);
         }
         let tmp = tmp_dir.join(format!("helper-{}.tmp", crate::security::random_hex(8)));
-        let result = (|| {
-            let mut file = fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&tmp)
-                .map_err(io)?;
-            file.write_all(bytes).map_err(io)?;
-            file.sync_all().map_err(io)?;
-            drop(file);
-            before_commit();
-            self.still_the_same()?;
-            // The parent again: a link made in its place since is seen.
-            let parent_now = canonical(&parent).map_err(|_| PathError::FolderChanged)?;
-            if parent_now != parent || !parent_now.starts_with(&self.root) {
-                return Err(PathError::FolderChanged);
-            }
-            if fs::symlink_metadata(&target).is_ok_and(|m| m.is_dir()) {
-                return Err(PathError::IsDirectory);
-            }
-            fs::rename(&tmp, &target).map_err(io)
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(&tmp);
-        }
-        result
+        let file = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&tmp)
+            .map_err(io)?;
+        Ok(PendingWrite {
+            folder: self,
+            file: Some(file),
+            tmp,
+            parent,
+            dirs: dirs.iter().map(|d| (*d).to_owned()).collect(),
+            name: (*name).to_owned(),
+            committed: false,
+        })
     }
+}
+
+/// What a commit does when a file is already at the target.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Collision {
+    /// The file is replaced (atomically: the move).
+    Replace,
+    /// The file is kept: the first free `<stem> (2).<ext>` … `<stem> (999).<ext>` is taken
+    /// instead, and [`PathError::Io`] past it.
+    Unique,
+}
+
+/// The most names [`Collision::Unique`] tries.
+pub const MAX_UNIQUE: u32 = 999;
+
+/// A confined write under way ([`ProjectFolder::begin`]): its temporary file in `.faulk/tmp/`.
+/// Dropped before [`commit`](Self::commit), it removes that file.
+#[derive(Debug)]
+pub struct PendingWrite<'a> {
+    folder: &'a ProjectFolder,
+    file: Option<File>,
+    tmp: PathBuf,
+    /// The target's canonical parent, as checked at the start.
+    parent: PathBuf,
+    /// The target's directories and name, as the caller gave them.
+    dirs: Vec<String>,
+    name: String,
+    /// Moved over the target: nothing left to remove.
+    committed: bool,
+}
+
+impl PendingWrite<'_> {
+    fn file(&mut self) -> Result<&mut File, PathError> {
+        self.file
+            .as_mut()
+            .ok_or_else(|| PathError::Io("the file is closed".into()))
+    }
+
+    /// Appends `bytes` to the temporary file.
+    pub fn write(&mut self, bytes: &[u8]) -> Result<(), PathError> {
+        self.file()?.write_all(bytes).map_err(io)
+    }
+
+    /// Writes `bytes` over the start of the temporary file (a header known only at the end),
+    /// then goes back to its end.
+    pub fn write_at_start(&mut self, bytes: &[u8]) -> Result<(), PathError> {
+        let file = self.file()?;
+        file.seek(SeekFrom::Start(0)).map_err(io)?;
+        file.write_all(bytes).map_err(io)?;
+        file.seek(SeekFrom::End(0)).map_err(io)?;
+        Ok(())
+    }
+
+    /// Flushes the temporary file to the disk and closes it: nothing more can be written. A
+    /// commit does it first when it was not done.
+    pub fn finish(&mut self) -> Result<(), PathError> {
+        if let Some(mut file) = self.file.take() {
+            file.flush().map_err(io)?;
+            file.sync_all().map_err(io)?;
+        }
+        Ok(())
+    }
+
+    /// Flushes the temporary file to the disk and moves it over the target, once the folder is
+    /// checked again (the same canonical root holding the same project, and the same parent: a
+    /// link made in its place since is seen). Returns the target's path relative to the folder,
+    /// `/` separated, as written (with [`Collision::Unique`], the name taken). On a failure the
+    /// temporary file is removed and the target is as it was.
+    pub fn commit(mut self, collision: Collision) -> Result<String, PathError> {
+        self.finish()?;
+        self.folder.still_the_same()?;
+        let parent_now = canonical(&self.parent).map_err(|_| PathError::FolderChanged)?;
+        if parent_now != self.parent || !parent_now.starts_with(&self.folder.root) {
+            return Err(PathError::FolderChanged);
+        }
+        let name = match collision {
+            Collision::Replace => {
+                let target = self.parent.join(&self.name);
+                if fs::symlink_metadata(&target).is_ok_and(|m| m.is_dir()) {
+                    return Err(PathError::IsDirectory);
+                }
+                fs::rename(&self.tmp, &target).map_err(io)?;
+                self.name.clone()
+            }
+            Collision::Unique => self.move_to_free_name()?,
+        };
+        self.committed = true;
+        let mut relative = self.dirs.join("/");
+        if !relative.is_empty() {
+            relative.push('/');
+        }
+        relative.push_str(&name);
+        Ok(relative)
+    }
+
+    /// Moves the temporary file to the first name of the target's parent that holds nothing (no
+    /// file, no link, no folder): the name itself, then `<stem> (2).<ext>` and on. Each move
+    /// refuses to replace what is there ([`move_no_replace`]), so a file that appears meanwhile
+    /// is kept and the next name is tried.
+    fn move_to_free_name(&self) -> Result<String, PathError> {
+        let (stem, ext) = match self.name.rfind('.') {
+            Some(at) if at > 0 => (&self.name[..at], &self.name[at..]),
+            _ => (self.name.as_str(), ""),
+        };
+        for n in 1..=MAX_UNIQUE {
+            let candidate = if n == 1 {
+                self.name.clone()
+            } else {
+                format!("{stem} ({n}){ext}")
+            };
+            match move_no_replace(&self.tmp, &self.parent.join(&candidate)) {
+                Ok(()) => return Ok(candidate),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+                Err(e) => return Err(io(e)),
+            }
+        }
+        Err(PathError::Io(format!(
+            "{MAX_UNIQUE} files of that name exist already"
+        )))
+    }
+}
+
+/// Moves `from` to `to` unless something is at `to` already (an `AlreadyExists` error then):
+/// the move itself refuses, there is no window between a check and the move. Windows:
+/// `MoveFileExW` without `MOVEFILE_REPLACE_EXISTING`. Unix: a hard link (which never replaces),
+/// then the temporary name removed; on a disk without hard links (FAT, exFAT) a check then a
+/// `rename`, whose window only a local process with the user's rights can use (§ 5.13).
+#[cfg(windows)]
+pub fn move_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{MOVEFILE_WRITE_THROUGH, MoveFileExW};
+    let wide = |p: &Path| -> Vec<u16> { p.as_os_str().encode_wide().chain([0]).collect() };
+    let (from, to) = (wide(from), wide(to));
+    // SAFETY: both pointers are NUL-terminated UTF-16 strings that live until the call returns.
+    let ok = unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), MOVEFILE_WRITE_THROUGH) };
+    if ok == 0 {
+        Err(std::io::Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+/// See the Windows version.
+#[cfg(not(windows))]
+pub fn move_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    match fs::hard_link(from, to) {
+        Ok(()) => {
+            let _ = fs::remove_file(from);
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Err(e),
+        Err(_) => match fs::symlink_metadata(to) {
+            Ok(_) => Err(std::io::Error::from(std::io::ErrorKind::AlreadyExists)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => fs::rename(from, to),
+            Err(e) => Err(e),
+        },
+    }
+}
+
+impl Drop for PendingWrite<'_> {
+    fn drop(&mut self) {
+        // Not committed (cancelled, failed, or the move itself failed): the temporary file goes.
+        drop(self.file.take());
+        if !self.committed {
+            let _ = fs::remove_file(&self.tmp);
+        }
+    }
+}
+
+/// The longest file name of an export, in bytes, before `.wav`.
+pub const MAX_EXPORT_NAME: usize = protocol::EXPORT_NAME_MAX_BYTES;
+/// The folder of the project the helper's exports go to.
+pub const EXPORTS_DIR: &str = "exports";
+
+/// The path of the export named `stem` (the dialog's file name, without `.wav`), relative to
+/// the project's folder: `exports/<stem>.wav`. Refused (typed, before any disk access): a stem
+/// that is not one plain component (no `/`, `\`, `:`, `.`/`..`, control character, trailing dot
+/// or space, device name), that holds a character Windows refuses in a name (`<>"|?*`), or that is
+/// empty or longer than [`MAX_EXPORT_NAME`].
+pub fn export_path(stem: &str) -> Result<String, PathError> {
+    if stem.len() > MAX_EXPORT_NAME {
+        return Err(PathError::TooLong);
+    }
+    if stem.contains(['/', '<', '>', '"', '|', '?', '*']) {
+        return Err(PathError::Forbidden);
+    }
+    let path = format!("{EXPORTS_DIR}/{stem}.wav");
+    // The whole path through the write's own text check: `\`, `:`, controls, `..`, devices.
+    check_relative(&path)?;
+    check_component(stem)?;
+    Ok(path)
 }
 
 // ---------------------------------------------------------------- the open folder

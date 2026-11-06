@@ -956,3 +956,179 @@ fn a_project_file_that_is_a_link_leading_out_is_no_project() {
         OpenError::NoProject
     );
 }
+
+// ---------------------------------------------------------------- the export's write (#319)
+
+#[test]
+fn every_hostile_export_name_is_refused_by_its_typed_error_before_the_disk() {
+    let long = "a".repeat(MAX_EXPORT_NAME + 1);
+    let cases: &[(&str, PathError)] = &[
+        ("", PathError::Empty),
+        ("..", PathError::Dot),
+        (".", PathError::Dot),
+        ("../x", PathError::Forbidden),
+        ("a/b", PathError::Forbidden),
+        ("/abs", PathError::Forbidden),
+        (r"a\b", PathError::Backslash),
+        (r"..\..\x", PathError::Backslash),
+        ("C:x", PathError::Colon),
+        ("x:stream", PathError::Colon),
+        ("CON", PathError::Device),
+        ("nul.txt", PathError::Device),
+        ("com1", PathError::Device),
+        ("Song.", PathError::Trailing),
+        ("Song ", PathError::Trailing),
+        ("a*b", PathError::Forbidden),
+        ("a?b", PathError::Forbidden),
+        ("a<b", PathError::Forbidden),
+        ("a>b", PathError::Forbidden),
+        ("a|b", PathError::Forbidden),
+        ("a\"b", PathError::Forbidden),
+        ("a\u{0}b", PathError::Control),
+        ("a\nb", PathError::Control),
+        (long.as_str(), PathError::TooLong),
+    ];
+    for (name, error) in cases {
+        assert_eq!(export_path(name).unwrap_err(), *error, "{name:?}");
+    }
+    assert_eq!(export_path("Song").unwrap(), "exports/Song.wav");
+    assert_eq!(
+        export_path("Été — démo (v2)").unwrap(),
+        "exports/Été — démo (v2).wav"
+    );
+}
+
+#[test]
+fn a_pending_write_dropped_mid_write_leaves_no_file_and_no_temporary_file() {
+    let s = setup("pending-drop");
+    let mut pending = s.folder.begin("exports/Song.wav").unwrap();
+    pending.write(b"half a file").unwrap();
+    let tmp = s.root.join(".faulk").join("tmp");
+    assert_eq!(fs::read_dir(&tmp).unwrap().count(), 1, "the temporary file");
+    drop(pending);
+    assert_eq!(fs::read_dir(&tmp).unwrap().count(), 0);
+    assert!(!s.root.join("exports").join("Song.wav").exists());
+}
+
+#[test]
+fn a_stream_write_puts_the_header_at_the_start_and_lands_whole() {
+    let s = setup("pending-stream");
+    let mut pending = s.folder.begin("exports/Song.wav").unwrap();
+    pending.write(&[0; 4]).unwrap();
+    pending.write(b"body").unwrap();
+    pending.write_at_start(b"HEAD").unwrap();
+    pending.write(b"tail").unwrap();
+    assert_eq!(
+        pending.commit(Collision::Unique).unwrap(),
+        "exports/Song.wav"
+    );
+    assert_eq!(
+        fs::read(s.root.join("exports").join("Song.wav")).unwrap(),
+        b"HEADbodytail"
+    );
+    assert_eq!(
+        fs::read_dir(s.root.join(".faulk").join("tmp"))
+            .unwrap()
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn a_unique_commit_never_replaces_a_file_and_takes_the_next_free_name() {
+    let s = setup("unique");
+    let exports = s.root.join("exports");
+    fs::create_dir_all(&exports).unwrap();
+    fs::write(exports.join("Song.wav"), b"the user's").unwrap();
+    // A folder at the second name counts as taken too.
+    fs::create_dir_all(exports.join("Song (2).wav")).unwrap();
+    for expected in ["exports/Song (3).wav", "exports/Song (4).wav"] {
+        let mut pending = s.folder.begin("exports/Song.wav").unwrap();
+        pending.write(b"new").unwrap();
+        assert_eq!(pending.commit(Collision::Unique).unwrap(), expected);
+    }
+    assert_eq!(fs::read(exports.join("Song.wav")).unwrap(), b"the user's");
+    assert_eq!(fs::read(exports.join("Song (3).wav")).unwrap(), b"new");
+    assert_eq!(
+        fs::read_dir(s.root.join(".faulk").join("tmp"))
+            .unwrap()
+            .count(),
+        0
+    );
+}
+
+#[test]
+fn a_file_made_between_the_start_and_the_commit_is_kept() {
+    let s = setup("unique-race");
+    let mut pending = s.folder.begin("exports/Song.wav").unwrap();
+    pending.write(b"ours").unwrap();
+    // Another writer (a sync client) makes the file while the export renders.
+    fs::write(s.root.join("exports").join("Song.wav"), b"theirs").unwrap();
+    assert_eq!(
+        pending.commit(Collision::Unique).unwrap(),
+        "exports/Song (2).wav"
+    );
+    assert_eq!(
+        fs::read(s.root.join("exports").join("Song.wav")).unwrap(),
+        b"theirs"
+    );
+}
+
+#[test]
+fn the_no_replace_move_refuses_an_existing_target() {
+    let temp = Temp::new("noreplace");
+    let (from, to) = (temp.path().join("a"), temp.path().join("b"));
+    fs::write(&from, b"a").unwrap();
+    fs::write(&to, b"b").unwrap();
+    assert_eq!(
+        move_no_replace(&from, &to).unwrap_err().kind(),
+        std::io::ErrorKind::AlreadyExists
+    );
+    assert_eq!(fs::read(&to).unwrap(), b"b");
+    assert_eq!(fs::read(&from).unwrap(), b"a");
+    fs::remove_file(&to).unwrap();
+    move_no_replace(&from, &to).unwrap();
+    assert!(!from.exists());
+    assert_eq!(fs::read(&to).unwrap(), b"a");
+}
+
+#[test]
+fn a_folder_replaced_between_the_start_and_the_commit_of_a_stream_gets_nothing() {
+    let s = setup("pending-swap");
+    let parent = s.root.parent().unwrap().to_path_buf();
+    let moved = parent.join("Song-moved");
+    let mut pending = s.folder.begin("exports/Song.wav").unwrap();
+    pending.write(b"attack").unwrap();
+    // Closed (as at the end of a render: Windows moves no folder holding an open file), then
+    // the folder is swapped before the move.
+    pending.finish().unwrap();
+    fs::rename(&s.root, &moved).unwrap();
+    project_dir(&parent, "Song", OTHER);
+    assert_eq!(
+        pending.commit(Collision::Unique).unwrap_err(),
+        PathError::FolderChanged
+    );
+    assert!(!s.root.join("exports").join("Song.wav").exists());
+    assert!(!moved.join("exports").join("Song.wav").exists());
+}
+
+#[test]
+fn an_exports_folder_leading_out_or_to_the_blobs_is_refused_for_a_stream() {
+    let s = setup("exports-out");
+    dir_link(&s.outside, &s.root.join("exports"));
+    let before = s.snapshot();
+    assert_eq!(
+        s.folder.begin("exports/Song.wav").unwrap_err(),
+        PathError::Escapes
+    );
+    assert_eq!(s.snapshot(), before);
+    let s = setup("exports-blobs");
+    fs::create_dir_all(s.root.join("blobs")).unwrap();
+    dir_link(&s.root.join("blobs"), &s.root.join("exports"));
+    let before = s.snapshot();
+    assert_eq!(
+        s.folder.begin("exports/Song.wav").unwrap_err(),
+        PathError::Reserved
+    );
+    assert_eq!(s.snapshot(), before);
+}

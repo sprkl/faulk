@@ -50,6 +50,11 @@ export const audioExport = defineFeature(
       'This browser keeps the whole file in memory until the end, and this one is too big for that (more than 400 MB). Use Chrome or Edge, or choose fewer bars, 16 bits or 44.1 kHz.',
     'export.noAccess': 'The browser did not allow that file. Choose another place.',
     'export.writeFailed': 'The file could not be written. Nothing was saved.',
+    'export.inFolder': 'The helper saves the file in the project folder, in “exports”. A file of the same name is kept: the new one gets a number.',
+    'export.savedInFolder': 'Saved in the project folder: “{name}” ({size} MB, {duration}).',
+    'export.folderChanged': 'The project folder changed during the export. Nothing was saved. Export again.',
+    'export.helperBusy': 'The helper is already exporting. Wait for it to finish, then export again.',
+    'export.helperLost': 'The connection to the helper was lost during the export. Nothing was saved.',
   },
   {
     'project.menu.export': 'Exporter l’audio…',
@@ -98,5 +103,11 @@ export const audioExport = defineFeature(
       'Ce navigateur garde tout le fichier en mémoire jusqu’à la fin, et celui-ci est trop gros pour cela (plus de 400 Mo). Utilise Chrome ou Edge, ou choisis moins de mesures, le 16 bits ou 44,1 kHz.',
     'export.noAccess': 'Le navigateur n’a pas autorisé ce fichier. Choisis un autre endroit.',
     'export.writeFailed': 'Le fichier n’a pas pu être écrit. Rien n’a été enregistré.',
+    'export.inFolder':
+      'Le helper enregistre le fichier dans le dossier du projet, dans « exports ». Un fichier du même nom est gardé : le nouveau reçoit un numéro.',
+    'export.savedInFolder': 'Enregistré dans le dossier du projet : « {name} » ({size} Mo, {duration}).',
+    'export.folderChanged': 'Le dossier du projet a changé pendant l’export. Rien n’a été enregistré. Exporte à nouveau.',
+    'export.helperBusy': 'Le helper exporte déjà. Attends qu’il ait fini, puis exporte à nouveau.',
+    'export.helperLost': 'La connexion au helper a été perdue pendant l’export. Rien n’a été enregistré.',
   },
 )

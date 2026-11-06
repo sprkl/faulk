@@ -71,6 +71,8 @@ const sent = (tag: number, from = 0) => streams.slice(from).some((stream) => hea
 let hasOutput = true
 /** Whether the stand-in was shown the project's folder in its dialog (AU-7). */
 let folderKnown = false
+/** The setup streams of the `export.start`s the stand-in received, decoded from base64 (#319). */
+const exportSetups: Buffer[] = []
 
 test.beforeAll(async () => {
   server = new WebSocketServer({ host: HELPER_HOST, port: HELPER_PORT })
@@ -99,7 +101,7 @@ test.beforeAll(async () => {
         sample_rate: 48000,
         estimated_latency_ms: 5,
         epoch: HELLO_EPOCH,
-        capabilities: { midi: true, disk: true },
+        capabilities: { midi: true, disk: true, export: true },
       })
       send({ type: 'midi.inputs', inputs: [], selected: null })
       sessionSocket = ws
@@ -110,8 +112,33 @@ test.beforeAll(async () => {
           onStream?.(stream)
           return
         }
-        const message = JSON.parse(text(data)) as { type: string; project?: string; name?: string }
+        const message = JSON.parse(text(data)) as { type: string; project?: string; name?: string; id?: number; setup?: string; body_frames?: number }
         messages.push(message)
+        // The export (#319): the stand-in reads the job's setup stream as the helper decodes it, then answers.
+        if (message.type === 'export.start') {
+          const setup = Buffer.from(message.setup ?? '', 'base64')
+          exportSetups.push(setup)
+          const id = message.id ?? 0
+          const body = message.body_frames ?? 0
+          send({ type: 'export.progress', id, rendered: Math.floor(body / 2), body, tail: false })
+          setTimeout(
+            () =>
+              send({
+                type: 'export.done',
+                id,
+                path: `exports/${message.name}.wav`,
+                bytes: 44 + body * 6,
+                written: body,
+                peak: 0.5,
+                clipped: 0,
+                reduction: 0,
+                silenced: 0,
+                tail_cut: false,
+                missing: [],
+              }),
+            200,
+          )
+        }
         // The project's folder (AU-7): the stand-in knows none until the user shows it in its dialog.
         if (message.type === 'folder.open')
           send({ type: 'folder.state', project: message.project, state: folderKnown ? { status: 'open', name: message.name } : { status: 'unknown' } })
@@ -160,6 +187,7 @@ test.beforeEach(() => {
   onStream = null
   hasOutput = true
   folderKnown = false
+  exportSetups.length = 0
 })
 
 test('in Boost the page names its folder by a marker it writes there, never a path, and asks the user to show it to the helper (AU-7)', async ({ page }) => {
@@ -232,6 +260,66 @@ test('in Boost the page names its folder by a marker it writes there, never a pa
   await engineUp(page, 'Web')
   await expect.poll(tracksOf).toBe(before + 1)
   await expect(page.getByTestId('project-name')).toHaveText('Song')
+  expect(errors).toEqual([])
+})
+
+test('in Boost, with the folder open in the helper, the page hands the export job to the helper and opens no file dialog (#319)', async ({ page }) => {
+  const { errors } = watch(page)
+  folderKnown = true
+  await page.addInitScript(() => {
+    const w = window as unknown as {
+      __faulkNoBrowserStorage: boolean
+      __picks: number
+      showDirectoryPicker: () => Promise<FileSystemDirectoryHandle>
+      showSaveFilePicker: () => Promise<FileSystemFileHandle>
+    }
+    w.__faulkNoBrowserStorage = true
+    w.__picks = 0
+    w.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('helper-319', { create: true })
+    w.showSaveFilePicker = async () => {
+      w.__picks++
+      throw new DOMException('no', 'AbortError')
+    }
+  })
+  await page.goto('/app')
+  await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
+  await engineUp(page, 'Web')
+  await skipWithoutDevHooks(page)
+  await page.getByTestId('project-menu').click()
+  await page.getByTestId('menu-save-as').click()
+  await page.getByTestId('save-as-field').fill('Song')
+  await page.getByTestId('save-as-submit').click()
+  await expect(page.getByTestId('save-state')).toHaveText(/^Saved at/)
+  // A clip in the arrangement: something to export.
+  await page.evaluate(() => {
+    const w = window as unknown as { __faulkRun(c: object): boolean; __faulkView(): { project: { tracks: Record<string, { kind: string }> } } }
+    const track = Object.entries(w.__faulkView().project.tracks).find(([, t]) => t.kind === 'midi')![0]
+    w.__faulkRun({ type: 'clip.create', track, at: { at: 'arrangement', start: 0 }, length: 3840 })
+  })
+
+  await page.getByTestId('engine-mode').click()
+  await page.getByRole('textbox', { name: /code/i }).fill('1234 5678')
+  await page.getByRole('button', { name: 'Pair', exact: true }).click()
+  await engineUp(page, 'Boost')
+  await page.keyboard.press('Escape')
+  await expect.poll(() => messages.find((m) => (m as { type?: string }).type === 'folder.open')).toBeTruthy()
+
+  await page.getByTestId('project-menu').click()
+  await page.getByTestId('menu-export').click()
+  const dialog = page.getByTestId('export-dialog')
+  await expect(dialog.getByTestId('export-folder-note')).toBeVisible()
+  await dialog.getByTestId('export-start').click()
+  await expect(dialog).toHaveAttribute('data-phase', 'done')
+  await expect(dialog.getByTestId('export-status')).toContainText('Saved in the project folder: “exports/Song.wav”')
+  // No file dialog; the job went to the helper, and its setup stream is the page's engine stream (a `Reset` first).
+  expect(await page.evaluate(() => (window as unknown as { __picks: number }).__picks)).toBe(0)
+  const start = messages.find((m) => (m as { type?: string }).type === 'export.start') as Record<string, unknown>
+  const id = await page.evaluate(() => (window as unknown as { __faulkView(): { project: { id: string } } }).__faulkView().project.id)
+  expect(start).toMatchObject({ project: id, name: 'Song', sample_rate: 48000, bits: 24 })
+  expect(Number(start.body_frames)).toBe(96000)
+  expect(exportSetups).toHaveLength(1)
+  expect(headers(exportSetups[0]!)[0]).toMatchObject({ tag: RESET })
+  expect(headers(exportSetups[0]!).length).toBeGreaterThan(1)
   expect(errors).toEqual([])
 })
 
