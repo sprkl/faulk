@@ -18,7 +18,7 @@ export const automation = defineFeature(
     'automation.mark':
       'Automated: the lane {lane} sets this value. A change made here lasts until the lane’s next point while playing, or until the next play or seek when stopped.',
     'automation.laneHint':
-      'Double-click to add a point (a click with the Draw tool), drag a point to move it, drag on an empty part to select several. Delete removes the selected points. Hold Ctrl or Cmd to skip snapping. Double-click a point to type its value. At the keyboard: I adds a point at the playhead, R draws a ramp, Right goes into the points.',
+      'Double-click to add a point (a click with the Draw tool), drag a point to move it, drag on an empty part to select several. Delete removes the selected points. Hold Ctrl or Cmd to skip snapping. Double-click a point to type its value. At the keyboard: {point} adds a point at the playhead, {ramp} draws a ramp, Right goes into the points.',
     'automation.selectedPoints': '{n} points selected',
     'automation.curveLinear': 'Curve: linear',
     'automation.curveStep': 'Curve: step',
@@ -53,7 +53,7 @@ export const automation = defineFeature(
     'automation.saidMovedPoint': 'Point moved {at}',
     'automation.saidRamp': 'Ramp: {from} {fromAt} to {to} {toAt}',
     'automation.saidReplaced': 'Points replaced between them: {n}',
-    'automation.saidNoPoint': 'No point in this lane yet: I adds one at the playhead.',
+    'automation.saidNoPoint': 'No point in this lane yet: {point} adds one at the playhead.',
     'automation.saidCannotMove': 'The point cannot go further.',
     'automation.saidOccupied': 'Another point is already {at}: the point stays.',
     'automation.rampTitle': 'Ramp to… · {title}',
@@ -81,7 +81,7 @@ export const automation = defineFeature(
     'automation.mark':
       'Automatisé : le couloir {lane} impose cette valeur. Un changement fait ici dure jusqu’au prochain point du couloir pendant la lecture, ou jusqu’à la prochaine lecture ou au prochain déplacement de la tête à l’arrêt.',
     'automation.laneHint':
-      'Double-clique pour ajouter un point (un clic avec l’outil Dessiner), glisse un point pour le déplacer, glisse sur une partie vide pour en sélectionner plusieurs. Suppr efface les points sélectionnés. Maintiens Ctrl ou Cmd pour ignorer l’aimantation. Double-clique un point pour taper sa valeur. Au clavier : I pose un point à la tête de lecture, R trace une rampe, Droite entre dans les points.',
+      'Double-clique pour ajouter un point (un clic avec l’outil Dessiner), glisse un point pour le déplacer, glisse sur une partie vide pour en sélectionner plusieurs. Suppr efface les points sélectionnés. Maintiens Ctrl ou Cmd pour ignorer l’aimantation. Double-clique un point pour taper sa valeur. Au clavier : {point} pose un point à la tête de lecture, {ramp} trace une rampe, Droite entre dans les points.',
     'automation.selectedPoints': '{n} points sélectionnés',
     'automation.curveLinear': 'Courbe : linéaire',
     'automation.curveStep': 'Courbe : palier',
@@ -116,7 +116,7 @@ export const automation = defineFeature(
     'automation.saidMovedPoint': 'Point déplacé {at}',
     'automation.saidRamp': 'Rampe : {from} {fromAt} jusqu’à {to} {toAt}',
     'automation.saidReplaced': 'Points remplacés entre les deux : {n}',
-    'automation.saidNoPoint': 'Aucun point dans ce couloir : I en pose un à la tête de lecture.',
+    'automation.saidNoPoint': 'Aucun point dans ce couloir : {point} en pose un à la tête de lecture.',
     'automation.saidCannotMove': 'Le point ne peut pas aller plus loin.',
     'automation.saidOccupied': 'Un autre point est déjà {at} : le point reste.',
     'automation.rampTitle': 'Rampe jusqu’à… · {title}',

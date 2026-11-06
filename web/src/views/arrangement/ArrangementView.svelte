@@ -23,7 +23,7 @@
   import type { Command, Shape } from '../../lib/generated/protocol'
   import { keepsBrowserMenu, type MenuItem } from '../../lib/context-menu'
   import { DRAG_SLOP_PX, fineKey } from '../../lib/continuous'
-  import { chordText } from '../../lib/shortcuts'
+  import { chordText, positionKey, withShortcut } from '../../lib/shortcuts'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
   import ValueField from '../../lib/components/ValueField.svelte'
   import GestureLabel from '../../lib/components/GestureLabel.svelte'
@@ -114,7 +114,7 @@
   import { putItem } from '../../lib/browser/put'
   import BarDialog from './BarDialog.svelte'
   import RampDialog from './automation/RampDialog.svelte'
-  import { entryIndex, goIndex, laneKey, nudgedTick, pointKey, rampPlan, shapeAt, stepValue } from './automation/keys'
+  import { POINT_CODE, RAMP_CODE, entryIndex, goIndex, laneKey, nudgedTick, pointKey, rampPlan, shapeAt, stepValue } from './automation/keys'
   import {
     lanesOf,
     lowerBound,
@@ -2122,6 +2122,9 @@
     const value = valueAt(pointsOf(ref.info.lane), at, ref.info.lane.target)
     return value === null ? paramValue(ref.trackId, ref.info) : ref.info.axis.clamp(value)
   }
+  /** The keys of a point and of a ramp as written on the user's keyboard (they work by position). */
+  const pointKeyLabel = $derived(positionKey(POINT_CODE, ui.keyLayout))
+  const rampKeyLabel = $derived(positionKey(RAMP_CODE, ui.keyLayout))
   /** The tick of the playhead, whole and on the timeline. */
   const headAt = () => Math.min(MAX_TICK, Math.round(headTick()))
   const laneRow = (lane: string) => layout.rows.find((r) => r.kind === 'lane' && r.lane === lane)
@@ -2225,7 +2228,7 @@
     const ref = laneRefs.get(lane)
     const points = ref ? pointsOf(ref.info.lane) : []
     const index = entryIndex(points, headTick())
-    if (index < 0) return announce(t('automation.saidNoPoint'))
+    if (index < 0) return announce(t('automation.saidNoPoint', { point: pointKeyLabel }))
     void focusPointCell(lane, points[index]!.tick)
   }
 
@@ -2276,7 +2279,9 @@
     if (hasPoint(lane, to)) return announce(t('automation.saidOccupied', { at: atText(to) }))
     const plan = planMove(points, [point], [{ ...point, tick: to }])
     if (plan?.kind === 'move') inGroup([removePoints(lane, plan.remove), addPoints(lane, plan.add)])
-    if (hasPoint(lane, to)) announce(t('automation.saidMovedPoint', { at: atText(to) }))
+    // Nothing to do, or the project refused it: said, so that a key is never silent.
+    if (!hasPoint(lane, to)) return announce(t('automation.saidCannotMove'))
+    announce(t('automation.saidMovedPoint', { at: atText(to) }))
     void focusPointCell(lane, to)
   }
 
@@ -2630,7 +2635,7 @@
                 style:--swatch={ref.color}
                 role="group"
                 aria-label={t('automation.lane', { title: ref.info.title })}
-                title={t('automation.laneHint')}
+                title={t('automation.laneHint', { point: pointKeyLabel, ramp: rampKeyLabel })}
                 data-testid="arr-lane"
                 data-lane={row.lane}
                 data-target={ref.info.title}
@@ -2647,8 +2652,8 @@
                 <button
                   class="lane-tool"
                   aria-label={t('automation.addPointFor', { title: ref.info.title })}
-                  aria-keyshortcuts="I Insert"
-                  title={`${t('automation.addPoint')} (I)`}
+                  aria-keyshortcuts="{pointKeyLabel} Insert"
+                  title={withShortcut(t('automation.addPoint'), [pointKeyLabel])}
                   data-testid="arr-lane-point"
                   onclick={(e) => pointAtHead(row.lane!, e.currentTarget)}
                 >
@@ -2659,8 +2664,8 @@
                 <button
                   class="lane-tool"
                   aria-label={t('automation.rampFor', { title: ref.info.title })}
-                  aria-keyshortcuts="R"
-                  title={`${t('automation.ramp')} (R)`}
+                  aria-keyshortcuts={rampKeyLabel}
+                  title={withShortcut(t('automation.ramp'), [rampKeyLabel])}
                   data-testid="arr-lane-ramp"
                   onclick={(e) => openRamp(row.lane!, e.currentTarget)}
                 >
