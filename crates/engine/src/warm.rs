@@ -104,10 +104,16 @@ pub fn messages() -> Vec<Phase> {
             kind: TrackKind::Audio,
         },
     ];
-    // The devices of the registry: the first instrument on the first track, any other
+    // The devices of the registry: the MIDI effects at the head of the first track's chain
+    // (their notes reach its instrument), the first instrument after them, any other
     // instrument on a MIDI track of its own, the effects in the chain of the first track.
+    let midi_effects = REGISTRY
+        .iter()
+        .filter(|b| b.descriptor.role == DeviceRole::MidiEffect)
+        .count() as u16;
     let mut next_track = 2;
-    let mut next_effect = 1;
+    let mut next_midi_effect = 0;
+    let mut next_effect = midi_effects + 1;
     let mut first_instrument = true;
     let mut placed = Vec::new();
     for builtin in REGISTRY {
@@ -115,7 +121,7 @@ pub fn messages() -> Vec<Phase> {
         let (track, device) = match desc.role {
             DeviceRole::Instrument if first_instrument => {
                 first_instrument = false;
-                (synth_track, d(0))
+                (synth_track, d(midi_effects))
             }
             DeviceRole::Instrument => {
                 let track = t(next_track);
@@ -131,7 +137,11 @@ pub fn messages() -> Vec<Phase> {
                 next_effect += 1;
                 (synth_track, device)
             }
-            DeviceRole::MidiEffect => continue,
+            DeviceRole::MidiEffect => {
+                let device = d(next_midi_effect);
+                next_midi_effect += 1;
+                (synth_track, device)
+            }
         };
         structure.push(M::DeviceInsert {
             track,

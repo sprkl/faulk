@@ -47,4 +47,5 @@ mod sample_rate;
 mod stream_queue;
 mod time;
 mod transport;
+mod trim;
 mod warm;
