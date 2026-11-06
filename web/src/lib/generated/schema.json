@@ -30433,7 +30433,7 @@
     {
       "kind": "faulk.hiccup",
       "kind_id": 13,
-      "memory_bytes": 18438544,
+      "memory_bytes": 18438560,
       "midi_output": null,
       "name": "Hiccup",
       "named_keys": [],
