@@ -269,7 +269,7 @@ const PARAMS: [ParamDescriptor; 30] = [
     stepped(
         SEED,
         "seed",
-        "Seed of the chance draws, from 0 to 1000: the same seed gives the same chords on every play from the start; another seed, another draw.",
+        "Seed of the chance draws, from 0 to 1000: a note draws from the seed, its position in the song and its pitch, so the same seed gives the same chords at the same place on every play, from any start; another seed, another draw.",
         Unit::None,
         0.0,
         1000.0,

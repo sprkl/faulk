@@ -81,7 +81,7 @@ export const devices = defineFeature(
       'Velocity across the strum: above 0 the notes grow louder toward the last, below 0 softer; at 100 % the first (or last) note is at the lowest velocity.',
     'stack.direction.hint': 'Order of the strum: up plays from the lowest note to the highest, down from the highest to the lowest.',
     'stack.seed.hint':
-      'Seed of the chance draws, from 0 to 1000: the same seed gives the same chords on every play from the start; another seed, another draw.',
+      'Seed of the chance draws, from 0 to 1000: a note draws from the seed, its position in the song and its pitch, so the same seed gives the same chords at the same place on every play, from any start; another seed, another draw.',
     'stack.voice1.hint': 'Whether added voice 1 plays.',
     'stack.voice1_interval.hint': "Interval of voice 1 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
     'stack.voice1_velocity.hint': "Velocity of voice 1, from 1 to 200 % of the received note's.",
@@ -237,7 +237,7 @@ export const devices = defineFeature(
       'Vélocité le long de l’égrenage : au-dessus de 0 les notes montent vers la dernière, en dessous elles baissent ; à 100 % la première (ou la dernière) est à la vélocité la plus basse.',
     'stack.direction.hint': 'Ordre de l’égrenage : montant joue de la note la plus grave à la plus aiguë, descendant de la plus aiguë à la plus grave.',
     'stack.seed.hint':
-      'Graine des tirages de chance, de 0 à 1000 : la même graine donne les mêmes accords à chaque lecture depuis le début ; une autre graine, un autre tirage.',
+      'Graine des tirages de chance, de 0 à 1000 : une note tire selon la graine, sa position dans le morceau et sa hauteur, donc la même graine donne les mêmes accords au même endroit à chaque lecture, depuis n’importe quel point de départ ; une autre graine, un autre tirage.',
     'stack.voice1.hint': 'Si la voix ajoutée 1 joue.',
     'stack.voice1_interval.hint':
       'Intervalle de la voix 1 depuis la note reçue, de -36 à +36 : en demi-tons, ou en degrés de la gamme du projet dans le mode gamme.',
