@@ -117,7 +117,7 @@ export const devices = defineFeature(
     'scatter.order.hint':
       'How a moved note picks its choice: at random (a repeatable draw, set by the seed), or in turn, each moved note taking the next choice.',
     'scatter.seed.hint':
-      'Seed of the draws, from 0 to 1000: the same seed moves the same notes the same way on every play from the start; another seed, another draw.',
+      'Seed of the draws, from 0 to 1000: a note draws from the seed, its position in the song and its pitch, so the same seed gives the same notes at the same place on every play, from any start; another seed, another draw.',
     'compressor.threshold.hint': 'Level, in decibels, above which the compressor turns the sound down, from -60 to 0 dB.',
     'compressor.ratio.hint':
       'How strongly the sound above the threshold is turned down, from 1 (not at all) to 20: at 4, a signal 8 dB over the threshold comes out 2 dB over it.',
@@ -241,7 +241,7 @@ export const devices = defineFeature(
     'scatter.order.hint':
       'Comment une note changée prend son choix : au hasard (un tirage reproductible, fixé par la graine), ou tour à tour, chaque note changée prenant le choix suivant.',
     'scatter.seed.hint':
-      'Graine des tirages, de 0 à 1000 : la même graine change les mêmes notes de la même façon à chaque lecture depuis le début ; une autre graine, un autre tirage.',
+      'Graine des tirages, de 0 à 1000 : une note tire selon la graine, sa position dans le morceau et sa hauteur ; la même graine donne donc les mêmes notes à la même place à chaque lecture, quel que soit le point de départ ; une autre graine, un autre tirage.',
     'compressor.threshold.hint': 'Niveau, en décibels, au-dessus duquel le compresseur baisse le son, de -60 à 0 dB.',
     'compressor.ratio.hint':
       'Force avec laquelle le son au-dessus du seuil est baissé, de 1 (pas du tout) à 20 : à 4, un signal 8 dB au-dessus du seuil ressort 2 dB au-dessus.',

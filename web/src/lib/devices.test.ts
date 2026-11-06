@@ -21,7 +21,10 @@ describe('device panels from the descriptors', () => {
     for (const d of DEVICES) {
       for (const p of knobParams(d)) {
         for (const position of [0, 0.25, 0.5, 0.75, 1]) {
-          expect(positionOf(p, valueAt(p, position)), p.key).toBeCloseTo(position, 6)
+          // A stepped knob lands on its nearest step, at most half a step from the position (#691: Scatter's 1 to 24
+          // choices); a continuous one comes back exactly.
+          const slack = p.step > 0 && p.scale !== 'log' ? p.step / 2 / (p.max - p.min) : 0
+          expect(Math.abs(positionOf(p, valueAt(p, position)) - position), p.key).toBeLessThanOrEqual(slack + 5e-7)
         }
         expect(valueAt(p, 0)).toBeCloseTo(p.min)
         expect(valueAt(p, 1)).toBeCloseTo(p.max)
