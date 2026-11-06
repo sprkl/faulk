@@ -1368,6 +1368,30 @@ fn a_blob_that_is_a_link_or_a_folder_is_never_taken_for_the_blob_nor_written_thr
         PathError::Escapes
     );
     assert_eq!(listing(&s.outside).len(), 1);
+    // A file link staying inside the folder (to a project file): no blob either.
+    let h = media_hash(9);
+    fs::create_dir_all(s.root.join("tracks")).unwrap();
+    fs::write(s.root.join("tracks").join("a.json"), b"{}").unwrap();
+    if file_link(
+        &s.root.join("tracks").join("a.json"),
+        &s.root.join("blobs").join(h.to_string()),
+    ) {
+        assert_eq!(
+            put_media(&s.folder, MediaFile::Blob, &h, b"audio").unwrap_err(),
+            PathError::Escapes
+        );
+        assert_eq!(
+            fs::read(s.root.join("tracks").join("a.json")).unwrap(),
+            b"{}"
+        );
+    }
+    // A directory link staying inside the folder at the blob's name: refused too.
+    let h = media_hash(10);
+    dir_link(
+        &s.root.join("tracks"),
+        &s.root.join("blobs").join(h.to_string()),
+    );
+    assert!(put_media(&s.folder, MediaFile::Blob, &h, b"audio").is_err());
     assert!(temp_files(&s.root).is_empty());
 }
 

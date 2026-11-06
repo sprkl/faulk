@@ -759,7 +759,7 @@ impl PendingWrite<'_> {
     /// link is followed (a link there is refused, even one that stays inside the folder: a blob
     /// never lands in `tracks/`), checked before anything is made and again once made, and the
     /// folder must still be the one opened. A blob is never replaced: when the folder holds that
-    /// blob already (a regular file inside the folder), it is kept and `false` is returned (one blob
+    /// blob already (a plain file inside the folder, not a link), it is kept and `false` is returned (one blob
     /// per file). A cache replaces what is at its name (a link there itself, never written through).
     /// `true` when this write put the file in place. On a failure, and when the blob was kept, the
     /// temporary file is removed.
@@ -789,7 +789,12 @@ impl PendingWrite<'_> {
             MediaFile::Blob => match move_no_replace(&self.tmp, &target) {
                 Ok(()) => Ok(true),
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
-                    // The blob is there already: kept, if it is one (a file of the folder).
+                    // The blob is there already: kept, if it is one (a plain file of the folder, not
+                    // a link: a link to `tracks/a.json` is no blob).
+                    let here = fs::symlink_metadata(&target).map_err(io)?;
+                    if here.file_type().is_symlink() {
+                        return Err(PathError::Escapes);
+                    }
                     let real = canonical(&target).map_err(io)?;
                     if !real.starts_with(&self.folder.root) {
                         return Err(PathError::Escapes);
