@@ -11,7 +11,10 @@
 //! it is 0). A line that held only silence for longer than its tap forgets what came before
 //! that silence, so that a line nobody feeds for a while (a track that was not rendered)
 //! never plays stale content when its tap grows.
-//! At a tap of 0 with no change under way the line is a pass-through and holds nothing.
+//! At a tap of 0 with no change under way the line is a pass-through and holds nothing. On a
+//! track's chain the graph moves a slot's tap with no crossfade instead ([`Delay::jump`],
+//! #761), the track's [`Route`] taking the difference at the same frame; what a shorter tap
+//! skips is read back ([`Delay::read_back`]) and added before the block ([`Route::add_back`]).
 //!
 //! A [`Latent`] wraps a device with a latency and holds its [`Bypass`]: a [`Delay`] the
 //! graph feeds with the signal entering the device's slot and reads at the device's latency,
@@ -216,6 +219,34 @@ impl Delay {
         self.tap = tap.min(self.max_tap());
         self.from = self.tap;
         self.g = 1.0;
+    }
+
+    /// Sets the tap at once, with no crossfade and the content kept (#761): the slot's switch,
+    /// whose other side (the track's delay) moves at the same frame. A tap beyond what the line
+    /// holds reads 0 until it holds it.
+    pub fn jump(&mut self, tap: u32) {
+        self.tap = tap.min(self.max_tap());
+        self.from = self.tap;
+        self.g = 1.0;
+    }
+
+    /// Copies into `left` and `right` the frames written from `back` frames ago on, oldest
+    /// first (frame `k` is the one written `back - k` frames ago, 1 being the newest): what a
+    /// slot whose tap shrinks by `left.len()` gave none of (#761). 0 for what the line does not
+    /// hold. No allocation.
+    pub fn read_back(&self, back: u32, left: &mut [f32], right: &mut [f32]) {
+        let frames = left.len().min(right.len());
+        for k in 0..frames {
+            let ago = u64::from(back).saturating_sub(k as u64);
+            let (l, r) = if ago == 0 || ago > self.written {
+                (0.0, 0.0)
+            } else {
+                let at = self.pos.wrapping_sub(ago as usize) & self.mask;
+                (self.left[at], self.right[at])
+            };
+            left[k] = l;
+            right[k] = r;
+        }
     }
 
     /// The sample `delay` frames before the one just written, 0 beyond what the line holds.
@@ -686,6 +717,13 @@ pub struct Bypass {
     /// Once outgoing: how much of its own output the device gave when it left (its fade then),
     /// the rest being its line.
     pub(crate) mix: f32,
+    /// Outgoing from a track's slot where no device took its line (#761): it holds the slot's
+    /// timing, first fading its own output into its line (`mix` toward 0), then until the
+    /// graph switched its tap to 0, the track's delay taking the difference at the same frame.
+    pub(crate) hold: bool,
+    /// The slot's timing moves by its own crossfade, as on the master (#761): set when the
+    /// track's delay could not take a switch (a capped compensation).
+    pub(crate) glide: bool,
 }
 
 impl Bypass {
@@ -752,6 +790,8 @@ impl Latent {
                 off: true,
                 warm: 0,
                 mix: 0.0,
+                hold: false,
+                glide: false,
             },
         })?;
         Ok(latent)
@@ -863,6 +903,19 @@ impl Compensation {
         }
     }
 
+    /// Adds `left` and `right`, the frames of the chain that came `back` frames before the
+    /// block's first one, `delay` frames later (#761, a slot's catch-up): positions at least
+    /// the block's first frame when `delay >= back`, which the switch guarantees.
+    fn add_before(&mut self, back: u32, delay: u32, left: &[f32], right: &[f32]) {
+        let delay = delay.min(limits::MAX_COMPENSATION_FRAMES);
+        let start = self.pos.wrapping_add(delay.saturating_sub(back) as usize);
+        for (n, (l, r)) in left.iter().zip(right).enumerate() {
+            let at = start.wrapping_add(n) & self.mask;
+            self.left[at] += *l;
+            self.right[at] += *r;
+        }
+    }
+
     /// Adds the block's `left.len()` frames to `left` and `right`, zeroes them in the ring and
     /// moves to the next block.
     pub fn take(&mut self, left: &mut [f32], right: &mut [f32]) {
@@ -934,9 +987,17 @@ impl Route {
         }
     }
 
-    /// Sets the route at `delay` at once: for a track that gives nothing meanwhile.
+    /// Sets the route at `delay` at once: for a track that gives nothing meanwhile, or whose
+    /// chain's timing moves the other way at the same frame (#761, a slot's switch).
     pub fn snap(&mut self, delay: u32) {
         *self = Route::at(delay.min(limits::MAX_COMPENSATION_FRAMES));
+    }
+
+    /// Adds the chain's frames that came `back` frames before the block (`left.len()` of them,
+    /// #761: what a slot whose timing shrank gave none of) at the delay they belong to: the
+    /// one before a move under way.
+    pub fn add_back(&self, ring: &mut Compensation, back: u32, left: &[f32], right: &[f32]) {
+        ring.add_before(back, self.from, left, right);
     }
 
     /// Adds the track's mixed sub-block `left`/`right` (frames `from..` of the block) to the
@@ -995,6 +1056,73 @@ mod tests {
         assert!(l[..10].iter().all(|&s| s == 0.0));
         assert_eq!(&l[10..], &ramp(54, 1.0)[..]);
         assert_eq!(l, r);
+    }
+
+    #[test]
+    fn a_jump_reads_the_new_tap_at_once_with_no_crossfade() {
+        // #761: fed 0, 1, 2…, a line at tap 3 jumps to 7: its next frame is the one written 7
+        // frames before it, no blend of the two taps; a jump to 0 passes the input.
+        let mut d = Delay::try_new(16, 3).unwrap();
+        let (mut l, mut r) = (ramp(20, 0.0), ramp(20, 0.0));
+        d.process(&mut l, &mut r, 3, 8);
+        assert_eq!(l[19], 16.0);
+        d.jump(7);
+        assert!(!d.crossfading());
+        let (mut l, mut r) = (ramp(4, 20.0), ramp(4, 20.0));
+        d.process(&mut l, &mut r, 7, 8);
+        assert_eq!(l, vec![13.0, 14.0, 15.0, 16.0]);
+        assert_eq!(d.timing().delay(), 7);
+        d.jump(0);
+        let (mut l, mut r) = (ramp(4, 24.0), ramp(4, 24.0));
+        d.process(&mut l, &mut r, 0, 8);
+        assert_eq!(l, ramp(4, 24.0));
+        // Beyond what a new line holds, a jump reads silence.
+        let mut fresh = Delay::try_new(16, 0).unwrap();
+        fresh.jump(5);
+        let (mut l, mut r) = (ramp(8, 1.0), ramp(8, 1.0));
+        fresh.process(&mut l, &mut r, 5, 8);
+        assert_eq!(l, vec![0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn read_back_gives_the_frames_a_shorter_tap_skips_oldest_first() {
+        // #761: fed 0..20 at tap 6, the line's tap shrinks by 4: the four frames nobody heard
+        // are the ones written 6, 5, 4 and 3 frames ago (14..18), and 0 beyond what it holds.
+        let mut d = Delay::try_new(16, 6).unwrap();
+        let (mut l, mut r) = (ramp(20, 0.0), ramp(20, 0.0));
+        d.process(&mut l, &mut r, 6, 8);
+        let (mut bl, mut br) = (vec![9.0; 4], vec![9.0; 4]);
+        d.read_back(6, &mut bl, &mut br);
+        assert_eq!(bl, vec![14.0, 15.0, 16.0, 17.0]);
+        assert_eq!(bl, br);
+        let mut short = Delay::try_new(16, 0).unwrap();
+        let (mut l, mut r) = (ramp(2, 1.0), ramp(2, 1.0));
+        short.process(&mut l, &mut r, 4, 8);
+        let (mut bl, mut br) = (vec![9.0; 4], vec![9.0; 4]);
+        short.read_back(4, &mut bl, &mut br);
+        assert_eq!(bl, vec![0.0, 0.0, 1.0, 2.0]);
+    }
+
+    #[test]
+    fn frames_added_back_land_right_before_the_ones_of_the_block() {
+        // #761: a route at 6 frames that jumps to 10 adds the 4 frames of before the block,
+        // then the block: the ring gives them in order, with no gap and no overlap.
+        let mut ring = Compensation::try_new(8).unwrap();
+        let mut route = Route::at(6);
+        route.add(&mut ring, 0, &ramp(8, 0.0), &ramp(8, 0.0), 4);
+        let (mut l, mut r) = (vec![0.0; 8], vec![0.0; 8]);
+        ring.take(&mut l, &mut r);
+        assert_eq!(l, vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]);
+        route.snap(10);
+        route.add_back(&mut ring, 4, &ramp(4, 8.0), &ramp(4, 8.0));
+        route.add(&mut ring, 0, &ramp(8, 12.0), &ramp(8, 12.0), 4);
+        let mut out = Vec::new();
+        for _ in 0..3 {
+            let (mut l, mut r) = (vec![0.0; 8], vec![0.0; 8]);
+            ring.take(&mut l, &mut r);
+            out.extend(l);
+        }
+        assert_eq!(&out[..13], &ramp(13, 2.0)[..]);
     }
 
     #[test]
@@ -1145,6 +1273,8 @@ mod tests {
             off: false,
             warm: 0,
             mix: 0.0,
+            hold: false,
+            glide: false,
         };
         assert!(!b.strip_active(), "a new line passed nothing yet");
         let (mut l, mut r) = (vec![1.0; 8], vec![1.0; 8]);

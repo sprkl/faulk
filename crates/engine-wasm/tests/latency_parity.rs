@@ -651,6 +651,95 @@ fn a_filter_swept_behind_a_ceiling_is_its_render_without_latency_one_latency_lat
     }
 }
 
+/// #761: two identical synth tracks, the right one through a Ceiling of 5 ms (the longest
+/// chain), the left one gets a Ceiling of 1.5 ms inserted while it sounds, bypassed, removed,
+/// inserted again and removed while it plays: the left track's timing never changes, so the
+/// two channels are equal to the sample all along, in blocks of varied sizes. Then the right
+/// track's Ceiling leaves (the whole mix moves back: one fade, not compared).
+fn switch_scenario() -> Vec<Step> {
+    let epoch = 1;
+    let mut seq = 0u32;
+    let mut steps = Vec::new();
+    let mut submit = |msgs: &[M], steps: &mut Vec<Step>| {
+        steps.push(Step::Submit(encode_stream(epoch, seq, msgs).unwrap()));
+        seq = seq.wrapping_add(msgs.len() as u32);
+    };
+    let (a, b) = (TrackSlot(0), TrackSlot(1));
+    let fx = DeviceSlot(1);
+    let ceiling = |track: TrackSlot, lookahead: f32| M::DeviceInsert {
+        track,
+        device: fx,
+        kind: lim::DESCRIPTOR.kind_id,
+        state: encode_state(&[
+            (ParamId(lim::CEILING), 0.0),
+            (ParamId(lim::LOOKAHEAD), lookahead),
+        ]),
+    };
+    let remove = |track: TrackSlot| M::DeviceRemove { track, device: fx };
+    const MIXED: &[usize] = &[128, 37, 2048, 1, 500, 97, 64];
+    let mut setup = vec![
+        M::Reset { epoch },
+        M::SetMaster {
+            gain: 0.5,
+            pan: 0.0,
+            mute: false,
+        },
+    ];
+    for (track, pan) in [(a, -1.0), (b, 1.0)] {
+        setup.push(M::TrackCreate {
+            track,
+            kind: TrackKind::Midi,
+        });
+        setup.push(M::TrackSetMix {
+            track,
+            gain: 1.0,
+            pan,
+            mute: false,
+        });
+        setup.push(M::DeviceInsert {
+            track,
+            device: DeviceSlot(0),
+            kind: OSC_SYNTH.kind_id,
+            state: encode_state(&[]),
+        });
+    }
+    setup.push(ceiling(b, 0.005));
+    submit(&setup, &mut steps);
+    steps.push(Step::Render(&[128; 8], false));
+    let note = |track: TrackSlot| M::NoteOn {
+        track,
+        pitch: 57,
+        velocity: 90,
+        at: None,
+    };
+    submit(&[note(a), note(b)], &mut steps);
+    steps.push(Step::Render(&[128; 10], true));
+    for change in [
+        vec![ceiling(a, 0.0015)],
+        vec![M::DeviceSetEnabled {
+            track: a,
+            device: fx,
+            enabled: false,
+        }],
+        vec![remove(a)],
+        vec![ceiling(a, 0.0015)],
+        vec![remove(a)],
+    ] {
+        submit(&change, &mut steps);
+        steps.push(Step::Render(MIXED, true));
+        steps.push(Step::Render(&[128; 6], true));
+    }
+    submit(&[remove(b)], &mut steps);
+    steps.push(Step::Render(MIXED, false));
+    steps.push(Step::Render(&[128; 10], true));
+    steps
+}
+
+#[test]
+fn a_switch_on_the_shorter_track_renders_the_same_in_native_and_wasm_aligned_all_along() {
+    check_parity(&switch_scenario());
+}
+
 /// Both channels of every block, end to end.
 fn flatten(blocks: &Blocks) -> (Vec<f32>, Vec<f32>) {
     let left = blocks

@@ -2340,6 +2340,8 @@ impl Engine {
                 clear_bypass(entry);
             }
             track.graph.outgoing().end();
+            // A slot's switch under way is over: nothing it would pause or catch up sounds.
+            track.graph.end_switch();
             track.graph.release_notes();
             // The audio clips start again at the next block, from where they are (AU-4).
             track.audio.reset();
@@ -2801,6 +2803,7 @@ impl Engine {
                         if placed {
                             // The new device fades in on a heard chain; the one it replaces
                             // fades out at its slot (#233).
+                            let mut took = false;
                             if let Some(entry) = device_mut(state, track, device) {
                                 entry.fade = if audible && fades(entry) { 0.0 } else { 1.0 };
                                 // A device put in the place of one with the same line takes its
@@ -2817,6 +2820,7 @@ impl Engine {
                                 {
                                     from.strip.restart(0);
                                     core::mem::swap(&mut to.events, &mut from.events);
+                                    took = true;
                                 }
                             }
                             // The values meant for the device it replaced are forgotten; the
@@ -2829,8 +2833,14 @@ impl Engine {
                                 spare.item.as_deref_mut(),
                             );
                             if let Some(old) = spare.item.take() {
-                                spare.item =
-                                    send_off(state, &mut self.graph, track, device, old, audible);
+                                spare.item = send_off(
+                                    state,
+                                    &mut self.graph,
+                                    track,
+                                    device,
+                                    old,
+                                    (audible, !took),
+                                );
                             }
                         }
                         resend_lanes(state, &self.graph, track, device);
@@ -2861,7 +2871,7 @@ impl Engine {
                         // A heard device fades out at its slot (#233), then comes back
                         // through the retire ring.
                         let item = old.and_then(|old| {
-                            send_off(state, &mut self.graph, track, device, old, audible)
+                            send_off(state, &mut self.graph, track, device, old, (audible, true))
                         });
                         Some(Garbage::Devices(Spare { table: None, item }))
                     }
@@ -3274,7 +3284,7 @@ fn send_off(
     track: TrackSlot,
     slot: DeviceSlot,
     mut old: Box<DeviceEntry>,
-    audible: bool,
+    (audible, alone): (bool, bool),
 ) -> Option<Box<DeviceEntry>> {
     // A device with a bypass line (#749) leaves with what its slot gave: its line, blended
     // with its own output by its fade (`mix`), faded out as a whole, so the chain's timing
@@ -3284,6 +3294,11 @@ fn send_off(
         Some(b) => {
             let keep = fade > 0.0 || b.line.tap() > 0 || b.line.crossfading();
             b.mix = fade;
+            // On a track, where no device took its line, it holds the slot's timing until the
+            // graph switches it (#761): its own output fades into its line, then the slot's
+            // timing and the track's delay move at the same frame.
+            b.hold = alone && !track.is_master();
+            b.glide = false;
             Some(keep)
         }
         None => None,

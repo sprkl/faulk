@@ -28,6 +28,7 @@ mod grid_render;
 mod growth;
 mod host;
 mod latency;
+mod latency_switch;
 mod launcher;
 mod live_stamps;
 mod master_automation;

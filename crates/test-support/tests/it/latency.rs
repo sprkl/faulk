@@ -219,3 +219,50 @@ fn a_filter_swept_behind_a_ceiling_renders_without_its_latency_one_latency_later
         assert!(early > 0.01, "{on}: the latency moves the render: {early}");
     }
 }
+
+// ---------------------------------------------------------------- #761
+
+#[test]
+fn a_ceiling_inserted_and_removed_on_the_shorter_track_leaves_it_aligned_all_along() {
+    // Two drum tracks, the right one through a Ceiling of 5 ms (the longest chain). The left
+    // one gets a Ceiling of 1.5 ms at the end of its chain during the hits, bypassed, removed,
+    // and inserted and removed again: its timing never changes (the slot and the track's delay
+    // switch at the same frame), so the two channels stay equal to the sample all along,
+    // natively and in WASM.
+    let mut s = Session::from_state(fixture().state, context());
+    let left = drums(&mut s, -1.0);
+    let right = drums(&mut s, 1.0);
+    let longest = ceiling(&mut s, Some(&right));
+    set(&mut s, &longest, "ceiling", 0.0);
+    set(&mut s, &longest, "lookahead", 0.005);
+    s.render_blocks(20);
+    let insert = |s: &mut Session| {
+        let fx = ceiling(s, Some(&left));
+        set(s, &fx, "ceiling", 0.0);
+        fx
+    };
+    let remove = |s: &mut Session, fx: DeviceId| {
+        s.run(Command::Device(device::Command::Remove { device: fx }));
+    };
+    hits(&mut s, &[&left, &right]);
+    let fx = insert(&mut s);
+    hits(&mut s, &[&left, &right]);
+    s.run(Command::Device(device::Command::SetBypass {
+        device: fx.clone(),
+        bypass: true,
+    }));
+    hits(&mut s, &[&left, &right]);
+    remove(&mut s, fx);
+    hits(&mut s, &[&left, &right]);
+    let fx = insert(&mut s);
+    hits(&mut s, &[&left, &right]);
+    remove(&mut s, fx);
+    hits(&mut s, &[&left, &right]);
+
+    let r = parity(s.scenario());
+    r.assert_clean();
+    assert!(r.peak() > 0.1, "the drums sound: {}", r.peak());
+    let off = mismatch(&r, 0.0..r.frames() as f32 / r.sample_rate);
+    println!("a Ceiling inserted and removed on the shorter track: left − right at most {off:e}");
+    assert_eq!(off, 0.0, "aligned all along");
+}

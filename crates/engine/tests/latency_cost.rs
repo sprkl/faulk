@@ -303,3 +303,71 @@ fn the_cost_of_the_messages_with_full_event_lines() {
         remove - none
     );
 }
+
+/// 64 playing tracks, each through a test delay of `frames` frames then two test gains; the
+/// first one also through a delay of 2 000 frames, so that the other 63 do not hold the
+/// longest chain (#761).
+fn switching(frames: f32) -> (Preparer, Engine) {
+    let (mut p, mut e) = rig();
+    for slot in 0..64u32 {
+        let track = TrackSlot(slot);
+        let mut msgs = playing(slot);
+        let delays: &[f32] = if slot == 0 { &[2000.0] } else { &[frames] };
+        msgs.push(M::DeviceInsert {
+            track,
+            device: DeviceSlot(1),
+            kind: DELAY.kind_id,
+            state: encode_state(&[(delay::FRAMES, delays[0])]),
+        });
+        for d in 2..4 {
+            msgs.push(M::DeviceInsert {
+                track,
+                device: DeviceSlot(d),
+                kind: GAIN.kind_id,
+                state: encode_state(&[]),
+            });
+        }
+        send(&mut p, &mut e, &msgs);
+    }
+    for _ in 0..40 {
+        send(&mut p, &mut e, &[]);
+    }
+    (p, e)
+}
+
+#[test]
+fn the_cost_of_the_blocks_where_slots_switch() {
+    // The 63 shorter tracks lose their delay at once: each fades its device into its line (a
+    // fade, the device still running), then catches up `frames` frames (at most a block a
+    // block) through its two gains, its strip and the ring. The worst block of the 30 after
+    // the removal, against the steady block before it (best of five rigs each).
+    for frames in [72.0f32, 1000.0] {
+        let (mut steady, mut worst) = (f64::MAX, f64::MAX);
+        for _ in 0..5 {
+            let (mut p, mut e) = switching(frames);
+            steady = steady.min(time(&mut e, 200));
+            for slot in 1..64u32 {
+                p.handle(M::DeviceRemove {
+                    track: TrackSlot(slot),
+                    device: DeviceSlot(1),
+                })
+                .unwrap();
+            }
+            p.flush();
+            let (mut l, mut r) = (vec![0.0; BLOCK], vec![0.0; BLOCK]);
+            let mut longest = 0f64;
+            for _ in 0..30 {
+                let start = Instant::now();
+                e.process(&mut l, &mut r);
+                longest = longest.max(start.elapsed().as_secs_f64() * 1e6);
+                p.collect();
+            }
+            worst = worst.min(longest);
+            assert_eq!(e.graph().latency(), 2000);
+        }
+        eprintln!(
+            "63 tracks lose a delay of {frames} frames at once: steady {steady:.1} µs a block, \
+             the worst block after {worst:.1} µs"
+        );
+    }
+}
