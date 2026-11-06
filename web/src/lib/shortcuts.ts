@@ -135,6 +135,24 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       { label: 'shortcut.rename', chords: [['F2']], covers: ['F2'] },
       { label: 'shortcut.laneVolume', chords: [['Enter'], ['0-9']] },
       { label: 'shortcut.laneHeight', chords: [['↑'], ['↓'], ['Home'], ['End']], covers: ['End'] },
+      // The automation lanes at the keyboard (#769): their head, then their points as cells of the timeline's grid.
+      { label: 'shortcut.lanePoint', chords: [['I'], ['Insert']] },
+      { label: 'shortcut.laneRamp', chords: [['R']] },
+      { label: 'shortcut.lanePoints', chords: [['→']] },
+      { label: 'shortcut.pointStep', chords: [['←'], ['→'], ['Home'], ['End']] },
+      { label: 'shortcut.pointEdit', chords: [['Enter']] },
+      {
+        label: 'shortcut.pointNudge',
+        chords: [
+          ['Alt', '↑'],
+          ['Alt', '↓'],
+          ['Alt', 'Shift', '↑'],
+          ['Alt', 'Shift', '↓'],
+          ['Alt', '←'],
+          ['Alt', '→'],
+        ],
+      },
+      { label: 'shortcut.pointRemove', chords: [['Delete'], ['Backspace']] },
     ],
   },
   {

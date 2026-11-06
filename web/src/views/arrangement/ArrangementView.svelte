@@ -19,7 +19,7 @@
     resizePlacement,
     splitPlacement,
   } from '../../lib/arrangement-commands'
-  import { addPoints, createLane, createMasterLane, deleteLane, removePoints, updatePoints } from '../../lib/automation-commands'
+  import { addPoints, createLane, createMasterLane, deleteLane, removePoints, restorePoints, updatePoints } from '../../lib/automation-commands'
   import type { Command, Shape } from '../../lib/generated/protocol'
   import { keepsBrowserMenu, type MenuItem } from '../../lib/context-menu'
   import { DRAG_SLOP_PX, fineKey } from '../../lib/continuous'
@@ -46,7 +46,7 @@
   } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
   import { arrangementShortcut, isTextTarget, repeatShortcut } from '../../lib/keyboard'
-  import { MASTER_COLOR, isMidi, trackColor, trackLabel, type DragHooks } from '../../lib/project/tracks'
+  import { MASTER_COLOR, MIN_GAIN_DB, isMidi, trackColor, trackLabel, type DragHooks } from '../../lib/project/tracks'
   import { offTimeline } from '../../lib/off-timeline'
   import { backTrackToArrangement } from '../../lib/scene-commands'
   import { useStores } from '../../lib/stores'
@@ -87,6 +87,7 @@
     drawnSpan,
     rowAt,
     splittable,
+    MAX_TICK,
     type Block,
   } from './arrangement'
   import { drawArrangement } from './draw'
@@ -112,7 +113,21 @@
   import { createsTrack } from '../../lib/browser/drop'
   import { putItem } from '../../lib/browser/put'
   import BarDialog from './BarDialog.svelte'
-  import { lanesOf, optionsOf, pointAtTick, pointsOf, targetKey, valueAt, type LaneInfo, type LanePoint, type Labels } from './automation/model'
+  import RampDialog from './automation/RampDialog.svelte'
+  import { entryIndex, goIndex, laneKey, nudgedTick, pointKey, rampPlan, shapeAt, stepValue } from './automation/keys'
+  import {
+    lanesOf,
+    lowerBound,
+    optionsOf,
+    pointAtTick,
+    pointsOf,
+    targetKey,
+    valueAt,
+    type AxisEntry,
+    type LaneInfo,
+    type LanePoint,
+    type Labels,
+  } from './automation/model'
 
   const stores = useStores()
   const { project, engine, ui, dispatcher, meters, peaks } = stores
@@ -281,8 +296,27 @@
   let autoPick = $state.raw<{ lane: string; ticks: ReadonlySet<number> } | null>(null)
   /** The point under the pointer, for its readout. */
   let hover = $state.raw<{ lane: string; tick: number } | null>(null)
-  /** The point whose value is being typed. */
-  let editing = $state.raw<{ lane: string; tick: number; x: number; y: number } | null>(null)
+  /**
+   * The point whose value is being typed. `fresh`: no point yet, Enter adds one there (a point at the playhead, a double click on an
+   * empty part, #769) with `initial` as the text. `back`: what takes the keyboard back when the field closes by a key (the lane's
+   * head or point it was opened from); absent, the grid takes it.
+   */
+  let editing = $state.raw<{
+    lane: string
+    tick: number
+    x: number
+    y: number
+    fresh?: boolean
+    initial?: string
+    exact?: number
+    back?: HTMLElement | null
+  } | null>(null)
+  /** The point added or changed by the field that just closed: it takes the keyboard when the field was opened from the keyboard. */
+  let editedTick: number | null = null
+  /** The lane whose "Ramp to…" dialog is open, with what opened it (the focus goes back there). */
+  let ramping = $state.raw<{ lane: string; back: HTMLElement | null; head: number; from: number } | null>(null)
+  /** The point of a lane that holds the keyboard (a cell of the grid, #769). */
+  let focusPoint = $state.raw<{ lane: string; tick: number } | null>(null)
   let editAnchor: HTMLDivElement | undefined = $state()
 
   const labels = $derived<Labels>({
@@ -1139,7 +1173,7 @@
     return now.length === then.length && now.every((p, i) => p.tick === then[i]!.tick && p.value === then[i]!.value && p.shape === then[i]!.shape)
   }
 
-  /** A press in a lane's row: on a point it selects it and starts to move it, elsewhere it adds a point (a click) or draws a box (a drag). */
+  /** A press in a lane's row: on a point it selects it and starts to move it, elsewhere it adds a point (a click of the Draw tool) or draws a box (a drag). */
   function laneDown(event: PointerEvent, row: Row, x: number, y: number) {
     const ref = row.lane ? laneRefs.get(row.lane) : undefined
     if (!ref || !row.lane) return
@@ -1184,7 +1218,7 @@
     }
   }
 
-  /** The end of a press on an empty part: a click adds a point, a drag selects the points in its box. */
+  /** The end of a press on an empty part: a click of the Draw tool adds a point (the Select tool's selects only, #769), a drag selects the points in its box. */
   function finishBox(g: Extract<Gesture, { kind: 'box' }>, tickStep: number | null) {
     const ref = laneRefs.get(g.lane)
     const row = layout.rows.find((r) => r.kind === 'lane' && r.lane === g.lane)
@@ -1198,13 +1232,16 @@
       autoPick = ticks.size > 0 ? { lane: g.lane, ticks } : null
       return
     }
+    // With the Select tool a click only selects (it cleared the selection on the press) and gives the timeline the keyboard: it adds
+    // no point, so that a click meant to focus the timeline leaves the lane as it was (#769). The Draw tool and a double click add.
+    if (mode !== 'draw') return
     const fresh = newPoint(ref.info.axis, shown, geo, g.startX, g.startY, tickStep)
     // A tick that already holds a point (the grab zone is smaller than a snap step): that point is the one pointed at.
     if (pointAtTick(points, fresh.tick)) {
       autoPick = { lane: g.lane, ticks: new Set([fresh.tick]) }
       return
     }
-    run(addPoints(g.lane, [asPoint(fresh)]))
+    if (run(addPoints(g.lane, [asPoint(fresh)]))) announce(t('automation.saidAdded', { value: ref.info.axis.format(fresh.value), at: atText(fresh.tick) }))
     autoPick = { lane: g.lane, ticks: new Set([fresh.tick]) }
   }
 
@@ -1326,28 +1363,63 @@
     ui.openMenu(event, items, t('arrangement.menu'))
   }
 
-  /** Opens the field to type the value of the point under a double click. */
-  function editPoint(row: Row, x: number, y: number): boolean {
+  /**
+   * Opens the field to type the value of the point under a double click; on an empty part, the field of a new point there (the tick
+   * snapped as a click of the Draw tool, the value under the pointer): Enter adds it, Escape leaves the lane as it was (#769).
+   */
+  function editPoint(row: Row, x: number, y: number, tickStep: number | null): boolean {
     const ref = row.lane ? laneRefs.get(row.lane) : undefined
     if (!ref || !row.lane) return false
-    const hit = hitPoint(pointsOf(ref.info.lane), ref.info.axis, x, y, shown, geoOf(row))
-    if (!hit) return false
+    const geo = geoOf(row)
+    let hit = hitPoint(pointsOf(ref.info.lane), ref.info.axis, x, y, shown, geo)
+    if (!hit) {
+      const fresh = newPoint(ref.info.axis, shown, geo, x, y, tickStep)
+      hit = pointAtTick(pointsOf(ref.info.lane), fresh.tick)
+      if (!hit) {
+        limitNote = null
+        autoPick = null
+        editing = {
+          lane: row.lane,
+          tick: fresh.tick,
+          x: tickToX(fresh.tick, shown),
+          y: yOfPos(ref.info.axis.pos(fresh.value), geo),
+          fresh: true,
+          initial: ref.info.axis.format(fresh.value),
+        }
+        return true
+      }
+    }
     limitNote = null
     autoPick = { lane: row.lane, ticks: new Set([hit.tick]) }
     editing = { lane: row.lane, tick: hit.tick, x: tickToX(hit.tick, shown), y: yOfPos(ref.info.axis.pos(hit.value), geoOf(row)) }
     return true
   }
 
-  /** What the field of a typed value does with its text: one `automation.points.update`, or nothing when the value is the same. */
+  /**
+   * What the field of a typed value does with its text: one `automation.points.update`, or nothing when the value is the same. A
+   * fresh field adds its point (`automation.points.add`), or updates the point found on its tick meanwhile: one history entry.
+   */
   function commitValue(text: string): boolean {
     const e = editing
     const ref = e ? laneRefs.get(e.lane) : undefined
     const point = ref && e ? pointAtTick(pointsOf(ref.info.lane), e.tick) : null
-    if (!e || !ref || !point) return true
-    const parsed = ref.info.axis.parse(text)
+    if (!e || !ref || (!point && !e.fresh)) return true
+    // A fresh field applied as it opened keeps the lane's exact value (the text is rounded for display).
+    const parsed = e.fresh && text === e.initial && e.exact !== undefined ? { value: e.exact } : ref.info.axis.parse(text)
     if (parsed === null) return false
     const value = ref.info.axis.clamp(parsed.value)
-    if (value !== point.value) run(updatePoints(e.lane, [asPoint({ ...point, value })]))
+    const said = { value: ref.info.axis.format(value), at: atText(e.tick) }
+    if (!point) {
+      // The curve of the segment it lands in: a point inside a held step keeps the hold after it.
+      if (run(addPoints(e.lane, [{ tick: e.tick, value, shape: shapeAt(pointsOf(ref.info.lane), e.tick) }]))) {
+        announce(t('automation.saidAdded', said))
+        editedTick = e.tick
+      }
+      autoPick = { lane: e.lane, ticks: new Set([e.tick]) }
+    } else if (value !== point.value) {
+      if (run(updatePoints(e.lane, [asPoint({ ...point, value })]))) announce(t('automation.saidSet', said))
+      editedTick = e.tick
+    } else editedTick = e.tick
     // A text past the range is brought back to the bound, and the editor says so once the field has closed (#421, as #410 for the controls).
     limitNote = null
     if (parsed.limit !== undefined) sayLimited(ref.info.axis.format(ref.info.axis.clamp(parsed.limit)), e.x, e.y)
@@ -1481,7 +1553,7 @@
     const where = rowAt(layout, y, y0)
     // In a lane, a double click on a point opens the field to type its value (the clicks before it added or selected it).
     if (where?.kind === 'lane') {
-      editPoint(where, x, y)
+      editPoint(where, x, y, stepOf(event))
       return
     }
     if (where?.kind === 'add') return
@@ -1589,6 +1661,8 @@
 
   function onKeyDown(event: KeyboardEvent) {
     if (isTextTarget(event.target)) return
+    // A point's cell handles its own keys (#769); the ones it leaves (Shift+Delete, Ctrl+D) must not act on the selection behind it.
+    if ((event.target as HTMLElement | null)?.dataset?.pointLane !== undefined) return
     const mod = (event.ctrlKey || event.metaKey) && !event.altKey
     if (event.key === 'Delete' || event.key === 'Backspace') {
       if (autoSel) removePicked()
@@ -2011,6 +2085,268 @@
     void focusItem(made.id)
   }
 
+  // --- the automation lanes at the keyboard (#769) ---------------------------------------------------------------------
+  // A lane's head takes I or Insert (a point at the playhead: the field of its value opens there, Enter adds it), R ("Ramp to…": one
+  // `automation.points.restore`, a straight line from the lane's value at the playhead) and Right (into its points). The points
+  // are cells of the grid above, one row per lane shown: the arrows go from point to point, Enter types a value, Delete removes,
+  // Alt+arrows change the value or the position by a step. Every edit is a command, and the live region says what it did.
+
+  /** Whether a lane shown holds a point on a tick. */
+  const hasPoint = (lane: string, at: number) => {
+    const ref = laneRefs.get(lane)
+    return !!ref && pointAtTick(pointsOf(ref.info.lane), at) !== null
+  }
+  /** "at bar 5", "at bar 5, beat 2.5": where a point is, for the live region and the cells. */
+  function atText(at: number): string {
+    const where = barBeat(at)
+    return where.beat === 1 ? t('automation.atBar', { bar: where.bar }) : t('automation.atBeat', where)
+  }
+  /** The value a lane's parameter has before the lane holds a point: the project's (a device's parameter, the owner's volume or pan). */
+  function paramValue(trackId: string, info: LaneInfo): number {
+    const target = info.lane.target
+    const axis = info.axis
+    const view = project.view?.project
+    if ('mixer' in target) {
+      const mixer = trackId === MASTER ? view?.master : view?.tracks[trackId]?.mixer
+      if (!mixer) return axis.at(axis.home)
+      return axis.clamp(target.mixer.param === 'gain' ? (mixer.gain_db ?? MIN_GAIN_DB) : mixer.pan)
+    }
+    const devices = trackId === MASTER ? view?.master_devices : view?.tracks[trackId]?.devices
+    const value = devices?.[target.device.device]?.params[target.device.param]
+    return value === undefined ? axis.at(axis.home) : axis.clamp(value)
+  }
+  /** A lane's value on a tick, kept to the parameter's step: what its points give there, else the parameter's own. */
+  function laneValue(lane: string, at: number): number | null {
+    const ref = laneRefs.get(lane)
+    if (!ref) return null
+    const value = valueAt(pointsOf(ref.info.lane), at, ref.info.lane.target)
+    return value === null ? paramValue(ref.trackId, ref.info) : ref.info.axis.clamp(value)
+  }
+  /** The tick of the playhead, whole and on the timeline. */
+  const headAt = () => Math.min(MAX_TICK, Math.round(headTick()))
+  const laneRow = (lane: string) => layout.rows.find((r) => r.kind === 'lane' && r.lane === lane)
+
+  /** Brings a tick and a lane's row into the window. */
+  function bringIntoView(at: number, lane: string) {
+    const [from, to] = visibleRange(shown, stageW)
+    if (at < from || at > to) {
+      follow = false
+      view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: at - (stageW / shown.pxPerTick) * PAGE_LEAD }, stageW, totalTicks)
+    }
+    const row = laneRow(lane)
+    if (!row) return
+    const room = stageH - RULER_HEIGHT
+    if (row.top < y0) scrollY = clampScrollY(row.top, layout.total, stageH)
+    else if (row.top + row.height > y0 + room) scrollY = clampScrollY(row.top + row.height - room, layout.total, stageH)
+  }
+
+  /** Gives the keyboard to a point of a lane (its cell), in sight, and selects it. */
+  async function focusPointCell(lane: string, at: number) {
+    if (!hasPoint(lane, at)) return
+    focusPoint = { lane, tick: at }
+    autoPick = { lane, ticks: new Set([at]) }
+    bringIntoView(at, lane)
+    await tick()
+    itemsEl?.querySelector<HTMLElement>(`[data-point-lane="${CSS.escape(lane)}"][data-tick="${at}"]`)?.focus()
+  }
+  /** Gives the keyboard back to a lane's head (its button that adds a point at the playhead). */
+  function focusLaneHead(lane: string) {
+    focusPoint = null
+    document.querySelector<HTMLElement>(`[data-testid="arr-lane"][data-lane="${CSS.escape(lane)}"] [data-testid="arr-lane-point"]`)?.focus()
+  }
+
+  /** I: the field of a new point at the playhead, on the lane's value there; Enter adds it (or sets the point already on that tick). */
+  async function pointAtHead(lane: string, back: HTMLElement | null) {
+    const ref = laneRefs.get(lane)
+    const at = headAt()
+    const value = laneValue(lane, at)
+    if (!ref || value === null) return
+    bringIntoView(at, lane)
+    await tick()
+    const row = laneRow(lane)
+    if (!row) return
+    limitNote = null
+    editing = {
+      lane,
+      tick: at,
+      x: tickToX(at, shown),
+      y: yOfPos(ref.info.axis.pos(value), geoOf(row)),
+      fresh: true,
+      initial: ref.info.axis.format(value),
+      exact: value,
+      back,
+    }
+  }
+
+  /** R: the "Ramp to…" dialog, from the lane's value at the playhead as it is now. */
+  function openRamp(lane: string, back: HTMLElement | null) {
+    const at = headAt()
+    const from = laneValue(lane, at)
+    if (from === null) return
+    ramping = { lane, back, head: at, from }
+  }
+  const rampRef = $derived(ramping ? laneRefs.get(ramping.lane) : undefined)
+  /** The ramp asked: one `automation.points.restore` (the two ends, the points between taken out), one history entry. */
+  function submitRamp(at: number, entry: AxisEntry) {
+    const r = ramping
+    const ref = r ? laneRefs.get(r.lane) : undefined
+    ramping = null
+    if (!r || !ref) return
+    const axis = ref.info.axis
+    const value = axis.clamp(entry.value)
+    const plan = rampPlan(pointsOf(ref.info.lane), { tick: r.head, value: r.from }, { tick: at, value })
+    if (!plan || !run(restorePoints(r.lane, plan.points, plan.remove))) {
+      r.back?.focus()
+      return
+    }
+    const said = [t('automation.saidRamp', { from: axis.format(r.from), fromAt: atText(r.head), to: axis.format(value), toAt: atText(at) })]
+    if (entry.limit !== undefined) said.push(t('controls.limited', { value: axis.format(axis.clamp(entry.limit)) }))
+    if (plan.remove.length > 0) said.push(t('automation.saidReplaced', { n: plan.remove.length }))
+    announce(said.join('. '))
+    void focusPointCell(r.lane, at)
+  }
+  function closeRamp() {
+    const r = ramping
+    ramping = null
+    if (r?.back?.isConnected) r.back.focus()
+  }
+
+  /** The keys of a lane's head (any of its buttons). */
+  function onLaneHeadKey(event: KeyboardEvent, lane: string) {
+    if (isTextTarget(event.target)) return
+    const action = laneKey(event)
+    if (!action) return
+    // Taken here, so that the timeline's keys do not see it (I and R play no note).
+    event.preventDefault()
+    event.stopPropagation()
+    const back = event.target as HTMLElement
+    if (action === 'point') return void pointAtHead(lane, back)
+    if (action === 'ramp') return openRamp(lane, back)
+    const ref = laneRefs.get(lane)
+    const points = ref ? pointsOf(ref.info.lane) : []
+    const index = entryIndex(points, headTick())
+    if (index < 0) return announce(t('automation.saidNoPoint'))
+    void focusPointCell(lane, points[index]!.tick)
+  }
+
+  /** The keys of a point's cell. */
+  function onPointKey(event: KeyboardEvent, lane: string, at: number) {
+    const action = pointKey(event)
+    const ref = laneRefs.get(lane)
+    if (!action || !ref) return
+    event.preventDefault()
+    event.stopPropagation()
+    const cell = event.currentTarget as HTMLElement
+    const axis = ref.info.axis
+    const points = pointsOf(ref.info.lane)
+    const index = lowerBound(points, at)
+    const point = points[index]?.tick === at ? points[index]! : null
+    if (!point) return focusLaneHead(lane)
+    if (action.kind === 'point') return void pointAtHead(lane, cell)
+    if (action.kind === 'ramp') return openRamp(lane, cell)
+    if (action.kind === 'leave') return focusLaneHead(lane)
+    if (action.kind === 'go') return void focusPointCell(lane, points[goIndex(points.length, index, action.to)]!.tick)
+    if (action.kind === 'edit') {
+      const row = laneRow(lane)
+      if (!row) return
+      limitNote = null
+      editing = { lane, tick: at, x: tickToX(at, shown), y: yOfPos(axis.pos(point.value), geoOf(row)), back: cell }
+      return
+    }
+    if (action.kind === 'delete') {
+      const next = points[index + 1] ?? points[index - 1]
+      if (!run(removePoints(lane, [at]))) return
+      announce(t('automation.saidRemoved', { at: atText(at) }))
+      autoPick = null
+      if (next) void focusPointCell(lane, next.tick)
+      else focusLaneHead(lane)
+      return
+    }
+    if (action.kind === 'value') {
+      const value = stepValue(axis, point.value, action.direction, action.big)
+      const said = t('automation.saidSet', { value: axis.format(value), at: atText(at) })
+      if (value === point.value) return announce(said)
+      if (run(updatePoints(lane, [asPoint({ ...point, value })]))) announce(said)
+      return
+    }
+    // Alt+Left and Right: one snap step, as a drag does it (the old point out, the new one in, one history group).
+    const to = nudgedTick(at, action.direction, nudge)
+    if (to === null) return announce(t('automation.saidCannotMove'))
+    // A key never removes a point it was not on: another point on the target tick stops the move (a pointer drag replaces it, as seen).
+    if (hasPoint(lane, to)) return announce(t('automation.saidOccupied', { at: atText(to) }))
+    const plan = planMove(points, [point], [{ ...point, tick: to }])
+    if (plan?.kind === 'move') inGroup([removePoints(lane, plan.remove), addPoints(lane, plan.add)])
+    if (hasPoint(lane, to)) announce(t('automation.saidMovedPoint', { at: atText(to) }))
+    void focusPointCell(lane, to)
+  }
+
+  /** The most cells of points a lane shows at once: a denser view keeps the focused one only (the keyboard still reaches every point). */
+  const MAX_POINT_CELLS = 256
+  /** The size of a point's cell, in CSS pixels. */
+  const POINT_CELL = 14
+  /** The rows of the grid: each track's clips, and one row per lane shown (a track's or the master's) for its points. */
+  const gridRows = $derived(layout.rows.filter((r) => (r.kind === 'track' && r.trackId !== MASTER) || (r.kind === 'lane' && !!r.lane && laneRefs.has(r.lane))))
+  /**
+   * The words of a point's cell, kept by lane object (the project replaces a lane when it changes) and by index, so that a scroll or
+   * the playback, which move the cells, never rebuild them; a new language or meter starts a new cache.
+   */
+  const labelCache = $derived.by(() => {
+    void ui.lang
+    void signature
+    return new WeakMap<object, string[]>()
+  })
+  function pointLabel(info: LaneInfo, i: number): string {
+    let labels = labelCache.get(info.lane)
+    if (!labels) {
+      labels = []
+      labelCache.set(info.lane, labels)
+    }
+    const points = pointsOf(info.lane)
+    const p = points[i]!
+    labels[i] ??= t('automation.pointCell', {
+      value: info.axis.format(p.value),
+      at: atText(p.tick),
+      curve: t(p.shape === 'step' ? 'automation.shapeStep' : 'automation.shapeLinear'),
+      i: i + 1,
+      n: points.length,
+    })
+    return labels[i]
+  }
+  /** The cells of a lane's points: those in sight (up to the cap), and the focused one wherever it is. */
+  function pointCells(row: Row) {
+    const ref = row.lane ? laneRefs.get(row.lane) : undefined
+    if (!ref || stageW === 0) return []
+    const points = pointsOf(ref.info.lane)
+    const geo = geoOf(row)
+    const inRows = geo.top + geo.height >= RULER_HEIGHT && geo.top <= stageH
+    const [from, to] = visibleRange(shown, stageW)
+    const lo = lowerBound(points, from)
+    const hi = lowerBound(points, to + 1)
+    // A local set, built and read in this call: no reactivity to give it.
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
+    const chosen = new Set<number>()
+    if (inRows && hi - lo <= MAX_POINT_CELLS) for (let i = lo; i < hi; i++) chosen.add(i)
+    const focused = focusPoint
+    if (focused && focused.lane === row.lane) {
+      const i = lowerBound(points, focused.tick)
+      if (points[i]?.tick === focused.tick) chosen.add(i)
+    }
+    const pick = autoPick
+    const selected = pick && pick.lane === row.lane ? pick.ticks : NO_TICKS
+    return [...chosen]
+      .sort((a, b) => a - b)
+      .map((i) => {
+        const p = points[i]!
+        return {
+          tick: p.tick,
+          left: tickToX(p.tick, shown) - POINT_CELL / 2,
+          top: yOfPos(ref.info.axis.pos(p.value), geo) - POINT_CELL / 2,
+          selected: selected.has(p.tick),
+          label: pointLabel(ref.info, i),
+        }
+      })
+  }
+
   // Undo and redo say what they did here too (#494), from wherever they were asked; what was said before the view opened is not said again.
   let heardHistory = untrack(() => ui.historySaid.n)
   $effect(() => {
@@ -2285,6 +2621,9 @@
             {@const ref = laneRefs.get(row.lane ?? '')}
             {#if ref}
               {@const live = shownTick === null ? null : valueAt(pointsOf(ref.info.lane), shownTick, ref.info.lane.target)}
+              {@const count = pointsOf(ref.info.lane).length}
+              <!-- The group relays the keys of its buttons: I (Insert), R and Right (#769). -->
+              <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
               <div
                 class="lane-head"
                 style:height="{row.height}px"
@@ -2295,11 +2634,40 @@
                 data-testid="arr-lane"
                 data-lane={row.lane}
                 data-target={ref.info.title}
-                data-points={Object.keys(ref.info.lane.points).length}
+                data-points={count}
+                onkeydown={(e) => onLaneHeadKey(e, row.lane!)}
               >
                 <span class="swatch"></span>
-                <span class="lane-name"><span class="group">{ref.info.group}</span><span class="param">{ref.info.label}</span></span>
+                <span class="lane-name"
+                  ><span class="group">{ref.info.group}</span><span class="param">{ref.info.label}</span><span class="count" data-testid="arr-lane-count"
+                    >{t('automation.pointCount', { n: count })}</span
+                  ></span
+                >
                 <span class="lane-value" title={t('automation.valueNow')} data-testid="arr-lane-value">{live === null ? '' : ref.info.axis.format(live)}</span>
+                <button
+                  class="lane-tool"
+                  aria-label={t('automation.addPointFor', { title: ref.info.title })}
+                  aria-keyshortcuts="I Insert"
+                  title={`${t('automation.addPoint')} (I)`}
+                  data-testid="arr-lane-point"
+                  onclick={(e) => pointAtHead(row.lane!, e.currentTarget)}
+                >
+                  <svg width="10" height="10" viewBox="0 0 14 14" aria-hidden="true"
+                    ><path d="M7 2 V 12 M2 7 H 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg
+                  >
+                </button>
+                <button
+                  class="lane-tool"
+                  aria-label={t('automation.rampFor', { title: ref.info.title })}
+                  aria-keyshortcuts="R"
+                  title={`${t('automation.ramp')} (R)`}
+                  data-testid="arr-lane-ramp"
+                  onclick={(e) => openRamp(row.lane!, e.currentTarget)}
+                >
+                  <svg width="10" height="10" viewBox="0 0 14 14" aria-hidden="true"
+                    ><path d="M2 12 L 12 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg
+                  >
+                </button>
                 <button
                   class="lane-delete"
                   aria-label={t('automation.deleteLane', { title: ref.info.title })}
@@ -2426,7 +2794,7 @@
         bind:this={itemsEl}
         role="grid"
         aria-label={t('arrangement.clipsGrid')}
-        aria-rowcount={entries.length}
+        aria-rowcount={gridRows.length}
         aria-multiselectable="true"
         style:top="{RULER_HEIGHT}px"
         data-testid="arr-items"
@@ -2434,44 +2802,73 @@
         onfocusin={onItemsFocus}
         onfocusout={onItemsFocusOut}
       >
-        {#each entries as entry, row (entry.id)}
-          {@const cells = shownItems.filter((i) => i.block.track === entry.id)}
-          {@const here = cursorPos?.row === row && cursorCell && stageW > 0 ? cursorCell : null}
-          {#if cells.length > 0 || here}
-            <div role="row" aria-rowindex={entry.index + 1} aria-label={trackLabel(entry, t)}>
-              {#if here}
-                <div
-                  class="item cursor"
-                  role="gridcell"
-                  tabindex={cursorTab ? 0 : -1}
-                  aria-selected="false"
-                  aria-label={cursorText}
-                  data-cursor=""
-                  data-testid="arr-cursor"
-                  data-row={cursorPos?.row}
-                  data-tick={cursorPos?.tick}
-                  style:left="{here.left}px"
-                  style:top="{here.top - RULER_HEIGHT}px"
-                  style:width="{here.width}px"
-                  style:height="{here.height}px"
-                ></div>
-              {/if}
-              {#each cells as cell (cell.block.id)}
-                <div
-                  class="item"
-                  role="gridcell"
-                  tabindex={cell.block.id === tabId && !cursorTab ? 0 : -1}
-                  aria-selected={selectedIds.has(cell.block.id)}
-                  aria-label={clipText(cell.block)}
-                  data-block={cell.block.id}
-                  data-testid="arr-item"
-                  style:left="{cell.left}px"
-                  style:top="{cell.top - RULER_HEIGHT}px"
-                  style:width="{cell.width}px"
-                  style:height="{cell.height}px"
-                ></div>
-              {/each}
-            </div>
+        {#each gridRows as gridRow, index (gridRow.kind === 'lane' ? `lane:${gridRow.lane}` : `track:${gridRow.trackId}`)}
+          {#if gridRow.kind === 'lane'}
+            {@const ref = laneRefs.get(gridRow.lane ?? '')}
+            {@const points = pointCells(gridRow)}
+            {#if ref && points.length > 0}
+              <!-- The points of a lane (#769): one cell each, reached from the lane's head; the cell takes its own keys. -->
+              <div role="row" aria-rowindex={index + 1} aria-label={t('automation.pointsRow', { title: ref.info.title })} data-testid="arr-point-row">
+                {#each points as cell (cell.tick)}
+                  <div
+                    class="item point"
+                    role="gridcell"
+                    tabindex="-1"
+                    aria-selected={cell.selected}
+                    aria-label={cell.label}
+                    data-point-lane={gridRow.lane}
+                    data-tick={cell.tick}
+                    data-testid="arr-point"
+                    style:left="{cell.left}px"
+                    style:top="{cell.top - RULER_HEIGHT}px"
+                    style:width="{POINT_CELL}px"
+                    style:height="{POINT_CELL}px"
+                    onkeydown={(e) => onPointKey(e, gridRow.lane!, cell.tick)}
+                  ></div>
+                {/each}
+              </div>
+            {/if}
+          {:else}
+            {@const entry = entries[gridRow.track]!}
+            {@const row = gridRow.track}
+            {@const cells = shownItems.filter((i) => i.block.track === entry.id)}
+            {@const here = cursorPos?.row === row && cursorCell && stageW > 0 ? cursorCell : null}
+            {#if cells.length > 0 || here}
+              <div role="row" aria-rowindex={index + 1} aria-label={trackLabel(entry, t)}>
+                {#if here}
+                  <div
+                    class="item cursor"
+                    role="gridcell"
+                    tabindex={cursorTab ? 0 : -1}
+                    aria-selected="false"
+                    aria-label={cursorText}
+                    data-cursor=""
+                    data-testid="arr-cursor"
+                    data-row={cursorPos?.row}
+                    data-tick={cursorPos?.tick}
+                    style:left="{here.left}px"
+                    style:top="{here.top - RULER_HEIGHT}px"
+                    style:width="{here.width}px"
+                    style:height="{here.height}px"
+                  ></div>
+                {/if}
+                {#each cells as cell (cell.block.id)}
+                  <div
+                    class="item"
+                    role="gridcell"
+                    tabindex={cell.block.id === tabId && !cursorTab ? 0 : -1}
+                    aria-selected={selectedIds.has(cell.block.id)}
+                    aria-label={clipText(cell.block)}
+                    data-block={cell.block.id}
+                    data-testid="arr-item"
+                    style:left="{cell.left}px"
+                    style:top="{cell.top - RULER_HEIGHT}px"
+                    style:width="{cell.width}px"
+                    style:height="{cell.height}px"
+                  ></div>
+                {/each}
+              </div>
+            {/if}
           {/if}
         {/each}
       </div>
@@ -2514,16 +2911,27 @@
           <ValueField
             anchor={editAnchor}
             initial={(() => {
+              if (editing.fresh) return editing.initial ?? ''
               const ref = laneRefs.get(editing.lane)
               const point = ref ? pointAtTick(pointsOf(ref.info.lane), editing.tick) : null
               return ref && point ? ref.info.axis.format(point.value) : ''
             })()}
             label={t('automation.pointField')}
+            fresh={editing.fresh === true}
             commit={commitValue}
             onclose={(refocus) => {
+              const closed = editing
+              const edited = editedTick
+              editedTick = null
               editing = null
               editAnchor = undefined
-              if (refocus) focusGrid()
+              if (!refocus || !closed) return
+              // Opened from the keyboard (a lane's head, a point): the point it made or changed takes the keyboard, else what opened it.
+              if (closed.back !== undefined) {
+                if (edited !== null && hasPoint(closed.lane, edited)) void focusPointCell(closed.lane, edited)
+                else if (closed.back?.isConnected) closed.back.focus()
+                else focusGrid()
+              } else focusGrid()
             }}
           />
         {/if}
@@ -2567,6 +2975,18 @@
   </div>
 </div>
 
+<RampDialog
+  open={ramping !== null && rampRef !== undefined}
+  title={rampRef?.info.title ?? ''}
+  from={ramping && rampRef ? t('automation.rampFrom', { value: rampRef.info.axis.format(ramping.from), at: atText(ramping.head) }) : ''}
+  axis={rampRef?.info.axis ?? null}
+  {signature}
+  headTick={ramping?.head ?? 0}
+  initialPosition={ramping ? String(Math.floor(ramping.head / bar) + 2) : ''}
+  initialValue={ramping && rampRef ? rampRef.info.axis.format(ramping.from) : ''}
+  onsubmit={submitRamp}
+  onclose={closeRamp}
+/>
 <BarDialog
   open={repeating !== null}
   name="repeat"
@@ -2913,6 +3333,10 @@
     outline-offset: 1px;
   }
   /* The free cursor (#494): seen only while it has the keyboard, as a tinted bar where Enter would create the clip. */
+  /* A point of a lane (#769): seen only while it has the keyboard, a ring around the point the canvas draws. */
+  .point {
+    border-radius: 50%;
+  }
   .cursor:focus-visible {
     background: var(--fk-accent-tint);
     outline-style: dashed;
@@ -3003,6 +3427,11 @@
     font-size: 11px;
     color: var(--fk-text-muted);
   }
+  .lane-name .count {
+    color: var(--fk-text-muted);
+    font-size: 11px;
+  }
+  .lane-tool,
   .lane-delete {
     flex: none;
     display: grid;
