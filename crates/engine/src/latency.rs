@@ -84,6 +84,11 @@ pub struct Timing {
 }
 
 impl Timing {
+    /// Whether the line passed its block through (no delay, nothing kept).
+    pub fn is_pass(&self) -> bool {
+        self.pass
+    }
+
     /// A pass-through: no delay, nothing kept.
     pub const PASS: Timing = Timing {
         tap: 0,
@@ -145,6 +150,31 @@ impl Delay {
     pub fn clear(&mut self) {
         self.written = 0;
         self.quiet = u64::MAX;
+    }
+
+    /// Whether the line delays nothing and moves toward nothing: at a tap of 0, no crossfade
+    /// under way.
+    pub fn at_rest(&self) -> bool {
+        self.tap == 0 && !self.crossfading()
+    }
+
+    /// Clears the line and fills it with `frames` frames (at most what it holds) of one value,
+    /// as if it had been fed that value (#758): a line of levels that was not fed while it had
+    /// nothing to delay takes its history from the level it starts from, so that a longer tap
+    /// can start at once. Linear in `frames`, no allocation.
+    pub fn prime(&mut self, left: f32, right: f32, frames: u32) {
+        let frames = (frames as usize).min(self.left.len());
+        for _ in 0..frames {
+            self.left[self.pos] = left;
+            self.right[self.pos] = right;
+            self.pos = (self.pos + 1) & self.mask;
+        }
+        self.written = frames as u64;
+        self.quiet = if left.abs() > QUIET || right.abs() > QUIET {
+            0
+        } else {
+            frames as u64
+        };
     }
 
     /// Takes `other`'s content, position and tap when both hold the same frames (a device put
@@ -315,6 +345,14 @@ impl Bypass {
     /// The strip's line (tests).
     pub fn strip(&self) -> &Delay {
         &self.strip
+    }
+
+    /// Whether the strip's levels must go through the strip line in the block just run (#758):
+    /// the bypass line did not pass that block through (it delays, moves, or fills toward a
+    /// longer tap, which the strip line must follow frame for frame), or the strip line itself
+    /// is not at rest. A device with a latency of 0 that stays at 0 needs neither.
+    pub fn strip_active(&self) -> bool {
+        !self.line.timing().pass || !self.strip.at_rest()
     }
 }
 
@@ -719,6 +757,48 @@ mod tests {
         pass.follow(&mut l, &mut r, Timing::PASS, 6);
         assert_eq!(l, vec![1.0; 8], "a pass-through");
         assert!(!pass.busy());
+    }
+
+    #[test]
+    fn a_primed_line_starts_a_longer_tap_at_once_on_its_value() {
+        let mut d = Delay::try_new(64, 0).unwrap();
+        d.prime(0.5, 0.25, 40);
+        let (mut l, mut r) = (vec![1.0; 8], vec![1.0; 8]);
+        d.process(&mut l, &mut r, 30, 4);
+        assert_eq!(d.tap(), 30, "the history is there: no wait");
+        // The crossfade from tap 0 (the fresh 1.0) toward the primed 0.5, then the primed value.
+        assert_eq!(l[0], 1.0 + 0.25 * (0.5 - 1.0));
+        assert_eq!(&l[3..], &[0.5; 5]);
+        assert_eq!(&r[3..], &[0.25; 5]);
+        assert!(d.busy());
+        let mut silent = Delay::try_new(64, 0).unwrap();
+        silent.prime(0.0, 0.0, 40);
+        assert!(!silent.busy(), "a history of silence is silence");
+    }
+
+    #[test]
+    fn a_bypass_with_a_latency_of_0_needs_no_strip_line() {
+        let mut b = Bypass {
+            line: Delay::try_new(64, 0).unwrap(),
+            strip: Delay::try_new(64, 0).unwrap(),
+            off: false,
+            warm: 0,
+            mix: 0.0,
+        };
+        assert!(!b.strip_active(), "a new line passed nothing yet");
+        let (mut l, mut r) = (vec![1.0; 8], vec![1.0; 8]);
+        b.line.process(&mut l, &mut r, 0, 4);
+        assert!(!b.strip_active(), "a pass-through");
+        // Asked for a longer tap, the line fills (reading at 0): the strip line must follow.
+        b.line.process(&mut l, &mut r, 20, 4);
+        assert!(b.strip_active(), "filling toward 20");
+        let mut lines = b;
+        lines.line.restart(0);
+        lines.line.process(&mut l, &mut r, 0, 4);
+        lines.strip.restart(10);
+        assert!(lines.strip_active(), "the strip line still delays");
+        lines.strip.restart(0);
+        assert!(!lines.strip_active());
     }
 
     #[test]
