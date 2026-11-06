@@ -1328,7 +1328,7 @@
         { id: 'duplicate', label: t('arrangement.duplicate'), shortcut: mod(['D']), separator: true, run: () => duplicate(false) },
         { id: 'duplicate-linked', label: t('arrangement.duplicateLinked'), shortcut: mod(['Shift', 'D']), run: () => duplicate(true) },
         { id: 'repeat', label: t('arrangement.repeatUntil'), shortcut: mod(['Shift', 'R']), disabled: picked.size !== 1, run: openRepeat },
-        { id: 'split', label: t('arrangement.split'), shortcut: mod(['E']), disabled: cuts.length === 0, run: splitSelected },
+        { id: 'split', label: t('arrangement.split'), shortcut: mod(['E']), disabled: cuts.length === 0, run: () => splitSelected() },
         {
           id: 'move-up',
           label: t('arrangement.moveUp'),
@@ -1541,10 +1541,14 @@
   const position = $derived(shownTick === null ? null : Math.round(shownTick))
   const cuts = $derived(position === null ? [] : splittable(selection, position))
 
-  function splitSelected() {
-    if (position === null || cuts.length === 0) return
-    inGroup(cuts.map((b) => splitPlacement(b.id, position)))
-    announce(t('arrangement.saidSplit', { n: cuts.length }))
+  function splitSelected(from: readonly Block[] = selection) {
+    if (position === null) return
+    const targets = splittable(from, position)
+    if (targets.length === 0) return
+    // The count is taken before the cut: it is the placements the cut acts on, not what the selection holds afterwards (#772).
+    const n = targets.length
+    inGroup(targets.map((b) => splitPlacement(b.id, position)))
+    announce(t('arrangement.saidSplit', { n }))
   }
 
   function onDoubleClick(event: MouseEvent) {
@@ -1686,8 +1690,13 @@
       const focused = id && selection.length === 0 ? blocks.find((b) => b.id === id) : undefined
       if (focused) picked = new Set([focused.id])
       duplicate(event.shiftKey, focused ? [focused] : selection)
-    } else if (mod && !event.shiftKey && event.key.toLowerCase() === 'e') splitSelected()
-    else return
+    } else if (mod && !event.shiftKey && event.key.toLowerCase() === 'e') {
+      // As Ctrl+D: with nothing selected, the clip the keyboard focus is on is the one cut (#772).
+      const id = (event.target as HTMLElement | null)?.dataset?.block
+      const focused = id && selection.length === 0 ? blocks.find((b) => b.id === id) : undefined
+      if (focused) picked = new Set([focused.id])
+      splitSelected(focused ? [focused] : selection)
+    } else return
     event.preventDefault()
   }
 
@@ -2499,7 +2508,9 @@
         {/each}
       </select>
     </label>
-    <button title={t('arrangement.splitHint')} disabled={cuts.length === 0} data-testid="arr-split" onclick={splitSelected}>{t('arrangement.split')}</button>
+    <button title={t('arrangement.splitHint')} disabled={cuts.length === 0} data-testid="arr-split" onclick={() => splitSelected()}
+      >{t('arrangement.split')}</button
+    >
     <button title={t('arrangement.duplicateHint')} disabled={selection.length === 0} data-testid="arr-duplicate" onclick={() => duplicate(false)}
       >{t('arrangement.duplicate')}{#if selection.length > 1}
         ({selection.length}){/if}</button
