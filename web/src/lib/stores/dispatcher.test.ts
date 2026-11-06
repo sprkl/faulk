@@ -67,6 +67,9 @@ let nativeEngine: {
   push: ReturnType<typeof vi.fn>
   /** `live.routing` (#598); a test that leaves it out gets a stub. */
   route?: ReturnType<typeof vi.fn>
+  /** `folder.open` / `folder.close` and `folder.choose` (AU-7); a test that leaves them out gets stubs. */
+  place?: ReturnType<typeof vi.fn>
+  chooseFolder?: ReturnType<typeof vi.fn>
   close: ReturnType<typeof vi.fn>
 } | null = null
 /** The engine bytes the helper was sent since its `from`th send (BO-1: what a command means for its engine). */
@@ -76,7 +79,11 @@ vi.mock('../engine/native-engine', () => ({
   NativeEngine: {
     connect: (_token: string, events: EngineEvents) => {
       nativeEvents = events
-      if (nativeEngine) nativeEngine.route ??= vi.fn()
+      if (nativeEngine) {
+        nativeEngine.route ??= vi.fn()
+        nativeEngine.place ??= vi.fn()
+        nativeEngine.chooseFolder ??= vi.fn()
+      }
       return nativeEngine ? Promise.resolve(nativeEngine) : Promise.reject(new Error('no helper in tests'))
     },
   },
@@ -2971,5 +2978,162 @@ describe("an agent's destructive calls wait for the user's answer in the page (A
     expect(session.dispatcher.confirmations.pending).toEqual([])
     expect(spies.keepMine).not.toHaveBeenCalled()
     expect(spies.loadDisk).not.toHaveBeenCalled()
+  })
+})
+
+describe('the project folder in Boost (AU-7)', () => {
+  beforeEach(() => {
+    webs = []
+    nativeEngine = null
+    midiOn = false
+    midiReleaseAll = () => Promise.resolve()
+    localStorage.clear()
+  })
+
+  afterEach(() => vi.restoreAllMocks())
+
+  async function boosted() {
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
+      close: vi.fn(() => Promise.resolve()),
+    }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    return session
+  }
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+  const folder = (name: string) => ({ name }) as FileSystemDirectoryHandle
+
+  it('names the project and a marker written in its real folder, once per folder, and closes for a browser project', async () => {
+    const session = await boosted()
+    const nonces: string[] = []
+    const write = vi.spyOn(session.storage, 'writeHelperLink').mockImplementation((nonce) => {
+      nonces.push(nonce)
+      return Promise.resolve({ status: 'written' as const, name: 'Song' })
+    })
+    const song = folder('Song')
+    session.dispatcher.host.folderChanged!(song)
+    await session.dispatcher.enterBoost()
+    await settle()
+    const id = session.project.view!.project.id
+    expect(nativeEngine!.place).toHaveBeenLastCalledWith({ project: id, nonce: nonces[0], name: 'Song' })
+    expect(nonces[0]).toMatch(/^[0-9a-f]{32}$/)
+    // The same folder again (a second attach of it): the same marker, not written again.
+    session.dispatcher.host.folderChanged!(song)
+    await settle()
+    expect(write).toHaveBeenCalledTimes(1)
+    // Another folder: a new marker.
+    session.dispatcher.host.folderChanged!(folder('Other'))
+    await settle()
+    expect(write).toHaveBeenCalledTimes(2)
+    expect(nonces[1]).not.toBe(nonces[0])
+    // A project kept in the browser (the store writes no marker there): the helper closes its folder.
+    write.mockResolvedValue({ status: 'no_folder' })
+    session.dispatcher.host.folderChanged!(folder('draft-dir'))
+    await settle()
+    expect(nativeEngine!.place).toHaveBeenLastCalledWith(null)
+  })
+
+  it('keeps the helper state of the project open only, and forgets it back in Web', async () => {
+    const session = await boosted()
+    await session.dispatcher.enterBoost()
+    const id = session.project.view!.project.id
+    nativeEvents!.onFolderState!(id, { status: 'unknown' })
+    expect(session.engine.helperFolder).toEqual({ project: id, state: { status: 'unknown' } })
+    // About another project (the page opened one since): stale.
+    nativeEvents!.onFolderState!('01J0000000000000000000000B', { status: 'open', name: 'Old' })
+    expect(session.engine.helperFolder?.state).toEqual({ status: 'unknown' })
+    nativeEvents!.onFolderState!(null, { status: 'closed' })
+    expect(session.engine.helperFolder).toEqual({ project: null, state: { status: 'closed' } })
+    await session.dispatcher.enterWeb()
+    expect(session.engine.helperFolder).toBeNull()
+  })
+
+  it('project.choose_helper_folder asks the helper with the place, and says why when it cannot', async () => {
+    const session = await boosted()
+    const write = vi.spyOn(session.storage, 'writeHelperLink').mockResolvedValue({ status: 'no_folder' })
+    // In Web mode: a notice.
+    expect(session.dispatcher.run({ type: 'project.choose_helper_folder' })).toBe(true)
+    await settle()
+    expect(session.engine.notice).toBe('helper.folderNotBoost')
+    await session.dispatcher.enterBoost()
+    // No real folder: a notice, nothing asked.
+    session.dispatcher.host.folderChanged!(folder('draft-dir'))
+    await settle()
+    expect(session.dispatcher.run({ type: 'project.choose_helper_folder' })).toBe(true)
+    await settle()
+    expect(session.engine.notice).toBe('helper.folderInBrowser')
+    expect(nativeEngine!.chooseFolder).not.toHaveBeenCalled()
+    write.mockResolvedValue({ status: 'written', name: 'Song' })
+    session.dispatcher.host.folderChanged!(folder('Song'))
+    await settle()
+    expect(session.dispatcher.run({ type: 'project.choose_helper_folder' })).toBe(true)
+    await settle()
+    expect(nativeEngine!.chooseFolder).toHaveBeenCalledWith(expect.objectContaining({ project: session.project.view!.project.id, name: 'Song' }))
+    // Without a click behind it (an agent's call): the helper's window is not opened.
+    const activation = Object.getOwnPropertyDescriptor(navigator, 'userActivation')
+    Object.defineProperty(navigator, 'userActivation', { configurable: true, value: { isActive: false } })
+    try {
+      expect(session.dispatcher.run({ type: 'project.choose_helper_folder' })).toBe(true)
+      await settle()
+      expect(session.engine.notice).toBe('helper.folderNeedsClick')
+      expect(nativeEngine!.chooseFolder).toHaveBeenCalledTimes(1)
+    } finally {
+      if (activation) Object.defineProperty(navigator, 'userActivation', activation)
+      else delete (navigator as { userActivation?: unknown }).userActivation
+    }
+  })
+
+  it('a marker the folder refused says so, closes nothing, and is tried again once the access is allowed', async () => {
+    const session = await boosted()
+    const write = vi.spyOn(session.storage, 'writeHelperLink').mockResolvedValue({ status: 'failed' })
+    const resume = vi.spyOn(session.storage, 'resume').mockResolvedValue(true)
+    await session.dispatcher.enterBoost()
+    await settle()
+    const told = nativeEngine!.place!.mock.calls.length
+    session.dispatcher.host.folderChanged!(folder('Song'))
+    await settle()
+    // Not taken for a browser project: the helper is told nothing, and the Clips panel says why.
+    expect(nativeEngine!.place!.mock.calls.length).toBe(told)
+    expect(session.engine.helperLinkFailed).toBe(true)
+    session.dispatcher.run({ type: 'project.choose_helper_folder' })
+    await settle()
+    expect(session.engine.notice).toBe('helper.folderNoMarker')
+    expect(nativeEngine!.chooseFolder).not.toHaveBeenCalled()
+    // The user allows the access again: the marker is written, and the helper told.
+    write.mockResolvedValue({ status: 'written', name: 'Song' })
+    session.dispatcher.run({ type: 'project.allow_access' })
+    await settle()
+    await settle()
+    expect(resume).toHaveBeenCalled()
+    expect(session.engine.helperLinkFailed).toBe(false)
+    expect(nativeEngine!.place).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'Song' }))
+  })
+
+  it('two callers for one new folder share one marker write: the nonce told is the one written', async () => {
+    const session = await boosted()
+    await session.dispatcher.enterBoost()
+    let finish: (value: { status: 'written'; name: string }) => void = () => {}
+    const nonces: string[] = []
+    const write = vi.spyOn(session.storage, 'writeHelperLink').mockImplementation((nonce) => {
+      nonces.push(nonce)
+      return new Promise((resolve) => (finish = resolve))
+    })
+    session.dispatcher.host.folderChanged!(folder('Song'))
+    // The click comes before the write of the attach is done.
+    session.dispatcher.run({ type: 'project.choose_helper_folder' })
+    await settle()
+    finish({ status: 'written', name: 'Song' })
+    await settle()
+    await settle()
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(nativeEngine!.chooseFolder).toHaveBeenCalledWith(expect.objectContaining({ nonce: nonces[0] }))
+    for (const call of nativeEngine!.place!.mock.calls) if (call[0]) expect(call[0]).toMatchObject({ nonce: nonces[0] })
   })
 })

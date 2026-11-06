@@ -253,6 +253,31 @@ describe('the Boost engine reads the helper', () => {
     expect(next.socket.sent).toHaveLength(1)
   })
 
+  it('tells the helper the project folder only when it changed, never a path, and hands its state over (AU-7)', async () => {
+    const { engine, socket, events } = await session()
+    const onFolderState = vi.fn()
+    ;(events as EngineEvents).onFolderState = onFolderState
+    const place = { project: '01J0000000000000000000000A', nonce: '0123456789abcdef0123456789abcdef', name: 'Song' }
+    engine.place(place)
+    engine.place({ ...place })
+    expect(socket.sent).toEqual([JSON.stringify({ type: 'folder.open', ...place })])
+    engine.place(null)
+    engine.place(null)
+    engine.place(place)
+    expect(socket.sent.slice(1)).toEqual([JSON.stringify({ type: 'folder.close' }), JSON.stringify({ type: 'folder.open', ...place })])
+    engine.chooseFolder(place)
+    expect(socket.sent.at(-1)).toBe(JSON.stringify({ type: 'folder.choose', ...place }))
+    for (const sent of socket.sent) expect(Object.keys(JSON.parse(sent as string) as object).sort()).not.toContain('path')
+    socket.onmessage!({ data: JSON.stringify({ type: 'folder.state', project: place.project, state: { status: 'ambiguous', count: 2 } }) })
+    expect(onFolderState).toHaveBeenCalledWith(place.project, { status: 'ambiguous', count: 2 })
+    socket.onmessage!({ data: JSON.stringify({ type: 'folder.state', project: null, state: { status: 'closed' } }) })
+    expect(onFolderState).toHaveBeenLastCalledWith(null, { status: 'closed' })
+    // A new session tells its place again, even the same one.
+    const next = await session()
+    next.engine.place(null)
+    expect(next.socket.sent).toEqual([JSON.stringify({ type: 'folder.close' })])
+  })
+
   it('takes a session closed without a word for a refused one', async () => {
     vi.stubGlobal('WebSocket', FakeSocket)
     const events = { onStatus: vi.fn(), onFeedback: vi.fn(), onError: vi.fn(), onClosed: vi.fn() } satisfies EngineEvents

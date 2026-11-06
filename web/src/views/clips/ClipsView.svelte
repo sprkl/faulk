@@ -11,13 +11,14 @@
   import { barStart } from '../../lib/arrangement-commands'
   import { CLIP_DRAG_TYPE, clipTrackType, freeScene, gridCommand, placeCommand, poolNames, poolOf, type PoolClip } from '../../lib/clip-pool'
   import { cancelAudioImport, chooseAudio, deleteClip } from '../../lib/clip-commands'
+  import { boostFolderNotice, chooseHelperFolder } from '../../lib/audio/boost-folder'
   import type { ImportFailure } from '../../lib/audio/import/audio-import.svelte'
   import type { MessageKey } from '../../lib/i18n'
   import { useStores } from '../../lib/stores'
   import { barTicks } from '../transport/time'
   import { trackColor } from '../../lib/project/tracks'
 
-  const { project, dispatcher, ui, engine, audioImport, peaks } = useStores()
+  const { project, dispatcher, ui, engine, audioImport, peaks, storage } = useStores()
   const t = ui.t
 
   /** What a failed import says: by why the file was refused, or that the folder refused it. */
@@ -45,6 +46,8 @@
   /** The import under way into this track, and the last failure of one (AU-1). */
   const importing = $derived(audioImport.running && audioImport.running.track === trackId ? audioImport.running : null)
   const failed = $derived(audioImport.failure && audioImport.failure.track === trackId ? audioImport.failure : null)
+  /** In Boost, what the helper needs to play the audio clips from the project's folder (AU-7). */
+  const boostNotice = $derived(engine.mode === 'native' ? boostFolderNotice(storage.inBrowser, engine.helperFolder, engine.helperLinkFailed) : null)
 
   function where(entry: PoolClip): string {
     const parts: string[] = []
@@ -148,9 +151,18 @@
       {:else if audioImport.needsClick}
         <span class="failure" role="status" data-testid="audio-import-needs-click">{t('clips.importNeedsClick')}</span>
         <button class="ghost" type="button" onclick={() => audioImport.dismiss()}>{t('clips.dismiss')}</button>
-      {:else if engine.mode === 'native'}
-        <!-- The helper reads no project folder yet (AU-7): its engine keeps audio clips silent. -->
-        <span class="note" role="status" data-testid="audio-boost-silent">{t('clips.boostSilent')}</span>
+      {:else if boostNotice}
+        <!-- In Boost the helper plays audio clips from the project's folder (AU-7): what it needs from the user. -->
+        <span class="note" role="status" data-testid="audio-boost-folder" data-key={boostNotice.key}>{t(boostNotice.key, boostNotice.vars)}</span>
+        {#if boostNotice.ask}
+          <button
+            class="ghost"
+            type="button"
+            title={t('clips.boostShowFolderHint')}
+            data-testid="audio-boost-show-folder"
+            onclick={() => dispatcher.run(chooseHelperFolder)}>{t('clips.boostShowFolderButton')}</button
+          >
+        {/if}
       {/if}
     </div>
   {/if}

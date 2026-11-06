@@ -24,14 +24,18 @@
 //! (`agent.left`), so that the page closes the history group that agent left open.
 
 use crate::audio::{EngineSlot, Meter, Refusal};
+use crate::disk::{
+    DialogGate, FolderPicker, Lookup, NoPicker, OpenError, OpenFolder, Picked, ProjectFolder,
+    Remembered,
+};
 use crate::live::LiveInput;
 use crate::midi::{MidiManager, Received};
 use crate::security::{Handshake, PairResult, Pairing, Policy, Route};
 use crate::updater::UpdateWatch;
 use futures_util::{SinkExt, StreamExt};
 use protocol::{
-    AgentResult, Capabilities, ClientMessage, HELPER_NAME, MAX_STREAM_BYTES, PROTOCOL_VERSION,
-    ServerMessage,
+    AgentResult, Capabilities, ClientMessage, FolderRefusal, FolderStatus, HELPER_NAME,
+    MAX_STREAM_BYTES, PROTOCOL_VERSION, ServerMessage,
 };
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -125,6 +129,30 @@ pub struct Shared {
     agents: Mutex<crate::agents::Presence>,
     /// How long an agent may stay silent before it counts as gone (tests shorten it).
     agent_idle: Duration,
+    /// The project folder the session's page has open (AU-7), read by the disk thread.
+    open_folder: Arc<OpenFolder>,
+    /// What the session's page said of its project's place: the session, the project and the
+    /// page's link marker. A dialog's answer is taken only while they still hold.
+    link: Mutex<Option<Link>>,
+    /// Numbers the places named (`Link::seq`).
+    next_place: AtomicU64,
+    /// The folders the user picked in the helper's dialog.
+    remembered: Mutex<Remembered>,
+    picker: Arc<dyn FolderPicker>,
+    /// One folder dialog at a time.
+    dialog: Arc<DialogGate>,
+    /// The language of the dialog's title.
+    lang: crate::tray_text::Lang,
+}
+
+/// The project's place a session's page named (`folder.open`, `folder.choose`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Link {
+    session: u64,
+    project: String,
+    nonce: String,
+    /// Which folder message named it: a later one is a newer place.
+    seq: u64,
 }
 
 /// An agent's MCP session, counted as long as it lives (#641): dropped with the session (the
@@ -239,7 +267,41 @@ impl Shared {
             mcp: OnceLock::new(),
             agents: Mutex::new(crate::agents::Presence::default()),
             agent_idle: crate::agents::AGENT_IDLE,
+            open_folder: Arc::new(OpenFolder::default()),
+            link: Mutex::new(None),
+            next_place: AtomicU64::new(1),
+            remembered: Mutex::new(Remembered::default()),
+            picker: Arc::new(NoPicker),
+            dialog: Arc::new(DialogGate::default()),
+            lang: crate::tray_text::Lang::En,
         }
+    }
+
+    /// The folders the helper remembers and its folder dialog (AU-7), with the language of the
+    /// dialog's title. Without it the helper remembers nothing and has no dialog.
+    pub fn with_folders(
+        mut self,
+        remembered: Remembered,
+        picker: Arc<dyn FolderPicker>,
+        lang: crate::tray_text::Lang,
+    ) -> Self {
+        self.remembered = Mutex::new(remembered);
+        self.picker = picker;
+        self.lang = lang;
+        self
+    }
+
+    /// The project folder the session's page has open, for the disk thread (`crate::disk`).
+    pub fn open_folder(&self) -> &Arc<OpenFolder> {
+        &self.open_folder
+    }
+
+    /// The folders the user picked, most recent first.
+    pub fn remembered_folders(&self) -> Vec<std::path::PathBuf> {
+        self.remembered
+            .lock()
+            .map(|r| r.paths().to_vec())
+            .unwrap_or_default()
     }
 
     /// How long an agent's call waits for the page (tests shorten it).
@@ -523,7 +585,7 @@ impl Shared {
             epoch,
             capabilities: Capabilities {
                 midi: self.midi_available,
-                disk: false,
+                disk: true,
             },
         };
         Some((hello, generation))
@@ -568,7 +630,7 @@ impl Shared {
     /// Answers a JSON message of session `id`: the helper's MIDI inputs, and the table its
     /// notes play with.
     fn answer(
-        &self,
+        self: &Arc<Self>,
         id: u64,
         message: Result<ClientMessage, serde_json::Error>,
     ) -> Vec<ServerMessage> {
@@ -609,12 +671,238 @@ impl Shared {
                 self.answer_call(id, call, result);
                 Vec::new()
             }
+            Ok(ClientMessage::FolderOpen {
+                project,
+                nonce,
+                name,
+            }) => match self.checked_link(id, project, nonce, &name) {
+                Ok(link) => {
+                    self.folder_open(link);
+                    Vec::new()
+                }
+                Err(error) => vec![error],
+            },
+            Ok(ClientMessage::FolderChoose {
+                project,
+                nonce,
+                name,
+            }) => match self.checked_link(id, project, nonce, &name) {
+                Ok(link) => self.folder_choose(link, &name).into_iter().collect(),
+                Err(error) => vec![error],
+            },
+            Ok(ClientMessage::FolderClose) => self.folder_close(id).into_iter().collect(),
             Ok(ClientMessage::Pair { .. } | ClientMessage::ControlFront) | Err(_) => {
                 vec![ServerMessage::Error {
                     code: "protocol.invalid".into(),
                     message: "expected a session message (the engine's streams are binary)".into(),
                 }]
             }
+        }
+    }
+
+    /// The place a `folder.open` or `folder.choose` names, checked: a project id, a link nonce,
+    /// and a folder name of a reasonable length (shown in the dialog's title only). Otherwise the
+    /// message is invalid and nothing changes. Each one gets a new sequence number: a place named
+    /// since is a newer one, even with the same project and marker.
+    fn checked_link(
+        &self,
+        session: u64,
+        project: String,
+        nonce: String,
+        name: &str,
+    ) -> Result<Link, ServerMessage> {
+        let ok = project::ProjectId::parse(&project).is_ok()
+            && crate::disk::valid_nonce(&nonce)
+            && name.len() <= 255
+            && !name.chars().any(char::is_control);
+        if !ok {
+            return Err(ServerMessage::Error {
+                code: "protocol.invalid".into(),
+                message:
+                    "a folder message needs a project id, a 32-digit hex nonce and a short name"
+                        .into(),
+            });
+        }
+        Ok(Link {
+            session,
+            project,
+            nonce,
+            seq: self.next_place.fetch_add(1, Ordering::Relaxed),
+        })
+    }
+
+    /// Makes `link` the place of its session, when that session is the current one: under the
+    /// session lock, so it never follows the session's end (which clears its place).
+    fn name_place(&self, link: &Link) -> bool {
+        let session = self.session.lock().expect("session lock");
+        if !session.as_ref().is_some_and(|s| s.id == link.session) {
+            return false;
+        }
+        *self.link.lock().expect("link lock") = Some(link.clone());
+        true
+    }
+
+    /// Commits what was found for `link`, only while it is still the place named (same session,
+    /// current, and no folder message since): `folder` becomes the open folder and `state` is told.
+    /// `None` otherwise: a newer message was answered, or will be. The session lock first, then
+    /// the link's, as everywhere.
+    fn commit(
+        &self,
+        link: &Link,
+        folder: Option<ProjectFolder>,
+        state: FolderStatus,
+        opens: bool,
+    ) -> Option<ServerMessage> {
+        let session = self.session.lock().expect("session lock");
+        if !session.as_ref().is_some_and(|s| s.id == link.session) {
+            return None;
+        }
+        let current = self.link.lock().expect("link lock");
+        if current.as_ref() != Some(link) {
+            return None;
+        }
+        if opens {
+            self.open_folder.set(folder.map(Arc::new));
+        }
+        Some(ServerMessage::FolderState {
+            project: Some(link.project.clone()),
+            state,
+        })
+    }
+
+    /// Looks `link` up among the remembered folders (disk work, on a blocking thread and with no
+    /// lock held) and commits it: the folder that holds the project and the page's marker is
+    /// opened; with none, or several, no folder is (the page asks the user to show it).
+    fn resolve(&self, link: &Link) -> Option<ServerMessage> {
+        let paths = self
+            .remembered
+            .lock()
+            .map(|r| r.paths().to_vec())
+            .unwrap_or_default();
+        match crate::disk::lookup(&paths, &link.project, &link.nonce) {
+            Lookup::Found(folder) => {
+                let state = FolderStatus::Open {
+                    name: folder.name().to_owned(),
+                };
+                self.commit(link, Some(folder), state, true)
+            }
+            Lookup::Unknown => self.commit(link, None, FolderStatus::Unknown, true),
+            Lookup::Ambiguous(count) => {
+                self.commit(link, None, FolderStatus::Ambiguous { count }, true)
+            }
+        }
+    }
+
+    /// `folder.open` of the current session (AU-7): the place is named at once, then looked up
+    /// off the runtime, and its state told. Nothing for a session that is not the current one.
+    fn folder_open(self: &Arc<Self>, link: Link) {
+        if !self.name_place(&link) {
+            return;
+        }
+        let shared = self.clone();
+        tokio::task::spawn_blocking(move || {
+            if let Some(message) = shared.resolve(&link) {
+                shared.to_session_of(link.session, message);
+            }
+        });
+    }
+
+    /// `folder.choose` of the current session: the helper's dialog, one at a time. Answers
+    /// `choosing` at once; the outcome follows when the user closes the dialog. A request that
+    /// finds a dialog open shows nothing more: when that dialog closes, the place named last is
+    /// looked up again and its state told, so no page is left waiting on `choosing`.
+    fn folder_choose(self: &Arc<Self>, link: Link, name: &str) -> Option<ServerMessage> {
+        if !self.name_place(&link) {
+            return None;
+        }
+        let choosing = ServerMessage::FolderState {
+            project: Some(link.project.clone()),
+            state: FolderStatus::Choosing,
+        };
+        if !self.dialog.take() {
+            return Some(choosing);
+        }
+        let shared = self.clone();
+        let title = crate::tray_text::folder_dialog_title(self.lang, name);
+        tokio::task::spawn_blocking(move || {
+            let picked = shared.picker.pick(&title);
+            shared.dialog.release();
+            if let Some(message) = shared.take_pick(&link, picked) {
+                shared.to_session_of(link.session, message);
+                return;
+            }
+            // Another place was named meanwhile (by this page or by the one that replaced it):
+            // its state, the folder just picked included.
+            let current = shared.link.lock().ok().and_then(|l| l.clone());
+            if let Some(current) = current
+                && let Some(message) = shared.resolve(&current)
+            {
+                shared.to_session_of(current.session, message);
+            }
+        });
+        Some(choosing)
+    }
+
+    /// What the dialog's answer does, for the place `link` named: a folder holding the project
+    /// and the page's marker is remembered, and opened while `link` is still the place named.
+    /// `None` when that place is not the one named any more.
+    fn take_pick(&self, link: &Link, picked: Picked) -> Option<ServerMessage> {
+        let refused = |reason| FolderStatus::Refused { reason };
+        let (folder, state) = match picked {
+            Picked::Cancelled => (None, refused(FolderRefusal::Cancelled)),
+            Picked::Unavailable => (None, refused(FolderRefusal::Unavailable)),
+            Picked::Folder(path) => match ProjectFolder::open(&path, Some(&link.project)) {
+                Err(OpenError::Unreadable) => (None, refused(FolderRefusal::Unreadable)),
+                Err(OpenError::NoProject) => (None, refused(FolderRefusal::NoProject)),
+                Err(OpenError::OtherProject) => (None, refused(FolderRefusal::OtherProject)),
+                Ok(folder) if !folder.holds_link(&link.nonce) => {
+                    (None, refused(FolderRefusal::NotThisFolder))
+                }
+                Ok(folder) => {
+                    // Kept whatever the page did since: the user picked it.
+                    if let Ok(mut remembered) = self.remembered.lock() {
+                        remembered.remember(folder.root());
+                    }
+                    let state = FolderStatus::Open {
+                        name: folder.name().to_owned(),
+                    };
+                    (Some(folder), state)
+                }
+            },
+        };
+        let opens = folder.is_some();
+        self.commit(link, folder, state, opens)
+    }
+
+    /// `folder.close` of the current session: no folder.
+    fn folder_close(&self, id: u64) -> Option<ServerMessage> {
+        let session = self.session.lock().expect("session lock");
+        if !session.as_ref().is_some_and(|s| s.id == id) {
+            return None;
+        }
+        self.end_link(id);
+        Some(ServerMessage::FolderState {
+            project: None,
+            state: FolderStatus::Closed,
+        })
+    }
+
+    /// Session `id`'s place is gone (closed, or the session ended or was replaced): no folder.
+    /// Called under the session lock.
+    fn end_link(&self, id: u64) {
+        let mut link = self.link.lock().expect("link lock");
+        if link.as_ref().is_none_or(|l| l.session == id) {
+            *link = None;
+            self.open_folder.set(None);
+        }
+    }
+
+    /// Sends `message` to session `id` when it is the current one.
+    fn to_session_of(&self, id: u64, message: ServerMessage) {
+        if let Ok(session) = self.session.lock()
+            && let Some(s) = session.as_ref().filter(|s| s.id == id)
+        {
+            let _ = s.tx.send(Out::Msg(message));
         }
     }
 }
@@ -925,6 +1213,8 @@ async fn session(mut ws: Ws, shared: &Arc<Shared>) {
             shared.engine.release_all();
             // Its agents' calls end unanswered: the new page never answers them.
             shared.drop_calls(previous.id);
+            // Its project's folder closes with it: the next page names its own (AU-7).
+            shared.end_link(previous.id);
         }
         *current = Some(Session {
             id,
@@ -1009,6 +1299,8 @@ async fn session(mut ws: Ws, shared: &Arc<Shared>) {
         shared.live.clear();
         shared.engine.release_all();
         shared.drop_calls(id);
+        // The page and its project are gone: so is its folder (AU-7).
+        shared.end_link(id);
         if let Ok(mut midi) = shared.midi.lock() {
             midi.disconnect();
         }

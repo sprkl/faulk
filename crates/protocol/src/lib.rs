@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 41;
+pub const PROTOCOL_VERSION: u32 = 45;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -43,6 +43,10 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 45 (#116, AU-7; 42 to 44 are reserved for #664 and two other open pull requests): the helper reads the audio files of the project's folder. The session gains
+// `folder.open`, `folder.choose` and `folder.close` (page → helper) and `folder.state` (helper → page);
+// `hello`'s `disk` is `true`; the commands gain `project.choose_helper_folder`.
 
 // Version 41 (#733): the report is `Feedback` version 9: the header grows from 92 to 100 bytes with
 // `host_frame` at offset 92 (the host's frame at the report's playhead), so that the page can place a
@@ -240,6 +244,32 @@ pub enum ClientMessage {
     /// drives the one the user last looked at. Only on a control link.
     #[serde(rename = "control.front")]
     ControlFront,
+    /// The page's project lives in a real folder (AU-7, #116): `project` is its id (a ULID),
+    /// `nonce` the page's link marker (32 lowercase hex digits) that the page wrote in that folder
+    /// as `.faulk/link.json` before sending this, `name` the folder's name (for the dialog's
+    /// title only, never a path). The helper opens the remembered folder that holds both the id
+    /// and the marker, and answers `folder.state`. No message names a path: the helper learns a
+    /// folder only from its own dialog (`folder.choose`). Sent after each `hello` and on each
+    /// change of the project's place. Only on a session.
+    #[serde(rename = "folder.open")]
+    FolderOpen {
+        project: String,
+        nonce: String,
+        name: String,
+    },
+    /// The user asked to show the project's folder to the helper: the helper opens its folder
+    /// dialog (one at a time) and opens the folder chosen when it holds the project's id and the
+    /// page's marker, then answers `folder.state`. Only on a session.
+    #[serde(rename = "folder.choose")]
+    FolderChoose {
+        project: String,
+        nonce: String,
+        name: String,
+    },
+    /// The page's project has no real folder (kept in the browser), or none: the helper closes
+    /// its folder (its audio clips go offline). Only on a session.
+    #[serde(rename = "folder.close")]
+    FolderClose,
 }
 
 /// What running an agent's command in the page did (`agent.result`).
@@ -268,8 +298,48 @@ pub enum AgentResult {
 pub struct Capabilities {
     /// The helper can open MIDI inputs (its system has a MIDI backend).
     pub midi: bool,
-    /// The helper reads and writes the project's folder for the page. Not yet: always `false`.
+    /// The helper reads the audio files of the project's folder for its engine (AU-7): it takes
+    /// `folder.open`, `folder.choose` and `folder.close`.
     pub disk: bool,
+}
+
+/// Where the helper's folder of the page's project stands (`folder.state`, AU-7).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
+pub enum FolderStatus {
+    /// The helper reads the project's audio files from this folder (its name).
+    Open { name: String },
+    /// No folder: after `folder.close`, or a project the helper does not take.
+    Closed,
+    /// The helper knows no folder holding the project and the page's marker: the user shows it
+    /// (`folder.choose`).
+    Unknown,
+    /// Several folders the helper knows hold them (a copy made since the marker was written):
+    /// the user shows the right one.
+    Ambiguous { count: u32 },
+    /// The helper's folder dialog is open.
+    Choosing,
+    /// The folder chosen was not taken.
+    Refused { reason: FolderRefusal },
+}
+
+/// Why the folder chosen in the helper's dialog was not taken.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FolderRefusal {
+    /// The user closed the dialog.
+    Cancelled,
+    /// The folder holds no project.
+    NoProject,
+    /// The folder holds another project.
+    OtherProject,
+    /// The folder holds this project but not the page's marker: a copy, not the folder open in
+    /// the page.
+    NotThisFolder,
+    /// The helper could not read the folder.
+    Unreadable,
+    /// This system has no folder dialog the helper can show.
+    Unavailable,
 }
 
 /// A MIDI input as the helper sees it.
@@ -377,6 +447,14 @@ pub enum ServerMessage {
     /// withdraws its questions to the user. Sent on the session and on every control link.
     #[serde(rename = "agent.left")]
     AgentLeft { agent: String },
+    /// Where the helper's folder of the page's project stands (AU-7): the answer to `folder.open`,
+    /// `folder.choose` (`choosing` first, then the outcome) and `folder.close`. `project` is the
+    /// project it is about (`None` after `folder.close`): the page drops a state of another one.
+    #[serde(rename = "folder.state")]
+    FolderState {
+        project: Option<String>,
+        state: FolderStatus,
+    },
     /// The helper could not do something; `code` is stable, `message` is for developers.
     #[serde(rename = "error")]
     Error { code: String, message: String },

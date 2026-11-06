@@ -1,7 +1,7 @@
 import type { EngineStatus, HelperUpdateState } from '../engine/engine'
 import type { FeedbackReport } from '../engine/feedback'
 import type { EngineLoad } from '../engine/load'
-import type { MidiInput } from '../generated/protocol'
+import type { FolderStatus, MidiInput } from '../generated/protocol'
 import type { MessageKey } from '../i18n/index'
 import type { Refusal } from './refusal'
 import { storage, TOKEN_KEY } from './storage'
@@ -49,6 +49,14 @@ export class EngineStore {
    * by itself once the helper has one. The dialog and the pill say so; "Stay in Web" ends it.
    */
   awaitingOutput = $state(false)
+  /**
+   * Where the helper's folder of the project stands in Boost (AU-7, `folder.state`): whether its engine
+   * reads the project's audio files, or what it needs from the user. `null` outside Boost and before the
+   * helper's first answer.
+   */
+  helperFolder = $state.raw<{ project: string | null; state: FolderStatus } | null>(null)
+  /** In Boost, the project's folder refused the page's marker for the helper (its permission not granted yet, AU-7). */
+  helperLinkFailed = $state(false)
   /** The browser's local network permission, `null` where it does not exist or is unknown. */
   localAccess = $state<PermissionState | null>(null)
   paired = $state(Boolean(storage()?.getItem(TOKEN_KEY)))

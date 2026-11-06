@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { WebSocketServer, type RawData, type WebSocket } from 'ws'
 import { PROTOCOL_VERSION } from '../../src/lib/generated/protocol'
-import { engineUp, HELPER_HOST, HELPER_PORT, watch } from './support'
+import { engineUp, HELPER_HOST, HELPER_PORT, skipWithoutDevHooks, watch } from './support'
 
 // The page reaches the helper by WebSocket only. COEP does not govern WebSockets; this checks that
 // probe, pairing and the session still work from the isolated page, against a stand-in helper that
@@ -69,6 +69,8 @@ function nextStreamWith(tag: number): Promise<number> {
 const sent = (tag: number, from = 0) => streams.slice(from).some((stream) => headers(stream).some((h) => h.tag === tag))
 /** Whether the stand-in has an audio output (#525): without one its probe says so and it refuses sessions with `audio.no_output`. */
 let hasOutput = true
+/** Whether the stand-in was shown the project's folder in its dialog (AU-7). */
+let folderKnown = false
 
 test.beforeAll(async () => {
   server = new WebSocketServer({ host: HELPER_HOST, port: HELPER_PORT })
@@ -97,7 +99,7 @@ test.beforeAll(async () => {
         sample_rate: 48000,
         estimated_latency_ms: 5,
         epoch: HELLO_EPOCH,
-        capabilities: { midi: true, disk: false },
+        capabilities: { midi: true, disk: true },
       })
       send({ type: 'midi.inputs', inputs: [], selected: null })
       sessionSocket = ws
@@ -106,7 +108,19 @@ test.beforeAll(async () => {
           const stream = Array.isArray(data) ? Buffer.concat(data) : Buffer.from(data as Buffer)
           streams.push(stream)
           onStream?.(stream)
-        } else messages.push(JSON.parse(text(data)))
+          return
+        }
+        const message = JSON.parse(text(data)) as { type: string; project?: string; name?: string }
+        messages.push(message)
+        // The project's folder (AU-7): the stand-in knows none until the user shows it in its dialog.
+        if (message.type === 'folder.open')
+          send({ type: 'folder.state', project: message.project, state: folderKnown ? { status: 'open', name: message.name } : { status: 'unknown' } })
+        else if (message.type === 'folder.close') send({ type: 'folder.state', project: null, state: { status: 'closed' } })
+        else if (message.type === 'folder.choose') {
+          send({ type: 'folder.state', project: message.project, state: { status: 'choosing' } })
+          folderKnown = true
+          setTimeout(() => send({ type: 'folder.state', project: message.project, state: { status: 'open', name: message.name } }), 300)
+        }
       })
     } else if (url.pathname === '/control' && url.searchParams.get('token') === TOKEN) {
       // The page's control link (#608): agents' calls out, their answers in.
@@ -145,6 +159,68 @@ test.beforeEach(() => {
   controlMessages.length = 0
   onStream = null
   hasOutput = true
+  folderKnown = false
+})
+
+test('in Boost the page names its folder by a marker it writes there, never a path, and asks the user to show it to the helper (AU-7)', async ({ page }) => {
+  const { errors } = watch(page)
+  // A real folder: the page's folder dialog hands back a directory of the origin private file system (a `FileSystemDirectoryHandle` like a real one).
+  await page.addInitScript(() => {
+    const w = window as unknown as { __faulkNoBrowserStorage: boolean; showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+    w.__faulkNoBrowserStorage = true
+    w.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('helper-116', { create: true })
+  })
+  await page.goto('/app')
+  await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
+  await engineUp(page, 'Web')
+  await skipWithoutDevHooks(page)
+  const run = (command: object) => page.evaluate((c) => (window as unknown as { __faulkRun(c: object): boolean }).__faulkRun(c), command)
+  await page.getByTestId('project-menu').click()
+  await page.getByTestId('menu-save-as').click()
+  await page.getByTestId('save-as-field').fill('Song')
+  await page.getByTestId('save-as-submit').click()
+  await expect(page.getByTestId('save-state')).toHaveText(/^Saved at/)
+  await run({ type: 'track.create', kind: 'audio' })
+  const id = await page.evaluate(() => (window as unknown as { __faulkView(): { project: { id: string } } }).__faulkView().project.id)
+  const track = await page.evaluate(
+    () =>
+      Object.entries((window as unknown as { __faulkView(): { project: { tracks: Record<string, { kind: string }> } } }).__faulkView().project.tracks).find(
+        ([, t]) => t.kind === 'audio',
+      )![0],
+  )
+  await run({ type: 'view.select_track', track })
+  await page.getByTestId('panel-clips').click()
+
+  await page.getByTestId('engine-mode').click()
+  await page.getByRole('textbox', { name: /code/i }).fill('1234 5678')
+  await page.getByRole('button', { name: 'Pair', exact: true }).click()
+  await engineUp(page, 'Boost')
+  await page.keyboard.press('Escape')
+
+  // The page tells the helper its project and a marker it wrote in `.faulk/` of its folder: no path.
+  await expect.poll(() => messages.find((m) => (m as { type?: string }).type === 'folder.open')).toBeTruthy()
+  const opened = messages.find((m) => (m as { type?: string }).type === 'folder.open') as { project: string; nonce: string; name: string }
+  expect(Object.keys(opened).sort()).toEqual(['name', 'nonce', 'project', 'type'])
+  expect(opened).toMatchObject({ project: id, name: 'Song' })
+  expect(opened.nonce).toMatch(/^[0-9a-f]{32}$/)
+  const marker = await page.evaluate(async () => {
+    const song = await (await (await navigator.storage.getDirectory()).getDirectoryHandle('helper-116')).getDirectoryHandle('Song')
+    const file = await (await (await song.getDirectoryHandle('.faulk')).getFileHandle('link.json')).getFile()
+    return JSON.parse(await file.text()) as { nonce: string }
+  })
+  expect(marker.nonce).toBe(opened.nonce)
+
+  // The stand-in knows no folder: the Clips panel asks the user to show it; the click asks the helper's dialog.
+  await expect(page.getByTestId('audio-boost-folder')).toHaveAttribute('data-key', 'clips.boostShowFolder')
+  await page.getByTestId('audio-boost-show-folder').click()
+  await expect.poll(() => messages.find((m) => (m as { type?: string }).type === 'folder.choose')).toEqual({ ...opened, type: 'folder.choose' })
+  await expect(page.getByTestId('audio-boost-folder')).toHaveAttribute('data-key', 'clips.boostChoosing')
+  // The helper opened the folder: nothing more to say.
+  await expect(page.getByTestId('audio-boost-folder')).toBeHidden()
+  // The project still saves in the page: the marker is no change of the folder.
+  await run({ type: 'track.create', kind: 'midi' })
+  await expect(page.getByTestId('save-state')).toHaveText(/^Saved at/)
+  expect(errors).toEqual([])
 })
 
 test("a paired page in Web mode runs an agent's call on its control link, with or without the helper's output (#608)", async ({ page }) => {

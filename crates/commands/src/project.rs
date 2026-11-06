@@ -266,6 +266,16 @@ domain! {
     "project.allow_access" (kind = "live", undo = "none", destructive = false)
     AllowAccess {} => {};
 
+    /// In Boost mode, show the project's folder to the helper so that its engine plays the
+    /// audio clips from it: the helper opens its own folder dialog and takes the folder chosen
+    /// when it is the one open in the page (same project, and the page's marker in it). Needed
+    /// once per folder: the helper remembers it. A dialog needs the user's click, so an agent
+    /// that is not driven by one gets a notice in the page instead. Refused with a notice in
+    /// Web mode and for a project kept in the browser (save it in a folder first). Changes
+    /// nothing in the project, so it never enters the history.
+    "project.choose_helper_folder" (kind = "live", undo = "none", destructive = false)
+    ChooseHelperFolder {} => {};
+
     /// Measure how loud the song is without playing it nor writing a file: the same
     /// offline render as `project.export_audio` (the engine that plays the song, run
     /// faster than real time), but only the levels come back, per track and for the
@@ -481,6 +491,8 @@ pub fn apply(
         Command::KeepMine {} => Ok(nothing(Output::KeepMine {})),
         Command::LoadFolderVersion {} => Ok(nothing(Output::LoadFolderVersion {})),
         Command::AllowAccess {} => Ok(nothing(Output::AllowAccess {})),
+        // The dialog is the helper's, asked for by the page (AU-7): nothing in the project.
+        Command::ChooseHelperFolder {} => Ok(nothing(Output::ChooseHelperFolder {})),
         // Which stored project is named belongs to the page (it knows what it keeps): the
         // command only checks that something is named.
         Command::OpenRecent { id } => {

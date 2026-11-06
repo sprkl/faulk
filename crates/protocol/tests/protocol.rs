@@ -1,7 +1,7 @@
 use project::{DeviceId, TrackId};
 use protocol::{
-    AgentResult, Capabilities, ClientMessage, HelperUpdate, MidiInput, PROTOCOL_VERSION,
-    ServerMessage, schema_bundle, single_synth,
+    AgentResult, Capabilities, ClientMessage, FolderRefusal, FolderStatus, HelperUpdate, MidiInput,
+    PROTOCOL_VERSION, ServerMessage, schema_bundle, single_synth,
 };
 
 #[test]
@@ -12,6 +12,17 @@ fn messages_round_trip_through_json() {
         },
         ClientMessage::MidiListInputs,
         ClientMessage::ControlFront,
+        ClientMessage::FolderOpen {
+            project: "01J0000000000000000000000A".into(),
+            nonce: "0123456789abcdef0123456789abcdef".into(),
+            name: "Song".into(),
+        },
+        ClientMessage::FolderChoose {
+            project: "01J0000000000000000000000A".into(),
+            nonce: "0123456789abcdef0123456789abcdef".into(),
+            name: "Song".into(),
+        },
+        ClientMessage::FolderClose,
         ClientMessage::MidiSelectInput { id: None },
         ClientMessage::MidiSelectInput {
             id: Some("a".into()),
@@ -88,6 +99,26 @@ fn messages_round_trip_through_json() {
             audio_output: false,
         },
         ServerMessage::Paired { token: "t".into() },
+        ServerMessage::FolderState {
+            project: Some("01J0000000000000000000000A".into()),
+            state: FolderStatus::Open {
+                name: "Song".into(),
+            },
+        },
+        ServerMessage::FolderState {
+            project: None,
+            state: FolderStatus::Closed,
+        },
+        ServerMessage::FolderState {
+            project: Some("01J0000000000000000000000A".into()),
+            state: FolderStatus::Ambiguous { count: 2 },
+        },
+        ServerMessage::FolderState {
+            project: Some("01J0000000000000000000000A".into()),
+            state: FolderStatus::Refused {
+                reason: FolderRefusal::NotThisFolder,
+            },
+        },
         ServerMessage::AgentCall {
             id: 9,
             agent: "claude-code".into(),
@@ -178,13 +209,13 @@ fn every_server_message_is_in_the_round_trip_test() {
     let variants = bundle["server_message"]["oneOf"].as_array().unwrap();
     assert_eq!(
         variants.len(),
-        12,
+        13,
         "add the new message to messages_round_trip_through_json"
     );
     let clients = bundle["client_message"]["oneOf"].as_array().unwrap();
     assert_eq!(
         clients.len(),
-        6,
+        9,
         "add the new message to messages_round_trip_through_json"
     );
 }
