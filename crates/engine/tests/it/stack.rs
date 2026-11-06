@@ -63,7 +63,14 @@ impl Rig {
             ..DeviceSetup::default()
         };
         let mut stack = Stack::new(&setup).unwrap();
-        for (id, value) in params {
+        // The tests start from a major triad (voices 1 and 2 at +4 and +7; the device's own
+        // default is the fifth alone), then their own settings.
+        let triad = [
+            (v(0, VOICE_INTERVAL), 4.0),
+            (v(1, VOICE_ON), 1.0),
+            (v(1, VOICE_INTERVAL), 7.0),
+        ];
+        for (id, value) in triad.iter().chain(params) {
             stack.set_param(ParamId(*id), *value);
         }
         stack.reset();
@@ -569,7 +576,10 @@ fn the_output_stays_within_the_declared_bounds_with_every_voice_on_and_a_long_st
     r.run(&notes, 30_000);
     assert_eq!(r.ons().len(), HELD * 7);
     let bounds = DESCRIPTOR.midi_output.unwrap();
-    assert_eq!((bounds.per_input, bounds.per_block), (7, (HELD * 7) as u32));
+    assert_eq!(
+        (bounds.per_input, bounds.per_block),
+        (14, (HELD * 7) as u32)
+    );
 }
 
 #[test]
@@ -607,6 +617,48 @@ fn every_parameter_swept_over_its_range_keeps_the_output_sound() {
     ]);
     r.run(&[(0, on(1, 60, f32::NAN)), (100, off(1, 60))], 200);
     assert!(r.sounding().is_empty());
+}
+
+#[test]
+fn the_device_alone_adds_the_fifth() {
+    let setup = DeviceSetup {
+        sample_rate: RATE,
+        ..DeviceSetup::default()
+    };
+    let mut stack = Stack::new(&setup).unwrap();
+    let mut out = EventBuffer::try_with_capacity(64).unwrap();
+    let (mut l, mut r) = (vec![0.0; 64], vec![0.0; 64]);
+    let ctx = BlockCtx {
+        sample_rate: RATE,
+        frames: 64,
+        transport: Transport::default(),
+    };
+    let mut io = AudioIo {
+        left: &mut l,
+        right: &mut r,
+        events_out: &mut out,
+    };
+    stack.process(&ctx, &[on(1, 60, 1.0)], &mut io);
+    let keys: Vec<u8> = out
+        .events()
+        .iter()
+        .filter_map(|e| match *e {
+            Event::NoteOn { key, offset: 0, .. } => Some(key),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(keys, [60, 67]);
+}
+
+#[test]
+fn a_repeated_voice_ends_its_chord_first_within_the_bounds() {
+    // A note-on on a voice Stack holds (a broken guarantee): its chord ends, then the new one
+    // starts, 14 events, the declared bound per input.
+    let mut r = Rig::new(&[]);
+    r.run(&[(0, on(1, 60, 1.0)), (10, on(1, 62, 1.0))], 128);
+    assert!(r.sounding().len() == 3);
+    assert_eq!(r.log.len(), 3 + 3 + 3);
+    assert_eq!(DESCRIPTOR.midi_output.unwrap().per_input, 14);
 }
 
 #[test]

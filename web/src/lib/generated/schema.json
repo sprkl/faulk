@@ -29623,7 +29623,7 @@
       "memory_bytes": 1341672,
       "midi_output": {
         "per_block": 896,
-        "per_input": 7
+        "per_input": 14
       },
       "name": "Stack",
       "named_keys": [],
@@ -29729,7 +29729,7 @@
           ]
         },
         {
-          "default": 4,
+          "default": 7,
           "description": "Interval of voice 1 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
           "id": 11,
           "key": "voice1_interval",
@@ -29768,7 +29768,7 @@
           "values": []
         },
         {
-          "default": 1,
+          "default": 0,
           "description": "Whether added voice 2 plays.",
           "id": 14,
           "key": "voice2",
@@ -29784,7 +29784,7 @@
           ]
         },
         {
-          "default": 7,
+          "default": 4,
           "description": "Interval of voice 2 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
           "id": 15,
           "key": "voice2_interval",
@@ -30049,7 +30049,7 @@
     {
       "kind": "faulk.trim",
       "kind_id": 10,
-      "memory_bytes": 1316952,
+      "memory_bytes": 1316960,
       "midi_output": {
         "per_block": 128,
         "per_input": 2
@@ -39162,7 +39162,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 44,
+  "protocol_version": 45,
   "scale_intervals": [
     {
       "intervals": [

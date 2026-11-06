@@ -109,9 +109,10 @@ describe('parameters shown in one mode only (#472)', () => {
 
   it('shows a Stack voice’s interval, velocity and chance only while the voice is on (#690)', () => {
     const stack = descriptorOf('faulk.stack')
-    // By default voices 1 and 2 are on, 3 to 6 off.
+    // By default voice 1 is on (the fifth), 2 to 6 off.
     const keys = shownParams(stack, () => undefined).map((p) => p.key)
-    expect(keys).toContain('voice2_interval')
+    expect(keys).toContain('voice1_interval')
+    expect(keys).not.toContain('voice2_interval')
     expect(keys).toContain('voice3')
     expect(keys).not.toContain('voice3_interval')
     expect(keys).not.toContain('voice6_chance')

@@ -184,7 +184,8 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(page.getByTestId('device-card').first()).toHaveAttribute('data-kind', 'faulk.stack')
     await expect(page.getByTestId('device-card').first()).toHaveAttribute('data-role', 'midi_effect')
     const stack = card(page, 'Stack')
-    await expect(stack.locator('[data-testid^=param-]')).toHaveCount(18)
+    // Its default adds the fifth: voice 1 shows its three settings, voices 2 to 6 only their switch.
+    await expect(stack.locator('[data-testid^=param-]')).toHaveCount(15)
     await expect(stack.getByTestId('param-strum')).toContainText(lang === 'en' ? 'Strum' : 'Égrenage')
     await expect(stack.getByTestId('param-voice3_interval')).toHaveCount(0)
     await stack
@@ -192,7 +193,7 @@ for (const lang of ['en', 'fr'] as const) {
       .getByRole('radio', { name: lang === 'en' ? 'On' : 'Marche', exact: true })
       .click()
     await expect(stack.getByTestId('param-voice3_interval')).toBeVisible()
-    await expect(stack.locator('[data-testid^=param-]')).toHaveCount(21)
+    await expect(stack.locator('[data-testid^=param-]')).toHaveCount(18)
     // Alone among the MIDI effects: it moves neither way, and never past the instrument.
     await expect(stack.getByTestId('device-left')).toBeDisabled()
     await expect(stack.getByTestId('device-right')).toBeDisabled()

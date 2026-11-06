@@ -1,13 +1,13 @@
 //! Stack (#690) through the command layer and the engine: `project.set_scale` and
 //! `device.insert` put Stack before the synth of a track, a chord progression played as single
 //! notes comes out as strummed triads of the scale (tension and chance on), the same natively
-//! and in WASM, and is written to `.qa/690/stack-progression.wav` for the ear. A chord held while
+//! and in WASM, and is written to `.qa/renders/stack-progression.wav` for the ear. A chord held while
 //! Stack is bypassed, removed or reset leaves nothing sounding. (The device itself is tested in
 //! `crates/engine/tests/it/stack.rs`.)
 
 use commands::testing::{context, fixture};
-use commands::{Command, Output, device, live, project as p, transport};
-use project::{DeviceId, ScaleKind, TrackId};
+use commands::{Command, Output, clip, device, live, project as p, transport};
+use project::{DeviceId, Note, ScaleKind, Tick, TrackId};
 use test_support::{Render, Session, parity, render_native};
 
 fn set(s: &mut Session, fx: &DeviceId, param: &str, value: f64) {
@@ -39,6 +39,7 @@ fn session(strum: bool) -> (Session, DeviceId, TrackId) {
     };
     set(&mut s, &fx, "mode", 1.0);
     set(&mut s, &fx, "voice1_interval", 2.0);
+    set(&mut s, &fx, "voice2", 1.0);
     set(&mut s, &fx, "voice2_interval", 4.0);
     if strum {
         set(&mut s, &fx, "voice3", 1.0);
@@ -109,9 +110,7 @@ fn a_progression_of_single_notes_comes_out_as_strummed_triads_of_the_scale_on_bo
     assert!(level_at(&r, window.clone(), 57) > 10.0 * level_at(&r, window, 56));
     // Nothing sounds once the last note's release is over.
     assert!(r.rms_in(4.8..5.5) < 1e-4, "tail {}", r.rms_in(4.8..5.5));
-    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../.qa/690");
-    std::fs::create_dir_all(&path).unwrap();
-    std::fs::write(path.join("stack-progression.wav"), r.wav()).unwrap();
+    r.write_wav("stack-progression");
 }
 
 #[test]
@@ -232,4 +231,89 @@ fn a_midi_effect_inserted_while_playing_cuts_neither_the_voices_nor_the_tails() 
     inserted.assert_clean();
     assert!(inserted.rms_in(0.6..1.0) > 1e-3, "the tail rings on");
     inserted.assert_close(&released, 1e-6);
+}
+
+/// A clip's note through Stack (the schedule, not the live input), with the 200 ms strum of
+/// three notes at tension 0 (the criterion's case): the same natively and in WASM; the
+/// transport stopped mid-strum ends the chord and starts nothing after.
+#[test]
+fn a_clip_note_strummed_at_tension_0_renders_alike_on_both_targets_and_a_stop_ends_it() {
+    let f = fixture();
+    let mut s = Session::from_state(f.state.clone(), context());
+    let out = s.exec(Command::Device(device::Command::Insert {
+        track: Some(f.track.clone()),
+        master: false,
+        kind: "faulk.stack".into(),
+        index: 0,
+    }));
+    let Output::Device(device::Output::Insert { device: fx }) = out else {
+        panic!("{out:?}")
+    };
+    set(&mut s, &fx, "voice1_interval", 4.0);
+    set(&mut s, &fx, "voice2", 1.0);
+    set(&mut s, &fx, "voice2_interval", 7.0);
+    set(&mut s, &fx, "strum", 0.2);
+    set(&mut s, &f.device, "release", 0.2);
+    let Output::Clip(clip::Output::Create { clip: c, .. }) =
+        s.exec(Command::Clip(clip::Command::Create {
+            track: f.track.clone(),
+            at: clip::ClipTarget::Arrangement { start: Tick(0) },
+            length: Some(Tick(7680)),
+            name: None,
+        }))
+    else {
+        panic!("a clip")
+    };
+    s.run(Command::Clip(clip::Command::NotesAdd {
+        clip: c,
+        notes: vec![Note {
+            start: Tick(0),
+            pitch: 60,
+            length: Tick(7680),
+            velocity: 110,
+            cents: 0,
+            chance: Note::DEFAULT_CHANCE,
+            repeat: Note::DEFAULT_REPEAT,
+        }],
+    }));
+    s.run(Command::Transport(transport::Command::Play {}));
+    s.render_secs(0.5);
+    // Mid-strum of a second pass would be after 0.5 s: stop now, with the chord sounding.
+    s.run(Command::Transport(transport::Command::Stop {}));
+    s.render_secs(1.5);
+    let r = parity(s.scenario());
+    r.assert_clean();
+    r.assert_audible(0.05..0.45, 0.01);
+    // E4 comes in at 100 ms and G4 at 200 ms: the level rises at each.
+    assert!(r.rms_in(0.12..0.19) > 1.2 * r.rms_in(0.02..0.09));
+    assert!(r.rms_in(0.22..0.4) > 1.1 * r.rms_in(0.12..0.19));
+    assert!(
+        r.rms_in(1.2..2.0) < 1e-4,
+        "still sounding {}",
+        r.rms_in(1.2..2.0)
+    );
+}
+
+/// A key held on the live input keeps its chord through a stop of the transport (the person
+/// still holds it: the stop ends the clips' notes, not the hands'), the strum included; its
+/// release ends the whole chord.
+#[test]
+fn a_held_key_keeps_its_strummed_chord_through_a_stop_and_its_release_ends_it() {
+    let (mut s, fx, track) = session(false);
+    set(&mut s, &fx, "strum", 0.4);
+    note_on(&mut s, &track, 57);
+    s.render_secs(0.05);
+    s.run(Command::Transport(transport::Command::Stop {}));
+    s.render_secs(0.6);
+    note_off(&mut s, &track, 57);
+    s.render_secs(1.5);
+    let r = render_native(s.scenario());
+    r.assert_clean();
+    // The strum's last note (due at 400 ms) came after the stop.
+    assert!(r.rms_in(0.45..0.6) > 1.1 * r.rms_in(0.06..0.12));
+    assert!(
+        r.rms_in(1.6..2.15) < 1e-4,
+        "still sounding {}",
+        r.rms_in(1.6..2.15)
+    );
 }
