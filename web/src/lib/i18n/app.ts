@@ -20,6 +20,7 @@ import { controls } from './controls'
 import { devices } from './devices'
 import { drums } from './drums'
 import { compressor } from './compressor'
+import { contour } from './contour'
 import { agentConfirm } from './confirm'
 import { echo } from './echo'
 import { filter } from './filter'
@@ -60,6 +61,7 @@ export const features = {
   reverb,
   filter,
   compressor,
+  contour,
   devices,
   presets,
   keys,
