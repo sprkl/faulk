@@ -5,7 +5,7 @@
 //! # Length
 //!
 //! - **Free** (`mode` = free): `time`, 1 ms to 10 s.
-//! - **Tempo** (`mode` = tempo, the default): a duration of the transport's grid, in ticks,
+//! - **Synced** (`mode` = synced, the default): a duration of the transport's grid, in ticks,
 //!   `L = division × feel × gate / 100`. `division` is 1/64 to 1/2 of a whole note (`3840 /
 //!   n` ticks for 1/n) or 1, 2 or 4 bars (`k × ticks_per_bar` of the signature the block
 //!   sees); `feel` multiplies it by 1 (straight), 2/3 (triplet) or 3/2 (dotted); `gate` is 1
@@ -86,7 +86,7 @@ pub const KEY_TRACK: u32 = 6;
 
 /// The values of `mode`.
 pub const FREE: u32 = 0;
-pub const TEMPO: u32 = 1;
+pub const SYNCED: u32 = 1;
 
 /// The values of `division`, from 1/64 to 4 bars.
 pub const DIV_1_64: u32 = 0;
@@ -127,7 +127,7 @@ pub const KEY_TRACK_CENTER: f64 = 60.0;
 /// gate 100 %, from the start of the note, no key tracking.
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
     kind: "faulk.trim",
-    kind_id: DeviceKind(8),
+    kind_id: DeviceKind(10),
     version: 1,
     name: "Trim",
     role: DeviceRole::MidiEffect,
@@ -144,15 +144,15 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(MODE),
             key: "mode",
-            description: "How the length is set: a time in seconds (free) or a share of the beat that follows the tempo (tempo).",
+            description: "How the length is set: a time in seconds (free) or a note value that follows the project tempo (synced).",
             unit: Unit::None,
             min: 0.0,
             max: 1.0,
-            default: TEMPO as f64,
+            default: SYNCED as f64,
             scale: Scale::Linear,
             step: 1.0,
             smoothing_seconds: 0.0,
-            values: &["free", "tempo"],
+            values: &["free", "synced"],
         },
         ParamDescriptor {
             id: ParamId(TIME),
@@ -170,7 +170,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(DIVISION),
             key: "division",
-            description: "Length of every note in tempo mode, from a 64th note to 4 bars of the time signature.",
+            description: "Length of every note in synced mode, as a note value of the project tempo, from a 64th note to 4 bars of the time signature.",
             unit: Unit::None,
             min: 0.0,
             max: 8.0,
@@ -193,7 +193,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(FEEL),
             key: "feel",
-            description: "Straight, triplet (two thirds of the division) or dotted (one and a half times the division), in tempo mode.",
+            description: "Straight, triplet (two thirds of the division) or dotted (one and a half times the division), in synced mode.",
             unit: Unit::None,
             min: 0.0,
             max: 2.0,
@@ -206,7 +206,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(GATE),
             key: "gate",
-            description: "Share of the division a note lasts in tempo mode, from 1 % to 200 % (100 %: exactly the division).",
+            description: "Share of the division a note lasts in synced mode, from 1 % to 200 % (100 %: exactly the division).",
             unit: Unit::Percent,
             min: 1.0,
             max: 200.0,
@@ -219,7 +219,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(TRIGGER),
             key: "trigger",
-            description: "When a note comes out: when the key is pressed (start) or when it is let go (release).",
+            description: "When a note comes out: when the key is pressed (start), or when it is let go (release), at the velocity it was pressed with.",
             unit: Unit::None,
             min: 0.0,
             max: 1.0,
@@ -341,7 +341,7 @@ impl Trim {
     pub fn new(sample_rate: f32) -> Self {
         let mut t = Self {
             sample_rate: sane_rate(sample_rate),
-            mode: TEMPO,
+            mode: SYNCED,
             time: 0.1,
             division: DIV_1_16,
             feel: STRAIGHT,

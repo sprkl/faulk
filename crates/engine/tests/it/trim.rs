@@ -229,6 +229,9 @@ fn one_length(params: &[(u32, f32)], bpm: f64, sig: (u8, u8), key: u8) -> u64 {
     n[0].1 - n[0].0
 }
 
+/// A case of the tempo lengths: division, feel, gate, tempo, signature, frames.
+type Case = (u32, u32, f32, f64, (u8, u8), u64);
+
 #[test]
 fn tempo_lengths_in_ticks_become_frames_at_the_tempo_and_the_signature() {
     use trim::{
@@ -236,7 +239,7 @@ fn tempo_lengths_in_ticks_become_frames_at_the_tempo_and_the_signature() {
         STRAIGHT, TRIPLET,
     };
     // (division, feel, gate, bpm, signature, frames at 48 kHz, worked by hand)
-    let cases: &[(u32, u32, f32, f64, (u8, u8), u64)] = &[
+    let cases: &[Case] = &[
         // 480 ticks at 174 BPM: 480 / (174 × 16) s = 0.172 413 8 s = 8 275.86 frames.
         (DIV_1_8, STRAIGHT, 100.0, 174.0, (4, 4), 8_276),
         (DIV_1_4, STRAIGHT, 100.0, 60.0, (4, 4), 48_000),

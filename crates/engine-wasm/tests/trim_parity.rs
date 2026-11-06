@@ -210,7 +210,7 @@ fn scenario() -> Vec<Step> {
     // Back to a long tempo note, then a stop while it sounds.
     submit(
         &[
-            set(trim::MODE, trim::TEMPO as f32),
+            set(trim::MODE, trim::SYNCED as f32),
             set(trim::TRIGGER, trim::START as f32),
             set(trim::DIVISION, trim::DIV_1_BAR as f32),
             set(trim::GATE, 100.0),
