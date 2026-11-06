@@ -1,8 +1,8 @@
 {
-  "about": "Cases of clip.notes.repeat (#710), run against the command (crates/commands/tests/it/clip_edit.rs) and against the piano roll's own copy of its rules (web/src/views/piano-roll/repeat.test.ts), so that the page selects exactly the notes the command writes. A note is [start, pitch, length, velocity]; `others` are notes of the clip outside the selection; `copies` lists every copy in time order, new or already in the clip.",
+  "about": "Cases of clip.notes.repeat (#710, its period #770), run against the command (crates/commands/tests/it/clip_edit.rs) and against the piano roll's own copy of its rules (web/src/views/piano-roll/repeat.test.ts), so that the page selects exactly the notes the command writes. A note is [start, pitch, length, velocity]; `others` are notes of the clip outside the selection; `signature` is the project's [numerator, denominator], 4/4 when left out; `copies` lists every copy in time order, new or already in the clip.",
   "cases": [
     {
-      "name": "four sixteenths repeated to the end of the bar",
+      "name": "four sixteenths, a figure of one beat, repeated every beat to the end of the bar",
       "clipLength": 3840,
       "notes": [[0, 65, 240, 100], [240, 68, 240, 100], [480, 72, 240, 100], [720, 77, 240, 100]],
       "others": [],
@@ -94,14 +94,87 @@
       "atClipEnd": false
     },
     {
-      "name": "a figure off the grid keeps its place in each period",
+      "name": "a figure off the grid is measured from the grid line before it and keeps its place in each period",
       "clipLength": 3840,
       "notes": [[100, 60, 240, 100]],
       "others": [],
       "grid": 240,
-      "until": 960,
-      "copies": [[340, 60, 240, 100], [580, 60, 240, 100], [820, 60, 140, 100]],
+      "until": 1600,
+      "copies": [[580, 60, 240, 100], [1060, 60, 240, 100], [1540, 60, 60, 100]],
       "added": 3,
+      "atClipEnd": false
+    },
+    {
+      "name": "a bar of drums whose last note ends before the bar line repeats every bar",
+      "clipLength": 7680,
+      "notes": [
+        [0, 36, 120, 100], [480, 42, 125, 80], [960, 36, 120, 100], [960, 39, 120, 100], [1440, 42, 125, 80],
+        [1920, 36, 120, 100], [2400, 42, 125, 80], [2880, 36, 120, 100], [2880, 39, 120, 100], [3360, 42, 125, 80]
+      ],
+      "others": [],
+      "grid": 240,
+      "until": 7680,
+      "copies": [
+        [3840, 36, 120, 100], [4320, 42, 125, 80], [4800, 36, 120, 100], [4800, 39, 120, 100], [5280, 42, 125, 80],
+        [5760, 36, 120, 100], [6240, 42, 125, 80], [6720, 36, 120, 100], [6720, 39, 120, 100], [7200, 42, 125, 80]
+      ],
+      "added": 10,
+      "atClipEnd": false
+    },
+    {
+      "name": "a figure of more than a beat up to half a bar repeats every whole beat",
+      "clipLength": 3840,
+      "notes": [[0, 60, 240, 100], [960, 62, 240, 100]],
+      "others": [],
+      "grid": 240,
+      "until": 3840,
+      "copies": [[1920, 60, 240, 100], [2880, 62, 240, 100]],
+      "added": 2,
+      "atClipEnd": false
+    },
+    {
+      "name": "a figure of more than a bar repeats every whole number of bars",
+      "clipLength": 15360,
+      "notes": [[0, 60, 240, 100], [3840, 62, 960, 100]],
+      "others": [],
+      "grid": 240,
+      "until": 15360,
+      "copies": [[7680, 60, 240, 100], [11520, 62, 960, 100]],
+      "added": 2,
+      "atClipEnd": false
+    },
+    {
+      "name": "the beat and the bar are the project's signature's",
+      "clipLength": 2880,
+      "signature": [6, 8],
+      "notes": [[0, 60, 240, 100], [960, 62, 240, 100]],
+      "others": [],
+      "grid": 240,
+      "until": 2880,
+      "copies": [[1440, 60, 240, 100], [2400, 62, 240, 100]],
+      "added": 2,
+      "atClipEnd": false
+    },
+    {
+      "name": "a grid coarser than the beat is the unit of a figure of more than a beat",
+      "clipLength": 7680,
+      "notes": [[0, 60, 240, 100], [960, 62, 240, 100]],
+      "others": [],
+      "grid": 2880,
+      "until": 7680,
+      "copies": [[2880, 60, 240, 100], [3840, 62, 240, 100], [5760, 60, 240, 100], [6720, 62, 240, 100]],
+      "added": 4,
+      "atClipEnd": false
+    },
+    {
+      "name": "without a grid a figure of more than a beat keeps its exact span",
+      "clipLength": 3840,
+      "notes": [[0, 60, 240, 100], [960, 62, 240, 100]],
+      "others": [],
+      "grid": null,
+      "until": 3840,
+      "copies": [[1200, 60, 240, 100], [2160, 62, 240, 100], [2400, 60, 240, 100], [3360, 62, 240, 100], [3600, 60, 240, 100]],
+      "added": 5,
       "atClipEnd": false
     },
     {

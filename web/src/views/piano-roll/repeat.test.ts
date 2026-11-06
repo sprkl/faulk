@@ -12,12 +12,14 @@ interface Case {
   others: Raw[]
   grid: number | null
   until: number
+  signature?: [number, number]
   copies?: Raw[]
   added?: number
   atClipEnd?: boolean
   refused?: string
 }
 
+const COMMON = { numerator: 4, denominator: 4 }
 const note = ([start, pitch, length, velocity]: Raw): Note => ({ start, pitch, length, velocity })
 const key = (n: Note) => `${n.start}:${n.pitch}:${n.length}:${n.velocity}`
 
@@ -32,7 +34,8 @@ describe('repeat end to end (#710), the cases shared with clip.notes.repeat', ()
   })
   for (const c of table.cases) {
     it(c.name, () => {
-      const result = repeatCopies(c.notes.map(note), c.grid, c.until, c.clipLength)
+      const sig = c.signature ? { numerator: c.signature[0], denominator: c.signature[1] } : COMMON
+      const result = repeatCopies(c.notes.map(note), c.grid, c.until, c.clipLength, sig)
       if (c.refused) {
         expect(result.ok).toBe(false)
         return
@@ -53,26 +56,38 @@ describe('repeat end to end (#710), the page side', () => {
   const BAR = 3840
 
   it('says why it refuses', () => {
-    expect(repeatCopies(figure, 0, BAR, BAR)).toMatchObject({ ok: false, refusal: 'grid' })
-    expect(repeatCopies(figure, 240, 960, BAR)).toMatchObject({ ok: false, refusal: 'until', firstCopy: 960 })
-    expect(repeatCopies([note([0, 60, BAR, 100])], 240, 2 * BAR, BAR)).toMatchObject({ ok: false, refusal: 'room', firstCopy: BAR })
-    expect(repeatCopies([], 240, BAR, BAR)).toMatchObject({ ok: true, copies: [] })
+    expect(repeatCopies(figure, 0, BAR, BAR, COMMON)).toMatchObject({ ok: false, refusal: 'grid' })
+    expect(repeatCopies(figure, 240, 960, BAR, COMMON)).toMatchObject({ ok: false, refusal: 'until', firstCopy: 960 })
+    expect(repeatCopies([note([0, 60, BAR, 100])], 240, 2 * BAR, BAR, COMMON)).toMatchObject({ ok: false, refusal: 'room', firstCopy: BAR })
+    expect(repeatCopies([], 240, BAR, BAR, COMMON)).toMatchObject({ ok: true, copies: [] })
   })
 
-  it('rounds the span up to the grid', () => {
-    expect(repeatPeriod(figure, 240)).toBe(960)
-    expect(repeatPeriod([note([0, 60, 200, 100])], 240)).toBe(240)
-    expect(repeatPeriod([note([0, 60, 200, 100])], null)).toBe(200)
-    expect(repeatPeriod([note([0, 60, 900, 100])], 960 / 3)).toBe(960)
+  it('rounds a figure of a beat or less up to the grid, a longer one to the beat, one past half a bar to the bar (#770)', () => {
+    expect(repeatPeriod(figure, 240, COMMON)).toBe(960)
+    expect(repeatPeriod([note([0, 60, 200, 100])], 240, COMMON)).toBe(240)
+    expect(repeatPeriod([note([0, 60, 200, 100])], null, COMMON)).toBe(200)
+    expect(repeatPeriod([note([0, 60, 900, 100])], 960 / 3, COMMON)).toBe(960)
+    // Measured from the grid line before the first start.
+    expect(repeatPeriod([note([100, 60, 240, 100])], 240, COMMON)).toBe(480)
+    expect(repeatPeriod([note([0, 60, 961, 100])], 240, COMMON)).toBe(1920)
+    expect(repeatPeriod([note([0, 60, 1920, 100])], 240, COMMON)).toBe(1920)
+    expect(repeatPeriod([note([0, 60, 1921, 100])], 240, COMMON)).toBe(BAR)
+    // The bar of drums of #770: its last note ends at 3.63 beats.
+    expect(repeatPeriod([note([0, 36, 120, 100]), note([3360, 42, 125, 80])], 240, COMMON)).toBe(BAR)
+    expect(repeatPeriod([note([0, 60, BAR + 1, 100])], 240, COMMON)).toBe(2 * BAR)
+    // Without a grid: the exact span, however long.
+    expect(repeatPeriod([note([10, 60, 3000, 100])], null, COMMON)).toBe(3000)
   })
 
   it('stops by default at the end of the bar where the copies begin', () => {
-    expect(defaultRepeatUntil(figure, 240, BAR)).toBe(BAR)
+    expect(defaultRepeatUntil(figure, 240, COMMON)).toBe(BAR)
     // A figure on the last beat, or a whole bar: the copies begin in the next bar and fill it.
-    expect(defaultRepeatUntil([note([2880, 60, 960, 100])], 240, BAR)).toBe(2 * BAR)
-    expect(defaultRepeatUntil([note([0, 60, BAR, 100])], 240, BAR)).toBe(2 * BAR)
+    expect(defaultRepeatUntil([note([2880, 60, 960, 100])], 240, COMMON)).toBe(2 * BAR)
+    expect(defaultRepeatUntil([note([0, 60, BAR, 100])], 240, COMMON)).toBe(2 * BAR)
     // A figure in bar 2 fills bar 2.
-    expect(defaultRepeatUntil([note([BAR, 60, 240, 100])], 240, BAR)).toBe(2 * BAR)
+    expect(defaultRepeatUntil([note([BAR, 60, 240, 100])], 240, COMMON)).toBe(2 * BAR)
+    // A bar of drums ending before the bar line (#770): copied into bar 2.
+    expect(defaultRepeatUntil([note([0, 36, 120, 100]), note([3360, 42, 125, 80])], 240, COMMON)).toBe(2 * BAR)
   })
 
   it('reads a bar, or a bar and a beat, as the end of it', () => {
