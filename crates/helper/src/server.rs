@@ -144,7 +144,7 @@ pub struct Shared {
     /// The export under way (#319): one at a time.
     export: Mutex<Option<RunningExport>>,
     /// Export threads not yet over, a cancelled one still unwinding included (its slot is freed
-    /// at once, before its temporary file goes): one ends once its write is dropped (#792).
+    /// at once, before its write is dropped): one ends once that write is dropped (#792).
     export_threads: AtomicUsize,
     /// The language of the dialog's title.
     lang: crate::tray_text::Lang,
@@ -1152,7 +1152,9 @@ impl Shared {
 
     /// Export threads not yet over (#792): a cancelled export frees its slot at once
     /// ([`export_running`](Self::export_running) is false) while its thread still unwinds; at 0,
-    /// every run has dropped its write, its temporary file with it, and told its page.
+    /// every run has dropped its write and told its page. The drop removes the temporary file
+    /// when the system lets it (best effort: a file another process holds stays until the page's
+    /// next sweep of `.faulk/tmp/`).
     pub fn export_threads(&self) -> usize {
         self.export_threads.load(Ordering::Acquire)
     }
