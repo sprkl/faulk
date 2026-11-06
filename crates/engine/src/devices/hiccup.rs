@@ -27,7 +27,10 @@
 //! A transport stop (the first block with the clock stopped after one with it running) ends
 //! the capture that runs, grid or manual: nothing repeats on after the stop. A seek or a loop
 //! wrap is not a stop: the window that runs plays on in frames, and the next grid point the
-//! new position crosses captures.
+//! new position crosses captures. As the host does for the first event after a wrap, a grid
+//! point less than a frame before the first frame of a block that jumped lands on that frame,
+//! and a window opened in the last frame before the jump (the loop's end point, outside the
+//! host's segment) is dropped: every pass of a loop draws the loop start's point.
 //!
 //! # A window
 //!
@@ -161,6 +164,9 @@ pub const MAX_SLICE_SECONDS: f32 = 12.0;
 pub const FADE_SECONDS: f32 = 0.002;
 /// The epsilon of the grid rule, in frames (module doc).
 pub const GRID_EPSILON_FRAMES: f64 = 1e-6;
+/// Largest gap between where a block starts and where the one before ended, in ticks, that is
+/// not a jump (the clock's own rounding is far below it).
+pub const JUMP_TOLERANCE_TICKS: f64 = 1e-3;
 /// Largest transport position the grid runs at, in ticks (about 30 years at 999 BPM): beyond,
 /// no grid point is looked for.
 pub const MAX_GRID_TICKS: f64 = 1e12;
@@ -637,6 +643,9 @@ pub struct Hiccup {
     samples_per_tick: f64,
     signature: TimeSignature,
     was_playing: bool,
+    /// The position the next block starts at if the clock runs on without a jump (`None`
+    /// after a stop, a reset or a block at a broken position).
+    expected: Option<f64>,
     window: Window,
     tail: Repeat,
     tail_left: u32,
@@ -698,6 +707,7 @@ impl Hiccup {
             samples_per_tick: f64::from(sample_rate) / tempo.ticks_per_second(),
             signature: TimeSignature::default(),
             was_playing: false,
+            expected: None,
             window: Window::default(),
             tail: Repeat::default(),
             tail_left: 0,
@@ -981,7 +991,11 @@ impl Grid {
 
     /// The first grid point whose sample is at or after `frame` (with the epsilon).
     fn first_at_or_after(&self, frame: usize) -> i64 {
-        let threshold = frame as f64 - GRID_EPSILON_FRAMES;
+        self.first_from(frame as f64 - GRID_EPSILON_FRAMES)
+    }
+
+    /// The first grid point whose fractional sample is at or after `threshold`.
+    fn first_from(&self, threshold: f64) -> i64 {
         let guess = (self.position + threshold / self.samples_per_tick) / self.interval as f64;
         let mut n = if guess.is_finite() {
             guess.ceil().clamp(-1e15, 1e15) as i64
@@ -1048,11 +1062,28 @@ impl Device for Hiccup {
         // A position beyond any song (a broken clock) has no grid: the search for its grid
         // point would not end in a bounded number of steps.
         let playing = transport.playing && frames > 0 && position.abs() < MAX_GRID_TICKS;
-        let mut n = if playing {
-            grid.first_at_or_after(0)
+        // A block that does not start where the last one ended (a play, a seek, a loop wrap):
+        // its first tick is the one it jumped to, which the host clamps into its first frame
+        // although the block's first frame may start up to one sample after it (the loop start
+        // is anchored at the fractional sample of the wrap). The grid follows that rule: a
+        // point less than a frame before the first frame lands on it. A window the block before
+        // opened in its last frame (the loop's end point, which the host's segment excludes) is
+        // dropped: it was still recording its first frame, nothing of it was heard.
+        let jumped = playing
+            && self
+                .expected
+                .is_none_or(|e| (position - e).abs() > JUMP_TOLERANCE_TICKS);
+        if jumped && self.window.active && !self.window.manual && self.window.t <= 1 {
+            self.window.active = false;
+        }
+        let first = if jumped {
+            GRID_EPSILON_FRAMES - 1.0
         } else {
-            0
+            -GRID_EPSILON_FRAMES
         };
+        let mut n = if playing { grid.first_from(first) } else { 0 };
+        self.expected = (playing && transport.playing)
+            .then(|| position + frames as f64 / self.samples_per_tick);
         let position_at = |grid: &Grid, frame: usize| {
             if transport.playing {
                 grid.position + frame as f64 / grid.samples_per_tick
@@ -1068,7 +1099,12 @@ impl Device for Hiccup {
                 .get(next_event)
                 .map(|e| event_frame(e.offset(), cursor, frames));
             // A grid point passed while a manual capture held the grid never fires late.
-            while playing && grid.sample(n) < cursor as f64 - GRID_EPSILON_FRAMES {
+            let floor = if cursor == 0 {
+                first
+            } else {
+                cursor as f64 - GRID_EPSILON_FRAMES
+            };
+            while playing && grid.sample(n) < floor {
                 n += 1;
             }
             let grid_at = if playing && !(self.window.active && self.window.manual) {
@@ -1092,7 +1128,11 @@ impl Device for Hiccup {
                         self.set_value(id, value);
                         if playing && self.interval != interval {
                             grid.interval = interval_ticks(self.interval, self.signature).max(1);
-                            n = grid.first_at_or_after(cursor);
+                            n = if cursor == 0 {
+                                grid.first_from(first)
+                            } else {
+                                grid.first_at_or_after(cursor)
+                            };
                         }
                     }
                     self.apply_pending(position_at(&grid, cursor));
@@ -1135,6 +1175,7 @@ impl Device for Hiccup {
         self.tail_left = 0;
         self.pending = None;
         self.was_playing = false;
+        self.expected = None;
         self.mix.snap();
         self.dry = self.base_target();
         self.filter_l = Channel::default();

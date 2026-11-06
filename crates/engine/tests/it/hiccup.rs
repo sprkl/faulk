@@ -1100,3 +1100,104 @@ fn a_filter_switched_mid_window_waits_for_the_next_capture() {
         assert!(max_step(&out) <= 0.08, "to {to}: step {}", max_step(&out));
     }
 }
+/// Renders `input` in blocks of 256 through a loop of `loop_ticks` from tick 0, the clock as
+/// the host's (`engine::transport`): the loop start is anchored at the fractional sample where
+/// the playhead reaches the loop end, the block is cut at the first frame that starts at or
+/// after it, the frames before it play the loop's end.
+fn run_looped(h: &mut Hiccup, bpm: f64, loop_ticks: f64, input: &[f32]) -> Vec<f32> {
+    let tempo = Tempo::new(bpm).unwrap();
+    let spt = f64::from(SR) / tempo.ticks_per_second();
+    let mut unused = EventBuffer::try_with_capacity(1).unwrap();
+    let mut out = Vec::new();
+    let (mut anchor_tick, mut anchor_sample) = (0.0f64, 0.0f64);
+    let mut total = 0usize;
+    let mut sub = |h: &mut Hiccup, from: usize, to: usize, position: f64, out: &mut Vec<f32>| {
+        let mut left = input[from..to].to_vec();
+        let mut right = left.clone();
+        let ctx = BlockCtx {
+            sample_rate: SR,
+            frames: (to - from) as u32,
+            transport: Transport {
+                playing: true,
+                tempo,
+                position_ticks: position,
+                ..Transport::default()
+            },
+        };
+        assert_no_alloc(|| {
+            let mut io = AudioIo {
+                left: &mut left,
+                right: &mut right,
+                events_out: &mut unused,
+            };
+            h.process(&ctx, &[], &mut io);
+        });
+        out.extend(left);
+    };
+    while total + 256 <= input.len() {
+        let block_end = (total + 256) as f64;
+        let reaches = anchor_sample + (loop_ticks - anchor_tick) * spt;
+        let mut cursor = 0usize;
+        if reaches <= block_end {
+            let stop = ((reaches - total as f64).ceil() as usize).min(256);
+            if stop > 0 {
+                let position = anchor_tick + (total as f64 - anchor_sample) / spt;
+                sub(h, total, total + stop, position, &mut out);
+            }
+            anchor_tick = 0.0;
+            anchor_sample = reaches;
+            cursor = stop;
+        }
+        if cursor < 256 {
+            let position = anchor_tick + ((total + cursor) as f64 - anchor_sample) / spt;
+            sub(h, total + cursor, total + 256, position, &mut out);
+        }
+        total += 256;
+    }
+    out
+}
+
+/// A loop of two bars at 97 BPM (the wrap falls between two samples): every pass captures at
+/// the loop start by the draw of the loop start's point (index 0), never by the loop end's
+/// (index 2), like the first pass.
+#[test]
+fn every_pass_of_a_loop_draws_the_loop_starts_point() {
+    let bpm = 97.0;
+    let spt = f64::from(SR) / Tempo::new(bpm).unwrap().ticks_per_second();
+    let loop_ticks = 2.0 * 3840.0;
+    let loop_frames = loop_ticks * spt;
+    assert!(
+        loop_frames.fract() > 0.01,
+        "the wrap is between two samples"
+    );
+    // Seeds for which the two points draw differently at 50 %, both ways round.
+    let seeds: Vec<u32> = (0..200)
+        .filter(|&s| hiccup::captures(s, 0, 50) != hiccup::captures(s, 2, 50))
+        .take(4)
+        .collect();
+    assert_eq!(seeds.len(), 4);
+    let passes = 4;
+    let input = vec![0.5f32; (passes as f64 * loop_frames) as usize + 4_000];
+    for seed in seeds {
+        let mut h = with(
+            SR,
+            &[
+                (CHANCE, 50.0),
+                (SEED, seed as f32),
+                (SIZE, SIZE_1_64 as f32),
+                (MODE, REPEATS_ONLY as f32),
+            ],
+        );
+        let out = run_looped(&mut h, bpm, loop_ticks, &input);
+        check(&out);
+        for pass in 0..passes {
+            let start = (pass as f64 * loop_frames).ceil() as usize;
+            let heard = out[start + 300].abs() > 0.1;
+            assert_eq!(
+                heard,
+                hiccup::captures(seed, 0, 50),
+                "seed {seed}, pass {pass}: the loop start draws its own point"
+            );
+        }
+    }
+}
