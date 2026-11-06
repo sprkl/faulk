@@ -3,7 +3,7 @@
  * `<device kind without "faulk.">.<parameter key>.hint`; its English text is the description in the
  * device's descriptor (`i18n.test.ts` checks they are the same), its French text is a translation.
  * A device name is not here: it comes from the descriptor, one English name never translated.
- * Labels of the parameters and of their values are in `synth.ts`, `drums.ts`, `echo.ts`, `reverb.ts`, `filter.ts`, `compressor.ts` and `trim.ts`.
+ * Labels of the parameters and of their values are in `synth.ts`, `drums.ts`, `echo.ts`, `reverb.ts`, `filter.ts`, `compressor.ts`, `trim.ts` and `hiccup.ts`.
  */
 
 import { defineFeature } from './feature'
@@ -120,6 +120,28 @@ export const devices = defineFeature(
     'trim.gate.hint': 'Share of the note value a note lasts in synced mode, from 1 % to 200 % (100 %: exactly the note value).',
     'trim.trigger.hint': 'When a note comes out: when the key is pressed (start), or when it is let go (release), at the velocity it was pressed with.',
     'trim.key_track.hint': 'How the length follows the pitch, from -100 % to +100 %: at +100 % it doubles one octave below C4 and halves one octave above.',
+    'hiccup.interval.hint':
+      "How often a slice may be captured, on the transport's grid: every 1/16 note to every 4 bars of the time signature. Captures happen only while the transport plays.",
+    'hiccup.chance.hint':
+      'Chance that a capture happens at each grid point, from 0 to 100 %. The draw depends only on the seed and the grid position: playback and export give the same captures.',
+    'hiccup.seed.hint': 'Seed of the chance and random length draws, from 0 to 1000: the same seed gives the same captures, another seed another sequence.',
+    'hiccup.capture.hint':
+      'Manual capture: turning it on captures at once and the repeats last while it stays on; off ends them. A capture starts only when the value turns on; a transport stop ends it.',
+    'hiccup.size.hint':
+      'Length of the repeated slice, as a note value of the project tempo: 1/64 to 1 bar, with triplets (T). A slice longer than 12 seconds is shortened to 12 seconds.',
+    'hiccup.gate.hint':
+      'How long the repeats last after a capture, as a share of the interval, from 1 to 100 %. The slice plays first, then repeats until the gate ends.',
+    'hiccup.variation.hint':
+      'Length of each repeat. Fixed: the slice. Shorter: three quarters of the repeat before, down to an eighth of the slice. Random: the slice, half or a quarter of it, drawn from the seed.',
+    'hiccup.decay.hint':
+      'Level lost at each repeat, from 0 to 100 %: at 50 %, each repeat is half as loud as the one before. A change applies from the next repeat.',
+    'hiccup.filter.hint':
+      'A filter that closes over the repeats. Low-pass: from 20 kHz down to 200 Hz at the end of the gate, darker at each repeat. High-pass: from 20 Hz up to 2 kHz, thinner at each repeat. A change applies from the next capture.',
+    'hiccup.pitch.hint':
+      'Pitch of the repeats, from -12 to +12 semitones, by playing the slice faster or slower. Raised, a repeat ends when the slice runs out. A change applies from the next repeat.',
+    'hiccup.mode.hint':
+      'How the repeats meet the sound. Layer: on top of it. Insert: the sound is muted while the repeats play. Repeats only: only the captured slices and their repeats are heard.',
+    'hiccup.mix.hint': 'Level of the repeats, from 0 to 100 %. In insert mode it also sets how much the sound is muted while they play.',
   },
   {
     'devices.noTrack': 'Sélectionne une piste pour voir son instrument et ses effets.',
@@ -241,5 +263,28 @@ export const devices = defineFeature(
     'trim.trigger.hint': 'Quand la note sort : à l’appui sur la touche, ou au relâchement, à la vélocité de l’appui.',
     'trim.key_track.hint':
       'Comment la longueur suit la hauteur, de -100 % à +100 % : à +100 %, elle double une octave sous le do4 et diminue de moitié une octave au-dessus.',
+    'hiccup.interval.hint':
+      'Fréquence des captures possibles, sur la grille du transport : d’une double croche à 4 mesures de la signature rythmique. Les captures n’ont lieu que pendant la lecture.',
+    'hiccup.chance.hint':
+      'Probabilité qu’une capture ait lieu à chaque point de la grille, de 0 à 100 %. Le tirage ne dépend que de la graine et de la position : la lecture et l’export donnent les mêmes captures.',
+    'hiccup.seed.hint':
+      'Graine des tirages de la probabilité et des longueurs aléatoires, de 0 à 1000 : la même graine donne les mêmes captures, une autre graine une autre suite.',
+    'hiccup.capture.hint':
+      'Capture manuelle : l’activer capture aussitôt, et les répétitions durent tant qu’elle reste active ; la désactiver les arrête. Une capture ne part qu’au passage à Marche ; l’arrêt du transport la termine.',
+    'hiccup.size.hint':
+      'Longueur de la tranche répétée, en valeur de note du tempo du projet : de la quadruple croche à 1 mesure, avec des triolets (T). Une tranche de plus de 12 secondes est ramenée à 12 secondes.',
+    'hiccup.gate.hint':
+      'Durée des répétitions après une capture, en part de l’intervalle, de 1 à 100 %. La tranche passe d’abord, puis se répète jusqu’à la fin de la durée.',
+    'hiccup.variation.hint':
+      'Longueur de chaque répétition. Fixe : la tranche. Plus courte : les trois quarts de la précédente, jusqu’au huitième de la tranche. Aléatoire : la tranche, sa moitié ou son quart, tirés selon la graine.',
+    'hiccup.decay.hint':
+      'Niveau perdu à chaque répétition, de 0 à 100 % : à 50 %, chaque répétition est deux fois moins forte que la précédente. Un changement s’applique dès la répétition suivante.',
+    'hiccup.filter.hint':
+      'Un filtre qui se ferme au fil des répétitions. Passe-bas : de 20 kHz à 200 Hz à la fin de la durée, plus sombre à chaque répétition. Passe-haut : de 20 Hz à 2 kHz, plus fin à chaque répétition. Un changement s’applique dès la capture suivante.',
+    'hiccup.pitch.hint':
+      'Hauteur des répétitions, de -12 à +12 demi-tons, en lisant la tranche plus vite ou plus lentement. Plus aiguë, une répétition s’arrête à la fin de la tranche. Un changement s’applique dès la répétition suivante.',
+    'hiccup.mode.hint':
+      'Comment les répétitions rejoignent le son. Superposé : par-dessus. Insertion : le son se tait pendant les répétitions. Répétitions seules : on n’entend que les tranches capturées et leurs répétitions.',
+    'hiccup.mix.hint': 'Niveau des répétitions, de 0 à 100 %. En mode insertion, il règle aussi combien le son se tait pendant qu’elles jouent.',
   },
 )

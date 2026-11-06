@@ -16,6 +16,7 @@ mod export;
 mod export_audio;
 mod filter;
 mod harness;
+mod hiccup;
 mod journey_pack;
 mod live_input;
 mod live_insert_export;

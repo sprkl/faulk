@@ -30429,6 +30429,207 @@
       ],
       "role": "midi_effect",
       "version": 1
+    },
+    {
+      "kind": "faulk.hiccup",
+      "kind_id": 13,
+      "memory_bytes": 18438544,
+      "midi_output": null,
+      "name": "Hiccup",
+      "named_keys": [],
+      "params": [
+        {
+          "default": 4,
+          "description": "How often a slice may be captured, on the transport's grid: every 1/16 note to every 4 bars of the time signature. Captures happen only while the transport plays.",
+          "id": 0,
+          "key": "interval",
+          "max": 6,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "sixteenth",
+            "eighth",
+            "quarter",
+            "half",
+            "bar",
+            "two_bars",
+            "four_bars"
+          ]
+        },
+        {
+          "default": 100,
+          "description": "Chance that a capture happens at each grid point, from 0 to 100 %. The draw depends only on the seed and the grid position: playback and export give the same captures.",
+          "id": 1,
+          "key": "chance",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Seed of the chance and random length draws, from 0 to 1000: the same seed gives the same captures, another seed another sequence.",
+          "id": 2,
+          "key": "seed",
+          "max": 1000,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Manual capture: turning it on captures at once and the repeats last while it stays on; off ends them. A capture starts only when the value turns on; a transport stop ends it.",
+          "id": 3,
+          "key": "capture",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 3,
+          "description": "Length of the repeated slice, as a note value of the project tempo: 1/64 to 1 bar, with triplets (T). A slice longer than 12 seconds is shortened to 12 seconds.",
+          "id": 4,
+          "key": "size",
+          "max": 8,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "sixty_fourth",
+            "thirty_second",
+            "sixteenth_triplet",
+            "sixteenth",
+            "eighth_triplet",
+            "eighth",
+            "quarter",
+            "half",
+            "bar"
+          ]
+        },
+        {
+          "default": 25,
+          "description": "How long the repeats last after a capture, as a share of the interval, from 1 to 100 %. The slice plays first, then repeats until the gate ends.",
+          "id": 5,
+          "key": "gate",
+          "max": 100,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Length of each repeat. Fixed: the slice. Shorter: three quarters of the repeat before, down to an eighth of the slice. Random: the slice, half or a quarter of it, drawn from the seed.",
+          "id": 6,
+          "key": "variation",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "fixed",
+            "shorter",
+            "random"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Level lost at each repeat, from 0 to 100 %: at 50 %, each repeat is half as loud as the one before. A change applies from the next repeat.",
+          "id": 7,
+          "key": "decay",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "A filter that closes over the repeats. Low-pass: from 20 kHz down to 200 Hz at the end of the gate, darker at each repeat. High-pass: from 20 Hz up to 2 kHz, thinner at each repeat. A change applies from the next capture.",
+          "id": 8,
+          "key": "filter",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "low_pass",
+            "high_pass"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Pitch of the repeats, from -12 to +12 semitones, by playing the slice faster or slower. Raised, a repeat ends when the slice runs out. A change applies from the next repeat.",
+          "id": 9,
+          "key": "pitch",
+          "max": 12,
+          "min": -12,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "semitones",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "How the repeats meet the sound. Layer: on top of it. Insert: the sound is muted while the repeats play. Repeats only: only the captured slices and their repeats are heard.",
+          "id": 10,
+          "key": "mode",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "layer",
+            "insert",
+            "repeats_only"
+          ]
+        },
+        {
+          "default": 100,
+          "description": "Level of the repeats, from 0 to 100 %. In insert mode it also sets how much the sound is muted while they play.",
+          "id": 11,
+          "key": "mix",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        }
+      ],
+      "role": "effect",
+      "version": 1
     }
   ],
   "error_codes": {
@@ -39469,7 +39670,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 45,
+  "protocol_version": 49,
   "scale_intervals": [
     {
       "intervals": [

@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 45;
+pub const PROTOCOL_VERSION: u32 = 49;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -43,6 +43,10 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 49 (#689; 46 to 48 are other open branches', provisional): the device registry gains
+// Hiccup (`faulk.hiccup`, kind id 13, an audio effect); a helper of an earlier version would
+// refuse its `DeviceInsert` and its schema bundle would not describe it. No message changes.
 
 // Version 45 (#693): the device registry gains Trim (`faulk.trim`, kind
 // id 10, a MIDI effect); a helper of an earlier version would refuse its `DeviceInsert` and its schema
