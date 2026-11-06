@@ -549,10 +549,14 @@ domain! {
     /// Repeat notes of a MIDI clip end to end up to the tick `until` (#710), in one batch
     /// (one history entry): an arpeggio, a hi-hat or a bass figure of a beat or two filled
     /// up to the end of a bar. Each source note is addressed by its whole value and must be
-    /// in the clip. The period of the repetition is the span of the notes, from the first
-    /// start to the last end, rounded up to a whole number of `grid` steps (ticks, at least
-    /// 1; leave it out for the exact span): copy k of every note starts k periods later,
-    /// for each copy of the figure that starts before `until`. A copied note that would
+    /// in the clip. The period of the repetition (#770) is the extent of the notes, from the
+    /// `grid` line at or before the first start to the last end, rounded up to a whole
+    /// number of a unit that depends on that extent: the `grid` step (ticks, at least 1) for
+    /// a figure of one beat or less, the beat for one of more than a beat up to half a bar,
+    /// the bar for one of more than half a bar (a unit finer than the grid takes the grid
+    /// step); beat and bar are the project's time signature's. Leave `grid` out for the
+    /// exact span, first start to last end, with no rounding. Copy k of every note starts k
+    /// periods later, for each copy of the figure that starts before `until`. A copied note that would
     /// start at or after `until` is left out, and one that would end after it is shortened
     /// to end there. To fill up to the end of bar N, give the tick where bar N ends. The
     /// copies never pass the end of the clip: when `until` is past it, a copied note that
@@ -3067,6 +3071,32 @@ fn notes_duplicate(
     ))
 }
 
+/// The period of `clip.notes.repeat` (#770) for a figure from `first` to `last` (ticks): the
+/// extent from the `grid` line at or before `first` to `last`, rounded up to whole grid steps
+/// when it is one `beat` or less, to whole beats up to half a `bar`, to whole bars beyond (never
+/// a unit finer than the grid). Without a grid, the exact span. At least 1, and at least
+/// `last - first`, so every note of the figure starts within one period of `first`.
+fn repeat_period(first: i64, last: i64, grid: Option<i64>, beat: i64, bar: i64) -> i64 {
+    let Some(step) = grid else {
+        return last.saturating_sub(first).max(1);
+    };
+    let step = step.max(1);
+    let origin = first.div_euclid(step).saturating_mul(step);
+    let extent = last.saturating_sub(origin).max(1);
+    let unit = if extent <= beat {
+        step
+    } else if extent.saturating_mul(2) <= bar {
+        beat.max(step)
+    } else {
+        bar.max(step)
+    };
+    extent
+        .saturating_add(unit - 1)
+        .div_euclid(unit)
+        .saturating_mul(unit)
+        .max(1)
+}
+
 /// `clip.notes.repeat` (#710): copies of the notes end to end, one period apart, up to
 /// `until` and never past the end of the clip.
 fn notes_repeat(
@@ -3077,6 +3107,7 @@ fn notes_repeat(
     grid: Option<Tick>,
 ) -> Result<Out, CommandError> {
     let in_project = project_notes(&state.project);
+    let signature = state.project.time_signature();
     let clip = clip_mut(&mut state.project, clip_id)?;
     let (length, _, notes) = midi_mut(clip)?;
     let step = grid.map_or(1, Tick::get);
@@ -3099,14 +3130,15 @@ fn notes_repeat(
             at_clip_end: false,
         }));
     };
-    // The span of the figure, rounded up to whole grid steps: every source starts in
-    // `[first, first + period)`, so the copies of one round never meet those of another.
-    let span = last.saturating_sub(first).max(1);
-    let period = span
-        .saturating_add(step - 1)
-        .div_euclid(step)
-        .saturating_mul(step)
-        .max(1);
+    // Every source starts in `[first, first + period)`, so the copies of one round never
+    // meet those of another.
+    let period = repeat_period(
+        first,
+        last,
+        grid.map(|_| step),
+        signature.ticks_per_beat().get(),
+        signature.ticks_per_bar().get(),
+    );
     let first_copy = first.saturating_add(period);
     let until = until.get();
     if until <= first_copy {
@@ -3207,6 +3239,25 @@ fn notes_repeat(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_repeat_period_follows_the_extent_of_the_figure() {
+        let (beat, bar) = (960, 3840);
+        // One beat or less: whole grid steps, measured from the grid line before the start.
+        assert_eq!(repeat_period(0, 960, Some(240), beat, bar), 960);
+        assert_eq!(repeat_period(100, 340, Some(240), beat, bar), 480);
+        // More than a beat up to half a bar: whole beats; beyond: whole bars.
+        assert_eq!(repeat_period(0, 961, Some(240), beat, bar), 1920);
+        assert_eq!(repeat_period(0, 1920, Some(240), beat, bar), 1920);
+        assert_eq!(repeat_period(0, 1921, Some(240), beat, bar), 3840);
+        assert_eq!(repeat_period(0, 3841, Some(240), beat, bar), 7680);
+        // Without a grid, the exact span; never below a tick; no overflow at the ends of the range.
+        assert_eq!(repeat_period(10, 1210, None, beat, bar), 1200);
+        assert_eq!(repeat_period(5, 5, Some(240), beat, bar), 240);
+        assert_eq!(repeat_period(5, 5, None, beat, bar), 1);
+        assert!(repeat_period(i64::MIN, i64::MAX, Some(240), beat, bar) > 0);
+        assert!(repeat_period(i64::MAX - 1, i64::MAX, Some(i64::MAX), beat, bar) > 0);
+    }
 
     #[test]
     fn quantizing_a_start_moves_a_share_of_the_way_to_the_nearest_line() {

@@ -176,6 +176,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         label: 'shortcut.noteStep',
         chords: [['←'], ['→'], ['↑'], ['↓'], ['Shift', '←'], ['Shift', '→'], ['Shift', '↑'], ['Shift', '↓']],
       },
+      { label: 'shortcut.noteSelect', chords: [['Space'], ['Enter']] },
       {
         label: 'shortcut.noteShift',
         chords: [
@@ -201,6 +202,14 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       },
       { label: 'shortcut.noteCursor', chords: [['←'], ['→'], ['↑'], ['↓'], ['Shift', '↑'], ['Shift', '↓']] },
       { label: 'shortcut.noteCreate', chords: [['Enter']] },
+      { label: 'shortcut.noteCursorEnds', chords: [['Home'], ['End']] },
+      {
+        label: 'shortcut.noteCursorBar',
+        chords: [
+          ['Mod', '←'],
+          ['Mod', '→'],
+        ],
+      },
       {
         label: 'shortcut.noteVelocity',
         chords: [['Page Up'], ['Page Down'], ['Shift', 'Page Up'], ['Shift', 'Page Down']],
