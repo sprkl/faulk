@@ -24,6 +24,7 @@ import { agentConfirm } from './confirm'
 import { echo } from './echo'
 import { filter } from './filter'
 import { stack } from './stack'
+import { lattice } from './lattice'
 import { reverb } from './reverb'
 import { keys } from './keys'
 import { layout } from './layout'
@@ -62,6 +63,7 @@ export const features = {
   reverb,
   filter,
   stack,
+  lattice,
   compressor,
   trim,
   devices,
