@@ -473,7 +473,7 @@ test('arrangement view: the headers and the canvas scroll together, with a verti
 
 // #772: Ctrl+E on a placement cut at the playhead says how many placements it cut (the count was read after the cut, from a
 // selection the cut had replaced, and said 0). Both languages; the toolbar's Split says the same.
-for (const [lang, said] of [
+for (const [lang, text] of [
   ['en', 'Clips split: 1'],
   ['fr', 'Clips coupés : 1'],
 ] as const) {
@@ -497,11 +497,16 @@ for (const [lang, said] of [
     await seek(BAR / 2)
     await expect.poll(playheadX).toBeGreaterThan(x0)
 
-    // From the keyboard: the placement focused and selected, Ctrl+E.
+    // From the keyboard: the placement is focused and not selected (the case of #772), Ctrl+E cuts it and says so.
+    const said = page.getByTestId('arr-said')
+    expect(await selected(page)).toEqual([])
+    await expect(said).toHaveAttribute('data-n', '0')
     await page.getByTestId('arr-item').first().focus()
+    expect(await selected(page)).toEqual([])
     await page.keyboard.press('Control+e')
     await expect.poll(async () => (await blocks(page)).length).toBe(2)
-    await expect(page.getByTestId('arr-said')).toHaveText(said)
+    await expect(said).toContainText(text)
+    await expect(said).toHaveAttribute('data-n', '1')
 
     // From the toolbar: both halves selected, only the second holds the playhead moved into it, so one is cut.
     const x1 = await playheadX()
@@ -511,7 +516,9 @@ for (const [lang, said] of [
     await expect(page.getByTestId('arr-split')).toBeEnabled()
     await page.getByTestId('arr-split').click()
     await expect.poll(async () => (await blocks(page)).length).toBe(3)
-    await expect(page.getByTestId('arr-said')).toHaveText(said)
+    // A new announcement (the counter moved), not the one of the keyboard step left on the line.
+    await expect(said).toHaveAttribute('data-n', '2')
+    await expect(said).toContainText(text)
     expect(seen.errors).toEqual([])
   })
 }
