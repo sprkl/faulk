@@ -21,7 +21,13 @@ describe('device panels from the descriptors', () => {
     for (const d of DEVICES) {
       for (const p of knobParams(d)) {
         for (const position of [0, 0.25, 0.5, 0.75, 1]) {
-          expect(positionOf(p, valueAt(p, position)), p.key).toBeCloseTo(position, 6)
+          // A position that falls between two steps of a stepped knob lands on the nearest step, at most half a step
+          // away (#691: Scatter's 1 to 24 choices); a position on a step, and any position of a continuous knob, comes
+          // back exactly.
+          const steps = p.step > 0 && p.scale !== 'log' ? (position * (p.max - p.min)) / p.step : 0
+          const between = Math.abs(steps - Math.round(steps)) > 1e-9
+          const slack = between ? p.step / 2 / (p.max - p.min) : 0
+          expect(Math.abs(positionOf(p, valueAt(p, position)) - position), p.key).toBeLessThanOrEqual(slack + 5e-7)
         }
         expect(valueAt(p, 0)).toBeCloseTo(p.min)
         expect(valueAt(p, 1)).toBeCloseTo(p.max)

@@ -25,6 +25,7 @@ import { echo } from './echo'
 import { filter } from './filter'
 import { stack } from './stack'
 import { lattice } from './lattice'
+import { scatter } from './scatter'
 import { reverb } from './reverb'
 import { keys } from './keys'
 import { layout } from './layout'
@@ -64,6 +65,7 @@ export const features = {
   filter,
   stack,
   lattice,
+  scatter,
   compressor,
   trim,
   devices,

@@ -396,6 +396,12 @@ fn every_stack_parameter_is_set_and_undone_through_device_set_param() {
     every_parameter_is_set_and_undone(&engine::devices::stack::DESCRIPTOR);
 }
 
+/// #691: the same for Scatter.
+#[test]
+fn every_scatter_parameter_is_set_and_undone_through_device_set_param() {
+    every_parameter_is_set_and_undone(&engine::devices::scatter::DESCRIPTOR);
+}
+
 /// #692: the same for Lattice.
 #[test]
 fn every_lattice_parameter_is_set_and_undone_through_device_set_param() {

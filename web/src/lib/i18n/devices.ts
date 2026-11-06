@@ -137,6 +137,18 @@ export const devices = defineFeature(
       'In matrix mode, the note a received B flat becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
     'lattice.map_b.hint':
       'In matrix mode, the note a received B becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'scatter.chance.hint':
+      'Chance that a received note comes out at another pitch, from 0 (never: the notes go through unchanged) to 100 % (every note): a repeatable draw, set by the seed.',
+    'scatter.choices.hint': 'How many pitches a moved note can take, from 1 to 24, each one interval further from the received note.',
+    'scatter.interval.hint':
+      "Distance between two choices, from 1 to 12: semitones, or degrees of the project's scale in scale mode (12 semitones is an octave).",
+    'scatter.direction.hint': 'Where the choices lie: above the received note, below it, or around it (alternately above and below).',
+    'scatter.mode.hint':
+      "How the interval is read: in semitones, or in degrees of the project's scale, so that every moved note is in the scale. Without a project scale, in semitones.",
+    'scatter.order.hint':
+      'How a moved note picks its choice: at random (a repeatable draw, set by the seed), or in turn, each moved note taking the next choice.',
+    'scatter.seed.hint':
+      'Seed of the draws, from 0 to 1000: a note draws from the seed, its position in the song and its pitch, so the same seed gives the same notes at the same place on every play, from any start; another seed, another draw.',
     'compressor.threshold.hint': 'Level, in decibels, above which the compressor turns the sound down, from -60 to 0 dB.',
     'compressor.ratio.hint':
       'How strongly the sound above the threshold is turned down, from 1 (not at all) to 20: at 4, a signal 8 dB over the threshold comes out 2 dB over it.',
@@ -287,6 +299,18 @@ export const devices = defineFeature(
       'En mode matrice, la note que devient un si♭ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
     'lattice.map_b.hint':
       'En mode matrice, la note que devient un si reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'scatter.chance.hint':
+      'Chance qu’une note reçue sorte à une autre hauteur, de 0 (jamais : les notes passent telles quelles) à 100 % (chaque note) : un tirage reproductible, fixé par la graine.',
+    'scatter.choices.hint': 'Nombre de hauteurs possibles pour une note changée, de 1 à 24, chacune un intervalle plus loin de la note reçue.',
+    'scatter.interval.hint':
+      'Écart entre deux choix, de 1 à 12 : en demi-tons, ou en degrés de la gamme du projet dans le mode gamme (12 demi-tons font une octave).',
+    'scatter.direction.hint': 'Où sont les choix : au-dessus de la note reçue, au-dessous, ou autour (tour à tour au-dessus et au-dessous).',
+    'scatter.mode.hint':
+      'Comment lire l’intervalle : en demi-tons, ou en degrés de la gamme du projet, pour que chaque note changée soit dans la gamme. Sans gamme réglée, en demi-tons.',
+    'scatter.order.hint':
+      'Comment une note changée prend son choix : au hasard (un tirage reproductible, fixé par la graine), ou tour à tour, chaque note changée prenant le choix suivant.',
+    'scatter.seed.hint':
+      'Graine des tirages, de 0 à 1000 : une note tire selon la graine, sa position dans le morceau et sa hauteur ; la même graine donne donc les mêmes notes à la même place à chaque lecture, quel que soit le point de départ ; une autre graine, un autre tirage.',
     'compressor.threshold.hint': 'Niveau, en décibels, au-dessus duquel le compresseur baisse le son, de -60 à 0 dB.',
     'compressor.ratio.hint':
       'Force avec laquelle le son au-dessus du seuil est baissé, de 1 (pas du tout) à 20 : à 4, un signal 8 dB au-dessus du seuil ressort 2 dB au-dessus.',

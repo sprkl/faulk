@@ -29,6 +29,7 @@ mod output_limiter;
 mod presets;
 mod record_loop;
 mod reverb;
+mod scatter;
 mod scenes;
 mod stack;
 mod trim;

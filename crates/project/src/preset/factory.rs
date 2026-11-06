@@ -109,6 +109,18 @@ const FILES: &[(&str, &str)] = &[
         "faulk.lattice/root-and-fifth",
         include_str!("factory/faulk.lattice/root-and-fifth.json"),
     ),
+    (
+        "faulk.scatter/octave-leaps",
+        include_str!("factory/faulk.scatter/octave-leaps.json"),
+    ),
+    (
+        "faulk.scatter/scale-wander",
+        include_str!("factory/faulk.scatter/scale-wander.json"),
+    ),
+    (
+        "faulk.scatter/rising-thirds",
+        include_str!("factory/faulk.scatter/rising-thirds.json"),
+    ),
 ];
 
 /// The raw files, for the tests that hold them to the canonical format.
