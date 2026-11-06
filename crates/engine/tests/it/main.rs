@@ -26,6 +26,7 @@ mod graph;
 mod grid_render;
 mod growth;
 mod host;
+mod lattice;
 mod launcher;
 mod live_stamps;
 mod master_automation;

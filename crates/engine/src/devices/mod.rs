@@ -14,6 +14,7 @@ pub mod compressor;
 pub mod drums;
 pub mod echo;
 pub mod filter;
+pub mod lattice;
 pub mod osc_synth;
 pub mod reverb;
 pub mod stack;
@@ -46,6 +47,7 @@ pub const REGISTRY: &[Builtin] = &[
     filter::BUILTIN,
     stack::BUILTIN,
     trim::BUILTIN,
+    lattice::BUILTIN,
 ];
 
 /// The registry's line of `kind`.
