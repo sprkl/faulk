@@ -38,7 +38,7 @@ const t = track({
 describe('the chain of a track', () => {
   it('lists the instrument first, then the effects in order, with their place among the effects', () => {
     const chain = chainOf(t, descriptors)
-    expect(chain.map((e) => [e.id, e.effectIndex])).toEqual([
+    expect(chain.map((e) => [e.id, e.index])).toEqual([
       ['a', null],
       ['b', 0],
       ['c', 1],
@@ -52,7 +52,7 @@ describe('the chain of a track', () => {
     const chain = chainOf(audio, descriptors)
     expect(chain.map((e) => e.id)).toEqual(['x'])
     expect(chain[0].descriptor).toBeNull()
-    expect(chain[0].effectIndex).toBe(0)
+    expect(chain[0].index).toBe(0)
   })
 
   it('moves an effect by the index among the effects, never past either end, never the instrument', () => {
@@ -124,7 +124,7 @@ describe('the chain of the master', () => {
 
   it('lists the effects in order, none being the instrument, and is empty when the project has none', () => {
     const chain = masterChainOf(master, descriptors)
-    expect(chain.map((e) => [e.id, e.effectIndex])).toEqual([
+    expect(chain.map((e) => [e.id, e.index])).toEqual([
       ['x', 0],
       ['y', 1],
     ])
@@ -153,11 +153,11 @@ describe('the MIDI effects of a chain (#219)', () => {
   const chain = chainOf(withMidi, [...descriptors, fake('faulk.test_transpose', 'midi_effect')])
 
   it('lists them first, each with its place among the MIDI effects, then the instrument, then the audio effects', () => {
-    expect(chain.map((e) => [e.id, e.section, e.midiIndex, e.effectIndex])).toEqual([
-      ['m0', 'midi', 0, null],
-      ['m1', 'midi', 1, null],
-      ['i', 'instrument', null, null],
-      ['fx', 'effect', null, 0],
+    expect(chain.map((e) => [e.id, e.section, e.index])).toEqual([
+      ['m0', 'midi', 0],
+      ['m1', 'midi', 1],
+      ['i', 'instrument', null],
+      ['fx', 'effect', 0],
     ])
     expect(midiEffectCount(chain)).toBe(2)
     expect(effectCount(chain)).toBe(1)

@@ -1,7 +1,7 @@
 ---
 type: Spec
 title: "Atelier et modules"
-description: "Proposal for the Atelier: anatomy of an audio plugin mapped to a minimal Faulk module ABI and manifest, synthesis and effect families, a three-level editor (block graph, Faust, Rust) with escape hatches, an AI create-listen-measure loop, sandboxing in both runtimes, and a concrete MVP."
+description: "Proposal for the Atelier: anatomy of an audio plugin mapped to a minimal Faulk module ABI (a 20-byte event whose note-on carries its fine tuning, #219) and manifest, synthesis and effect families, a three-level editor (block graph, Faust, Rust) with escape hatches, an AI create-listen-measure loop, sandboxing in both runtimes, and a concrete MVP."
 status: draft
 ---
 

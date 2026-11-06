@@ -1,7 +1,7 @@
 ---
 type: Architecture
 title: "Modèle de projet et format sur disque"
-description: "The Faulk project model and its on-disk format, decided on 2026-10-14: a folder grouped by track with canonical text for human-scale data and content-addressed blobs for machine-scale data, the page owning the project in both modes, a semantic three-way merge shared by git, the browser and the helper, in-app versions and variants, and the strategy for very large projects."
+description: "The Faulk project model and its on-disk format, decided on 2026-10-14: a folder grouped by track with canonical text for human-scale data and content-addressed blobs for machine-scale data, the page owning the project in both modes, a semantic three-way merge shared by git, the browser and the helper, in-app versions and variants, the chain of a track (MIDI effects, instrument, audio effects; folder format 6, #219), and the strategy for very large projects."
 status: draft
 ---
 

@@ -1068,3 +1068,14 @@ fn a_midi_output_is_capped() {
     assert_eq!(chord.capacity(first), MAX_MIDI_OUTPUT_EVENTS);
     assert_eq!(chord.capacity(usize::MAX), MAX_MIDI_OUTPUT_EVENTS);
 }
+
+/// #219: the effects of a chain share one budget of MIDI output: what those before took is not
+/// the next one's, down to a floor.
+#[test]
+fn a_chain_shares_its_midi_output_budget() {
+    use engine::engine::{CHAIN_MIDI_OUTPUT_EVENTS, MIN_MIDI_OUTPUT_EVENTS, midi_room};
+    assert_eq!(midi_room(0), CHAIN_MIDI_OUTPUT_EVENTS);
+    assert_eq!(midi_room(100_000), CHAIN_MIDI_OUTPUT_EVENTS - 100_000);
+    assert_eq!(midi_room(CHAIN_MIDI_OUTPUT_EVENTS), MIN_MIDI_OUTPUT_EVENTS);
+    assert_eq!(midi_room(usize::MAX), MIN_MIDI_OUTPUT_EVENTS);
+}

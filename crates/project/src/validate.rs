@@ -397,6 +397,14 @@ impl Project {
             .iter()
             .take_while(|(_, d)| d.role == DeviceRole::MidiEffect)
             .count();
+        c.count(
+            chain
+                .iter()
+                .filter(|(_, d)| d.role == DeviceRole::MidiEffect)
+                .count(),
+            crate::limits::MAX_MIDI_EFFECTS_PER_TRACK,
+            path,
+        );
         for (i, (id, device)) in chain.iter().enumerate() {
             let path = format!("{path}/devices/{id}");
             c.id(&id.0, &path);

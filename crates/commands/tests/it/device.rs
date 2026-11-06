@@ -1243,7 +1243,7 @@ fn an_effect_on_an_audio_track_takes_the_slot_after_the_clip_players_hole() {
     let ControlMsg::DeviceInsert { device, .. } = &out.control[0] else {
         panic!()
     };
-    assert_eq!(*device, engine::msg::DeviceSlot(1));
+    assert_eq!(*device, engine::msg::DeviceSlot(17));
     // A second effect in front shifts the first one; the hole is never removed.
     let out = w.exec(&ins(&c.audio_track, 0));
     assert!(
@@ -1275,7 +1275,7 @@ fn the_lanes_of_a_device_that_shifts_follow_it() {
     assert_eq!(
         *target,
         engine::msg::AutomationTarget::DeviceParam {
-            device: engine::msg::DeviceSlot(3),
+            device: engine::msg::DeviceSlot(19),
             param: engine::msg::ParamId(0)
         }
     );
@@ -1597,4 +1597,50 @@ fn a_bypass_and_a_parameter_on_the_master_reach_the_engine_and_the_track_ones_do
         m,
         ControlMsg::DeviceSetEnabled { track, .. } if track.is_master()
     )));
+}
+
+/// #219: a MIDI effect inserted, moved, removed or brought back never moves the instrument or
+/// the audio effects: their slots (16 and after) get no message, so the engine never builds
+/// them again (their voices and tails go on; `test-support stack::` hears it).
+#[test]
+fn a_midi_effect_change_leaves_the_instrument_and_the_audio_effects_alone() {
+    let m = midi_chain();
+    let c = &m.chain;
+    let mut w = World::new(c.state.clone());
+    let midi = |index| {
+        d(device::Command::Insert {
+            track: Some(c.track.clone()),
+            master: false,
+            kind: MIDI_EFFECT.into(),
+            index,
+        })
+    };
+    for command in [
+        midi(0),
+        mv(&m.m2, 0),
+        remove(&m.m1),
+        midi(u32::MAX),
+        undo(),
+        undo(),
+    ] {
+        let out = w.exec(&command);
+        for msg in &out.control {
+            let slot = match msg {
+                ControlMsg::DeviceInsert { device, .. }
+                | ControlMsg::DeviceRemove { device, .. }
+                | ControlMsg::DeviceSetEnabled { device, .. } => Some(device.0),
+                ControlMsg::AutomationLaneUpload {
+                    target: engine::msg::AutomationTarget::DeviceParam { device, .. },
+                    ..
+                } => Some(device.0),
+                _ => None,
+            };
+            if let Some(slot) = slot {
+                assert!(
+                    u32::from(slot) < commands::engine_msgs::MIDI_EFFECT_SLOTS,
+                    "{command:?} touched slot {slot}: {msg:?}"
+                );
+            }
+        }
+    }
 }

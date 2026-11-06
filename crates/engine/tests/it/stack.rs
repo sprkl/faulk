@@ -617,3 +617,47 @@ fn the_descriptor_is_valid_and_names_the_stack() {
     assert_eq!(DESCRIPTOR.params.len(), 30);
     let _ = stack::VOICES;
 }
+
+#[test]
+fn a_key_the_chord_already_has_is_not_played_twice() {
+    // An interval of 0, two voices on the same note, and in scale mode two degrees that land
+    // on the same key: one note each.
+    let mut r = Rig::new(&[
+        (v(0, VOICE_INTERVAL), 0.0),
+        (v(1, VOICE_INTERVAL), 7.0),
+        (v(2, VOICE_ON), 1.0),
+        (v(2, VOICE_INTERVAL), 7.0),
+    ]);
+    r.run(&[(0, on(1, 60, 1.0))], 128);
+    assert_eq!(r.ons().iter().map(|o| o.1).collect::<Vec<_>>(), [60, 67]);
+}
+
+#[test]
+fn a_note_at_velocity_0_comes_out_at_0_with_its_chord() {
+    let mut r = Rig::new(&[(STRUM, 0.05), (CRESCENDO, 100.0)]);
+    r.run(&[(0, on(1, 60, 0.0)), (5_000, off(1, 60))], 6_000);
+    let ons = r.ons();
+    assert_eq!(ons.len(), 3);
+    assert!(ons.iter().all(|o| o.2 == 0.0), "{ons:?}");
+}
+
+#[test]
+fn a_reset_with_a_full_table_allocates_nothing_and_leaves_it_empty() {
+    let mut params = vec![(STRUM, 0.4)];
+    for voice in 0..6 {
+        params.push((v(voice, VOICE_ON), 1.0));
+    }
+    let mut r = Rig::with_block(&params, 64);
+    let notes: Vec<(u64, Event)> = (0..HELD as u32).map(|n| (0, on(n, 60, 1.0))).collect();
+    r.run(&notes, 64);
+    // The engine calls it on the audio thread when Stack is switched (#219).
+    let stack = &mut r.stack;
+    assert_no_alloc(|| stack.reset());
+    r.log.clear();
+    r.run(&[], 30_000);
+    assert!(r.log.is_empty(), "nothing of the old table starts");
+    // The table takes new notes again, all of them.
+    let again: Vec<(u64, Event)> = (0..HELD as u32).map(|n| (30_000, on(n, 60, 1.0))).collect();
+    r.run(&again, 30_064);
+    assert_eq!(r.ons().len(), HELD, "the roots at once, their strums after");
+}

@@ -100,8 +100,8 @@ fn a_midi_effect_writes_and_reads_back_the_same() {
     let fs = save_all(&project, &SaveOptions::default());
     let files: String = fs
         .files()
-        .iter()
-        .map(|(_, bytes)| String::from_utf8_lossy(bytes).into_owned())
+        .values()
+        .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
         .collect();
     assert!(files.contains("\"midi_effect\""), "the role is written");
     let opened = open(&fs, &OpenOptions::default()).unwrap();

@@ -188,3 +188,48 @@ fn a_chord_held_while_stack_is_bypassed_removed_or_changed_leaves_nothing_soundi
         );
     }
 }
+
+/// #219, heard: a MIDI effect inserted, then removed, while a chord rings through a reverb does
+/// not build the synth or the reverb again. Its insertion ends the held note as a note-off at
+/// the same block would (the instrument's release, the reverb's tail going on), so the render
+/// is the one of that note-off, sample for sample; its removal touches nothing that sounds.
+#[test]
+fn a_midi_effect_inserted_while_playing_cuts_neither_the_voices_nor_the_tails() {
+    let render = |insert: bool| {
+        let f = fixture();
+        let mut s = Session::from_state(f.state.clone(), context());
+        s.run(Command::Device(device::Command::Insert {
+            track: Some(f.track.clone()),
+            master: false,
+            kind: "faulk.reverb".into(),
+            index: 0,
+        }));
+        set(&mut s, &f.device, "release", 0.4);
+        s.run(Command::Transport(transport::Command::Play {}));
+        note_on(&mut s, &f.track, 57);
+        s.render_secs(0.5);
+        if insert {
+            let out = s.exec(Command::Device(device::Command::Insert {
+                track: Some(f.track.clone()),
+                master: false,
+                kind: "faulk.stack".into(),
+                index: 0,
+            }));
+            let Output::Device(device::Output::Insert { device: fx }) = out else {
+                panic!("{out:?}")
+            };
+            s.render_secs(0.5);
+            s.run(Command::Device(device::Command::Remove { device: fx }));
+        } else {
+            note_off(&mut s, &f.track, 57);
+            s.render_secs(0.5);
+        }
+        s.render_secs(1.0);
+        render_native(s.scenario())
+    };
+    let inserted = render(true);
+    let released = render(false);
+    inserted.assert_clean();
+    assert!(inserted.rms_in(0.6..1.0) > 1e-3, "the tail rings on");
+    inserted.assert_close(&released, 1e-6);
+}

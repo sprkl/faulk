@@ -7,8 +7,10 @@
 //! The received note always plays: it is the chord's root. Each of the six **voices** that is
 //! on adds one note at its `interval` from the root, with its `velocity` (a share of the
 //! received velocity, 1 to 200 %, at most 1) and its `chance` of playing. A note that would fall
-//! outside 0 to 127 is not played (never clamped: no doubled key). Every note of the chord
-//! carries the received note's fine tuning (`tune_cents`), so a tuned note gives a tuned chord.
+//! outside 0 to 127 is not played (never clamped), nor one on a key the chord already has (an
+//! interval of 0, two voices on the same note): no key is doubled. Every note of the chord
+//! carries the received note's fine tuning (`tune_cents`), so a tuned note gives a tuned chord. A
+//! note received at velocity 0 comes out at 0 with its chord.
 //!
 //! With `mode` at `scale` and a project scale set ([`Transport::scale`]), an interval counts
 //! **degrees** of the scale: the root's degree plus `interval` degrees, the octave wrapping (in A
@@ -42,7 +44,8 @@
 //! ends exactly the notes its note-on started and drops the ones still to start, whatever the
 //! settings are now: a setting applies to the notes received after it. An `AllNotesOff` (a stop,
 //! a change of the chain) empties the table and goes on. A note received while the table is full
-//! is not played (and its note-off ends nothing). [`Device::reset`] empties the table: the engine
+//! is not played (and its note-off ends nothing). [`Device::reset`] empties the table in O(1) (a
+//! generation counter: the entries of an older generation hold nothing): the engine
 //! resets a MIDI effect when it is switched on or off (#219), and the host ends the instrument's
 //! notes when Stack is switched, removed or replaced. An output voice id is `entry × 8 + note`:
 //! unique among the notes Stack holds, under 1024.
@@ -301,7 +304,12 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
     version: 1,
     name: "Stack",
     role: DeviceRole::MidiEffect,
-    memory_bytes: (size_of::<Stack>() + size_of::<[Held; HELD]>()) as u64,
+    // The device, its table and its list of due notes, and the most output the host gives it
+    // (`MidiOutput::capacity` is at most `MAX_MIDI_OUTPUT_EVENTS`).
+    memory_bytes: (size_of::<Stack>()
+        + size_of::<[Held; HELD]>()
+        + size_of::<[(u64, u16, u8); HELD * CHORD]>()
+        + crate::device::MAX_MIDI_OUTPUT_EVENTS * size_of::<Event>()) as u64,
     midi_output: Some(MidiOutput {
         per_input: CHORD as u32,
         per_block: (HELD * CHORD) as u32,
@@ -338,7 +346,9 @@ enum NoteState {
 /// A received note that sounds, with its chord.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 struct Held {
-    used: bool,
+    /// The entry holds a note when this is the table's generation ([`Stack::generation`]): a
+    /// reset empties the table in O(1) by moving the generation on.
+    generation: u32,
     /// The received note's voice id.
     voice: u32,
     tune_cents: f32,
@@ -367,6 +377,11 @@ pub struct Stack {
     seed: u64,
     voices: [VoiceSettings; VOICES],
     held: Box<[Held; HELD]>,
+    /// The generation of the entries that hold a note (never 0, the generation of an entry
+    /// never used).
+    generation: u32,
+    /// The strum notes due in the block being rendered, sorted by frame (built in the factory).
+    due: Box<[(u64, u16, u8); HELD * CHORD]>,
     /// Frames rendered since the last reset.
     now: u64,
     /// Notes received since the last reset or the last start of the transport (the draw).
@@ -374,12 +389,15 @@ pub struct Stack {
     playing: bool,
     /// Notes the table holds still to start (0: nothing to look for).
     pending: u32,
+    /// The earliest frame a pending note is due at (`u64::MAX` when none; never later than it).
+    next_due: u64,
     sample_rate: f64,
 }
 
 impl Stack {
     pub fn new(setup: &DeviceSetup) -> Result<Self, MsgError> {
         let held = try_box([Held::default(); HELD])?;
+        let due = try_box([(0u64, 0u16, 0u8); HELD * CHORD])?;
         let mut stack = Self {
             in_scale: false,
             strum_seconds: 0.0,
@@ -394,10 +412,13 @@ impl Stack {
                 chance: 1.0,
             }; VOICES],
             held,
+            generation: 1,
+            due,
             now: 0,
             received: 0,
             playing: false,
             pending: 0,
+            next_due: u64::MAX,
             sample_rate: sane_rate(setup.sample_rate),
         };
         for p in DESCRIPTOR.params {
@@ -410,29 +431,45 @@ impl Stack {
         Ok(try_box(Self::new(setup)?)?)
     }
 
-    /// Starts the pending notes due before `limit` (an offset in the block), in time order.
+    /// Starts the pending notes due before `limit` (an offset in the block), in time order:
+    /// one pass over the table gathers them, an in-place sort orders them (no allocation, at
+    /// most `HELD × CHORD` of them), then they start. `next_due` skips the pass when none is due.
     fn start_due(&mut self, limit: usize, out: &mut crate::device::EventBuffer) {
         let end = self.now.saturating_add(limit as u64);
-        while self.pending > 0 {
-            let mut first: Option<(usize, usize, u64)> = None;
-            for (e, held) in self.held.iter().enumerate() {
-                if !held.used {
+        if self.pending == 0 || self.next_due >= end {
+            return;
+        }
+        let mut n = 0;
+        let mut next = u64::MAX;
+        for (e, held) in self.held.iter().enumerate() {
+            if held.generation != self.generation {
+                continue;
+            }
+            for (j, note) in held.notes.iter().enumerate() {
+                if note.state != NoteState::Pending {
                     continue;
                 }
-                for (j, note) in held.notes.iter().enumerate() {
-                    if note.state == NoteState::Pending
-                        && note.due < end
-                        && first.is_none_or(|(_, _, due)| note.due < due)
-                    {
-                        first = Some((e, j, note.due));
+                if note.due < end {
+                    if let Some(slot) = self.due.get_mut(n) {
+                        *slot = (note.due, e as u16, j as u8);
+                        n += 1;
                     }
+                } else {
+                    next = next.min(note.due);
                 }
             }
-            let Some((e, j, due)) = first else {
-                return;
+        }
+        self.next_due = next;
+        self.due[..n].sort_unstable();
+        for &(due, e, j) in &self.due[..n] {
+            let (e, j) = (usize::from(e), usize::from(j));
+            let Some(held) = self.held.get_mut(e) else {
+                continue;
             };
-            let held = &mut self.held[e];
-            let note = &mut held.notes[j];
+            let tune_cents = held.tune_cents;
+            let Some(note) = held.notes.get_mut(j) else {
+                continue;
+            };
             note.state = NoteState::Sounding;
             self.pending = self.pending.saturating_sub(1);
             out.push(Event::NoteOn {
@@ -440,11 +477,12 @@ impl Stack {
                 voice: out_voice(e, j),
                 key: note.key,
                 velocity: note.velocity,
-                tune_cents: held.tune_cents,
+                tune_cents,
             });
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn note_on(
         &mut self,
         at: usize,
@@ -457,7 +495,8 @@ impl Stack {
     ) {
         // A note-on for a voice already held (a broken guarantee) ends that one first.
         self.note_off(at, voice, out);
-        let Some(entry) = self.held.iter().position(|h| !h.used) else {
+        let generation = self.generation;
+        let Some(entry) = self.held.iter().position(|h| h.generation != generation) else {
             return;
         };
         let draw = self.received;
@@ -468,6 +507,9 @@ impl Stack {
         } else {
             0.0
         };
+        // A note received at velocity 0 comes out at 0, its chord too: the floor below is for
+        // the voices and the crescendo of a note that sounds.
+        let floor = if velocity > 0.0 { MIN_VELOCITY } else { 0.0 };
         // The chord: the root, then each voice that is on, falls in 0..=127 and wins its draw.
         let mut chord = [(0u8, 0f32); CHORD];
         chord[0] = (key, velocity);
@@ -482,7 +524,9 @@ impl Stack {
             } else {
                 i32::from(key) + settings.interval
             };
-            if !(0..=127).contains(&target) {
+            // Off the keyboard, or a key the chord already has (an interval of 0, two voices
+            // on the same note): not played, so no key is doubled.
+            if !(0..=127).contains(&target) || chord[..n].iter().any(|c| i32::from(c.0) == target) {
                 continue;
             }
             chord[n] = (target as u8, velocity * settings.velocity);
@@ -500,7 +544,7 @@ impl Stack {
         let start = self.now.saturating_add(at as u64);
         let held = &mut self.held[entry];
         *held = Held {
-            used: true,
+            generation,
             voice: voice.get(),
             tune_cents,
             notes: [ChordNote::default(); CHORD],
@@ -524,7 +568,7 @@ impl Stack {
             } else {
                 1.0
             };
-            let velocity = (note_velocity * factor).clamp(MIN_VELOCITY, 1.0);
+            let velocity = (note_velocity * factor).clamp(floor, 1.0);
             let pending = onset > 0;
             held.notes[k] = ChordNote {
                 state: if pending {
@@ -538,6 +582,7 @@ impl Stack {
             };
             if pending {
                 self.pending += 1;
+                self.next_due = self.next_due.min(start.saturating_add(onset));
             } else {
                 out.push(Event::NoteOn {
                     offset: at as u32,
@@ -554,7 +599,7 @@ impl Stack {
         let Some(entry) = self
             .held
             .iter()
-            .position(|h| h.used && h.voice == voice.get())
+            .position(|h| h.generation == self.generation && h.voice == voice.get())
         else {
             return;
         };
@@ -573,14 +618,17 @@ impl Stack {
             }
             note.state = NoteState::None;
         }
-        held.used = false;
+        held.generation = 0;
     }
 
+    /// Empties the table in O(1): the entries of the old generation hold nothing any more.
     fn clear(&mut self) {
-        for held in self.held.iter_mut() {
-            held.used = false;
-        }
+        self.generation = match self.generation.wrapping_add(1) {
+            0 => 1,
+            g => g,
+        };
         self.pending = 0;
+        self.next_due = u64::MAX;
     }
 }
 

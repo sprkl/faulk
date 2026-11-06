@@ -314,9 +314,12 @@ describe('a MIDI effect dropped (#219)', () => {
     const onAudio = applyItem(f.host, stack, { type: 'track', track: 'audio' })
     expect(onAudio.ok).toBe(false)
     expect(onAudio.said.key).toBe('browser.said.noMidiEffectHere')
-    f.select(null, true)
-    expect(applyItem(f.host, stack, { type: 'selection' }).said.key).toBe('browser.said.noMidiEffectHere')
     expect(f.log).toEqual([])
+    // With the master selected, the keyboard starts a MIDI track for it instead, as for an instrument.
+    f.select(null, true)
+    const fromKeys = applyItem(f.host, stack, { type: 'selection' })
+    expect(fromKeys.said.key).toBe('browser.said.created')
+    expect(kinds(f.tracks.at(-1)!.track.devices)).toEqual(['faulk.stack', 'faulk.osc_synth'])
   })
 
   it('from the keyboard with nothing selected starts a MIDI track with it before the instrument, its preset loaded on it', () => {

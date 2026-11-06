@@ -1551,8 +1551,23 @@ impl Preparer {
             .flatten()
             .map(|d| d.midi_out)
             .fold(TRACK_INPUT_EVENTS, usize::max);
-        let (value, descriptor) =
-            self.build_device(&self.setup, track, kind, input_events, state_pairs(state))?;
+        // The chain shares one budget of MIDI output (#219): what the MIDI effects before it
+        // took is not this one's.
+        let used = shadow
+            .devices
+            .iter()
+            .take(device.0 as usize)
+            .flatten()
+            .map(|d| d.midi_out)
+            .sum();
+        let (value, descriptor) = self.build_device(
+            &self.setup,
+            track,
+            kind,
+            input_events,
+            midi_room(used),
+            state_pairs(state),
+        )?;
         let midi_out = value.events_out.as_ref().map_or(0, EventBuffer::capacity);
         // What a rebuild needs (#236): every declared id has room, so a later `ParamSet`
         // never allocates.
@@ -1599,14 +1614,15 @@ impl Preparer {
     }
 
     /// Builds a device of `kind` for `setup` with `params`, reset, its MIDI output sized
-    /// from `input_events`, enabled: the device of a `DeviceInsert`, or one built again at a
-    /// new sample rate (#236). Allocates fallibly, changes nothing.
+    /// from `input_events` and at most `room` events, enabled: the device of a `DeviceInsert`,
+    /// or one built again at a new sample rate (#236). Allocates fallibly, changes nothing.
     fn build_device(
         &self,
         setup: &DeviceSetup,
         track: TrackSlot,
         kind: DeviceKind,
         input_events: usize,
+        room: usize,
         params: impl Iterator<Item = (ParamId, f32)>,
     ) -> Result<(Box<DeviceEntry>, &'static DeviceDescriptor), MsgError> {
         let factory = (self.factories)(kind).ok_or(MsgError::UnknownDevice(kind))?;
@@ -1623,7 +1639,7 @@ impl Preparer {
         }
         let events_out = match (descriptor.role, descriptor.midi_output) {
             (DeviceRole::MidiEffect, Some(bounds)) => Some(EventBuffer::try_with_capacity(
-                bounds.capacity(input_events),
+                bounds.capacity(input_events).min(room),
             )?),
             _ => None,
         };
@@ -1710,6 +1726,7 @@ impl Preparer {
                 continue;
             };
             let mut input_events = TRACK_INPUT_EVENTS;
+            let mut used = 0;
             for (slot, kept) in chain.devices.iter().enumerate() {
                 let Some(kept) = kept else { continue };
                 let (mut value, _) = self.build_device(
@@ -1717,10 +1734,12 @@ impl Preparer {
                     track,
                     kept.kind,
                     input_events,
+                    midi_room(used),
                     kept.params.iter().copied(),
                 )?;
                 value.enabled = kept.enabled;
                 input_events = input_events.max(kept.midi_out);
+                used += kept.midi_out;
                 msgs.push(RtMsg::DevicePut {
                     track,
                     put: Put {
@@ -3180,6 +3199,24 @@ fn forget_lane(state: &mut State, graph: &mut Graph, track: TrackSlot, target: A
 /// (insert, remove, enable, disable) switches the instrument's note stream, or skips the
 /// note-offs a bypassed one would have needed, so the graph releases the track's notes at
 /// its next block (MO-3). An audio effect receives no notes: changing it releases nothing.
+/// The MIDI output a chain's effects share, in events (#219): each effect takes what its bounds
+/// ask ([`crate::device::MidiOutput::capacity`], at most [`crate::device::MAX_MIDI_OUTPUT_EVENTS`])
+/// within what the effects before it left, and never less than [`MIN_MIDI_OUTPUT_EVENTS`]. So a
+/// chain of effects that multiply their notes takes at most this budget plus that floor for each
+/// effect (`MAX_MIDI_EFFECTS_PER_TRACK` in the project), whatever their number; past it, the output
+/// buffer's safety net ends the notes.
+pub const CHAIN_MIDI_OUTPUT_EVENTS: usize = 2 * crate::device::MAX_MIDI_OUTPUT_EVENTS;
+
+/// The least output an effect of a chain gets, its budget spent or not.
+pub const MIN_MIDI_OUTPUT_EVENTS: usize = 4096;
+
+/// The room a MIDI effect's output gets when the effects before it in the chain took `used`.
+pub fn midi_room(used: usize) -> usize {
+    CHAIN_MIDI_OUTPUT_EVENTS
+        .saturating_sub(used)
+        .max(MIN_MIDI_OUTPUT_EVENTS)
+}
+
 fn takes_notes(entry: &DeviceEntry) -> bool {
     entry.device.descriptor().role != DeviceRole::Effect
 }
