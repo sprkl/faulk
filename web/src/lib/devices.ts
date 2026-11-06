@@ -26,6 +26,10 @@ export const instrumentDescriptors = (devices: readonly DeviceDescriptor[] = DEV
 export const effectDescriptors = (devices: readonly DeviceDescriptor[] = DEVICES): readonly DeviceDescriptor[] =>
   devices.filter((d) => (d.role as string) === 'effect')
 
+/** The descriptors of the MIDI effects (#219), in registry order: they go before a MIDI track's instrument. */
+export const midiEffectDescriptors = (devices: readonly DeviceDescriptor[] = DEVICES): readonly DeviceDescriptor[] =>
+  devices.filter((d) => (d.role as string) === 'midi_effect')
+
 /**
  * A text of the catalogue, or `undefined` when it has none: a device registered without its
  * translations still gets a panel (the parameter's key and the descriptor's description stand in);

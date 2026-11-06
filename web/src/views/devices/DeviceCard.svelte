@@ -1,6 +1,6 @@
 <script lang="ts">
   /**
-   * One device of the chain: its name, bypass, and for an effect its place in the chain and its
+   * One device of the chain: its name, bypass, and for an effect (audio or MIDI) its place in the chain and its
    * removal, its presets (#191), then one control per parameter of its descriptor (`ParamControl`). Generic: no device
    * has a panel of its own. Every action is a command (`device-commands.ts`).
    */
@@ -24,7 +24,8 @@
   const descriptor = $derived(entry.descriptor)
   const name = $derived(descriptor?.name ?? entry.kind ?? t('devices.unknown'))
   const bypassed = $derived(!entry.device.enabled)
-  const isEffect = $derived(entry.effectIndex !== null)
+  // An audio or a MIDI effect moves (within its section) and is removed; the instrument does neither.
+  const isEffect = $derived(entry.section !== 'instrument')
   const actions = $derived(cardActions(chain, entry))
   // The Compressor shows the gain it takes off (the engine reports the largest reduction of the strip's enabled compressors).
   const reduces = $derived(entry.kind === 'faulk.compressor')
@@ -88,7 +89,7 @@
   oncontextmenu={onContextMenu}
   data-testid="device-card"
   data-kind={entry.kind}
-  data-role={isEffect ? 'effect' : 'instrument'}
+  data-role={entry.section === 'midi' ? 'midi_effect' : entry.section}
   data-bypassed={bypassed}
 >
   <header>

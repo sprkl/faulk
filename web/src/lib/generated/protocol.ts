@@ -322,9 +322,10 @@ export type Quantize = ("none" | "sixteenth" | "beat" | "bar" | "bars_2" | "bars
  */
 export type OrderKey = string
 /**
- * What a device does in the chain.
+ * What a device does in the chain. A track's chain is, in order, its MIDI effects, its
+ * instrument (at most one), then its audio effects; the master's holds audio effects only.
  */
-export type DeviceRole = ("instrument" | "effect")
+export type DeviceRole = ("instrument" | "effect" | "midi_effect")
 /**
  * Where a device comes from. Third-party plugins come after the MVP.
  */
@@ -1680,7 +1681,7 @@ type: "device.remove"
 type: "device.restore"
 } | {
 /**
- * The effect's index before the command.
+ * The effect's index among the effects of its kind before the command.
  */
 previous_index: number
 type: "device.move"
@@ -4076,9 +4077,10 @@ id: string
  */
 name?: (string | null)
 /**
- * What a device does in the chain.
+ * What a device does in the chain. A track's chain is, in order, its MIDI effects, its
+ * instrument (at most one), then its audio effects; the master's holds audio effects only.
  */
-role: ("instrument" | "effect")
+role: ("instrument" | "effect" | "midi_effect")
 /**
  * Where a device comes from. Third-party plugins come after the MVP.
  */

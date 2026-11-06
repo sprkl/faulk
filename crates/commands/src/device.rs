@@ -5,12 +5,15 @@
 //! The contract of the device commands, written once here and repeated in their
 //! descriptions for agents:
 //!
-//! - A device is addressed by its `DeviceId`, a track by its `TrackId`. A track's chain is
-//!   its instrument, always first, then its effects in order. `index` is a position among
-//!   the **effects**, 0 first (right after the instrument); an index past the end means
-//!   last. The instrument is never counted, moved or removed by these commands:
-//!   `track.set_instrument` replaces it.
-//! - The master has a chain too (#364): effects only, run on the sum of the tracks before
+//! - A device is addressed by its `DeviceId`, a track by its `TrackId`. A track's chain is,
+//!   in order, its **MIDI effects** (notes in, notes out; MIDI tracks only, #219), its
+//!   instrument, then its **audio effects**. `index` is a position among the devices of the
+//!   same kind as the one inserted or moved: among the MIDI effects for a MIDI effect (0 first,
+//!   at the start of the chain), among the audio effects for an audio effect (0 first, right
+//!   after the instrument); an index past the end means last of that kind. A MIDI effect never
+//!   moves past the instrument, nor an audio effect before it. The instrument is never counted,
+//!   moved or removed by these commands: `track.set_instrument` replaces it.
+//! - The master has a chain too (#364): audio effects only, run on the sum of the tracks before
 //!   the master's fader. `device.insert` and `device.restore` name the chain they work on:
 //!   `track` for a track's, `master: true` for the master's, exactly one of the two. The
 //!   other commands find a device by its identifier, which is unique in the project. The
@@ -39,7 +42,7 @@ use project::limits::MAX_DEVICES_PER_TRACK;
 use project::order::by_order;
 use project::{
     AutomationLane, AutomationTarget, CLIP_PLAYER, Device, DeviceId, DeviceRole, DeviceSource,
-    LaneId, OrderKey, Track, TrackId,
+    LaneId, OrderKey, Track, TrackId, TrackKind,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -56,14 +59,17 @@ domain! {
     /// Insert an effect in a track's chain, or in the master's. Name the chain with
     /// `track` (a track's identifier) or with `master: true` (the master: the effects
     /// there process the sum of all the tracks before the master's volume), exactly one
-    /// of the two. `kind` is the type id of a built-in effect (an instrument is refused:
-    /// `track.set_instrument` replaces a track's instrument, and the master has none).
-    /// `index` is the position among the chain's effects, 0 first (right after the
-    /// instrument on a track); an index past the end means last. The new device starts at
-    /// its default settings, not bypassed. Refused with `invalid` when both or neither of
-    /// `track` and `master` are given, when the effects around that position share an
-    /// order key (a merge made them equal), and with `limit` at the safety limit of
-    /// devices per chain. Undo: `device.remove`.
+    /// of the two. `kind` is the type id of a built-in audio effect or MIDI effect (an
+    /// instrument is refused: `track.set_instrument` replaces a track's instrument, and the
+    /// master has none). An audio effect goes after the instrument, `index` counting the
+    /// audio effects, 0 first (right after the instrument on a track). A MIDI effect (it
+    /// turns the notes the track plays into other notes before the instrument hears them)
+    /// goes before the instrument, `index` counting the MIDI effects, 0 first; it is refused
+    /// on the master and on an audio track, which play no notes. An index past the end means
+    /// last. The new device starts at its default settings, not bypassed. Refused with
+    /// `invalid` when both or neither of `track` and `master` are given, when the devices
+    /// around that position share an order key (a merge made them equal), and with `limit`
+    /// at the safety limit of devices per chain. Undo: `device.remove`.
     "device.insert" (kind = "edit", undo = "inverse", destructive = false)
     Insert {
         /// The track whose chain gets the effect; absent for the master.
@@ -79,8 +85,8 @@ domain! {
         device: DeviceId,
     };
 
-    /// Remove an effect from its track or from the master, with its settings. The
-    /// automation lanes that target the effect are deleted with it. Refused for an
+    /// Remove an effect (audio or MIDI) from its track or from the master, with its
+    /// settings. The automation lanes that target the effect are deleted with it. Refused for an
     /// instrument (the oscillator, the clip player: replace it with `track.set_instrument`).
     /// Undo: `device.restore` brings it back with its identifier, position, settings, bypass
     /// and automation lanes.
@@ -95,9 +101,10 @@ domain! {
     /// `device.insert`. `snapshot` is the whole device: its order key, bypass, source,
     /// settings and state. Refused when both or neither of `track` and `master` are given,
     /// when the identifier is already in use, at the safety limit of devices, or when the
-    /// snapshot is not an effect (a built-in device must be one of the registry, with only
-    /// parameters it declares; a module device is taken as it is) or does not fit the
-    /// chain. `lanes` are the automation lanes that targeted the device, as `device.remove`
+    /// snapshot is not an audio or MIDI effect (a built-in device must be one of the
+    /// registry, with only parameters it declares; a module device is taken as it is) or does
+    /// not fit the chain (a MIDI effect goes before the instrument of a MIDI track only): the
+    /// chain stays valid. `lanes` are the automation lanes that targeted the device, as `device.remove`
     /// took them out (absent: none); each must target this device and a parameter it has,
     /// under an identifier not in use. Undo: `device.remove`.
     "device.restore" (kind = "edit", undo = "inverse", destructive = false)
@@ -115,18 +122,22 @@ domain! {
         lanes: BTreeMap<LaneId, AutomationLane>,
     } => {};
 
-    /// Move an effect to `index` among the effects of its chain (a track's or the master's),
-    /// 0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.
-    /// Refused with `invalid` when the effects around that position share an order key.
+    /// Move an effect to `index` among the effects of its kind in its chain (a track's or
+    /// the master's): an audio effect among the audio effects, 0 first (right after the
+    /// instrument on a track); a MIDI effect among the MIDI effects, 0 first (the start of the
+    /// chain). An index past the end means last of that kind. The instrument cannot be moved,
+    /// and an effect never crosses it. Refused with `invalid` when the devices around that
+    /// position share an order key.
     /// Undo: `device.restore_order` puts the exact previous order key back.
     "device.move" (kind = "edit", undo = "inverse", destructive = false)
     Move { device: DeviceId, index: u32 } => {
-        /// The effect's index before the command.
+        /// The effect's index among the effects of its kind before the command.
         previous_index: u32,
     };
 
     /// Put an effect back under an exact order key: the inverse of `device.move`, which
-    /// takes an index. Refused when the key would put the effect before the instrument.
+    /// takes an index. Refused when the key would break the chain's order (MIDI effects,
+    /// instrument, audio effects).
     /// Undo: set the key before this command back.
     "device.restore_order" (kind = "edit", undo = "inverse", destructive = false)
     RestoreOrder { device: DeviceId, order: OrderKey } => {};
@@ -197,8 +208,8 @@ type Out = Outcome<Command, Output>;
 
 /// The devices the commands can build: the engine's registry. With the `testing` feature
 /// (the crate's own tests and the integration tests of the workspace, never a shipped
-/// build) the engine's test effect comes too, so that effects can be exercised before the
-/// registry holds one (DV-3 to DV-5).
+/// build) the engine's test effect and test MIDI effect come too, so that effects can be
+/// exercised before the registry holds one (DV-3 to DV-5, #219).
 #[cfg(not(feature = "testing"))]
 pub fn registry() -> &'static [Builtin] {
     REGISTRY
@@ -213,7 +224,15 @@ pub fn registry() -> &'static [Builtin] {
             descriptor: &engine::device::testing::GAIN,
             factory: engine::device::testing::TestGain::build,
         };
-        REGISTRY.iter().copied().chain([test_effect]).collect()
+        let test_midi_effect = Builtin {
+            descriptor: &engine::device::testing::TRANSPOSE,
+            factory: engine::device::testing::TestTranspose::build,
+        };
+        REGISTRY
+            .iter()
+            .copied()
+            .chain([test_effect, test_midi_effect])
+            .collect()
     })
 }
 
@@ -465,19 +484,35 @@ pub(crate) fn check_device(
     Ok(())
 }
 
-/// The effects of a chain in order, without `except`.
-fn effects<'a>(devices: &'a Devices, except: Option<&DeviceId>) -> Vec<(&'a DeviceId, &'a Device)> {
+/// The rank of a role in a track's chain: the MIDI effects, then the instrument, then the
+/// audio effects (#219).
+fn rank(role: DeviceRole) -> u8 {
+    match role {
+        DeviceRole::MidiEffect => 0,
+        DeviceRole::Instrument => 1,
+        DeviceRole::Effect => 2,
+    }
+}
+
+/// The devices of a chain in order that have `role`, without `except`.
+fn of_role<'a>(
+    devices: &'a Devices,
+    role: DeviceRole,
+    except: Option<&DeviceId>,
+) -> Vec<(&'a DeviceId, &'a Device)> {
     by_order(devices, |d| &d.order)
         .into_iter()
-        .filter(|(id, d)| d.role == DeviceRole::Effect && Some(*id) != except)
+        .filter(|(id, d)| d.role == role && Some(*id) != except)
         .collect()
 }
 
-/// The order key that puts an effect at `index` among the track's effects (without
-/// `except`, the device being moved). What the chain holds before its effects (the
-/// instrument) bounds the key below.
+/// The order key that puts an effect of `role` at `index` among the chain's effects of that
+/// role (without `except`, the device being moved). An audio effect's key is bounded below by
+/// what the chain holds before its audio effects (the MIDI effects, the instrument); a MIDI
+/// effect's key, above by what follows the MIDI effects.
 fn key_at(
     devices: &Devices,
+    role: DeviceRole,
     except: Option<&DeviceId>,
     index: usize,
 ) -> Result<OrderKey, CommandError> {
@@ -486,8 +521,11 @@ fn key_at(
         .filter(|(id, _)| Some(*id) != except)
         .map(|(_, d)| &d.order)
         .collect();
-    let fx = effects(devices, except).len();
-    let position = (chain.len() - fx) + index.min(fx);
+    let same = of_role(devices, role, except).len();
+    let position = match role {
+        DeviceRole::MidiEffect => index.min(same),
+        _ => (chain.len() - same) + index.min(same),
+    };
     let key = OrderKey::for_index(&chain, position).map_err(|e| invalid("index", e.to_string()))?;
     // Neighbours that share a key leave none between them: refuse rather than report a
     // position that does not happen.
@@ -512,8 +550,8 @@ fn insert(
         .iter()
         .find(|b| b.descriptor.kind == kind)
         .ok_or_else(|| not_found("device kind", kind))?;
-    match builtin.descriptor.role {
-        EngineRole::Effect => {}
+    let role = match builtin.descriptor.role {
+        EngineRole::Effect => DeviceRole::Effect,
         EngineRole::Instrument if *place == Place::Master => {
             return Err(invalid(
                 "kind",
@@ -527,19 +565,33 @@ fn insert(
             ));
         }
         EngineRole::MidiEffect => {
-            return Err(invalid(
-                "kind",
-                format!("{kind} is a MIDI effect, which a chain does not hold yet"),
-            ));
+            let Place::Track(track) = place else {
+                return Err(invalid(
+                    "kind",
+                    format!("{kind} is a MIDI effect: the master holds audio effects only"),
+                ));
+            };
+            if track_mut(state, track)?.kind != TrackKind::Midi {
+                return Err(invalid(
+                    "kind",
+                    format!("{kind} is a MIDI effect: an audio track plays audio clips, no notes"),
+                ));
+            }
+            DeviceRole::MidiEffect
         }
-    }
+    };
     let devices = chain_mut(state, place)?;
     if devices.len() >= MAX_DEVICES_PER_TRACK {
         return Err(limit());
     }
-    let key = key_at(devices, None, usize::try_from(index).unwrap_or(usize::MAX))?;
+    let key = key_at(
+        devices,
+        role,
+        None,
+        usize::try_from(index).unwrap_or(usize::MAX),
+    )?;
     let id = DeviceId::generate(&mut ctx.ids);
-    devices.insert(id.clone(), built(builtin, DeviceRole::Effect, key));
+    devices.insert(id.clone(), built(builtin, role, key));
     Ok(Outcome {
         output: Output::Insert { device: id.clone() },
         undo: Undo::Inverse(Box::new(Command::Remove { device: id })),
@@ -610,8 +662,11 @@ fn restore(
     snapshot: &Device,
     lanes: &BTreeMap<LaneId, AutomationLane>,
 ) -> Result<Out, CommandError> {
-    if snapshot.role != DeviceRole::Effect || is_clip_player(snapshot) {
-        return Err(invalid("snapshot", "only an effect is restored"));
+    if snapshot.role == DeviceRole::Instrument || is_clip_player(snapshot) {
+        return Err(invalid(
+            "snapshot",
+            "only an effect (audio or MIDI) is restored",
+        ));
     }
     if state.project.contains_id(&device_id.0) {
         return Err(invalid(
@@ -630,7 +685,8 @@ fn restore(
         place_lanes.extend(lanes.iter().map(|(id, lane)| (id.clone(), lane.clone())));
     }
     // The snapshot is data from outside: the whole project must stay valid with it (the
-    // chain keeps its instrument first, parameters are finite, limits hold). A refusal
+    // chain keeps its order, MIDI effects then instrument then audio effects, a MIDI effect
+    // only on a MIDI track, parameters are finite, limits hold). A refusal
     // takes the device and its lanes back out, so the state is untouched.
     if let Err(violations) = state.project.validate() {
         if let Ok(devices) = chain_mut(state, place) {
@@ -724,22 +780,25 @@ fn move_device(state: &mut State, device_id: &DeviceId, index: u32) -> Result<Ou
         .get(device_id)
         .map(|d| d.role)
         .ok_or_else(|| not_found("device", device_id))?;
-    if role != DeviceRole::Effect {
-        return Err(invalid("device", "an instrument stays first in its chain"));
+    if role == DeviceRole::Instrument {
+        return Err(invalid(
+            "device",
+            "an instrument keeps its place in its chain",
+        ));
     }
-    let previous_index = effects(devices, None)
+    let previous_index = of_role(devices, role, None)
         .iter()
         .position(|(id, _)| *id == device_id)
         .unwrap_or(0);
     let output = Output::Move {
         previous_index: u32::try_from(previous_index).unwrap_or(u32::MAX),
     };
-    let others = effects(devices, Some(device_id)).len();
+    let others = of_role(devices, role, Some(device_id)).len();
     let index = usize::try_from(index).unwrap_or(usize::MAX).min(others);
     if index == previous_index {
         return Ok(unchanged(output));
     }
-    let key = key_at(devices, Some(device_id), index)?;
+    let key = key_at(devices, role, Some(device_id), index)?;
     let device = devices
         .get_mut(device_id)
         .ok_or_else(|| not_found("device", device_id))?;
@@ -765,27 +824,29 @@ fn restore_order(
     let device = devices
         .get_mut(device_id)
         .ok_or_else(|| not_found("device", device_id))?;
-    if device.role != DeviceRole::Effect {
-        return Err(invalid("device", "an instrument stays first in its chain"));
+    if device.role == DeviceRole::Instrument {
+        return Err(invalid(
+            "device",
+            "an instrument keeps its place in its chain",
+        ));
     }
     let output = Output::RestoreOrder {};
     if device.order == *order {
         return Ok(unchanged(output));
     }
     let before = std::mem::replace(&mut device.order, order.clone());
-    // The effect must not land before the instrument (the master's chain has none: any
-    // position holds).
-    let instrument_first = by_order(&*devices, |d| &d.order)
-        .iter()
-        .position(|(_, d)| d.role == DeviceRole::Instrument)
-        .is_none_or(|i| i == 0);
-    if !instrument_first {
+    // The chain keeps its order: MIDI effects, instrument, audio effects (the master's chain
+    // holds audio effects only: any position holds).
+    let in_order = by_order(&*devices, |d| &d.order)
+        .windows(2)
+        .all(|w| rank(w[0].1.role) <= rank(w[1].1.role));
+    if !in_order {
         if let Some(device) = devices.get_mut(device_id) {
             device.order = before;
         }
         return Err(invalid(
             "order",
-            "that key would put the effect before the instrument",
+            "that key would move the effect across the instrument: a chain holds its MIDI effects, then its instrument, then its audio effects",
         ));
     }
     Ok(Outcome {

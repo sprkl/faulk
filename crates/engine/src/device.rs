@@ -253,8 +253,10 @@ pub fn event_frame(offset: u32, cursor: usize, frames: usize) -> usize {
 /// the descriptor's bounds and the most events the effect can receive in one block (the
 /// host cuts a block into sub-blocks when the events of its tables fill a fixed room, so
 /// the input is bounded whatever their size, MO-4; an effect after another is sized from
-/// the output of the largest before it). Overflow is a safety net for an effect that
-/// breaks its declared bounds: one slot is kept in reserve; when a push is refused, the
+/// the output of the largest before it), at most [`MAX_MIDI_OUTPUT_EVENTS`]: effects that
+/// each multiply their notes, chained, would otherwise multiply the buffer too (#219).
+/// Overflow is a safety net for an effect that breaks its declared bounds, or for a chain
+/// past that cap: one slot is kept in reserve; when a push is refused, the
 /// buffer counts it and [`EventBuffer::finish`] appends an [`Event::AllNotesOff`] in that
 /// slot, after every event pushed, so that a lost note-off never leaves a note stuck.
 #[derive(Debug)]
@@ -398,14 +400,21 @@ pub struct MidiOutput {
     pub per_block: u32,
 }
 
+/// The most events a MIDI effect's output buffer holds, the reserved slot included (#219):
+/// about 1.3 MB of events. A single effect within the contract's bounds never reaches it from a
+/// track's input; a chain of effects that each multiply their notes is capped there, past which
+/// [`EventBuffer`]'s safety net ends the notes.
+pub const MAX_MIDI_OUTPUT_EVENTS: usize = 1 << 16;
+
 impl MidiOutput {
     /// Capacity of the output buffer for `input_events` events in a block, the reserved
-    /// slot included.
+    /// slot included, at most [`MAX_MIDI_OUTPUT_EVENTS`].
     pub fn capacity(&self, input_events: usize) -> usize {
         (self.per_input as usize)
             .saturating_mul(input_events)
             .saturating_add(self.per_block as usize)
             .saturating_add(1)
+            .min(MAX_MIDI_OUTPUT_EVENTS)
     }
 }
 

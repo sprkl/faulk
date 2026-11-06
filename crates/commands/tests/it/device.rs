@@ -19,7 +19,9 @@ use commands::{
 use std::collections::BTreeMap;
 
 use crate::device_examples;
-use device_examples::{EFFECT, chain, d, insert, insert_master, own_context, t};
+use device_examples::{
+    EFFECT, MIDI_EFFECT, chain, d, insert, insert_master, midi_chain, own_context, t,
+};
 
 fn refused(command: &Command, state: &State) -> CommandError {
     check_refusal(command, state, &context()).unwrap()
@@ -1070,6 +1072,72 @@ fn kinds(msgs: &[ControlMsg]) -> Vec<&'static str> {
             _ => "other",
         })
         .collect()
+}
+
+#[test]
+fn every_midi_effect_command_and_its_undo_leave_the_engine_as_a_snapshot_would() {
+    // #219: the MIDI effects take the first slots, the instrument and the audio effects the
+    // ones after; each change and its undo leave the engine as a snapshot of the project.
+    let m = midi_chain();
+    let c = &m.chain;
+    let (msgs, _) = snapshot(&c.state.project, &c.state.session);
+    let transpose = engine::device::testing::TRANSPOSE.kind_id;
+    let slots: Vec<u16> = msgs
+        .iter()
+        .filter_map(|msg| match msg {
+            ControlMsg::DeviceInsert {
+                track,
+                device,
+                kind,
+                ..
+            } if *kind == transpose && !track.is_master() => Some(device.0),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(slots, [0, 1]);
+    let mut w = World::new(c.state.clone());
+    let midi = |index| {
+        d(device::Command::Insert {
+            track: Some(c.track.clone()),
+            master: false,
+            kind: MIDI_EFFECT.into(),
+            index,
+        })
+    };
+    let commands = [
+        midi(0),
+        mv(&m.m2, 0),
+        bypass(&m.m1, true),
+        param(&m.m1, "semitones", 5.0),
+        remove(&m.m1),
+        set_instrument(&c.track, "faulk.drums"),
+        midi(u32::MAX),
+        bypass(&m.m1, false),
+    ];
+    let mut done = 0;
+    for command in &commands {
+        match w.s.run(command) {
+            Ok((outcome, _)) => {
+                w.replay.apply(&outcome.control);
+                w.check();
+                done += 1;
+            }
+            Err(commands::engine_msgs::SyncError::Refused(_)) => {}
+            Err(e) => panic!("{command:?}: {e:?}"),
+        }
+    }
+    assert_eq!(
+        done,
+        commands.len() - 1,
+        "only the bypass of the removed one is refused"
+    );
+    for _ in 0..done {
+        w.exec(&undo());
+    }
+    assert_eq!(w.s.state.project, c.state.project);
+    for _ in 0..done {
+        w.exec(&redo());
+    }
 }
 
 #[test]
