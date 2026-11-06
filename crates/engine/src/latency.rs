@@ -291,6 +291,12 @@ impl Delay {
         self.run(left, right, fade);
     }
 
+    /// Records that the line passed its last block through, for a slot the chain did not run:
+    /// its strip line passes too, and nothing keeps its chain on the delayed strip's path.
+    pub fn pass(&mut self) {
+        self.last = Timing::PASS;
+    }
+
     /// How the line read its last block ([`Delay::follow`]).
     pub fn timing(&self) -> Timing {
         self.last
@@ -1082,6 +1088,19 @@ mod tests {
         let (mut l, mut r) = (ramp(8, 1.0), ramp(8, 1.0));
         fresh.process(&mut l, &mut r, 5, 8);
         assert_eq!(l, vec![0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn a_line_marked_as_passing_lets_its_strip_line_rest() {
+        // A slot the chain stops running: its line's last timing is a pass, so a strip line
+        // that follows it passes too and the bypass needs no strip line.
+        let mut d = Delay::try_new(16, 4).unwrap();
+        let (mut l, mut r) = (ramp(8, 1.0), ramp(8, 1.0));
+        d.process(&mut l, &mut r, 4, 8);
+        assert!(!d.timing().is_pass());
+        d.clear();
+        d.pass();
+        assert!(d.timing().is_pass());
     }
 
     #[test]

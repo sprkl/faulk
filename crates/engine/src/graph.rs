@@ -3136,6 +3136,7 @@ fn run_chain(
                     entry.fade = entry.target();
                     if let Some(b) = entry.device.bypass() {
                         b.line.clear();
+                        b.line.pass();
                         b.off = true;
                         b.warm = 0;
                         timing = Some(Timing::PASS);
