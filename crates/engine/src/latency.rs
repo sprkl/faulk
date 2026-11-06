@@ -340,8 +340,10 @@ pub const MASTER_EVENTS: usize = 8192;
 /// newer one to (a bounded cost per value).
 const SUPERSEDE_SCAN: usize = 64;
 
-/// A slot no value targets: a value forgotten in its line ([`Events::forget`]).
-const DEAD: DeviceSlot = DeviceSlot(u16::MAX);
+/// Where a line's clock starts (#765): an age handed on with a value ([`Events::push_moved`])
+/// is subtracted from it, and no age reaches this far (2^40 frames: 290 days at 48 kHz), so a
+/// stamp never saturates, even on a line younger than the value.
+const CLOCK_START: u64 = 1 << 40;
 
 /// A parameter value waiting in an [`Events`] line.
 #[derive(Clone, Copy, Debug)]
@@ -349,13 +351,16 @@ struct Pending {
     /// The line's frame the value was dated at before its delay.
     stamp: u64,
     slot: DeviceSlot,
+    /// Forgotten ([`Events::forget`]): it waits for its turn and lands nowhere.
+    dead: bool,
     id: ParamId,
     value: f32,
 }
 
 const NOTHING: Pending = Pending {
     stamp: 0,
-    slot: DEAD,
+    slot: DeviceSlot(0),
+    dead: true,
     id: ParamId(0),
     value: 0.0,
 };
@@ -415,6 +420,8 @@ pub enum Way {
 #[derive(Debug)]
 pub struct Events {
     ring: Box<[Pending]>,
+    /// `ring.len() - 1`: the capacity is a power of two.
+    mask: usize,
     /// Where the oldest value sits.
     head: usize,
     len: usize,
@@ -425,9 +432,10 @@ pub struct Events {
 }
 
 impl Events {
-    /// A line of `capacity` values (at least 1), off the audio path (fallible).
+    /// A line of `capacity` values (at least 1, rounded up to a power of two), off the audio
+    /// path (fallible).
     pub fn try_new(capacity: usize) -> Result<Self, MsgError> {
-        let n = capacity.max(1);
+        let n = capacity.max(1).next_power_of_two();
         let mut v = Vec::new();
         v.try_reserve_exact(n).map_err(|_| MsgError::OutOfMemory {
             bytes: n.saturating_mul(size_of::<Pending>()),
@@ -435,16 +443,18 @@ impl Events {
         v.resize(n, NOTHING);
         Ok(Events {
             ring: v.into_boxed_slice(),
+            mask: n - 1,
             head: 0,
             len: 0,
-            clock: 0,
+            clock: CLOCK_START,
             lost: 0,
         })
     }
 
     /// Bytes a line of `capacity` values takes.
     pub const fn bytes_for(capacity: usize) -> u64 {
-        (if capacity == 0 { 1 } else { capacity }) as u64 * size_of::<Pending>() as u64
+        (if capacity == 0 { 1 } else { capacity }).next_power_of_two() as u64
+            * size_of::<Pending>() as u64
     }
 
     /// Values waiting, forgotten ones included.
@@ -463,7 +473,7 @@ impl Events {
     }
 
     fn at(&self, i: usize) -> usize {
-        (self.head + i) % self.ring.len()
+        (self.head + i) & self.mask
     }
 
     fn pop(&mut self) -> Option<Pending> {
@@ -471,7 +481,7 @@ impl Events {
             return None;
         }
         let p = self.ring[self.head];
-        self.head = (self.head + 1) % self.ring.len();
+        self.head = (self.head + 1) & self.mask;
         self.len -= 1;
         Some(p)
     }
@@ -489,7 +499,7 @@ impl Events {
         for back in 0..self.len.min(SUPERSEDE_SCAN) {
             let k = self.at(self.len - 1 - back);
             let p = &mut self.ring[k];
-            if p.slot == slot && p.id == id {
+            if !p.dead && p.slot == slot && p.id == id {
                 p.value = value;
                 return true;
             }
@@ -524,17 +534,28 @@ impl Events {
     ) -> bool {
         let start = self.clock;
         self.clock = start.saturating_add(u64::from(frames));
-        if self.len == 0 && (delay == 0 || !src.params().iter().any(|(d, _)| way(*d) == Way::Delay))
-        {
+        if self.len == 0 && delay == 0 {
             return false;
         }
-        out.clear();
+        // One pass over the source: the values to delay go in (`out` cleared at the first one,
+        // before an early value may go into it); whether some pass is noted.
+        let mut cleared = false;
+        let mut passes = false;
         for (slot, event) in src.params() {
             let Event::ParamValue { offset, id, value } = *event else {
                 continue;
             };
-            if *slot == DEAD || way(*slot) != Way::Delay {
-                continue;
+            match way(*slot) {
+                Way::Stay => continue,
+                Way::Pass => {
+                    passes = true;
+                    continue;
+                }
+                Way::Delay => {}
+            }
+            if !cleared {
+                out.clear();
+                cleared = true;
             }
             if self.len == self.ring.len() {
                 // Full: the newest value of the same parameter, among the last ones, takes
@@ -544,7 +565,7 @@ impl Events {
                     continue;
                 }
                 if let Some(old) = self.pop()
-                    && old.slot != DEAD
+                    && !old.dead
                 {
                     let early = Event::ParamValue {
                         offset: 0,
@@ -559,16 +580,25 @@ impl Events {
             self.push_back(Pending {
                 stamp: start.saturating_add(u64::from(offset)),
                 slot: *slot,
+                dead: false,
                 id,
                 value,
             });
         }
-        // The values that pass, merged by offset with the ones the line hands on.
+        if !cleared {
+            if self.len == 0 {
+                // Nothing waits and nothing went in: the source stays the slots' own.
+                return false;
+            }
+            out.clear();
+        }
+        // The values that pass, merged by offset with the ones the line hands on (a second
+        // pass over the source, only when there are some).
         let mut pass = src
             .params()
             .iter()
             .filter(|(d, e)| {
-                *d != DEAD && matches!(e, Event::ParamValue { .. }) && way(*d) == Way::Pass
+                passes && matches!(e, Event::ParamValue { .. }) && way(*d) == Way::Pass
             })
             .peekable();
         let mut put = |out: &mut Sink, slot: DeviceSlot, e: Event, lines: &mut Self| {
@@ -579,7 +609,7 @@ impl Events {
         let end = self.clock;
         while self.len > 0 {
             let p = self.ring[self.head];
-            if p.slot != DEAD {
+            if !p.dead {
                 let due = p.stamp.saturating_add(u64::from(delay));
                 if due >= end || out.param_room() == 0 {
                     break;
@@ -617,7 +647,7 @@ impl Events {
             let k = self.at(i);
             let p = &mut self.ring[k];
             if p.slot == slot && id.is_none_or(|id| p.id == id) {
-                p.slot = DEAD;
+                p.dead = true;
             }
         }
     }
@@ -629,7 +659,7 @@ impl Events {
             return None;
         }
         let p = self.ring[self.at(i)];
-        (p.slot != DEAD).then(|| (p.slot, p.id, p.value, self.clock.saturating_sub(p.stamp)))
+        (!p.dead).then(|| (p.slot, p.id, p.value, self.clock.saturating_sub(p.stamp)))
     }
 
     /// Puts a value handed on from a line that left the chain (#765, the line before this one
@@ -649,6 +679,7 @@ impl Events {
         self.push_back(Pending {
             stamp,
             slot,
+            dead: false,
             id,
             value,
         });
@@ -1525,5 +1556,68 @@ mod tests {
         d.process(&mut l, &mut r, 20, 8);
         assert_eq!(d.tap(), 20);
         assert_eq!(d.timing().delay(), 20);
+    }
+
+    #[test]
+    fn a_young_line_keeps_the_age_of_a_value_older_than_itself() {
+        // A line made just now receives a value dated 30 frames ago (#799 > push_moved): under
+        // a delay of 72 it is due 42 frames from now, not 72 (a stamp that saturated at the
+        // line's birth would make it late).
+        let mut line = Events::try_new(8).unwrap();
+        let mut out = Sink::try_with_capacity(0, 8).unwrap();
+        let mut lost = Lost::default();
+        assert!(line.push_moved(DeviceSlot(2), ParamId(0), 0.5, 30));
+        let empty = values(&[]);
+        let mut at = None;
+        for n in 0..12 {
+            if !line.carry(&empty, delay_all, 72, 8, &mut out, &mut lost) {
+                break;
+            }
+            if let Some(&(o, ..)) = seen(&out).first() {
+                at = Some(n * 8 + o);
+                break;
+            }
+        }
+        assert_eq!(at, Some(42));
+    }
+
+    #[test]
+    fn a_value_for_any_slot_lands_a_forgotten_one_never() {
+        // The last slot number is a slot like another (#799: no sentinel slot).
+        let mut line = Events::try_new(8).unwrap();
+        let mut out = Sink::try_with_capacity(0, 8).unwrap();
+        let mut lost = Lost::default();
+        let src = values(&[(0, u16::MAX, 0, 1.0), (0, 3, 0, 2.0)]);
+        assert!(line.carry(&src, delay_all, 4, 8, &mut out, &mut lost));
+        assert_eq!(seen(&out), vec![(4, u16::MAX, 0, 1.0), (4, 3, 0, 2.0)]);
+        assert!(line.carry(&src, delay_all, 12, 8, &mut out, &mut lost));
+        line.forget(DeviceSlot(u16::MAX), None);
+        assert!(line.carry(&values(&[]), delay_all, 12, 8, &mut out, &mut lost));
+        assert_eq!(seen(&out), vec![(4, 3, 0, 2.0)]);
+    }
+
+    #[test]
+    fn a_ring_of_any_capacity_wraps_in_order() {
+        // A capacity rounds up to a power of two (#799: a mask, no modulo); values go round the
+        // ring many times and come out in order.
+        let mut line = Events::try_new(5).unwrap();
+        assert_eq!(Events::bytes_for(5), Events::bytes_for(8));
+        let mut out = Sink::try_with_capacity(0, 16).unwrap();
+        let mut lost = Lost::default();
+        let mut got = Vec::new();
+        for n in 0..40u16 {
+            let src = values(&[(0, n % 7, 0, f32::from(n)), (1, 9, 1, f32::from(n) + 0.5)]);
+            if line.carry(&src, delay_all, 9, 4, &mut out, &mut lost) {
+                got.extend(seen(&out).iter().map(|v| v.3));
+            }
+        }
+        let want: Vec<f32> = (0..38u16)
+            .flat_map(|n| [f32::from(n), f32::from(n) + 0.5])
+            .take(got.len())
+            .collect();
+        assert!(got.len() > 60, "{}", got.len());
+        assert_eq!(got, want);
+        assert!(lost.is_empty());
+        assert_eq!(line.lost(), 0);
     }
 }

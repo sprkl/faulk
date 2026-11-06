@@ -1241,8 +1241,15 @@ impl Graph {
             left,
             right,
         );
-        // No lane left to send a dropped value again.
-        scratch.carry.take_lost();
+        // Nothing to send again, and nothing dropped: the sink is empty, so no value went into
+        // a line here, and a line drops a value only on its way in (`Events::carry`); what
+        // still waits from the lanes only comes out. The master's lanes, while there are any,
+        // send their dropped values again in `master_lane_pass`.
+        let lost = scratch.carry.take_lost();
+        debug_assert!(
+            lost.is_empty(),
+            "a master line dropped a value with no lane"
+        );
         let devices = state.master_devices.as_mut_slice();
         // Behind a chain with a latency the strip's levels of every piece are written first,
         // then delayed over the whole block the chain ran over (its lines read whole blocks),
@@ -1628,24 +1635,29 @@ pub(crate) fn hand_on(
         return lost;
     };
     let line = &mut b.events;
+    // The next device with a latency, from slot `at` on: found once, so a value costs a
+    // constant step (no scan of the slots per value).
+    let start = at.min(devices.len());
+    let next = devices[start..]
+        .iter_mut()
+        .position(|e| {
+            e.as_deref_mut()
+                .is_some_and(|e| e.device.bypass().is_some())
+        })
+        .map(|j| start + j);
     for n in 0..line.len() {
         let Some((slot, id, value, age)) = line.get(n) else {
             continue;
         };
         let k = (slot.0 as usize).min(devices.len());
-        let mut moved = false;
-        let mut through = false;
-        for entry in devices[at.min(k)..k].iter_mut().flatten() {
-            if let Some(next) = entry.device.bypass() {
-                through = true;
-                moved = next.events.push_moved(slot, id, value, age);
-                break;
+        if let Some(j) = next.filter(|&j| j < k) {
+            let moved = devices[j]
+                .as_deref_mut()
+                .and_then(|e| e.device.bypass())
+                .is_some_and(|b| b.events.push_moved(slot, id, value, age));
+            if moved {
+                continue;
             }
-        }
-        if moved {
-            continue;
-        }
-        if through {
             lost.mark(slot);
         }
         if let Some(entry) = devices.get_mut(k).and_then(|e| e.as_deref_mut()) {
