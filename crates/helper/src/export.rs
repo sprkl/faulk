@@ -20,6 +20,9 @@ use std::time::{Duration, Instant};
 
 /// Frames per step: the page's export Worker steps by as much.
 pub const STEP_FRAMES: usize = 16_384;
+/// Steps in a row that may wait for the disk with no read handed over before the render counts as
+/// stuck (the page's Worker fails at the first one; a few more cost nothing).
+const MAX_IDLE_WAITS: u32 = 64;
 
 /// An export the page asked for, checked (`export.start`).
 #[derive(Clone, Debug, PartialEq)]
@@ -147,6 +150,8 @@ pub struct Progress {
 pub trait Watch {
     /// The export was cancelled, or the session's folder changed.
     fn stop(&self) -> Option<ExportFailure>;
+    /// The export was cancelled.
+    fn cancelled(&self) -> bool;
 }
 
 /// The watch of a run in the helper: its cancel flag, and the folder it began in, which must
@@ -160,6 +165,10 @@ pub struct RunWatch<'a> {
 }
 
 impl Watch for RunWatch<'_> {
+    fn cancelled(&self) -> bool {
+        self.cancel.load(Ordering::Acquire)
+    }
+
     fn stop(&self) -> Option<ExportFailure> {
         if self.cancel.load(Ordering::Acquire) {
             return Some(ExportFailure::new(
@@ -220,12 +229,14 @@ pub fn run(
     file.write(&vec![0u8; header_len]).map_err(write_error)?;
     let mut bytes = header_len as u64;
     let mut told = Instant::now();
+    let mut idle_waits = 0u32;
     loop {
         if let Some(stop) = watch.stop() {
             return Err(stop);
         }
         let phase = offline.step(STEP_FRAMES).map_err(render_error)?;
         let pcm = offline.pcm();
+        let pcm_len = pcm.len();
         if !pcm.is_empty() {
             file.write(pcm).map_err(write_error)?;
             bytes += pcm.len() as u64;
@@ -242,7 +253,23 @@ pub fn run(
             });
         }
         // The step stopped before a block whose reads are not served: served from the folder.
-        for job in offline.take_disk_jobs() {
+        let jobs = offline.take_disk_jobs();
+        // A wait with no read to make would never end: a failure, not a thread spinning on a core.
+        if jobs.is_empty() && pcm_len == 0 && offline.waiting() {
+            idle_waits += 1;
+            if idle_waits > MAX_IDLE_WAITS {
+                return Err(ExportFailure::new(
+                    errors::EXPORT_RENDER,
+                    "the render waits for a read it never gave",
+                ));
+            }
+        } else {
+            idle_waits = 0;
+        }
+        for job in jobs {
+            if let Some(stop) = watch.stop() {
+                return Err(stop);
+            }
             match folder.read_media(job.file, &job.media, job.offset, job.len) {
                 Ok(read) => offline.disk_done(job.id, &read.bytes, read.file_len),
                 Err(why) => offline.disk_failed(job.id, why),
@@ -255,6 +282,16 @@ pub fn run(
         return Err(stop);
     }
     let path = file.commit(Collision::Unique).map_err(write_error)?;
+    // A cancel that came during the move: the file it made goes again (it is the export's own,
+    // just made), so a cancelled export leaves nothing. One later than this check finds the
+    // export done; the page, which has moved on, says nothing of it.
+    if watch.cancelled() {
+        let _ = folder.remove_own(&path);
+        return Err(ExportFailure::new(
+            errors::EXPORT_CANCELLED,
+            "the export was cancelled",
+        ));
+    }
     Ok(Exported {
         path,
         bytes,

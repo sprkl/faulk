@@ -503,6 +503,28 @@ impl ProjectFolder {
         pending.commit(Collision::Replace).map(|_| ())
     }
 
+    /// Removes the file at `path`, one the helper itself just wrote there (a cancelled export's,
+    /// #319): the same text and reserved-zone checks as a write, and only a plain file inside the
+    /// folder, links not followed.
+    pub fn remove_own(&self, path: &str) -> Result<(), PathError> {
+        let parts = check_relative(path)?;
+        if reserved(&parts) {
+            return Err(PathError::Reserved);
+        }
+        let (name, dirs) = parts.split_last().ok_or(PathError::Empty)?;
+        let parent = canonical(&self.root.join(dirs.join("/"))).map_err(io)?;
+        if !parent.starts_with(&self.root)
+            || reserved(&below(&self.root, &parent).unwrap_or_default())
+        {
+            return Err(PathError::Escapes);
+        }
+        let target = parent.join(name);
+        if !fs::symlink_metadata(&target).map_err(io)?.is_file() {
+            return Err(PathError::IsDirectory);
+        }
+        fs::remove_file(target).map_err(io)
+    }
+
     /// Begins a confined write of the file at `path` (relative, `/` separated) in a stream (the
     /// export of #319): every check of [`write`](Self::write) is made now, before anything is
     /// made but `.faulk/tmp/` and the target's parent, then a new temporary file of `.faulk/tmp/`
@@ -559,7 +581,6 @@ impl ProjectFolder {
             parent,
             dirs: dirs.iter().map(|d| (*d).to_owned()).collect(),
             name: (*name).to_owned(),
-            committed: false,
         })
     }
 }
@@ -589,8 +610,6 @@ pub struct PendingWrite<'a> {
     /// The target's directories and name, as the caller gave them.
     dirs: Vec<String>,
     name: String,
-    /// Moved over the target: nothing left to remove.
-    committed: bool,
 }
 
 impl PendingWrite<'_> {
@@ -648,7 +667,6 @@ impl PendingWrite<'_> {
             }
             Collision::Unique => self.move_to_free_name()?,
         };
-        self.committed = true;
         let mut relative = self.dirs.join("/");
         if !relative.is_empty() {
             relative.push('/');
@@ -724,10 +742,10 @@ pub fn move_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
 impl Drop for PendingWrite<'_> {
     fn drop(&mut self) {
         // Not committed (cancelled, failed, or the move itself failed): the temporary file goes.
+        // Committed, its name is free (moved), or a second link to the target that a failed
+        // unlink left (the Unix move): removed all the same.
         drop(self.file.take());
-        if !self.committed {
-            let _ = fs::remove_file(&self.tmp);
-        }
+        let _ = fs::remove_file(&self.tmp);
     }
 }
 

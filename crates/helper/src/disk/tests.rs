@@ -1132,3 +1132,25 @@ fn an_exports_folder_leading_out_or_to_the_blobs_is_refused_for_a_stream() {
     );
     assert_eq!(s.snapshot(), before);
 }
+
+#[test]
+fn the_helper_removes_only_a_plain_file_it_names_outside_the_reserved_zones() {
+    let s = setup("remove-own");
+    s.folder.write("exports/Song.wav", b"x").unwrap();
+    s.folder.remove_own("exports/Song.wav").unwrap();
+    assert!(!s.root.join("exports").join("Song.wav").exists());
+    assert_eq!(
+        s.folder.remove_own("project.json").unwrap_err(),
+        PathError::Reserved
+    );
+    assert_eq!(
+        s.folder.remove_own("../outside/canary.txt").unwrap_err(),
+        PathError::Dot
+    );
+    dir_link(&s.outside, &s.root.join("out"));
+    assert_eq!(
+        s.folder.remove_own("out/canary.txt").unwrap_err(),
+        PathError::Escapes
+    );
+    assert_eq!(fs::read(s.outside.join("canary.txt")).unwrap(), b"canary");
+}

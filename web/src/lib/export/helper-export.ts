@@ -30,6 +30,9 @@ export interface HelperExportPort {
  * padded), as the helper decodes them.
  */
 export function toBase64(view: Uint8Array): string {
+  // The browser's own encoder where it has one: no intermediate string.
+  const native = (view as Uint8Array & { toBase64?: () => string }).toBase64
+  if (typeof native === 'function') return native.call(view)
   const CHUNK = 0x8000
   const parts: string[] = []
   for (let at = 0; at < view.length; at += CHUNK) parts.push(String.fromCharCode(...view.subarray(at, at + CHUNK)))
@@ -38,13 +41,21 @@ export function toBase64(view: Uint8Array): string {
 
 const DEVICES: readonly string[] = EXPORT_NAME.devices
 
+/** `text` without the UTF-16 surrogates that stand alone (half of a character). */
+function wellFormed(text: string): string {
+  return text.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '')
+}
+
 /**
  * The file name the helper takes for the dialog's name (the stem, without `.wav`): `cleanName`'s, cut to the
  * helper's byte limit on a whole character, and one that is not a Windows device name (`CON`, `nul.txt`), which
  * gets a `_` in front. Every name the dialog's field can hold gives a name the helper accepts.
  */
 export function helperFileName(name: string): string {
-  let cleaned = cleanName(name)
+  // The C1 controls (U+007F to U+009F), which the helper refuses like the others, go first; then a surrogate
+  // left alone (by `cleanName`'s cut, or pasted), which no JSON parser takes.
+  // eslint-disable-next-line no-control-regex
+  let cleaned = cleanName(wellFormed(cleanName(name.replace(/[\u007f-\u009f]/g, '-'))))
   const encoder = new TextEncoder()
   if (encoder.encode(cleaned).length > EXPORT_NAME.max_bytes) {
     let cut = ''

@@ -44,9 +44,16 @@ describe("the helper's export", () => {
       '🎵'.repeat(60),
       'a'.repeat(99) + '.',
       'con.' + 'x'.repeat(200),
+      // cleanName cuts at 100 UTF-16 units: here inside the emoji's pair.
+      'a'.repeat(99) + '\u{1F3B5}',
+      'x\u0085y',
+      '\u007f',
+      'lone \uD83D surrogate',
     ]
     for (const name of names) {
       const stem = helperFileName(name)
+      // What the helper parses: no surrogate left alone.
+      expect(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(stem), JSON.stringify(stem)).toBe(false)
       expect(helperAccepts(stem), `${JSON.stringify(name)} gave ${JSON.stringify(stem)}`).toBe(true)
     }
     expect(helperFileName('Song')).toBe('Song')

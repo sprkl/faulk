@@ -647,3 +647,36 @@ async fn every_refused_export_has_its_code_and_writes_nothing() {
     nothing_written(&h.song);
     nothing_written(&h.other);
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn an_export_started_right_after_a_cancel_is_not_refused_busy() {
+    // The page takes a cancel as done at once: the helper frees its slot at once too, while the
+    // cancelled run unwinds.
+    let h = start(&Disk::default()).await;
+    let mut ws = session(&h).await;
+    open_folder(&mut ws, PROJECT, NONCE).await;
+    send(&mut ws, &start_of(20, PROJECT, "Long", &long_job())).await;
+    loop {
+        if matches!(next(&mut ws).await, ServerMessage::ExportProgress { .. }) {
+            break;
+        }
+    }
+    send(&mut ws, &ClientMessage::ExportCancel { id: 20 }).await;
+    let short = job_of(&demo_song(1, None), ExportSettings::default());
+    send(&mut ws, &start_of(21, PROJECT, "Short", &short)).await;
+    let (mut first, mut second) = (None, None);
+    while first.is_none() || second.is_none() {
+        match next(&mut ws).await {
+            ServerMessage::ExportFailed { id: 20, code, .. } => first = Some(code),
+            ServerMessage::ExportDone { id: 21, path, .. } => second = Some(path),
+            ServerMessage::ExportFailed { id: 21, code, .. } => {
+                panic!("the second export failed: {code}")
+            }
+            _ => {}
+        }
+    }
+    assert_eq!(first.as_deref(), Some(errors::EXPORT_CANCELLED));
+    assert_eq!(second.as_deref(), Some("exports/Short.wav"));
+    assert!(!h.song.join("exports").join("Long.wav").exists());
+    assert!(files(&h.song.join(".faulk").join("tmp")).is_empty());
+}

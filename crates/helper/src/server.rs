@@ -938,6 +938,39 @@ impl Shared {
     }
 }
 
+/// The end of an export's thread (#319): on drop, the slot is freed when it is still this run's,
+/// then the page is told, `message` or, when the thread panicked before setting it,
+/// `export.failed` `export.render`. Its temporary file went with the `PendingWrite`'s drop.
+struct ExportEnd<'a> {
+    shared: &'a Shared,
+    session: u64,
+    run: u32,
+    message: Option<ServerMessage>,
+}
+
+impl Drop for ExportEnd<'_> {
+    fn drop(&mut self) {
+        {
+            let mut running = self.shared.export.lock().unwrap_or_else(|p| p.into_inner());
+            if running
+                .as_ref()
+                .is_some_and(|r| r.session == self.session && r.id == self.run)
+            {
+                *running = None;
+            }
+        }
+        let message = self
+            .message
+            .take()
+            .unwrap_or_else(|| ServerMessage::ExportFailed {
+                id: self.run,
+                code: protocol::errors::EXPORT_RENDER.into(),
+                message: "the export's thread stopped".into(),
+            });
+        self.shared.to_session_id(self.session, message);
+    }
+}
+
 /// The export under way (#319): the session that asked for it, its number, its cancel flag.
 struct RunningExport {
     session: u64,
@@ -971,15 +1004,16 @@ impl Shared {
             code: failure.code.into(),
             message: failure.message,
         };
+        // Checked and decoded first, with no lock held (the streams may hold 64 MiB).
+        let request = match crate::export::parse(fields) {
+            Ok(request) => request,
+            Err(failure) => return Some(failed(failure)),
+        };
         // The session and its place: under the session lock, then the link's, as everywhere.
         let session = self.session.lock().expect("session lock");
         if !session.as_ref().is_some_and(|s| s.id == id) {
             return None;
         }
-        let request = match crate::export::parse(fields) {
-            Ok(request) => request,
-            Err(failure) => return Some(failed(failure)),
-        };
         let place = self
             .link
             .lock()
@@ -1013,6 +1047,13 @@ impl Shared {
         let spawned = std::thread::Builder::new()
             .name("faulk-export".into())
             .spawn(move || {
+                // Frees the slot and tells the page however the run ends, a panic included.
+                let mut end = ExportEnd {
+                    shared: &shared,
+                    session: id,
+                    run,
+                    message: None,
+                };
                 crate::export::lower_priority();
                 let watch = crate::export::RunWatch {
                     cancel: &cancel,
@@ -1031,15 +1072,7 @@ impl Shared {
                         },
                     );
                 });
-                // The slot is free before the end is told: the page may start the next at once.
-                if let Ok(mut running) = shared.export.lock()
-                    && running
-                        .as_ref()
-                        .is_some_and(|r| r.session == id && r.id == run)
-                {
-                    *running = None;
-                }
-                let message = match outcome {
+                end.message = Some(match outcome {
                     Ok(done) => ServerMessage::ExportDone {
                         id: run,
                         path: done.path,
@@ -1064,8 +1097,7 @@ impl Shared {
                             message: failure.message,
                         }
                     }
-                };
-                shared.to_session_id(id, message);
+                });
             });
         if spawned.is_err() {
             self.export.lock().expect("export lock").take();
@@ -1078,18 +1110,24 @@ impl Shared {
     }
 
     /// `export.cancel` of session `id`: its export `run` stops (it answers `export.cancelled`).
+    /// The slot is free at once: the page may start the next export while the cancelled one
+    /// unwinds (it writes nothing more and removes its temporary file).
     fn export_cancel(&self, id: u64, run: u32) {
-        if let Ok(running) = self.export.lock()
-            && let Some(r) = running.as_ref().filter(|r| r.session == id && r.id == run)
+        let mut running = self.export.lock().unwrap_or_else(|p| p.into_inner());
+        if running
+            .as_ref()
+            .is_some_and(|r| r.session == id && r.id == run)
+            && let Some(r) = running.take()
         {
             r.cancel.store(true, Ordering::Release);
         }
     }
 
-    /// Session `id` ended or was replaced: its export stops.
+    /// Session `id` ended or was replaced: its export stops, and the slot is free.
     fn export_cancel_all(&self, id: u64) {
-        if let Ok(running) = self.export.lock()
-            && let Some(r) = running.as_ref().filter(|r| r.session == id)
+        let mut running = self.export.lock().unwrap_or_else(|p| p.into_inner());
+        if running.as_ref().is_some_and(|r| r.session == id)
+            && let Some(r) = running.take()
         {
             r.cancel.store(true, Ordering::Release);
         }

@@ -8,6 +8,7 @@ import {
   AudioExport,
   fileNameOf,
   headerLength,
+  HELPER_SILENCE_MS,
   LIMITER_PUSHED_DB,
   MAX_REPORTED_REDUCTION_DB,
   type ExportDeps,
@@ -716,6 +717,32 @@ describe('the export in Boost, written by the helper (#319)', () => {
       // An end it said itself is not cancelled again.
       expect(helper.cancelled).toEqual([])
       expect(helper.listener).toBeNull()
+    }
+  })
+
+  it('fails and cancels an export the helper stops talking about, never left on its progress bar', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const helper = new FakeHelper()
+      const { exporter } = setup({ helper })
+      exporter.show()
+      exporter.start()
+      await vi.advanceTimersByTimeAsync(0)
+      const id = helper.started[0]!.id
+      // Its progress keeps the export alive.
+      await vi.advanceTimersByTimeAsync(HELPER_SILENCE_MS - 1)
+      helper.say({ type: 'export.progress', id, rendered: 1, body: 2, tail: false })
+      await vi.advanceTimersByTimeAsync(HELPER_SILENCE_MS - 1)
+      expect(exporter.phase).toBe('rendering')
+      // Then nothing (a message the helper dropped): failed, and the helper told to stop.
+      await vi.advanceTimersByTimeAsync(1)
+      expect(exporter.phase).toBe('failed')
+      expect(exporter.error).toBe('export.helperSilent')
+      expect(helper.cancelled).toEqual([id])
+      expect(helper.listener).toBeNull()
+    } finally {
+      vi.useRealTimers()
     }
   })
 

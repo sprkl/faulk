@@ -474,20 +474,34 @@ export class AudioExport {
     this.phase = 'rendering'
     const started = this.deps.now()
     const rate = this.choices.sampleRate
+    // A helper that stops answering (a message it dropped, a run that hangs) fails the export rather than leaving
+    // the dialog on its progress bar: a render says how far it is at least every `EXPORT_PROGRESS_MS`.
+    let watchdog: ReturnType<typeof setTimeout> | undefined
+    const arm = () => {
+      clearTimeout(watchdog)
+      watchdog = setTimeout(() => {
+        if (run === this.run) this.fail('export.helperSilent', 'the helper said nothing of its export')
+      }, HELPER_SILENCE_MS)
+    }
+    const stopListening = () => {
+      clearTimeout(watchdog)
+      unlisten()
+    }
     const unlisten = port.listen((message: HelperExportMessage | null) => {
       if (run !== this.run) return
       if (message === null) {
         // The session is gone, and its export with it (the helper cancels the export of a page that left).
-        unlisten()
+        stopListening()
         this.helper = null
         return this.fail('export.helperLost')
       }
       if (message.id !== run) return
+      arm()
       if (message.type === 'export.progress') {
         this.fraction = Math.min(1, message.rendered / Math.max(1, message.body))
         this.tail = message.tail
       } else if (message.type === 'export.done') {
-        unlisten()
+        stopListening()
         this.helper = null
         this.fraction = 1
         this.result = {
@@ -506,25 +520,34 @@ export class AudioExport {
         this.phase = 'done'
       } else {
         // It ended on its own: nothing to cancel.
-        unlisten()
+        stopListening()
         this.helper = null
         this.fail(helperFailure(message.code), `${message.code}: ${message.message}`)
       }
     })
-    this.helper = { port, id: run, unlisten }
-    port.start({
-      id: run,
-      project: this.host.projectId(),
-      name: helperFileName(this.choices.fileName),
-      sample_rate: rate,
-      bits: BITS[this.choices.bitDepth],
-      body_frames: job.plan.body_frames,
-      setup: toBase64(job.setup),
-      start: toBase64(job.start),
-      stop: toBase64(job.stop),
-    })
+    this.helper = { port, id: run, unlisten: stopListening }
+    arm()
+    try {
+      port.start({
+        id: run,
+        project: this.host.projectId(),
+        name: helperFileName(this.choices.fileName),
+        sample_rate: rate,
+        bits: BITS[this.choices.bitDepth],
+        body_frames: job.plan.body_frames,
+        setup: toBase64(job.setup),
+        start: toBase64(job.start),
+        stop: toBase64(job.stop),
+      })
+    } catch (error) {
+      // The message could not be made (memory): nothing reached the helper.
+      this.fail('export.failed', error)
+    }
   }
 }
+
+/** How long the page waits for a word of the helper's export before it fails it, in ms (#319). */
+export const HELPER_SILENCE_MS = 30_000
 
 /** The message the dialog shows for the helper's `export.failed` code (#319). */
 export function helperFailure(code: string): MessageKey {
