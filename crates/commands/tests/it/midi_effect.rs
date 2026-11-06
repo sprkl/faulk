@@ -393,23 +393,60 @@ fn a_track_holds_at_most_sixteen_midi_effects() {
 /// beyond (clamped), and its value reads back as the descriptor sanitizes it.
 #[test]
 fn every_stack_parameter_is_set_and_undone_through_device_set_param() {
+    every_parameter_is_set_and_undone(&engine::devices::stack::DESCRIPTOR);
+}
+
+/// #692: the same for Lattice.
+#[test]
+fn every_lattice_parameter_is_set_and_undone_through_device_set_param() {
+    every_parameter_is_set_and_undone(&engine::devices::lattice::DESCRIPTOR);
+}
+
+/// #692: Lattice's own scales are the project's, in its order, under its names and with its
+/// degrees (the engine does not depend on `project`, so it holds a copy).
+#[test]
+fn the_scales_of_lattice_are_the_projects() {
+    use engine::devices::lattice::{MODES, SCALE};
+    let modes = ::project::ScaleMode::ALL;
+    assert_eq!(MODES.len(), modes.len());
+    let values = engine::devices::lattice::DESCRIPTOR
+        .param(engine::msg::ParamId(SCALE))
+        .unwrap()
+        .values;
+    for ((mode, (name, degrees)), value) in modes.iter().zip(MODES).zip(values) {
+        assert_eq!(mode.name(), name);
+        assert_eq!(mode.intervals(), degrees);
+        assert_eq!(value, &name);
+    }
+    // And the pitch classes of each on every root match the project's own.
+    for (i, mode) in modes.iter().enumerate() {
+        for root in 0..12u8 {
+            let set = engine::devices::lattice::mode_set(root, i);
+            let scale = ::project::Scale { root, mode: *mode };
+            for pc in 0..12u8 {
+                assert_eq!(set.contains(pc), scale.contains(pc), "{mode:?} on {root}");
+            }
+        }
+    }
+}
+
+fn every_parameter_is_set_and_undone(descriptor: &engine::device::DeviceDescriptor) {
     let MidiChain { chain: c, .. } = midi_chain();
     let mut s = c.state.clone();
-    let stack = inserted(
+    let effect = inserted(
         run(
-            &insert(Some(&c.track), "faulk.stack", 0),
+            &insert(Some(&c.track), descriptor.kind, 0),
             &mut s,
             &mut fresh(),
         )
         .unwrap(),
     );
-    let descriptor = engine::devices::stack::DESCRIPTOR;
     assert_eq!(
-        s.project.tracks[&c.track].devices[&stack].role,
+        s.project.tracks[&c.track].devices[&effect].role,
         DeviceRole::MidiEffect
     );
     assert_eq!(
-        s.project.tracks[&c.track].devices[&stack].params.len(),
+        s.project.tracks[&c.track].devices[&effect].params.len(),
         descriptor.params.len()
     );
     let ctx = context();
@@ -422,7 +459,7 @@ fn every_stack_parameter_is_set_and_undone_through_device_set_param() {
             (p.min + p.max) / 2.0,
         ] {
             let command = d(device::Command::SetParam {
-                device: stack.clone(),
+                device: effect.clone(),
                 param: p.key.into(),
                 value,
             });
@@ -433,7 +470,7 @@ fn every_stack_parameter_is_set_and_undone_through_device_set_param() {
             check(&command, &s, &ctx).unwrap_or_else(|e| panic!("{} = {value}: {e}", p.key));
             let mut after = s.clone();
             run(&command, &mut after, &mut fresh()).unwrap();
-            let stored = after.project.tracks[&c.track].devices[&stack].params[p.key];
+            let stored = after.project.tracks[&c.track].devices[&effect].params[p.key];
             assert_eq!(Some(stored), p.sanitize_f64(value), "{} = {value}", p.key);
         }
     }
