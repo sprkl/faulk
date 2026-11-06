@@ -71,6 +71,10 @@ let nativeEngine: {
   /** `folder.open` / `folder.close` and `folder.choose` (AU-7); a test that leaves them out gets stubs. */
   place?: ReturnType<typeof vi.fn>
   chooseFolder?: ReturnType<typeof vi.fn>
+  /** What the hello announced (#319: `export`). */
+  capabilities?: { midi: boolean; disk: boolean; export: boolean } | null
+  exportStart?: ReturnType<typeof vi.fn>
+  exportCancel?: ReturnType<typeof vi.fn>
   close: ReturnType<typeof vi.fn>
 } | null = null
 /** The engine bytes the helper was sent since its `from`th send (BO-1: what a command means for its engine). */
@@ -84,6 +88,8 @@ vi.mock('../engine/native-engine', () => ({
         nativeEngine.route ??= vi.fn()
         nativeEngine.place ??= vi.fn()
         nativeEngine.chooseFolder ??= vi.fn()
+        nativeEngine.exportStart ??= vi.fn()
+        nativeEngine.exportCancel ??= vi.fn()
       }
       return nativeEngine ? Promise.resolve(nativeEngine) : Promise.reject(new Error('no helper in tests'))
     },
@@ -3054,6 +3060,43 @@ describe('the project folder in Boost (AU-7)', () => {
     expect(session.engine.helperFolder).toEqual({ project: null, state: { status: 'closed' } })
     await session.dispatcher.enterWeb()
     expect(session.engine.helperFolder).toBeNull()
+  })
+
+  it('hands the export to the helper only in Boost, with its folder open for this project, and ends it with the session (#319)', async () => {
+    const session = await boosted()
+    const host = session.dispatcher.exportHost
+    // Web mode: the page renders.
+    expect(host.helperExport()).toBeNull()
+    nativeEngine!.capabilities = { midi: false, disk: true, export: true }
+    await session.dispatcher.enterBoost()
+    const id = session.project.view!.project.id
+    expect(host.projectId()).toBe(id)
+    // The helper has no folder for the project yet.
+    expect(host.helperExport()).toBeNull()
+    nativeEvents!.onFolderState!(id, { status: 'unknown' })
+    expect(host.helperExport()).toBeNull()
+    nativeEvents!.onFolderState!(id, { status: 'open', name: 'Song' })
+    const port = host.helperExport()
+    expect(port).not.toBeNull()
+    // A helper that does not export: the page renders.
+    nativeEngine!.capabilities = { midi: false, disk: true, export: false }
+    expect(host.helperExport()).toBeNull()
+    nativeEngine!.capabilities = { midi: false, disk: true, export: true }
+    // The port sends on the session and hears its export messages; another session's or a stale one's are dropped.
+    const heard: unknown[] = []
+    const unlisten = port!.listen((message) => heard.push(message))
+    port!.cancel(3)
+    expect(nativeEngine!.exportCancel).toHaveBeenCalledWith(3)
+    const progress = { type: 'export.progress', id: 3, rendered: 1, body: 2, tail: false } as const
+    nativeEvents!.onExport!(progress)
+    expect(heard).toEqual([progress])
+    // The session ends: the export hears it once, and nothing after.
+    nativeEvents!.onClosed()
+    expect(heard).toEqual([progress, null])
+    nativeEvents!.onExport!(progress)
+    expect(heard).toHaveLength(2)
+    unlisten()
+    expect(host.helperExport()).toBeNull()
   })
 
   it('project.choose_helper_folder asks the helper with the place, and says why when it cannot', async () => {

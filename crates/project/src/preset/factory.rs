@@ -90,6 +90,14 @@ const FILES: &[(&str, &str)] = &[
         include_str!("factory/faulk.stack/scale-seventh.json"),
     ),
     (
+        "faulk.trim/tight-pluck",
+        include_str!("factory/faulk.trim/tight-pluck.json"),
+    ),
+    (
+        "faulk.trim/held-bar",
+        include_str!("factory/faulk.trim/held-bar.json"),
+    ),
+    (
         "faulk.lattice/black-keys",
         include_str!("factory/faulk.lattice/black-keys.json"),
     ),
