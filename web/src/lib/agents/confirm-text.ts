@@ -48,6 +48,10 @@ const BODIES: Record<PendingQuestion['question']['kind'], MessageKey> = {
 /** What the user loses if they allow it. */
 export function questionBody(pending: PendingQuestion, t: Translate): string {
   const q = pending.question
-  if (q.kind === 'importAudio') return t(BODIES[q.kind], { name: q.name, host: q.host, track: q.track, max: MAX_AUDIO_URL_MB })
+  if (q.kind === 'importAudio') {
+    // As the track list shows it (`trackLabel`): its name, or its default name by its position.
+    const track = q.track.name.trim() || t('tracks.defaultName', { n: q.track.index + 1 })
+    return t(BODIES[q.kind], { name: q.name, host: q.host, track, max: MAX_AUDIO_URL_MB })
+  }
   return t(BODIES[q.kind], { name: 'target' in q ? (q.target ?? '') : '' })
 }

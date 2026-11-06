@@ -265,13 +265,13 @@ test("an agent's audio file from a link (#664): the user is asked first, nothing
     hits.push({ method: route.request().method(), cookie: headers['cookie'], referer: headers['referer'] })
     await route.fulfill({ body, headers: { 'access-control-allow-origin': '*', 'content-type': 'audio/wav', 'cross-origin-resource-policy': 'cross-origin' } })
   })
-  const ask = () =>
+  const ask = (url = link) =>
     page.evaluate(
       ([track, url]) => {
         const w = window as unknown as { __faulkAgent(c: object, author: string): Promise<unknown>; __answer?: Promise<unknown> }
         w.__answer = w.__faulkAgent({ type: 'clip.import_audio_url', track, url }, 'agent:claude-code')
       },
-      [track, link],
+      [track, url],
     )
   const answer = () => page.evaluate(() => (window as unknown as { __answer: Promise<unknown> }).__answer)
   const dialog = page.getByTestId('agent-confirm')
@@ -299,9 +299,22 @@ test("an agent's audio file from a link (#664): the user is asked first, nothing
   expect(history.undo.at(-1)).toMatchObject({ name: 'clip.import_audio', author: 'agent:claude-code' })
   await expect.poll(async () => Object.keys(await opfsFiles(page))).toContain(`blobs/${hash}`)
 
-  // A web page served under the same audio name and type: the decoder refuses it, the agent hears why, no clip is made.
+  // The same call again (an agent that heard `page.timeout`): the clip already made, no question, no request.
+  expect(
+    await page.evaluate(
+      ([track, url]) => (window as unknown as { __faulkAgent(c: object): Promise<unknown> }).__faulkAgent({ type: 'clip.import_audio_url', track, url }),
+      [track, link],
+    ),
+  ).toMatchObject({
+    status: 'applied',
+    output: { media: hash },
+  })
+  expect(hits).toHaveLength(1)
+  await expect(page.getByTestId('pool-clip')).toHaveCount(1)
+
+  // A web page served under an audio name and type: the decoder refuses it, the agent hears why, no clip is made.
   body = '<!doctype html><p>Not found</p>'.repeat(40)
-  await ask()
+  await ask('https://audio.example/loops/missing.wav')
   await page.getByTestId('agent-confirm-allow').click()
   expect(await answer()).toMatchObject({ status: 'refused', error: { code: 'import.unsupported_format' } })
   await expect(page.getByTestId('audio-import-failure')).toHaveAttribute('data-code', 'unsupported_format')

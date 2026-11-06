@@ -3020,10 +3020,10 @@ describe("an agent's audio file from a link waits for the user's answer, then im
     const { session, track, fetch, imported, history, clips } = await withAudioTrack()
     const answer = session.dispatcher.runForAgent(call(track), 'agent:claude-code')
     await vi.waitFor(() => expect(session.dispatcher.confirmations.current).not.toBeNull())
-    const trackName = session.project.view!.project.tracks[track]!.name
+    // A new audio track has no name of its own: the question names it as the track list does, by its position.
     expect(session.dispatcher.confirmations.current).toMatchObject({
       agent: 'agent:claude-code',
-      question: { kind: 'importAudio', host: 'example.org', name: 'kick 01.wav', track: trackName },
+      question: { kind: 'importAudio', host: 'example.org', name: 'kick 01.wav', track: { name: '', index: 1 } },
     })
     // Nothing reached the host while the user reads the question.
     expect(fetch).not.toHaveBeenCalled()

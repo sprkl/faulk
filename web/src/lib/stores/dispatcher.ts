@@ -27,6 +27,7 @@ import {
 import type { AudioExport, ExportHost } from '../export/audio-export.svelte'
 import { importCommand, type AudioImport, type ImportPlacer } from '../audio/import/audio-import.svelte'
 import { audioNameOf } from '../audio/import/from-url'
+import { sortedTracks } from '../project/tracks'
 import { importAudioUrlOutput, isImportAudioUrl, type ImportAudioUrl } from '../clip-commands'
 import { audioMediaOf } from '../audio/import/media'
 import type { ProjectHost, ProjectStorage } from '../storage/storage.svelte'
@@ -761,7 +762,8 @@ export class Dispatcher {
     if (done && project && done.project === project.id && done.track === command.track && this.confirmations.clock.now() - done.at < LINK_IMPORT_KEPT_MS) {
       if (project.tracks[command.track]?.clips[done.clip]) return { status: 'applied', output: importAudioUrlOutput(done.clip, done.media) }
     }
-    const track = project?.tracks[command.track]?.name ?? command.track
+    const entry = project ? sortedTracks(project).find((e) => e.id === command.track) : undefined
+    const track = { name: entry?.track.name ?? '', index: entry?.index ?? 0 }
     const name = audioNameOf(link.url)
     const answer = await this.confirmations.ask(author, { kind: 'importAudio', host: link.host, name, track }, deadline, signal)
     if (answer !== 'confirmed') return notConfirmed(answer)
