@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { itemAt, moveCursor, reading, rovingKey, step, timelineCursorStep, zoomKey, type Item } from './roving'
+import { cursorJumpKey, itemAt, jumpCursor, moveCursor, reading, rovingKey, step, timelineCursorStep, zoomKey, type Item } from './roving'
 
 const item = (id: string, row: number, start: number, end: number): Item => ({ id, row, start, end })
 // Row 0: a 0..4, b 4..8; row 1: nothing; row 2: c 2..6, d 8..12; row 3: e 0..1.
@@ -125,5 +125,40 @@ describe('the free cursor (#494)', () => {
     expect(itemAt(items, { row: 0, tick: 4 })?.id).toBe('b')
     expect(itemAt([...items, item('f', 2, 3, 5)], { row: 2, tick: 4 })?.id).toBe('f')
     expect(itemAt(items, { row: 1, tick: 0 })).toBeNull()
+  })
+})
+
+describe('the jumps of the free cursor (#771)', () => {
+  const key = (k: string, mods: Partial<{ shiftKey: boolean; altKey: boolean; ctrlKey: boolean; metaKey: boolean }> = {}) =>
+    cursorJumpKey({ key: k, shiftKey: false, altKey: false, ctrlKey: false, metaKey: false, ...mods })
+
+  it('reads Home, End and Ctrl or Cmd with Left and Right, and nothing else', () => {
+    expect(key('Home')).toBe('start')
+    expect(key('End')).toBe('end')
+    expect(key('ArrowLeft', { ctrlKey: true })).toBe('barBack')
+    expect(key('ArrowRight', { metaKey: true })).toBe('barForward')
+    expect(key('ArrowLeft')).toBeNull()
+    expect(key('Home', { ctrlKey: true })).toBeNull()
+    expect(key('ArrowRight', { ctrlKey: true, shiftKey: true })).toBeNull()
+    expect(key('ArrowRight', { ctrlKey: true, altKey: true })).toBeNull()
+    expect(key('End', { shiftKey: true })).toBeNull()
+  })
+
+  it('goes to the start, to the last step of the clip, or by a bar kept on the step and inside the clip', () => {
+    const steps = { step: 320, bar: 3840 }
+    // A clip of two bars with an eighth-triplet step.
+    expect(jumpCursor(5440, 'start', steps, 7680)).toBe(0)
+    expect(jumpCursor(0, 'end', steps, 7680)).toBe(7360)
+    // Bar 2 beat 2.67 back one bar: bar 1 beat 2.67, then the start, which it never passes.
+    expect(jumpCursor(5440, 'barBack', steps, 7680)).toBe(1600)
+    expect(jumpCursor(1600, 'barBack', steps, 7680)).toBe(0)
+    // Forward: a bar later, then stopped at the last step.
+    expect(jumpCursor(1600, 'barForward', steps, 7680)).toBe(5440)
+    expect(jumpCursor(5440, 'barForward', steps, 7680)).toBe(7360)
+    // A bar that is no whole number of steps: the cursor stays on the step's grid.
+    expect(jumpCursor(0, 'barForward', { step: 700, bar: 3840 }, 7680)).toBe(3500)
+    // A clip of one tick, a step of zero.
+    expect(jumpCursor(0, 'end', { step: 0, bar: 3840 }, 1)).toBe(0)
+    expect(jumpCursor(0, 'barForward', steps, 1)).toBe(0)
   })
 })
