@@ -1,5 +1,8 @@
-import type { AgentResult, Command, FolderStatus, HelperUpdate, MidiInput } from '../generated/protocol'
+import type { AgentResult, Command, FolderStatus, HelperUpdate, MidiInput, ServerMessage } from '../generated/protocol'
 import type { FeedbackReport } from './feedback'
+
+/** The helper's messages about its export (#319). */
+export type HelperExportMessage = Extract<ServerMessage, { type: 'export.progress' | 'export.done' | 'export.failed' }>
 
 export type EngineKind = 'web' | 'native'
 
@@ -45,6 +48,8 @@ export interface EngineEvents {
    * the project it is about (`null` after `folder.close`) and its state.
    */
   onFolderState?(project: string | null, state: FolderStatus): void
+  /** Native engine only: how the helper's export goes (`export.progress`, `export.done`, `export.failed`, #319). */
+  onExport?(message: HelperExportMessage): void
   /** Native engine only: an agent left (`agent.left`, #641): its last MCP session ended or it stayed silent too long. */
   onAgentLeft?(agent: string): void
   onError(code: string): void

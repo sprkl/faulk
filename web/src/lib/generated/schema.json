@@ -264,6 +264,85 @@
           "type"
         ],
         "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Render the page's export job and write the file into the project's folder (#319): the\nhelper renders the three streams of `commands::export::job` (`setup`, `start`, `stop`, each\nin standard base64) with `engine::offline`, as the page's export Worker does, and writes\nthe WAV file as `exports/<name>.wav` in the folder it has open for `project` (AU-7's\nconfined write; an existing file is kept and the first free `<name> (2).wav`... is taken).\n`id` is the page's number for this run: every answer carries it (`export.progress`, then\none `export.done` or `export.failed`). One export at a time. Only on a session.",
+        "properties": {
+          "bits": {
+            "description": "16, 24 or 32 (float).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "body_frames": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "sample_rate": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "setup": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "stop": {
+            "type": "string"
+          },
+          "type": {
+            "const": "export.start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "project",
+          "name",
+          "sample_rate",
+          "bits",
+          "body_frames",
+          "setup",
+          "start",
+          "stop"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Stop the export `id`: nothing is written (answered `export.failed` `export.cancelled`).\nOnly on a session.",
+        "properties": {
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "export.cancel",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "type": "object"
       }
     ],
     "title": "ClientMessage"
@@ -30435,6 +30514,53 @@
     "audio_stream": "audio.stream",
     "no_output": "audio.no_output"
   },
+  "export_error_codes": {
+    "busy": "export.busy",
+    "cancelled": "export.cancelled",
+    "folder_changed": "export.folder_changed",
+    "invalid": "export.invalid",
+    "no_folder": "export.no_folder",
+    "render": "export.render",
+    "write": "export.write"
+  },
+  "export_name": {
+    "devices": [
+      "con",
+      "prn",
+      "aux",
+      "nul",
+      "conin$",
+      "conout$",
+      "com1",
+      "com2",
+      "com3",
+      "com4",
+      "com5",
+      "com6",
+      "com7",
+      "com8",
+      "com9",
+      "com0",
+      "lpt1",
+      "lpt2",
+      "lpt3",
+      "lpt4",
+      "lpt5",
+      "lpt6",
+      "lpt7",
+      "lpt8",
+      "lpt9",
+      "lpt0",
+      "com¹",
+      "com²",
+      "com³",
+      "lpt¹",
+      "lpt²",
+      "lpt³"
+    ],
+    "max_bytes": 120
+  },
+  "export_progress_ms": 100,
   "fader_taper": [
     [
       0,
@@ -30462,6 +30588,7 @@
     ]
   ],
   "max_audio_url_bytes": 201326592,
+  "max_export_stream_bytes": 67108864,
   "max_stream_bytes": 1073741824,
   "param_defaults": {
     "attack": 0.005,
@@ -39469,7 +39596,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 45,
+  "protocol_version": 46,
   "scale_intervals": [
     {
       "intervals": [
@@ -39621,6 +39748,10 @@
             "description": "The helper reads the audio files of the project's folder for its engine (AU-7): it takes\n`folder.open`, `folder.choose` and `folder.close`.",
             "type": "boolean"
           },
+          "export": {
+            "description": "The helper renders an export and writes it into the project's folder (#319): it takes\n`export.start` and `export.cancel`.",
+            "type": "boolean"
+          },
           "midi": {
             "description": "The helper can open MIDI inputs (its system has a MIDI backend).",
             "type": "boolean"
@@ -39628,7 +39759,8 @@
         },
         "required": [
           "midi",
-          "disk"
+          "disk",
+          "export"
         ],
         "type": "object"
       },
@@ -40247,6 +40379,139 @@
         "required": [
           "type",
           "state"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "How far the export `id` is (#319), at most every [`EXPORT_PROGRESS_MS`]: frames of the\ncontent rendered, of `body`, and whether the content is done and the effects ring out.",
+        "properties": {
+          "body": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rendered": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tail": {
+            "type": "boolean"
+          },
+          "type": {
+            "const": "export.progress",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "rendered",
+          "body",
+          "tail"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The export `id` is written (#319): `path` is the file's path in the project's folder\n(`/` separated, `exports/<name>.wav` or the free name taken), `bytes` its size, `written`\nits frames; the figures are `engine::offline::Offline`'s, as the page's Worker reports\nthem; `missing` the media (hex SHA-256) whose file could not be read (silent clips).",
+        "properties": {
+          "bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "clipped": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "path": {
+            "type": "string"
+          },
+          "peak": {
+            "format": "float",
+            "type": "number"
+          },
+          "reduction": {
+            "format": "float",
+            "type": "number"
+          },
+          "silenced": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tail_cut": {
+            "type": "boolean"
+          },
+          "type": {
+            "const": "export.done",
+            "type": "string"
+          },
+          "written": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "path",
+          "bytes",
+          "written",
+          "peak",
+          "clipped",
+          "reduction",
+          "silenced",
+          "tail_cut",
+          "missing"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The export `id` ended without a file (#319): `code` is one of [`errors`]' `EXPORT_*`,\n`message` is for developers. Nothing is left in the folder, not even a temporary file.",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "type": {
+            "const": "export.failed",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "code",
+          "message"
         ],
         "type": "object"
       },

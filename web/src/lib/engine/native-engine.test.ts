@@ -107,6 +107,43 @@ describe('the Boost engine reads the helper', () => {
     expect(events.onError).not.toHaveBeenCalled()
   })
 
+  it("hands the helper's export messages to onExport and sends export.start and export.cancel (#319)", async () => {
+    vi.stubGlobal('WebSocket', FakeSocket)
+    const onExport = vi.fn()
+    const events = { onStatus: vi.fn(), onFeedback: vi.fn(), onError: vi.fn(), onClosed: vi.fn(), onExport } satisfies EngineEvents
+    const connected = NativeEngine.connect('t', events)
+    const socket = FakeSocket.last
+    socket.onmessage!({ data: JSON.stringify({ type: 'hello', protocol: PROTOCOL_VERSION, sample_rate: 48000 }) })
+    const engine = await connected
+    const messages = [
+      { type: 'export.progress', id: 3, rendered: 10, body: 20, tail: false },
+      {
+        type: 'export.done',
+        id: 3,
+        path: 'exports/Song.wav',
+        bytes: 44,
+        written: 0,
+        peak: 0,
+        clipped: 0,
+        reduction: 0,
+        silenced: 0,
+        tail_cut: false,
+        missing: [],
+      },
+      { type: 'export.failed', id: 4, code: 'export.busy', message: 'x' },
+    ]
+    for (const message of messages) socket.onmessage!({ data: JSON.stringify(message) })
+    expect(onExport.mock.calls.map((c) => c[0])).toEqual(messages)
+    const start = { id: 5, project: 'p', name: 'Song', sample_rate: 48000, bits: 24, body_frames: 1, setup: 'AA==', start: '', stop: '' }
+    engine.exportStart(start)
+    engine.exportCancel(5)
+    expect(socket.sent.slice(-2).map((m) => JSON.parse(m as string))).toEqual([
+      { type: 'export.start', ...start },
+      { type: 'export.cancel', id: 5 },
+    ])
+    expect(events.onError).not.toHaveBeenCalled()
+  })
+
   it("aborts its agents' calls when the session ends: their questions are withdrawn (AG-4)", async () => {
     vi.stubGlobal('WebSocket', FakeSocket)
     const onAgentCall = vi.fn()
@@ -184,7 +221,7 @@ describe('the Boost engine reads the helper', () => {
     const connected = NativeEngine.connect('t', events)
     const socket = FakeSocket.last
     socket.onmessage!({
-      data: JSON.stringify({ type: 'hello', protocol: PROTOCOL_VERSION, sample_rate: 48000, epoch, capabilities: { midi: true, disk: false } }),
+      data: JSON.stringify({ type: 'hello', protocol: PROTOCOL_VERSION, sample_rate: 48000, epoch, capabilities: { midi: true, disk: false, export: true } }),
     })
     return { engine: await connected, socket, events }
   }
@@ -192,7 +229,7 @@ describe('the Boost engine reads the helper', () => {
   it('keeps the epoch and the capabilities of the hello (BO-1)', async () => {
     const { engine } = await session(41)
     expect(engine.epoch).toBe(41)
-    expect(engine.capabilities).toEqual({ midi: true, disk: false })
+    expect(engine.capabilities).toEqual({ midi: true, disk: false, export: true })
   })
 
   it('sends the engine bytes of a command in a binary frame, and only the MIDI input commands as messages (BO-1)', async () => {
