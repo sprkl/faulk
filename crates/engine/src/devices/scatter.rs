@@ -1,8 +1,8 @@
 //! Scatter, `faulk.scatter`, displayed "Scatter" (#691): a MIDI effect that moves a note's
 //! pitch. Each note it receives has a `chance` of coming out at another pitch, one of
 //! `choices` pitches `interval` apart, above, below or around it, in semitones or in the
-//! project's scale. A repeated melody or arpeggio changes from one pass to the next, the same
-//! way on every play from the start.
+//! project's scale. A melody or an arpeggio repeated along the song changes from one repetition
+//! to the next, the same way on every play.
 //!
 //! # The choices
 //!
@@ -18,11 +18,13 @@
 //! scale, even when the received one is not (in F minor, two degrees up from F4 is A♭4, and
 //! from F♯4 too). Without a project scale, `scale` reads semitones, as `semitones` does.
 //!
-//! A note that loses the chance draw comes out as received: Scatter never silences a note, and
-//! at a chance of 0 the stream goes through unchanged. A choice that would fall outside 0 to 127
-//! is not taken: in semitones the note comes out as received; in the scale it comes out on its
-//! own degree (the scale's note at or below it, or the next one up when that is below 0), so
-//! that a moved note is in the scale whatever its choice. Velocity, voice id and fine tuning (`tune_cents`) are passed through.
+//! A note that loses the chance draw comes out as received, in either mode: Scatter never
+//! silences a note, and at a chance of 0 the stream goes through unchanged (bringing every note
+//! into the scale is another device's work, #692). A choice that would fall outside 0 to 127 is
+//! not taken: in semitones the note comes out as received; in the scale it comes out on its own
+//! degree (the scale's note at or below it, or the next one up when that is below 0), so that a
+//! moved note is in the scale whatever its choice. Velocity, voice id and fine tuning
+//! (`tune_cents`) are passed through.
 //!
 //! # The draws
 //!
