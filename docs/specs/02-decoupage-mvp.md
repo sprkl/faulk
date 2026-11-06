@@ -1014,6 +1014,7 @@ Chaque contrat est figé **en code** (types, traits, schémas) dans la pull requ
   - **Fenêtre** : `web/src/views/confirm/AgentConfirm.svelte`, `alertdialog` modal, nomme l'agent et l'action, focus sur « Refuser » (Échap refuse, Tab reste entre les deux boutons), compte à rebours ; textes EN et FR dans `web/src/lib/i18n/confirm.ts`.
   - **Versions** : `PROTOCOL_VERSION` ne change pas : aucun message page ↔ helper ne change (`AgentResult::Refused` portait déjà une erreur libre) ; le paquet du schéma gagne `agent_confirm_ms` et `destructive_commands`.
   - Tests : `web/src/lib/agents/confirm.test.ts` (chaque transition de la file), `guard.test.ts`, `dispatcher.test.ts` (chaque commande énumérée attend ; refus, délai, retrait, action faite ou non), `storage.test.ts`, `crates/helper/tests/server.rs` (un client MCP attend la réponse de la page et reçoit le refus typé), `web/tests/e2e/helper.spec.ts`.
+  - **Fichier audio par lien (#664, 2026-11-06)** : `clip.import_audio_url` pose aussi la question (`importAudio` : hôte, nom du fichier, piste) avant tout envoi vers l'hôte, puis la page télécharge et importe le fichier comme un fichier choisi ; voir [stockage local](../architecture/03-stockage-local.md) § 5.9. `PROTOCOL_VERSION` 42.
 - Étiquettes : hardware: non, founder: oui.
 
 **AG-5 — Scénario agent de bout en bout**

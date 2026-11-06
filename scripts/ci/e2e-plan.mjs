@@ -180,7 +180,8 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/refusal\.ts$/, areas('refusal')],
   [/^web\/src\/lib\/i18n\/shell\.ts$/, areas('landing', 'storage', 'topBar')],
   [/^web\/src\/lib\/i18n\/shortcuts\.ts$/, areas('arrangement', 'shortcuts', 'shortcutsDialog', 'topBar')],
-  [/^web\/src\/lib\/i18n\/tracks\.ts$/, areas('arrangement', 'grid', 'mixer', 'tracks')],
+  // The default track name also names a track in an agent's question (#664, lib/agents/confirm-text.ts).
+  [/^web\/src\/lib\/i18n\/tracks\.ts$/, areas('arrangement', 'grid', 'mixer', 'tracks', 'helper', 'history')],
   [/^web\/src\/lib\/i18n\/transport\.ts$/, areas('transport', 'topBar')],
   [/^web\/src\/lib\/i18n\/scale\.ts$/, areas('transport', 'topBar')], // the key and scale picker of the transport bar (#695)
   // Libraries with one clear audience.

@@ -226,6 +226,31 @@ fn bundle_lists_the_destructive_commands_the_page_confirms() {
 }
 
 #[test]
+fn the_audio_link_import_tells_agents_the_page_s_own_numbers() {
+    // The description of `clip.import_audio_url` is prose: its figures are the constants the page
+    // uses (the bundle's), so that an agent is never told a wait or a cap the page does not keep.
+    let bundle = schema_bundle();
+    assert_eq!(
+        bundle["max_audio_url_bytes"],
+        commands::clip::MAX_AUDIO_URL_BYTES
+    );
+    let spec = commands::catalog()
+        .into_iter()
+        .find(|spec| spec.name == "clip.import_audio_url")
+        .expect("the command is in the catalog");
+    let seconds = protocol::AGENT_CONFIRM_MS / 1000;
+    let mib = commands::clip::MAX_AUDIO_URL_BYTES >> 20;
+    assert_eq!(mib << 20, commands::clip::MAX_AUDIO_URL_BYTES);
+    for figure in [format!("{seconds} s"), format!("{mib} MiB")] {
+        assert!(
+            spec.description.contains(&figure),
+            "the description says {figure}: {}",
+            spec.description
+        );
+    }
+}
+
+#[test]
 fn the_single_synth_ids_are_valid_and_distinct() {
     let bundle = schema_bundle();
     let track = TrackId::parse(single_synth::TRACK).unwrap();
