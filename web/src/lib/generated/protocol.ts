@@ -83,6 +83,8 @@ type: "project.load_folder_version"
 } | {
 type: "project.allow_access"
 } | {
+type: "project.choose_helper_folder"
+} | {
 from_bar?: (number | null)
 to_bar?: (number | null)
 type: "project.analyze_render"
@@ -1413,6 +1415,8 @@ type: "project.load_folder_version"
 } | {
 type: "project.allow_access"
 } | {
+type: "project.choose_helper_folder"
+} | {
 /**
  * Seconds of content measured.
  */
@@ -2688,6 +2692,18 @@ result: AgentResult
 type: "agent.result"
 } | {
 type: "control.front"
+} | {
+name: string
+nonce: string
+project: string
+type: "folder.open"
+} | {
+name: string
+nonce: string
+project: string
+type: "folder.choose"
+} | {
+type: "folder.close"
 })
 /**
  * What running an agent's command in the page did (`agent.result`).
@@ -2786,6 +2802,10 @@ type: "agent.call"
 agent: string
 type: "agent.left"
 } | {
+project?: (string | null)
+state: FolderStatus
+type: "folder.state"
+} | {
 code: string
 message: string
 type: "error"
@@ -2814,6 +2834,29 @@ version: string
 error: string
 state: "failed"
 })
+/**
+ * Where the helper's folder of the page's project stands (`folder.state`, AU-7).
+ */
+export type FolderStatus = ({
+name: string
+status: "open"
+} | {
+status: "closed"
+} | {
+status: "unknown"
+} | {
+count: number
+status: "ambiguous"
+} | {
+status: "choosing"
+} | {
+reason: FolderRefusal
+status: "refused"
+})
+/**
+ * Why the folder chosen in the helper's dialog was not taken.
+ */
+export type FolderRefusal = ("cancelled" | "no_project" | "other_project" | "not_this_folder" | "unreadable" | "unavailable")
 /**
  * What preparing an export (`project.export_audio`, #297) gave: the render's plan, with the
  * engine bytes returned beside it: the setup stream (`setup_len` bytes), the stream that
@@ -4771,7 +4814,8 @@ track: string
  */
 export interface Capabilities {
 /**
- * The helper reads and writes the project's folder for the page. Not yet: always `false`.
+ * The helper reads the audio files of the project's folder for its engine (AU-7): it takes
+ * `folder.open`, `folder.choose` and `folder.close`.
  */
 disk: boolean
 /**

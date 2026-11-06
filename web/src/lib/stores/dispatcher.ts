@@ -2,7 +2,7 @@ import type { Engine, EngineEvents } from '../engine/engine'
 import { probeHelper, pairHelper } from '../engine/helper-client'
 import { peakOf } from '../engine/feedback'
 import { LoadMeter, sameLoad } from '../engine/load'
-import { NativeEngine, NoOutputError } from '../engine/native-engine'
+import { NativeEngine, NoOutputError, type HelperPlace } from '../engine/native-engine'
 import { WebEngine } from '../engine/web-engine'
 import { withFrame } from '../engine/clock'
 import { decodeMidi } from '../midi/decode'
@@ -25,12 +25,12 @@ import {
   renameProject as renameProjectCommand,
 } from '../project-commands'
 import type { AudioExport, ExportHost } from '../export/audio-export.svelte'
-import { importCommand, type AudioImport, type ImportPlacer } from '../audio/import/audio-import.svelte'
+import { browserCanAsk, importCommand, type AudioImport, type ImportPlacer } from '../audio/import/audio-import.svelte'
 import { audioNameOf } from '../audio/import/from-url'
 import { sortedTracks } from '../project/tracks'
 import { importAudioUrlOutput, isImportAudioUrl, type ImportAudioUrl } from '../clip-commands'
 import { audioMediaOf } from '../audio/import/media'
-import type { ProjectHost, ProjectStorage } from '../storage/storage.svelte'
+import type { HelperLinkWrite, ProjectHost, ProjectStorage } from '../storage/storage.svelte'
 import { releaseAllNotes, requestMidiInputs } from './housekeeping'
 import { takePairLink } from '../pair-link'
 import { agentAuthor, answerAgentCall } from '../agents/agent-call'
@@ -66,6 +66,11 @@ type RunOptions = {
 
 /** The storage action a command started (`project.open_recent`, `project.delete_browser_project`…), `null` for none. */
 type StorageRun = { done: Promise<boolean> | null }
+
+/** A link marker for the helper (AU-7): 128 random bits as 32 lowercase hex digits (`helper::disk::valid_nonce`). */
+export function randomNonce(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('')
+}
 
 /** What the agents' questions need from the storage (`GuardView`). */
 function guardView(storage: ProjectStorage): GuardView {
@@ -202,6 +207,12 @@ export class Dispatcher {
       },
       // Whichever session tells it, even one no longer played: the agent left all the same (#641).
       onAgentLeft: (agent) => this.agentLeft(agent),
+      onFolderState: (project, state) => {
+        // A state about another project than the one open now (the page moved on since) is stale (AU-7).
+        if (kind !== 'native' || !current()) return
+        if (project !== null && project !== (this.project.view?.project.id ?? null)) return
+        this.state.helperFolder = { project, state }
+      },
       onStreamRefused: (code, at, epoch) => {
         if (!current()) return
         if (kind === 'native') this.resyncNative(code, epoch)
@@ -413,11 +424,92 @@ export class Dispatcher {
     folderChanged: (handle) => {
       this.folder = handle
       this.web?.setFolder?.(handle)
+      // In Boost, the helper reads the audio files of the project's new place (AU-7).
+      void this.tellHelperPlace()
     },
   }
 
   /** The project's folder, given to each Web engine for its disk side (AU-3). */
   private folder: FileSystemDirectoryHandle | null = null
+
+  /** The link marker this page wrote for the helper (AU-7), and the folder it is in: one per folder attached. */
+  private helperLink: { folder: FileSystemDirectoryHandle; nonce: string; name: string } | null = null
+  /** The marker write under way, and its folder: a second caller for that folder waits for it instead of writing another. */
+  private linkWrite: { folder: FileSystemDirectoryHandle; done: Promise<HelperLinkWrite> } | null = null
+
+  /**
+   * The project's place as the helper is told it (AU-7, #116): its id and the link marker the page wrote
+   * in its real folder (written once per folder attached, one write at a time), so that the helper, which
+   * never gets a path, opens that folder and not a copy. `no_folder` for a project without a real folder
+   * (kept in the browser); `failed` when the folder refused the marker (its permission not granted yet).
+   */
+  private async helperPlace(): Promise<HelperPlace | 'no_folder' | 'failed'> {
+    const folder = this.folder
+    const project = this.project.view?.project.id
+    if (!folder || !project || !this.storage) return 'no_folder'
+    if (this.helperLink?.folder !== folder) {
+      if (this.linkWrite?.folder !== folder) {
+        const nonce = randomNonce()
+        const storage = this.storage
+        const done = storage.writeHelperLink(nonce).then((written) => {
+          if (written.status === 'written' && this.folder === folder) this.helperLink = { folder, nonce, name: written.name }
+          return written
+        })
+        const write = { folder, done }
+        this.linkWrite = write
+        void done.finally(() => {
+          if (this.linkWrite === write) this.linkWrite = null
+        })
+      }
+      const written = await this.linkWrite!.done
+      // Another place since, or a browser project: nothing to tell for this folder.
+      if (this.folder !== folder || written.status === 'no_folder') return 'no_folder'
+      if (written.status === 'failed' || this.helperLink?.folder !== folder) return 'failed'
+    }
+    return { project, nonce: this.helperLink!.nonce, name: this.helperLink!.name }
+  }
+
+  /**
+   * Tells the helper session where the project lives now (`folder.open` or `folder.close`, AU-7). A marker
+   * the folder refused closes the helper's folder too (it never keeps reading a folder the page left), is
+   * said in the Clips panel, and is tried again when the user allows the access.
+   */
+  private async tellHelperPlace() {
+    const native = this.native
+    if (!native) return
+    const place = await this.helperPlace()
+    if (this.native !== native) return
+    this.state.helperLinkFailed = place === 'failed'
+    native.place(typeof place === 'string' ? null : place)
+  }
+
+  /**
+   * `project.choose_helper_folder` (AU-7): the helper shows its folder dialog for the project's folder. It
+   * needs Boost, the user's click (an agent's call without one gets a notice) and a real folder whose
+   * marker the page could write.
+   */
+  private async chooseHelperFolder() {
+    const native = this.native
+    if (!native) {
+      this.state.notice = 'helper.folderNotBoost'
+      return
+    }
+    if (!browserCanAsk()) {
+      this.state.notice = 'helper.folderNeedsClick'
+      return
+    }
+    const place = await this.helperPlace()
+    if (this.native !== native) return
+    this.state.helperLinkFailed = place === 'failed'
+    if (typeof place === 'string') native.place(null)
+    if (place === 'no_folder') this.state.notice = 'helper.folderInBrowser'
+    else if (place === 'failed') this.state.notice = 'helper.folderNoMarker'
+    else {
+      // The place the dialog is for is the one the helper knows: told first when it was not (a retry after a refused marker).
+      native.place(place)
+      native.chooseFolder(place)
+    }
+  }
 
   /** Stages an imported audio file in the core (AU-1), for `clip.import_audio`; false while there is no core. */
   stageMedia(media: AudioMedia): boolean {
@@ -980,7 +1072,9 @@ export class Dispatcher {
       deleteBrowserProject: (dir) => track(this.storage?.deleteBrowserProject(dir, allowed)),
       keepMine: () => track(this.storage?.keepMine(allowed)),
       loadFolderVersion: () => track(this.storage?.loadDisk(allowed)),
-      allowAccess: () => void this.storage?.resume(),
+      // Once the folder can be written again, the helper's marker too (AU-7).
+      allowAccess: () => void this.storage?.resume().then(() => this.tellHelperPlace()),
+      chooseHelperFolder: () => void this.chooseHelperFolder(),
       exportAudio: (request) => this.audioExport?.request(request),
       chooseAudio: (track) => this.audioImport?.choose(track),
       cancelAudioImport: () => this.audioImport?.cancel(),
@@ -1478,6 +1572,10 @@ export class Dispatcher {
       // it before its snapshot (BO-1). A snapshot that does not encode leaves it nothing to play.
       this.nativeResyncs = []
       if (!this.syncNative(session, session.epoch)) throw new Error('the project snapshot for the helper did not encode')
+      // The helper's engine reads the project's audio files from its folder (AU-7).
+      this.state.helperFolder = null
+      this.state.helperLinkFailed = false
+      void this.tellHelperPlace()
       // The helper's first MIDI list may arrive before this engine became current.
       requestMidiInputs((command) => this.run(command))
       await this.midi?.releaseAll()
@@ -1538,6 +1636,8 @@ export class Dispatcher {
     this.boostSince = null
     this.state.mode = 'web'
     this.state.helperUpdate = null
+    this.state.helperFolder = null
+    this.state.helperLinkFailed = false
     this.state.activeNotes = []
     // The project moved on while the helper played: the Web engine catches up by snapshot.
     const ready = web ? this.syncWeb(web) : false

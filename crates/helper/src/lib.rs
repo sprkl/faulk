@@ -2,6 +2,7 @@
 
 pub mod agents;
 pub mod audio;
+pub mod disk;
 pub mod instance;
 pub mod live;
 pub mod log;

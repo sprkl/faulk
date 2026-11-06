@@ -32,6 +32,12 @@ import {
   type Signature,
 } from './types'
 
+/** The helper's link marker in the project's folder (AU-7): written by the page, read by the helper (`helper::disk::LINK_FILE`). */
+export const HELPER_LINK_PATH = '.faulk/link.json'
+
+/** What writing the helper's link marker came to (`ProjectStorage.writeHelperLink`). */
+export type HelperLinkWrite = { status: 'written'; name: string } | { status: 'no_folder' } | { status: 'failed' }
+
 /** Waits this long after the last change before writing (a knob drag is one write, not hundreds). */
 export const AUTOSAVE_DELAY_MS = 1500
 /** Under continuous editing, writes at least this often. */
@@ -1307,6 +1313,25 @@ export class ProjectStorage {
       if (entry.handle === handle || (await entry.handle.isSameEntry?.(handle)?.catch(() => false))) return true
     }
     return false
+  }
+
+  /**
+   * Writes the helper's link marker (AU-7, #116) in the project's real folder: `.faulk/link.json` holding
+   * `nonce`, so that the helper, which never learns a path from the page, can tell the folder open here
+   * from a copy of it (`crates/helper/src/disk.rs`). Not a project file: outside every scan and save.
+   * `written` with the name of the folder it went to; `no_folder` when the project has no real folder now
+   * (kept in the browser, none at all, or another place since); `failed` when the folder refused the
+   * write (its permission not granted yet, a disk error): a later try may succeed.
+   */
+  async writeHelperLink(nonce: string): Promise<HelperLinkWrite> {
+    const current = this.current
+    if (!current || current.kind !== 'folder') return { status: 'no_folder' }
+    try {
+      await current.store.apply([{ type: 'write', path: HELPER_LINK_PATH, bytes: new TextEncoder().encode(`${JSON.stringify({ nonce })}\n`) }])
+    } catch {
+      return this.current === current ? { status: 'failed' } : { status: 'no_folder' }
+    }
+    return this.current === current ? { status: 'written', name: current.handle.name } : { status: 'no_folder' }
   }
 
   private async detach() {
