@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { engineUp, watch } from './support'
+import { engineUp, skipWithoutDevHooks, watch } from './support'
 
 // #473: one clip pool per track. A clip no longer dies with its last placement (the PO's case of 2026-11-02): it stays
 // in the Clips panel, from where it goes back to the arrangement or into the grid, by a drag or a button. A stretched
@@ -110,3 +110,33 @@ test('a clip outlives its last placement, comes back from the pool, and repeats 
   await expect.poll(async () => Object.keys((await view(page)).project.tracks[track]!.clips).length).toBe(before - 1)
   expect(errors).toEqual([])
 })
+
+// #781: a track without a name of its own is called in the Clips panel as the track list calls it, not by an empty name.
+for (const lang of ['en', 'fr'] as const) {
+  test(`the Clips panel names a track without a name like the track list, ${lang}`, async ({ page }) => {
+    const { errors } = watch(page)
+    const x = {
+      en: { empty: 'Track 2 has no clip yet.', label: 'Clips of Track 2' },
+      fr: { empty: "Piste 2 n'a pas encore de clip.", label: 'Clips de Piste 2' },
+    }[lang]
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.addInitScript((l) => localStorage.setItem('faulk.lang', l), lang)
+    await start(page)
+    await skipWithoutDevHooks(page)
+    await expect(page.locator('html')).toHaveAttribute('lang', lang)
+    // The first track is named; a second one is added without a name and selected.
+    await page.getByTestId('add-track').click()
+    await page.getByRole('menuitem', { name: 'Drums', exact: true }).click()
+    const second = Object.values((await view(page)).project.tracks)[1]!
+    expect(second.name).toBe('')
+
+    await page.getByTestId('panel-clips').click()
+    await expect(page.getByText(x.empty, { exact: true })).toBeVisible()
+
+    // With a clip, the list's label names the track the same way.
+    const track = Object.keys((await view(page)).project.tracks)[1]!
+    await run(page, { type: 'clip.create', track, at: { at: 'arrangement', start: 0 } })
+    await expect(page.getByRole('list', { name: x.label, exact: true })).toBeVisible()
+    expect(errors).toEqual([])
+  })
+}
