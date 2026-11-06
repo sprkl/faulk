@@ -29682,7 +29682,7 @@
         },
         {
           "default": 0,
-          "description": "Straight, triplet (two thirds of the division) or dotted (one and a half times the division), in synced mode.",
+          "description": "Straight, triplet (two thirds of the note value) or dotted (one and a half times the note value), in synced mode.",
           "id": 3,
           "key": "feel",
           "max": 2,
@@ -29699,7 +29699,7 @@
         },
         {
           "default": 100,
-          "description": "Share of the division a note lasts in synced mode, from 1 % to 200 % (100 %: exactly the division).",
+          "description": "Share of the note value a note lasts in synced mode, from 1 % to 200 % (100 %: exactly the note value).",
           "id": 4,
           "key": "gate",
           "max": 200,

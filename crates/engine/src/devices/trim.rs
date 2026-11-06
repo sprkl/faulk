@@ -193,7 +193,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(FEEL),
             key: "feel",
-            description: "Straight, triplet (two thirds of the division) or dotted (one and a half times the division), in synced mode.",
+            description: "Straight, triplet (two thirds of the note value) or dotted (one and a half times the note value), in synced mode.",
             unit: Unit::None,
             min: 0.0,
             max: 2.0,
@@ -206,7 +206,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(GATE),
             key: "gate",
-            description: "Share of the division a note lasts in synced mode, from 1 % to 200 % (100 %: exactly the division).",
+            description: "Share of the note value a note lasts in synced mode, from 1 % to 200 % (100 %: exactly the note value).",
             unit: Unit::Percent,
             min: 1.0,
             max: 200.0,
