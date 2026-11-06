@@ -12,6 +12,7 @@
   import { CLIP_DRAG_TYPE, clipTrackType, freeScene, gridCommand, placeCommand, poolNames, poolOf, type PoolClip } from '../../lib/clip-pool'
   import { cancelAudioImport, chooseAudio, deleteClip } from '../../lib/clip-commands'
   import type { ImportFailure } from '../../lib/audio/import/audio-import.svelte'
+  import { MAX_DECODED_BYTES } from '../../lib/audio/import/abi'
   import type { MessageKey } from '../../lib/i18n'
   import { useStores } from '../../lib/stores'
   import { barTicks } from '../transport/time'
@@ -30,10 +31,11 @@
       bad_sample_rate: 'clips.importFailed.badSampleRate',
       bad_channels: 'clips.importFailed.badChannels',
       too_long: 'clips.importFailed.tooLong',
+      too_large: 'clips.importFailed.tooLarge',
       unavailable: 'clips.importFailed.unavailable',
       io: 'clips.importFailed.unreadable',
     }
-    return t(known[failure.code] ?? 'clips.importFailed.store', { name: failure.name })
+    return t(known[failure.code] ?? 'clips.importFailed.store', { name: failure.name, gb: MAX_DECODED_BYTES / 2 ** 30 })
   }
 
   const trackId = $derived(project.view?.session.selected_track ?? null)

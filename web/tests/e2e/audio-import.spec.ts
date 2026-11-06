@@ -250,6 +250,29 @@ test('a file that is not audio, or in a format Faulk does not read, is refused b
   expect(errors).toEqual([])
 })
 
+test('a file that decodes past what a project keeps is refused by name at its header, nothing kept (#780)', async ({ page }) => {
+  const { errors } = watch(page)
+  const track = await audioTrack(page)
+  // 106 bytes of FLAC whose STREAMINFO declares 2^36 - 1 frames of stereo (512 GiB of `f32`), with 4 blocks of silence.
+  const huge = Buffer.from(
+    '664c614380000022ffffffff0000000000000bb802ffffffffff00000000000000000000000000000000fff87a1800fffe830000000000000ad1fff87a1801fffee80000000000000775fff87a1802fffe550000000000001199fff87a1803fffe3e0000000000001c3d',
+    'hex',
+  )
+  const chooser = page.waitForEvent('filechooser')
+  await page.getByTestId('audio-import-button').click()
+  await (await chooser).setFiles({ name: 'silence.flac', mimeType: 'audio/flac', buffer: huge })
+  await expect(page.getByTestId('audio-import-failure')).toHaveAttribute('data-code', 'too_large')
+  await expect(page.getByTestId('audio-import-failure')).toContainText(
+    'silence.flac is too big once decoded: a project keeps at most 16 GB of audio from one file.',
+  )
+  expect(await audioClips(page, track)).toEqual([])
+  expect(Object.keys(await opfsFiles(page)).filter((p) => p.startsWith('blobs/') || p.startsWith('.faulk/tmp/') || p.startsWith('.faulk/cache/'))).toEqual([])
+  // The same panel imports a file within the cap right after.
+  await choose(page, fixture('sine.flac'))
+  await expect.poll(async () => (await audioClips(page, track)).length).toBe(1)
+  expect(errors).toEqual([])
+})
+
 // The helper's session, as a stand-in (helper.spec.ts has the full one): enough for the page to switch to Boost.
 const CODE = '12345678'
 const TOKEN = 'e2e-token'

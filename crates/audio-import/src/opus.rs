@@ -17,7 +17,7 @@ use opuscule::{Channels, Decoder, SampleRate};
 pub const RATE: u32 = 48_000;
 
 /// The most frames one packet holds: 120 ms at 48 kHz (RFC 6716 § 3.2.5).
-const MAX_FRAMES: usize = 5_760;
+pub(crate) const MAX_FRAMES: usize = 5_760;
 
 /// What the identification header says, as far as decoding goes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
