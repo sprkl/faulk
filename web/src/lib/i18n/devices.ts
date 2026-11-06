@@ -106,6 +106,49 @@ export const devices = defineFeature(
     'stack.voice6_interval.hint': "Interval of voice 6 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
     'stack.voice6_velocity.hint': "Velocity of voice 6, from 1 to 200 % of the received note's.",
     'stack.voice6_chance.hint': 'Chance that voice 6 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.',
+    'lattice.source.hint':
+      "Which notes are allowed: the project's scale (it follows the project's changes; without one, every note), the scale set in the device by root and scale, or the matrix, which says where each of the twelve notes goes.",
+    'lattice.rule.hint':
+      'Where a note outside the scale goes: to the nearest note of the scale (a tie goes down), always down, always up, or nowhere (it is not played). The matrix ignores it.',
+    'lattice.transpose.hint': 'Semitones added to every note after it is put on the scale, from -24 to +24. A note pushed outside 0 to 127 is not played.',
+    'lattice.root.hint': "Root of the device's scale, C to B (used when the source is the device).",
+    'lattice.scale.hint': "The device's scale, built on its root (used when the source is the device): the project's list of scales.",
+    'lattice.map_c.hint':
+      'In matrix mode, the note a received C becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_c_sharp.hint':
+      'In matrix mode, the note a received C sharp becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_d.hint':
+      'In matrix mode, the note a received D becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_e_flat.hint':
+      'In matrix mode, the note a received E flat becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_e.hint':
+      'In matrix mode, the note a received E becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_f.hint':
+      'In matrix mode, the note a received F becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_f_sharp.hint':
+      'In matrix mode, the note a received F sharp becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_g.hint':
+      'In matrix mode, the note a received G becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_a_flat.hint':
+      'In matrix mode, the note a received A flat becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_a.hint':
+      'In matrix mode, the note a received A becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_b_flat.hint':
+      'In matrix mode, the note a received B flat becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_b.hint':
+      'In matrix mode, the note a received B becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'scatter.chance.hint':
+      'Chance that a received note comes out at another pitch, from 0 (never: the notes go through unchanged) to 100 % (every note): a repeatable draw, set by the seed.',
+    'scatter.choices.hint': 'How many pitches a moved note can take, from 1 to 24, each one interval further from the received note.',
+    'scatter.interval.hint':
+      "Distance between two choices, from 1 to 12: semitones, or degrees of the project's scale in scale mode (12 semitones is an octave).",
+    'scatter.direction.hint': 'Where the choices lie: above the received note, below it, or around it (alternately above and below).',
+    'scatter.mode.hint':
+      "How the interval is read: in semitones, or in degrees of the project's scale, so that every moved note is in the scale. Without a project scale, in semitones.",
+    'scatter.order.hint':
+      'How a moved note picks its choice: at random (a repeatable draw, set by the seed), or in turn, each moved note taking the next choice.',
+    'scatter.seed.hint':
+      'Seed of the draws, from 0 to 1000: a note draws from the seed, its position in the song and its pitch, so the same seed gives the same notes at the same place on every play, from any start; another seed, another draw.',
     'compressor.threshold.hint': 'Level, in decibels, above which the compressor turns the sound down, from -60 to 0 dB.',
     'compressor.ratio.hint':
       'How strongly the sound above the threshold is turned down, from 1 (not at all) to 20: at 4, a signal 8 dB over the threshold comes out 2 dB over it.',
@@ -225,6 +268,49 @@ export const devices = defineFeature(
       'Intervalle de la voix 6 depuis la note reçue, de -36 à +36 : en demi-tons, ou en degrés de la gamme du projet dans le mode gamme.',
     'stack.voice6_velocity.hint': 'Vélocité de la voix 6, de 1 à 200 % de celle de la note reçue.',
     'stack.voice6_chance.hint': 'Chance que la voix 6 joue à chaque note reçue, de 0 à 100 % : un tirage reproductible, fixé par la graine.',
+    'lattice.source.hint':
+      'Les notes permises : la gamme du projet (elle suit ses changements ; sans gamme, toutes les notes), la gamme réglée dans le device par sa tonique et sa gamme, ou la matrice, qui dit où va chacune des douze notes.',
+    'lattice.rule.hint':
+      'Où va une note hors de la gamme : sur la note la plus proche de la gamme (à égalité, vers le bas), toujours vers le bas, toujours vers le haut, ou nulle part (elle n’est pas jouée). La matrice l’ignore.',
+    'lattice.transpose.hint': 'Demi-tons ajoutés à chaque note une fois ramenée sur la gamme, de -24 à +24. Une note poussée hors de 0 à 127 n’est pas jouée.',
+    'lattice.root.hint': 'Tonique de la gamme du device, de do à si (quand la source est le device).',
+    'lattice.scale.hint': 'La gamme du device, bâtie sur sa tonique (quand la source est le device) : la liste des gammes du projet.',
+    'lattice.map_c.hint':
+      'En mode matrice, la note que devient un do reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_c_sharp.hint':
+      'En mode matrice, la note que devient un do♯ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_d.hint':
+      'En mode matrice, la note que devient un ré reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_e_flat.hint':
+      'En mode matrice, la note que devient un mi♭ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_e.hint':
+      'En mode matrice, la note que devient un mi reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_f.hint':
+      'En mode matrice, la note que devient un fa reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_f_sharp.hint':
+      'En mode matrice, la note que devient un fa♯ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_g.hint':
+      'En mode matrice, la note que devient un sol reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_a_flat.hint':
+      'En mode matrice, la note que devient un la♭ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_a.hint':
+      'En mode matrice, la note que devient un la reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_b_flat.hint':
+      'En mode matrice, la note que devient un si♭ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_b.hint':
+      'En mode matrice, la note que devient un si reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'scatter.chance.hint':
+      'Chance qu’une note reçue sorte à une autre hauteur, de 0 (jamais : les notes passent telles quelles) à 100 % (chaque note) : un tirage reproductible, fixé par la graine.',
+    'scatter.choices.hint': 'Nombre de hauteurs possibles pour une note changée, de 1 à 24, chacune un intervalle plus loin de la note reçue.',
+    'scatter.interval.hint':
+      'Écart entre deux choix, de 1 à 12 : en demi-tons, ou en degrés de la gamme du projet dans le mode gamme (12 demi-tons font une octave).',
+    'scatter.direction.hint': 'Où sont les choix : au-dessus de la note reçue, au-dessous, ou autour (tour à tour au-dessus et au-dessous).',
+    'scatter.mode.hint':
+      'Comment lire l’intervalle : en demi-tons, ou en degrés de la gamme du projet, pour que chaque note changée soit dans la gamme. Sans gamme réglée, en demi-tons.',
+    'scatter.order.hint':
+      'Comment une note changée prend son choix : au hasard (un tirage reproductible, fixé par la graine), ou tour à tour, chaque note changée prenant le choix suivant.',
+    'scatter.seed.hint':
+      'Graine des tirages, de 0 à 1000 : une note tire selon la graine, sa position dans le morceau et sa hauteur ; la même graine donne donc les mêmes notes à la même place à chaque lecture, quel que soit le point de départ ; une autre graine, un autre tirage.',
     'compressor.threshold.hint': 'Niveau, en décibels, au-dessus duquel le compresseur baisse le son, de -60 à 0 dB.',
     'compressor.ratio.hint':
       'Force avec laquelle le son au-dessus du seuil est baissé, de 1 (pas du tout) à 20 : à 4, un signal 8 dB au-dessus du seuil ressort 2 dB au-dessus.',

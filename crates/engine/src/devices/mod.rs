@@ -11,11 +11,14 @@ use crate::msg::DeviceKind;
 /// and run by the graph, not a registry device (its module doc says why).
 pub mod clip_player;
 pub mod compressor;
+pub mod draw;
 pub mod drums;
 pub mod echo;
 pub mod filter;
+pub mod lattice;
 pub mod osc_synth;
 pub mod reverb;
+pub mod scatter;
 pub mod stack;
 pub mod time_change;
 pub mod trim;
@@ -46,6 +49,8 @@ pub const REGISTRY: &[Builtin] = &[
     filter::BUILTIN,
     stack::BUILTIN,
     trim::BUILTIN,
+    lattice::BUILTIN,
+    scatter::BUILTIN,
 ];
 
 /// The registry's line of `kind`.

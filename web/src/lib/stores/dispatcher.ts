@@ -135,7 +135,6 @@ export class Dispatcher {
   /** Who listens to the helper's export messages (the export dialog, #319): told `null` when the session ends. */
   private exportListener: ((message: HelperExportMessage | null) => void) | null = null
   /** Who listens to the helper's import messages (#778: an import, a dialog): told `null` when the session ends. */
-  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- never read by the interface
   private importListeners = new Set<(message: HelperImportMessage | null) => void>()
   private midi: WebMidiHost | null = null
 

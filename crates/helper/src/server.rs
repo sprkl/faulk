@@ -38,7 +38,7 @@ use protocol::{
     MAX_STREAM_BYTES, PROTOCOL_VERSION, ServerMessage,
 };
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::net::{TcpListener, TcpStream};
@@ -149,6 +149,9 @@ pub struct Shared {
     picked: Mutex<Vec<PickedEntry>>,
     /// The cap on an import's decoded size.
     import_max_bytes: u64,
+    /// Export threads not yet over, a cancelled one still unwinding included (its slot is freed
+    /// at once, before its write is dropped): one ends once that write is dropped (#792).
+    export_threads: AtomicUsize,
     /// The language of the dialog's title.
     lang: crate::tray_text::Lang,
 }
@@ -285,6 +288,7 @@ impl Shared {
             import: Mutex::new(None),
             picked: Mutex::new(Vec::new()),
             import_max_bytes: audio_import::MAX_DECODED_BYTES,
+            export_threads: AtomicUsize::new(0),
             lang: crate::tray_text::Lang::En,
         }
     }
@@ -972,7 +976,9 @@ impl Shared {
 
 /// The end of an export's thread (#319): on drop, the slot is freed when it is still this run's,
 /// then the page is told, `message` or, when the thread panicked before setting it,
-/// `export.failed` `export.render`. Its temporary file went with the `PendingWrite`'s drop.
+/// `export.failed` `export.render`, once the thread counts as over ([`Shared::export_threads`]).
+/// Its temporary file went with the `PendingWrite`'s drop, before: `crate::export::run`
+/// returned.
 struct ExportEnd<'a> {
     shared: &'a Shared,
     session: u64,
@@ -999,6 +1005,8 @@ impl Drop for ExportEnd<'_> {
                 code: protocol::errors::EXPORT_RENDER.into(),
                 message: "the export's thread stopped".into(),
             });
+        // Over before the page is told: a page that has its end finds no thread left.
+        self.shared.export_threads.fetch_sub(1, Ordering::AcqRel);
         self.shared.to_session_id(self.session, message);
     }
 }
@@ -1073,6 +1081,8 @@ impl Shared {
                 id: run,
                 cancel: cancel.clone(),
             });
+            // Counted before the thread exists: it is over only once its `ExportEnd` drops.
+            self.export_threads.fetch_add(1, Ordering::AcqRel);
         }
         drop(session);
         let shared = self.clone();
@@ -1132,6 +1142,8 @@ impl Shared {
                 });
             });
         if spawned.is_err() {
+            // No thread, so no `ExportEnd` to count it as over.
+            self.export_threads.fetch_sub(1, Ordering::AcqRel);
             self.export.lock().expect("export lock").take();
             return Some(failed(crate::export::ExportFailure {
                 code: protocol::errors::EXPORT_RENDER,
@@ -1168,6 +1180,15 @@ impl Shared {
     /// Whether an export runs now.
     pub fn export_running(&self) -> bool {
         self.export.lock().is_ok_and(|r| r.is_some())
+    }
+
+    /// Export threads not yet over (#792): a cancelled export frees its slot at once
+    /// ([`export_running`](Self::export_running) is false) while its thread still unwinds; at 0,
+    /// every run has dropped its write and told its page. The drop removes the temporary file
+    /// when the system lets it (best effort: a file another process holds stays until the page's
+    /// next sweep of `.faulk/tmp/`).
+    pub fn export_threads(&self) -> usize {
+        self.export_threads.load(Ordering::Acquire)
     }
 
     /// The folder the place session `id` named has open, for `project` when given (AU-7); `None`

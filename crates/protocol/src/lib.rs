@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 51;
+pub const PROTOCOL_VERSION: u32 = 49;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -44,13 +44,23 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
-// Version 51 (#778; 47 to 50 are reserved by other tasks): the native audio import in Boost. The session gains `import.choose`,
+// Version 49 (#778; 48 is #691's): the native audio import in Boost. The session gains `import.choose`,
 // `import.start` and `import.cancel` (page → helper) and `import.chosen`, `import.progress`,
 // `import.done` and `import.failed` (helper → page); `hello`'s capabilities gain `import`. The
 // helper decodes a file of the project's folder, or one the user picked in its dialog, and writes
 // its blob and caches into the folder; the page makes the clip. The commands gain
 // `clip.import_audio_file`, and `clip.choose_audio`'s description changes (the helper's dialog in
 // Boost); the schema bundle gains `import_progress_ms` and `import_error_codes`.
+
+// Version 48 (#691; 45 is #693's, 46 #789's, 47 #692's): the registry gains the MIDI
+// effect `faulk.scatter` (device kind 11: a note's pitch moved, at a chance, to one of up to 24 choices, in semitones or in the
+// project's scale). A helper of an earlier version would not build the device: a page and a
+// helper of different versions refuse each other.
+
+// Version 47 (#692; 46 is #789's): the registry gains the MIDI effect
+// `faulk.lattice` (device kind 12), which puts the notes it receives on the project's scale, a scale of
+// its own or a matrix. A helper of an earlier version would not build the device: a page and a helper of
+// different versions refuse each other.
 
 // Version 46 (#319; 45 is #693's): the audio export in Boost. The session
 // gains `export.start` and `export.cancel` (page → helper) and `export.progress`, `export.done`
