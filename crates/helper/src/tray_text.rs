@@ -134,6 +134,15 @@ pub fn folder_dialog_title(lang: Lang, name: &str) -> String {
     }
 }
 
+/// The title of the helper's file dialog (#778): audio files to import into the project
+/// `name`.
+pub fn import_dialog_title(lang: Lang, name: &str) -> String {
+    match lang {
+        Lang::En => format!("Faulk: choose audio files to import into “{name}”"),
+        Lang::Fr => format!("Faulk : choisis les fichiers audio à importer dans « {name} »"),
+    }
+}
+
 /// What the menu must do with the "restart to update" entry.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EntryChange {
@@ -282,6 +291,13 @@ mod tests {
         assert_ne!(
             folder_dialog_title(Lang::En, "Song"),
             folder_dialog_title(Lang::Fr, "Song")
+        );
+        for lang in LANGS {
+            assert!(import_dialog_title(lang, "Song").contains("Song"));
+        }
+        assert_ne!(
+            import_dialog_title(Lang::En, "Song"),
+            import_dialog_title(Lang::Fr, "Song")
         );
     }
 

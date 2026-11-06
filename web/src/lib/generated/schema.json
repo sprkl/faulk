@@ -74,6 +74,47 @@
             "type": "object"
           }
         ]
+      },
+      "ImportSource": {
+        "description": "The file an `import.start` imports (#778).",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "A file of the project's folder: its path relative to the folder's root, `/` separated\n(a file the user or an agent put there, `blobs/<sha256>` included). Never a path outside\nthe folder, never `.faulk/` or `.git*`.",
+            "properties": {
+              "kind": {
+                "const": "folder",
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "path"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A file the user picked in the helper's file dialog: the token `import.chosen` gave it\n(single use, this session's only, for [`IMPORT_TOKEN_SECS`]).",
+            "properties": {
+              "kind": {
+                "const": "picked",
+                "type": "string"
+              },
+              "token": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "token"
+            ],
+            "type": "object"
+          }
+        ]
       }
     },
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -335,6 +376,74 @@
           },
           "type": {
             "const": "export.cancel",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Show the helper's own file dialog for audio files to import (#778): one dialog of the\nhelper at a time (the folder dialog included). Answered by `import.chosen` with this `id`\n(no file when the user closed it), or `import.failed`. The page never learns the files'\npaths: each comes with a token for `import.start`. Only on a session.",
+        "properties": {
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "import.choose",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Import an audio file into the project's folder (#778): the helper decodes it with the\npage's decoder (`crates/audio-import`, natively) and writes its blob and caches through\nAU-7's confined write, in the folder it has open for `project`; the page then makes the\nclip. `id` is the page's number for this import: every answer carries it\n(`import.progress`, then one `import.done` or `import.failed`). One import at a time.\nOnly on a session.",
+        "properties": {
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "project": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/$defs/ImportSource"
+          },
+          "type": {
+            "const": "import.start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "project",
+          "source"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Stop the import `id` (answered `import.failed` `import.cancelled`, or `import.done` when\nits blob was already in place). Only on a session.",
+        "properties": {
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "import.cancel",
             "type": "string"
           }
         },
@@ -7506,7 +7615,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Ask the user for audio files to import into an audio track (AU-1): the page opens\nits file dialog, then imports each file chosen (its bytes are kept in the project's\n`blobs/`, its decoded audio checked) and makes a clip of it with `clip.import_audio`.\nA file dialog needs a click by the user, so an agent that is not driven by one gets a\nnotice in the page instead. Formats: WAV, AIFF, CAF, FLAC, MP3, AAC (MP4, M4A, ADTS),\nALAC, Ogg Vorbis, Opus (Ogg, WebM: mono or stereo). The answer only says the request was\naccepted; the clips arrive with `clip.import_audio`, one history entry each. Refused\nwhen the track is not an audio track. Not undoable itself.",
+        "description": "Ask the user for audio files to import into an audio track (AU-1): the page opens\nits file dialog, then imports each file chosen (its bytes are kept in the project's\n`blobs/`, its decoded audio checked) and makes a clip of it with `clip.import_audio`.\nA file dialog needs a click by the user, so an agent that is not driven by one gets a\nnotice in the page instead. In Boost, with the project's folder open in the helper, the\ndialog is the helper's own and the helper imports each file chosen into the folder\n(#778); an agent with a file already in the project's folder imports it with\n`clip.import_audio_file`. Formats: WAV, AIFF, CAF, FLAC, MP3, AAC\n(MP4, M4A, ADTS), ALAC, Ogg Vorbis, Opus (Ogg, WebM: mono or stereo). The answer only\nsays the request was accepted; the clips arrive with `clip.import_audio`, one history\nentry each. Refused when the track is not an audio track. Not undoable itself.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -7575,6 +7684,87 @@
         },
         "kind": "live",
         "name": "clip.import_audio_url",
+        "output_schema": {
+          "$defs": {
+            "ClipId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a clip."
+            },
+            "Hash": {
+              "description": "The SHA-256 of a blob, 64 lower-case hexadecimal characters.",
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "clip": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ClipId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The clip made of the file (in the track's pool)."
+            },
+            "media": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Hash"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The SHA-256 of the file, the name of its blob."
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "undo": "none"
+      },
+      {
+        "description": "Import an audio file of the project's folder into an audio track, for an agent (#778):\nBoost only, once the project's folder is open in the helper (`project.choose_helper_folder`\nshows it to the helper). `path` is the file's path relative to the project's folder (the\nfolder holding `project.json`), `/` separated: a file the agent or the user put there\n(`imports/kick.wav`), or a blob already there (`blobs/<sha256>`). Never a path outside the\nfolder, never `.faulk/` or `.git`. The helper reads and decodes the file on this computer\n(nothing of it crosses to the page), keeps its bytes in the project's `blobs/` and its\ndecoded audio checked, as for a file the user picks; the page then makes a clip in the\ntrack's pool with `clip.import_audio`, one history entry the user can undo. The file in\nthe folder is left as it is. Formats: those of `clip.choose_audio`. The answer gives the\n`clip` made and the file's SHA-256 (`media`); both are `null` only from a host that\nimports nothing. Refused at once when the track is not an audio track or the path is\nabsolute. Otherwise the page answers `command.refused` with the error code\n`import.no_folder` (Web mode, or the helper has no folder open for this project: nothing\nis read), `import.path` (a path that leaves the folder or names its own data: the\nmessage says why, `path.escapes`, `path.reserved`, `path.dot`…), `import.unreadable` (no\nsuch file, or not a file), `import.busy`, `import.cancelled`\n(`clip.cancel_audio_import`), `import.folder_changed` (the folder was closed or replaced\nmeanwhile), `import.write` (the disk refused), `import.project_changed` or\n`import.<reason>` (not audio Faulk reads: `import.unsupported_format`, `import.corrupt`…,\n`import.too_large`: it decodes to more than 16 GiB of audio); nothing changed then. Not\nundoable itself.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            },
+            "TrackId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a track."
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            "track": {
+              "$ref": "#/$defs/TrackId"
+            }
+          },
+          "required": [
+            "track",
+            "path"
+          ],
+          "type": "object"
+        },
+        "kind": "live",
+        "name": "clip.import_audio_file",
         "output_schema": {
           "$defs": {
             "ClipId": {
@@ -18675,7 +18865,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Ask the user for audio files to import into an audio track (AU-1): the page opens\nits file dialog, then imports each file chosen (its bytes are kept in the project's\n`blobs/`, its decoded audio checked) and makes a clip of it with `clip.import_audio`.\nA file dialog needs a click by the user, so an agent that is not driven by one gets a\nnotice in the page instead. Formats: WAV, AIFF, CAF, FLAC, MP3, AAC (MP4, M4A, ADTS),\nALAC, Ogg Vorbis, Opus (Ogg, WebM: mono or stereo). The answer only says the request was\naccepted; the clips arrive with `clip.import_audio`, one history entry each. Refused\nwhen the track is not an audio track. Not undoable itself.",
+              "description": "Ask the user for audio files to import into an audio track (AU-1): the page opens\nits file dialog, then imports each file chosen (its bytes are kept in the project's\n`blobs/`, its decoded audio checked) and makes a clip of it with `clip.import_audio`.\nA file dialog needs a click by the user, so an agent that is not driven by one gets a\nnotice in the page instead. In Boost, with the project's folder open in the helper, the\ndialog is the helper's own and the helper imports each file chosen into the folder\n(#778); an agent with a file already in the project's folder imports it with\n`clip.import_audio_file`. Formats: WAV, AIFF, CAF, FLAC, MP3, AAC\n(MP4, M4A, ADTS), ALAC, Ogg Vorbis, Opus (Ogg, WebM: mono or stereo). The answer only\nsays the request was accepted; the clips arrive with `clip.import_audio`, one history\nentry each. Refused when the track is not an audio track. Not undoable itself.",
               "properties": {
                 "track": {
                   "$ref": "#/$defs/TrackId"
@@ -18715,6 +18905,33 @@
                 "type",
                 "track",
                 "url"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "live",
+              "x-undo": "none"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Import an audio file of the project's folder into an audio track, for an agent (#778):\nBoost only, once the project's folder is open in the helper (`project.choose_helper_folder`\nshows it to the helper). `path` is the file's path relative to the project's folder (the\nfolder holding `project.json`), `/` separated: a file the agent or the user put there\n(`imports/kick.wav`), or a blob already there (`blobs/<sha256>`). Never a path outside the\nfolder, never `.faulk/` or `.git`. The helper reads and decodes the file on this computer\n(nothing of it crosses to the page), keeps its bytes in the project's `blobs/` and its\ndecoded audio checked, as for a file the user picks; the page then makes a clip in the\ntrack's pool with `clip.import_audio`, one history entry the user can undo. The file in\nthe folder is left as it is. Formats: those of `clip.choose_audio`. The answer gives the\n`clip` made and the file's SHA-256 (`media`); both are `null` only from a host that\nimports nothing. Refused at once when the track is not an audio track or the path is\nabsolute. Otherwise the page answers `command.refused` with the error code\n`import.no_folder` (Web mode, or the helper has no folder open for this project: nothing\nis read), `import.path` (a path that leaves the folder or names its own data: the\nmessage says why, `path.escapes`, `path.reserved`, `path.dot`…), `import.unreadable` (no\nsuch file, or not a file), `import.busy`, `import.cancelled`\n(`clip.cancel_audio_import`), `import.folder_changed` (the folder was closed or replaced\nmeanwhile), `import.write` (the disk refused), `import.project_changed` or\n`import.<reason>` (not audio Faulk reads: `import.unsupported_format`, `import.corrupt`…,\n`import.too_large`: it decodes to more than 16 GiB of audio); nothing changed then. Not\nundoable itself.",
+              "properties": {
+                "path": {
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "track": {
+                  "$ref": "#/$defs/TrackId"
+                },
+                "type": {
+                  "const": "clip.import_audio_file",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "track",
+                "path"
               ],
               "type": "object",
               "x-destructive": false,
@@ -24848,6 +25065,41 @@
             {
               "additionalProperties": false,
               "properties": {
+                "clip": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/ClipId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The clip made of the file (in the track's pool)."
+                },
+                "media": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Hash"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The SHA-256 of the file, the name of its blob."
+                },
+                "type": {
+                  "const": "clip.import_audio_file",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
                 "type": {
                   "const": "clip.cancel_audio_import",
                   "type": "string"
@@ -30587,6 +30839,19 @@
       6
     ]
   ],
+  "import_error_codes": {
+    "busy": "import.busy",
+    "cancelled": "import.cancelled",
+    "decode_prefix": "import.",
+    "dialog_unavailable": "import.dialog_unavailable",
+    "folder_changed": "import.folder_changed",
+    "invalid": "import.invalid",
+    "no_folder": "import.no_folder",
+    "path": "import.path",
+    "unreadable": "import.unreadable",
+    "write": "import.write"
+  },
+  "import_progress_ms": 100,
   "max_audio_url_bytes": 201326592,
   "max_export_stream_bytes": 67108864,
   "max_stream_bytes": 1073741824,
@@ -33957,6 +34222,41 @@
                 },
                 "type": {
                   "const": "clip.import_audio_url",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "clip": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/ClipId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The clip made of the file (in the track's pool)."
+                },
+                "media": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Hash"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The SHA-256 of the file, the name of its blob."
+                },
+                "type": {
+                  "const": "clip.import_audio_file",
                   "type": "string"
                 }
               },
@@ -39596,7 +39896,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 46,
+  "protocol_version": 51,
   "scale_intervals": [
     {
       "intervals": [
@@ -39752,6 +40052,10 @@
             "description": "The helper renders an export and writes it into the project's folder (#319): it takes\n`export.start` and `export.cancel`.",
             "type": "boolean"
           },
+          "import": {
+            "description": "The helper imports an audio file into the project's folder (#778): it takes\n`import.choose`, `import.start` and `import.cancel`.",
+            "type": "boolean"
+          },
           "midi": {
             "description": "The helper can open MIDI inputs (its system has a MIDI backend).",
             "type": "boolean"
@@ -39760,7 +40064,8 @@
         "required": [
           "midi",
           "disk",
-          "export"
+          "export",
+          "import"
         ],
         "type": "object"
       },
@@ -40043,6 +40348,25 @@
         },
         "required": [
           "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "PickedFile": {
+        "additionalProperties": false,
+        "description": "A file the user picked in the helper's dialog (`import.chosen`, #778).",
+        "properties": {
+          "name": {
+            "description": "The file's own name (no folder).",
+            "type": "string"
+          },
+          "token": {
+            "description": "32 lowercase hex digits: what `import.start` names the file by.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
           "name"
         ],
         "type": "object"
@@ -40504,6 +40828,145 @@
           },
           "type": {
             "const": "export.failed",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The files the user picked in the helper's dialog for `import.choose` `id` (#778): none when\nthe dialog was closed.",
+        "properties": {
+          "files": {
+            "items": {
+              "$ref": "#/$defs/PickedFile"
+            },
+            "type": "array"
+          },
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "import.chosen",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "files"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "How far the import `id` is (#778), from 0 to 1, at most every [`IMPORT_PROGRESS_MS`].",
+        "properties": {
+          "fraction": {
+            "format": "double",
+            "type": "number"
+          },
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "import.progress",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "fraction"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The import `id` is in the project's folder (#778): the media as `clip.import_audio` takes it\n(`hash`, the file's SHA-256 and the name of its blob; the decoded `sample_rate`, `channels`,\n`frames`), `name` the source file's own name (the page makes the media's name of it),\n`direct` whether the blob is read directly (no PCM cache), `created` whether this import\nwrote `blobs/<hash>` (the folder may hold it already), `peaks` whether its waveform peaks\nwere written.",
+        "properties": {
+          "channels": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "direct": {
+            "type": "boolean"
+          },
+          "frames": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "hash": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "peaks": {
+            "type": "boolean"
+          },
+          "sample_rate": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "import.done",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "hash",
+          "sample_rate",
+          "channels",
+          "frames",
+          "name",
+          "direct",
+          "created",
+          "peaks"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The import (or the dialog) `id` ended without a file in the folder (#778): `code` is one of\n[`errors`]' `IMPORT_*`, or `import.<reason>` for a file the decoder refuses\n(`audio_import::ImportError::code`: `import.too_large`, `import.corrupt`...); `message` is\nfor developers. Nothing is left in the folder, not even a temporary file.",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "type": {
+            "const": "import.failed",
             "type": "string"
           }
         },

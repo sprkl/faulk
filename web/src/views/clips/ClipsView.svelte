@@ -38,6 +38,14 @@
       io: 'clips.importFailed.unreadable',
       download_unreachable: 'clips.importFailed.downloadUnreachable',
       download_too_big: 'clips.importFailed.downloadTooBig',
+      // The helper's import in Boost (#778).
+      no_folder: 'clips.importFailed.noFolder',
+      path: 'clips.importFailed.outsideFolder',
+      unreadable: 'clips.importFailed.unreadable',
+      folder_changed: 'clips.importFailed.folderChanged',
+      busy: 'clips.importFailed.busy',
+      dialog_unavailable: 'clips.importFailed.dialogUnavailable',
+      helper_lost: 'clips.importFailed.helperLost',
     }
     return t(known[failure.code] ?? 'clips.importFailed.store', { name: failure.name, max: MAX_AUDIO_URL_MB, gb: MAX_DECODED_BYTES / 2 ** 30 })
   }

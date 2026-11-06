@@ -3,13 +3,17 @@
 // `blobs/`, its decoded audio checked and cached), the metadata decoding gave is staged in the core,
 // and `clip.import_audio` makes the clip: one history entry per file. An agent's file from a link
 // (`clip.import_audio_url`, #664) is downloaded once the user allowed it (`importUrl`), then imported the
-// same way. What the Clips panel shows: the file being downloaded or imported and how far it is, the
-// failure of the last one, a notice.
-import type { AudioMedia, Command } from '../../generated/protocol'
+// same way. In Boost, with the project's folder open in the helper (#778), the helper imports instead: the
+// files the user picks in the helper's own dialog (`clip.choose_audio` from a click), and an agent's file of
+// the project's folder (`clip.import_audio_file`, `importFolderFile`); the page stages what the helper
+// decoded and makes the clip the same way. What the Clips panel shows: the file being downloaded or
+// imported and how far it is, the failure of the last one, a notice.
+import type { AudioMedia, Command, ImportSource } from '../../generated/protocol'
 import { checkOpenUrl, type CheckedUrl } from '../../storage/open-url'
 import { StoreError } from '../../storage/types'
 import { ImportError } from './abi'
 import type { Downloaded } from './from-url'
+import { chooseWithHelper, type HelperImportPort } from './helper-import'
 import type { ImportedMedia } from './pipeline'
 
 /** The browser and the page's project, behind seams so the controller is tested without them. */
@@ -28,6 +32,10 @@ export interface AudioImportDeps {
   pageHostname(): string
   /** Downloads the file at `url` (`downloadAudio`); `onProgress` gets the bytes received and the length announced. */
   download(url: URL, name: string, onProgress: (received: number, announced: number | null) => void, signal: AbortSignal): Promise<Downloaded>
+  /** The helper's import (#778): Boost, a helper that imports, and the project's folder open in it; `null` otherwise. */
+  helper(): HelperImportPort | null
+  /** The helper's import of `source`, in the storage's queue (`ProjectStorage.importWithHelper` around `runHelperImport`). */
+  importWithHelper(port: HelperImportPort, source: ImportSource, onProgress: (fraction: number) => void, signal: AbortSignal): Promise<ImportedMedia>
 }
 
 /** A file being downloaded from a link (#664), before its import. */
@@ -100,9 +108,95 @@ export class AudioImport {
       return
     }
     this.needsClick = false
+    // In Boost with the folder open in the helper (#778): the helper's own dialog, the helper importing each file.
+    const helper = this.deps.helper()
+    if (helper) {
+      const picking = chooseWithHelper(helper)
+      void this.enqueue(async () => {
+        let files
+        try {
+          files = await picking
+        } catch (error) {
+          // A helper gone with its dialog open: the page tells of the lost helper already, nothing was being imported.
+          const code = error instanceof ImportError ? error.code : 'io'
+          if (code !== 'helper_lost') this.failure = { track, name: '', code, message: String(error) }
+          return []
+        }
+        const imports = files.map((file) => ({
+          name: file.name,
+          read: (onProgress: (fraction: number) => void, signal: AbortSignal) =>
+            this.deps.importWithHelper(helper, { kind: 'picked', token: file.token }, onProgress, signal),
+        }))
+        return this.runImports(track, imports)
+      })
+      return
+    }
     // Opened now, inside the click; the files are imported in turn, after any import still running.
     const picking = this.deps.pick()
     void this.enqueue(async () => this.runFiles(track, await picking))
+  }
+
+  /**
+   * An agent's file of the project's folder (`clip.import_audio_file`, #778): imported by the helper in turn, like a picked
+   * file, its clip made by `place`. `path` is relative to the folder. `signal` is the agent's call; `cancel` stops it too.
+   * `stillWanted` as for `importUrl`. Refused `import.no_folder` without the helper's folder; `import.busy` while the same
+   * path is being imported.
+   */
+  async importFolderFile(track: string, path: string, place: ImportPlacer, signal?: AbortSignal, stillWanted: () => boolean = () => true): Promise<UrlImport> {
+    const key = `folder:${path}`
+    if (this.links.has(key))
+      return { status: 'refused', code: 'import.busy', message: 'this file is already being imported: wait for its answer, then check track.get' }
+    const helper = this.deps.helper()
+    if (!helper)
+      return {
+        status: 'refused',
+        code: 'import.no_folder',
+        message: 'the helper has no folder open for this project (Boost mode, the folder shown to the helper): nothing was read',
+      }
+    this.links.add(key)
+    const stop = new AbortController()
+    const onEnd = () => stop.abort()
+    signal?.addEventListener('abort', onEnd, { once: true })
+    if (signal?.aborted) stop.abort()
+    this.linkAborts.add(stop)
+    const name = path.split('/').at(-1) ?? path
+    try {
+      return await this.enqueue(async () => {
+        if (stop.signal.aborted) return { status: 'refused', code: 'import.cancelled', message: 'the import was cancelled: nothing changed' } as const
+        if (!stillWanted()) {
+          return { status: 'refused', code: 'import.project_changed', message: 'another project was opened meanwhile: nothing changed' } as const
+        }
+        // The helper of the turn: the session may have ended while the file waited.
+        const now = this.deps.helper()
+        if (!now)
+          return { status: 'refused', code: 'import.no_folder', message: 'the helper has no folder open for this project any more: nothing was read' } as const
+        const abort = new AbortController()
+        const onStop = () => abort.abort()
+        stop.signal.addEventListener('abort', onStop, { once: true })
+        this.abort = abort
+        this.failure = null
+        try {
+          const read = (onProgress: (fraction: number) => void, s: AbortSignal) => this.deps.importWithHelper(now, { kind: 'folder', path }, onProgress, s)
+          const one = await this.importOne(track, name, read, 0, 1, abort.signal, place)
+          if (one.status === 'ok') return one
+          if (one.status === 'cancelled') return { status: 'refused', code: 'import.cancelled', message: 'the import was cancelled: nothing changed' } as const
+          return { status: 'refused', code: `import.${one.code}`, message: `${one.message}: nothing changed` } as const
+        } finally {
+          stop.signal.removeEventListener('abort', onStop)
+          this.running = null
+          if (this.abort === abort) this.abort = null
+        }
+      })
+    } finally {
+      signal?.removeEventListener('abort', onEnd)
+      this.linkAborts.delete(stop)
+      this.links.delete(key)
+    }
+  }
+
+  /** Whether the file of the folder at `path` is being imported now (#778). */
+  importingFile(path: string): boolean {
+    return this.links.has(`folder:${path}`)
   }
 
   /**
@@ -188,7 +282,9 @@ export class AudioImport {
         this.abort = abort
         this.failure = null
         try {
-          const one = await this.importOne(track, downloaded.file, 0, 1, abort.signal, place)
+          const file = downloaded.file
+          const read = (onProgress: (fraction: number) => void, s: AbortSignal) => this.deps.importFile(file, onProgress, s)
+          const one = await this.importOne(track, file.name, read, 0, 1, abort.signal, place)
           if (one.status === 'ok') return one
           if (one.status === 'cancelled') return { status: 'refused', code: 'import.cancelled', message: 'the import was cancelled: nothing changed' } as const
           return { status: 'refused', code: `import.${one.code}`, message: `${one.message}: nothing changed` } as const
@@ -232,7 +328,16 @@ export class AudioImport {
     return run
   }
 
-  private async runFiles(track: string, files: File[], place?: ImportPlacer): Promise<string[]> {
+  private runFiles(track: string, files: File[], place?: ImportPlacer): Promise<string[]> {
+    const imports = files.map((file) => ({
+      name: file.name,
+      read: (onProgress: (fraction: number) => void, signal: AbortSignal) => this.deps.importFile(file, onProgress, signal),
+    }))
+    return this.runImports(track, imports, place)
+  }
+
+  /** Imports files in turn (each its name and its reader: the store's import, or the helper's). */
+  private async runImports(track: string, files: { name: string; read: MediaReader }[], place?: ImportPlacer): Promise<string[]> {
     const imported: string[] = []
     if (files.length === 0) return imported
     this.failure = null
@@ -241,7 +346,7 @@ export class AudioImport {
     try {
       for (const [i, file] of files.entries()) {
         if (abort.signal.aborted) break
-        const one = await this.importOne(track, file, i, files.length, abort.signal, place)
+        const one = await this.importOne(track, file.name, file.read, i, files.length, abort.signal, place)
         if (one.status === 'cancelled') break
         // A failed file is reported (`failure`); the next files are still imported: one damaged file does not stop the others.
         if (one.status === 'ok') imported.push(one.hash)
@@ -253,24 +358,25 @@ export class AudioImport {
     return imported
   }
 
-  /** Imports one file (the `index`-th of `count`): read by the store, staged, made a clip. A failure is also `failure`. */
+  /**
+   * Imports one file named `name` (the `index`-th of `count`): read by `read` (the store or the helper), staged, made a
+   * clip. A failure is also `failure`. A read that ends after a stop (the helper's last word, its blob kept) is cancelled.
+   */
   private async importOne(
     track: string,
-    file: File,
+    name: string,
+    read: MediaReader,
     index: number,
     count: number,
     signal: AbortSignal,
     place?: ImportPlacer,
   ): Promise<{ status: 'ok'; hash: string } | { status: 'cancelled' } | { status: 'failed'; code: string; message: string }> {
-    this.running = { track, name: file.name, index: index + 1, count, fraction: 0 }
+    this.running = { track, name, index: index + 1, count, fraction: 0 }
     try {
-      const media = await this.deps.importFile(
-        file,
-        (fraction) => {
-          if (this.running?.name === file.name) this.running = { ...this.running, fraction }
-        },
-        signal,
-      )
+      const media = await read((fraction) => {
+        if (this.running?.name === name) this.running = { ...this.running, fraction }
+      }, signal)
+      if (signal.aborted) throw new ImportError('cancelled', 'the import was cancelled')
       const staged: AudioMedia = { hash: media.hash, sample_rate: media.sample_rate, channels: media.channels, frames: media.frames, name: media.name }
       if (!this.deps.stage(staged)) throw new ImportError('unavailable', 'the project is not ready yet')
       const made = place ? place(staged, index) : this.deps.run(importCommand(track, media.hash))
@@ -281,11 +387,14 @@ export class AudioImport {
       const code = error instanceof ImportError || error instanceof StoreError ? error.code : 'io'
       const message = error instanceof Error ? error.message : String(error)
       if (!(error instanceof ImportError || error instanceof StoreError)) console.error(error)
-      this.failure = { track, name: file.name, code, message }
+      this.failure = { track, name, code, message }
       return { status: 'failed', code, message }
     }
   }
 }
+
+/** What reads one file into the project's folder: its media once in, progress from 0 to 1. */
+type MediaReader = (onProgress: (fraction: number) => void, signal: AbortSignal) => Promise<ImportedMedia>
 
 /** The file dialog: an `<input type="file">`, which every browser has and a check can drive. */
 export function browserAudioPicker(): Promise<File[]> {

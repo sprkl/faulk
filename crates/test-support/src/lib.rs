@@ -19,6 +19,7 @@ pub mod big;
 pub mod clip_start;
 pub mod clips;
 pub mod export;
+pub mod import_wasm;
 pub mod reference;
 
 pub use render::{

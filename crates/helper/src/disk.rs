@@ -91,8 +91,10 @@ pub enum PathError {
     /// The folder is not the one the operation began in any more: moved, replaced, or holding
     /// another project.
     FolderChanged,
-    /// A directory stands where the file goes.
+    /// A directory stands where the file goes, or where a file is read (#778).
     IsDirectory,
+    /// No file at the path read (#778: an import's source).
+    NotFound,
     /// The disk refused (permission, full disk...). `String` is for developers.
     Io(String),
 }
@@ -115,6 +117,7 @@ impl PathError {
             Self::Escapes => "path.escapes",
             Self::FolderChanged => "path.folder_changed",
             Self::IsDirectory => "path.is_directory",
+            Self::NotFound => "path.not_found",
             Self::Io(_) => "path.io",
         }
     }
@@ -553,35 +556,156 @@ impl ProjectFolder {
             Ok(_) | Err(PathError::Escapes) => {}
             Err(e) => return Err(e),
         }
-        // `.faulk` or `tmp` that is a link, even to inside the folder: refused before anything is
-        // made at its target, since the temporary file would not be where the cleaning of
-        // `.faulk/tmp/` looks.
-        if self.probe(&[".faulk", "tmp"])? != [".faulk", "tmp"] {
-            return Err(PathError::Escapes);
-        }
-        let tmp_dir = self.directory(&[".faulk", "tmp"])?;
-        if tmp_dir != self.root.join(".faulk").join("tmp") {
-            return Err(PathError::Escapes);
-        }
+        // `.faulk` or `tmp` that is a link: refused before anything is made at its target.
+        self.check_temp_dir()?;
+        let tmp_dir = self.temp_dir()?;
         let parent = self.directory(dirs)?;
         let target = parent.join(name);
         if fs::symlink_metadata(&target).is_ok_and(|m| m.is_dir()) {
             return Err(PathError::IsDirectory);
         }
-        let tmp = tmp_dir.join(format!("helper-{}.tmp", crate::security::random_hex(8)));
-        let file = fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&tmp)
-            .map_err(io)?;
+        let (tmp, file) = new_temp(&tmp_dir)?;
         Ok(PendingWrite {
             folder: self,
             file: Some(file),
             tmp,
-            parent,
-            dirs: dirs.iter().map(|d| (*d).to_owned()).collect(),
-            name: (*name).to_owned(),
+            target: Some(Target {
+                parent,
+                dirs: dirs.iter().map(|d| (*d).to_owned()).collect(),
+                name: (*name).to_owned(),
+            }),
         })
+    }
+
+    /// Refuses a `.faulk` or a `tmp` that is a link, even to inside the folder, without making
+    /// anything: the temporary file would not be where the cleaning of `.faulk/tmp/` looks.
+    fn check_temp_dir(&self) -> Result<(), PathError> {
+        if self.probe(&[".faulk", "tmp"])? != [".faulk", "tmp"] {
+            return Err(PathError::Escapes);
+        }
+        Ok(())
+    }
+
+    /// `.faulk/tmp/`, made when missing, which must be that very directory of the root.
+    fn temp_dir(&self) -> Result<PathBuf, PathError> {
+        let tmp_dir = self.directory(&[".faulk", "tmp"])?;
+        if tmp_dir != self.root.join(".faulk").join("tmp") {
+            return Err(PathError::Escapes);
+        }
+        Ok(tmp_dir)
+    }
+
+    /// Begins a confined write of a media file whose name is known only once its bytes are (#778:
+    /// an import's blob, named by the SHA-256 of the bytes it receives, and its caches): a new
+    /// temporary file of `.faulk/tmp/`, checked as [`begin`](Self::begin) checks it, with no target
+    /// yet. [`PendingWrite::commit_media`] gives it its place, built from a hash, never from a
+    /// string. Dropped before, it removes its temporary file.
+    pub fn begin_media(&self) -> Result<PendingWrite<'_>, PathError> {
+        self.still_the_same()?;
+        self.check_temp_dir()?;
+        let tmp_dir = self.temp_dir()?;
+        let (tmp, file) = new_temp(&tmp_dir)?;
+        Ok(PendingWrite {
+            folder: self,
+            file: Some(file),
+            tmp,
+            target: None,
+        })
+    }
+
+    /// Opens the file at `path` (relative, `/` separated) of the folder for reading: the source of
+    /// a native import (#778), a file the user or an agent put in the folder, a blob already there
+    /// included. The text check of a write first, then the canonical path (every link followed)
+    /// must stay inside the folder and be a regular file. The folder's own working data is refused
+    /// before and after the links are followed ([`PathError::Reserved`]: `.faulk/`, which holds the
+    /// temporary files of writes under way, and `.git*`). Nothing is written.
+    pub fn open_source(&self, path: &str) -> Result<SourceFile, PathError> {
+        let parts = check_relative(path)?;
+        if source_reserved(&parts) {
+            return Err(PathError::Reserved);
+        }
+        self.still_the_same()?;
+        let mut joined = self.root.clone();
+        for part in &parts {
+            joined.push(part);
+        }
+        let real = match canonical(&joined) {
+            Ok(real) => real,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Err(PathError::NotFound),
+            Err(e) => return Err(io(e)),
+        };
+        let inside = below(&self.root, &real).ok_or(PathError::Escapes)?;
+        if source_reserved(&inside) {
+            return Err(PathError::Reserved);
+        }
+        if !fs::metadata(&real).map_err(io)?.is_file() {
+            return Err(PathError::IsDirectory);
+        }
+        let file = File::open(&real).map_err(io)?;
+        let len = file.metadata().map_err(io)?.len();
+        let name = parts.last().map(|p| (*p).to_owned()).unwrap_or_default();
+        Ok(SourceFile { file, len, name })
+    }
+}
+
+/// A file opened for reading (#778): an import's source, its length when opened, and its name.
+#[derive(Debug)]
+pub struct SourceFile {
+    pub file: File,
+    pub len: u64,
+    pub name: String,
+}
+
+/// Whether components (from the folder's root) name the folder's own working data, which an
+/// import never reads: `.faulk/` and `.git*` (compared without case).
+fn source_reserved<S: AsRef<str>>(parts: &[S]) -> bool {
+    parts.first().is_some_and(|first| {
+        let first = first.as_ref().to_lowercase();
+        first == ".faulk" || first.starts_with(".git")
+    })
+}
+
+/// A new temporary file of `dir` (`.faulk/tmp/`), made with no file of that name before it.
+fn new_temp(dir: &Path) -> Result<(PathBuf, File), PathError> {
+    let tmp = dir.join(format!("helper-{}.tmp", crate::security::random_hex(8)));
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)
+        .map_err(io)?;
+    Ok((tmp, file))
+}
+
+/// The media files of a project's folder that an import writes (#778), each at a path built from
+/// the media's [`project::Hash`]: `blobs/<sha256>`, `.faulk/cache/pcm/<sha256>.pcm` and
+/// `.faulk/cache/peaks/<sha256>.peaks`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MediaFile {
+    /// The file's own bytes. Never replaced: one blob per file.
+    Blob,
+    /// Its decoded PCM (`audio_import::cache`), a cache: replaced.
+    Pcm,
+    /// Its waveform peaks (`audio_import::peaks`), a cache: replaced.
+    Peaks,
+}
+
+impl MediaFile {
+    /// Its directory, from the folder's root.
+    pub fn dirs(self) -> &'static [&'static str] {
+        match self {
+            Self::Blob => &["blobs"],
+            Self::Pcm => &[".faulk", "cache", "pcm"],
+            Self::Peaks => &[".faulk", "cache", "peaks"],
+        }
+    }
+
+    /// Its file name, for the media `hash`.
+    pub fn name(self, hash: &project::Hash) -> String {
+        match self {
+            Self::Blob => hash.to_string(),
+            Self::Pcm => format!("{hash}.pcm"),
+            Self::Peaks => format!("{hash}.peaks"),
+        }
     }
 }
 
@@ -598,14 +722,22 @@ pub enum Collision {
 /// The most names [`Collision::Unique`] tries.
 pub const MAX_UNIQUE: u32 = 999;
 
-/// A confined write under way ([`ProjectFolder::begin`]): its temporary file in `.faulk/tmp/`.
-/// Dropped before [`commit`](Self::commit), it removes that file.
+/// A confined write under way ([`ProjectFolder::begin`], [`ProjectFolder::begin_media`]): its
+/// temporary file in `.faulk/tmp/`. Dropped before [`commit`](Self::commit) or
+/// [`commit_media`](Self::commit_media), it removes that file.
 #[derive(Debug)]
 pub struct PendingWrite<'a> {
     folder: &'a ProjectFolder,
     file: Option<File>,
     tmp: PathBuf,
-    /// The target's canonical parent, as checked at the start.
+    /// Where a write to a path goes; `None` for a media file, placed by its hash at the commit.
+    target: Option<Target>,
+}
+
+/// The target of a write to a path, as checked at its start.
+#[derive(Debug)]
+struct Target {
+    /// The target's canonical parent.
     parent: PathBuf,
     /// The target's directories and name, as the caller gave them.
     dirs: Vec<String>,
@@ -613,6 +745,72 @@ pub struct PendingWrite<'a> {
 }
 
 impl PendingWrite<'_> {
+    /// A read handle on the temporary file, once [`finish`](Self::finish)ed (#778: an import
+    /// decodes the copy whose bytes it hashed, whatever happens to its source meanwhile).
+    pub fn reopen(&self) -> Result<File, PathError> {
+        if self.file.is_some() {
+            return Err(PathError::Io("the file is still being written".into()));
+        }
+        File::open(&self.tmp).map_err(io)
+    }
+
+    /// Moves the media file written here to its place in the folder, built from `hash` (#778):
+    /// `kind`'s directory, made when missing, must be that very directory of the root once every
+    /// link is followed (a link there is refused, even one that stays inside the folder: a blob
+    /// never lands in `tracks/`), checked before anything is made and again once made, and the
+    /// folder must still be the one opened. A blob is never replaced: when the folder holds that
+    /// blob already (a regular file inside the folder), it is kept and `false` is returned (one blob
+    /// per file). A cache replaces what is at its name (a link there itself, never written through).
+    /// `true` when this write put the file in place. On a failure, and when the blob was kept, the
+    /// temporary file is removed.
+    pub fn commit_media(
+        mut self,
+        kind: MediaFile,
+        hash: &project::Hash,
+    ) -> Result<bool, PathError> {
+        if self.target.is_some() {
+            return Err(PathError::Io(
+                "a write to a path is committed by its path".into(),
+            ));
+        }
+        self.finish()?;
+        self.folder.still_the_same()?;
+        let dirs = kind.dirs();
+        if self.folder.probe(dirs)? != dirs {
+            return Err(PathError::Escapes);
+        }
+        let parent = self.folder.directory(dirs)?;
+        let expected = dirs.iter().fold(self.folder.root.clone(), |p, d| p.join(d));
+        if parent != expected {
+            return Err(PathError::Escapes);
+        }
+        let target = parent.join(kind.name(hash));
+        match kind {
+            MediaFile::Blob => match move_no_replace(&self.tmp, &target) {
+                Ok(()) => Ok(true),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                    // The blob is there already: kept, if it is one (a file of the folder).
+                    let real = canonical(&target).map_err(io)?;
+                    if !real.starts_with(&self.folder.root) {
+                        return Err(PathError::Escapes);
+                    }
+                    if !fs::metadata(&real).map_err(io)?.is_file() {
+                        return Err(PathError::IsDirectory);
+                    }
+                    Ok(false)
+                }
+                Err(e) => Err(io(e)),
+            },
+            MediaFile::Pcm | MediaFile::Peaks => {
+                if fs::symlink_metadata(&target).is_ok_and(|m| m.is_dir()) {
+                    return Err(PathError::IsDirectory);
+                }
+                fs::rename(&self.tmp, &target).map_err(io)?;
+                Ok(true)
+            }
+        }
+    }
+
     fn file(&mut self) -> Result<&mut File, PathError> {
         self.file
             .as_mut()
@@ -651,23 +849,28 @@ impl PendingWrite<'_> {
     /// temporary file is removed and the target is as it was.
     pub fn commit(mut self, collision: Collision) -> Result<String, PathError> {
         self.finish()?;
+        let Some(to) = self.target.take() else {
+            return Err(PathError::Io(
+                "a media file is committed by its hash".into(),
+            ));
+        };
         self.folder.still_the_same()?;
-        let parent_now = canonical(&self.parent).map_err(|_| PathError::FolderChanged)?;
-        if parent_now != self.parent || !parent_now.starts_with(&self.folder.root) {
+        let parent_now = canonical(&to.parent).map_err(|_| PathError::FolderChanged)?;
+        if parent_now != to.parent || !parent_now.starts_with(&self.folder.root) {
             return Err(PathError::FolderChanged);
         }
         let name = match collision {
             Collision::Replace => {
-                let target = self.parent.join(&self.name);
+                let target = to.parent.join(&to.name);
                 if fs::symlink_metadata(&target).is_ok_and(|m| m.is_dir()) {
                     return Err(PathError::IsDirectory);
                 }
                 fs::rename(&self.tmp, &target).map_err(io)?;
-                self.name.clone()
+                to.name.clone()
             }
-            Collision::Unique => self.move_to_free_name()?,
+            Collision::Unique => self.move_to_free_name(&to)?,
         };
-        let mut relative = self.dirs.join("/");
+        let mut relative = to.dirs.join("/");
         if !relative.is_empty() {
             relative.push('/');
         }
@@ -679,18 +882,18 @@ impl PendingWrite<'_> {
     /// file, no link, no folder): the name itself, then `<stem> (2).<ext>` and on. Each move
     /// refuses to replace what is there ([`move_no_replace`]), so a file that appears meanwhile
     /// is kept and the next name is tried.
-    fn move_to_free_name(&self) -> Result<String, PathError> {
-        let (stem, ext) = match self.name.rfind('.') {
-            Some(at) if at > 0 => (&self.name[..at], &self.name[at..]),
-            _ => (self.name.as_str(), ""),
+    fn move_to_free_name(&self, to: &Target) -> Result<String, PathError> {
+        let (stem, ext) = match to.name.rfind('.') {
+            Some(at) if at > 0 => (&to.name[..at], &to.name[at..]),
+            _ => (to.name.as_str(), ""),
         };
         for n in 1..=MAX_UNIQUE {
             let candidate = if n == 1 {
-                self.name.clone()
+                to.name.clone()
             } else {
                 format!("{stem} ({n}){ext}")
             };
-            match move_no_replace(&self.tmp, &self.parent.join(&candidate)) {
+            match move_no_replace(&self.tmp, &to.parent.join(&candidate)) {
                 Ok(()) => return Ok(candidate),
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
                 Err(e) => return Err(io(e)),
@@ -1022,10 +1225,33 @@ pub enum Picked {
     Unavailable,
 }
 
-/// The helper's folder dialog. Blocking: called off the async runtime.
+/// What the user did in the helper's file dialog (#778).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PickedFiles {
+    /// The files chosen (at least one).
+    Files(Vec<PathBuf>),
+    Cancelled,
+    /// This system has no dialog the helper can show.
+    Unavailable,
+}
+
+/// The extensions the helper's file dialog offers (#778): what the decoder reads, as the page's
+/// own dialog offers them (`AUDIO_ACCEPT` in `web/src/lib/audio/import/audio-import.svelte.ts`).
+pub const AUDIO_EXTENSIONS: &[&str] = &[
+    "wav", "wave", "aif", "aiff", "aifc", "caf", "flac", "mp3", "mp2", "m4a", "mp4", "aac", "alac",
+    "ogg", "oga", "opus", "webm", "weba",
+];
+
+/// The helper's dialogs: the folder of the project (AU-7) and the audio files to import (#778).
+/// Blocking: called off the async runtime.
 pub trait FolderPicker: Send + Sync {
-    /// Shows the dialog titled `title`.
+    /// Shows the folder dialog titled `title`.
     fn pick(&self, title: &str) -> Picked;
+
+    /// Shows the file dialog titled `title`, for audio files, several at once.
+    fn pick_files(&self, _title: &str) -> PickedFiles {
+        PickedFiles::Unavailable
+    }
 }
 
 /// No dialog (a helper started without one, and the default in tests).
@@ -1069,6 +1295,76 @@ impl FolderPicker for SystemPicker {
                 &["--getexistingdirectory", ".", "--title", title],
             ),
             picked => picked,
+        }
+    }
+
+    #[cfg(windows)]
+    fn pick_files(&self, title: &str) -> PickedFiles {
+        let dialog = rfd::FileDialog::new()
+            .set_title(title)
+            .add_filter("Audio", AUDIO_EXTENSIONS);
+        match dialog.pick_files() {
+            Some(paths) if !paths.is_empty() => PickedFiles::Files(paths),
+            _ => PickedFiles::Cancelled,
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    fn pick_files(&self, title: &str) -> PickedFiles {
+        let prompt = title.replace('\\', "\\\\").replace('"', "\\\"");
+        let script = format!(
+            "set out to \"\"\nrepeat with f in (choose file with prompt \"{prompt}\" with multiple selections allowed)\nset out to out & POSIX path of f & linefeed\nend repeat\nreturn out"
+        );
+        run_file_picker("osascript", &["-e", script.as_str()])
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    fn pick_files(&self, title: &str) -> PickedFiles {
+        match run_file_picker(
+            "zenity",
+            &[
+                "--file-selection",
+                "--multiple",
+                "--separator=\n",
+                "--title",
+                title,
+            ],
+        ) {
+            PickedFiles::Unavailable => run_file_picker(
+                "kdialog",
+                &[
+                    "--getopenfilename",
+                    ".",
+                    "--multiple",
+                    "--separate-output",
+                    "--title",
+                    title,
+                ],
+            ),
+            picked => picked,
+        }
+    }
+}
+
+/// Runs a dialog program that prints the chosen files, one per line: its absence is
+/// `Unavailable`, a failure (the user cancelled) `Cancelled`.
+#[cfg(unix)]
+fn run_file_picker(program: &str, args: &[&str]) -> PickedFiles {
+    match std::process::Command::new(program).args(args).output() {
+        Err(_) => PickedFiles::Unavailable,
+        Ok(out) if !out.status.success() => PickedFiles::Cancelled,
+        Ok(out) => {
+            let paths: Vec<PathBuf> = String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .map(|l| l.trim_end_matches('\r'))
+                .filter(|l| !l.is_empty())
+                .map(PathBuf::from)
+                .collect();
+            if paths.is_empty() {
+                PickedFiles::Cancelled
+            } else {
+                PickedFiles::Files(paths)
+            }
         }
     }
 }
