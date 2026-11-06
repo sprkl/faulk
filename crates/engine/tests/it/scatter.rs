@@ -71,9 +71,10 @@ impl Rig {
         };
         let mut scatter = Scatter::new(&setup).unwrap();
         for (id, value) in params {
-            scatter.set_param(ParamId(*id), *value);
+            // On the audio thread too (device.rs): under the detector.
+            assert_no_alloc(|| scatter.set_param(ParamId(*id), *value));
         }
-        scatter.reset();
+        assert_no_alloc(|| scatter.reset());
         Rig {
             scatter,
             out: EventBuffer::try_with_capacity(DESCRIPTOR.midi_output.unwrap().capacity(512))
@@ -88,7 +89,14 @@ impl Rig {
     }
 
     fn set(&mut self, id: u32, value: f32) {
-        self.scatter.set_param(ParamId(id), value);
+        let scatter = &mut self.scatter;
+        assert_no_alloc(|| scatter.set_param(ParamId(id), value));
+    }
+
+    /// The device's reset, on the audio thread: under the detector.
+    fn reset(&mut self) {
+        let scatter = &mut self.scatter;
+        assert_no_alloc(|| scatter.reset());
     }
 
     /// Renders up to `until` (absolute frame), applying `events` (absolute frame, event).
@@ -409,7 +417,7 @@ fn a_note_draws_by_its_place_in_the_song_whatever_the_start_the_blocks_or_a_live
     // A reset changes nothing of a draw while playing.
     let mut r = Rig::new(&params);
     r.run(&melody(n / 2, &keys_in), (n / 2) as u64 * 100);
-    r.scatter.reset();
+    r.reset();
     r.run(&later(n, &keys_in, 0)[n..], n as u64 * 100 + 128);
     assert_eq!(r.keys(), first);
 }
@@ -432,7 +440,7 @@ fn stopped_the_draw_counts_the_notes_from_the_last_reset() {
     run(&mut r);
     assert_ne!(r.keys()[n..], first[..]);
     // After a reset: the same again, wherever the playhead stands.
-    r.scatter.reset();
+    r.reset();
     r.origin = 12_345.0;
     run(&mut r);
     assert_eq!(r.keys()[2 * n..], first[..]);
@@ -458,7 +466,7 @@ fn the_cycle_order_restarts_at_a_start_of_the_transport_and_at_a_reset() {
     r.playing = true;
     let start = r.frame;
     r.run(&later(2, &[60], start), start + 300);
-    r.scatter.reset();
+    r.reset();
     let start = r.frame;
     r.run(&later(2, &[60], start), start + 300);
     assert_eq!(r.keys(), [64, 68, 64, 68, 64, 68]);
@@ -736,7 +744,7 @@ fn a_stop_or_a_reset_ends_everything_and_the_late_note_offs_end_nothing_twice() 
     // A reset: the table is empty, the next notes draw from the start.
     let mut r = Rig::new(&all);
     r.run(&[(0, on(1, 60))], 128);
-    r.scatter.reset();
+    r.reset();
     r.run(
         &[(200, off(1, 60)), (300, on(1, 60)), (400, off(1, 60))],
         512,
