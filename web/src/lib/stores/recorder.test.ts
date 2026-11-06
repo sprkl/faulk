@@ -31,6 +31,7 @@ function report(over: Partial<FeedbackReport>): FeedbackReport {
     transport: 'recording',
     playheadTick: 0,
     playheadFrame: 0,
+    hostFrame: 0,
     cpuLoad: null,
     cpuPeak: null,
     liveOverflows: 0,
@@ -90,7 +91,8 @@ describe('Recorder', () => {
         type: 'record.commit_take',
         take: 1,
         target: { at: 'arrangement' },
-        shift_ms: 25,
+        // The engine moved the notes by the take's shift (25 ms) already (#560).
+        shift_ms: 0,
         tracks: [
           {
             track: 'a',

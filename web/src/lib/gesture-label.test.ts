@@ -38,4 +38,12 @@ describe('gesture label text (#612)', () => {
     expect(snapText(en, sig, null, names)).toBe('Snap: Free')
     expect(snapText(tIn('fr'), sig, null, names)).toBe('Magnétisme : Libre')
   })
+
+  it('names a triplet step as the piano roll names it (#711), and as a fraction without those names', () => {
+    const roll = { ...names, eighthTriplet: '1/8 triplet', sixteenthTriplet: '1/16 triplet' }
+    expect(snapText(en, sig, PPQ / 3, roll)).toBe('Snap: 1/8 triplet')
+    expect(snapText(en, sig, PPQ / 6, roll)).toBe('Snap: 1/16 triplet')
+    expect(snapText(en, sig, PPQ / 4, roll)).toBe('Snap: 1/16')
+    expect(snapText(en, sig, PPQ / 3, names)).toBe('Snap: 1/12')
+  })
 })

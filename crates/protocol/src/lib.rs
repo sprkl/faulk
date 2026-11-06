@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 37;
+pub const PROTOCOL_VERSION: u32 = 41;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -43,6 +43,25 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 41 (#733): the report is `Feedback` version 9: the header grows from 92 to 100 bytes with
+// `host_frame` at offset 92 (the host's frame at the report's playhead), so that the page can place a
+// tick on the host's clock. A page and a helper of different versions refuse each other.
+
+// Version 40 (#682; 38 is #560's, 39 is #710's): the commands gain `project.cancel_import_pack` (stops the
+// `.faulkpack` imports under way, downloads included); the helper generates its MCP tools from the
+// commands, so a helper of an earlier version would not offer it to an agent. No message changes. Its output
+// (`cancelled`, `too_late`, #735) was settled before any helper published version 40, so the version stays.
+
+// Version 39 (#710): the commands gain `clip.notes.repeat` (notes repeated end to end up to a
+// tick, cut at the end of the clip). The helper's MCP tools come from the commands, so a helper of
+// version 38 would not offer it to an agent. No message changes.
+
+// Version 38 (#560): the engine message `SetRecording` carries `shift_us`, how much earlier the
+// take's notes are placed (the estimated output latency plus the manual offset): the engine moves
+// them back on its own clock, where it knows the loop wraps, and the page writes the take with a
+// `shift_ms` of 0. Its payload grows by four bytes, so a page and a helper of different versions
+// refuse each other.
 
 // Version 37 (#115, AU-6): the arrangement commands
 // take audio placements (move, resize, split, duplicate, repeat, move_to_track, place_from_slot,

@@ -498,3 +498,70 @@ fn a_render_without_audio_never_waits() {
     assert!(!offline.waiting());
     assert!(loud > 0.05);
 }
+
+// ------------------------------------------------- a clip's start and the chain (#759)
+
+/// An export of the impulses' song (`test_support::clip_start`) at `rate` with `devices`,
+/// every block's render under the allocation detector: the left and right channels of its
+/// file.
+fn export_impulses(rate: u32, devices: &[M]) -> (Vec<f32>, Vec<f32>) {
+    use test_support::clip_start::{impulse_disk, impulse_job};
+    let job = impulse_job(rate, devices);
+    let disk = impulse_disk(rate);
+    let mut offline = Offline::new(rate, plan(job.plan.body_frames)).unwrap();
+    offline.set_render_guard(|render| assert_no_alloc::assert_no_alloc(render));
+    offline.set_stop(&job.stop);
+    offline.set_start(&job.start);
+    offline.submit(&job.setup).unwrap();
+    let mut samples = Vec::new();
+    loop {
+        let phase = offline.step(MAX_STEP_FRAMES).unwrap();
+        samples.extend(floats(offline.pcm()));
+        if phase == Phase::Done {
+            break;
+        }
+        for job in offline.take_disk_jobs() {
+            match disk.read(&job) {
+                Ok((bytes, len)) => offline.disk_done(job.id, bytes, len),
+                Err(why) => offline.disk_failed(job.id, why),
+            }
+        }
+    }
+    assert_eq!(offline.silenced(), 0);
+    assert_eq!(offline.underruns(), 0);
+    assert!(offline.missing().is_empty());
+    let left = samples.iter().step_by(2).copied().collect();
+    let right = samples.iter().skip(1).step_by(2).copied().collect();
+    (left, right)
+}
+
+#[test]
+fn a_clip_played_from_bar_1_gives_the_same_samples_with_and_without_a_transparent_effect() {
+    use engine::devices::clip_player::fade_frames;
+    use test_support::clip_start::{impulses, transparent_chains};
+    for rate in [44_100, 48_000, 96_000] {
+        let plain = export_impulses(rate, &[]);
+        // Past the clip player's own fade in, both tracks are at their level: no fade of the
+        // strips at the transport's start, with or without a device (their impulses add up).
+        // Frame 120 (past that fade at 44.1 and 48 kHz) and 3 ms in (at every rate).
+        let mut checked = 0;
+        for &(frame, level) in &impulses(rate)[1..3] {
+            if frame >= u64::from(fade_frames(rate)) {
+                let full = 2.0 * (f32::from(level) / 32_768.0);
+                assert_eq!(plain.0[frame as usize], full, "{rate} Hz: frame {frame}");
+                checked += 1;
+            }
+        }
+        assert!(checked > 0, "{rate} Hz");
+        for (name, devices) in transparent_chains() {
+            let with = export_impulses(rate, &devices);
+            let (l, r) = (&plain.0, &with.0);
+            assert_eq!(l.len(), r.len(), "{rate} Hz, an effect {name}: the length");
+            let differs = (0..l.len()).find(|&i| l[i] != r[i] || plain.1[i] != with.1[i]);
+            assert_eq!(
+                differs, None,
+                "{rate} Hz, an effect {name}: the first frame that differs"
+            );
+        }
+    }
+}

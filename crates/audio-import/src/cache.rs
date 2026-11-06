@@ -25,8 +25,11 @@ use crate::MediaInfo;
 pub const MAGIC: &[u8; 8] = b"FKPCM001";
 
 /// The version of what decoding produces. Raise it whenever a change (of this crate, or of
-/// symphonia's version or features) may change one decoded sample: every cache is then made
-/// again. The fixtures' PCM digests (`tests/fixtures/expected.json`) catch such a change.
+/// symphonia's version or features, of opuscule's or libm's version) may change one
+/// decoded sample: every cache is then made again. The fixtures' PCM digests
+/// (`tests/fixtures/expected.json`) catch such a change. Still 1 after #609: enabling the
+/// Matroska demuxer and adding the Opus decoder changed no sample of a format read before
+/// (the digests of the earlier fixtures are unchanged), and no cache of an Opus file existed.
 pub const DECODER: u32 = 1;
 
 /// Size of the header.

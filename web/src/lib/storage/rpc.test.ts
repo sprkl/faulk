@@ -116,9 +116,9 @@ describe('an audio import through the store worker (AU-1)', () => {
 
   it('a file the import refuses arrives as an ImportError with its code; a folder that refused a write as a StoreError', async () => {
     const { fake, store } = await importing()
-    const refused = store.importAudio(new File([], 'song.opus'))
+    const refused = store.importAudio(new File([], 'song.ac3'))
     await vi.advanceTimersByTimeAsync(0)
-    reply(fake, { id: fake.sent.at(-1)!.id, ok: false, code: 'io', message: 'Opus', importCode: 'unsupported_codec' })
+    reply(fake, { id: fake.sent.at(-1)!.id, ok: false, code: 'io', message: 'AC-3', importCode: 'unsupported_codec' })
     await expect(refused).rejects.toMatchObject({ name: 'ImportError', code: 'unsupported_codec' })
     const full = store.importAudio(new File([], 'big.wav'))
     await vi.advanceTimersByTimeAsync(0)
@@ -150,5 +150,195 @@ describe('an audio import through the store worker (AU-1)', () => {
     const sent = fake.sent.length
     abort.abort()
     expect(fake.sent.length).toBe(sent)
+  })
+
+  describe('the pack import in the Worker (#682)', () => {
+    it('asks for the import of a file or a path, hands the progress over, and a cancel names it', async () => {
+      const { fake, store } = await importing()
+      const abort = new AbortController()
+      const progress: number[] = []
+      const file = new File(['zip'], 'a.faulkpack')
+      const pending = store.unpack(file, { signal: abort.signal, onProgress: (f) => progress.push(f), textOnly: true })
+      await vi.advanceTimersByTimeAsync(0)
+      const request = fake.sent.at(-1) as unknown as { id: number; op: string; source: unknown; textOnly: boolean }
+      expect(request).toMatchObject({ op: 'unpack', source: file, textOnly: true })
+      reply(fake, { id: request.id, progress: 0.25 })
+      expect(progress).toEqual([0.25])
+      abort.abort()
+      expect(fake.sent.at(-1)).toMatchObject({ op: 'cancel', target: request.id })
+      reply(fake, { id: request.id, ok: true, value: { status: 'cancelled' } })
+      expect(await pending).toEqual({ status: 'cancelled' })
+      const byPath = store.unpack('.faulk/tmp/download.faulkpack')
+      await vi.advanceTimersByTimeAsync(0)
+      const second = fake.sent.at(-1) as unknown as { id: number; source: unknown }
+      expect(second.source).toBe('.faulk/tmp/download.faulkpack')
+      reply(fake, { id: second.id, ok: true, value: { status: 'ok', files: [] } })
+      expect(await byPath).toEqual({ status: 'ok', files: [] })
+    })
+
+    it('writes a file in pieces through the Worker, each piece handed over', async () => {
+      const fake = new FakeWorker()
+      const transfers: Transferable[][] = []
+      const post = fake.postMessage.bind(fake)
+      fake.postMessage = (message: unknown, transfer: Transferable[] = []) => {
+        transfers.push(transfer)
+        const request = message as { id: number; method?: string }
+        if (request.method === 'openWriter') {
+          fake.sent.push(request as never)
+          queueMicrotask(() => fake.onmessage?.({ data: { id: request.id, ok: true, value: 4 } } as MessageEvent<Reply>))
+          return
+        }
+        post(message)
+      }
+      const worker = new StoreWorker(fake)
+      const store = new WorkerStore(worker, (await worker.openKey(handle)).key, 'folder', handle, () => worker)
+      const writer = await store.writer('.faulk/tmp/download.faulkpack')
+      const piece = new Uint8Array([1, 2, 3])
+      await writer.write(piece)
+      await writer.close()
+      await writer.abort()
+      const calls = fake.sent.filter((m) => m.op === 'call') as unknown as { method: string; args: unknown[] }[]
+      expect(calls.map((c) => [c.method, c.args])).toEqual([
+        ['openWriter', ['.faulk/tmp/download.faulkpack']],
+        ['writePiece', [4, piece]],
+        ['closeWriter', [4]],
+        ['abortWriter', [4]],
+      ])
+      expect(transfers.some((t) => t.includes(piece.buffer))).toBe(true)
+    })
+  })
+
+  describe('the pack export in the Worker (#685)', () => {
+    const sentAcks = (fake: FakeWorker) => fake.sent.filter((m) => m.op === 'packAck') as unknown as { target: number; failed: boolean }[]
+    const bytes = (n: number) => new Uint8Array(n)
+
+    it("asks for the pack of the folder, writes each piece in the page and answers it, then ends with the Worker's result", async () => {
+      const { fake, store } = await importing()
+      const written: number[] = []
+      const entries = [{ path: 'project.json', bytes: bytes(2) }]
+      const pending = store.packExport(entries, { sink: { write: async (c) => void written.push(c.length) }, onProgress: () => undefined })
+      await vi.advanceTimersByTimeAsync(0)
+      const request = fake.sent.at(-1) as unknown as { id: number; op: string; entries: unknown }
+      expect(request).toMatchObject({ op: 'pack', entries })
+      reply(fake, { id: request.id, chunk: bytes(5) })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(written).toEqual([5])
+      expect(sentAcks(fake)).toEqual([expect.objectContaining({ target: request.id, failed: false })])
+      reply(fake, { id: request.id, chunk: bytes(7) })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(written).toEqual([5, 7])
+      reply(fake, { id: request.id, ok: true, value: { status: 'ok', files: 1, missingBlobs: 0 } })
+      expect(await pending).toEqual({ status: 'ok', files: 1, missingBlobs: 0 })
+    })
+
+    it("stops the export and fails with the page's own error when it cannot write a piece", async () => {
+      const { fake, store } = await importing()
+      const pending = store.packExport([], {
+        sink: {
+          write: async () => {
+            throw new DOMException('disk full', 'QuotaExceededError')
+          },
+        },
+      })
+      const caught = expect(pending).rejects.toMatchObject({ name: 'QuotaExceededError' })
+      await vi.advanceTimersByTimeAsync(0)
+      const id = fake.sent.at(-1)!.id
+      reply(fake, { id, chunk: bytes(3) })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(sentAcks(fake)).toEqual([expect.objectContaining({ target: id, failed: true })])
+      // The Worker answers that it stopped; the caller still hears why.
+      reply(fake, { id, ok: true, value: { status: 'cancelled' } })
+      await caught
+    })
+
+    it('does not take the Worker for lost while the page writes a piece, and counts again once it has', async () => {
+      const { fake, worker, store } = await importing()
+      let release: () => void = () => undefined
+      const pending = store.packExport([], { sink: { write: () => new Promise<void>((resolve) => (release = resolve)) } })
+      await vi.advanceTimersByTimeAsync(0)
+      const id = fake.sent.at(-1)!.id
+      reply(fake, { id, chunk: bytes(1) })
+      await vi.advanceTimersByTimeAsync(STORE_TIMEOUT_MS * 3)
+      expect(worker.dead).toBe(false)
+      expect(sentAcks(fake)).toHaveLength(0)
+      release()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(sentAcks(fake)).toHaveLength(1)
+      // The Worker owes the next word now.
+      const lost = expect(pending).rejects.toMatchObject({ code: 'io' })
+      await vi.advanceTimersByTimeAsync(STORE_TIMEOUT_MS)
+      await lost
+      expect(worker.dead).toBe(true)
+    })
+
+    it('a piece the page finishes writing after the export ended arms no deadline and sends no word', async () => {
+      const { fake, worker, store } = await importing()
+      let release: () => void = () => undefined
+      const abort = new AbortController()
+      const pending = store.packExport([], { sink: { write: () => new Promise<void>((resolve) => (release = resolve)) }, signal: abort.signal })
+      await vi.advanceTimersByTimeAsync(0)
+      const id = fake.sent.at(-1)!.id
+      reply(fake, { id, chunk: bytes(1) })
+      await vi.advanceTimersByTimeAsync(0)
+      // Cancelled while the page still writes: the Worker releases its wait and answers.
+      abort.abort()
+      reply(fake, { id, ok: true, value: { status: 'cancelled' } })
+      expect(await pending).toEqual({ status: 'cancelled' })
+      const sent = fake.sent.length
+      release()
+      await vi.advanceTimersByTimeAsync(STORE_TIMEOUT_MS * 2)
+      expect(fake.sent.length).toBe(sent)
+      expect(worker.dead).toBe(false)
+      expect(fake.terminated).toBe(false)
+    })
+
+    it("tells the page's own error when the Worker fails after the page refused a piece, and a refusal that is no Error", async () => {
+      const { fake, store } = await importing()
+      const pending = store.packExport([], {
+        sink: {
+          write: async () => {
+            throw new DOMException('disk full', 'QuotaExceededError')
+          },
+        },
+      })
+      const caught = expect(pending).rejects.toMatchObject({ name: 'QuotaExceededError' })
+      await vi.advanceTimersByTimeAsync(0)
+      const id = fake.sent.at(-1)!.id
+      reply(fake, { id, chunk: bytes(1) })
+      await vi.advanceTimersByTimeAsync(0)
+      reply(fake, { id, ok: false, code: 'io', message: 'Error: stopped' })
+      await caught
+
+      const plain = store.packExport([], {
+        sink: {
+          write: () => Promise.reject('no room' as unknown as Error),
+        },
+      })
+      const refused = expect(plain).rejects.toMatchObject({ message: 'no room' })
+      await vi.advanceTimersByTimeAsync(0)
+      const next = fake.sent.at(-1)!.id
+      reply(fake, { id: next, chunk: bytes(1) })
+      await vi.advanceTimersByTimeAsync(0)
+      reply(fake, { id: next, ok: true, value: { status: 'cancelled' } })
+      await refused
+    })
+
+    it('sends a cancel when the page cancels, and a Worker that dies fails the export', async () => {
+      const { fake, store } = await importing()
+      const abort = new AbortController()
+      const pending = store.packExport([], { sink: { write: async () => undefined }, signal: abort.signal })
+      await vi.advanceTimersByTimeAsync(0)
+      const id = fake.sent.at(-1)!.id
+      abort.abort()
+      expect(fake.sent.at(-1)).toMatchObject({ op: 'cancel', target: id })
+      reply(fake, { id, ok: true, value: { status: 'cancelled' } })
+      expect(await pending).toEqual({ status: 'cancelled' })
+
+      const dying = store.packExport([], { sink: { write: async () => undefined } })
+      const failed = expect(dying).rejects.toMatchObject({ name: 'StoreError' })
+      await vi.advanceTimersByTimeAsync(0)
+      fake.onerror?.({ message: 'boom' } as ErrorEvent)
+      await failed
+    })
   })
 })

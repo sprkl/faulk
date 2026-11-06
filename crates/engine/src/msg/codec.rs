@@ -67,6 +67,9 @@ impl Writer<'_> {
     fn u32(&mut self, v: u32) {
         self.0.extend_from_slice(&v.to_le_bytes());
     }
+    fn i32(&mut self, v: i32) {
+        self.0.extend_from_slice(&v.to_le_bytes());
+    }
     fn i64(&mut self, v: i64) {
         self.0.extend_from_slice(&v.to_le_bytes());
     }
@@ -173,6 +176,9 @@ impl<'a> Reader<'a> {
     }
     fn u32(&mut self) -> Result<u32, Bad> {
         Ok(u32::from_le_bytes(self.array()?))
+    }
+    fn i32(&mut self) -> Result<i32, Bad> {
+        Ok(i32::from_le_bytes(self.array()?))
     }
     fn i64(&mut self) -> Result<i64, Bad> {
         Ok(i64::from_le_bytes(self.array()?))
@@ -594,7 +600,13 @@ impl ControlMsg {
                 w.i64(region.map_or(0, |r| r.start().0));
                 w.i64(region.map_or(0, |r| r.end().0));
             }
-            ControlMsg::SetRecording { recording } => w.bool(*recording),
+            ControlMsg::SetRecording {
+                recording,
+                shift_us,
+            } => {
+                w.bool(*recording);
+                w.i32(*shift_us);
+            }
             ControlMsg::NoteOn {
                 track,
                 pitch,
@@ -825,6 +837,7 @@ impl ControlMsg {
             }
             Tag::SetRecording => ControlMsg::SetRecording {
                 recording: r.bool()?,
+                shift_us: r.i32()?,
             },
             Tag::NoteOn => ControlMsg::NoteOn {
                 track: r.track()?,

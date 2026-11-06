@@ -40,8 +40,8 @@ export interface ImportFailure {
   message: string
 }
 
-/** The extensions the dialog offers (what the pipeline decodes; Opus is refused by name if chosen anyway). */
-export const AUDIO_ACCEPT = 'audio/*,.wav,.wave,.aif,.aiff,.aifc,.caf,.flac,.mp3,.mp2,.m4a,.mp4,.aac,.alac,.ogg,.oga'
+/** The extensions the dialog offers (what the pipeline decodes; Opus in Ogg and WebM since #609). */
+export const AUDIO_ACCEPT = 'audio/*,.wav,.wave,.aif,.aiff,.aifc,.caf,.flac,.mp3,.mp2,.m4a,.mp4,.aac,.alac,.ogg,.oga,.opus,.webm,.weba'
 
 export const importCommand = (track: string, media: string): Command => ({ type: 'clip.import_audio', track, media, name: null })
 

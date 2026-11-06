@@ -5,7 +5,7 @@
  * View state (zoom, scroll, snap) is local to the page: it is not project data and no command.
  */
 
-import { barTicks, beatTicks, type Signature } from '../../../views/transport/time'
+import { PPQ, barTicks, beatTicks, type Signature } from '../../../views/transport/time'
 
 /** What the user sees of the time axis: the zoom and the tick at the left edge. */
 export interface View {
@@ -72,22 +72,47 @@ export function visibleRange(view: View, widthPx: number): [number, number] {
   return [view.scrollTick, view.scrollTick + widthPx / view.pxPerTick]
 }
 
+/** The eighth-note triplet in ticks: a quarter note in three (the quantize grid's value). */
+const TRIPLET_EIGHTH = PPQ / 3
+
 /**
  * The step of the ruler at this zoom, in ticks: the finest subdivision of the beat that is whole
- * in ticks, then the beat, then 1, 2, 4... bars, whose step is at least `minPx` wide.
+ * in ticks, then the beat, then 1, 2, 4... bars, whose step is at least `minPx` wide. With a
+ * triplet `unit` (#711), the unit's own multiples instead (see `tripletUnit`).
  */
-export function gridStep(sig: Signature, pxPerTick: number, minPx: number = MIN_MARK_PX): number {
+export function gridStep(sig: Signature, pxPerTick: number, minPx: number = MIN_MARK_PX, unit: number | null = null): number {
   const beat = beatTicks(sig)
   const bar = barTicks(sig)
   const candidates: number[] = []
-  for (let divisor = 16; divisor >= 1; divisor /= 2) if (Number.isInteger(beat / divisor)) candidates.push(beat / divisor)
-  for (let bars = 1; bars <= 1024; bars *= 2) candidates.push(bar * bars)
+  if (unit !== null && unit > 0) {
+    // A triplet unit (#711): its lines, then the eighth triplet, then only the beats and bars that hold a whole number of
+    // quarter notes, so that every line drawn is a line of the unit (a binary half beat would read as a wrong grid).
+    candidates.push(unit)
+    if (TRIPLET_EIGHTH > unit && TRIPLET_EIGHTH % unit === 0) candidates.push(TRIPLET_EIGHTH)
+    if (beat % PPQ === 0) candidates.push(beat)
+    for (let bars = 1; bars <= 1024; bars *= 2) if ((bar * bars) % PPQ === 0) candidates.push(bar * bars)
+  } else {
+    for (let divisor = 16; divisor >= 1; divisor /= 2) if (Number.isInteger(beat / divisor)) candidates.push(beat / divisor)
+    for (let bars = 1; bars <= 1024; bars *= 2) candidates.push(bar * bars)
+  }
   return candidates.find((step) => step * pxPerTick >= minPx) ?? candidates[candidates.length - 1]
 }
 
-/** How the pointer snaps: not at all, to the ruler's step at this zoom, or to a fixed unit. */
+/** How the pointer snaps: not at all, to the ruler's step at this zoom, or to a fixed unit. The arrangement offers these. */
 export const SNAP_SETTINGS = ['off', 'auto', 'bar', 'beat', 'half-beat', 'quarter-beat'] as const
-export type SnapSetting = (typeof SNAP_SETTINGS)[number]
+/**
+ * The piano roll's snap (#711): the same, then the two triplets of the quantize grid (a quarter note in three and in six),
+ * so that a note can be written and moved on a triplet position. The arrangement keeps `SNAP_SETTINGS`.
+ */
+export const ROLL_SNAP_SETTINGS = [...SNAP_SETTINGS, 'eighth-triplet', 'sixteenth-triplet'] as const
+export type SnapSetting = (typeof ROLL_SNAP_SETTINGS)[number]
+
+/** The unit of a triplet setting in ticks (the grid's lines follow it), `null` for any other. */
+export function tripletUnit(setting: SnapSetting): number | null {
+  if (setting === 'eighth-triplet') return TRIPLET_EIGHTH
+  if (setting === 'sixteenth-triplet') return PPQ / 6
+  return null
+}
 
 /** The snapping step in ticks, or `null` for no snapping. A fixed unit finer than one tick falls back to one tick. */
 export function snapStep(setting: SnapSetting, sig: Signature, pxPerTick: number): number | null {
@@ -104,6 +129,9 @@ export function snapStep(setting: SnapSetting, sig: Signature, pxPerTick: number
       return Math.max(1, beatTicks(sig) / 2)
     case 'quarter-beat':
       return Math.max(1, beatTicks(sig) / 4)
+    case 'eighth-triplet':
+    case 'sixteenth-triplet':
+      return tripletUnit(setting)
   }
 }
 
@@ -131,11 +159,25 @@ export interface Mark {
 /**
  * The marks of the ruler for the visible range: one per grid step, a bar line where the step
  * meets a bar, a beat line where it meets a beat, a sub line elsewhere. Bar numbers are named
- * every 1, 2, 4... bars so that two names are always `MIN_LABEL_PX` apart. At most
+ * every 1, 2, 4... bars so that two names are always `MIN_LABEL_PX` apart. A triplet `unit`
+ * (#711, the piano roll's snap) gives lines of that unit (`gridStep`), with the bar and beat lines of the ruler's own
+ * step wherever the unit misses them (at most twice as many marks then). At most
  * `widthPx / MIN_MARK_PX + 2` marks.
  */
-export function rulerMarks(view: View, widthPx: number, sig: Signature, totalTicks: number): Mark[] {
-  const step = gridStep(sig, view.pxPerTick)
+export function rulerMarks(view: View, widthPx: number, sig: Signature, totalTicks: number, unit: number | null = null): Mark[] {
+  if (unit !== null && unit > 0) {
+    // The unit's lines, and the bars and beats of the ruler's own step, which a signature whose beat or bar is not a whole
+    // number of quarter notes (7/8, 6/8) would otherwise lose: the bar lines and numbers always show where they fall.
+    const lines = marksEvery(gridStep(sig, view.pxPerTick, MIN_MARK_PX, unit), view, widthPx, sig, totalTicks)
+    const ticks = new Set(lines.map((m) => m.tick))
+    const frame = marksEvery(gridStep(sig, view.pxPerTick), view, widthPx, sig, totalTicks).filter((m) => m.kind !== 'sub' && !ticks.has(m.tick))
+    return frame.length === 0 ? lines : [...lines, ...frame].sort((a, b) => a.tick - b.tick)
+  }
+  return marksEvery(gridStep(sig, view.pxPerTick), view, widthPx, sig, totalTicks)
+}
+
+/** One mark per multiple of `step` in the visible range: a bar, a beat or a sub line, bars named as `rulerMarks` says. */
+function marksEvery(step: number, view: View, widthPx: number, sig: Signature, totalTicks: number): Mark[] {
   const beat = beatTicks(sig)
   const bar = barTicks(sig)
   let stride = 1

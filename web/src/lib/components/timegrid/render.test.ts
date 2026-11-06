@@ -92,6 +92,18 @@ describe('drawGrid', () => {
     }
   })
 
+  it('draws the sub lines of a triplet unit when the frame carries one (#711), the ruler step without', () => {
+    const subsOfFirstBeat = (unit: number | null | undefined) => {
+      const { ctx, out } = surface()
+      drawGrid(ctx, frame(unit === undefined ? {} : { unit }), 1)
+      return out.lines.filter((l) => l.style === '#line' && l.from === RULER_HEIGHT - 6 && l.x < 96).map((l) => l.x)
+    }
+    expect(subsOfFirstBeat(320)).toEqual([32.5, 64.5])
+    expect(subsOfFirstBeat(160)).toEqual([16.5, 32.5, 48.5, 64.5, 80.5])
+    expect(subsOfFirstBeat(null)).toEqual(subsOfFirstBeat(undefined))
+    expect(subsOfFirstBeat(undefined)).toEqual([12.5, 24.5, 36.5, 48.5, 60.5, 72.5, 84.5])
+  })
+
   it('aligns lines to device pixels at a pixel ratio of 2', () => {
     const { ctx, out } = surface()
     drawGrid(ctx, frame({ view: { pxPerTick: 0.1, scrollTick: 100 } }), 2)

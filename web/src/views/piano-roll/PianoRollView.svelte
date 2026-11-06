@@ -14,6 +14,7 @@
     auditionOn,
     createClipAtStart,
     duplicateNotes,
+    repeatNotes,
     quantizeNotes,
     removeNotes,
     renameClip,
@@ -30,7 +31,7 @@
   import { chordText, positionKey, withShortcut } from '../../lib/shortcuts'
   import {
     DEFAULT_PX_PER_TICK,
-    SNAP_SETTINGS,
+    ROLL_SNAP_SETTINGS,
     clampView,
     snapStep,
     snapTick,
@@ -40,11 +41,15 @@
     type View,
   } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
-  import { isQuantizeKey, isTextTarget, QUANTIZE_CODE } from '../../lib/keyboard'
+  import { generateShortcut, isQuantizeKey, isTextTarget, QUANTIZE_CODE, repeatShortcut } from '../../lib/keyboard'
+  import BarDialog from '../arrangement/BarDialog.svelte'
+  import { defaultRepeatUntil, parseRepeatUntil, repeatCopies } from './repeat'
+  import EuclideanPanel from './EuclideanPanel.svelte'
+  import { DEFAULT_GATE, euclideanFault, euclideanNotes, euclideanPlan, parsePitch, type EuclideanDraft, type EuclideanSettings } from './euclidean'
   import { instrumentNamedKeys, isMidi, trackColor as colorOfTrack } from '../../lib/project/tracks'
   import { inGroup } from '../../lib/history-group'
   import { useStores } from '../../lib/stores'
-  import { barTicks, PPQ } from '../transport/time'
+  import { MAX_GOTO_BAR, barTicks, beatTicks, PPQ } from '../transport/time'
   import { itemAt, moveCursor, rovingKey, step as stepItem, zoomKey, type RovingKey } from '../../lib/roving'
   import { sortedScenes } from '../grid/cells'
   import { clipEntries, clipLabel, clipOrigin, editedClip, editedPlacement, ghostNotes, midiClips, type ClipEntry, type MidiClip } from './clips'
@@ -54,7 +59,11 @@
     DEFAULT_ROW_HEIGHT,
     DEFAULT_VELOCITY,
     acceptable,
-    defaultLength,
+    DRAW_LENGTHS,
+    parseDrawLength,
+    stepLengths,
+    writeLength,
+    type DrawLength,
     clampScrollY,
     drawnNote,
     hitNote,
@@ -121,7 +130,7 @@
 
   type Tool = 'draw' | 'select'
   type Gesture =
-    | { kind: 'draw'; clip: string; pressTick: number; pitch: number; note: Note | null }
+    | { kind: 'draw'; clip: string; pressTick: number; pitch: number; note: Note | null; dragged?: boolean }
     | { kind: 'move' | 'resize'; clip: string; grabbed: Note; key: string; startX: number; startY: number; changes: Change[] }
     | { kind: 'velocity'; clip: string; grabbed: Note; key: string; startX: number; startY: number; moved: boolean; drag: Drag; changes: Change[] }
     | { kind: 'band'; clip: string; x0: number; y0: number; base: ReadonlySet<string>; rect: Rect }
@@ -222,6 +231,8 @@
   let lastLength = $state<number | null>(null)
   /** The velocity of a note drawn (#527): its own setting in the toolbar, never what a touched note had. */
   let drawVelocity = $state(untrack(() => parseDrawVelocity(String(ui.recall<number>('piano-roll-draw-velocity') ?? DEFAULT_VELOCITY), DEFAULT_VELOCITY)))
+  /** The length of a written note (#623): "Snap" follows the snap step, a value is kept whatever the snap; remembered as the velocity is. */
+  let drawLength = $state<DrawLength>(untrack(() => parseDrawLength(ui.recall<string>('piano-roll-draw-length'))))
   let rollEl = $state<HTMLElement>()
   let picked = $state.raw<ReadonlySet<string>>(new Set())
   let gesture = $state.raw<Gesture | null>(null)
@@ -236,20 +247,23 @@
   const step = $derived(snapStep(snap, signature, shown.pxPerTick))
   /** The step notes are drawn on: Auto never goes below a sixteenth. */
   const drawing = $derived(drawStep(snap === 'auto', step))
+  /** The length of the next note written by a click or Enter (#623): the "Length" field, or with "Snap" the step and the last length. */
+  const nextLength = $derived(writeLength(drawLength, lastLength, drawing, bar))
   const layout = $derived<Layout>({ rowHeight: ROW, scrollY: clampScrollY(scrollY, stageH, { rowHeight: ROW, top: RULER_HEIGHT }), top: RULER_HEIGHT })
   const chosenNotes = $derived(picked.size === 0 ? [] : notes.filter((n) => picked.has(noteKey(n))))
   const chosenKeys = $derived<ReadonlySet<string>>(new Set(chosenNotes.map(noteKey)))
 
   const ghosts = $derived.by<Note[]>(() => {
     const g = gesture
-    if (!g) return []
+    if (!g) return euclidPlan?.add ?? []
     if (g.kind === 'draw') return g.note ? [g.note] : []
     if (g.kind === 'move' || g.kind === 'resize' || g.kind === 'velocity') return g.changes.map((c) => c.to)
     return []
   })
   const hidden = $derived.by<ReadonlySet<string>>(() => {
     const g = gesture
-    return g && (g.kind === 'move' || g.kind === 'resize' || g.kind === 'velocity') ? new Set(g.changes.map((c) => noteKey(c.from))) : new Set()
+    if (!g) return euclidPlan && euclidPlan.remove.length > 0 ? new Set(euclidPlan.remove.map(noteKey)) : new Set()
+    return g.kind === 'move' || g.kind === 'resize' || g.kind === 'velocity' ? new Set(g.changes.map((c) => noteKey(c.from))) : new Set()
   })
   const band = $derived(gesture?.kind === 'band' ? gesture.rect : null)
   const loopShown = $derived(
@@ -366,6 +380,8 @@
     const names = {
       bar: t('pianoRoll.snap.bar'),
       beat: t('pianoRoll.snap.beat'),
+      eighthTriplet: t('pianoRoll.snap.eighth-triplet'),
+      sixteenthTriplet: t('pianoRoll.snap.sixteenth-triplet'),
     }
     const lines = [
       g.kind === 'resize' ? gestureLength(t, signature, note.length) : positionText(t, signature, note.start),
@@ -494,7 +510,7 @@
     }
     if (tool === 'draw') {
       const pitch = pitchAt(y, layout)
-      const note = drawnNote(xToTick(x, shown), null, pitch, drawVelocity, drawing, defaultLength(lastLength, drawing), clipLength)
+      const note = drawnNote(xToTick(x, shown), null, pitch, drawVelocity, drawing, nextLength, clipLength)
       if (!note) return
       gesture = { kind: 'draw', clip: edited.id, pressTick: xToTick(x, shown), pitch, note }
       sound(pitch)
@@ -522,7 +538,9 @@
     } else if (g.kind === 'draw') {
       const end = snapTick(xToTick(x, shown), drawing)
       const pitch = g.note?.pitch ?? g.pitch
-      gesture = { ...g, note: drawnNote(g.pressTick, end, pitch, drawVelocity, drawing, defaultLength(lastLength, drawing), clipLength) }
+      // Dragged as drawnNote counts it: at least one step past the pressed cell; a click keeps the chosen length.
+      const dragged = end - floorTick(g.pressTick, drawing) >= (drawing !== null && drawing > 0 ? drawing : 1)
+      gesture = { ...g, dragged, note: drawnNote(g.pressTick, end, pitch, drawVelocity, drawing, nextLength, clipLength) }
     } else if (g.kind === 'band') {
       const rect = rectBetween(g.x0, g.y0, x, y)
       picked = new Set([...g.base, ...notesInRect(notes, rect, shown, layout)])
@@ -564,6 +582,8 @@
       if (!g.note || !fits(g.note, clipLength)) return
       run(addNotes(g.clip, [g.note]))
       picked = new Set([noteKey(g.note)])
+      // A click (no drag) whose length did not fit before the clip's end draws a shorter note: said (#623, #280).
+      if (!g.dragged && g.note.length < nextLength) announce(t('pianoRoll.saidLengthCut', { length: gestureLength(t, signature, g.note.length) }))
       lastLength = g.note.length
     } else if (g.kind === 'move' || g.kind === 'resize' || g.kind === 'velocity') {
       // The notes the gesture holds must still be in the clip: after an undo they are gone and nothing is sent.
@@ -619,7 +639,11 @@
     if (event.defaultPrevented || !edited || isTextTarget(event.target)) return
     const target = event.target
     if (target !== document.body && !(target instanceof Node && rollEl?.contains(target))) return
-    if (editShortcut(event)) event.preventDefault()
+    // The roll's own listener takes Alt+G from inside the roll; from the page itself (nothing focused) it is taken here.
+    if (target === document.body && generateShortcut(event)) {
+      event.preventDefault()
+      void openEuclid()
+    } else if (editShortcut(event)) event.preventDefault()
   }
 
   function onKeyDown(event: KeyboardEvent) {
@@ -743,7 +767,7 @@
       {
         start: cursorPos.tick,
         pitch: cursorPos.pitch,
-        length: Math.max(1, Math.min(defaultLength(lastLength, drawing), clipLength - cursorPos.tick)),
+        length: Math.max(1, Math.min(nextLength, clipLength - cursorPos.tick)),
         velocity: drawVelocity,
       },
       shown,
@@ -837,14 +861,16 @@
       void focusNote(under.id)
       return
     }
-    const note = drawnNote(at.tick, null, at.pitch, drawVelocity, drawing, defaultLength(lastLength, drawing), clipLength)
+    const note = drawnNote(at.tick, null, at.pitch, drawVelocity, drawing, nextLength, clipLength)
     if (!note || !fits(note, clipLength) || notes.some((n) => noteKey(n) === noteKey(note))) return announce(t('pianoRoll.saidNoRoom'))
     run(addNotes(edited.id, [note]))
     // Nothing to say or sound when the command did not apply (no engine, a refusal the dispatcher already shows).
     if (!notes.some((n) => noteKey(n) === noteKey(note))) return
     picked = new Set([noteKey(note)])
     onCursor = false
-    announce(t('pianoRoll.saidAdded', { pitch: keyNames?.get(note.pitch) ?? pitchName(note.pitch) }))
+    const added = t('pianoRoll.saidAdded', { pitch: keyNames?.get(note.pitch) ?? pitchName(note.pitch) })
+    // The chosen length did not fit before the clip's end (#623, #280): the note is shorter, and that is said.
+    announce(note.length < nextLength ? t('pianoRoll.saidAddedCut', { added, length: gestureLength(t, signature, note.length) }) : added)
     sound(note.pitch, note.velocity)
     release()
     void focusNote(noteKey(note))
@@ -905,6 +931,13 @@
     if (action.kind === 'move') {
       if (!chosenKeys.has(current.id)) picked = new Set([current.id])
       const chosen = chosenKeys.has(current.id) ? chosenNotes : [current.note]
+      if (event.shiftKey && (action.direction === 'left' || action.direction === 'right')) {
+        // Alt+Shift+Left and Right (#623): the end of the focused note, or of each note of the selection; the focus stays on it.
+        const ok = resizeChosen(action.direction === 'left' ? -1 : 1, chosen, current.note)
+        const mine = ok?.find((c) => noteKey(c.from) === current.id)
+        if (mine) void focusNote(noteKey(mine.to))
+        return
+      }
       let changes: Change[] | null
       if (action.direction === 'up' || action.direction === 'down') {
         changes = transposeChanges(chosen, (action.direction === 'up' ? 1 : -1) * (event.shiftKey ? 12 : 1))
@@ -1026,6 +1059,8 @@
     if (some) {
       items.push(
         { id: 'duplicate', label: t('pianoRoll.duplicate'), shortcut: mod('D'), run: duplicateChosen },
+        { id: 'repeat', label: t('pianoRoll.repeat'), shortcut: chordText(['Mod', 'Shift', 'R']), run: () => repeatChosen(undefined, chosenNotes, true) },
+        { id: 'repeat-until', label: t('pianoRoll.repeatUntil'), run: openRepeat },
         { id: 'copy', label: t('pianoRoll.copy'), shortcut: mod('C'), separator: true, run: copyChosen },
         {
           id: 'cut',
@@ -1039,6 +1074,7 @@
     }
     if (boardNotes().length > 0) items.push({ id: 'paste', label: t('pianoRoll.paste'), shortcut: mod('V'), run: pasteBoard })
     if (some) items.push({ id: 'delete', label: t('pianoRoll.delete'), shortcut: chordText(['Delete']), separator: true, run: removeSelected })
+    items.push({ id: 'euclidean', label: t('pianoRoll.euclidean'), shortcut: chordText(['Alt', 'G']), separator: true, run: () => void openEuclid() })
     ui.openMenu(event, items, t('pianoRoll.menu'))
   }
 
@@ -1147,6 +1183,10 @@
   let quantizeNote = $state<string | null>(null)
   let quantizeTimer: ReturnType<typeof setTimeout> | undefined
   onDestroy(() => clearTimeout(quantizeTimer))
+  function onDrawLengthChange(event: Event & { currentTarget: HTMLSelectElement }) {
+    drawLength = parseDrawLength(event.currentTarget.value)
+    ui.remember('piano-roll-draw-length', drawLength)
+  }
   function onDrawVelocityChange(event: Event & { currentTarget: HTMLInputElement }) {
     const input = event.currentTarget
     drawVelocity = parseDrawVelocity(input.value, drawVelocity)
@@ -1174,17 +1214,31 @@
     release()
   }
 
-  /** Moves the end of the chosen notes by the drawing step (`direction` -1 or 1): Alt+Shift+Left and Right (#612). Said, with the new length. */
-  function resizeChosen(direction: -1 | 1) {
-    if (!edited) return
-    if (chosenNotes.length === 0) return announce(t('pianoRoll.saidNoSelection'))
-    const changes = resizeNotes(chosenNotes, direction * (drawing ?? SIXTEENTH), clipLength)
-    const ok = changes ? acceptable(notes, changes) : null
-    if (!ok || ok.length === 0 || ok.every((c) => c.from.length === c.to.length)) return announce(t('pianoRoll.saidCannotResize'))
-    const chosen = chosenNotes
+  /**
+   * Moves the end of the chosen notes by the drawing step (`direction` -1 or 1): Alt+Shift+Left and Right (#612), from
+   * the grid, the free cursor or a note's cell (#623). Each note keeps at least one step and stops at the clip's end, which
+   * is said (#280). One `clip.notes.update`, so one undo. Said with the new length of `said` (the focused note) or of the
+   * first note; returns the changes sent, or null.
+   */
+  function resizeChosen(direction: -1 | 1, chosen: readonly Note[] = chosenNotes, said?: Note): Change[] | null {
+    if (!edited) return null
+    if (chosen.length === 0) {
+      announce(t('pianoRoll.saidNoSelection'))
+      return null
+    }
+    const { changes, cut } = stepLengths(chosen, drawing ?? SIXTEENTH, direction, clipLength)
+    const ok = acceptable(notes, changes)
+    // Null: two notes would become one (not the clip's end). Empty: nothing moves, at the floor or at the clip's end.
+    if (!ok || ok.length === 0) {
+      announce(t(ok && cut ? 'pianoRoll.saidAtClipEnd' : 'pianoRoll.saidCannotResize'))
+      return null
+    }
     run(updateNotes(edited.id, ok))
     picked = afterChanges(new Set(chosen.map(noteKey)), ok)
-    announce(gestureLength(t, signature, ok[0]!.to.length))
+    const mine = (said && changes.find((c) => noteKey(c.from) === noteKey(said))) || changes[0]!
+    const length = gestureLength(t, signature, mine.to.length)
+    announce(cut ? t('pianoRoll.saidLengthCut', { length }) : length)
+    return ok
   }
 
   /** Moves the chosen notes by semitones, heard once; nothing when one would leave the keyboard. */
@@ -1233,6 +1287,227 @@
     const copies = source.map((n) => ({ ...n, start: n.start + offset }))
     const id = edited.id
     if (withRoomFor(endOf(copies), () => run(duplicateNotes(id, source, offset)))) picked = new Set(copies.map(noteKey))
+  }
+
+  // --- repeat end to end (#710) -------------------------------------------------------------------------------------
+  /** The "Repeat until" field: open while it asks, with the first tick it accepts past (the start of the first copy). */
+  let repeating = $state<{ firstCopy: number; initial: string } | null>(null)
+  /** The notes the field was opened for: the selection may not change under it, but a stale one is never sent. */
+  let repeatSource: Note[] = []
+
+  /** "bar.beat" of the end of the beat that holds `tick` (the first value past it the field accepts), "bar" on a bar line. */
+  function untilText(tick: number): string {
+    const beat = beatTicks(signature)
+    const beats = Math.floor(tick / beat) + 1
+    const perBar = Math.max(1, Math.round(bar / beat))
+    const barNumber = Math.floor((beats - 1) / perBar) + 1
+    const inBar = beats - (barNumber - 1) * perBar
+    return inBar === perBar ? String(barNumber) : `${barNumber}.${inBar}`
+  }
+
+  /**
+   * Copies of the chosen notes end to end (#710), their span rounded up to the quantize grid, up to `until` (the end of the
+   * bar where the copies begin by default), cut at the clip's end with a message (#280). One `clip.notes.repeat`, so one
+   * undo. The copies become the selection, and the focus goes to the first one when it was on a note or the cursor.
+   */
+  function repeatChosen(until?: number, source: readonly Note[] = chosenNotes, focusCopies = false) {
+    if (!edited || gesture) return
+    if (source.length === 0) return announce(t('pianoRoll.saidNoSelection'))
+    const sources = [...source]
+    const target = until ?? defaultRepeatUntil(sources, gridTicks, bar)
+    const result = repeatCopies(sources, gridTicks, target, clipLength)
+    // The page never asks for a grid below a tick nor an end before the first copy (the default and the field see to it):
+    // what is left is no room in the clip.
+    if (!result.ok) return announce(t('pianoRoll.saidRepeatNoRoom'))
+    const there = new Set(notes.map(noteKey))
+    const added = result.copies.filter((n) => !there.has(noteKey(n))).length
+    const focusInCells = focusCopies || (!!itemsEl && document.activeElement instanceof Node && itemsEl.contains(document.activeElement))
+    // Refused by the project after all (a limit, a note gone under an agent): the dispatcher says why; nothing here.
+    if (added > 0 && !run(repeatNotes(edited.id, sources, target, gridTicks))) return
+    picked = new Set(result.copies.map(noteKey))
+    const n = added
+    announce(added === 0 ? t('pianoRoll.saidRepeatNone') : result.atClipEnd ? t('pianoRoll.saidRepeatedCut', { n }) : t('pianoRoll.saidRepeated', { n }))
+    if (focusInCells && result.copies[0]) void focusNote(noteKey(result.copies[0]))
+  }
+
+  /** "Repeat until…": the field, filled with the default end; Enter repeats there. */
+  function openRepeat() {
+    if (!edited || chosenNotes.length === 0) return announce(t('pianoRoll.saidNoSelection'))
+    repeatSource = [...chosenNotes]
+    const result = repeatCopies(repeatSource, gridTicks, Number.MAX_SAFE_INTEGER, clipLength)
+    if (!result.ok && result.refusal === 'room') return announce(t('pianoRoll.saidRepeatNoRoom'))
+    repeating = { firstCopy: result.firstCopy, initial: untilText(defaultRepeatUntil(repeatSource, gridTicks, bar) - 1) }
+  }
+
+  /** The field's answer: the notes it was opened for that are still in the clip, repeated there; the copies take the focus. */
+  async function repeatUpTo(until: number) {
+    const there = new Set(notes.map(noteKey))
+    const source = repeatSource.filter((n) => there.has(noteKey(n)))
+    repeating = null
+    repeatSource = []
+    // After the dialog has given the focus back to what opened it.
+    await tick()
+    repeatChosen(until, source, true)
+  }
+
+  /**
+   * Ctrl or Cmd + Shift + R in the piano roll (#710): Repeat. The arrangement takes the same chord on the whole page (#555,
+   * the browser would reload): stopped here, so that one press never does both. Cancelled in a text field too, as there.
+   * From a note's cell outside the selection, that note alone, as Alt+arrows do.
+   */
+  function onRollKeyDown(event: KeyboardEvent) {
+    if (generateShortcut(event)) {
+      event.preventDefault()
+      event.stopPropagation()
+      void openEuclid()
+      return
+    }
+    if (!repeatShortcut(event)) return
+    event.preventDefault()
+    event.stopPropagation()
+    if (event.repeat || isTextTarget(event.target)) return
+    const key = (event.target as Element | null)?.closest?.<HTMLElement>('[data-note]')?.dataset.note
+    const cell = key !== undefined && !chosenKeys.has(key) ? noteItems.find((i) => i.id === key)?.note : undefined
+    repeatChosen(undefined, cell ? [cell] : chosenNotes)
+  }
+  // On the roll's root, below the window: a key from anywhere in the roll (toolbar, grid, cells) meets it before the
+  // arrangement's window listener does.
+  $effect(() => {
+    const root = rollEl
+    if (!root) return
+    root.addEventListener('keydown', onRollKeyDown)
+    return () => root.removeEventListener('keydown', onRollKeyDown)
+  })
+
+  // --- euclidean rhythm generator (#694) --------------------------------------------------------------------------
+  // A page tool, not a command: what it writes is `clip.notes.add` (and `clip.notes.remove` of the same-pitch notes it
+  // replaces, in one history group), so one undo takes it all back, and an agent computes the same pattern itself.
+  /** The generator while it is open: its fields, where the pattern starts, the clip it is for and what had the focus. */
+  let euclid = $state<{ draft: EuclideanDraft; start: number; clip: string; opener: HTMLElement | null } | null>(null)
+  let euclidPanel: ReturnType<typeof EuclideanPanel> | undefined = $state()
+  const euclidSettings = $derived.by<EuclideanSettings | null>(() => {
+    if (!euclid) return null
+    const d = euclid.draft
+    return {
+      steps: d.steps,
+      hits: d.hits,
+      rotation: d.rotation,
+      grid: QUANTIZE_GRIDS.find((g) => g.id === d.grid)?.ticks ?? 0,
+      pitch: parsePitch(d.pitch),
+      velocity: d.velocity,
+      gate: d.gate,
+      fill: d.fill,
+      replace: !d.keep,
+    }
+  })
+  const euclidFault = $derived(euclidSettings ? euclideanFault(euclidSettings) : null)
+  const euclidMade = $derived(euclid && euclidSettings ? euclideanNotes(euclidSettings, euclid.start, clipLength) : [])
+  /** What Place would do now; also the preview in the grid (the notes to add as outlines, the ones to replace hidden). */
+  const euclidPlan = $derived(euclid && euclidSettings && !euclidFault ? euclideanPlan(notes, euclidMade, euclidSettings, euclid.start, clipLength) : null)
+  const euclidSummary = $derived.by(() => {
+    if (!euclid || !euclidSettings || !euclidPlan) return ''
+    const beatsPerBar = bar / PPQ
+    const beat = euclid.start / PPQ
+    const vars = {
+      n: euclidMade.length,
+      pitch: keyNames?.get(euclidSettings.pitch!) ?? pitchName(euclidSettings.pitch!),
+      bar: Math.floor(beat / beatsPerBar) + 1,
+      beat: Number(((beat % beatsPerBar) + 1).toFixed(2)),
+      m: euclidPlan.remove.length,
+    }
+    return t(euclidPlan.remove.length > 0 ? 'pianoRoll.euclideanSummaryReplace' : 'pianoRoll.euclideanSummary', vars)
+  })
+  // Another clip, or none: the generator was for the first.
+  $effect(() => {
+    if (euclid && euclid.clip !== edited?.id) untrack(() => (euclid = null))
+  })
+
+  /** The pitch the generator starts on: the cursor's row once it was used, else the selected note's, else where the cursor stands. */
+  function euclidPitch(): number {
+    if (cursorAt || chosenNotes.length === 0) return cursorPos.pitch
+    return chosenNotes[0]!.pitch
+  }
+
+  /** Opens the generator, its fields as they were left (the grid following the snap the first time), the focus on the first. */
+  async function openEuclid() {
+    if (!edited || gesture) return
+    if (euclid) return euclidPanel?.focusFirst()
+    const left = ui.recall<Partial<EuclideanDraft>>('piano-roll-euclid')
+    const pitch = euclidPitch()
+    const named = keyNames ? [...keyNames.keys()] : []
+    const active = document.activeElement
+    euclid = {
+      clip: edited.id,
+      start: cursorPos.tick,
+      opener: active instanceof HTMLElement && active !== document.body ? active : null,
+      draft: {
+        steps: left?.steps ?? 8,
+        hits: left?.hits ?? 3,
+        rotation: left?.rotation ?? 0,
+        grid: left?.grid ?? QUANTIZE_GRIDS.find((g) => g.ticks === drawing)?.id ?? DEFAULT_QUANTIZE_GRID,
+        pitch: String(named.length > 0 && !named.includes(pitch) ? named[0] : pitch),
+        velocity: drawVelocity,
+        gate: left?.gate ?? DEFAULT_GATE,
+        fill: left?.fill ?? false,
+        keep: left?.keep ?? false,
+      },
+    }
+    await tick()
+    euclidPanel?.focusFirst()
+  }
+
+  /** Closes the generator with nothing placed; the focus goes back to what had it, else to the cursor. */
+  async function closeEuclid(focusCell: Note | null = null) {
+    const opener = euclid?.opener ?? null
+    euclid = null
+    await tick()
+    if (focusCell) return void focusNote(noteKey(focusCell))
+    if (opener?.isConnected) opener.focus()
+    else void focusCursor()
+  }
+
+  /**
+   * Place: the notes the fields give, added in one `clip.notes.add`, the same-pitch notes under the pattern removed in the
+   * same history group (unless "Add without replacing"). The new notes become the selection. Nothing is sent when the
+   * pattern is already there; a start past the clip's end is said.
+   */
+  function placeEuclid() {
+    if (!edited || !euclid || !euclidSettings || !euclidPlan || euclidFault) return
+    if (euclidMade.length === 0) return announce(t('pianoRoll.saidEuclideanNoRoom'))
+    const { add, remove } = euclidPlan
+    const made = euclidMade
+    const settings = euclidSettings
+    const id = edited.id
+    const draft = euclid.draft
+    const inCells = !!euclid.opener && !!itemsEl && itemsEl.contains(euclid.opener)
+    if (add.length === 0 && remove.length === 0) {
+      ui.remember('piano-roll-euclid', { ...draft, pitch: undefined, velocity: undefined })
+      announce(t('pianoRoll.saidEuclideanNone'))
+      return void closeEuclid()
+    }
+    // Written first, removed second: a refused write (a limit) leaves the clip as it was.
+    const done = group(() => {
+      if (add.length > 0 && !run(addNotes(id, add))) return false
+      return remove.length === 0 || run(removeNotes(id, remove))
+    })
+    // Refused by the project after all: the dispatcher says why, and the generator stays open for another try.
+    if (!done) return
+    ui.remember('piano-roll-euclid', { ...draft, pitch: undefined, velocity: undefined })
+    picked = new Set(made.map(noteKey))
+    const pitch = keyNames?.get(settings.pitch!) ?? pitchName(settings.pitch!)
+    announce(t(remove.length > 0 ? 'pianoRoll.saidEuclideanReplace' : 'pianoRoll.saidEuclidean', { n: add.length, pitch, m: remove.length }))
+    void closeEuclid(inCells ? (made[0] ?? null) : null)
+  }
+
+  /** The "Generate" button: the list of generators under it (one so far, others are ideas of #253). */
+  function openGenerate(event: MouseEvent) {
+    const box = (event.currentTarget as HTMLElement).getBoundingClientRect()
+    ui.openMenuAt(
+      box.left,
+      box.bottom,
+      [{ id: 'euclidean', label: t('pianoRoll.euclidean'), shortcut: chordText(['Alt', 'G']), run: () => void openEuclid() }],
+      t('pianoRoll.generateMenu'),
+    )
   }
 
   function copyChosen(): boolean {
@@ -1327,7 +1602,7 @@
       <label class="field">
         <span>{t('pianoRoll.snap')}</span>
         <select aria-label={t('pianoRoll.snap')} data-testid="roll-snap" bind:value={snap}>
-          {#each SNAP_SETTINGS as setting (setting)}
+          {#each ROLL_SNAP_SETTINGS as setting (setting)}
             <option value={setting}>{t(`pianoRoll.snap.${setting}`)}</option>
           {/each}
         </select>
@@ -1365,6 +1640,12 @@
           >{t('pianoRoll.duplicate')}</button
         >
         <button
+          title={t('pianoRoll.repeatHint')}
+          disabled={chosenNotes.length === 0}
+          data-testid="roll-repeat"
+          onclick={(e) => repeatChosen(undefined, chosenNotes, e.detail === 0)}>{t('pianoRoll.repeat')}</button
+        >
+        <button
           title={t('pianoRoll.transposeDownHint')}
           aria-label={t('pianoRoll.transposeDown')}
           disabled={chosenNotes.length === 0}
@@ -1392,7 +1673,15 @@
           onchange={onDrawVelocityChange}
         />
       </label>
-      <div class="field" role="group" aria-label={t('pianoRoll.quantize')}>
+      <label class="field" title={t('pianoRoll.drawLengthHint')}>
+        <span>{t('pianoRoll.drawLength')}</span>
+        <select aria-label={t('pianoRoll.drawLengthLabel')} data-testid="roll-draw-length" value={drawLength} onchange={onDrawLengthChange}>
+          {#each DRAW_LENGTHS as length (length.id)}
+            <option value={length.id}>{t(`pianoRoll.drawLength.${length.id}`)}</option>
+          {/each}
+        </select>
+      </label>
+      <div class="field quantize" role="group" aria-label={t('pianoRoll.quantize')}>
         <select aria-label={t('pianoRoll.quantizeGrid')} data-testid="roll-quantize-grid" bind:value={quantizeGrid}>
           {#each QUANTIZE_GRIDS as grid (grid.id)}
             <option value={grid.id}>{t(`pianoRoll.qgrid.${grid.id}`)}</option>
@@ -1419,10 +1708,30 @@
         >
         {#if quantizeNote}<span class="said" data-testid="roll-quantize-said">{quantizeNote}</span>{/if}
       </div>
+      <button
+        aria-haspopup="menu"
+        aria-expanded={euclid !== null}
+        aria-keyshortcuts="Alt+G"
+        title={withShortcut(t('pianoRoll.generateHint'), [chordText(['Alt', 'G'])])}
+        data-testid="roll-generate"
+        onclick={openGenerate}>{t('pianoRoll.generate')}</button
+      >
       <span class="count" data-testid="roll-count" title={chosenNotes.length > 0 ? t('pianoRoll.selected', { n: chosenNotes.length }) : undefined}
         >{t('pianoRoll.count', { n: notes.length })}</span
       >
     </div>
+
+    {#if euclid}
+      <EuclideanPanel
+        bind:this={euclidPanel}
+        bind:draft={euclid.draft}
+        sounds={keyNames ? [...keyNames].map(([key, name]) => ({ key, name })) : null}
+        fault={euclidFault}
+        summary={euclidSummary}
+        onsubmit={placeEuclid}
+        oncancel={() => void closeEuclid()}
+      />
+    {/if}
 
     <div class="board" style:--keys="{keyNames ? NAMED_KEYS_WIDTH : KEYS_WIDTH}px" style:--lane="{LANE_HEIGHT}px">
       <div
@@ -1556,6 +1865,27 @@
         />
       </div>
     </div>
+    <!-- Inside the roll's root: its listener cancels Ctrl+Shift+R in the field too, arrangement shown or not. -->
+    <BarDialog
+      open={repeating !== null}
+      name="roll-repeat"
+      title={t('pianoRoll.repeatTitle')}
+      label={t('pianoRoll.repeatLabel', { min: untilText(repeating?.firstCopy ?? 0) })}
+      invalid={t('pianoRoll.repeatInvalid', { min: untilText(repeating?.firstCopy ?? 0) })}
+      go={t('pianoRoll.repeatGo')}
+      cancel={t('pianoRoll.repeatCancel')}
+      initial={1}
+      initialText={repeating?.initial ?? '1'}
+      min={(repeating?.firstCopy ?? 0) + 1}
+      max={MAX_GOTO_BAR * bar}
+      parse={(text) => parseRepeatUntil(text, signature)}
+      inputmode="decimal"
+      onsubmit={repeatUpTo}
+      onclose={() => {
+        repeating = null
+        repeatSource = []
+      }}
+    />
   </div>
 {/if}
 
@@ -1655,9 +1985,22 @@
     padding: 0 var(--fk-space-1);
     text-align: center;
   }
+  .quantize {
+    position: relative;
+  }
+  /* Out of the flow, under the quantize field: the message must not wrap the toolbar and move the grid while it shows. */
   .said {
+    position: absolute;
+    top: calc(100% + 2px);
+    right: 0;
+    z-index: 2;
+    padding: 2px var(--fk-space-2);
+    border: 1px solid var(--fk-line);
+    border-radius: 4px;
+    background: var(--fk-surface);
     color: var(--fk-text-muted);
     white-space: nowrap;
+    pointer-events: none;
   }
   .count {
     margin-left: auto;

@@ -1,0 +1,2 @@
+2026-11-05
+* **Update** (#735): where the browser keeps no projects, a `.faulkpack` import (read whole) can be cancelled: the page reads the file in pieces, its import banner shows the Cancel button, and `project.cancel_import_pack` stops the read and answers `cancelled` and `too_late` (imports stopped, and imports whose project had started to open, which are left to finish); a call that could only be too late is refused. `PROTOCOL_VERSION` stays 40 (the command is new in 40, no helper released with it).

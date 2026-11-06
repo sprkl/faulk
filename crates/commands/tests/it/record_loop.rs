@@ -2,6 +2,8 @@
 //! milliseconds of the transport's loop is stamped by the engine just after the loop's start
 //! (`crates/engine/tests/it/live_stamps.rs`, `a_note_heard_just_before_the_loop_end_is_placed_after_the_wrap_by_the_latency`),
 //! so the move back must follow the loop, not the line.
+//! Since #560 the page's takes are moved by the engine, which knows the wraps, and come with a
+//! shift of 0 (`crates/test-support/tests/it/record_loop.rs`): this fold serves an explicit shift.
 
 use crate::record_examples;
 use ::project::{Tick, TrackId};

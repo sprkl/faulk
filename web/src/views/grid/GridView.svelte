@@ -31,10 +31,19 @@
   import { dragsFiles } from '../../lib/browser/dnd'
   import { isAudioFile, placeInGrid } from '../../lib/browser/audio-drop'
   import Waveform from '../../lib/components/Waveform.svelte'
+  import { readColors, trackInk } from '../../lib/components/timegrid/render'
+  import { theme } from '../../lib/theme.svelte'
 
   type CellClipState = 'idle' | 'restarting' | ClipState
 
   const stores = useStores()
+  const page = theme()
+  /** The tokens of the theme the page shows, read again when it changes: a track's ink is mixed from them (#698). */
+  const colors = $derived.by(() => {
+    void page.resolved
+    return typeof document === 'undefined' ? null : readColors(document.documentElement)
+  })
+  const inkOf = (hue: string) => (colors ? trackInk(hue, colors) : hue)
   const { project, engine, ui, dispatcher, peaks } = stores
   /** What the last file drop on a cell started (AU-6), said in the grid's status line. */
   let dropSaid = $state('')
@@ -927,6 +936,7 @@
                 role="gridcell"
                 aria-colindex={entry.index + 2}
                 style:--track-color={trackColor(entry.track.color, entry.index)}
+                style:--track-ink={inkOf(trackColor(entry.track.color, entry.index))}
                 data-slot-clip={cell.id}
                 onkeydown={onSlotKey}
                 onfocusout={onSlotFocusOut}
@@ -1258,7 +1268,7 @@
     padding: 0 var(--fk-space-2);
     border: 0;
     background: none;
-    color: var(--track-color, var(--fk-text-muted));
+    color: var(--track-ink, var(--fk-text-muted));
     text-align: left;
   }
   .cell[data-pool-drop='true'] {
@@ -1268,8 +1278,8 @@
   .cwave {
     position: absolute;
     inset: 4px var(--fk-space-1);
-    /* The track's ink, as `trackInk` mixes it for the canvases (#687): the hue, towards the text by the theme's shade. */
-    color: color-mix(in srgb, var(--track-color, var(--fk-text-muted)), var(--fk-text) var(--fk-track-shade));
+    /* The track's ink (`--track-ink`, from `trackInk`, #698): the same line colour as the canvases. */
+    color: var(--track-ink, var(--fk-text-muted));
     opacity: 0.45;
     pointer-events: none;
   }

@@ -4,7 +4,7 @@
  * Pure: the caller gives the translator, so the same words serve the arrangement and the piano roll.
  */
 
-import { barTicks, beatTicks, type Signature } from '../views/transport/time'
+import { PPQ, barTicks, beatTicks, type Signature } from '../views/transport/time'
 import type { MessageKey } from './i18n/app'
 
 export type GestureT = (key: MessageKey, vars?: Record<string, string | number>) => string
@@ -13,6 +13,9 @@ export type GestureT = (key: MessageKey, vars?: Record<string, string | number>)
 export interface SnapNames {
   bar: string
   beat: string
+  /** The piano roll's triplet steps (#711), named as its snap field names them: a quarter note in three, and in six. */
+  eighthTriplet?: string
+  sixteenthTriplet?: string
 }
 
 /** A number of beats, written without a trailing zero (1, 1.5, 1.25). */
@@ -50,6 +53,8 @@ export function snapText(t: GestureT, sig: Signature, step: number | null, names
     const bar = barTicks(sig)
     if (step === bar) name = names.bar
     else if (step === beat) name = names.beat
+    else if (step === PPQ / 3 && names.eighthTriplet) name = names.eighthTriplet
+    else if (step === PPQ / 6 && names.sixteenthTriplet) name = names.sixteenthTriplet
     // Finer than a beat: as a fraction of a whole note (1/16 for a quarter of a quarter-note beat).
     else if (step < beat) name = t('gesture.fraction', { n: plain((sig.denominator * beat) / step) })
     else if (step > bar) name = t(plain(step / bar) === 1 ? 'gesture.bar' : 'gesture.bars', { n: plain(step / bar) })

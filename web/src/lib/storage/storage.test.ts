@@ -2,13 +2,14 @@
 // writes, what it says, and what it does when the folder, the permission or the page goes away.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CacheReport, ImportOutcome, MediaRef } from '../audio/import/pipeline'
-import type { FolderEntry, PackExport, PackImport, PackIO, SaveEntry, SaveFrame, SaveMode } from '../project/core'
+import type { FolderEntry, PackExport, PackImport, PackIO, PackUnpack, SaveEntry, SaveFrame, SaveMode } from '../project/core'
 import type { OpenOutcome } from '../stores/open'
 import {
   AUTOSAVE_DELAY_MS,
   AUTOSAVE_MAX_WAIT_MS,
   autosaveDelay,
   changedPaths,
+  DOWNLOAD_PATH,
   MAX_PACK_BYTES,
   ProjectStorage,
   projectIdOf,
@@ -16,7 +17,16 @@ import {
   type ProjectHost,
   type StorageDeps,
 } from './storage.svelte'
-import { StoreError, type BrowserProject, type BrowserProjects, type FolderHandle, type ProjectStore, type RecentProject, type Signature } from './types'
+import {
+  StoreError,
+  type BrowserProject,
+  type BrowserProjects,
+  type FileWriter,
+  type FolderHandle,
+  type ProjectStore,
+  type RecentProject,
+  type Signature,
+} from './types'
 
 const text = (s: string) => new TextEncoder().encode(s)
 
@@ -28,10 +38,61 @@ class FakeStore implements ProjectStore {
   fail: StoreError | null = null
   hold: Promise<void> | null = null
   closed = false
+  packExport?: ProjectStore['packExport']
   project = true
   copied: ProjectStore[] = []
   stamp = 1
   constructor(readonly name: string) {}
+
+  /** What the pack being imported holds (the world's host answers it, as the page's core would for a whole pack). */
+  host: FakeHost | null = null
+  /** The imports in pieces asked of this folder: from a file or a path, the project's files alone or all. */
+  unpacks: { source: Blob | string; textOnly: boolean }[] = []
+  /** Waits here in the middle of an import in pieces, so a test can cancel it; then this error, if set. */
+  unpackHold: Promise<void> | null = null
+  /** Waits here in the pass that reads the project's own files alone. */
+  textHold: Promise<void> | null = null
+  unpackFails: StoreError | null = null
+  async unpack(source: Blob | string, io: { onProgress?: (fraction: number) => void; signal?: AbortSignal; textOnly?: boolean }): Promise<PackUnpack> {
+    this.unpacks.push({ source, textOnly: io.textOnly ?? false })
+    if (typeof source === 'string' && !this.written.has(source)) throw new StoreError('missing', `${source}: not found`)
+    const pack = this.host?.unpacked ?? { status: 'failed' as const, message: 'no pack' }
+    if (pack.status !== 'ok') return pack
+    if (io.textOnly && this.textHold) await this.textHold
+    if (!io.textOnly) {
+      io.onProgress?.(0.5)
+      if (this.unpackHold) await this.unpackHold
+      if (this.unpackFails) throw this.unpackFails
+      if (io.signal?.aborted) return { status: 'cancelled' }
+      // The blobs go into the folder as they come; the project's own files come back.
+      for (const file of pack.files) if (file.path.startsWith('blobs/')) this.media.set(file.path, file.bytes)
+      io.onProgress?.(1)
+    }
+    const blobs = pack.files.filter((f) => f.path.startsWith('blobs/'))
+    return { status: 'ok', files: pack.files.filter((f) => !f.path.startsWith('blobs/')), blobBytes: blobs.reduce((n, f) => n + f.bytes.length, 0) }
+  }
+  /** The files written in pieces, whole once closed; the ones aborted. */
+  written = new Map<string, Uint8Array>()
+  aborted: string[] = []
+  async writer(path: string): Promise<FileWriter> {
+    const chunks: Uint8Array[] = []
+    return {
+      write: async (chunk) => {
+        if (this.fail) throw this.fail
+        chunks.push(chunk)
+      },
+      close: async () => {
+        const whole = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0))
+        let at = 0
+        for (const chunk of chunks) {
+          whole.set(chunk, at)
+          at += chunk.length
+        }
+        this.written.set(path, whole)
+      },
+      abort: async () => void this.aborted.push(path),
+    }
+  }
 
   async isEmpty() {
     return this.files.size === 0
@@ -165,8 +226,13 @@ class FakeHost implements ProjectHost {
   saved(applied: boolean) {
     if (applied) this.clean = this.pending
   }
+  /** Waits here before opening a project, and says when it started to. */
+  openHold: Promise<void> | null = null
+  opening: (() => void) | null = null
   async openProject(name: string, entries: FolderEntry[]): Promise<OpenOutcome> {
     if (this.refuseOpen) return { status: 'refused', reason: 'corrupt' }
+    this.opening?.()
+    if (this.openHold) await this.openHold
     this.opened.push({ name, entries })
     this.revision = this.clean = 0
     return { status: 'opened', name }
@@ -328,6 +394,8 @@ interface World {
   /** What the page's file dialog answers to a big export, and the files it wrote; the room the browser says it has. */
   saveFile: 'unsupported' | 'cancelled' | 'chosen'
   saved: { name: string; chunks: Uint8Array[]; closed: boolean; aborted: boolean }[]
+  /** Holds the dialog's answer, each write and the close of the chosen file, while set (#737). */
+  fileHolds: { answer?: Promise<void>; write?: Promise<void>; close?: Promise<void> }
   free: number | null
   /** What each link answers for `openUrl` (#497): bytes, or a network failure; the links asked for. */
   served: Map<string, Uint8Array | 'unreachable'>
@@ -356,6 +424,7 @@ function world(): World {
     downloads: [] as { name: string; blob: Blob }[],
     saveFile: 'unsupported',
     saved: [],
+    fileHolds: {},
     free: null,
     served: new Map(),
     fetched: [],
@@ -384,6 +453,7 @@ function world(): World {
     openStore: async (handle) => {
       let store = stores.get(handle)
       if (!store) stores.set(handle, (store = new FakeStore(handle.name)))
+      store.host = w.host
       store.closed = false
       return store
     },
@@ -412,11 +482,18 @@ function world(): World {
     saveFile: async (name) => {
       if (w.saveFile === 'cancelled') return 'cancelled'
       if (w.saveFile === 'unsupported') return null
+      await w.fileHolds.answer
       const file = { name, chunks: [] as Uint8Array[], closed: false, aborted: false }
       w.saved.push(file)
       return {
-        write: async (chunk) => void file.chunks.push(chunk),
-        close: async () => void (file.closed = true),
+        write: async (chunk) => {
+          await w.fileHolds.write
+          file.chunks.push(chunk)
+        },
+        close: async () => {
+          await w.fileHolds.close
+          file.closed = true
+        },
         abort: async () => void (file.aborted = true),
       }
     },
@@ -1963,6 +2040,47 @@ describe('export a .faulkpack', () => {
     expect(store.files.get('project.json')).toBe('rev 2')
   })
 
+  it("has the home's own Worker make the zip when it can, and tells the same ends as the page's core does (#685)", async () => {
+    const { w, store } = await drafted()
+    store.media.set('blobs/aa', text('media'))
+    const seen: string[] = []
+    let outcome: PackExport = { status: 'ok', files: 2, missingBlobs: 0 }
+    store.packExport = async (entries, io) => {
+      seen.push(
+        entries
+          .map((e) => e.path)
+          .sort()
+          .join(','),
+      )
+      await io.sink.write(text('zip'))
+      io.onProgress?.(1)
+      return outcome
+    }
+    expect(await w.storage.exportPack()).toBe(true)
+    // The page's core was not asked, and the pieces the Worker handed over are the download.
+    expect(w.host.exports).toEqual([])
+    expect(seen).toEqual(['blobs/aa,project.json'])
+    expect(w.downloads.map((d) => d.name)).toEqual(['Song.faulkpack'])
+    expect(await w.downloads[0]!.blob.text()).toBe('zip')
+
+    outcome = { status: 'failed', message: 'blobs/aa: changed while it was exported' }
+    expect(await w.storage.exportPack()).toBe(false)
+    expect(w.storage.notice).toBe('pack.exportFailed')
+    expect(w.storage.errorDetail).toContain('changed while it was exported')
+    outcome = { status: 'cancelled' }
+    expect(await w.storage.exportPack()).toBe(false)
+    expect(w.storage.notice).toBe('pack.exportCancelled')
+    expect(w.downloads).toHaveLength(1)
+
+    // The Worker lost, or the page's sink refusing a piece, is a failed export with its reason, not an uncaught error.
+    store.packExport = async () => {
+      throw new StoreError('io', 'the project store stopped')
+    }
+    expect(await w.storage.exportPack()).toBe(false)
+    expect(w.storage.notice).toBe('pack.exportFailed')
+    expect(w.storage.errorDetail).toBe('the project store stopped')
+  })
+
   it('works for a project that has no home at all', async () => {
     const w = world()
     w.edit()
@@ -2037,15 +2155,21 @@ describe('export a .faulkpack', () => {
     expect(await w.storage.exportPack()).toBe(true)
   })
 
-  it('says when the pack is too big for the page to open again, and says nothing for a pack it can open', async () => {
+  it('says when the pack is too big for this page to open again, and says nothing for a pack it can open', async () => {
     const { w, store } = await drafted()
     store.media.set('blobs/aa', text('media'))
     expect(await w.storage.exportPack()).toBe(true)
     expect(w.storage.notice).toBeNull()
-    // The fake core writes `zip of N` and the media: make the sink see more than the page opens.
+    // The fake core writes `zip of N` and the media: make the sink see more than the page reads whole. Where the
+    // browser keeps projects, the page reads a pack in pieces (#682): nothing to say.
     w.host.extraBytes = MAX_PACK_BYTES
     expect(await w.storage.exportPack()).toBe(true)
+    expect(w.storage.notice).toBeNull()
+    // Where it keeps none, the page would read it whole: too big here.
+    w.browser.available = false
+    expect(await w.storage.exportPack()).toBe(true)
     expect(w.storage.notice).toBe('pack.tooBigForPage')
+    w.browser.available = true
     // Missing media is said first.
     w.host.missingBlobs = 1
     expect(await w.storage.exportPack()).toBe(true)
@@ -2063,6 +2187,183 @@ describe('export a .faulkpack', () => {
     expect(await w.storage.exportPack()).toBe(true)
   })
 
+  it('is shown from the click until its last piece is written and the file closed, and only then over (#737)', async () => {
+    const { w, store } = await drafted()
+    // Enough media for the file dialog; the fake core then writes its last piece alone (`zip of 2`).
+    store.bigMedia.set('blobs/big', 700 << 20)
+    w.host.bigSizes = true
+    w.saveFile = 'chosen'
+    const hold = () => {
+      let release!: () => void
+      return { promise: new Promise<void>((resolve) => (release = resolve)), release: () => release() }
+    }
+    const answer = hold()
+    const write = hold()
+    const close = hold()
+    w.fileHolds = { answer: answer.promise, write: write.promise, close: close.promise }
+    let over = false
+    const done = w.storage.exportPack().then((ok) => ((over = true), ok))
+    // At once, before the first wait: the dialog is still open, and Cancel already counts.
+    expect(w.storage.banner).toBe('exporting')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.saved).toEqual([])
+    expect(w.storage.banner).toBe('exporting')
+    // The file is chosen; its last piece is being written.
+    answer.release()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.saved).toHaveLength(1)
+    expect(w.saved[0]!.chunks).toEqual([])
+    expect(w.storage.banner).toBe('exporting')
+    // The last piece written: the file is not closed yet, and the export is not over.
+    write.release()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.saved[0]!.chunks.map((c) => new TextDecoder().decode(c))).toEqual(['zip of 2'])
+    expect(w.saved[0]!.closed).toBe(false)
+    expect(w.storage.banner).toBe('exporting')
+    expect(over).toBe(false)
+    // Closed: only now is it over.
+    close.release()
+    expect(await done).toBe(true)
+    expect(w.saved[0]!.closed).toBe(true)
+    expect(w.storage.exporting).toBeNull()
+    expect(w.storage.banner).toBeNull()
+  })
+
+  it('takes the banner down when it stops before writing: a closed dialog, no room, nothing to export', async () => {
+    const { w, store } = await drafted()
+    store.bigMedia.set('blobs/big', 700 << 20)
+    w.host.bigSizes = true
+    w.saveFile = 'cancelled'
+    expect(await w.storage.exportPack()).toBe(false)
+    expect(w.storage.exporting).toBeNull()
+    w.saveFile = 'unsupported'
+    w.free = 100 << 20
+    expect(await w.storage.exportPack()).toBe(false)
+    expect(w.storage.notice).toBe('pack.noRoom')
+    expect(w.storage.exporting).toBeNull()
+    w.free = null
+    w.host.frameFails = true
+    expect(await w.storage.exportPack()).toBe(false)
+    expect(w.storage.exporting).toBeNull()
+    // Cancelled before the dialog opens: no dialog at all.
+    w.host.frameFails = false
+    w.saveFile = 'chosen'
+    const before = w.saved.length
+    const early = w.storage.exportPack()
+    expect(w.storage.banner).toBe('exporting')
+    w.storage.cancelExport()
+    expect(await early).toBe(false)
+    expect(w.storage.notice).toBe('pack.exportCancelled')
+    expect(w.saved.length).toBe(before)
+    expect(w.storage.exporting).toBeNull()
+    // Cancelled while the dialog is open: the file chosen is dropped.
+    let answer!: () => void
+    let asked = false
+    w.fileHolds = { answer: new Promise<void>((resolve) => (answer = resolve)) }
+    const ask = w.deps.saveFile!
+    w.deps.saveFile = (name) => ((asked = true), ask(name))
+    const done = w.storage.exportPack()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(asked).toBe(true)
+    expect(w.storage.banner).toBe('exporting')
+    w.storage.cancelExport()
+    answer()
+    expect(await done).toBe(false)
+    expect(w.storage.notice).toBe('pack.exportCancelled')
+    expect(w.saved.at(-1)!.aborted).toBe(true)
+    expect(w.storage.exporting).toBeNull()
+  })
+
+  it('ends at once when cancelled while it waits for the queue, and the queued step then does nothing (#737)', async () => {
+    const { w, store } = await drafted()
+    store.bigMedia.set('blobs/big', 700 << 20)
+    w.host.bigSizes = true
+    w.saveFile = 'chosen'
+    let free!: () => void
+    const busy = (w.storage as unknown as { enqueue(task: () => Promise<void>): Promise<void> }).enqueue(() => new Promise<void>((resolve) => (free = resolve)))
+    const saves = w.host.saves.length
+    const done = w.storage.exportPack()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.saved).toHaveLength(1)
+    expect(w.storage.banner).toBe('exporting')
+    w.storage.cancelExport()
+    // Over before the queue frees: the file is dropped, the banner gone.
+    expect(await done).toBe(false)
+    expect(w.storage.notice).toBe('pack.exportCancelled')
+    expect(w.saved[0]!.aborted).toBe(true)
+    expect(w.storage.exporting).toBeNull()
+    free()
+    await busy
+    await vi.advanceTimersByTimeAsync(0)
+    // The step it had queued did not build a frame for nothing.
+    expect(w.host.saves.length).toBe(saves)
+    expect(w.host.exports).toEqual([])
+    expect(await w.storage.exportPack()).toBe(true)
+  })
+
+  it('leaves the banner to an import or a download at work, whose Cancel stays, and shows again once they are over (#737)', async () => {
+    const { w } = await drafted()
+    let free!: () => void
+    const busy = (w.storage as unknown as { enqueue(task: () => Promise<void>): Promise<void> }).enqueue(() => new Promise<void>((resolve) => (free = resolve)))
+    w.storage.importing = 0.3
+    const done = w.storage.exportPack()
+    expect(w.storage.exporting).toBe(0)
+    expect(w.storage.banner).toBe('importing')
+    w.storage.importing = null
+    w.storage.downloading = 'example.com'
+    expect(w.storage.banner).toBe('downloading')
+    w.storage.downloading = null
+    expect(w.storage.banner).toBe('exporting')
+    await vi.advanceTimersByTimeAsync(0)
+    free()
+    await busy
+    expect(await done).toBe(true)
+    expect(w.storage.banner).toBeNull()
+  })
+
+  it('keeps the banner of an export that writes in front of an import or a download started meanwhile (#737)', async () => {
+    const { w, store } = await drafted()
+    store.media.set('blobs/aa', text('media'))
+    let release!: () => void
+    w.host.exportHold = new Promise<void>((resolve) => (release = resolve))
+    const done = w.storage.exportPack()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.storage.exporting).toBe(0.6)
+    w.storage.importing = 0.2
+    expect(w.storage.banner).toBe('exporting')
+    w.storage.importing = null
+    w.storage.downloading = 'example.com'
+    expect(w.storage.banner).toBe('exporting')
+    release()
+    expect(await done).toBe(true)
+    // Over: the download's banner is the one left.
+    expect(w.storage.banner).toBe('downloading')
+    w.storage.downloading = null
+  })
+
+  it('says it was cancelled, not that it failed, when the media list it was reading fails after the cancel (#737)', async () => {
+    const { w, store } = await drafted()
+    store.media.set('blobs/aa', text('media'))
+    const list = store.listBlobs.bind(store)
+    let fail!: (error: Error) => void
+    let calls = 0
+    store.listBlobs = async () => {
+      // The first read is the size check before the dialog; the second is the preparation's, held, then failing.
+      if (++calls === 1) return list()
+      return new Promise<FolderEntry[]>((_resolve, reject) => (fail = reject))
+    }
+    const done = w.storage.exportPack()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(calls).toBe(2)
+    w.storage.cancelExport()
+    expect(await done).toBe(false)
+    expect(w.storage.notice).toBe('pack.exportCancelled')
+    fail(new Error('the folder went away'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(w.storage.notice).toBe('pack.exportCancelled')
+    expect(w.storage.errorDetail).not.toBe('the folder went away')
+  })
+
   it('does not start a second export while one is under way', async () => {
     const { w, store } = await drafted()
     store.media.set('blobs/aa', text('media'))
@@ -2071,6 +2372,8 @@ describe('export a .faulkpack', () => {
     const first = w.storage.exportPack()
     // At once, before anything is chosen or read: the dialog is part of the export.
     expect(await w.storage.exportPack()).toBe(false)
+    // The refused one does not take down the banner of the one under way.
+    expect(w.storage.banner).toBe('exporting')
     await vi.advanceTimersByTimeAsync(0)
     expect(await w.storage.exportPack()).toBe(false)
     release()
@@ -2131,8 +2434,15 @@ describe('import a .faulkpack', () => {
     expect(await w.storage.importPack()).toBe(true)
     const dir = w.browser.only
     const store = w.stores.get(w.browser.handles.get(dir)!)!
-    // Blobs, the other files, then project.json: the project exists only once it is whole.
-    expect(store.applied).toEqual([['blobs/aa', 'tracks/t1/track.json', 'project.json']])
+    // Read in pieces by the store (#682): the project's own files first, to know the project, then all of it, the blobs
+    // written as they come; then the other files, project.json last: the project exists only once it is whole.
+    expect(store.unpacks.map((u) => [u.source instanceof File, u.textOnly])).toEqual([
+      [true, true],
+      [true, false],
+    ])
+    expect([...store.media.keys()]).toEqual(['blobs/aa'])
+    expect(store.applied).toEqual([['tracks/t1/track.json', 'project.json']])
+    expect(w.storage.importing).toBeNull()
     expect(w.host.opened.map((o) => o.name)).toEqual([`browser/${dir}`])
     expect(w.storage.place).toBe('browser')
     expect(w.storage.browserProjects.map((p) => p.dir)).toEqual([dir])
@@ -2156,7 +2466,7 @@ describe('import a .faulkpack', () => {
     vi.unstubAllGlobals()
   })
 
-  it('changes nothing when the file is no pack, is too big, or the user chose nothing', async () => {
+  it('changes nothing when the file is no pack or the user chose nothing: the directory made for it goes', async () => {
     const w = world()
     w.browser.available = true
     w.host.unpacked = { status: 'failed', message: 'bad zip' }
@@ -2164,12 +2474,338 @@ describe('import a .faulkpack', () => {
     expect(await w.storage.importPack()).toBe(false)
     expect(w.storage.notice).toBe('pack.invalid')
     expect(w.storage.errorDetail).toBe('bad zip')
-    w.packs.push(new File([new Uint8Array(MAX_PACK_BYTES + 1)], 'huge.faulkpack'))
     expect(await w.storage.importPack()).toBe(false)
-    expect(w.storage.notice).toBe('pack.tooBig')
-    expect(await w.storage.importPack()).toBe(false)
-    expect(w.browser.created).toEqual([])
+    expect(w.browser.created.length).toBe(1)
+    expect(w.browser.removed).toEqual(w.browser.created)
+    expect(w.browser.handles.size).toBe(0)
+    expect(w.locks.size).toBe(0)
     expect(w.host.opened).toEqual([])
+    expect(w.storage.importing).toBeNull()
+  })
+
+  it('reads a pack of any size in pieces where the browser keeps projects, and holds the page limit where it keeps none', async () => {
+    const huge = () => new File([new Uint8Array(MAX_PACK_BYTES + 1)], 'huge.faulkpack')
+    const w = world()
+    w.browser.available = true
+    w.host.unpacked = packOf('pack-1')
+    w.packs.push(huge())
+    expect(await w.storage.importPack()).toBe(true)
+    expect(w.host.opened.length).toBe(1)
+    // The tab alone reads a pack whole: too big there.
+    const alone = world()
+    alone.host.unpacked = packOf('pack-1')
+    alone.packs.push(huge())
+    expect(await alone.storage.importPack()).toBe(false)
+    expect(alone.storage.notice).toBe('pack.tooBig')
+    expect(alone.host.opened).toEqual([])
+  })
+
+  it('refuses a pack the browser has no room for before reading its media: what its blobs take, as its directory says', async () => {
+    const w = world()
+    w.browser.available = true
+    w.host.unpacked = packOf('pack-1')
+    // The pack's file is 3 bytes; its blob takes 5.
+    w.free = 4
+    w.packs.push(packFile())
+    expect(await w.storage.importPack()).toBe(false)
+    expect(w.storage.notice).toBe('storage.browserFull')
+    expect(w.browser.handles.size).toBe(0)
+    expect([...w.stores.values()].flatMap((store) => store.unpacks.map((u) => u.textOnly))).toEqual([true])
+    w.free = 5
+    w.packs.push(packFile())
+    expect(await w.storage.importPack()).toBe(true)
+  })
+
+  it('stops a link waiting behind another download when asked, before it is fetched', async () => {
+    const w = world()
+    w.browser.available = true
+    w.host.unpacked = packOf('pack-1')
+    let release!: () => void
+    const hold = new Promise<void>((resolve) => (release = resolve))
+    const fetched: string[] = []
+    w.deps.fetch = async (input) => {
+      fetched.push(input instanceof Request ? input.url : input.toString())
+      await hold
+      return new Response(text('zip'))
+    }
+    const first = w.storage.openUrl('https://a.example.org/1.faulkpack')
+    const second = w.storage.openUrl('https://a.example.org/2.faulkpack')
+    await settle()
+    w.storage.cancelImport()
+    release()
+    expect(await first).toBe(false)
+    expect(await second).toBe(false)
+    expect(fetched).toEqual(['https://a.example.org/1.faulkpack'])
+    expect(w.storage.notice).toBe('pack.importCancelled')
+    expect(w.host.opened).toEqual([])
+  })
+
+  describe('a cancel of an import, where the pack is read whole and where it is read in pieces (#735)', () => {
+    const LINK = 'https://cdn.example.org/tracks/a/project.faulkpack'
+    /** A file whose stream gives `pieces` of 1 byte, the last after `hold` is released. */
+    const heldFile = (hold: Promise<void>, pieces = 4) =>
+      ({
+        name: 'song.faulkpack',
+        size: pieces,
+        stream: () =>
+          new ReadableStream<Uint8Array>({
+            async pull(controller) {
+              if (controller.desiredSize === null) return
+              this.sent = (this.sent ?? 0) + 1
+              if (this.sent === pieces) await hold
+              controller.enqueue(new Uint8Array(1))
+              if (this.sent === pieces) controller.close()
+            },
+          } as UnderlyingDefaultSource<Uint8Array> & { sent?: number }),
+      }) as unknown as File
+
+    it('stops the read when asked, shows its banner with the cancel, changes nothing and says what it stopped', async () => {
+      const w = world()
+      w.host.unpacked = packOf('pack-1')
+      let release!: () => void
+      const hold = new Promise<void>((resolve) => (release = resolve))
+      w.packs.push(heldFile(hold))
+      const reading = w.storage.importPack()
+      await vi.waitFor(() => expect(w.storage.banner).toBe('importing'))
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 1, tooLate: 0 })
+      // Asked twice, it stopped one import once.
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 0, tooLate: 0 })
+      release()
+      expect(await reading).toBe(false)
+      expect(w.storage.notice).toBe('pack.importCancelled')
+      expect(w.storage.importing).toBeNull()
+      expect(w.host.opened).toEqual([])
+    })
+
+    it('stops an import cancelled before its read started, and one cancelled after the read, before the project opens', async () => {
+      const w = world()
+      w.host.unpacked = packOf('pack-1')
+      // While it waits behind other work: the file is never read.
+      let free!: () => void
+      const busy = (w.storage as unknown as { enqueue(task: () => Promise<void>): Promise<void> }).enqueue(
+        () => new Promise<void>((resolve) => (free = resolve)),
+      )
+      const read = vi.fn()
+      w.packs.push({ name: 'a.faulkpack', size: 3, stream: read } as unknown as File)
+      const waiting = w.storage.importPack()
+      await settle()
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 1, tooLate: 0 })
+      free()
+      await busy
+      expect(await waiting).toBe(false)
+      expect(read).not.toHaveBeenCalled()
+      expect(w.storage.notice).toBe('pack.importCancelled')
+      // Read, then cancelled before the project starts opening: the host unpacks it, the page stops there.
+      const unpack = vi.spyOn(w.host, 'packImport').mockImplementation(async () => {
+        w.storage.cancelImport()
+        return packOf('pack-2')
+      })
+      w.packs.push(packFile())
+      expect(await w.storage.importPack()).toBe(false)
+      expect(unpack).toHaveBeenCalledTimes(1)
+      expect(w.storage.notice).toBe('pack.importCancelled')
+      expect(w.host.opened).toEqual([])
+    })
+
+    it('is too late once the project started to open: it opens, and the cancel says it came too late', async () => {
+      const w = world()
+      w.host.unpacked = packOf('pack-1')
+      let release!: () => void
+      w.host.openHold = new Promise<void>((resolve) => (release = resolve))
+      const started = new Promise<void>((resolve) => (w.host.opening = resolve))
+      w.packs.push(packFile())
+      const importing = w.storage.importPack()
+      await started
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 0, tooLate: 1 })
+      release()
+      expect(await importing).toBe(true)
+      expect(w.host.opened.length).toBe(1)
+      // Over: nothing runs any more.
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 0, tooLate: 0 })
+    })
+
+    it('is cancelled after a link was downloaded, while its import waits its turn', async () => {
+      const w = world()
+      w.host.unpacked = packOf('pack-1')
+      w.served.set(LINK, text('zip'))
+      let free!: () => void
+      const busy = (w.storage as unknown as { enqueue(task: () => Promise<void>): Promise<void> }).enqueue(
+        () => new Promise<void>((resolve) => (free = resolve)),
+      )
+      const opening = w.storage.openUrl(LINK)
+      await settle()
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 1, tooLate: 0 })
+      free()
+      await busy
+      expect(await opening).toBe(false)
+      expect(w.storage.notice).toBe('pack.importCancelled')
+      expect(w.host.opened).toEqual([])
+    })
+
+    it('with browser storage: a cancel comes too late once the project opens, and not before', async () => {
+      const w = world()
+      w.browser.available = true
+      w.host.unpacked = packOf('pack-1')
+      let release!: () => void
+      w.host.openHold = new Promise<void>((resolve) => (release = resolve))
+      const started = new Promise<void>((resolve) => (w.host.opening = resolve))
+      w.packs.push(packFile())
+      const importing = w.storage.importPack()
+      await started
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 0, tooLate: 1 })
+      release()
+      expect(await importing).toBe(true)
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 0, tooLate: 0 })
+    })
+
+    it('with browser storage: a link whose kept copy would open is stopped by a cancel that comes before it', async () => {
+      const w = world()
+      w.browser.available = true
+      w.served.set(LINK, text('zip'))
+      w.host.unpacked = packOf('pack-1')
+      expect(await w.storage.openUrl(LINK)).toBe(true)
+      w.host.id = 'pack-1'
+      await w.storage.newProject()
+      w.storage.dismissNotice()
+      const opened = w.host.opened.length
+      // The cancel lands while the page looks at what the browser keeps.
+      const list = w.browser.list.bind(w.browser)
+      w.browser.list = async () => {
+        w.storage.cancelImport()
+        return list()
+      }
+      expect(await w.storage.openUrl(LINK)).toBe(false)
+      expect(w.storage.notice).toBe('pack.importCancelled')
+      expect(w.host.opened.length).toBe(opened)
+    })
+
+    it('counts a link read whole the same way: cancelled while it downloads', async () => {
+      const w = world()
+      w.host.unpacked = packOf('pack-1')
+      let rest!: () => void
+      const more = new Promise<void>((resolve) => (rest = resolve))
+      w.deps.fetch = async (_input, init) => {
+        await more
+        if (init?.signal?.aborted) throw new DOMException('aborted', 'AbortError')
+        return new Response(text('zip'))
+      }
+      const opening = w.storage.openUrl('https://a.example.org/1.faulkpack')
+      await settle()
+      expect(w.storage.cancelImport()).toEqual({ cancelled: 1, tooLate: 0 })
+      rest()
+      expect(await opening).toBe(false)
+      expect(w.host.opened).toEqual([])
+    })
+  })
+
+  it('shows how far a download is when the host announced its length', async () => {
+    const w = world()
+    w.browser.available = true
+    w.host.unpacked = packOf('pack-1')
+    let rest!: () => void
+    const more = new Promise<void>((resolve) => (rest = resolve))
+    w.deps.fetch = async () => {
+      const body = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          controller.enqueue(new Uint8Array(2))
+          await more
+          controller.enqueue(new Uint8Array(2))
+          controller.close()
+        },
+      })
+      return new Response(body, { headers: { 'content-length': '4' } })
+    }
+    const opening = w.storage.openUrl('https://a.example.org/1.faulkpack')
+    await vi.waitFor(() => expect(w.storage.downloadProgress).toBe(0.5))
+    expect(w.storage.banner).toBe('downloading')
+    rest()
+    expect(await opening).toBe(true)
+    expect(w.storage.downloadProgress).toBeNull()
+  })
+
+  it('stops an import when asked: while it waits its turn, while it reads, and not one asked for after', async () => {
+    const w = world()
+    w.browser.available = true
+    w.host.unpacked = packOf('pack-1')
+    // While it reads: the banner says how far it is and offers to stop it.
+    let release!: () => void
+    const hold = new Promise<void>((resolve) => (release = resolve))
+    const original = w.deps.openStore
+    w.deps.openStore = async (handle) => {
+      const store = (await original(handle)) as FakeStore
+      store.unpackHold = hold
+      return store
+    }
+    w.packs.push(packFile())
+    const reading = w.storage.importPack()
+    await settle()
+    expect(w.storage.importing).toBe(0.5)
+    expect(w.storage.banner).toBe('importing')
+    w.storage.cancelImport()
+    release()
+    expect(await reading).toBe(false)
+    expect(w.storage.notice).toBe('pack.importCancelled')
+    expect(w.storage.importing).toBeNull()
+    expect(w.browser.handles.size).toBe(0)
+    expect(w.host.opened).toEqual([])
+    // While it waits behind other work: never started.
+    w.deps.openStore = original
+    w.storage.dismissNotice()
+    let free!: () => void
+    const busy = (w.storage as unknown as { enqueue(task: () => Promise<void>): Promise<void> }).enqueue(() => new Promise<void>((resolve) => (free = resolve)))
+    w.packs.push(packFile())
+    const waiting = w.storage.importPack()
+    await settle()
+    w.storage.cancelImport()
+    free()
+    await busy
+    expect(await waiting).toBe(false)
+    expect(w.storage.notice).toBe('pack.importCancelled')
+    expect(w.browser.created.length).toBe(1)
+    // A cancel reaches only the imports asked for before it.
+    w.packs.push(packFile())
+    expect(await w.storage.importPack()).toBe(true)
+  })
+
+  it('stops an import cancelled while its files are written, before its project opens', async () => {
+    const w = world()
+    w.browser.available = true
+    w.host.unpacked = packOf('pack-1')
+    let release!: () => void
+    const hold = new Promise<void>((resolve) => (release = resolve))
+    const original = w.deps.openStore
+    w.deps.openStore = async (handle) => {
+      const store = (await original(handle)) as FakeStore
+      store.hold = hold
+      return store
+    }
+    w.packs.push(packFile())
+    const importing = w.storage.importPack()
+    await settle()
+    w.storage.cancelImport()
+    release()
+    expect(await importing).toBe(false)
+    expect(w.storage.notice).toBe('pack.importCancelled')
+    expect(w.host.opened).toEqual([])
+    expect(w.browser.handles.size).toBe(0)
+    expect(w.locks.size).toBe(0)
+  })
+
+  it('removes what an import wrote when the store fails while it reads', async () => {
+    const w = world()
+    w.browser.available = true
+    w.host.unpacked = packOf('pack-1')
+    const original = w.deps.openStore
+    w.deps.openStore = async (handle) => {
+      const store = (await original(handle)) as FakeStore
+      store.unpackFails = new StoreError('full', 'QuotaExceededError')
+      return store
+    }
+    w.packs.push(packFile())
+    expect(await w.storage.importPack()).toBe(false)
+    expect(w.storage.notice).toBe('storage.browserFull')
+    expect(w.browser.handles.size).toBe(0)
+    expect(w.locks.size).toBe(0)
   })
 
   it('never overwrites a project of the same identity: the one open, nor the one kept in the browser', async () => {
@@ -2194,7 +2830,9 @@ describe('import a .faulkpack', () => {
     w.storage.dismissNotice()
     expect(w.storage.noticeVars).toBeNull()
     expect(w.storage.noticeOpen).toBeNull()
-    expect(w.browser.created.length).toBe(1)
+    // Each import made its directory, read the project's own files alone, and removed it: only the draft is left.
+    expect(w.browser.created.length).toBe(3)
+    expect(w.browser.removed).toEqual(w.browser.created.slice(1))
   })
 
   it('leaves the project and the browser as they were when the write fails, with a message for a full quota', async () => {
@@ -2225,8 +2863,7 @@ describe('import a .faulkpack', () => {
     w.host.unpacked = packOf('pack-1')
     w.packs.push(packFile())
     const importing = w.storage.importPack()
-    await settle()
-    expect(w.storage.confirm?.action).toBe('open')
+    await vi.waitFor(() => expect(w.storage.confirm?.action).toBe('open'))
     w.storage.respond(false)
     expect(await importing).toBe(false)
     expect(w.host.opened).toEqual([])
@@ -2657,23 +3294,113 @@ describe('open a .faulkpack by its link (#497)', () => {
     w.storage.dismissDownloadFailed()
     expect(await w.storage.openUrl('https://cdn.example.org/gone.faulkpack')).toBe(false)
     expect(w.storage.downloadFailed).toBe('cdn.example.org')
-    expect(w.browser.created).toEqual([])
+    // The directory each download went to is gone.
+    expect(w.browser.removed).toEqual(w.browser.created)
+    expect(w.browser.handles.size).toBe(0)
     expect(w.host.opened).toEqual([])
   })
 
-  it('refuses an invalid pack and one too big, leaving the current project and the browser as they were', async () => {
+  it('refuses an invalid pack, leaving the current project and the browser as they were', async () => {
     const w = world()
     w.browser.available = true
     w.served.set(LINK, text('zip'))
     w.host.unpacked = { status: 'failed', message: 'bad zip' }
     expect(await w.storage.openUrl(LINK)).toBe(false)
     expect(w.storage.notice).toBe('pack.invalid')
+    expect(w.browser.removed).toEqual(w.browser.created)
+    expect(w.browser.handles.size).toBe(0)
+    expect(w.host.opened).toEqual([])
+  })
+
+  it('downloads a pack of any size into the new project directory, reads it from there, then removes it (#682)', async () => {
+    const w = world()
+    w.browser.available = true
     w.served.set(LINK, new Uint8Array(MAX_PACK_BYTES + 1))
     w.host.unpacked = packOf('pack-1')
-    expect(await w.storage.openUrl(LINK)).toBe(false)
-    expect(w.storage.notice).toBe('pack.tooBig')
-    expect(w.browser.created).toEqual([])
+    expect(await w.storage.openUrl(LINK)).toBe(true)
+    const store = w.stores.get(w.browser.handles.get(w.browser.only)!)!
+    expect(store.written.get(DOWNLOAD_PATH)?.length).toBe(MAX_PACK_BYTES + 1)
+    expect(store.unpacks.map((u) => [u.source, u.textOnly])).toEqual([
+      [DOWNLOAD_PATH, true],
+      [DOWNLOAD_PATH, false],
+    ])
+    // The downloaded pack goes before the project's files are written.
+    expect(store.applied).toEqual([[DOWNLOAD_PATH, 'tracks/t1/track.json', 'project.json']])
+    // Where the browser keeps nothing, the download is held in memory, within the page's limit.
+    const alone = world()
+    alone.served.set(LINK, new Uint8Array(MAX_PACK_BYTES + 1))
+    alone.host.unpacked = packOf('pack-1')
+    expect(await alone.storage.openUrl(LINK)).toBe(false)
+    expect(alone.storage.notice).toBe('pack.tooBig')
+  })
+
+  it('stops a download when asked, and the import it would have become', async () => {
+    const w = world()
+    w.browser.available = true
+    w.host.unpacked = packOf('pack-1')
+    let release!: () => void
+    const hold = new Promise<void>((resolve) => (release = resolve))
+    w.deps.fetch = async () => {
+      await hold
+      return new Response(text('zip'))
+    }
+    const opening = w.storage.openUrl(LINK)
+    await settle()
+    expect(w.storage.banner).toBe('downloading')
+    w.storage.cancelImport()
+    release()
+    expect(await opening).toBe(false)
+    expect(w.storage.notice).toBe('pack.importCancelled')
+    expect(w.storage.downloading).toBeNull()
+    expect(w.browser.handles.size).toBe(0)
     expect(w.host.opened).toEqual([])
+    // The next link is not touched by that cancel.
+    w.deps.fetch = async () => new Response(text('zip'))
+    expect(await w.storage.openUrl(LINK)).toBe(true)
+  })
+
+  it('keeps the current project when a link whose project the browser keeps is cancelled while its project is read', async () => {
+    const w = world()
+    w.browser.available = true
+    w.served.set(LINK, text('zip'))
+    w.host.unpacked = packOf('pack-1')
+    expect(await w.storage.openUrl(LINK)).toBe(true)
+    await w.storage.newProject()
+    w.storage.dismissNotice()
+    const opened = w.host.opened.length
+    let release!: () => void
+    const hold = new Promise<void>((resolve) => (release = resolve))
+    const original = w.deps.openStore
+    w.deps.openStore = async (handle) => {
+      const store = (await original(handle)) as FakeStore
+      store.textHold = hold
+      return store
+    }
+    const opening = w.storage.openUrl(LINK)
+    await vi.waitFor(() => expect(w.storage.banner).toBe('importing'))
+    w.storage.cancelImport()
+    release()
+    expect(await opening).toBe(false)
+    expect(w.storage.notice).toBe('pack.importCancelled')
+    // The kept copy was not opened in place of the current project.
+    expect(w.host.opened.length).toBe(opened)
+  })
+
+  it('removes the directory of a download the browser had no room for', async () => {
+    const w = world()
+    w.browser.available = true
+    w.served.set(LINK, text('zip'))
+    w.host.unpacked = packOf('pack-1')
+    const original = w.deps.openStore
+    w.deps.openStore = async (handle) => {
+      const store = (await original(handle)) as FakeStore
+      store.fail = new StoreError('full', 'QuotaExceededError')
+      return store
+    }
+    expect(await w.storage.openUrl(LINK)).toBe(false)
+    expect(w.storage.notice).toBe('storage.browserFull')
+    expect(w.browser.handles.size).toBe(0)
+    expect(w.locks.size).toBe(0)
   })
 
   it('opened again, the same link opens the copy the browser keeps, never a second one', async () => {
@@ -2693,7 +3420,9 @@ describe('open a .faulkpack by its link (#497)', () => {
     w.storage.dismissNotice()
     expect(await w.storage.openUrl(LINK)).toBe(true)
     expect(w.storage.notice).toBe('openUrl.keptCopy')
-    expect(w.browser.created).toEqual([dir])
+    // Each download went to a directory of its own, removed once the pack's project was known.
+    expect(w.browser.created[0]).toBe(dir)
+    expect(w.browser.removed).toEqual(w.browser.created.slice(1))
     expect(w.host.opened.map((o) => o.name)).toEqual([`browser/${dir}`, `browser/${dir}`])
   })
 
@@ -2858,6 +3587,59 @@ describe('importing an audio file (AU-1)', () => {
     expect(signal.aborted).toBe(false)
     await w.storage.newProject()
     expect(signal.aborted).toBe(true)
+  })
+
+  it('the PCM cache work of an attach is awaitable from the start of the attach, not only once it begins (#707)', async () => {
+    const { w, handle, store } = await saved()
+    const media = [{ hash: 'a'.repeat(64), sample_rate: 44_100, channels: 2, frames: 10 }]
+    w.host.audioMedia = () => media
+    store.files.set('project.json', 'rev 0')
+    w.storage.sleep()
+    w.recents = [{ id: handle.name, name: handle.name, handle, at: 1 }]
+    await w.storage.newProject()
+    // What a hook reads in the middle of the attach (the engine is told the folder before the work starts).
+    const early: { done: Promise<void> | null } = { done: null }
+    const told = w.host.folderChanged.bind(w.host)
+    w.host.folderChanged = (h) => {
+      early.done = w.storage.audioCacheDone
+      told(h)
+    }
+    let release = () => {}
+    store.cacheHold = new Promise((resolve) => (release = resolve))
+    const opening = w.storage.openRecent(handle.name)
+    await settle()
+    let done = false
+    void early.done!.then(() => (done = true))
+    await settle()
+    expect(done, 'still waiting for the work').toBe(false)
+    release()
+    await opening
+    await early.done
+    expect(w.storage.audioCache).toEqual({ made: [media[0]!.hash], peaks: [], missing: [], failed: [] })
+  })
+
+  it('an attach that ends without the cache work does not leave its wait pending (#707)', async () => {
+    const { w, handle } = await saved()
+    const settled = async () => {
+      let done = false
+      void w.storage.audioCacheDone.then(() => (done = true))
+      await settle()
+      return done
+    }
+    // No media: the work is empty.
+    w.storage.sleep()
+    w.recents = [{ id: handle.name, name: handle.name, handle, at: 1 }]
+    await w.storage.newProject()
+    expect(await w.storage.openRecent(handle.name)).toBe(true)
+    expect(await settled()).toBe(true)
+    // An attach that fails before the work starts.
+    w.storage.sleep()
+    await w.storage.newProject()
+    w.host.folderChanged = () => {
+      throw new Error('boom')
+    }
+    await w.storage.openRecent(handle.name).catch(() => undefined)
+    expect(await settled()).toBe(true)
   })
 
   it('reads the waveform peaks of a media from the place, and has them made one media at a time, stopped when the project leaves it (AU-2)', async () => {

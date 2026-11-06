@@ -12,6 +12,8 @@ import { draftName } from '../project/draft-name'
 import { CoreError, coreModule, engineStep, ProjectCore, type EngineStep, type FolderEntry, type StoredProjects } from '../project/core'
 import {
   analyzeRange,
+  cancelImportOutput,
+  isCancelImportPack,
   isListStored,
   isMixerLevels,
   isNewProject,
@@ -127,6 +129,12 @@ export class Dispatcher {
 
   /** MIDI recording (#470): told of every command applied and every report of the current engine. */
   recorder: Recorder | null = null
+
+  /** Dev checks only (#733): the Web engine's clock, `null` when it does not play. */
+  webClock(): { sampleRate: number; heardFrameAt(timeStamp: number): number | null } | null {
+    const web = this.web
+    return !this.native && web ? { sampleRate: web.sampleRate, heardFrameAt: (t) => web.heardFrameAt(t) } : null
+  }
 
   private get engine(): Engine | null {
     return this.native ?? this.web
@@ -651,6 +659,8 @@ export class Dispatcher {
     }
     // Needs no project: the theme is the page's (#687).
     if (isSetTheme(command)) return this.setTheme(command.theme)
+    // Needs no project either: the imports are the storage's, which says what it stopped (#735).
+    if (isCancelImportPack(command)) return this.cancelImportPack()
     // The queries that measure levels: the page stages its numbers in the core, then the command answers (#665).
     if (isMixerLevels(command) && this.core) this.stageLevels(this.core)
     const range = analyzeRange(command)
@@ -770,6 +780,22 @@ export class Dispatcher {
     return { status: 'applied', output: SET_THEME_OUTPUT }
   }
 
+  /**
+   * `project.cancel_import_pack` for an agent: the imports the storage stopped, and those it could not (their project had
+   * started to open). When none could be stopped and some were too late, the agent is told so instead of being answered as
+   * if it had worked (#735).
+   */
+  private cancelImportPack(): AgentResult {
+    const { cancelled, tooLate } = this.storage?.cancelImport() ?? { cancelled: 0, tooLate: 0 }
+    if (cancelled === 0 && tooLate > 0) {
+      return {
+        status: 'refused',
+        error: { code: 'not_done', message: 'too late: the pack is already opening its project, nothing was cancelled', notice: null },
+      }
+    }
+    return { status: 'applied', output: cancelImportOutput(cancelled, tooLate) }
+  }
+
   /** `run`, saying what happened: what an agent is answered (`runForAgent`). */
   private execute(command: Command, options: RunOptions): Ran {
     // The theme is the user's, kept by the browser (#687): the page applies it, before audio starts too.
@@ -860,6 +886,7 @@ export class Dispatcher {
       saveAs: () => void this.storage?.saveAs(),
       exportPack: () => void this.storage?.exportPack(),
       cancelExportPack: () => this.storage?.cancelExport(),
+      cancelImportPack: () => this.storage?.cancelImport(),
       importPack: () => void this.storage?.importPack(),
       openUrl: (url) => track(this.storage?.openUrl(url, allowed)),
       reopenLast: () => track(this.storage?.reopenLast(allowed)),

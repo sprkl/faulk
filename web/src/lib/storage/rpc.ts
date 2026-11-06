@@ -1,12 +1,26 @@
 // The page's side of the project store's Worker (SV-2): `ProjectStore` over `postMessage`.
 import { ImportError, type ImportErrorCode } from '../audio/import/abi'
 import type { CacheReport, ImportOutcome, MediaRef } from '../audio/import/pipeline'
-import type { FolderEntry, SaveEntry } from '../project/core'
-import { StoreError, type FolderHandle, type ProjectStore, type Signature, type StoreErrorCode } from './types'
+import type { FolderEntry, PackExport, PackIO, PackUnpack, SaveEntry } from '../project/core'
+import { StoreError, type FileWriter, type FolderHandle, type ProjectStore, type Signature, type StoreErrorCode } from './types'
 import { FolderBackend } from './backend'
 
 /** The calls of `ProjectStore` the Worker takes by name. */
-export const STORE_METHODS = ['isEmpty', 'hasProject', 'readFolder', 'listBlobs', 'read', 'apply', 'scan', 'copyBlobsFrom', 'cleanUp'] as const
+export const STORE_METHODS = [
+  'isEmpty',
+  'hasProject',
+  'readFolder',
+  'listBlobs',
+  'read',
+  'apply',
+  'scan',
+  'copyBlobsFrom',
+  'cleanUp',
+  'openWriter',
+  'writePiece',
+  'closeWriter',
+  'abortWriter',
+] as const
 type Method = (typeof STORE_METHODS)[number]
 
 export type Request =
@@ -17,6 +31,12 @@ export type Request =
   | { id: number; op: 'import'; key: number; file: File }
   /** The PCM caches a folder lacks, made again (AU-1). */
   | { id: number; op: 'audioCache'; key: number; media: MediaRef[] }
+  /** The `.faulkpack` of a folder (#685): zip pieces come back as `chunk` replies, each waiting for a `packAck`. */
+  | { id: number; op: 'pack'; key: number; entries: FolderEntry[] }
+  /** A `.faulkpack` imported into the folder (#682), from a file or a file of the folder (a path): progress replies until the answer. */
+  | { id: number; op: 'unpack'; key: number; source: Blob | string; textOnly?: boolean }
+  /** The page wrote the piece of pack `target` (`failed`: it could not, stop the export). No answer of its own. */
+  | { id: number; op: 'packAck'; target: number; failed?: boolean }
   /** Cancels the import `target` (no answer of its own). */
   | { id: number; op: 'cancel'; target: number }
 
@@ -28,6 +48,8 @@ export type Reply =
   | { id: number; ok: false; code: StoreErrorCode; message: string; importCode?: ImportErrorCode }
   /** How far a long call (an import) is, from 0 to 1. */
   | { id: number; progress: number }
+  /** A piece of zip of the pack under way, handed over; the Worker waits for the page's `packAck`. */
+  | { id: number; chunk: Uint8Array }
 
 /** A call the Worker has not answered after this long is lost: the Worker is dropped and the call fails. */
 export const STORE_TIMEOUT_MS = 600_000
@@ -46,7 +68,10 @@ export class StoreWorker {
   dead = false
   private next = 1
   private nextKey = 1
-  private readonly waiting = new Map<number, { resolve(value: unknown): void; reject(error: Error): void; progress(fraction: number): void }>()
+  private readonly waiting = new Map<
+    number,
+    { resolve(value: unknown): void; reject(error: Error): void; progress(fraction: number): void; chunk(bytes: Uint8Array): void }
+  >()
 
   constructor(private readonly worker: WorkerLike) {
     worker.onmessage = (event) => {
@@ -55,6 +80,10 @@ export class StoreWorker {
       if (!waiter) return
       if ('progress' in reply) {
         waiter.progress(reply.progress)
+        return
+      }
+      if ('chunk' in reply) {
+        waiter.chunk(reply.chunk)
         return
       }
       this.waiting.delete(reply.id)
@@ -79,7 +108,11 @@ export class StoreWorker {
    * Worker alive with each report: the deadline counts from the last sign of life, not from the
    * start, so an hour-long import is not taken for a Worker that stopped. `signal` sends a cancel.
    */
-  request<T>(message: RequestBody, transfer: Transferable[] = [], options: { onProgress?: (fraction: number) => void; signal?: AbortSignal } = {}): Promise<T> {
+  request<T>(
+    message: RequestBody,
+    transfer: Transferable[] = [],
+    options: { onProgress?: (fraction: number) => void; signal?: AbortSignal; onChunk?: (chunk: Uint8Array) => Promise<void> } = {},
+  ): Promise<T> {
     if (this.dead) return Promise.reject(new StoreError('io', 'the project store stopped'))
     // Cancelled before it was sent (it waited behind other work): never sent, so nothing to undo.
     if (options.signal?.aborted) return Promise.reject(new ImportError('cancelled', 'cancelled before it started'))
@@ -89,18 +122,41 @@ export class StoreWorker {
       let timer = setTimeout(() => this.drop('the project store did not answer'), STORE_TIMEOUT_MS)
       const cancel = () => this.worker.postMessage({ op: 'cancel', target: id, id: this.next++ })
       options.signal?.addEventListener('abort', cancel, { once: true })
+      // Set once the request has ended (answered, failed, dropped): a piece the page finishes writing after that changes nothing.
+      let over = false
       const done = () => {
+        over = true
         clearTimeout(timer)
         options.signal?.removeEventListener('abort', cancel)
       }
+      // The page failed to take a piece: the export is stopped and ends with this error, whatever the Worker answers.
+      let refused: Error | null = null
       this.waiting.set(id, {
         resolve: (value) => {
           done()
-          resolve(value as T)
+          if (refused !== null) reject(refused)
+          else resolve(value as T)
         },
         reject: (error) => {
           done()
-          reject(error)
+          reject(refused ?? error)
+        },
+        chunk: (bytes) => {
+          // The page is the one at work while it writes the piece: the Worker's deadline waits for it.
+          clearTimeout(timer)
+          const answer = (failed: boolean) => {
+            if (over) return
+            timer = setTimeout(() => this.drop('the project store did not answer'), STORE_TIMEOUT_MS)
+            this.worker.postMessage({ op: 'packAck', target: id, id: this.next++, failed })
+          }
+          const taken = options.onChunk ? options.onChunk(bytes) : Promise.resolve()
+          taken.then(
+            () => answer(false),
+            (error: unknown) => {
+              refused = error instanceof Error ? error : new Error(typeof error === 'string' ? error : 'the piece was refused')
+              answer(true)
+            },
+          )
         },
         progress: (fraction) => {
           clearTimeout(timer)
@@ -177,6 +233,29 @@ export class WorkerStore implements ProjectStore {
   async ensureAudioCache(media: MediaRef[], onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<CacheReport> {
     const key = await this.ready()
     return this.worker.request<CacheReport>({ op: 'audioCache', key, media }, [], { onProgress: onProgress ?? (() => undefined), signal })
+  }
+  async packExport(entries: FolderEntry[], io: Omit<PackIO, 'read'>): Promise<PackExport> {
+    const key = await this.ready()
+    return this.worker.request<PackExport>({ op: 'pack', key, entries }, [], {
+      onProgress: io.onProgress,
+      signal: io.signal,
+      onChunk: (chunk) => io.sink.write(chunk),
+    })
+  }
+  async unpack(source: Blob | string, io: { onProgress?: (fraction: number) => void; signal?: AbortSignal; textOnly?: boolean } = {}): Promise<PackUnpack> {
+    const key = await this.ready()
+    return this.worker.request<PackUnpack>({ op: 'unpack', key, source, textOnly: io.textOnly }, [], {
+      onProgress: io.onProgress ?? (() => undefined),
+      signal: io.signal,
+    })
+  }
+  async writer(path: string): Promise<FileWriter> {
+    const id = await this.call<number>('openWriter', [path])
+    return {
+      write: (chunk) => this.call<void>('writePiece', [id, chunk], [chunk.buffer as ArrayBuffer]),
+      close: () => this.call<void>('closeWriter', [id]),
+      abort: () => this.call<void>('abortWriter', [id]).catch(() => undefined),
+    }
   }
   cleanUp() {
     return this.call<void>('cleanUp')

@@ -25,6 +25,8 @@ export interface EffectPorts {
   exportPack(): void
   /** `project.cancel_export_pack`: the export under way stops. */
   cancelExportPack(): void
+  /** `project.cancel_import_pack`: the imports under way (downloads included) and waiting stop. */
+  cancelImportPack(): void
   /** `project.import_pack`: the user picks a `.faulkpack` and its project replaces the current one. */
   importPack(): void
   /** `project.open_url`: the page downloads the `.faulkpack` at `url` and opens it as a new project. */
@@ -93,6 +95,9 @@ export function applyEffects(command: Command, ports: EffectPorts) {
       return
     case 'project.cancel_export_pack':
       ports.cancelExportPack()
+      return
+    case 'project.cancel_import_pack':
+      ports.cancelImportPack()
       return
     case 'project.import_pack':
       ports.importPack()

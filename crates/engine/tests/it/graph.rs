@@ -484,6 +484,41 @@ fn a_track_added_during_playback_fades_in() {
 }
 
 #[test]
+fn an_instrument_put_on_an_empty_track_fades_in_with_its_first_note() {
+    // #759: an empty track renders nothing, but its strip's fade in runs all the same; the
+    // instrument put on it once that is over is on a heard chain and fades in by its own fade (#233),
+    // the note it gets at once included: the same ramp as a new track's, no click, no lost
+    // attack. The device's fade takes its first step on its first frame (one frame ahead of
+    // the strip's).
+    let n = fade_frames(RATE) as usize;
+    let mut r = Rig::new();
+    r.send(&[create(0)]);
+    assert_eq!(peak(&r.run(10).0), 0.0);
+    assert_eq!(
+        r.e.state().track(t(0)).unwrap().graph.levels(),
+        (1.0, 1.0),
+        "an empty track's strip is at its levels"
+    );
+    r.send(&[tone(0), note(0, 69)]);
+    let out = r.run(4).0;
+    for (k, s) in out.iter().enumerate().take(n) {
+        let ramp = TONE_LEVEL * (k + 1) as f32 / n as f32;
+        assert!(
+            s.abs() <= ramp + 1e-6,
+            "frame {k}: {s} above the ramp {ramp}"
+        );
+    }
+    assert!(
+        (peak(&out[n..]) - TONE_LEVEL).abs() < 1e-3,
+        "full level after the fade"
+    );
+    assert!(
+        peak(&out[n / 2..n]) > 0.25 * TONE_LEVEL,
+        "the attack is there"
+    );
+}
+
+#[test]
 fn a_track_removed_during_playback_fades_out_then_retires() {
     let n = fade_frames(RATE) as usize;
     let mut r = Rig::new();

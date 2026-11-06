@@ -8,8 +8,9 @@
 //!    transport is stopped (the engine counts in first, `count_in_bars` of the metronome).
 //!    The armed MIDI tracks record (`track.arm`); a selected track that is not armed plays
 //!    and records nothing.
-//! 2. The engine stamps the notes played on those tracks in transport ticks and returns them
-//!    in its report (`engine::recorder`). Nothing is written in the project meanwhile.
+//! 2. The engine stamps the notes played on those tracks in transport ticks, moved back by the
+//!    take's shift (the latency plus the offset, `SetRecording`, #560), and returns them in its
+//!    report (`engine::recorder`). Nothing is written in the project meanwhile.
 //! 3. `record.stop` (or `transport.stop`, `transport.pause`) ends the capture; the notes still
 //!    held are cut there. The host, which reads the report, then writes the take with
 //!    `record.commit_take` once the engine has returned its last notes, or drops it with
@@ -153,8 +154,10 @@ domain! {
     /// bars (heard, not recorded), and with a scene target it launches that scene's clip
     /// of each armed track first; on a running transport it records at once. `latency_ms`
     /// is the output latency the host estimates (0 to 1000, default 0). The notes come
-    /// back from the engine; `record.stop` ends the take, which the host then writes with
-    /// `record.commit_take`, one history entry. Not undoable itself.
+    /// back from the engine, already moved `shift_ms` earlier (the latency plus the session's
+    /// offset) on the engine's clock, so that a note heard before a loop wrap stays before it;
+    /// `record.stop` ends the take, which the host then writes with `record.commit_take`
+    /// (`shift_ms` 0), one history entry. Not undoable itself.
     "record.start" (kind = "live", undo = "none", destructive = false)
     Start {
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -167,8 +170,9 @@ domain! {
         target: RecordTarget,
         /// The tracks that record.
         tracks: Vec<TrackId>,
-        /// How much earlier the notes will be placed: `latency_ms` plus the session's
-        /// offset (`record.set_settings`), in milliseconds.
+        /// How much earlier the engine places the notes: `latency_ms` plus the session's
+        /// offset (`record.set_settings`), in milliseconds. The notes it reports are already
+        /// moved: they are written with `record.commit_take`'s `shift_ms` 0.
         shift_ms: f64,
         /// Whether a count-in runs before the take.
         count_in: bool,
@@ -195,8 +199,10 @@ domain! {
     /// Write a take into the project, every track at once, as **one** history entry. Per
     /// track, `notes` are the notes as played: `start` in transport ticks, `length` in
     /// ticks. Every start is first moved `shift_ms` earlier at the project's tempo; when the
-    /// transport loops and the start is inside the loop, the move wraps round the loop (a note
-    /// that would go before the loop's start comes from its end). With a
+    /// transport loops and the start is strictly inside the loop, the move wraps round the
+    /// loop (a note that would go before the loop's start comes from its end). The notes the
+    /// engine reported for a `record.start` take are already moved: write them with
+    /// `shift_ms` 0 (the default); `shift_ms` is for notes not moved yet. With a
     /// scene target, a cell that holds a clip takes the notes on top of its own (overdub):
     /// a note lands where the clip played at that moment, from `anchor` (the transport tick
     /// of the clip's position 0) or else from the bar of the first note, round its loop;
@@ -205,8 +211,15 @@ domain! {
     /// bar), looping over its length. With the arrangement target, a note inside a
     /// placement goes into its clip where the placement shows it; the other notes make one
     /// new clip per gap between placements, from the bar of its first note to the bar after
-    /// its last, cut at the next placement. A note before tick 0 or before its clip is
-    /// dropped and counted; a note longer than its clip is cut at the clip's end. With
+    /// its last, cut at the next placement. "The bar of the first note" has a sixteenth of
+    /// tolerance for an early downbeat: when the first note starts less than a sixteenth
+    /// before a bar and every note of that sixteenth starts less than 30 ms after it, the
+    /// clip starts on that bar and those notes on its first tick, with their lengths; any
+    /// other note in that sixteenth (a pickup) leaves every note where it was played, the
+    /// clip starting on the bar before. A note that starts at most a sixteenth before
+    /// tick 0 starts there with its length; one that starts earlier starts there, cut, when
+    /// it ends after it, and is dropped and counted otherwise, as a note before its clip; a
+    /// note longer than its clip is cut at the clip's end. With
     /// `replace` on (`record.set_settings`), a clip that takes notes first loses the notes
     /// that start in the range the track recorded (its first note to the end of its last),
     /// counted in `replaced`. With `quantize_on_input` on, the starts of the take's notes
@@ -462,7 +475,7 @@ fn start(
             take: number,
             target,
             tracks,
-            shift_ms: latency + f64::from(state.session.record.offset_ms),
+            shift_ms: take_shift_ms(Some(latency), state),
             count_in,
         },
         vec![ProjectEvent::RecordingChanged {
@@ -470,6 +483,20 @@ fn start(
             state: TakeState::Recording,
         }],
     ))
+}
+
+/// How much earlier the notes of a take that `record.start` starts are placed, in
+/// milliseconds: the host's output latency (`latency_ms`, 0 when left out) plus the session's
+/// offset. The engine applies it (`SetRecording`, #560) and `record.start` answers it.
+pub fn take_shift_ms(latency_ms: Option<f64>, state: &State) -> f64 {
+    latency_ms.unwrap_or(0.0) + f64::from(state.session.record.offset_ms)
+}
+
+/// A shift in milliseconds as the engine takes it (`SetRecording`): whole microseconds,
+/// saturating (a shift `record.start` accepts is at most 1500 ms either way).
+pub fn shift_us(shift_ms: f64) -> i32 {
+    // `as` saturates and sends NaN to zero.
+    (shift_ms * 1000.0).round() as i32
 }
 
 /// Ends the capture of a recording take, if one runs (a transport stop or pause): the
@@ -560,19 +587,43 @@ enum Write {
     },
 }
 
-/// A note at `pos` in a clip of `length`, cut at its end; `None` when it starts outside.
 /// How early a note may be played before the bar a new clip starts on and still belong to it,
 /// in ticks: a sixteenth. A downbeat played in time, then moved earlier by the latency shift,
 /// lands a few ticks before the bar line; it starts the clip on that bar, not on the bar before.
-pub const EARLY: i64 = PPQ / 4;
+/// The engine keeps a note heard that early before the cue of a count-in for the same reason
+/// (#723): one tolerance for both.
+pub const EARLY: i64 = engine::recorder::COUNT_IN_EARLY;
 
-/// The bar a take's first note starts a clip on, with [`EARLY`] of tolerance.
-fn bar_of(first: i64, bar: i64) -> i64 {
-    floor_to(first.saturating_add(EARLY), bar)
+/// How far apart, in time, the notes of a downbeat played early may start and still be one
+/// chord (#732): the notes of the sixteenth before a bar that start less than this after the
+/// first one are that downbeat.
+pub const DOWNBEAT_CHORD_MS: f64 = 30.0;
+
+/// The bar the notes `starts` (a take, or one gap's share of it) start a clip on (#732). With
+/// [`EARLY`] of tolerance: when the first note lies in the sixteenth before a bar and every note
+/// of that sixteenth starts less than [`DOWNBEAT_CHORD_MS`] after it (a downbeat, single note or
+/// chord, played early), the clip starts on that bar and [`early`] puts those notes on its first
+/// tick. Any other note in that sixteenth (a pickup, a grace note) keeps every note where it
+/// was heard: the clip starts on the bar of the first note, the bar before. `ms_per_tick` is at
+/// the project's tempo.
+fn bar_of(starts: impl Iterator<Item = i64> + Clone, bar: i64, ms_per_tick: f64) -> i64 {
+    let first = starts.clone().min().unwrap_or(0);
+    let tolerant = floor_to(first.saturating_add(EARLY), bar);
+    if tolerant <= first {
+        return tolerant;
+    }
+    let chord = starts
+        .filter(|&s| s < tolerant)
+        .all(|s| s.saturating_sub(first) as f64 * ms_per_tick < DOWNBEAT_CHORD_MS);
+    if chord {
+        tolerant
+    } else {
+        floor_to(first, bar)
+    }
 }
 
-/// A position `e` ticks from a clip start taken from the first note: up to [`EARLY`] before it
-/// counts as the start.
+/// A position `e` ticks from a clip start that [`bar_of`] chose: up to [`EARLY`] before it
+/// counts as the start (only the notes of an early downbeat can lie there).
 fn early(e: i64) -> i64 {
     if (-EARLY..0).contains(&e) { 0 } else { e }
 }
@@ -627,6 +678,7 @@ fn stretch(geo: Geo, e0: i64, e1: i64) -> Vec<(i64, i64)> {
     }
 }
 
+/// A note at `pos` in a clip of `length`, cut at its end; `None` when it starts outside.
 fn place(n: &TakeNote, pos: i64, length: i64, opts: Opts) -> Option<Note> {
     let pos = early(pos);
     if pos < 0 || pos >= length {
@@ -679,15 +731,16 @@ fn plan_track(
     notes: &[TakeNote],
     anchor: Option<Tick>,
     opts: Opts,
-) -> (Vec<Write>, u32) {
+) -> Result<(Vec<Write>, u32), CommandError> {
     let bar = project.time_signature().ticks_per_bar().get().max(1);
+    let ms_per_tick = 60_000.0 / (project.tempo().bpm() * PPQ as f64);
     let Some(track) = project.tracks.get(track_id) else {
-        return (vec![], 0);
+        return Ok((vec![], 0));
     };
     let mut dropped = 0u32;
     let mut writes = Vec::new();
     if notes.is_empty() {
-        return (writes, 0);
+        return Ok((writes, 0));
     }
     let first = notes.iter().map(|n| n.start.get()).min().unwrap_or(0);
     let last_end = notes
@@ -704,7 +757,10 @@ fn plan_track(
                 .and_then(|(id, c)| Some((id.clone(), Geo::of(c)?)));
             match cell {
                 Some((clip, geo)) => {
-                    let origin = anchor.map_or(bar_of(first, bar), Tick::get);
+                    let origin = anchor.map_or_else(
+                        || bar_of(notes.iter().map(|n| n.start.get()), bar, ms_per_tick),
+                        Tick::get,
+                    );
                     let grows = geo.looping.is_none();
                     let original = geo.length;
                     let mut length = geo.length;
@@ -742,7 +798,7 @@ fn plan_track(
                     });
                 }
                 None => {
-                    let origin = bar_of(first, bar);
+                    let origin = bar_of(notes.iter().map(|n| n.start.get()), bar, ms_per_tick);
                     let length = ceil_to(last_end - origin, bar).max(bar);
                     let out = notes
                         .iter()
@@ -775,13 +831,20 @@ fn plan_track(
             let mut erase: BTreeMap<ClipId, Vec<(i64, i64)>> = BTreeMap::new();
             // Gap (its start and end, `None`: no placement after) → notes outside clips.
             let mut gaps: BTreeMap<(i64, Option<i64>), Vec<&TakeNote>> = BTreeMap::new();
-            // A note that starts before tick 0 (played on the first downbeat, moved earlier by the
-            // latency shift) starts at 0 when it ends after it; one that ends before is dropped.
+            // A note that starts at most [`EARLY`] before tick 0 (the first downbeat played a
+            // little early, or moved earlier by the latency shift, #723) is moved to 0 with its
+            // length, as a new clip's early rule does; one that starts earlier starts at 0 when
+            // it ends after it (cut there), and is dropped otherwise.
             let mut kept = Vec::with_capacity(notes.len());
             for n in notes {
                 let (t, end) = (n.start.get(), n.start.get().saturating_add(n.length.get()));
                 if t >= 0 {
                     kept.push(*n);
+                } else if t >= -EARLY {
+                    kept.push(TakeNote {
+                        start: Tick::ZERO,
+                        ..*n
+                    });
                 } else if end > 0 {
                     kept.push(TakeNote {
                         start: Tick::ZERO,
@@ -862,10 +925,38 @@ fn plan_track(
                     .map(|n| n.start.get().saturating_add(n.length.get()))
                     .max()
                     .unwrap_or(first + 1);
-                let start = bar_of(first, bar).max(before);
-                let mut end = ceil_to(last, bar).max(start + 1);
-                if let Some(next) = after {
-                    end = end.min(next);
+                // The longest note a clip starting at `from` moves onto its first tick (#747).
+                let moved_at = |from: i64| {
+                    group
+                        .iter()
+                        .filter(|n| n.start.get() < from)
+                        .map(|n| n.length.get())
+                        .max()
+                        .unwrap_or(0)
+                };
+                // The end of a clip starting at `from`: the bar after the last note (a moved note
+                // ends where it was moved to), cut at the next placement.
+                let end_from = |from: i64| {
+                    let end = ceil_to(last.max(from + moved_at(from)), bar).max(from + 1);
+                    after.map_or(end, |next| end.min(next))
+                };
+                let snapped =
+                    bar_of(group.iter().map(|n| n.start.get()), bar, ms_per_tick).max(before);
+                let moved = moved_at(snapped);
+                // A snap that the next placement leaves no room for (a clip of no length, or
+                // too short for the notes it moves) is not made: the clip starts on the bar
+                // of the first note and every note keeps the place it was heard at (#747).
+                let start = if end_from(snapped) - snapped >= moved.max(1) {
+                    snapped
+                } else {
+                    floor_to(first, bar).max(before)
+                };
+                let end = end_from(start);
+                if end <= start {
+                    return Err(invalid(
+                        "tracks",
+                        "the take falls in a gap of the arrangement too short for a clip: nothing was recorded",
+                    ));
                 }
                 let length = end - start;
                 let out = group
@@ -882,7 +973,7 @@ fn plan_track(
             }
         }
     }
-    (writes, dropped)
+    Ok((writes, dropped))
 }
 
 /// A clip's snapshot with its placements, for `record.restore`.
@@ -919,9 +1010,11 @@ fn restored(track: &project::Track, clip_id: &ClipId) -> Result<RestoredClip, Co
 /// stays there instead of leaving before its start (#542). A stamp outside the loop, a move
 /// that is not backwards, a stamp exactly on the loop's start (a note pressed before the capture
 /// began is clamped to the take's first tick: it stays on the line, where the clip's early rule
-/// takes it to its first beat) and a transport that does not loop move on the line. Known limit:
+/// takes it to its first beat when it is part of an early downbeat, [`bar_of`]) and a transport that does not loop move on the line. Known limit:
 /// a command cannot tell a stamp the engine wrapped from a note anticipating the loop's start
 /// while the playhead enters the loop from before it (first pass only), which is folded too.
+/// The page's takes are moved by the engine instead, which knows the wraps (#560), and come
+/// here with a shift of 0: this fold serves the notes given with a shift of their own.
 fn shift_start(start: i64, shift: i64, looping: Option<project::LoopRegion>) -> i64 {
     let line = start.saturating_sub(shift);
     let Some(region) = looping else {
@@ -981,7 +1074,7 @@ fn commit(
                 ..*n
             })
             .collect();
-        let (writes, lost) = plan_track(project, target, &t.track, &shifted, t.anchor, opts);
+        let (writes, lost) = plan_track(project, target, &t.track, &shifted, t.anchor, opts)?;
         dropped += lost;
         let track = midi_track(project, &t.track)?;
         for write in writes {
@@ -1042,6 +1135,13 @@ fn commit(
                 } => {
                     if notes.is_empty() {
                         continue;
+                    }
+                    // A clip of no length is never created, whatever planned it (#747).
+                    if length < 1 {
+                        return Err(invalid(
+                            "tracks",
+                            "a recorded clip would have no length: nothing was recorded",
+                        ));
                     }
                     let id = ClipId::generate(&mut ctx.ids);
                     let name = project.next_clip_name_beside(&t.track, &names);

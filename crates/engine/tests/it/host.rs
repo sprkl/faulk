@@ -657,7 +657,7 @@ fn a_report_is_copied_as_bytes_and_decodes_alike() {
     assert_eq!(decoded, read_feedback(session.host.feedback()).unwrap());
     // Truncated or of another version: nothing.
     assert!(engine::host::decode_feedback(&bytes[..bytes.len() - 1]).is_none());
-    bytes[0] = 9;
+    bytes[0] = 10;
     assert!(engine::host::decode_feedback(&bytes).is_none());
     // Torn (odd seq): `false`, the buffer cleared of a half copy.
     let region = session.host.feedback();
@@ -1081,7 +1081,31 @@ fn the_silenced_word_saturates() {
     assert_eq!(silenced_word(u64::MAX), u32::MAX);
 }
 
-/// A report of version 7 (the header of 88 bytes, without the silenced frames) is refused.
+/// The report carries the host's frame at the playhead (#733, version 9): the clock given to `set_host_frame`
+/// carried to the playhead's sample; the engine's own counter when none was given.
+#[test]
+fn the_report_carries_the_host_frame_at_the_playhead() {
+    let mut session = Session::new();
+    session.host.render(128);
+    session.host.write_feedback();
+    let own = read_feedback(session.host.feedback()).unwrap();
+    assert_eq!(own.host_frame, 128, "no host clock: the engine's counter");
+    // A host clock far from the engine's counter, advancing a block at a time like the worklet's currentFrame.
+    const ORIGIN: u64 = 1_000_000;
+    let mut last = 0;
+    for block in 0..4u64 {
+        session.host.set_host_frame(ORIGIN + 128 * (block + 1));
+        session.host.render(128);
+        session.host.write_feedback();
+        let fb = read_feedback(session.host.feedback()).unwrap();
+        // The report sits at the start of the next block: one block after the one rendered.
+        assert_eq!(fb.host_frame, ORIGIN + 128 * (block + 2));
+        assert!(fb.host_frame > last);
+        last = fb.host_frame;
+    }
+}
+
+/// A report of version 7 (the header of 88 bytes, without the silenced frames) is refused, and so is one of version 8.
 #[test]
 fn a_report_of_version_7_is_refused() {
     let mut session = Session::new();
@@ -1091,5 +1115,7 @@ fn a_report_of_version_7_is_refused() {
     assert!(copy_feedback(session.host.feedback(), &mut bytes));
     assert!(engine::host::decode_feedback(&bytes).is_some());
     bytes[0] = 7;
+    assert!(engine::host::decode_feedback(&bytes).is_none());
+    bytes[0] = 8;
     assert!(engine::host::decode_feedback(&bytes).is_none());
 }

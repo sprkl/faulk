@@ -840,6 +840,10 @@ fn a_pack_goes_into_an_empty_folder_only_and_is_bounded() {
             max_blob: 10,
             ..PackLimits::default()
         },
+        PackLimits {
+            max_text_total: 100,
+            ..PackLimits::default()
+        },
     ] {
         let mut dest = MemFs::new();
         let r = import_pack(Cursor::new(bytes.clone()), &mut dest, &limits);
@@ -871,6 +875,278 @@ fn a_pack_goes_into_an_empty_folder_only_and_is_bounded() {
     );
     assert!(matches!(r, Err(FileError::BadPack { .. })));
     assert!(dest.is_empty());
+}
+
+// ------------------------------------------------------------------ the pack read in pieces
+
+/// What a [`PackReader`] gives for `bytes`, driven as the page drives it: the ranges it asks
+/// for, the files it gives (path and bytes), or the first error.
+struct Drive {
+    needs: Vec<(u64, u64)>,
+    files: Vec<(String, Vec<u8>)>,
+    result: Result<(), FileError>,
+}
+
+fn drive(bytes: &[u8], limits: PackLimits) -> Drive {
+    let mut reader = PackReader::new(bytes.len() as u64, limits);
+    let mut needs = Vec::new();
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut given: Vec<u8> = Vec::new();
+    if let Some((offset, len)) = reader.wants() {
+        needs.push((offset, len));
+        given = bytes[offset as usize..(offset + len) as usize].to_vec();
+    }
+    let result = loop {
+        let step = match reader.step(&given) {
+            Ok(step) => step,
+            Err(error) => break Err(error),
+        };
+        given.clear();
+        match step {
+            PackStep::Need { offset, len } => {
+                assert!(
+                    len <= PACK_PIECE_BYTES || needs.len() < 4,
+                    "a piece of {len} bytes"
+                );
+                needs.push((offset, len));
+                given = bytes[offset as usize..(offset + len) as usize].to_vec();
+            }
+            PackStep::Start { path, size } => {
+                assert!(files.iter().all(|(p, _)| *p != path));
+                files.push((path, Vec::with_capacity(size as usize)));
+            }
+            PackStep::Bytes(piece) => {
+                assert!(piece.len() as u64 <= PACK_PIECE_BYTES);
+                files.last_mut().unwrap().1.extend_from_slice(&piece);
+            }
+            PackStep::End => {}
+            PackStep::Done => break Ok(()),
+        }
+    };
+    if result.is_err() {
+        // A failed reader stays failed.
+        assert!(reader.step(&[]).is_err());
+    }
+    Drive {
+        needs,
+        files,
+        result,
+    }
+}
+
+fn zip_with(entries: &[(&str, &[u8])], options: zip::write::SimpleFileOptions) -> Vec<u8> {
+    use std::io::Write;
+    let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    for (name, bytes) in entries {
+        zip.start_file(*name, options).unwrap();
+        zip.write_all(bytes).unwrap();
+    }
+    zip.finish().unwrap().into_inner()
+}
+
+/// The offset of the first central directory header in `zip`.
+fn directory_of(zip: &[u8]) -> usize {
+    zip.windows(4).position(|w| w == b"PK\x01\x02").unwrap()
+}
+
+fn patch_u32(zip: &mut [u8], at: usize, f: impl FnOnce(u32) -> u32) {
+    let value = u32::from_le_bytes(zip[at..at + 4].try_into().unwrap());
+    zip[at..at + 4].copy_from_slice(&f(value).to_le_bytes());
+}
+
+#[test]
+fn a_pack_read_in_pieces_gives_the_files_of_the_pack_text_first() {
+    let fs = song_fs();
+    let (bytes, _) = pack_bytes(&fs);
+    let read = drive(&bytes, PackLimits::default());
+    read.result.unwrap();
+    let (dest, opened) = import(&bytes);
+    opened.unwrap();
+    // Every file, with its bytes, and the project's own files before the blobs.
+    let got: std::collections::BTreeMap<_, _> = read.files.iter().cloned().collect();
+    assert_eq!(&got, dest.files());
+    let first_blob = read
+        .files
+        .iter()
+        .position(|(p, _)| p.starts_with("blobs/"))
+        .unwrap();
+    assert!(
+        read.files[first_blob..]
+            .iter()
+            .all(|(p, _)| p.starts_with("blobs/"))
+    );
+    // The tail first, one range for the directory: a small pack is read in one go.
+    assert_eq!(read.needs[0], (0, bytes.len() as u64));
+}
+
+#[test]
+fn a_big_file_comes_in_pieces_and_a_big_directory_in_a_second_read() {
+    use std::io::Write;
+    // 600 blobs: the directory is bigger than the tail read first.
+    let project = saved(&Project::new(ProjectId(id(1)), "P"));
+    let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+    let deflated = zip::write::SimpleFileOptions::default();
+    zip.start_file("project.json", deflated).unwrap();
+    zip.write_all(&project.files()["project.json"]).unwrap();
+    let big: Vec<u8> = (0..3u32 << 20)
+        .map(|i| (i.wrapping_mul(2_654_435_761) >> 13) as u8)
+        .collect();
+    zip.start_file(format!("blobs/{}", common_sha(&big)), deflated)
+        .unwrap();
+    zip.write_all(&big).unwrap();
+    for i in 0..600u32 {
+        let body = i.to_le_bytes();
+        zip.start_file(format!("blobs/{}", common_sha(&body)), deflated)
+            .unwrap();
+        zip.write_all(&body).unwrap();
+    }
+    let bytes = zip.finish().unwrap().into_inner();
+    let read = drive(&bytes, PackLimits::default());
+    read.result.unwrap();
+    assert_eq!(read.files.len(), 602);
+    let tail = read.needs[0];
+    assert!(tail.0 > 0, "the tail only: {tail:?}");
+    assert_eq!(
+        read.needs[1].0 + read.needs[1].1,
+        tail.0,
+        "then the rest of the directory: {:?}",
+        read.needs[1]
+    );
+    assert_eq!(
+        read.files
+            .iter()
+            .find(|(_, b)| b.len() == big.len())
+            .unwrap()
+            .1,
+        big
+    );
+    // And the import over the reader opens it.
+    let (_, opened) = import(&bytes);
+    opened.unwrap();
+}
+
+fn common_sha(bytes: &[u8]) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+#[test]
+fn stored_and_64_bit_entries_read_back() {
+    let project = saved(&Project::new(ProjectId(id(1)), "P"));
+    let json = project.files()["project.json"].clone();
+    let blob = b"some audio".to_vec();
+    let blob_name = format!("blobs/{}", common_sha(&blob));
+    for options in [
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored),
+        zip::write::SimpleFileOptions::default().large_file(true),
+    ] {
+        let bytes = zip_with(&[("project.json", &json), (&blob_name, &blob)], options);
+        let read = drive(&bytes, PackLimits::default());
+        read.result.unwrap();
+        assert_eq!(
+            read.files,
+            vec![
+                ("project.json".to_owned(), json.clone()),
+                (blob_name.clone(), blob.clone())
+            ]
+        );
+        import(&bytes).1.unwrap();
+    }
+}
+
+#[test]
+fn a_pack_whose_headers_lie_or_whose_bytes_are_damaged_is_refused() {
+    let project = saved(&Project::new(ProjectId(id(1)), "P"));
+    let json = project.files()["project.json"].clone();
+    let stored =
+        zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored);
+    let good_stored = zip_with(&[("project.json", &json)], stored);
+    let good = zip_with(
+        &[("project.json", &json)],
+        zip::write::SimpleFileOptions::default(),
+    );
+    drive(&good_stored, PackLimits::default()).result.unwrap();
+    drive(&good, PackLimits::default()).result.unwrap();
+    let mut cases: Vec<(&str, Vec<u8>)> = Vec::new();
+    // A byte of the content changed: the CRC says so.
+    let mut crc = good_stored.clone();
+    crc[30 + "project.json".len() + 2] ^= 0x20;
+    cases.push(("crc", crc));
+    // The local header names another file than the directory.
+    let mut name = good.clone();
+    name[30] = b'P';
+    cases.push(("local name", name));
+    // The directory says the file is smaller than what it inflates to.
+    let mut smaller = good.clone();
+    let cd = directory_of(&smaller);
+    patch_u32(&mut smaller, cd + 24, |n| n - 1);
+    cases.push(("size", smaller));
+    // The directory says the compressed data runs further than the deflate stream.
+    let mut longer = zip_with(
+        &[("project.json", &json), (".gitignore", b".faulk/\n")],
+        zip::write::SimpleFileOptions::default(),
+    );
+    let cd = directory_of(&longer);
+    patch_u32(&mut longer, cd + 20, |n| n + 1);
+    cases.push(("trailing", longer));
+    // The deflate stream is cut short.
+    let mut short = good.clone();
+    let cd = directory_of(&short);
+    patch_u32(&mut short, cd + 20, |n| n - 2);
+    cases.push(("short", short));
+    // The local header is not where the directory says.
+    let mut offset = good.clone();
+    let cd = directory_of(&offset);
+    patch_u32(&mut offset, cd + 42, |n| n + 1);
+    cases.push(("offset", offset));
+    // The data run past the directory.
+    let mut past = good.clone();
+    let cd = directory_of(&past);
+    patch_u32(&mut past, cd + 20, |n| n + 1000);
+    cases.push(("past", past));
+    for (what, bytes) in cases {
+        let read = drive(&bytes, PackLimits::default());
+        assert!(
+            matches!(read.result, Err(FileError::BadPack { .. })),
+            "{what}: {:?}",
+            read.result
+        );
+        let (dest, result) = import(&bytes);
+        assert!(
+            matches!(result, Err(FileError::BadPack { .. })),
+            "{what}: {result:?}"
+        );
+        assert!(dest.is_empty(), "{what}");
+    }
+}
+
+#[test]
+fn a_reader_takes_only_the_bytes_it_asked_for() {
+    let (bytes, _) = pack_bytes(&song_fs());
+    let mut reader = PackReader::new(bytes.len() as u64, PackLimits::default());
+    let (offset, len) = reader.wants().unwrap();
+    // Fewer bytes than asked (the file changed, or ended): refused, and the reader is over.
+    let short = &bytes[offset as usize..(offset + len - 1) as usize];
+    assert!(matches!(reader.step(short), Err(FileError::BadPack { .. })));
+    assert!(reader.step(&[]).is_err());
+    // Bytes when none were asked for.
+    let mut reader = PackReader::new(bytes.len() as u64, PackLimits::default());
+    let tail = bytes[offset as usize..(offset + len) as usize].to_vec();
+    let PackStep::Need { .. } = reader.step(&tail).unwrap() else {
+        panic!("a header is asked for first");
+    };
+    let mut reader2 = PackReader::new(bytes.len() as u64, PackLimits::default());
+    let PackStep::Need { offset, len } = reader2.step(&tail).unwrap() else {
+        panic!();
+    };
+    let header = &bytes[offset as usize..(offset + len) as usize];
+    let PackStep::Start { .. } = reader2.step(header).unwrap() else {
+        panic!("the first file starts");
+    };
+    assert!(matches!(reader2.step(b"x"), Err(FileError::BadPack { .. })));
 }
 
 // ------------------------------------------------------------------ the fuzz

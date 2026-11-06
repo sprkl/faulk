@@ -2,7 +2,7 @@
 // store (SV-2) says about a folder. The store is the one place that touches a folder; the rest of
 // the page sees `ProjectStore` and `StoreError`.
 import type { CacheReport, ImportOutcome, MediaRef } from '../audio/import/pipeline'
-import type { FolderEntry, SaveEntry } from '../project/core'
+import type { FolderEntry, PackExport, PackIO, PackUnpack, SaveEntry } from '../project/core'
 
 /** `FileSystemHandle.queryPermission` and `requestPermission` (Chromium; not in `lib.dom`). */
 export interface PermissionHandle {
@@ -80,10 +80,34 @@ export interface ProjectStore {
   importAudio(file: File, onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<ImportOutcome>
   /** Makes again the PCM caches the folder lacks for these media (after opening a project). */
   ensureAudioCache(media: MediaRef[], onProgress?: (fraction: number) => void, signal?: AbortSignal): Promise<CacheReport>
+  /**
+   * Writes the `.faulkpack` of the folder to `io.sink`, the zip made where the folder is read (the store's Worker), so deflating
+   * does not hold up the page (#685). `entries` is the folder as the page staged it (`ProjectCore.packExport`). A store that
+   * lacks it (the page's own) leaves the page's core to make the zip.
+   */
+  packExport?(entries: FolderEntry[], io: Omit<PackIO, 'read'>): Promise<PackExport>
+  /**
+   * Imports a `.faulkpack` into this folder in pieces (#682), where the folder is written (the store's Worker): the pack is
+   * read in the ranges the core asks for, from `source` (a file the user chose) or from a file of this folder (a path: a
+   * downloaded pack), and each blob is written to `blobs/` as it is inflated and checked. Answers the project's own files,
+   * which it does not write (the page checks the project's identity first, then writes them, `project.json` last). On a
+   * failure or a cancel, blobs of the pack may be left in the folder: the caller removes the folder. `textOnly`: stops before
+   * the first blob, with the project's own files as read (unchecked).
+   */
+  unpack(source: Blob | string, io: { onProgress?: (fraction: number) => void; signal?: AbortSignal; textOnly?: boolean }): Promise<PackUnpack>
+  /** Writes a file of the folder in pieces (a downloaded pack, #682): `close` makes it whole, `abort` leaves nothing. */
+  writer(path: string): Promise<FileWriter>
   /** Removes the swap files an interrupted write left (`*.crswap`). Best effort. */
   cleanUp(): Promise<void>
   /** Releases what the store holds (its Worker's side). */
   close(): void
+}
+
+/** A file written in pieces, in order. */
+export interface FileWriter {
+  write(chunk: Uint8Array): Promise<void>
+  close(): Promise<void>
+  abort(): Promise<void>
 }
 
 /** A project kept in the browser's own storage (the OPFS): a draft before a folder is chosen, or the project itself where there is no folder. */

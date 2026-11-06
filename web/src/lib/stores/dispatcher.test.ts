@@ -1615,6 +1615,9 @@ describe('the project in a folder (SV-2)', () => {
     session.dispatcher.run({ type: 'project.export_pack' })
     session.dispatcher.run({ type: 'project.cancel_export_pack' })
     session.dispatcher.run({ type: 'project.import_pack' })
+    const cancelImport = vi.spyOn(session.storage, 'cancelImport')
+    session.dispatcher.run({ type: 'project.cancel_import_pack' })
+    expect(cancelImport).toHaveBeenCalledTimes(1)
     expect(cancelExport).toHaveBeenCalledTimes(1)
     expect(save).toHaveBeenCalledTimes(1)
     expect(saveAs).toHaveBeenCalledTimes(1)
@@ -2220,6 +2223,35 @@ describe("an agent's calls in Boost (AG-1)", () => {
     const result = await session.dispatcher.runForAgent({ type: 'project.reopen_last' } as Command, 'agent:a')
     expect(result).toMatchObject({ status: 'unavailable' })
     await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(session.dispatcher.history().undo).toEqual([])
+  })
+
+  it('answers an agent that cancels an import with what was stopped, and refuses when it came too late (#735)', async () => {
+    const session = newSession()
+    const cancel = vi.spyOn(session.storage, 'cancelImport')
+    // Nothing runs, and no project is needed to ask: nothing was stopped, and it is no failure.
+    cancel.mockReturnValueOnce({ cancelled: 0, tooLate: 0 })
+    expect(await session.dispatcher.runForAgent({ type: 'project.cancel_import_pack' }, 'agent:a')).toEqual({
+      status: 'applied',
+      output: { type: 'project.cancel_import_pack', cancelled: 0, too_late: 0 },
+    })
+    // An import stopped.
+    cancel.mockReturnValueOnce({ cancelled: 2, tooLate: 0 })
+    expect(await session.dispatcher.runForAgent({ type: 'project.cancel_import_pack' }, 'agent:a')).toEqual({
+      status: 'applied',
+      output: { type: 'project.cancel_import_pack', cancelled: 2, too_late: 0 },
+    })
+    // One stopped and one too late: applied, and it says so.
+    cancel.mockReturnValueOnce({ cancelled: 1, tooLate: 1 })
+    expect(await session.dispatcher.runForAgent({ type: 'project.cancel_import_pack' }, 'agent:a')).toMatchObject({
+      status: 'applied',
+      output: { cancelled: 1, too_late: 1 },
+    })
+    // Only an import whose project started to open: nothing was cancelled, and the agent is told so.
+    cancel.mockReturnValueOnce({ cancelled: 0, tooLate: 1 })
+    const late = await session.dispatcher.runForAgent({ type: 'project.cancel_import_pack' }, 'agent:a')
+    expect(late).toMatchObject({ status: 'refused', error: { code: 'not_done' } })
+    expect(JSON.stringify(late)).toContain('too late')
     expect(session.dispatcher.history().undo).toEqual([])
   })
 

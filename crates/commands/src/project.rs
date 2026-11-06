@@ -136,6 +136,22 @@ domain! {
     "project.import_pack" (kind = "live", undo = "none", destructive = false)
     ImportPack {} => {};
 
+    /// Stop the `.faulkpack` imports under way: a pack being downloaded (`project.open_url`) or
+    /// read into the browser's storage, and those waiting their turn, until their project starts
+    /// opening, wherever the browser keeps the project (its storage, or the tab alone, where the
+    /// pack is read whole). Nothing of them is kept and the current project is untouched. The
+    /// answer says what was stopped: `cancelled` imports, and `too_late` imports whose project had
+    /// started to open (they are left to finish; when nothing could be stopped and some were too
+    /// late, the call is refused instead). Both are 0 when no import was running (none asked, or
+    /// the last one is over). Changes nothing in the project, so it never enters the history.
+    "project.cancel_import_pack" (kind = "live", undo = "none", destructive = false)
+    CancelImportPack {} => {
+        /// How many imports (a pack being downloaded, read or waiting its turn) were stopped.
+        cancelled: u32,
+        /// How many imports were left to finish because their project had started to open.
+        too_late: u32,
+    };
+
     /// Open a `.faulkpack` hosted at `url`: `https`, with no user name or password in it (plain
     /// `http` only to `localhost`, `127.0.0.1` or `[::1]`, and the page takes it only when Faulk
     /// itself runs on this computer). The page downloads it without cookies or credentials,
@@ -442,6 +458,11 @@ pub fn apply(
         Command::SaveAs {} => Ok(nothing(Output::SaveAs {})),
         Command::ExportPack {} => Ok(nothing(Output::ExportPack {})),
         Command::CancelExportPack {} => Ok(nothing(Output::CancelExportPack {})),
+        // The imports belong to the page, which answers with what it stopped (`runForAgent`).
+        Command::CancelImportPack {} => Ok(nothing(Output::CancelImportPack {
+            cancelled: 0,
+            too_late: 0,
+        })),
         Command::ImportPack {} => Ok(nothing(Output::ImportPack {})),
         // The download and the pack belong to the page (the core checks the pack itself when the
         // page hands it over): the command only checks that the link may be fetched at all.

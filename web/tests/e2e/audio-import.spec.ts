@@ -100,6 +100,23 @@ const reopened = (page: Page) =>
     return typeof view === 'function' && view() !== null && view() !== undefined
   })
 
+/**
+ * The report of the caches the last opening made again. The page's hook waits for the work of an attach that is
+ * running, and answers `null` while none has begun it (the project is back before the storage is attached):
+ * ask until it reports, on the condition and not on a delay (#707).
+ */
+async function audioCacheReport(page: Page, timeout = 60_000): Promise<{ made: string[]; peaks: string[] }> {
+  const deadline = Date.now() + timeout
+  for (;;) {
+    const report = await page.evaluate(() =>
+      (window as unknown as { __faulkAudioCache(): Promise<{ made: string[]; peaks: string[] } | null> }).__faulkAudioCache(),
+    )
+    if (report) return report
+    if (Date.now() > deadline) throw new Error('the audio cache report never came')
+    await page.waitForTimeout(50)
+  }
+}
+
 /** Starts audio and makes an audio track, selected, with the Clips panel open. Returns the track. */
 async function audioTrack(page: Page): Promise<string> {
   await page.goto('/app')
@@ -179,9 +196,7 @@ test('an MP3 gets its decoded PCM in the cache, and a cache deleted is made agai
   expect((await opfsFiles(page))[cache]).toBeUndefined()
   await page.reload()
   await expect.poll(() => reopened(page), { timeout: 30_000 }).toBe(true)
-  const report = await page.evaluate(() =>
-    (window as unknown as { __faulkAudioCache(): Promise<{ made: string[]; peaks: string[] } | null> }).__faulkAudioCache(),
-  )
+  const report = await audioCacheReport(page)
   expect(report?.made).toEqual([hash])
   expect(report?.peaks).toEqual([hash])
   expect((await opfsFiles(page))[cache]).toBe(32 + 22_050 * 2 * 4)
@@ -192,13 +207,37 @@ test('an MP3 gets its decoded PCM in the cache, and a cache deleted is made agai
   expect(errors).toEqual([])
 })
 
+test('Opus in Ogg and in WebM, and a browser recording, become clips of their exact length, decoded as the native build decodes them (#609)', async ({
+  page,
+}) => {
+  const { errors } = watch(page)
+  const track = await audioTrack(page)
+  const files = { 'sine.opus': 24_000, 'sine.webm': 24_000, 'recorded.webm': 46_080 }
+  await choose(page, ...Object.keys(files).map(fixture))
+  await expect(page.getByTestId('pool-clip')).toHaveCount(3)
+  const clips = await audioClips(page, track)
+  for (const [name, frames] of Object.entries(files)) {
+    const hash = sha256(fixture(name))
+    // The pre-skip and the padding are cut: the source's half second at 48 kHz, or the recording's 16 packets of 60 ms.
+    expect(clips.find((c) => c.content.audio!.media.name === name)!.content.audio!.media).toMatchObject({ hash, frames })
+    await expect.poll(async () => (await opfsFiles(page))[`.faulk/cache/pcm/${hash}.pcm`]).toBe(32 + frames * 2 * 4)
+    expect(await opfsDigest(page, peaksPath(hash))).toBe(expected[name]!.peaks_sha256)
+  }
+  expect(errors).toEqual([])
+})
+
 test('a file that is not audio, or in a format Faulk does not read, is refused by name and nothing is kept', async ({ page }) => {
   const { errors } = watch(page)
   const track = await audioTrack(page)
   await choose(page, fixture('not-audio.txt'))
   await expect(page.getByTestId('audio-import-failure')).toHaveAttribute('data-code', 'unsupported_format')
   await expect(page.getByTestId('audio-import-failure')).toContainText('not-audio.txt is not an audio file Faulk can read.')
-  await choose(page, fixture('sine.opus'))
+  // An Opus stream whose channels Faulk does not model (mapping family 3, ambisonics).
+  const ambisonic = readFileSync(fixture('sine.webm'))
+  ambisonic[ambisonic.indexOf('OpusHead') + 18] = 3
+  const refused = page.waitForEvent('filechooser')
+  await page.getByTestId('audio-import-button').click()
+  await (await refused).setFiles({ name: 'ambisonic.webm', mimeType: 'audio/webm', buffer: ambisonic })
   await expect(page.getByTestId('audio-import-failure')).toHaveAttribute('data-code', 'unsupported_codec')
   // A damaged WAV (cut in the middle of its samples).
   const wav = readFileSync(fixture('sine-s16.wav'))
@@ -385,9 +424,7 @@ test('a one-hour file: the progress shows as it goes, and in Boost no byte of it
     await expect.poll(() => reopened(page), { timeout: 60_000 }).toBe(true)
     const answers: number[] = []
     let made = false
-    const remade = page
-      .evaluate(() => (window as unknown as { __faulkAudioCache(): Promise<{ peaks: string[] } | null> }).__faulkAudioCache())
-      .then((report) => ((made = true), report))
+    const remade = audioCacheReport(page).then((report) => ((made = true), report))
     while (!made) {
       const start = performance.now()
       await page.evaluate(() => (window as unknown as { __faulkView(): unknown }).__faulkView())

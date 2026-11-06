@@ -2,7 +2,7 @@ import type { Command } from '../generated/protocol'
 import type { Engine, EngineEvents, EngineStatus } from './engine'
 import { engineMemory } from './engine-abi'
 import { readFeedback } from './feedback'
-import { contextFrameAt } from './clock'
+import { contextFrameAt, OutputClock } from './clock'
 import type { FromPrepare, ToPrepare } from './prepare-worker'
 import type { WorkletMessage } from './worklet'
 import workletUrl from './worklet.ts?worker&url'
@@ -28,6 +28,8 @@ export class WebEngine implements Engine {
    * `record.start` takes as `latency_ms` (the dispatcher stores each one), so the stamps add the same estimate.
    */
   private reportedLatency = 0
+  /** The page clock ↔ audio frame correspondence, fed at every feedback tick and at every stamp (#725). */
+  private readonly outputClock = new OutputClock()
 
   private constructor(
     private readonly context: AudioContext,
@@ -38,11 +40,16 @@ export class WebEngine implements Engine {
   ) {
     let last = 0
     this.timer = setInterval(() => {
+      this.sampleClock()
       const report = readFeedback(memory.buffer, feedback.at, feedback.len)
       if (!report || report.seq === last) return
       last = report.seq
       events.onFeedback(report)
     }, FEEDBACK_MS)
+  }
+
+  get sampleRate(): number {
+    return this.context.sampleRate
   }
 
   /** Must be called from a user gesture (browsers start audio only then). */
@@ -115,7 +122,20 @@ export class WebEngine implements Engine {
    */
   frameAt(timeStamp: number | undefined): number | null {
     if (this.context.state !== 'running' || typeof this.context.getOutputTimestamp !== 'function') return null
-    return contextFrameAt(this.context.getOutputTimestamp(), timeStamp, this.reportedLatency, this.context.sampleRate)
+    return contextFrameAt(this.outputClock.observe(this.context.getOutputTimestamp()), timeStamp, this.reportedLatency, this.context.sampleRate)
+  }
+
+  /**
+   * Dev checks only (#733): the context frame the output plays at the page instant `timeStamp`, by the clock the stamps use
+   * but without the latency a stamp adds back, so that a check can place a stamped note on the engine's own line.
+   */
+  heardFrameAt(timeStamp: number): number | null {
+    if (this.context.state !== 'running' || typeof this.context.getOutputTimestamp !== 'function') return null
+    return contextFrameAt(this.outputClock.observe(this.context.getOutputTimestamp()), timeStamp, 0, this.context.sampleRate)
+  }
+
+  private sampleClock() {
+    if (this.context.state === 'running' && typeof this.context.getOutputTimestamp === 'function') this.outputClock.observe(this.context.getOutputTimestamp())
   }
 
   /** The status to show and to start a take with; `frameAt` keeps its latency (#499). */

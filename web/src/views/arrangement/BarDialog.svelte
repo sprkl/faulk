@@ -1,12 +1,17 @@
 <script lang="ts">
   /**
    * The field that asks for a whole number of bars: "Repeat until" (#555, the bar a clip is repeated up to) and "Insert
-   * bars" (#575, how many). A native modal dialog like the "Go to" field: the page behind is inert, the focus stays inside,
-   * Escape closes it and the focus goes back to what opened it. It only reads a number from `min` to `max`; the
-   * arrangement turns it into a command. `name` prefixes the test ids and the element ids (`<name>-dialog`, `-field`,
+   * bars" (#575, how many); the piano roll's "Repeat until" (#710) reads a bar or a bar and a beat through `parse`. A
+   * native modal dialog like the "Go to" field: the page behind is inert, the focus stays inside, Escape closes it and the
+   * focus goes back to what opened it. It only reads a number from `min` to `max`; the view that opens it turns it into a
+   * command. `name` prefixes the test ids and the element ids (`<name>-dialog`, `-field`,
    * `-error`, `-submit`).
    */
-  /** `initial` fills the field; `invalid` is the sentence shown when the text is not a whole number in range; `onsubmit` gets the number. */
+  /**
+   * `initial` fills the field (`initialText` instead, when given); `invalid` is the sentence shown when the text is not a
+   * value in range; `onsubmit` gets the value. `parse` reads the text (a whole number of up to six digits by default) and
+   * returns null for one it refuses; `min` and `max` bound what it returns.
+   */
   let {
     open = false,
     name,
@@ -16,8 +21,11 @@
     go,
     cancel,
     initial,
+    initialText,
     min,
     max,
+    parse = (text: string) => (/^\d{1,6}$/.test(text.trim()) ? Number(text.trim()) : null),
+    inputmode = 'numeric',
     onsubmit,
     onclose,
   }: {
@@ -29,8 +37,11 @@
     go: string
     cancel: string
     initial: number
+    initialText?: string
     min: number
     max: number
+    parse?: (text: string) => number | null
+    inputmode?: 'numeric' | 'decimal'
     onsubmit: (value: number) => void
     onclose: () => void
   } = $props()
@@ -43,7 +54,7 @@
   $effect(() => {
     if (!dialog) return
     if (open && !dialog.open) {
-      text = String(initial)
+      text = initialText ?? String(initial)
       invalid = false
       dialog.showModal()
       field?.focus()
@@ -53,8 +64,8 @@
 
   function submit(event: SubmitEvent) {
     event.preventDefault()
-    const value = /^\d{1,6}$/.test(text.trim()) ? Number(text.trim()) : NaN
-    if (!(value >= min && value <= max)) {
+    const value = parse(text)
+    if (value === null || !(value >= min && value <= max)) {
       invalid = true
       field?.focus()
       return
@@ -87,7 +98,7 @@
       bind:this={field}
       bind:value={text}
       type="text"
-      inputmode="numeric"
+      {inputmode}
       autocomplete="off"
       aria-invalid={invalid ? 'true' : undefined}
       aria-describedby={invalid ? `${name}-error` : undefined}
