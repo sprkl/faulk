@@ -19,6 +19,7 @@ export const ENTITY_KEYS: Record<string, MessageKey> = {
   notes: 'refusal.entity.notes',
   'notes per clip': 'refusal.entity.notesPerClip',
   devices: 'refusal.entity.devices',
+  'MIDI effects': 'refusal.entity.midiEffects',
   'automation points': 'refusal.entity.automationPoints',
   placements: 'refusal.entity.placements',
   'placements per track': 'refusal.entity.placementsPerTrack',

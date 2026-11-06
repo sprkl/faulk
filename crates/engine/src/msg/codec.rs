@@ -432,6 +432,7 @@ impl ControlMsg {
                 w.f32(*pan);
                 w.bool(*mute);
             }
+            ControlMsg::SetScale { pitch_classes } => w.u16(*pitch_classes),
             ControlMsg::TrackCreate { track, kind } => {
                 w.u32(track.0);
                 w.u8(*kind as u8);
@@ -672,6 +673,9 @@ impl ControlMsg {
                 gain: r.f32()?,
                 pan: r.f32()?,
                 mute: r.bool()?,
+            },
+            Tag::SetScale => ControlMsg::SetScale {
+                pitch_classes: r.u16()?,
             },
             Tag::TrackCreate => ControlMsg::TrackCreate {
                 track: r.track()?,

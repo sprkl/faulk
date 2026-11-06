@@ -27,7 +27,9 @@ use std::collections::{BTreeMap, BTreeSet};
 /// as corrupt.
 /// Format 5 (#695): the project may hold a key and scale (`scale`); a build of format 4 would
 /// refuse the field as corrupt.
-pub const FORMAT_VERSION: u32 = 5;
+/// Format 6 (#219): a track's chain may hold MIDI effects (role `midi_effect`), before its
+/// instrument; a build of format 5 would refuse the role as corrupt.
+pub const FORMAT_VERSION: u32 = 6;
 
 /// The built-in instrument of audio tracks: the clip player.
 pub const CLIP_PLAYER: &str = "faulk.clip_player";
@@ -294,12 +296,17 @@ pub struct Device {
     pub preset: Option<Box<DevicePreset>>,
 }
 
-/// What a device does in the chain.
+/// What a device does in the chain. A track's chain is, in order, its MIDI effects, its
+/// instrument (at most one), then its audio effects; the master's holds audio effects only.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum DeviceRole {
+    /// Notes in, sound out: the sound of the track.
     Instrument,
+    /// An audio effect: sound in, sound out, after the instrument.
     Effect,
+    /// Notes in, notes out, before the instrument, on a MIDI track only (#219).
+    MidiEffect,
 }
 
 /// Where a device comes from. Third-party plugins come after the MVP.
