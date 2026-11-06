@@ -803,3 +803,97 @@ fn a_device_put_in_the_slot_of_a_holder_waits_for_it() {
         );
     }
 }
+
+#[test]
+fn switches_over_several_blocks_stay_exact_in_blocks_of_97_and_512() {
+    // A pause or a catch-up longer than a block, with sub-block edges inside it.
+    let longest = test_delay(t(1), 1, 1200);
+    for size in [97, 512] {
+        for (name, setup, change) in [
+            (
+                "Ceiling of 5 ms inserted",
+                vec![longest.clone()],
+                ceiling(t(0), 1, 0.005),
+            ),
+            (
+                "Ceiling of 5 ms removed",
+                vec![longest.clone(), ceiling(t(0), 1, 0.005)],
+                remove(t(0), 1),
+            ),
+            (
+                "test delay of 1000 inserted",
+                vec![longest.clone()],
+                test_delay(t(0), 1, 1000),
+            ),
+            (
+                "test delay of 1000 removed",
+                vec![longest.clone(), test_delay(t(0), 1, 1000)],
+                remove(t(0), 1),
+            ),
+        ] {
+            same_as_without(name, &setup, &[(BEFORE, vec![change], true)], size);
+        }
+    }
+}
+
+#[test]
+fn a_value_of_a_device_after_a_paused_slot_reaches_it() {
+    // A gain after the slot, its trim stepping from 1 to 0.5 by a lane within the 240 frames a
+    // Ceiling of 5 ms pauses it for: the value has no frame to land on, so the lane sends it
+    // again once the pause is over; the track then plays as without the change.
+    let lane = M::AutomationLaneUpload {
+        lane: LaneSlot(0),
+        track: t(0),
+        target: AutomationTarget::DeviceParam {
+            device: DeviceSlot(2),
+            param: gain::TRIM,
+        },
+        first: 0,
+        total: 3,
+        points: vec![
+            AutomationPoint {
+                tick: Tick(0),
+                value: 1.0,
+                curve: Curve::Step,
+            },
+            AutomationPoint {
+                tick: Tick(201),
+                value: 0.5,
+                curve: Curve::Step,
+            },
+            AutomationPoint {
+                tick: Tick(4000),
+                value: 0.5,
+                curve: Curve::Step,
+            },
+        ],
+    };
+    let setup = vec![
+        M::SetTransport {
+            tempo: Tempo::new(120.0).unwrap(),
+            signature: TimeSignature::COMMON,
+            launch_quantize: Quantize::default(),
+        },
+        test_delay(t(1), 1, 400),
+        insert(t(0), 2, GAIN.kind_id, &[(gain::GAIN, 1.0)]),
+        lane,
+    ];
+    let events = [
+        (1, vec![M::Play { from: Tick(0) }]),
+        (BEFORE, vec![ceiling(t(0), 1, 0.005)]),
+    ];
+    let tracks = [t(0), t(1)];
+    let ((changed, _), _, _) = render_with(Source::Sine, &tracks, &setup, &events, BLOCK, |_| ());
+    let ((plain, _), _, _) =
+        render_with(Source::Sine, &tracks, &setup, &events[..1], BLOCK, |_| ());
+    let settled = 400 + 10 * BLOCK;
+    let (a, b) = (&after(&changed)[settled..], &after(&plain)[settled..]);
+    let worst = a.iter().zip(b).fold(0f32, |m, (x, y)| m.max((x - y).abs()));
+    println!("a trim step within a pause: once settled, largest difference {worst:e}");
+    assert!(
+        peak(b) > 0.01 && peak(b) < 0.06,
+        "the trim halves the tone: {}",
+        peak(b)
+    );
+    assert_eq!(worst, 0.0, "the trim's value reached the gain");
+}

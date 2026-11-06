@@ -150,6 +150,9 @@
 //!   meanwhile runs unheard and fades in once the holder is gone. A device put heard on its
 //!   first frame (a chain nobody heard) takes its timing at once. A track nobody hears (or not
 //!   rendered) takes every slot's timing at once; the panic cut ends a switch under way.
+//!   Limit: the values the switched slot's event line holds for the frames a catch-up runs
+//!   land at the next sub-block, up to a block after their sound (values a line drops, there
+//!   or in a paused sub-block, are sent again by their lanes).
 //!   Fallbacks to the slot's own crossfade, as before: a capped delay (`T − P` beyond
 //!   [`crate::msg::limits::MAX_COMPENSATION_FRAMES`]), and a device that takes notes run after
 //!   the slot (its notes would not pause). **On the track that holds the longest chain**, a
@@ -2506,8 +2509,9 @@ fn catch_up(
     pl.fill(0.0);
     pr.fill(0.0);
     crate::mixer::mix_with((l, r), (sl, sr), (pl, pr), &mut g.meter);
+    // What the lines dropped stays in `carry` for the lanes to send again at the next
+    // sub-block.
     g.route.add_back(ring, c as u32, pl, pr);
-    carry.take_lost();
     if gone && let Some(h) = g.outgoing.holder_at(slot) {
         h.fade = 0.0;
         if let Some(b) = h.device.bypass() {
@@ -3067,6 +3071,17 @@ fn run_chain(
         // to those frames (#761).
         let skip = if i > pass.after { pass.skip } else { 0 };
         if skip >= all && skip > 0 {
+            // The whole sub-block is paused after the slot: the values of the slots after it
+            // have no frame to land on, so their lanes send them again (#761).
+            let (from, _, _, lost) = carry.split(sink, src);
+            for (d, e) in from.params() {
+                if *d != MIXER_SLOT
+                    && usize::from(d.0) > pass.after
+                    && matches!(e, Event::ParamValue { .. })
+                {
+                    lost.mark(*d);
+                }
+            }
             break;
         }
         if skip > 0 && i == pass.after + 1 {
