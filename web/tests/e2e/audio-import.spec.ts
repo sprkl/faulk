@@ -263,7 +263,7 @@ test('a file that decodes past what a project keeps is refused by name at its he
   await (await chooser).setFiles({ name: 'silence.flac', mimeType: 'audio/flac', buffer: huge })
   await expect(page.getByTestId('audio-import-failure')).toHaveAttribute('data-code', 'too_large')
   await expect(page.getByTestId('audio-import-failure')).toContainText(
-    'silence.flac is too big once decoded: a project keeps at most 16 GB of audio from one file.',
+    'silence.flac is too big once decoded: a project keeps at most 16 GiB of audio from one file.',
   )
   expect(await audioClips(page, track)).toEqual([])
   expect(Object.keys(await opfsFiles(page)).filter((p) => p.startsWith('blobs/') || p.startsWith('.faulk/tmp/') || p.startsWith('.faulk/cache/'))).toEqual([])

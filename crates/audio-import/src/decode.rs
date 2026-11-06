@@ -254,6 +254,9 @@ impl Decoding {
         // the file holds (at most 4 bytes of `f32` per byte), so a header that overstates its
         // length (a WAV or AIFF written in a stream) costs nothing, and such a file is read
         // directly without a cache.
+        // symphonia 0.6 numbers its PCM codecs 0x100 (`CODEC_ID_PCM_S32LE`) to 0x125
+        // (`CODEC_ID_PCM_MULAW`), every integer, float, A-law and µ-law layout; ADPCM starts at 0x200
+        // (`pcm_codecs_are_one_range` pins it).
         let pcm = (CODEC_ID_PCM_S32LE..=CODEC_ID_PCM_MULAW).contains(&params.codec);
         if let Some(frames) = declared.filter(|_| !pcm)
             && decoded_bytes(frames, channels) > max_bytes
@@ -453,5 +456,74 @@ impl Decoding {
             channels: self.channels,
             frames: self.frames,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use symphonia::core::codecs::audio::well_known::*;
+
+    /// The plain-PCM exemption of the header check is one range of codec ids: every PCM codec
+    /// symphonia has is inside it, and every other codec Faulk decodes outside (#780).
+    #[test]
+    fn pcm_codecs_are_one_range() {
+        let range = CODEC_ID_PCM_S32LE..=CODEC_ID_PCM_MULAW;
+        for pcm in [
+            CODEC_ID_PCM_S32LE,
+            CODEC_ID_PCM_S32LE_PLANAR,
+            CODEC_ID_PCM_S32BE,
+            CODEC_ID_PCM_S32BE_PLANAR,
+            CODEC_ID_PCM_S24LE,
+            CODEC_ID_PCM_S24LE_PLANAR,
+            CODEC_ID_PCM_S24BE,
+            CODEC_ID_PCM_S24BE_PLANAR,
+            CODEC_ID_PCM_S16LE,
+            CODEC_ID_PCM_S16LE_PLANAR,
+            CODEC_ID_PCM_S16BE,
+            CODEC_ID_PCM_S16BE_PLANAR,
+            CODEC_ID_PCM_S8,
+            CODEC_ID_PCM_S8_PLANAR,
+            CODEC_ID_PCM_U32LE,
+            CODEC_ID_PCM_U32LE_PLANAR,
+            CODEC_ID_PCM_U32BE,
+            CODEC_ID_PCM_U32BE_PLANAR,
+            CODEC_ID_PCM_U24LE,
+            CODEC_ID_PCM_U24LE_PLANAR,
+            CODEC_ID_PCM_U24BE,
+            CODEC_ID_PCM_U24BE_PLANAR,
+            CODEC_ID_PCM_U16LE,
+            CODEC_ID_PCM_U16LE_PLANAR,
+            CODEC_ID_PCM_U16BE,
+            CODEC_ID_PCM_U16BE_PLANAR,
+            CODEC_ID_PCM_U8,
+            CODEC_ID_PCM_U8_PLANAR,
+            CODEC_ID_PCM_F32LE,
+            CODEC_ID_PCM_F32LE_PLANAR,
+            CODEC_ID_PCM_F32BE,
+            CODEC_ID_PCM_F32BE_PLANAR,
+            CODEC_ID_PCM_F64LE,
+            CODEC_ID_PCM_F64LE_PLANAR,
+            CODEC_ID_PCM_F64BE,
+            CODEC_ID_PCM_F64BE_PLANAR,
+            CODEC_ID_PCM_ALAW,
+            CODEC_ID_PCM_MULAW,
+        ] {
+            assert!(range.contains(&pcm), "{pcm}");
+        }
+        for other in [
+            CODEC_ID_ADPCM_MS,
+            CODEC_ID_ADPCM_IMA_WAV,
+            CODEC_ID_FLAC,
+            CODEC_ID_MP3,
+            CODEC_ID_AAC,
+            CODEC_ID_ALAC,
+            CODEC_ID_VORBIS,
+            CODEC_ID_OPUS,
+            CODEC_ID_MP1,
+            CODEC_ID_MP2,
+        ] {
+            assert!(!range.contains(&other), "{other}");
+        }
     }
 }

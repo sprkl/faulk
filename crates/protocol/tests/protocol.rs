@@ -241,7 +241,14 @@ fn the_audio_link_import_tells_agents_the_page_s_own_numbers() {
     let seconds = protocol::AGENT_CONFIRM_MS / 1000;
     let mib = commands::clip::MAX_AUDIO_URL_BYTES >> 20;
     assert_eq!(mib << 20, commands::clip::MAX_AUDIO_URL_BYTES);
-    for figure in [format!("{seconds} s"), format!("{mib} MiB")] {
+    // The decoded cap an agent is told (#780) is the pipeline's.
+    let gib = project::limits::MAX_DECODED_BYTES >> 30;
+    assert_eq!(gib << 30, project::limits::MAX_DECODED_BYTES);
+    for figure in [
+        format!("{seconds} s"),
+        format!("{mib} MiB"),
+        format!("{gib} GiB"),
+    ] {
         assert!(
             spec.description.contains(&figure),
             "the description says {figure}: {}",
