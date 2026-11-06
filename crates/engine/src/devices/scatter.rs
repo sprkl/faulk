@@ -28,23 +28,14 @@
 //!
 //! # The draws
 //!
-//! Each received note-on draws from a hash (splitmix64) of the `seed`, the note's **place** and
-//! its key; a salt gives a second number. A number is the hash's top 53 bits over `2^53`, in
-//! `[0, 1)`, the same on both targets. The first, against `chance / 100`, decides whether the
-//! note moves; with `order` at `random`, the second picks the choice (`floor(u × choices)`).
-//!
-//! While the transport plays, a note's place is its position in the song, in whole ticks. The
-//! engine plays a clip's note at tick `T` on the frame its fractional position falls in, so the
-//! playhead at that frame, `p` (the block's `position_ticks` plus the offset at the tempo), is
-//! within one frame's ticks `f` below `T`: the place is `round(p + f / 2)`, which is `T` while a
-//! frame is shorter than a tick (above 16 kHz at any tempo up to 999 BPM; 44.1 and 48 kHz
-//! always), with a margin of `(1 − f) / 2` tick against rounding, whatever the cut of the
-//! blocks. So the same note at the same place moves the same way on every play, from wherever
-//! the play starts, and in the export, natively and in WebAssembly; a live note played meanwhile
-//! takes the playhead's place and shifts nothing. A loop plays the same draw on every pass (the
-//! lead's decision of 2026-11-06: the engine counts no passes, and a repeated loop that keeps
-//! its variation is musical). While the transport is stopped, a live note's place is a count
-//! of the note-ons received stopped, restarted by [`Device::reset`].
+//! Each received note-on draws from a hash of the `seed`, the note's place and its key
+//! ([`super::draw`]): the first number, against `chance / 100`, decides whether the note moves;
+//! with `order` at `random`, the second picks the choice (`floor(u × choices)`). While the
+//! transport plays, the place is the note's tick in the song, so the same note at the same place
+//! moves the same way on every play, from wherever the play starts, and in the export, natively
+//! and in WebAssembly; a live note played meanwhile shifts nothing, and a loop plays the same
+//! draw on every pass (the lead's decision of 2026-11-06). While it is stopped, the place is a
+//! count of the note-ons received stopped, restarted by [`Device::reset`].
 //!
 //! With `order` at `cycle`, each moved note takes the next choice, wrapping: a count of the
 //! moved notes, restarted at [`Device::reset`] and when the transport starts playing. A turn
@@ -70,6 +61,7 @@
 //! and an `AllNotesOff` one event each: `per_input` 2, `per_block` 0.
 
 use super::Builtin;
+use super::draw::{Draw, Place};
 use crate::device::{
     AudioIo, BlockCtx, Device, DeviceDescriptor, DeviceRole, DeviceSetup, Event, MidiOutput,
     ParamDescriptor, PitchSet, Scale, Unit, VoiceId, event_frame,
@@ -298,7 +290,7 @@ impl Scatter {
     /// The key a received note-on at `place` comes out at (module doc).
     fn target(&mut self, key: u8, place: Place, scale: PitchSet) -> u8 {
         let draw = Draw::new(self.seed, place, key);
-        if !draw.wins(self.chance) {
+        if !draw.chance(0, self.chance) {
             return key;
         }
         let choices = self.choices.clamp(1, MAX_CHOICES);
@@ -307,7 +299,7 @@ impl Scatter {
             self.moved = self.moved.wrapping_add(1);
             i
         } else {
-            draw.pick(choices)
+            draw.pick(1, choices)
         };
         let steps = steps(index + 1, self.direction) * self.interval;
         let on_keyboard = |k: i32| (0..=127).contains(&k);
@@ -443,7 +435,6 @@ impl Device for Scatter {
         }
         self.playing = ctx.transport.playing;
         let scale = ctx.transport.scale;
-        let ticks_per_frame = ticks_per_frame(ctx);
         let mut cursor = 0;
         for event in events {
             let at = event_frame(event.offset(), cursor, frames);
@@ -456,12 +447,10 @@ impl Device for Scatter {
                     tune_cents,
                     ..
                 } => {
-                    let place = if ctx.transport.playing {
-                        Place::Tick(song_tick(ctx.transport.position_ticks, at, ticks_per_frame))
-                    } else {
+                    if !ctx.transport.playing {
                         self.stopped = self.stopped.wrapping_add(1);
-                        Place::Stopped(self.stopped)
-                    };
+                    }
+                    let place = Place::of(ctx, at, self.stopped);
                     self.note_on(
                         at,
                         voice,
@@ -552,81 +541,4 @@ pub fn scale_step(key: u8, steps: i32, scale: PitchSet) -> i32 {
     let total = index as i32 + steps;
     let m = m as i32;
     (octave + total.div_euclid(m)) * 12 + i32::from(classes[total.rem_euclid(m) as usize])
-}
-
-/// Where a received note-on is, for its draw (module doc).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Place {
-    /// Its position in the song, in whole ticks, while the transport plays.
-    Tick(i64),
-    /// Its count among the note-ons received while the transport is stopped.
-    Stopped(u64),
-}
-
-/// The ticks of one frame at the block's tempo (0 when the rate is not usable).
-fn ticks_per_frame(ctx: &BlockCtx) -> f64 {
-    let rate = f64::from(ctx.sample_rate);
-    if rate.is_finite() && rate > 0.0 {
-        ctx.transport.tempo.ticks_per_second() / rate
-    } else {
-        0.0
-    }
-}
-
-/// The whole tick a note at frame `at` of a block starting at `position` (in ticks) is placed
-/// at: the middle of the frame's ticks, rounded (module doc).
-pub fn song_tick(position: f64, at: usize, ticks_per_frame: f64) -> i64 {
-    let tick = (position + (at as f64 + 0.5) * ticks_per_frame).round();
-    if tick.is_finite() {
-        // Saturating: a position past the range of `i64` stays at its end.
-        tick as i64
-    } else {
-        0
-    }
-}
-
-/// The draw of one received note-on: a hash of the seed, its place and its key.
-#[derive(Clone, Copy, Debug)]
-struct Draw(u64);
-
-impl Draw {
-    fn new(seed: u64, place: Place, key: u8) -> Self {
-        let (domain, at) = match place {
-            Place::Tick(t) => (0u64, t as u64),
-            Place::Stopped(n) => (1u64, n),
-        };
-        let h = splitmix64(seed ^ (domain << 32));
-        let h = splitmix64(h ^ at);
-        Draw(splitmix64(h ^ u64::from(key)))
-    }
-
-    /// The `salt`-th number in `[0, 1)` of this draw.
-    fn unit(self, salt: u64) -> f64 {
-        let h = splitmix64(self.0 ^ salt.wrapping_mul(0x9E37_79B9_7F4A_7C15));
-        (h >> 11) as f64 / (1u64 << 53) as f64
-    }
-
-    /// Whether the note moves at `chance` (0 to 1).
-    fn wins(self, chance: f64) -> bool {
-        if chance >= 1.0 {
-            return true;
-        }
-        if chance <= 0.0 {
-            return false;
-        }
-        self.unit(0) < chance
-    }
-
-    /// The choice (0-based, under `choices`) the note takes at random.
-    fn pick(self, choices: u32) -> u32 {
-        let i = (self.unit(1) * f64::from(choices)) as u32;
-        i.min(choices.saturating_sub(1))
-    }
-}
-
-fn splitmix64(mut z: u64) -> u64 {
-    z = z.wrapping_add(0x9E37_79B9_7F4A_7C15);
-    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    z ^ (z >> 31)
 }

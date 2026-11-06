@@ -11,6 +11,7 @@ use crate::msg::DeviceKind;
 /// and run by the graph, not a registry device (its module doc says why).
 pub mod clip_player;
 pub mod compressor;
+pub mod draw;
 pub mod drums;
 pub mod echo;
 pub mod filter;

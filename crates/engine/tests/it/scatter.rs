@@ -9,9 +9,10 @@ use assert_no_alloc::assert_no_alloc;
 use engine::device::{
     AudioIo, BlockCtx, Device, DeviceSetup, Event, EventBuffer, PitchSet, Transport, VoiceId,
 };
+use engine::devices::draw::song_tick;
 use engine::devices::scatter::{
     AROUND, CHANCE, CHOICES, CYCLE, DESCRIPTOR, DIRECTION, DOWN, HELD, IN_SCALE, INTERVAL, MODE,
-    ORDER, SEED, Scatter, UP, scale_step, song_tick, steps,
+    ORDER, SEED, Scatter, UP, scale_step, steps,
 };
 use engine::msg::ParamId;
 use std::collections::{BTreeMap, BTreeSet};
