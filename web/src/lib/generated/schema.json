@@ -29620,7 +29620,7 @@
     {
       "kind": "faulk.trim",
       "kind_id": 10,
-      "memory_bytes": 6240,
+      "memory_bytes": 6232,
       "midi_output": {
         "per_block": 128,
         "per_input": 2

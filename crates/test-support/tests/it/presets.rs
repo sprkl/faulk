@@ -87,8 +87,12 @@ fn session(kind: &str, preset: Option<&str>) -> (Session, Vec<u8>) {
             "{id}: {ignored:?} {clamped:?} {defaulted:?}"
         );
     }
-    // A drum kit is hit again after the load, so that its new sounds are heard.
-    if !descriptor.named_keys.is_empty() {
+    // A drum kit is hit again after the load, so that its new sounds are heard; so are the
+    // notes through a MIDI effect, which shapes the notes that start after the load (Trim's
+    // length is set when a note starts, #693).
+    if !descriptor.named_keys.is_empty()
+        || descriptor.role == engine::device::DeviceRole::MidiEffect
+    {
         for &note in &notes {
             s.run(Command::Live(live::Command::NoteOn {
                 track: f.track.clone(),
