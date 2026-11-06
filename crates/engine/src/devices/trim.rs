@@ -50,22 +50,21 @@
 //! the head of the chain) is passed on at its frame and empties both tables;
 //! [`Device::reset`] empties them too.
 //!
-//! # Stops and jumps
+//! # Stops
 //!
 //! The schedule ends its notes by their own note-offs when the clock stops or jumps (a play,
 //! a seek, a loop wrap: `crate::events`), not by an `AllNotesOff`. Trim reads the transport of
-//! each block it receives:
+//! each block it receives: the first block with the clock stopped after a block with it
+//! running (a **stop**) ends every note Trim sounds at its first frame and forgets the keys
+//! held back, before its events. Nothing rings on after a stop, and the note-offs of the stop
+//! fire no note in release mode (a key played live and held back across a stop is forgotten
+//! too).
 //!
-//! - the first block with the clock stopped after a block with it running (a **stop**) ends
-//!   every note Trim sounds at its first frame and forgets the keys held back, before its
-//!   events: nothing rings on after a stop, and the note-offs of the stop fire no note in
-//!   release mode;
-//! - a block with the clock running whose position is not where the last one ended (a seek
-//!   or a loop wrap while it plays: more than [`JUMP_TICKS`] away) forgets the keys held back
-//!   before its events, so a jump fires no note either; the notes sounding keep their length.
-//!
-//! A key played live and held back in release mode across a stop or a jump is forgotten
-//! too (nothing sounds at its release). Nothing here allocates, locks or panics.
+//! A jump while the clock runs (a seek, a loop wrap) is not a stop: the note-offs it brings
+//! are releases like any other, so in release mode the notes held across it come out at the
+//! jump, and a note whose note-off falls on the loop's end (which the schedule delivers with
+//! the wrap) comes out there as it should. A clip stopped or switched while the clock runs
+//! releases its notes the same way. Nothing here allocates, locks or panics.
 
 use super::Builtin;
 use crate::device::{
@@ -114,10 +113,6 @@ pub const CAPACITY: usize = 128;
 /// Longest note, in frames (about 260 days at 48 kHz: a bound against overflow, never a
 /// musical limit).
 pub const MAX_LENGTH_FRAMES: u64 = 1 << 40;
-
-/// A block whose position is further than this from where the last one ended, in ticks, is
-/// a jump (a seek, a loop wrap).
-pub const JUMP_TICKS: f64 = 0.5;
 
 /// The pitch at which key tracking leaves the length as is (C4).
 pub const KEY_TRACK_CENTER: f64 = 60.0;
@@ -324,9 +319,8 @@ pub struct Trim {
     key_track: f64,
     /// Absolute frame of the block's first frame.
     now: u64,
-    /// Whether the clock ran in the last block, and the position it would be at now.
+    /// Whether the clock ran in the last block.
     was_playing: bool,
-    expect_ticks: f64,
     seq: u64,
     next_voice: u32,
     sounding: [Sounding; CAPACITY],
@@ -350,7 +344,6 @@ impl Trim {
             key_track: 0.0,
             now: 0,
             was_playing: false,
-            expect_ticks: 0.0,
             seq: 0,
             next_voice: 0,
             sounding: [Sounding::default(); CAPACITY],
@@ -359,7 +352,7 @@ impl Trim {
             held_len: 0,
         };
         for p in DESCRIPTOR.params {
-            t.set_param(p.id, p.default as f32);
+            t.apply(p.id, p.default);
         }
         t
     }
@@ -523,23 +516,14 @@ impl Device for Trim {
     fn process(&mut self, ctx: &BlockCtx, events: &[Event], io: &mut AudioIo<'_>) {
         let frames = ctx.frames as usize;
         let t = ctx.transport;
-        let position = if t.position_ticks.is_finite() {
-            t.position_ticks
-        } else {
-            self.expect_ticks
-        };
         if self.was_playing && !t.playing {
             // A stop: every note ends at the first frame, the keys held back are forgotten.
             while self.sounding_len > 0 {
                 self.end_at(self.sounding_len - 1, 0, io);
             }
             self.held_len = 0;
-        } else if self.was_playing && (position - self.expect_ticks).abs() > JUMP_TICKS {
-            self.held_len = 0;
         }
         self.was_playing = t.playing;
-        self.expect_ticks =
-            position + frames as f64 * t.tempo.ticks_per_second() / rate_of(ctx, self.sample_rate);
         let mut cursor = 0;
         for event in events {
             let at = event_frame(event.offset(), cursor, frames);
@@ -594,10 +578,24 @@ impl Device for Trim {
     }
 
     fn set_param(&mut self, id: ParamId, value: f32) {
+        self.apply(id, f64::from(value));
+    }
+
+    fn reset(&mut self) {
+        self.sounding_len = 0;
+        self.held_len = 0;
+        self.was_playing = false;
+    }
+}
+
+impl Trim {
+    /// Sets a parameter in the project's precision (sanitized: unknown ids and non-finite
+    /// values ignored).
+    fn apply(&mut self, id: ParamId, value: f64) {
         let Some(desc) = DESCRIPTOR.param(id) else {
             return;
         };
-        let Some(value) = desc.sanitize_f64(f64::from(value)) else {
+        let Some(value) = desc.sanitize_f64(value) else {
             return;
         };
         match id.0 {
@@ -610,11 +608,6 @@ impl Device for Trim {
             KEY_TRACK => self.key_track = value,
             _ => {}
         }
-    }
-
-    fn reset(&mut self) {
-        self.sounding_len = 0;
-        self.held_len = 0;
     }
 }
 

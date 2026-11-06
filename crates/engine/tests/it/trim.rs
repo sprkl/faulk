@@ -454,7 +454,7 @@ fn a_stop_ends_every_note_at_its_first_frame_and_fires_no_held_key() {
 }
 
 #[test]
-fn a_jump_while_playing_forgets_the_keys_held_back_and_keeps_the_notes_sounding() {
+fn a_jump_while_playing_releases_like_any_note_off_and_keeps_the_notes_sounding() {
     // A loop wrap at frame 4 096: the position goes back to 0.
     let clock = |frame: u64| {
         let f = if frame >= 4_096 { frame - 4_096 } else { frame };
@@ -463,9 +463,12 @@ fn a_jump_while_playing_forgets_the_keys_held_back_and_keeps_the_notes_sounding(
             ..transport(120.0, (4, 4), true)
         }
     };
+    // Release mode: the note-off the schedule sends with the wrap (a note that ends on the
+    // loop's end, or one the loop cuts) fires the note at the wrap.
     let mut t = trim_with(SR, &[(TRIGGER, RELEASE as f32)]);
     let input = [(0, on(1, 60)), (4_096, off(1, 60))];
-    assert!(render_with(&mut t, SR, 20_000, 512, &clock, &input).is_empty());
+    let n = notes(&render_with(&mut t, SR, 20_000, 512, &clock, &input));
+    assert_eq!(n, vec![(4_096, 10_096, 60, 0.8)]);
 
     let mut t = trim_with(SR, &[(DIVISION, trim::DIV_1_4 as f32)]);
     let input = [(0, on(1, 60)), (4_096, off(1, 60))];
