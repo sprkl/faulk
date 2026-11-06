@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 41;
+pub const PROTOCOL_VERSION: u32 = 42;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -43,6 +43,12 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 42 (#664): the commands gain `clip.import_audio_url` (an agent's audio file from a
+// link, imported by the page once the user allowed it); the helper generates its MCP tools from
+// the commands, so a helper of version 41 would not offer it to an agent. No message changes:
+// the download and the import run in the page in both modes. The schema bundle gains
+// `max_audio_url_bytes`.
 
 // Version 41 (#733): the report is `Feedback` version 9: the header grows from 92 to 100 bytes with
 // `host_frame` at offset 92 (the host's frame at the report's playhead), so that the page can place a
@@ -435,6 +441,7 @@ pub fn schema_bundle() -> serde_json::Value {
         "max_stream_bytes": MAX_STREAM_BYTES,
         "control_pushed_out": CONTROL_PUSHED_OUT,
         "agent_confirm_ms": AGENT_CONFIRM_MS,
+        "max_audio_url_bytes": commands::clip::MAX_AUDIO_URL_BYTES,
         // The commands whose call by an agent waits for the user's confirmation in the page
         // (`x-destructive`, AG-4): the page reads the list from here, never from the schema.
         "destructive_commands": commands::catalog()
