@@ -3199,7 +3199,8 @@ fn chain_audible(state: &State, graph: &Graph, track: TrackSlot) -> bool {
 /// fades toward its new state; otherwise it is there at once. An audio effect switched on
 /// starts clean, so a tail (an echo) never comes back from before the switch, unless it is
 /// still heard fading out (its tail goes on); one switched off is cleared once silent (at
-/// once, or by the graph at the end of its fade).
+/// once, or by the graph at the end of its fade). A MIDI effect does not fade and is cleared
+/// on every switch, on or off (#219).
 fn switch(entry: &mut DeviceEntry, enabled: bool, audible: bool) {
     let heard = entry.fade > 0.0;
     entry.enabled = enabled;
@@ -3208,7 +3209,10 @@ fn switch(entry: &mut DeviceEntry, enabled: bool, audible: bool) {
         entry.fade = entry.target();
     }
     let clear = if enabled { !(fading && heard) } else { !fading };
-    if clear && !takes_notes(entry) {
+    // A MIDI effect is cleared too (#219): while it is off the chain skips it, so it never
+    // sees the release its switch sends the instrument; a note it held or a strum note it
+    // had pending would start or end against a stream that went on without it.
+    if clear && entry.device.descriptor().role != DeviceRole::Instrument {
         entry.device.reset();
     }
 }

@@ -65,7 +65,7 @@ fk_latency() -> u32                            // optional
 fk_state_size() / fk_state_save(ptr) / fk_state_load(ptr, len)   // optional, after the MVP
 ```
 
-Événement (16 octets, aligné) : `offset: u32, kind: u16, flags: u16, a: u32, b: f32`, où `kind` ∈ `NoteOn` (a = note_id << 8 | key, b = vélocité 0–1), `NoteOff`, `ParamValue` (a = id, b = valeur), `ParamMod` (réservé), `Choke`.
+Événement (20 octets, aligné) : `offset: u32, kind: u16, flags: u16, a: u32, b: f32, c: f32`, où `kind` ∈ `NoteOn` (a = note_id << 8 | key, b = vélocité 0–1, c = accord fin en cents, `tune_cents` du contrat de device, borné à ±1200), `NoteOff`, `ParamValue` (a = id, b = valeur), `ParamMod` (réservé), `Choke` ; `c` vaut 0 hors `NoteOn`. La hauteur d'une note est `key + c / 100` demi-tons (#170, #219 : l'événement faisait 16 octets sans `c`).
 
 **`note_id` sur 24 bits : tranché par CT-4 (#40, voie (a)).** Dans cet encodage, les 8 bits faibles de `a` portent `key`, donc `note_id` n'a que 24 bits. Le projet n'a pas de `NoteId` (les commandes adressent une note par sa valeur) : le `note_id` de l'ABI est un **identifiant de voix** que l'hôte alloue à chaque note tenue parmi les voix actives et libère à sa fin ; il ne dépasse jamais le nombre de notes tenues, donc jamais `0xFFFFFF`, et deux notes tenues n'ont jamais le même (pas de compteur qui boucle). CT-5 fixe son type côté moteur. La voie (b), des champs séparés pour l'identifiant et la touche, n'est pas retenue.
 

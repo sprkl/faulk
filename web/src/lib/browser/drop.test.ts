@@ -13,18 +13,23 @@ function fake(refuse: (c: Command) => boolean = () => false) {
   let selected: string | null = null
   let masterSelected = false
   let seq = 0
-  const device = (kind: string, role: 'instrument' | 'effect', order: number) =>
-    ({ order: String(order).padStart(4, '0'), role, enabled: true, source: { builtin: { id: kind } } }) as unknown as Devices[string]
+  // Orders sort the sections: the MIDI effects ('a…'), the instrument ('m'), the audio effects ('z…').
+  const device = (kind: string, role: 'instrument' | 'effect' | 'midi_effect', order: string) =>
+    ({ order, role, enabled: true, source: { builtin: { id: kind } } }) as unknown as Devices[string]
+  /** The MIDI effects of these tests (a fake registry): Stack and the engine's test transposer. */
+  const midiKinds = new Set(['faulk.stack', 'faulk.test_transpose'])
   const insertAt = (devices: Devices, kind: string, index: number): string => {
-    const effects = Object.entries(devices)
-      .filter(([, d]) => d?.role === 'effect')
+    const role = midiKinds.has(kind) ? 'midi_effect' : 'effect'
+    const same = Object.entries(devices)
+      .filter(([, d]) => d?.role === role)
       .sort(([, a], [, b]) => (a!.order < b!.order ? -1 : 1))
     const id = `d${++seq}`
-    // Orders are re-dealt: instrument 0, then the effects in their new order.
-    const ids = effects.map(([k]) => k)
+    // Orders are re-dealt within the section, in its new order.
+    const ids = same.map(([k]) => k)
     ids.splice(index, 0, id)
-    devices[id] = device(kind, 'effect', 0)
-    ids.forEach((k, i) => (devices[k]!.order = String(i + 1).padStart(4, '0')))
+    devices[id] = device(kind, role, '')
+    const prefix = role === 'midi_effect' ? 'a' : 'z'
+    ids.forEach((k, i) => (devices[k]!.order = prefix + String(i + 1).padStart(4, '0')))
     return id
   }
   const host: DropHost = {
@@ -35,14 +40,14 @@ function fake(refuse: (c: Command) => boolean = () => false) {
         case 'track.create': {
           const id = `t${++seq}`
           const devices: Devices = {}
-          if (command.kind === 'midi') devices[`i${++seq}`] = device(command.instrument ?? 'faulk.osc_synth', 'instrument', 0)
+          if (command.kind === 'midi') devices[`i${++seq}`] = device(command.instrument ?? 'faulk.osc_synth', 'instrument', 'm')
           tracks.push({ id, track: { kind: command.kind, devices } as unknown as Track })
           return true
         }
         case 'track.set_instrument': {
           const entry = tracks.find((t) => t.id === command.track)!
           for (const k of Object.keys(entry.track.devices)) if (entry.track.devices[k]?.role === 'instrument') delete entry.track.devices[k]
-          entry.track.devices[`i${++seq}`] = device(command.instrument, 'instrument', 0)
+          entry.track.devices[`i${++seq}`] = device(command.instrument, 'instrument', 'm')
           return true
         }
         case 'device.insert': {
@@ -82,6 +87,7 @@ const synth = item('faulk.osc_synth', 'instrument')
 const drums = item('faulk.drums', 'instrument')
 const reverb = item('faulk.reverb', 'effect')
 const echo = item('faulk.echo', 'effect')
+const stack = item('faulk.stack', 'midi_effect')
 
 const kinds = (devices: Devices) =>
   Object.values(devices)
@@ -278,5 +284,49 @@ describe('what makes a track', () => {
     expect(createsTrack(item('faulk.osc_synth', 'instrument', 'Round Bass'))).toBe(true)
     expect(createsTrack(reverb)).toBe(false)
     expect(createsTrack(item('faulk.x', 'midi_effect'))).toBe(false)
+  })
+})
+
+describe('a MIDI effect dropped (#219)', () => {
+  it('lands among the MIDI effects, before the instrument, and says its place in the whole chain', () => {
+    const f = fake()
+    applyItem(f.host, synth, { type: 'new-track' })
+    const track = f.tracks[0]!.id
+    applyItem(f.host, reverb, { type: 'track', track })
+    f.log.length = 0
+    const first = applyItem(f.host, stack, { type: 'track', track })
+    expect(f.log).toEqual([{ type: 'device.insert', track, kind: 'faulk.stack', index: 0 }])
+    expect(first.said).toEqual({ key: 'browser.said.inserted', device: 'stack', track, position: 1 })
+    const second = applyItem(f.host, item('faulk.test_transpose', 'midi_effect'), { type: 'track', track, index: 0 })
+    expect(second.said.position).toBe(1)
+    expect(kinds(f.tracks[0]!.track.devices)).toEqual(['faulk.test_transpose', 'faulk.stack', 'faulk.osc_synth', 'faulk.reverb'])
+    // An audio effect is said after the MIDI effects and the instrument.
+    const fx = applyItem(f.host, echo, { type: 'track', track })
+    expect(fx.said.position).toBe(5)
+  })
+
+  it('is refused on the master and on an audio track, with nothing run', () => {
+    const f = fake()
+    const onMaster = applyItem(f.host, stack, { type: 'master' })
+    expect(onMaster.ok).toBe(false)
+    expect(onMaster.said.key).toBe('browser.said.noMidiEffectHere')
+    f.tracks.push({ id: 'audio', track: { kind: 'audio', devices: {} } as unknown as Track })
+    const onAudio = applyItem(f.host, stack, { type: 'track', track: 'audio' })
+    expect(onAudio.ok).toBe(false)
+    expect(onAudio.said.key).toBe('browser.said.noMidiEffectHere')
+    f.select(null, true)
+    expect(applyItem(f.host, stack, { type: 'selection' }).said.key).toBe('browser.said.noMidiEffectHere')
+    expect(f.log).toEqual([])
+  })
+
+  it('from the keyboard with nothing selected starts a MIDI track with it before the instrument, its preset loaded on it', () => {
+    const f = fake()
+    const result = applyItem(f.host, item('faulk.stack', 'midi_effect', 'Major Triad'), { type: 'selection' })
+    expect(result.ok).toBe(true)
+    expect(f.types()).toEqual(['history.begin_group', 'track.create', 'device.insert', 'preset.load', 'history.end_group'])
+    const devices = f.tracks[0]!.track.devices
+    expect(kinds(devices)).toEqual(['faulk.stack', 'faulk.osc_synth'])
+    const load = f.log[3] as Extract<Command, { type: 'preset.load' }>
+    expect(devices[load.device]?.role).toBe('midi_effect')
   })
 })

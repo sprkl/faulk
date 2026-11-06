@@ -2,10 +2,21 @@ import { describe, expect, it } from 'vitest'
 import { insertEffect, insertMasterEffect, moveDevice, removeDevice, setBypass, setInstrument } from '../device-commands'
 import type { DeviceDescriptor } from '../devices'
 import type { Device, Track } from '../generated/protocol'
-import { addEffectCommand, addMasterEffectCommand, cardActions, chainOf, effectCount, masterChainOf, moveTarget } from './chain'
+import {
+  addEffectCommand,
+  addMasterEffectCommand,
+  addMidiEffectCommand,
+  cardActions,
+  chainOf,
+  effectCount,
+  instrumentOf,
+  masterChainOf,
+  midiEffectCount,
+  moveTarget,
+} from './chain'
 
 const builtin = (id: string) => ({ builtin: { id, version: 1 } })
-const device = (kind: string, role: 'instrument' | 'effect', order: string, enabled = true): Device => ({
+const device = (kind: string, role: 'instrument' | 'effect' | 'midi_effect', order: string, enabled = true): Device => ({
   order,
   role,
   enabled,
@@ -129,5 +140,41 @@ describe('the chain of the master', () => {
     expect(actions.moveRight).toEqual(moveDevice('x', 1))
     expect(actions.remove).toEqual(removeDevice('x'))
     expect(actions.bypass).toEqual(setBypass('x', false))
+  })
+})
+
+describe('the MIDI effects of a chain (#219)', () => {
+  const withMidi = track({
+    fx: device('faulk.test_gain', 'effect', 'z'),
+    i: device('faulk.osc_synth', 'instrument', 'm'),
+    m1: device('faulk.test_transpose', 'midi_effect', 'b'),
+    m0: device('faulk.test_transpose', 'midi_effect', 'a'),
+  })
+  const chain = chainOf(withMidi, [...descriptors, fake('faulk.test_transpose', 'midi_effect')])
+
+  it('lists them first, each with its place among the MIDI effects, then the instrument, then the audio effects', () => {
+    expect(chain.map((e) => [e.id, e.section, e.midiIndex, e.effectIndex])).toEqual([
+      ['m0', 'midi', 0, null],
+      ['m1', 'midi', 1, null],
+      ['i', 'instrument', null, null],
+      ['fx', 'effect', null, 0],
+    ])
+    expect(midiEffectCount(chain)).toBe(2)
+    expect(effectCount(chain)).toBe(1)
+    expect(instrumentOf(chain)?.id).toBe('i')
+  })
+
+  it('moves a MIDI effect among the MIDI effects only: never past the instrument', () => {
+    expect(moveTarget(chain, 'm0', 'left')).toBeNull()
+    expect(moveTarget(chain, 'm0', 'right')).toBe(1)
+    expect(moveTarget(chain, 'm1', 'left')).toBe(0)
+    expect(moveTarget(chain, 'm1', 'right')).toBeNull()
+    expect(moveTarget(chain, 'fx', 'left')).toBeNull()
+    expect(cardActions(chain, chain[1]!).moveLeft).toEqual(moveDevice('m1', 0))
+  })
+
+  it('adds a MIDI effect after the other MIDI effects, right before the instrument', () => {
+    expect(addMidiEffectCommand('t', 'faulk.test_transpose', chain)).toEqual({ type: 'device.insert', track: 't', kind: 'faulk.test_transpose', index: 2 })
+    expect(addEffectCommand('t', 'faulk.test_gain', chain)).toEqual({ type: 'device.insert', track: 't', kind: 'faulk.test_gain', index: 1 })
   })
 })

@@ -52,9 +52,45 @@ fn build_broken(_setup: &DeviceSetup) -> Result<Box<dyn Device>, MsgError> {
     Ok(try_box(Broken)?)
 }
 
+/// A MIDI effect that passes notes through and counts its resets (#219).
+struct Counting;
+
+static RESETS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+static COUNTING: DeviceDescriptor = DeviceDescriptor {
+    kind: "faulk.test_counting",
+    kind_id: DeviceKind(0xFFFF_00AB),
+    name: "Counting",
+    ..TRANSPOSE
+};
+
+impl Device for Counting {
+    fn descriptor(&self) -> &'static DeviceDescriptor {
+        &COUNTING
+    }
+
+    fn process(&mut self, _ctx: &BlockCtx, events: &[Event], io: &mut AudioIo<'_>) {
+        for event in events {
+            io.events_out.push(*event);
+        }
+    }
+
+    fn set_param(&mut self, _id: ParamId, _value: f32) {}
+
+    fn reset(&mut self) {
+        RESETS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+fn build_counting(_setup: &DeviceSetup) -> Result<Box<dyn Device>, MsgError> {
+    Ok(try_box(Counting)?)
+}
+
 fn resolver(kind: DeviceKind) -> Option<Factory> {
     if kind == BROKEN.kind_id {
         Some(build_broken)
+    } else if kind == COUNTING.kind_id {
+        Some(build_counting)
     } else {
         // The test devices, then the registry: the synth is the shipped one (DV-1).
         engine::device::testing::factory(kind)
@@ -1016,4 +1052,44 @@ fn listening_render() {
         }
     }
     std::fs::write(dir.join("56-eight-tracks.wav"), bytes).unwrap();
+}
+
+/// #219: a MIDI effect switched off, then on, is cleared each time, on a heard chain too: while
+/// it is off the chain skips it, so it never sees the release its switch sends the instrument.
+#[test]
+fn a_midi_effect_is_cleared_when_it_is_switched_on_or_off() {
+    use std::sync::atomic::Ordering;
+    let mut r = Rig::new();
+    r.send(&[
+        create(0),
+        insert(0, 0, COUNTING.kind_id, &[]),
+        insert(0, 1, TONE.kind_id, &[]),
+        note(0, 69),
+    ]);
+    let heard = r.run(40).0;
+    assert!(peak(&heard[2_400..]) > 0.0, "the chain is heard");
+    let built = RESETS.load(Ordering::Relaxed);
+    let switch = |enabled| M::DeviceSetEnabled {
+        track: t(0),
+        device: DeviceSlot(0),
+        enabled,
+    };
+    r.send(&[switch(false)]);
+    r.run(2);
+    assert_eq!(
+        RESETS.load(Ordering::Relaxed),
+        built + 1,
+        "cleared when switched off"
+    );
+    r.send(&[switch(true)]);
+    r.run(2);
+    assert_eq!(
+        RESETS.load(Ordering::Relaxed),
+        built + 2,
+        "cleared when switched on"
+    );
+    // The same state again changes nothing.
+    r.send(&[switch(true)]);
+    r.run(2);
+    assert_eq!(RESETS.load(Ordering::Relaxed), built + 2);
 }
