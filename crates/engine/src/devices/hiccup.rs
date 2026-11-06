@@ -44,8 +44,12 @@
 //! repeat: the slice plays as it comes and the window ends; the next slice is written after
 //! the part recorded. Repeat `k` (from 1):
 //!
-//! - lasts `L_k`: `S` (fixed), `S × 0.75^(k-1)` rounded, at least `S / 8` (shorter), or `S`,
-//!   `S / 2` or `S / 4` drawn from (seed, capture, k) (random);
+//! - lasts `L_k`: `S` (fixed); halved every `2 S` frames, a roll speeding up on the grid
+//!   (twice `S`, four times `S / 2`, eight times `S / 4`…), `S >> j` for level `j` (shorter); or
+//!   `S`, `S / 2` or `S / 4` drawn from (seed, capture, k) (random). A shorter or random repeat
+//!   is never under [`SHORTEST_SHARE`] of the slice nor under [`MIN_REPEAT_SECONDS`]: repeats
+//!   closer than that fuse into a pitched buzz (#689: 7.8 ms repeats of a 1/32 slice made a
+//!   metallic 128 Hz tone);
 //! - plays at the gain `(1 - decay)^k` (the decay set when it starts);
 //! - reads the slice at the rate `2^(pitch / 12)` ([`PITCH_RATES`], linear interpolation): raised, it ends when
 //!   the slice runs out (silence until the next repeat); lowered, it plays the slice's start;
@@ -183,10 +187,10 @@ const CUTOFF_NYQUIST_SHARE: f32 = 0.45;
 /// Damping of the state-variable filter: Q = 1 / k = 0.707.
 const DAMPING: f32 = core::f32::consts::SQRT_2;
 
-/// Each repeat of `shorter` lasts this share of the one before, down to [`SHORTEST_SHARE`] of
-/// the slice.
-pub const SHORTER_RATIO: f64 = 0.75;
+/// The shortest repeat of `shorter` and `random`, as a share of the slice (an eighth: three
+/// halvings) and in seconds (25 repeats per second: beyond, repeats fuse into a tone).
 pub const SHORTEST_SHARE: f64 = 0.125;
+pub const MIN_REPEAT_SECONDS: f64 = 0.04;
 
 /// The input is clamped to this magnitude; below [`DENORMAL_FLOOR`] it is flushed.
 const INPUT_LIMIT: f32 = 1e6;
@@ -358,7 +362,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(VARIATION),
             key: "variation",
-            description: "Length of each repeat. Fixed: the slice. Shorter: three quarters of the repeat before, down to an eighth of the slice. Random: the slice, half or a quarter of it, drawn from the seed.",
+            description: "Length of each repeat. Fixed: the slice. Shorter: halved every two slices, a roll speeding up (1/8, 1/16, 1/32). Random: the slice, half or a quarter, from the seed. Never under 1/8 of the slice nor 40 ms.",
             unit: Unit::None,
             min: 0.0,
             max: 2.0,
@@ -585,8 +589,9 @@ struct Window {
     k: u32,
     /// Frame (from the capture) at which the next repeat starts.
     next_at: u64,
-    /// The length of the last repeat (`shorter`), in frames.
-    length: f64,
+    /// The level of `shorter` (its repeats last `slice >> level`) and the repeats played at it.
+    level: u32,
+    at_level: u32,
     /// The gain of the last repeat.
     gain: f32,
     repeat: Repeat,
@@ -816,7 +821,8 @@ impl Hiccup {
             key,
             k: 0,
             next_at: u64::from(slice),
-            length: f64::from(slice),
+            level: 0,
+            at_level: 0,
             gain: 1.0,
             repeat: Repeat::default(),
         };
@@ -824,26 +830,32 @@ impl Hiccup {
 
     /// Starts the next repeat of the window (at `window.t == window.next_at`).
     fn next_repeat(&mut self) {
+        let min_frames = (MIN_REPEAT_SECONDS * f64::from(self.sample_rate)).round() as u64;
         let w = &mut self.window;
         w.k = w.k.saturating_add(1);
         let slice = f64::from(w.slice);
+        let shortest = ((slice * SHORTEST_SHARE).round() as u64)
+            .max(min_frames)
+            .clamp(1, u64::from(w.slice).max(1));
         let length = match self.variation {
             SHORTER => {
-                if w.k > 1 {
-                    w.length *= SHORTER_RATIO;
+                // Each level lasts twice the slice (2^(level+1) repeats of slice >> level).
+                if w.at_level >= 2u32 << w.level.min(16)
+                    && u64::from(w.slice >> (w.level + 1).min(31)) >= shortest
+                {
+                    w.level += 1;
+                    w.at_level = 0;
                 }
-                w.length
-                    .round()
-                    .max((slice * SHORTEST_SHARE).round())
-                    .max(1.0)
+                w.at_level = w.at_level.saturating_add(1);
+                u64::from(w.slice >> w.level.min(31))
             }
             RANDOM => {
                 let shift = draw(self.seed, w.key, w.k) % 3;
-                (f64::from(w.slice >> shift)).max(1.0)
+                u64::from(w.slice >> shift).max(shortest)
             }
-            _ => slice,
+            _ => u64::from(w.slice),
         };
-        let length = length.min(slice) as u64;
+        let length = length.clamp(1, u64::from(w.slice).max(1));
         w.gain = flush(w.gain * self.keep.clamp(0.0, 1.0));
         let rate = self.rate;
         let available = if rate > 1.0 {

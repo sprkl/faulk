@@ -102,8 +102,8 @@ const FILES: &[(&str, &str)] = &[
         include_str!("factory/faulk.hiccup/half-bar-stutter.json"),
     ),
     (
-        "faulk.hiccup/riser-roll",
-        include_str!("factory/faulk.hiccup/riser-roll.json"),
+        "faulk.hiccup/drum-roll",
+        include_str!("factory/faulk.hiccup/drum-roll.json"),
     ),
     (
         "faulk.hiccup/tape-scatter",

@@ -132,7 +132,7 @@ export const devices = defineFeature(
     'hiccup.gate.hint':
       'How long the repeats last after a capture, as a share of the interval, from 1 to 100 %. The slice plays first, then repeats until the gate ends.',
     'hiccup.variation.hint':
-      'Length of each repeat. Fixed: the slice. Shorter: three quarters of the repeat before, down to an eighth of the slice. Random: the slice, half or a quarter of it, drawn from the seed.',
+      'Length of each repeat. Fixed: the slice. Shorter: halved every two slices, a roll speeding up (1/8, 1/16, 1/32). Random: the slice, half or a quarter, from the seed. Never under 1/8 of the slice nor 40 ms.',
     'hiccup.decay.hint':
       'Level lost at each repeat, from 0 to 100 %: at 50 %, each repeat is half as loud as the one before. A change applies from the next repeat.',
     'hiccup.filter.hint':
@@ -276,7 +276,7 @@ export const devices = defineFeature(
     'hiccup.gate.hint':
       'Durée des répétitions après une capture, en part de l’intervalle, de 1 à 100 %. La tranche passe d’abord, puis se répète jusqu’à la fin de la durée.',
     'hiccup.variation.hint':
-      'Longueur de chaque répétition. Fixe : la tranche. Plus courte : les trois quarts de la précédente, jusqu’au huitième de la tranche. Aléatoire : la tranche, sa moitié ou son quart, tirés selon la graine.',
+      'Longueur de chaque répétition. Fixe : la tranche. Plus courte : divisée par deux toutes les deux tranches, un roulement qui accélère (1/8, 1/16, 1/32). Aléatoire : la tranche, sa moitié ou son quart, selon la graine. Jamais moins d’un huitième de la tranche ni de 40 ms.',
     'hiccup.decay.hint':
       'Niveau perdu à chaque répétition, de 0 à 100 % : à 50 %, chaque répétition est deux fois moins forte que la précédente. Un changement s’applique dès la répétition suivante.',
     'hiccup.filter.hint':

@@ -95,9 +95,13 @@ enum Setting {
     Dry,
     /// A 1/16 slice at every bar line, repeated for half a bar, in place of the sound.
     Stutter,
-    /// A 1/32 slice every half note at chance 50 %, shorter each time, decaying, low-passed,
-    /// raised a fifth, for the whole interval.
+    /// A drum roll: a 1/16 slice every half note at chance 50 %, for the whole interval, its
+    /// repeats halving every two slices (twice 1/16, four times 1/32, then 1/32 on: 1/64 would
+    /// be under 40 ms).
     Roll,
+    /// The repeats' colours for the parity: a 1/32 slice every half note, shorter, decaying,
+    /// low-passed and raised a fifth (the first roll of #689, before its review).
+    Colored,
 }
 
 fn session(setting: Setting) -> Session {
@@ -106,6 +110,14 @@ fn session(setting: Setting) -> Session {
         let fx = insert(&mut s, &track);
         let params: &[(&str, f64)] = match setting {
             Setting::Stutter => &[("gate", 50.0)],
+            Setting::Roll => &[
+                ("interval", f64::from(hiccup::EVERY_1_2)),
+                ("size", f64::from(hiccup::SIZE_1_16)),
+                ("chance", 50.0),
+                ("seed", 3.0),
+                ("gate", 100.0),
+                ("variation", f64::from(hiccup::SHORTER)),
+            ],
             _ => &[
                 ("interval", f64::from(hiccup::EVERY_1_2)),
                 ("size", f64::from(hiccup::SIZE_1_32)),
@@ -239,7 +251,13 @@ fn a_drum_loop_through_hiccup_plays_as_it_exports_natively_and_in_wasm() {
     let dry = played_as_exported(Setting::Dry);
     let stutter = played_as_exported(Setting::Stutter);
     let roll = played_as_exported(Setting::Roll);
-    for (render, name) in [(&dry, "dry"), (&stutter, "stutter"), (&roll, "roll")] {
+    let colored = played_as_exported(Setting::Colored);
+    for (render, name) in [
+        (&dry, "dry"),
+        (&stutter, "stutter"),
+        (&roll, "roll"),
+        (&colored, "colored"),
+    ] {
         render.assert_no_denormals();
         write_qa(render, &format!("drums-{name}"));
     }
@@ -281,12 +299,146 @@ fn a_drum_loop_through_hiccup_plays_as_it_exports_natively_and_in_wasm() {
     // The roll at chance 50 %: the half notes it captured are those its draw names.
     for n in 0..(2 * BARS) as usize {
         let at = n * 48_000;
-        // Just after the slice (1/32: 3 000 frames), a captured point plays a repeat raised a
-        // fifth, where the loop plays on otherwise.
-        let window = at + 3_000 + 300..at + 6_000;
+        // Just after the slice (1/16: 6 000 frames), a captured point plays its first repeat,
+        // where the loop plays on otherwise.
+        let window = at + 6_000 + 300..at + 12_000;
         let differs = window
             .clone()
             .any(|i| (roll.left[i] - dry.left[i]).abs() > 1e-4);
         assert_eq!(differs, hiccup::captures(3, n as i64, 50), "half note {n}");
+    }
+    // The roll does not buzz (#689's review): in the second half of each captured window,
+    // where its repeats are the shortest, no lag of 2 to 30 ms repeats the signal (a comb that
+    // sounds as a pitched, metallic tone does: 0.70 at 7.8 ms for the first roll).
+    for n in 0..(2 * BARS) as usize {
+        if hiccup::captures(3, n as i64, 50) {
+            let at = n * 48_000;
+            let (r, lag) = periodicity(&roll.left[at + 24_000..at + 48_000]);
+            println!("roll, half note {n}: periodicity {r:.3} at {lag} ms");
+            assert!(r < 0.3, "half note {n}: periodicity {r} at {lag} ms");
+        }
+    }
+}
+/// The roll's settings with some taken out, for the A/B of #689's review ("too metallic").
+fn roll_params(without: &[&str]) -> Vec<(&'static str, f64)> {
+    let all: [(&'static str, f64); 9] = [
+        ("interval", f64::from(hiccup::EVERY_1_2)),
+        ("size", f64::from(hiccup::SIZE_1_32)),
+        ("chance", 100.0),
+        ("seed", 3.0),
+        ("gate", 100.0),
+        ("variation", f64::from(hiccup::SHORTER)),
+        ("decay", 15.0),
+        ("filter", f64::from(hiccup::LOW_PASS)),
+        ("pitch", 7.0),
+    ];
+    all.into_iter()
+        .filter(|(k, _)| !without.contains(k))
+        .collect()
+}
+
+fn render_with(params: &[(&str, f64)]) -> Render {
+    let (mut s, track) = drum_loop();
+    let fx = insert(&mut s, &track);
+    for (param, value) in params {
+        s.run(set(&fx, param, *value));
+    }
+    play(
+        &mut s,
+        BARS as usize * 2 * SAMPLE_RATE as usize,
+        render_native,
+    )
+}
+
+/// Largest normalized autocorrelation for lags of 2 to 30 ms, and its lag in ms: how close the
+/// signal is to a periodic tone (a comb).
+fn periodicity(x: &[f32]) -> (f32, f32) {
+    let energy: f64 = x.iter().map(|s| f64::from(*s).powi(2)).sum();
+    let mut best = (0.0f64, 0usize);
+    for lag in 96..1_440 {
+        let r: f64 = x
+            .iter()
+            .zip(&x[lag..])
+            .map(|(a, b)| f64::from(*a) * f64::from(*b))
+            .sum();
+        if r / energy > best.0 {
+            best = (r / energy, lag);
+        }
+    }
+    (best.0 as f32, best.1 as f32 / 48.0)
+}
+
+/// Peak over mean of the spectrum's magnitudes from 100 Hz to 4 kHz (a comb's teeth stand out),
+/// and the share of the energy above 8 kHz.
+fn spectral(r: &Render, window: std::ops::Range<f32>) -> (f32, f32) {
+    let s = r.spectrum(window);
+    let band: Vec<f32> = s
+        .magnitudes
+        .iter()
+        .enumerate()
+        .filter(|(k, _)| (100.0..4_000.0).contains(&(*k as f32 * s.bin_hz)))
+        .map(|(_, m)| *m)
+        .collect();
+    let mean = band.iter().sum::<f32>() / band.len() as f32;
+    let peak = band.iter().fold(0f32, |m, v| m.max(*v));
+    let total: f32 = s.magnitudes.iter().map(|m| m * m).sum();
+    let high: f32 = s
+        .magnitudes
+        .iter()
+        .enumerate()
+        .filter(|(k, _)| *k as f32 * s.bin_hz > 8_000.0)
+        .map(|(_, m)| m * m)
+        .sum();
+    (peak / mean.max(1e-12), high / total.max(1e-12))
+}
+
+/// The A/B behind the review of the roll's sound: the roll whole, then with one setting taken
+/// out at a time; for the second half of each half-note window (where the repeats are the
+/// shortest), how periodic it is and how its spectrum stands. Run by hand:
+/// `cargo test -p test-support --test it hiccup::roll_ab -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn roll_ab() {
+    let dry = played_as_exported(Setting::Dry);
+    let mut dry_per = 0.0;
+    for n in 0..(2 * BARS) as usize {
+        let at = n * 48_000;
+        dry_per += periodicity(&dry.left[at + 24_000..at + 48_000]).0 / (2 * BARS) as f32;
+    }
+    println!("dry: periodicity {dry_per:.3}");
+    let roll = played_as_exported(Setting::Roll);
+    let mut roll_per = Vec::new();
+    for n in 0..(2 * BARS) as usize {
+        let at = n * 48_000;
+        roll_per.push(periodicity(&roll.left[at + 24_000..at + 48_000]).0);
+    }
+    let (crest, high) = spectral(&roll, 0.5..1.0);
+    println!(
+        "roll (new settings): periodicity {roll_per:.3?}, crest {crest:.1}, energy above 8 kHz {:.1} %",
+        high * 100.0
+    );
+    for (name, without) in [
+        ("roll", vec![]),
+        ("roll-no-pitch", vec!["pitch"]),
+        ("roll-fixed", vec!["variation"]),
+        ("roll-no-filter", vec!["filter"]),
+        ("roll-no-decay", vec!["decay"]),
+    ] {
+        let r = render_with(&roll_params(&without));
+        let mut per = Vec::new();
+        for n in 0..(2 * BARS) as usize {
+            let at = n * 48_000;
+            per.push(periodicity(&r.left[at + 24_000..at + 48_000]));
+        }
+        let mean = per.iter().map(|p| p.0).sum::<f32>() / per.len() as f32;
+        let lags: Vec<f32> = per.iter().map(|p| p.1).collect();
+        let (crest, high) = spectral(&r, 0.5..1.0);
+        let (dry_crest, dry_high) = spectral(&dry, 0.5..1.0);
+        println!(
+            "{name}: periodicity {mean:.3} (lags ms {lags:?}), crest {crest:.1} (dry {dry_crest:.1}), energy above 8 kHz {:.1} % (dry {:.1} %)",
+            high * 100.0,
+            dry_high * 100.0
+        );
+        write_qa(&r, &format!("ab-{name}"));
     }
 }

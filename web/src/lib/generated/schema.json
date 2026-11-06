@@ -30539,7 +30539,7 @@
         },
         {
           "default": 0,
-          "description": "Length of each repeat. Fixed: the slice. Shorter: three quarters of the repeat before, down to an eighth of the slice. Random: the slice, half or a quarter of it, drawn from the seed.",
+          "description": "Length of each repeat. Fixed: the slice. Shorter: halved every two slices, a roll speeding up (1/8, 1/16, 1/32). Random: the slice, half or a quarter, from the seed. Never under 1/8 of the slice nor 40 ms.",
           "id": 6,
           "key": "variation",
           "max": 2,

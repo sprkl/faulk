@@ -18,7 +18,7 @@ use engine::device::{
 use engine::devices::hiccup::{
     self, CAPTURE, CHANCE, DECAY, DESCRIPTOR, EVERY_1_16, FADE_SECONDS, FILTER, GATE, HIGH_PASS,
     Hiccup, INSERT, INTERVAL, LAYER, LOW_PASS, MAX_SLICE_SECONDS, MIX, MODE, PITCH, RANDOM,
-    REPEATS_ONLY, SEED, SHORTER, SIZE, SIZE_1_16, SIZE_1_64, VARIATION, draw,
+    REPEATS_ONLY, SEED, SHORTER, SIZE, SIZE_1_8, SIZE_1_16, SIZE_1_64, VARIATION, draw,
 };
 use engine::msg::ParamId;
 use engine::time::{Tempo, TimeSignature};
@@ -576,29 +576,21 @@ fn impulse_returns(params: &[(u32, f32)], at: usize) -> Vec<usize> {
 }
 
 #[test]
-fn shorter_repeats_shrink_by_three_quarters_down_to_an_eighth() {
+fn shorter_repeats_halve_every_two_slices_like_a_roll_and_stop_at_40_ms() {
+    // A 1/8 slice (12 000 frames at 120 BPM) for a bar: twice 1/8, four times 1/16, then 1/32
+    // (3 000 frames) to the end of the bar: 1/64 (1 500 frames, 31 ms) is under 40 ms.
     let at = 300;
-    let found = impulse_returns(&[(VARIATION, SHORTER as f32)], at);
-    let slice = 6_000.0f64;
-    let mut expected = vec![at];
-    let mut start = slice;
-    let mut length = slice;
-    let mut k = 1;
-    while start as usize + at < 24_000 {
-        if k > 1 {
-            length *= 0.75;
-        }
-        let l = length.round().max(slice / 8.0);
-        expected.push(start as usize + at);
-        start += l;
-        k += 1;
-    }
-    let found: Vec<usize> = found.into_iter().filter(|&i| i < 24_000).collect();
+    let found = impulse_returns(&[(VARIATION, SHORTER as f32), (SIZE, SIZE_1_8 as f32)], at);
+    let mut starts = vec![0usize, 12_000, 24_000];
+    starts.extend((0..4).map(|i| 36_000 + 6_000 * i));
+    starts.extend((0..12).map(|i| 60_000 + 3_000 * i));
+    let expected: Vec<usize> = starts.iter().map(|s| s + at).collect();
+    let found: Vec<usize> = found.into_iter().filter(|&i| i < 96_000).collect();
     assert_eq!(found, expected);
 }
 
 #[test]
-fn random_repeats_last_the_slice_a_half_or_a_quarter_drawn_from_the_seed() {
+fn random_repeats_last_the_slice_a_half_or_a_quarter_drawn_from_the_seed_never_under_40_ms() {
     let at = 200;
     let seed = 11u32;
     let found = impulse_returns(&[(VARIATION, RANDOM as f32), (SEED, seed as f32)], at);
@@ -607,9 +599,9 @@ fn random_repeats_last_the_slice_a_half_or_a_quarter_drawn_from_the_seed() {
     let mut k = 1u32;
     let mut lengths = std::collections::BTreeSet::new();
     while start + at < 24_000 {
-        let l = 6_000usize >> (draw(seed, 0, k) % 3);
+        // A quarter (1 500 frames, 31 ms) is under 40 ms: it lasts 1 920 frames.
+        let l = (6_000usize >> (draw(seed, 0, k) % 3)).max(1_920);
         lengths.insert(l);
-        // A repeat of a quarter (1 500 frames) still holds the impulse at 200.
         expected.push(start + at);
         start += l;
         k += 1;
