@@ -835,3 +835,59 @@ mod engine_level {
         assert!(run.peak(20) < 1e-4, "a 1/64 note ends after 31 ms");
     }
 }
+
+/// The worst block, measured (not a budget: `cargo test --release -p engine --test it
+/// trim::worst_block_cost -- --ignored --nocapture`): both tables full, then a 128-frame
+/// block of 4 096 events (the most a chained effect's output floor holds), half note-ons
+/// of reused voices that each end the oldest note, half note-offs that each take a held key,
+/// in release mode so that every event scans the held keys.
+#[test]
+#[ignore]
+fn worst_block_cost() {
+    let mut t = trim_with(
+        SR,
+        &[
+            (TRIGGER, RELEASE as f32),
+            (DIVISION, trim::DIV_4_BARS as f32),
+        ],
+    );
+    let fill: Vec<_> = (0..CAPACITY as u32)
+        .flat_map(|i| [(0, on(i + 1, 60)), (0, off(i + 1, 60))])
+        .chain((0..CAPACITY as u32).map(|i| (0, on(1_000 + i, 64))))
+        .collect();
+    render(&mut t, 128, 128, &fill);
+    let block: Vec<Event> = (0..4_096u32)
+        .map(|i| {
+            let v = 2_000 + i / 2;
+            if i % 2 == 0 {
+                on(v, 60).at(i / 32)
+            } else {
+                off(v, 60).at(i / 32)
+            }
+        })
+        .collect();
+    let bounds = DESCRIPTOR.midi_output.unwrap();
+    let mut out = EventBuffer::try_with_capacity(bounds.capacity(block.len())).unwrap();
+    let (mut left, mut right) = (vec![0.0f32; 128], vec![0.0f32; 128]);
+    let ctx = BlockCtx {
+        sample_rate: SR,
+        frames: 128,
+        transport: running(120.0, (4, 4), 128),
+    };
+    let rounds = 200;
+    let started = std::time::Instant::now();
+    for _ in 0..rounds {
+        out.clear();
+        let mut io = AudioIo {
+            left: &mut left,
+            right: &mut right,
+            events_out: &mut out,
+        };
+        t.process(&ctx, &block, &mut io);
+    }
+    let per_block = started.elapsed() / rounds;
+    println!(
+        "worst block: {per_block:?} for 4 096 events, {} written (128 frames at 48 kHz: 2.67 ms)",
+        out.len()
+    );
+}

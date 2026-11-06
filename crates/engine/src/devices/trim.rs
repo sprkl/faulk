@@ -328,6 +328,9 @@ pub struct Trim {
     next_voice: u32,
     sounding: [Sounding; CAPACITY],
     sounding_len: usize,
+    /// The earliest end among the notes sounding (`u64::MAX` with none): a block's events
+    /// skip the table while nothing is due.
+    next_end: u64,
     held: [Held; CAPACITY],
     held_len: usize,
 }
@@ -351,6 +354,7 @@ impl Trim {
             next_voice: 0,
             sounding: [Sounding::default(); CAPACITY],
             sounding_len: 0,
+            next_end: u64::MAX,
             held: [Held::default(); CAPACITY],
             held_len: 0,
         };
@@ -396,6 +400,14 @@ impl Trim {
     /// (`inclusive`) or before it, at its offset in the block, never before `cursor`.
     fn end_due(&mut self, limit: u64, inclusive: bool, cursor: usize, out: &mut AudioIo<'_>) {
         loop {
+            let any = if inclusive {
+                self.next_end <= limit
+            } else {
+                self.next_end < limit
+            };
+            if !any {
+                return;
+            }
             let mut best: Option<usize> = None;
             for i in 0..self.sounding_len {
                 let s = &self.sounding[i];
@@ -434,6 +446,13 @@ impl Trim {
         }
         self.sounding_len -= 1;
         self.sounding[i] = self.sounding[self.sounding_len];
+        if s.end <= self.next_end {
+            self.next_end = self.sounding[..self.sounding_len]
+                .iter()
+                .map(|n| n.end)
+                .min()
+                .unwrap_or(u64::MAX);
+        }
     }
 
     /// A voice id no sounding note has.
@@ -483,6 +502,7 @@ impl Trim {
             seq: self.seq,
         };
         self.sounding_len += 1;
+        self.next_end = self.next_end.min(self.sounding[self.sounding_len - 1].end);
     }
 
     /// The held key of input `voice`, taken out of the table.
@@ -569,6 +589,7 @@ impl Device for Trim {
                     io.events_out
                         .push(Event::AllNotesOff { offset: offset(at) });
                     self.sounding_len = 0;
+                    self.next_end = u64::MAX;
                     self.held_len = 0;
                 }
                 Event::ParamValue { id, value, .. } => self.set_param(id, value),
@@ -586,6 +607,7 @@ impl Device for Trim {
 
     fn reset(&mut self) {
         self.sounding_len = 0;
+        self.next_end = u64::MAX;
         self.held_len = 0;
         self.was_playing = false;
     }
@@ -670,7 +692,8 @@ pub mod testing {
     pub const RATE: f32 = 48_000.0;
 
     /// Values per event of [`scenario`]: absolute frame, kind (0 note-on, 1 note-off, 2
-    /// all-notes-off), voice, key, velocity bits, tune bits.
+    /// all-notes-off, 3 an output that overflowed its declared bounds: never), voice, key,
+    /// velocity bits, tune bits.
     pub const STRIDE: usize = 6;
 
     /// Runs the scenario and returns its event stream, [`STRIDE`] values per event.
@@ -683,9 +706,6 @@ pub mod testing {
             rng.wrapping_mul(0x2545_F491_4F6C_DD1D)
         };
         let mut trim = Trim::new(RATE);
-        let Ok(mut out) = EventBuffer::try_with_capacity(4 * CAPACITY + 64) else {
-            return Vec::new();
-        };
         let mut left = vec![0.0f32; 2048];
         let mut right = vec![0.0f32; 2048];
         let mut stream = Vec::new();
@@ -767,13 +787,23 @@ pub mod testing {
                     ..Transport::default()
                 },
             };
-            out.clear();
+            // The buffer the host gives it: the declared bounds over the block's input.
+            let Some(bounds) = DESCRIPTOR.midi_output else {
+                return Vec::new();
+            };
+            let Ok(mut out) = EventBuffer::try_with_capacity(bounds.capacity(events.len())) else {
+                return Vec::new();
+            };
             let mut io = AudioIo {
                 left: &mut left[..frames],
                 right: &mut right[..frames],
                 events_out: &mut out,
             };
             trim.process(&ctx, &events, &mut io);
+            if out.overflowed() > 0 {
+                // A broken bound: kind 3, which the parity test refuses.
+                stream.extend([frame as i64, 3, i64::from(out.overflowed()), 0, 0, 0]);
+            }
             out.finish();
             for e in out.events() {
                 let (kind, voice, key, velocity, tune) = match *e {

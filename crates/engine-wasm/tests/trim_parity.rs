@@ -83,6 +83,10 @@ fn the_event_stream_of_trim_is_identical_in_native_and_wasm() {
         ons > 500 && offs > 500,
         "the scenario plays notes: {ons} on, {offs} off"
     );
+    assert!(
+        native.chunks(stride).all(|e| e[1] != 3),
+        "the output never overflows its declared bounds"
+    );
     let wasm = events_wasm();
     assert_eq!(native.len(), wasm.len());
     if let Some(i) = native.iter().zip(&wasm).position(|(a, b)| a != b) {

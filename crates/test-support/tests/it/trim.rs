@@ -57,9 +57,11 @@ fn trim_goes_before_the_synth_and_each_parameter_is_set_by_name_and_undone() {
                 .get(p.key)
                 .copied()
                 .unwrap_or(p.default);
-            // An edit must change something: the check runs on a new value.
+            // An edit must change something: when the value is already there (a default), the
+            // parameter is moved to its other bound first, so every value is checked.
             if p.sanitize_f64(value) == Some(current) {
-                continue;
+                let other = if value == p.max { p.min } else { p.max };
+                s.run(set(&fx, p.key, other));
             }
             check(&cmd, s.state(), s.ctx()).unwrap_or_else(|e| panic!("{} = {value}: {e}", p.key));
             let out = s.exec(cmd);
