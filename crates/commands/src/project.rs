@@ -477,7 +477,7 @@ pub fn apply(
         // The download and the pack belong to the page (the core checks the pack itself when the
         // page hands it over): the command only checks that the link may be fetched at all.
         Command::OpenUrl { url } => {
-            check_pack_url(url)?;
+            check_link(url, "a .faulkpack")?;
             Ok(nothing(Output::OpenUrl {}))
         }
         // The host stages what it keeps just before (`Context::stored`); with nothing staged the
@@ -656,25 +656,26 @@ fn stored_name(field: &str, value: &str) -> Result<(), CommandError> {
     Ok(())
 }
 
-/// Longest link `project.open_url` takes, in characters.
+/// Longest link `project.open_url` and `clip.import_audio_url` take, in characters.
 pub const MAX_PACK_URL_CHARS: usize = 2048;
 
 /// The hosts plain `http` may reach: the computer itself (a pack served while developing).
 const LOOPBACK_HOSTS: [&str; 3] = ["localhost", "127.0.0.1", "[::1]"];
 
-/// Checks the shape of a link to a `.faulkpack`: `https`, or `http` to the computer itself, a
-/// host, and no user name or password. Stricter than a browser's parser on purpose (a host the
-/// page would rewrite, such as `127.1`, is refused rather than guessed); the page parses the
-/// link again before it downloads anything.
-fn check_pack_url(url: &str) -> Result<(), CommandError> {
+/// Checks the shape of a link the page downloads (`what` it points to: a `.faulkpack` for
+/// `project.open_url`, an audio file for `clip.import_audio_url`): `https`, or `http` to the
+/// computer itself, a host, and no user name or password. Stricter than a browser's parser on
+/// purpose (a host the page would rewrite, such as `127.1`, is refused rather than guessed); the
+/// page parses the link again before it downloads anything.
+pub(crate) fn check_link(url: &str, what: &str) -> Result<(), CommandError> {
     let refuse = |message: String| CommandError::Invalid {
         field: "url".into(),
         message,
     };
     if url.is_empty() {
-        return Err(refuse(
-            "`url` is the link to a .faulkpack, it is not empty".into(),
-        ));
+        return Err(refuse(format!(
+            "`url` is the link to {what}, it is not empty"
+        )));
     }
     if url.chars().count() > MAX_PACK_URL_CHARS {
         return Err(refuse(format!(

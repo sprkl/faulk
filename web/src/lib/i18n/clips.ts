@@ -55,6 +55,10 @@ export const clips = defineFeature(
     'clips.importFailed.unreadable': '{name} could not be read.',
     'clips.importFailed.unavailable': 'Save the project first: it has no place to keep {name} yet.',
     'clips.importFailed.store': '{name} could not be kept in the project: the disk or the browser refused.',
+    'clips.importFailed.downloadUnreachable': '{name} could not be downloaded from its link.',
+    'clips.importFailed.downloadTooBig': '{name} is too big to download (more than {max} MB).',
+    'clips.downloading': 'Downloading {name} from {host}… {percent} %',
+    'clips.downloadingSize': 'Downloading {name} from {host}… {size} MB',
   },
   {
     'views.clips': 'Clips',
@@ -109,5 +113,9 @@ export const clips = defineFeature(
     'clips.importFailed.unreadable': '{name} n’a pas pu être lu.',
     'clips.importFailed.unavailable': 'Enregistrez d’abord le projet : il n’a pas encore de place pour garder {name}.',
     'clips.importFailed.store': '{name} n’a pas pu être gardé dans le projet : le disque ou le navigateur a refusé.',
+    'clips.importFailed.downloadUnreachable': '{name} n’a pas pu être téléchargé depuis son lien.',
+    'clips.importFailed.downloadTooBig': '{name} est trop gros pour être téléchargé (plus de {max} Mo).',
+    'clips.downloading': 'Téléchargement de {name} depuis {host}… {percent} %',
+    'clips.downloadingSize': 'Téléchargement de {name} depuis {host}… {size} Mo',
   },
 )
