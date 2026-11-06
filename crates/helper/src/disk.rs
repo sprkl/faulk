@@ -509,10 +509,22 @@ impl ProjectFolder {
         if reserved(&real) {
             return Err(PathError::Reserved);
         }
+        // The last component as the disk spells it, when it exists: an 8.3 alias of a reserved
+        // file (`PROJEC~1.JSO` is `project.json`). A last component that is a link leading out is
+        // not followed here: the move replaces the link itself.
+        match self.probe(&parts) {
+            Ok(full) if reserved(&full) => return Err(PathError::Reserved),
+            Ok(_) | Err(PathError::Escapes) => {}
+            Err(e) => return Err(e),
+        }
+        // `.faulk` or `tmp` that is a link, even to inside the folder: refused before anything is
+        // made at its target, since the temporary file would not be where the cleaning of
+        // `.faulk/tmp/` looks.
+        if self.probe(&[".faulk", "tmp"])? != [".faulk", "tmp"] {
+            return Err(PathError::Escapes);
+        }
         let tmp_dir = self.directory(&[".faulk", "tmp"])?;
         if tmp_dir != self.root.join(".faulk").join("tmp") {
-            // `.faulk` or `tmp` is a link, even to inside the folder: the temporary file would
-            // not be where the cleaning of `.faulk/tmp/` looks.
             return Err(PathError::Escapes);
         }
         let parent = self.directory(dirs)?;

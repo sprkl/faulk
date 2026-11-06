@@ -902,6 +902,45 @@ fn a_refused_write_makes_no_directory_not_even_its_parents() {
     assert!(!s.outside.join("new").exists());
 }
 
+/// The short name of a reserved file at the root (`PROJEC~1.JSO` for `project.json`) is the file
+/// itself: refused like it, once the disk spells it.
+#[cfg(windows)]
+#[test]
+fn a_short_name_of_a_reserved_file_is_refused() {
+    let s = setup("shortfile");
+    fs::write(s.root.join(".gitignore"), b"keep").unwrap();
+    let mut tried = 0;
+    for (short, long) in [("PROJEC~1.JSO", "project.json"), ("GITIGN~1", ".gitignore")] {
+        if !s.root.join(short).exists() {
+            eprintln!("skipped {short}: this volume makes no 8.3 names");
+            continue;
+        }
+        tried += 1;
+        let kept = fs::read(s.root.join(long)).unwrap();
+        assert_eq!(
+            s.folder.write(short, b"attack").unwrap_err(),
+            PathError::Reserved,
+            "{short}"
+        );
+        assert_eq!(fs::read(s.root.join(long)).unwrap(), kept);
+    }
+    eprintln!("{tried} short names tried");
+}
+
+#[test]
+fn a_faulk_folder_that_is_a_link_inside_gets_no_temporary_folder_at_its_target() {
+    let s = setup("faulklink");
+    fs::create_dir_all(s.root.join("blobs")).unwrap();
+    dir_link(&s.root.join("blobs"), &s.root.join(".faulk"));
+    let before = s.snapshot();
+    assert_eq!(
+        s.folder.write("mix.wav", b"attack").unwrap_err(),
+        PathError::Escapes
+    );
+    assert_eq!(s.snapshot(), before);
+    assert!(!s.root.join("blobs").join("tmp").exists());
+}
+
 #[test]
 fn a_project_file_that_is_a_link_leading_out_is_no_project() {
     let s = setup("projectlink");

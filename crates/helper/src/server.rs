@@ -754,7 +754,7 @@ impl Shared {
 
     /// Commits what was found for `link`, only while it is still the place named (same session,
     /// current, and no folder message since): `folder` becomes the open folder and `state` is told.
-    /// `None` otherwise: a newer message was answered, or will be. The session lock first, then
+    /// `false` otherwise: a newer message was answered, or will be. The session lock first, then
     /// the link's, as everywhere.
     fn commit(
         &self,
@@ -762,28 +762,31 @@ impl Shared {
         folder: Option<ProjectFolder>,
         state: FolderStatus,
         opens: bool,
-    ) -> Option<ServerMessage> {
+    ) -> bool {
         let session = self.session.lock().expect("session lock");
-        if !session.as_ref().is_some_and(|s| s.id == link.session) {
-            return None;
-        }
+        let Some(s) = session.as_ref().filter(|s| s.id == link.session) else {
+            return false;
+        };
         let current = self.link.lock().expect("link lock");
         if current.as_ref() != Some(link) {
-            return None;
+            return false;
         }
         if opens {
             self.open_folder.set(folder.map(Arc::new));
         }
-        Some(ServerMessage::FolderState {
+        // Sent under the locks: the states reach the page in the order they were committed, so a
+        // newer place's state is never followed by an older one's.
+        let _ = s.tx.send(Out::Msg(ServerMessage::FolderState {
             project: Some(link.project.clone()),
             state,
-        })
+        }));
+        true
     }
 
     /// Looks `link` up among the remembered folders (disk work, on a blocking thread and with no
     /// lock held) and commits it: the folder that holds the project and the page's marker is
     /// opened; with none, or several, no folder is (the page asks the user to show it).
-    fn resolve(&self, link: &Link) -> Option<ServerMessage> {
+    fn resolve(&self, link: &Link) -> bool {
         let paths = self
             .remembered
             .lock()
@@ -811,9 +814,7 @@ impl Shared {
         }
         let shared = self.clone();
         tokio::task::spawn_blocking(move || {
-            if let Some(message) = shared.resolve(&link) {
-                shared.to_session_of(link.session, message);
-            }
+            shared.resolve(&link);
         });
     }
 
@@ -837,17 +838,14 @@ impl Shared {
         tokio::task::spawn_blocking(move || {
             let picked = shared.picker.pick(&title);
             drop(taken);
-            if let Some(message) = shared.take_pick(&link, picked) {
-                shared.to_session_of(link.session, message);
+            if shared.take_pick(&link, picked) {
                 return;
             }
             // Another place was named meanwhile (by this page or by the one that replaced it):
             // its state, the folder just picked included.
             let current = shared.link.lock().ok().and_then(|l| l.clone());
-            if let Some(current) = current
-                && let Some(message) = shared.resolve(&current)
-            {
-                shared.to_session_of(current.session, message);
+            if let Some(current) = current {
+                shared.resolve(&current);
             }
         });
         Some(choosing)
@@ -855,8 +853,8 @@ impl Shared {
 
     /// What the dialog's answer does, for the place `link` named: a folder holding the project
     /// and the page's marker is remembered, and opened while `link` is still the place named.
-    /// `None` when that place is not the one named any more.
-    fn take_pick(&self, link: &Link, picked: Picked) -> Option<ServerMessage> {
+    /// `false` when that place is not the one named any more.
+    fn take_pick(&self, link: &Link, picked: Picked) -> bool {
         let refused = |reason| FolderStatus::Refused { reason };
         let (folder, state) = match picked {
             Picked::Cancelled => (None, refused(FolderRefusal::Cancelled)),
@@ -904,15 +902,6 @@ impl Shared {
         if link.as_ref().is_none_or(|l| l.session == id) {
             *link = None;
             self.open_folder.set(None);
-        }
-    }
-
-    /// Sends `message` to session `id` when it is the current one.
-    fn to_session_of(&self, id: u64, message: ServerMessage) {
-        if let Ok(session) = self.session.lock()
-            && let Some(s) = session.as_ref().filter(|s| s.id == id)
-        {
-            let _ = s.tx.send(Out::Msg(message));
         }
     }
 }
