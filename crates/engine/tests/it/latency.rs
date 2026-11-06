@@ -1240,6 +1240,116 @@ fn the_master_strip_holds_no_stale_level_when_the_tracks_latency_comes_back() {
     );
     assert_eq!(peak(&after), 0.0, "no stale level of the master's line");
 }
+#[test]
+fn a_track_muted_behind_a_ceiling_counts_as_heard_while_its_delayed_fade_sounds() {
+    // Two blocks after the mute the strip is at 0, its delayed fade not over (72 frames
+    // behind): a device inserted then fades in, it is not put in at once over that tail.
+    let mut rig = Rig::new(48_000.0);
+    pair(&mut rig, &[ceiling_at(t(1), 1, &[(CEILING, 0.0)])]);
+    rig.run(20);
+    rig.send(&[M::TrackSetMix {
+        track: t(1),
+        gain: 1.0,
+        pan: 1.0,
+        mute: true,
+    }]);
+    rig.run(2);
+    assert_eq!(
+        rig.e.state().track(t(1)).unwrap().graph.levels(),
+        (0.0, 0.0)
+    );
+    rig.send(&[insert(t(1), 2, GAIN.kind_id, &[(gain::GAIN, 0.0)])]);
+    rig.run(1);
+    let fade = rig.e.state().device(t(1), DeviceSlot(2)).unwrap().fade();
+    assert!(fade < 1.0, "the new device fades in: {fade}");
+}
+
+#[test]
+fn a_track_that_stops_rendering_keeps_no_level_in_its_strip_lines() {
+    // The chain switched off, then the track muted while its last sound rings out: the track
+    // stops rendering with the mute's fade in its strip line. That line is cleared, not left
+    // busy for ever.
+    let mut rig = Rig::new(48_000.0);
+    pair(&mut rig, &[ceiling_at(t(1), 1, &[(CEILING, 0.0)])]);
+    rig.run(20);
+    rig.send(&[enabled(t(1), 0, false), enabled(t(1), 1, false)]);
+    rig.run(2);
+    rig.send(&[M::TrackSetMix {
+        track: t(1),
+        gain: 1.0,
+        pan: 1.0,
+        mute: true,
+    }]);
+    rig.run(40);
+    let busy = rig
+        .e
+        .state_mut()
+        .track_mut(t(1))
+        .unwrap()
+        .devices
+        .as_mut_slice()[1]
+        .as_deref_mut()
+        .unwrap()
+        .device
+        .bypass()
+        .unwrap()
+        .strip()
+        .busy();
+    assert!(!busy, "nothing left in the strip line");
+}
+
+#[test]
+fn the_master_line_moves_with_the_tracks_latency_at_once() {
+    // A test delay of 2 000 frames inserted while playing: once the track's latency counts, the
+    // master's line starts toward it in the same block (it takes its history from the level it
+    // starts from), instead of waiting 2 000 frames to fill.
+    let mut rig = Rig::new(48_000.0);
+    rig.transport();
+    rig.send(&tone_track(t(0), 0.0));
+    rig.run(8);
+    rig.send(&[note_on(t(0)), M::Play { from: Tick(0) }]);
+    rig.run(4);
+    rig.send(&[delay_at(t(0), 1, 2000)]);
+    let mut blocks = 0;
+    while rig.latency() < 2000 {
+        rig.run(1);
+        blocks += 1;
+        assert!(blocks < 100, "the latency counts");
+    }
+    let line = rig.e.graph().master_strip_line();
+    assert_eq!(line.tap(), 2000, "after {blocks} blocks");
+    assert!(line.crossfading());
+}
+
+#[test]
+fn a_device_removed_while_its_strip_line_crossfades_stays_until_that_line_is_at_rest() {
+    // The test delay goes from 72 to 100 frames (its strip line crossfades over a fade), one
+    // block later it is removed and its track muted: the strip line waits for its crossfade,
+    // then goes to no delay, after the device's own fade. The device is handed back only then:
+    // a strip line dropped half way would step by a part of the mute's fade.
+    let mut rig = Rig::new(48_000.0);
+    pair(&mut rig, &[delay_at(t(1), 1, 72)]);
+    let (_, before) = rig.run(20);
+    rig.send(&[param(t(1), 1, delay::FRAMES, 100.0)]);
+    let (_, moving) = rig.run(1);
+    rig.send(&[
+        remove(t(1), 1),
+        M::TrackSetMix {
+            track: t(1),
+            gain: 1.0,
+            pan: 1.0,
+            mute: true,
+        },
+    ]);
+    let (_, after) = rig.run(10);
+    let mut joined = moving[moving.len() - 8..].to_vec();
+    joined.extend_from_slice(&after);
+    let steady = max_step(&before[before.len() - 4 * BLOCK..]);
+    let step = max_step(&joined);
+    let bound = crossfade_bound(steady, 2.0 * peak(&before));
+    println!("removed during its strip line's crossfade: largest step {step} (bound {bound})");
+    assert!(step <= bound, "a step of {step}, bound {bound}");
+}
 
 // ---------------------------------------------------------------- device parameters (#765)
 

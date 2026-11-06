@@ -135,12 +135,15 @@
 //!   run passes them through, and an outgoing device's strip line goes to no delay over the
 //!   fade that takes its timing out of the chain. A device put in the place of one with the
 //!   same line takes its strip line too, the old one leaving without it. The master's levels
-//!   wait for `T` as well (the sum reaches the master that late, a line of the graph) and for
-//!   `M`. A track is silent, for the moves and for its retirement, only once its delayed
-//!   levels are. A chain with no device with a latency mixes as before. Limits: a heard
+//!   wait for `T` as well (the sum reaches the master that late, a line of the graph, which
+//!   takes its history from its first level when `T` grows from 0, so it moves at once) and for
+//!   `M`. A track is silent, for the moves, for its retirement and for a change of its chain,
+//!   only once its delayed levels are; an outgoing device stays until its strip line is at rest;
+//!   a track no longer rendered clears its strip lines. A chain whose devices with a latency
+//!   all pass through (a latency of 0) mixes as before. Limits: a heard
 //!   device whose latency jumps (its own business, a Ceiling fades itself out meanwhile) is
-//!   followed over its bypass line's crossfade; a strip line is fed only while its track
-//!   renders (its stale levels then multiply the silent start of the chain's sound); the panic
+//!   followed over its bypass line's crossfade; the master's line, primed with one level,
+//!   approximates the levels of the `T` frames before (exact while they held still); the panic
 //!   cut leaves the strip lines (levels, not sound).
 //! - **The values of the devices wait for their sound too** (#765): an effect after a device
 //!   with a latency receives sound that entered the chain that much earlier, so the values of
@@ -304,7 +307,11 @@ impl Outgoing {
             if usize::from(entry.slot) >= slots {
                 entry.fade = 0.0;
             }
-            if entry.fade <= 0.0 {
+            // A device with a latency stays until its strip line is back at no delay (#758):
+            // that line may finish after the device's own fade (it waits for a crossfade under
+            // way, or starts after the slot left its chain).
+            let strip_moves = entry.device.bypass().is_some_and(|b| !b.strip.at_rest());
+            if entry.fade <= 0.0 && !strip_moves {
                 match retired.push(Retired::Device(entry)) {
                     Ok(()) => continue,
                     Err(PushError::Full(Retired::Device(back))) => entry = back,
@@ -938,6 +945,33 @@ impl Graph {
         self.master.levels()
     }
 
+    /// Whether the strip of `track` (the master's for the master) is heard (#233): its levels,
+    /// or the delayed ones still in its strip lines (#758), are not all at 0.
+    pub(crate) fn strip_heard(&mut self, state: &mut State, track: TrackSlot) -> bool {
+        if track.is_master() {
+            let (l, r) = self.master.levels();
+            return l != 0.0
+                || r != 0.0
+                || self.master_line.busy()
+                || strip_busy(
+                    state.master_devices.as_mut_slice(),
+                    &mut self.master_outgoing,
+                );
+        }
+        match state.track_mut(track) {
+            Some(t) => {
+                let (l, r) = t.graph.levels();
+                l != 0.0 || r != 0.0 || strip_busy(t.devices.as_mut_slice(), &mut t.graph.outgoing)
+            }
+            None => false,
+        }
+    }
+
+    /// The line that delays the master strip's levels by the tracks' latency (#758, tests).
+    pub fn master_strip_line(&self) -> &Delay {
+        &self.master_line
+    }
+
     /// Frames of a fade.
     pub fn fade(&self) -> u32 {
         self.fade
@@ -1213,7 +1247,7 @@ impl Graph {
         // Behind a chain with a latency the strip's levels of every piece are written first,
         // then delayed over the whole block the chain ran over (its lines read whole blocks),
         // then applied (#758, module doc > Latency).
-        let delayed = strip_delayed(devices, master_outgoing) || master_waits(master_line, tracks);
+        let delayed = master_delayed((devices, master_outgoing), master_line, tracks);
         let Scratch {
             sink,
             strip_left,
@@ -1260,14 +1294,14 @@ impl Graph {
                 }
             }
         }
-        if !delayed {
-            // At rest, unfed: what it holds is stale once `T` grows again.
-            master_line.clear();
-        }
         if delayed {
-            master_line.process(sl, sr, tracks, fade);
-            delay_strip(devices, master_outgoing, sl, sr, fade);
-            crate::mixer::apply_with((left, right), (sl, sr));
+            master_delay_apply(
+                (devices, master_outgoing),
+                (master_line, tracks),
+                (sl, sr),
+                (left, right),
+                fade,
+            );
         }
     }
 
@@ -1657,13 +1691,28 @@ fn master_values(
     }
 }
 
-/// Whether a chain has a device with a latency (wrapped with its lines, [`crate::latency::Latent`]):
-/// its strip's levels then go through the devices' strip lines ([`delay_strip`]).
+/// Whether a chain, once it ran a sub-block, has a device with a latency whose strip line the
+/// strip's levels must go through ([`crate::latency::Bypass::strip_active`]; [`delay_strip`]):
+/// a chain whose devices with a latency are all at 0 mixes straight.
 fn has_latent(devices: &mut [Option<Box<DeviceEntry>>]) -> bool {
     devices
         .iter_mut()
         .flatten()
-        .any(|d| d.device.bypass().is_some())
+        .any(|d| d.device.bypass().is_some_and(|b| b.strip_active()))
+}
+
+/// Hides what a chain's strip lines hold (#758): a track no longer rendered.
+fn clear_strip(devices: &mut [Option<Box<DeviceEntry>>], outgoing: &mut Outgoing) {
+    for d in devices.iter_mut().flatten() {
+        if let Some(b) = d.device.bypass() {
+            b.strip.clear();
+        }
+    }
+    for d in outgoing.iter_mut() {
+        if let Some(b) = d.device.bypass() {
+            b.strip.clear();
+        }
+    }
 }
 
 /// Delays a sub-block of the strip's levels by the chain's latency (#758, module doc >
@@ -1693,16 +1742,11 @@ fn delay_strip(
         // Read after `run_chain`, the device's fade may have ended within these frames: its
         // strip line runs until it is back at no delay, whatever the fade says.
         if let Some(b) = entry.device.bypass()
-            && strip_moving(&b.strip)
+            && !b.strip.at_rest()
         {
             b.strip.process(left, right, 0, fade);
         }
     }
-}
-
-/// Whether a strip line still delays the levels, or moves (#758).
-fn strip_moving(line: &Delay) -> bool {
-    line.tap() > 0 || line.crossfading()
 }
 
 /// Whether a chain (its slots or its outgoing devices) has a device with a latency, wrapped
@@ -1712,7 +1756,7 @@ fn strip_delayed(devices: &mut [Option<Box<DeviceEntry>>], outgoing: &mut Outgoi
     has_latent(devices)
         || outgoing
             .iter_mut()
-            .any(|d| d.device.bypass().is_some_and(|b| strip_moving(&b.strip)))
+            .any(|d| d.device.bypass().is_some_and(|b| !b.strip.at_rest()))
 }
 
 /// Whether one of a chain's strip lines may still give levels other than 0 (#758): the strip
@@ -1729,11 +1773,46 @@ fn track_silent(track: &mut Track) -> bool {
         && !strip_busy(track.devices.as_mut_slice(), &mut track.graph.outgoing)
 }
 
-/// Whether the master's strip waits for the tracks' timing (#758): the tracks' latency `T`
-/// (`tracks`) delays the sum the master receives, so the master's levels go through its line
-/// at `T`, and still while that line moves back to no delay.
-fn master_waits(line: &Delay, tracks: u32) -> bool {
-    tracks > 0 || line.tap() > 0 || line.crossfading()
+/// Whether the master's strip goes through levels delayed by the master's timing (#758), once
+/// the master's chain ran: the tracks' latency `T` (`tracks`, the sum reaches the master that
+/// late; and while the master's line moves back to no delay), or a device of its chain with a
+/// latency. When it does not, its line is cleared: unfed, what it holds would be stale once `T`
+/// grows again.
+fn master_delayed(
+    (devices, outgoing): (&mut [Option<Box<DeviceEntry>>], &mut Outgoing),
+    line: &mut Delay,
+    tracks: u32,
+) -> bool {
+    let delayed = tracks > 0 || !line.at_rest() || strip_delayed(devices, outgoing);
+    if !delayed {
+        line.clear();
+    }
+    delayed
+}
+
+/// Delays the master's levels (`strip_left`, `strip_right`, written by the strip over the frames
+/// its chain just ran) by `T` through its line and by its chain's latency through the strip
+/// lines, then applies them in place to the sound (#758). A line that was at rest takes its
+/// history from the first level ([`Delay::prime`]), so that it moves with the tracks' timing
+/// at once instead of waiting `T` frames to fill.
+fn master_delay_apply(
+    (devices, outgoing): (&mut [Option<Box<DeviceEntry>>], &mut Outgoing),
+    (line, tracks): (&mut Delay, u32),
+    (strip_left, strip_right): (&mut [f32], &mut [f32]),
+    (left, right): (&mut [f32], &mut [f32]),
+    fade: u32,
+) {
+    if tracks > 0
+        && line.at_rest()
+        && line.timing().is_pass()
+        && let (Some(&l), Some(&r)) = (strip_left.first(), strip_right.first())
+    {
+        // One frame beyond the tap: a longer tap starts once the line holds more than it.
+        line.prime(l, r, tracks.saturating_add(1));
+    }
+    line.process(strip_left, strip_right, tracks, fade);
+    delay_strip(devices, outgoing, strip_left, strip_right, fade);
+    crate::mixer::apply_with((left, right), (strip_left, strip_right));
 }
 
 /// Applies the master's strip in place over a sub-block its chain just ran over (`left`,
@@ -1749,16 +1828,18 @@ fn master_strip(
     events: impl Iterator<Item = crate::mixer::TimedParam>,
     fade: u32,
 ) {
-    if !strip_delayed(devices, outgoing) && !master_waits(line, tracks) {
-        // At rest, unfed: what it holds is stale once `T` grows again.
-        line.clear();
+    if !master_delayed((devices, outgoing), line, tracks) {
         master.apply_in_place(left, right, events, fade);
         return;
     }
     master.levels_into(strip_left, strip_right, events, fade);
-    line.process(strip_left, strip_right, tracks, fade);
-    delay_strip(devices, outgoing, strip_left, strip_right, fade);
-    crate::mixer::apply_with((left, right), (strip_left, strip_right));
+    master_delay_apply(
+        (devices, outgoing),
+        (line, tracks),
+        (strip_left, strip_right),
+        (left, right),
+        fade,
+    );
 }
 
 /// The largest gain reduction of the enabled devices of a chain, in decibels (0 for none; a
@@ -1936,8 +2017,11 @@ fn render_track(
             || (input.as_ref().is_some_and(|i| i.clips.is_some())
                 && (player_runs || !track.placements.is_empty())));
     if !chain_sounds(&mut *track) && !player_runs && !audio_runs {
-        // Not rendered: the next stopped block it renders applies its lanes again.
+        // Not rendered: the next stopped block it renders applies its lanes again. Its strip
+        // lines are fed no more: what they hold would multiply only the chain's silence, and
+        // left busy they would keep the track heard (#758).
         track.graph.stopped_at = None;
+        clear_strip(track.devices.as_mut_slice(), &mut track.graph.outgoing);
         return false;
     }
     let frames = ctx.frames as usize;

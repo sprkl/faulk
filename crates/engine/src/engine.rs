@@ -2781,7 +2781,7 @@ impl Engine {
                 None
             }
             RtMsg::DevicePut { track, put } => {
-                let audible = chain_audible(state, &self.graph, track);
+                let audible = chain_audible(state, &mut self.graph, track);
                 match state.chain_mut(track) {
                     Some(chain) => {
                         let device = DeviceSlot(put.slot as u16);
@@ -2846,7 +2846,7 @@ impl Engine {
                 }
             }
             RtMsg::DeviceRemove { track, device } => {
-                let audible = chain_audible(state, &self.graph, track);
+                let audible = chain_audible(state, &mut self.graph, track);
                 match state.chain_mut(track).map(|chain| {
                     let old = take_slot(chain, device.0.into());
                     let release = matches!(&old, Ok(Some(entry)) if takes_notes(entry));
@@ -2877,7 +2877,7 @@ impl Engine {
                 enabled,
             } => {
                 let mut release = false;
-                let audible = chain_audible(state, &self.graph, track);
+                let audible = chain_audible(state, &mut self.graph, track);
                 match device_mut(state, track, device) {
                     Some(entry) => {
                         let changed = entry.enabled != enabled;
@@ -3240,18 +3240,10 @@ fn fades(entry: &DeviceEntry) -> bool {
 }
 
 /// Whether the chain of `track` (the master's for the master) is heard: its strip is not at
-/// silence. A change of a chain nobody hears (a track not yet faded in, a muted one) applies
-/// at once (#233).
-fn chain_audible(state: &State, graph: &Graph, track: TrackSlot) -> bool {
-    let (l, r) = if track.is_master() {
-        graph.master_levels()
-    } else {
-        match state.track(track) {
-            Some(t) => t.graph.levels(),
-            None => return false,
-        }
-    };
-    l != 0.0 || r != 0.0
+/// silence, its delayed levels included (#758). A change of a chain nobody hears (a track not
+/// yet faded in, a muted one) applies at once (#233).
+fn chain_audible(state: &mut State, graph: &mut Graph, track: TrackSlot) -> bool {
+    graph.strip_heard(state, track)
 }
 
 /// Switches a device on or off (#233). On a heard chain an instrument or an audio effect
