@@ -1761,27 +1761,40 @@ async fn an_audio_file_from_a_link_is_relayed_to_the_page_and_its_typed_answers_
     let h = start().await;
     let (mut page, _) = open_session(&h).await;
     let mut lines = initialize();
-    let args = serde_json::json!({"track":"t1","url":"https://example.org/kick.wav"});
-    lines.push(tool_call(2, "clip_import_audio_url", args.clone()));
-    lines.push(tool_call(3, "clip_import_audio_url", args));
+    let kick = "https://example.org/kick.wav";
+    let big = "https://example.org/big.wav";
+    lines.push(tool_call(
+        2,
+        "clip_import_audio_url",
+        serde_json::json!({"track":"t1","url":kick}),
+    ));
+    lines.push(tool_call(
+        3,
+        "clip_import_audio_url",
+        serde_json::json!({"track":"t1","url":big}),
+    ));
     let running = bridge(h.port, Some(MCP_TOKEN), lines);
     let media = "ab".repeat(32);
-    let answers = [
-        AgentResult::Applied {
-            output: serde_json::json!({"type":"clip.import_audio_url","clip":"c1","media":media}),
-        },
-        AgentResult::Refused {
-            error: serde_json::json!({"code":"download.too_big","message":"the file is over 192 MiB: nothing changed"}),
-        },
-    ];
-    for result in answers {
+    // The two calls may reach the page in either order: each is answered by its link.
+    for _ in 0..2 {
         let ServerMessage::AgentCall { id, command, .. } = next(&mut page).await else {
             panic!("expected agent.call")
         };
+        let url = command["url"].as_str().unwrap_or_default().to_owned();
         assert_eq!(
             command,
-            serde_json::json!({"type":"clip.import_audio_url","track":"t1","url":"https://example.org/kick.wav"})
+            serde_json::json!({"type":"clip.import_audio_url","track":"t1","url":url})
         );
+        let result = if url == kick {
+            AgentResult::Applied {
+                output: serde_json::json!({"type":"clip.import_audio_url","clip":"c1","media":media}),
+            }
+        } else {
+            assert_eq!(url, big);
+            AgentResult::Refused {
+                error: serde_json::json!({"code":"download.too_big","message":"the file is over 192 MiB: nothing changed"}),
+            }
+        };
         send(&mut page, &ClientMessage::AgentResult { id, result }).await;
     }
     let answers = running.await.unwrap();
