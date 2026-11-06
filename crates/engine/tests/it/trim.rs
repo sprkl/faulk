@@ -382,6 +382,27 @@ fn overlapping_notes_of_one_key_and_a_reused_voice_each_keep_their_length() {
 }
 
 #[test]
+fn after_its_voice_counter_wraps_trim_skips_the_ids_still_sounding() {
+    let mut t = trim_with(SR, &[(DIVISION, trim::DIV_4_BARS as f32)]);
+    // Ids MAX - 1, MAX, then 0 and 1 (the counter wrapped), all held.
+    t.set_next_voice(VoiceId::MAX - 1);
+    let input: Vec<_> = (0..4u32).map(|i| (u64::from(i), on(i + 1, 60))).collect();
+    render(&mut t, 64, 64, &input);
+    // The next note would take id 2, then 3: ask for MAX - 1 again, which still sounds, and so
+    // do MAX, 0 and 1: the new note takes 2.
+    t.set_next_voice(VoiceId::MAX - 1);
+    let stream = render(&mut t, 64, 64, &[(0, on(9, 62))]);
+    let ids: Vec<u32> = stream
+        .iter()
+        .filter_map(|(_, e)| match e {
+            Event::NoteOn { voice, .. } => Some(voice.get()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(ids, vec![2]);
+}
+
+#[test]
 fn an_end_and_a_start_on_the_same_frame_come_out_end_first() {
     let mut t = trim_with(SR, &[(MODE, FREE as f32), (TIME, 0.01)]);
     let stream = render(&mut t, 2_000, 100, &[(0, on(1, 60)), (480, on(2, 60))]);
@@ -838,7 +859,8 @@ mod engine_level {
 
 /// The worst block, measured (not a budget: `cargo test --release -p engine --test it
 /// trim::worst_block_cost -- --ignored --nocapture`): both tables full, then a 128-frame
-/// block of 4 096 events (the most a chained effect's output floor holds), half note-ons
+/// block of 4 096 events (a chained effect's output floor) and of 65 536 (the most a MIDI
+/// effect's output holds, `MAX_MIDI_OUTPUT_EVENTS`), half note-ons
 /// of reused voices that each end the oldest note, half note-offs that each take a held key,
 /// in release mode so that every event scans the held keys.
 #[test]
@@ -856,38 +878,40 @@ fn worst_block_cost() {
         .chain((0..CAPACITY as u32).map(|i| (0, on(1_000 + i, 64))))
         .collect();
     render(&mut t, 128, 128, &fill);
-    let block: Vec<Event> = (0..4_096u32)
-        .map(|i| {
-            let v = 2_000 + i / 2;
-            if i % 2 == 0 {
-                on(v, 60).at(i / 32)
-            } else {
-                off(v, 60).at(i / 32)
-            }
-        })
-        .collect();
-    let bounds = DESCRIPTOR.midi_output.unwrap();
-    let mut out = EventBuffer::try_with_capacity(bounds.capacity(block.len())).unwrap();
-    let (mut left, mut right) = (vec![0.0f32; 128], vec![0.0f32; 128]);
-    let ctx = BlockCtx {
-        sample_rate: SR,
-        frames: 128,
-        transport: running(120.0, (4, 4), 128),
-    };
-    let rounds = 200;
-    let started = std::time::Instant::now();
-    for _ in 0..rounds {
-        out.clear();
-        let mut io = AudioIo {
-            left: &mut left,
-            right: &mut right,
-            events_out: &mut out,
+    for count in [4_096u32, 65_536] {
+        let block: Vec<Event> = (0..count)
+            .map(|i| {
+                let v = 2_000 + i / 2;
+                if i % 2 == 0 {
+                    on(v, 60).at(i * 128 / count)
+                } else {
+                    off(v, 60).at(i * 128 / count)
+                }
+            })
+            .collect();
+        let bounds = DESCRIPTOR.midi_output.unwrap();
+        let mut out = EventBuffer::try_with_capacity(bounds.capacity(block.len())).unwrap();
+        let (mut left, mut right) = (vec![0.0f32; 128], vec![0.0f32; 128]);
+        let ctx = BlockCtx {
+            sample_rate: SR,
+            frames: 128,
+            transport: running(120.0, (4, 4), 128),
         };
-        t.process(&ctx, &block, &mut io);
+        let rounds = 200;
+        let started = std::time::Instant::now();
+        for _ in 0..rounds {
+            out.clear();
+            let mut io = AudioIo {
+                left: &mut left,
+                right: &mut right,
+                events_out: &mut out,
+            };
+            t.process(&ctx, &block, &mut io);
+        }
+        let per_block = started.elapsed() / rounds;
+        println!(
+            "worst block: {per_block:?} for {count} events, {} written (128 frames at 48 kHz: 2.67 ms)",
+            out.len()
+        );
     }
-    let per_block = started.elapsed() / rounds;
-    println!(
-        "worst block: {per_block:?} for 4 096 events, {} written (128 frames at 48 kHz: 2.67 ms)",
-        out.len()
-    );
 }

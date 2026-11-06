@@ -326,6 +326,9 @@ pub struct Trim {
     was_playing: bool,
     seq: u64,
     next_voice: u32,
+    /// Whether the voice counter went round once: until then every id it gives is new, and
+    /// no table is scanned for it.
+    wrapped: bool,
     sounding: [Sounding; CAPACITY],
     sounding_len: usize,
     /// The earliest end among the notes sounding (`u64::MAX` with none): a block's events
@@ -352,6 +355,7 @@ impl Trim {
             was_playing: false,
             seq: 0,
             next_voice: 0,
+            wrapped: false,
             sounding: [Sounding::default(); CAPACITY],
             sounding_len: 0,
             next_end: u64::MAX,
@@ -372,6 +376,13 @@ impl Trim {
     /// Keys held back in release mode.
     pub fn held(&self) -> usize {
         self.held_len
+    }
+
+    /// Puts the voice counter at `next` (test build only): the wrap of the counter is tested
+    /// without 16 million notes.
+    #[cfg(feature = "testing")]
+    pub fn set_next_voice(&mut self, next: u32) {
+        self.next_voice = next.min(VoiceId::MAX);
     }
 
     /// The length, in frames, of a note of `key` and `tune_cents` starting in a block of
@@ -459,10 +470,16 @@ impl Trim {
     fn fresh_voice(&mut self) -> u32 {
         loop {
             let id = self.next_voice;
-            self.next_voice = if id >= VoiceId::MAX { 0 } else { id + 1 };
-            if !self.sounding[..self.sounding_len]
-                .iter()
-                .any(|s| s.voice == id)
+            if id >= VoiceId::MAX {
+                self.next_voice = 0;
+                self.wrapped = true;
+            } else {
+                self.next_voice = id + 1;
+            }
+            if !self.wrapped
+                || !self.sounding[..self.sounding_len]
+                    .iter()
+                    .any(|s| s.voice == id)
             {
                 return id;
             }
