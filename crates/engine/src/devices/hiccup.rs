@@ -49,7 +49,8 @@
 //!   `S`, `S / 2` or `S / 4` drawn from (seed, capture, k) (random). A shorter or random repeat
 //!   is never under [`SHORTEST_SHARE`] of the slice nor under [`MIN_REPEAT_SECONDS`]: repeats
 //!   closer than that fuse into a pitched buzz (#689: 7.8 ms repeats of a 1/32 slice made a
-//!   metallic 128 Hz tone);
+//!   metallic 128 Hz tone; the floor never lengthens a repeat past the slice, so a slice
+//!   under 40 ms, the user's own choice, repeats at its length);
 //! - plays at the gain `(1 - decay)^k` (the decay set when it starts);
 //! - reads the slice at the rate `2^(pitch / 12)` ([`PITCH_RATES`], linear interpolation): raised, it ends when
 //!   the slice runs out (silence until the next repeat); lowered, it plays the slice's start;
@@ -362,7 +363,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(VARIATION),
             key: "variation",
-            description: "Length of each repeat. Fixed: the slice. Shorter: halved every two slices, a roll speeding up (1/8, 1/16, 1/32). Random: the slice, half or a quarter, from the seed. Never under 1/8 of the slice nor 40 ms.",
+            description: "Length of each repeat. Fixed: the slice. Shorter: halved every two slices, a roll speeding up (1/8, 1/16, 1/32). Random: the slice, half or a quarter, from the seed. Never under 1/8 of the slice nor 40 ms, unless the slice is shorter.",
             unit: Unit::None,
             min: 0.0,
             max: 2.0,
