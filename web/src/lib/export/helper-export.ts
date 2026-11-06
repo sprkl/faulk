@@ -31,8 +31,8 @@ export interface HelperExportPort {
  */
 export function toBase64(view: Uint8Array): string {
   // The browser's own encoder where it has one: no intermediate string.
-  const native = (view as Uint8Array & { toBase64?: () => string }).toBase64
-  if (typeof native === 'function') return native.call(view)
+  const own = view as Uint8Array & { toBase64?: (this: Uint8Array) => string }
+  if (typeof own.toBase64 === 'function') return own.toBase64()
   const CHUNK = 0x8000
   const parts: string[] = []
   for (let at = 0; at < view.length; at += CHUNK) parts.push(String.fromCharCode(...view.subarray(at, at + CHUNK)))
@@ -54,7 +54,6 @@ function wellFormed(text: string): string {
 export function helperFileName(name: string): string {
   // The C1 controls (U+007F to U+009F), which the helper refuses like the others, go first; then a surrogate
   // left alone (by `cleanName`'s cut, or pasted), which no JSON parser takes.
-  // eslint-disable-next-line no-control-regex
   let cleaned = cleanName(wellFormed(cleanName(name.replace(/[\u007f-\u009f]/g, '-'))))
   const encoder = new TextEncoder()
   if (encoder.encode(cleaned).length > EXPORT_NAME.max_bytes) {
