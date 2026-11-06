@@ -11,14 +11,22 @@ import { createTrack } from '../track-commands'
 import { insertEffect, insertMasterEffect, setInstrument } from '../device-commands'
 import { instrumentDescriptors } from '../devices'
 import { loadPreset } from '../preset-commands'
-import { chainOf, effectCount, masterChainOf, type ChainEntry } from '../project/chain'
+import { chainOf, effectCount, instrumentOf, masterChainOf, midiEffectCount, type ChainEntry } from '../project/chain'
 import { isMidi } from '../project/tracks'
 import type { BrowserItem } from './catalog'
 
 /** Where an item goes. `selection` is the keyboard's: the selected track, else the master when it is selected, else a new track. */
 export type DropTarget =
   | { type: 'new-track' }
-  | { type: 'track'; track: string; /** Among the effects, 0 right after the instrument; the end of the chain when absent. */ index?: number }
+  | {
+      type: 'track'
+      track: string
+      /**
+       * Among the devices of the item's section: the audio effects (0 right after the instrument) or the MIDI effects (0 at
+       * the start of the chain, #219); the end of that section when absent.
+       */
+      index?: number
+    }
   | { type: 'master'; index?: number }
   | { type: 'selection' }
 
@@ -40,6 +48,7 @@ export interface DropSaid {
     | 'browser.said.insertedMaster'
     | 'browser.said.presetLoaded'
     | 'browser.said.noInstrumentOnMaster'
+    | 'browser.said.noMidiEffectHere'
     | 'browser.said.refused'
   /** The device, with its preset when one was loaded ("Reverb, Large Hall"). */
   device: string
@@ -88,15 +97,19 @@ export function applyItem(host: DropHost, item: BrowserItem, target: DropTarget)
   if (at.type === 'selection') {
     const selected = host.selectedTrack()
     // The master shows its own chain: an effect goes there; an instrument has no track in view to replace, so it starts one.
-    if (host.masterSelected()) at = item.category === 'instrument' ? { type: 'new-track' } : { type: 'master' }
+    // A MIDI effect plays on notes: like an instrument, it starts a MIDI track of its own.
+    if (host.masterSelected()) at = item.category === 'effect' ? { type: 'master' } : { type: 'new-track' }
     else at = selected ? { type: 'track', track: selected } : { type: 'new-track' }
   }
   if (at.type === 'master' && item.category === 'instrument') return refused('browser.said.noInstrumentOnMaster')
+  // A MIDI effect plays on notes (#219): the master and an audio track have none.
+  if (at.type === 'master' && item.category === 'midi_effect') return refused('browser.said.noMidiEffectHere')
   if (at.type === 'track') {
     const entry = host.tracks().find((e) => e.id === (at as { track: string }).track)
     if (!entry) return refused()
     // An audio track keeps its clip player: an instrument starts a MIDI track instead.
     if (item.category === 'instrument' && !isMidi(entry.track)) at = { type: 'new-track' }
+    else if (item.category === 'midi_effect' && !isMidi(entry.track)) return refused('browser.said.noMidiEffectHere')
   }
 
   if (at.type === 'new-track') return onNewTrack(host, item)
@@ -125,15 +138,16 @@ function onNewTrack(host: DropHost, item: BrowserItem): DropResult {
     if (item.preset) {
       const preset = item.preset
       steps.push((h) => {
-        const device = find().find((e) => e.effectIndex === null)
+        const device = instrumentOf(find())
         return device ? h.run(loadPreset(device.id, preset.ref)) : false
       })
     }
   } else {
     const preset = item.preset
     steps.push((h) => {
+      const before = idsOf(find())
       if (!h.run(insertEffect(created!, item.kind, 0))) return false
-      const added = find().find((e) => e.effectIndex === 0)
+      const added = find().find((e) => !before.has(e.id))
       return !preset || !added ? true : h.run(loadPreset(added.id, preset.ref))
     })
   }
@@ -148,7 +162,7 @@ function onTrack(host: DropHost, item: BrowserItem, track: string, index: number
   const refused = (): DropResult => ({ ok: false, said: { key: 'browser.said.refused', device: label(item), track }, track })
 
   if (item.category === 'instrument') {
-    const current = chain().find((e) => e.effectIndex === null)
+    const current = instrumentOf(chain())
     const steps: ((host: DropHost) => boolean)[] = []
     // The track already has this instrument: a preset of it loads there, the device itself changes nothing.
     const same = current?.kind === item.kind
@@ -156,7 +170,7 @@ function onTrack(host: DropHost, item: BrowserItem, track: string, index: number
     if (item.preset) {
       const preset = item.preset
       steps.push((h) => {
-        const device = chain().find((e) => e.effectIndex === null)
+        const device = instrumentOf(chain())
         return device ? h.run(loadPreset(device.id, preset.ref)) : false
       })
     }
@@ -167,7 +181,11 @@ function onTrack(host: DropHost, item: BrowserItem, track: string, index: number
   }
 
   const before = idsOf(chain())
-  const place = Math.max(0, Math.min(index ?? Infinity, effectCount(chain())))
+  // A MIDI effect takes its place among the MIDI effects, before the instrument; an audio effect among the audio effects.
+  const midi = item.category === 'midi_effect'
+  const place = Math.max(0, Math.min(index ?? Infinity, midi ? midiEffectCount(chain()) : effectCount(chain())))
+  // Its place in the whole chain, 1 first, as the person sees the cards.
+  const position = midi ? place + 1 : midiEffectCount(chain()) + (instrumentOf(chain()) ? 1 : 0) + place + 1
   const preset = item.preset
   const steps: ((host: DropHost) => boolean)[] = [(h) => h.run(insertEffect(track, item.kind, place))]
   if (preset) {
@@ -178,7 +196,7 @@ function onTrack(host: DropHost, item: BrowserItem, track: string, index: number
   }
   if (!entry()) return refused()
   const ok = grouped(host, steps)
-  return { ok, said: { key: 'browser.said.inserted', device: label(item), track, position: place + 2 }, track }
+  return { ok, said: { key: 'browser.said.inserted', device: label(item), track, position }, track }
 }
 
 function onMaster(host: DropHost, item: BrowserItem, index: number | undefined): DropResult {

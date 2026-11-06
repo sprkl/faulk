@@ -159,3 +159,39 @@ fn the_command_reads_as_the_issue_writes_it() {
         assert!(serde_json::from_str::<Command>(bad).is_err(), "{bad}");
     }
 }
+
+/// #690: the engine hears the scale as a set of pitch classes: on a change, on its undo (none
+/// is 0), and in the snapshot of a project that has one (none sends nothing: a `Reset` clears
+/// it).
+#[test]
+fn the_engine_hears_the_scale_as_its_pitch_classes() {
+    use commands::ControlMsg;
+    use commands::engine_msgs::{Synced, snapshot};
+    let scales = |msgs: &[ControlMsg]| -> Vec<u16> {
+        msgs.iter()
+            .filter_map(|m| match m {
+                ControlMsg::SetScale { pitch_classes } => Some(*pitch_classes),
+                _ => None,
+            })
+            .collect()
+    };
+    let f = fixture();
+    let (msgs, _) = snapshot(&f.state.project, &f.state.session);
+    assert!(scales(&msgs).is_empty(), "no scale, nothing sent");
+    let mut synced = Synced::new(f.state.clone(), context(), 1);
+    synced.setup().unwrap();
+    // A minor: C D E F G A B.
+    let (out, _) = synced.run(&set(9, ScaleKind::NaturalMinor)).unwrap();
+    assert_eq!(scales(&out.control), [0b1010_1011_0101]);
+    let (msgs, _) = snapshot(&synced.state.project, &synced.state.session);
+    assert_eq!(scales(&msgs), [0b1010_1011_0101]);
+    // F minor: F G A flat B flat C D flat E flat.
+    let (out, _) = synced.run(&set(5, ScaleKind::NaturalMinor)).unwrap();
+    assert_eq!(scales(&out.control), [0b0101_1010_1011]);
+    let (out, _) = synced.run(&set(0, ScaleKind::Chromatic)).unwrap();
+    assert_eq!(scales(&out.control), [0]);
+    let (out, _) = synced
+        .run(&Command::History(history::Command::Undo {}))
+        .unwrap();
+    assert_eq!(scales(&out.control), [0b0101_1010_1011]);
+}

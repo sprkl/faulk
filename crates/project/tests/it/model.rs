@@ -232,6 +232,25 @@ fn fixture() -> Fx {
     );
     project.tracks.insert(audio.clone(), track);
 
+    // A MIDI effect before the MIDI track's synth (#219), its id made last so that the
+    // fixture's other ids stay what they were.
+    let midi_effect = DeviceId::generate(&mut ids);
+    project.tracks.get_mut(&midi).unwrap().devices.insert(
+        midi_effect.clone(),
+        Device {
+            order: OrderKey::between(None, Some(&OrderKey::first())).unwrap(),
+            role: DeviceRole::MidiEffect,
+            enabled: true,
+            source: DeviceSource::Builtin {
+                id: "faulk.stack".into(),
+                version: 1,
+            },
+            params: BTreeMap::from([("strum".into(), 0.05)]),
+            state: None,
+            preset: None,
+        },
+    );
+
     Fx {
         project,
         scene,
@@ -445,7 +464,11 @@ fn display_order_is_by_key_then_id() {
         .iter()
         .map(|(id, _)| (*id).clone())
         .collect();
-    assert_eq!(chain, [fx.synth.clone(), fx.filter.clone()]);
+    assert_eq!(chain[1..], [fx.synth.clone(), fx.filter.clone()]);
+    assert_eq!(
+        fx.project.tracks[&fx.midi].devices[&chain[0]].role,
+        DeviceRole::MidiEffect
+    );
     let _ = (fx.scene, fx.player);
 }
 
@@ -516,6 +539,8 @@ fn kind_name(kind: &ViolationKind) -> &'static str {
         PanOutOfRange => "PanOutOfRange",
         TooManyInstruments => "TooManyInstruments",
         InstrumentNotFirst => "InstrumentNotFirst",
+        MidiEffectOutOfPlace => "MidiEffectOutOfPlace",
+        MidiEffectOnAudioTrack => "MidiEffectOnAudioTrack",
         WrongInstrument => "WrongInstrument",
         NotAnEffect => "NotAnEffect",
         BadChannels => "BadChannels",
@@ -528,7 +553,9 @@ fn kind_name(kind: &ViolationKind) -> &'static str {
     }
 }
 
-const ALL_KINDS: [&str; 35] = [
+const ALL_KINDS: [&str; 37] = [
+    "MidiEffectOutOfPlace",
+    "MidiEffectOnAudioTrack",
     "ScaleRoot",
     "BadPreset",
     "MissingInstrument",
@@ -1177,6 +1204,51 @@ fn cases() -> Vec<(&'static str, Mutation, &'static str)> {
                 midi_track(fx).devices.get_mut(&s).unwrap().order = OrderKey::parse("a5").unwrap();
             }),
             "InstrumentNotFirst",
+        ),
+        (
+            "a MIDI effect after the instrument",
+            Box::new(|fx| {
+                let midi = fx.midi.clone();
+                let first = fx.project.tracks[&midi].devices_in_order()[0].0.clone();
+                midi_track(fx).devices.get_mut(&first).unwrap().order =
+                    OrderKey::parse("a5").unwrap();
+            }),
+            "MidiEffectOutOfPlace",
+        ),
+        (
+            "a MIDI effect after an audio effect",
+            Box::new(|fx| {
+                let midi = fx.midi.clone();
+                let first = fx.project.tracks[&midi].devices_in_order()[0].0.clone();
+                let last = fx.project.tracks[&midi].devices_in_order()[2]
+                    .1
+                    .order
+                    .clone();
+                midi_track(fx).devices.get_mut(&first).unwrap().order =
+                    OrderKey::between(Some(&last), None).unwrap();
+            }),
+            "MidiEffectOutOfPlace",
+        ),
+        (
+            "a MIDI effect on an audio track",
+            Box::new(|fx| {
+                let midi = fx.midi.clone();
+                let first = fx.project.tracks[&midi].devices_in_order()[0].0.clone();
+                let mut device = midi_track(fx).devices.remove(&first).unwrap();
+                device.order = OrderKey::between(None, Some(&OrderKey::first())).unwrap();
+                audio_track(fx).devices.insert(first, device);
+            }),
+            "MidiEffectOnAudioTrack",
+        ),
+        (
+            "a MIDI effect in the master's chain",
+            Box::new(|fx| {
+                let midi = fx.midi.clone();
+                let first = fx.project.tracks[&midi].devices_in_order()[0].0.clone();
+                let device = midi_track(fx).devices.remove(&first).unwrap();
+                fx.project.master_devices.insert(first, device);
+            }),
+            "NotAnEffect",
         ),
         (
             "clip player on a MIDI track",

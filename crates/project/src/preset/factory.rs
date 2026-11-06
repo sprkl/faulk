@@ -73,6 +73,22 @@ const FILES: &[(&str, &str)] = &[
         "faulk.filter/thin-highpass",
         include_str!("factory/faulk.filter/thin-highpass.json"),
     ),
+    (
+        "faulk.stack/major-triad",
+        include_str!("factory/faulk.stack/major-triad.json"),
+    ),
+    (
+        "faulk.stack/minor-triad",
+        include_str!("factory/faulk.stack/minor-triad.json"),
+    ),
+    (
+        "faulk.stack/fifth-and-octave",
+        include_str!("factory/faulk.stack/fifth-and-octave.json"),
+    ),
+    (
+        "faulk.stack/scale-seventh",
+        include_str!("factory/faulk.stack/scale-seventh.json"),
+    ),
 ];
 
 /// The raw files, for the tests that hold them to the canonical format.

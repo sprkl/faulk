@@ -47,6 +47,12 @@ pub const MAX_MARKERS: usize = 1024;
 /// Most devices in one track's chain.
 pub const MAX_DEVICES_PER_TRACK: usize = 1_000;
 
+/// Most MIDI effects in one track's chain (#219): the engine keeps that many slots before a
+/// track's instrument, so that a MIDI effect inserted or moved never moves the instrument or
+/// the audio effects; with every other device of the chain after them, the slots stay under
+/// the engine's limit.
+pub const MAX_MIDI_EFFECTS_PER_TRACK: usize = 16;
+
 /// Most parameters stored for one device.
 pub const MAX_PARAMS_PER_DEVICE: usize = 10_000;
 
@@ -137,6 +143,10 @@ const _: () = {
     assert!(MAX_TRACKS <= engine::MAX_TRACKS as usize);
     assert!(MAX_SCENES <= engine::MAX_SCENES as usize);
     assert!(MAX_DEVICES_PER_TRACK <= engine::MAX_DEVICES_PER_TRACK as usize);
+    assert!(
+        MAX_MIDI_EFFECTS_PER_TRACK + MAX_DEVICES_PER_TRACK
+            <= engine::MAX_DEVICES_PER_TRACK as usize
+    );
     assert!(MAX_CLIPS_PER_TRACK <= engine::MAX_CLIPS as usize);
     assert!(MAX_PLACEMENTS_PER_TRACK <= engine::MAX_PLACEMENTS_PER_TRACK as usize);
     assert!(MAX_LANES_PER_TRACK <= engine::MAX_LANES as usize);

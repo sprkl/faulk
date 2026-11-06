@@ -198,6 +198,72 @@
           "type"
         ],
         "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The page's project lives in a real folder (AU-7, #116): `project` is its id (a ULID),\n`nonce` the page's link marker (32 lowercase hex digits) that the page wrote in that folder\nas `.faulk/link.json` before sending this, `name` the folder's name (for the dialog's\ntitle only, never a path). The helper opens the remembered folder that holds both the id\nand the marker, and answers `folder.state`. No message names a path: the helper learns a\nfolder only from its own dialog (`folder.choose`). Sent after each `hello` and on each\nchange of the project's place. Only on a session.",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "nonce": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "type": {
+            "const": "folder.open",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "project",
+          "nonce",
+          "name"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The user asked to show the project's folder to the helper: the helper opens its folder\ndialog (one at a time) and opens the folder chosen when it holds the project's id and the\npage's marker, then answers `folder.state`. Only on a session.",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "nonce": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "type": {
+            "const": "folder.choose",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "project",
+          "nonce",
+          "name"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The page's project has no real folder (kept in the browser), or none: the helper closes\nits folder (its audio clips go offline). Only on a session.",
+        "properties": {
+          "type": {
+            "const": "folder.close",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
       }
     ],
     "title": "ClientMessage"
@@ -822,6 +888,25 @@
         "undo": "none"
       },
       {
+        "description": "In Boost mode, show the project's folder to the helper so that its engine plays the\naudio clips from it: the helper opens its own folder dialog and takes the folder chosen\nwhen it is the one open in the page (same project, and the page's marker in it). Needed\nonce per folder: the helper remembers it. A dialog needs the user's click, so an agent\nthat is not driven by one gets a notice in the page instead. Refused with a notice in\nWeb mode and for a project kept in the browser (save it in a folder first). Changes\nnothing in the project, so it never enters the history.",
+        "destructive": false,
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "kind": "live",
+        "name": "project.choose_helper_folder",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "undo": "none"
+      },
+      {
         "description": "Measure how loud the song is without playing it nor writing a file: the same\noffline render as `project.export_audio` (the engine that plays the song, run\nfaster than real time), but only the levels come back, per track and for the\nmaster, so an agent without ears learns whether its song sounds, whether it is too\nloud, and whether a track is silent. The range is the whole song by default, or\nbars `from_bar` to `to_bar` (both, counted from 1, the last one included); the\ntail after the range is not measured. Levels are in dBFS (0 is full scale), `null`\nis silence; a peak is the larger of the two channels, an RMS the power mean of\nboth, over the whole range (not the loudest short window that `mixer.levels`\ngives). The metronome and the loop are off, the solo and mute state are on. Audio\nclips are measured as they play: the render reads their files from the project's\nfolder, and a file that cannot be read leaves its clip silent. Refused, as an export\nis, when there is nothing to render (empty arrangement, a range that starts after\nthe end of the arrangement or is out of order), and when the range lasts more than\n10 minutes (a `limit` error). The page runs the render in the background (a few\nseconds for a few minutes of music), one at a time; it answers `unavailable` when\nanother analysis runs or the page's engine is not ready. A query: changes nothing\nin the project and never enters the history.",
         "destructive": false,
         "input_schema": {
@@ -1193,12 +1278,24 @@
               "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
-              "description": "What a device does in the chain.",
-              "enum": [
-                "instrument",
-                "effect"
-              ],
-              "type": "string"
+              "description": "What a device does in the chain. A track's chain is, in order, its MIDI effects, its\ninstrument (at most one), then its audio effects; the master's holds audio effects only.",
+              "oneOf": [
+                {
+                  "const": "instrument",
+                  "description": "Notes in, sound out: the sound of the track.",
+                  "type": "string"
+                },
+                {
+                  "const": "effect",
+                  "description": "An audio effect: sound in, sound out, after the instrument.",
+                  "type": "string"
+                },
+                {
+                  "const": "midi_effect",
+                  "description": "Notes in, notes out, before the instrument, on a MIDI track only (#219).",
+                  "type": "string"
+                }
+              ]
             },
             "DeviceSource": {
               "description": "Where a device comes from. Third-party plugins come after the MVP.",
@@ -2022,12 +2119,24 @@
               "type": "object"
             },
             "DeviceRole": {
-              "description": "What a device does in the chain.",
-              "enum": [
-                "instrument",
-                "effect"
-              ],
-              "type": "string"
+              "description": "What a device does in the chain. A track's chain is, in order, its MIDI effects, its\ninstrument (at most one), then its audio effects; the master's holds audio effects only.",
+              "oneOf": [
+                {
+                  "const": "instrument",
+                  "description": "Notes in, sound out: the sound of the track.",
+                  "type": "string"
+                },
+                {
+                  "const": "effect",
+                  "description": "An audio effect: sound in, sound out, after the instrument.",
+                  "type": "string"
+                },
+                {
+                  "const": "midi_effect",
+                  "description": "Notes in, notes out, before the instrument, on a MIDI track only (#219).",
+                  "type": "string"
+                }
+              ]
             },
             "DeviceSource": {
               "description": "Where a device comes from. Third-party plugins come after the MVP.",
@@ -3058,12 +3167,24 @@
               "type": "object"
             },
             "DeviceRole": {
-              "description": "What a device does in the chain.",
-              "enum": [
-                "instrument",
-                "effect"
-              ],
-              "type": "string"
+              "description": "What a device does in the chain. A track's chain is, in order, its MIDI effects, its\ninstrument (at most one), then its audio effects; the master's holds audio effects only.",
+              "oneOf": [
+                {
+                  "const": "instrument",
+                  "description": "Notes in, sound out: the sound of the track.",
+                  "type": "string"
+                },
+                {
+                  "const": "effect",
+                  "description": "An audio effect: sound in, sound out, after the instrument.",
+                  "type": "string"
+                },
+                {
+                  "const": "midi_effect",
+                  "description": "Notes in, notes out, before the instrument, on a MIDI track only (#219).",
+                  "type": "string"
+                }
+              ]
             },
             "DeviceSource": {
               "description": "Where a device comes from. Third-party plugins come after the MVP.",
@@ -3724,12 +3845,24 @@
               "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
-              "description": "What a device does in the chain.",
-              "enum": [
-                "instrument",
-                "effect"
-              ],
-              "type": "string"
+              "description": "What a device does in the chain. A track's chain is, in order, its MIDI effects, its\ninstrument (at most one), then its audio effects; the master's holds audio effects only.",
+              "oneOf": [
+                {
+                  "const": "instrument",
+                  "description": "Notes in, sound out: the sound of the track.",
+                  "type": "string"
+                },
+                {
+                  "const": "effect",
+                  "description": "An audio effect: sound in, sound out, after the instrument.",
+                  "type": "string"
+                },
+                {
+                  "const": "midi_effect",
+                  "description": "Notes in, notes out, before the instrument, on a MIDI track only (#219).",
+                  "type": "string"
+                }
+              ]
             },
             "DeviceSource": {
               "description": "Where a device comes from. Third-party plugins come after the MVP.",
@@ -4053,7 +4186,7 @@
         "undo": "none"
       },
       {
-        "description": "Insert an effect in a track's chain, or in the master's. Name the chain with\n`track` (a track's identifier) or with `master: true` (the master: the effects\nthere process the sum of all the tracks before the master's volume), exactly one\nof the two. `kind` is the type id of a built-in effect (an instrument is refused:\n`track.set_instrument` replaces a track's instrument, and the master has none).\n`index` is the position among the chain's effects, 0 first (right after the\ninstrument on a track); an index past the end means last. The new device starts at\nits default settings, not bypassed. Refused with `invalid` when both or neither of\n`track` and `master` are given, when the effects around that position share an\norder key (a merge made them equal), and with `limit` at the safety limit of\ndevices per chain. Undo: `device.remove`.",
+        "description": "Insert an effect in a track's chain, or in the master's. Name the chain with\n`track` (a track's identifier) or with `master: true` (the master: the effects\nthere process the sum of all the tracks before the master's volume), exactly one\nof the two. `kind` is the type id of a built-in audio effect or MIDI effect (an\ninstrument is refused: `track.set_instrument` replaces a track's instrument, and the\nmaster has none). An audio effect goes after the instrument, `index` counting the\naudio effects, 0 first (right after the instrument on a track). A MIDI effect (it\nturns the notes the track plays into other notes before the instrument hears them)\ngoes before the instrument, `index` counting the MIDI effects, 0 first; it is refused\non the master and on an audio track, which play no notes. An index past the end means\nlast. The new device starts at its default settings, not bypassed. Refused with\n`invalid` when both or neither of `track` and `master` are given, when the devices\naround that position share an order key (a merge made them equal), and with `limit`\nat the safety limit of devices per chain. Undo: `device.remove`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -4128,7 +4261,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Remove an effect from its track or from the master, with its settings. The\nautomation lanes that target the effect are deleted with it. Refused for an\ninstrument (the oscillator, the clip player: replace it with `track.set_instrument`).\nUndo: `device.restore` brings it back with its identifier, position, settings, bypass\nand automation lanes.",
+        "description": "Remove an effect (audio or MIDI) from its track or from the master, with its\nsettings. The automation lanes that target the effect are deleted with it. Refused for an\ninstrument (the oscillator, the clip player: replace it with `track.set_instrument`).\nUndo: `device.restore` brings it back with its identifier, position, settings, bypass\nand automation lanes.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -4187,7 +4320,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Bring a removed effect back with its identifier, as `device.remove` took it out:\nthe inverse of a remove. `track` or `master: true` names the chain, as for\n`device.insert`. `snapshot` is the whole device: its order key, bypass, source,\nsettings and state. Refused when both or neither of `track` and `master` are given,\nwhen the identifier is already in use, at the safety limit of devices, or when the\nsnapshot is not an effect (a built-in device must be one of the registry, with only\nparameters it declares; a module device is taken as it is) or does not fit the\nchain. `lanes` are the automation lanes that targeted the device, as `device.remove`\ntook them out (absent: none); each must target this device and a parameter it has,\nunder an identifier not in use. Undo: `device.remove`.",
+        "description": "Bring a removed effect back with its identifier, as `device.remove` took it out:\nthe inverse of a remove. `track` or `master: true` names the chain, as for\n`device.insert`. `snapshot` is the whole device: its order key, bypass, source,\nsettings and state. Refused when both or neither of `track` and `master` are given,\nwhen the identifier is already in use, at the safety limit of devices, or when the\nsnapshot is not an audio or MIDI effect (a built-in device must be one of the\nregistry, with only parameters it declares; a module device is taken as it is) or does\nnot fit the chain (a MIDI effect goes before the instrument of a MIDI track only): the\nchain stays valid. `lanes` are the automation lanes that targeted the device, as `device.remove`\ntook them out (absent: none); each must target this device and a parameter it has,\nunder an identifier not in use. Undo: `device.remove`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -4371,12 +4504,24 @@
               "type": "object"
             },
             "DeviceRole": {
-              "description": "What a device does in the chain.",
-              "enum": [
-                "instrument",
-                "effect"
-              ],
-              "type": "string"
+              "description": "What a device does in the chain. A track's chain is, in order, its MIDI effects, its\ninstrument (at most one), then its audio effects; the master's holds audio effects only.",
+              "oneOf": [
+                {
+                  "const": "instrument",
+                  "description": "Notes in, sound out: the sound of the track.",
+                  "type": "string"
+                },
+                {
+                  "const": "effect",
+                  "description": "An audio effect: sound in, sound out, after the instrument.",
+                  "type": "string"
+                },
+                {
+                  "const": "midi_effect",
+                  "description": "Notes in, notes out, before the instrument, on a MIDI track only (#219).",
+                  "type": "string"
+                }
+              ]
             },
             "DeviceSource": {
               "description": "Where a device comes from. Third-party plugins come after the MVP.",
@@ -4543,7 +4688,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+        "description": "Move an effect to `index` among the effects of its kind in its chain (a track's or\nthe master's): an audio effect among the audio effects, 0 first (right after the\ninstrument on a track); a MIDI effect among the MIDI effects, 0 first (the start of the\nchain). An index past the end means last of that kind. The instrument cannot be moved,\nand an effect never crosses it. Refused with `invalid` when the devices around that\nposition share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -4580,7 +4725,7 @@
           "additionalProperties": false,
           "properties": {
             "previous_index": {
-              "description": "The effect's index before the command.",
+              "description": "The effect's index among the effects of its kind before the command.",
               "format": "uint32",
               "minimum": 0,
               "type": "integer"
@@ -4594,7 +4739,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Put an effect back under an exact order key: the inverse of `device.move`, which\ntakes an index. Refused when the key would put the effect before the instrument.\nUndo: set the key before this command back.",
+        "description": "Put an effect back under an exact order key: the inverse of `device.move`, which\ntakes an index. Refused when the key would break the chain's order (MIDI effects,\ninstrument, audio effects).\nUndo: set the key before this command back.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -4838,12 +4983,24 @@
               "type": "object"
             },
             "DeviceRole": {
-              "description": "What a device does in the chain.",
-              "enum": [
-                "instrument",
-                "effect"
-              ],
-              "type": "string"
+              "description": "What a device does in the chain. A track's chain is, in order, its MIDI effects, its\ninstrument (at most one), then its audio effects; the master's holds audio effects only.",
+              "oneOf": [
+                {
+                  "const": "instrument",
+                  "description": "Notes in, sound out: the sound of the track.",
+                  "type": "string"
+                },
+                {
+                  "const": "effect",
+                  "description": "An audio effect: sound in, sound out, after the instrument.",
+                  "type": "string"
+                },
+                {
+                  "const": "midi_effect",
+                  "description": "Notes in, notes out, before the instrument, on a MIDI track only (#219).",
+                  "type": "string"
+                }
+              ]
             },
             "DeviceSource": {
               "description": "Where a device comes from. Third-party plugins come after the MVP.",
@@ -19346,7 +19503,7 @@
           "oneOf": [
             {
               "additionalProperties": false,
-              "description": "Insert an effect in a track's chain, or in the master's. Name the chain with\n`track` (a track's identifier) or with `master: true` (the master: the effects\nthere process the sum of all the tracks before the master's volume), exactly one\nof the two. `kind` is the type id of a built-in effect (an instrument is refused:\n`track.set_instrument` replaces a track's instrument, and the master has none).\n`index` is the position among the chain's effects, 0 first (right after the\ninstrument on a track); an index past the end means last. The new device starts at\nits default settings, not bypassed. Refused with `invalid` when both or neither of\n`track` and `master` are given, when the effects around that position share an\norder key (a merge made them equal), and with `limit` at the safety limit of\ndevices per chain. Undo: `device.remove`.",
+              "description": "Insert an effect in a track's chain, or in the master's. Name the chain with\n`track` (a track's identifier) or with `master: true` (the master: the effects\nthere process the sum of all the tracks before the master's volume), exactly one\nof the two. `kind` is the type id of a built-in audio effect or MIDI effect (an\ninstrument is refused: `track.set_instrument` replaces a track's instrument, and the\nmaster has none). An audio effect goes after the instrument, `index` counting the\naudio effects, 0 first (right after the instrument on a track). A MIDI effect (it\nturns the notes the track plays into other notes before the instrument hears them)\ngoes before the instrument, `index` counting the MIDI effects, 0 first; it is refused\non the master and on an audio track, which play no notes. An index past the end means\nlast. The new device starts at its default settings, not bypassed. Refused with\n`invalid` when both or neither of `track` and `master` are given, when the devices\naround that position share an order key (a merge made them equal), and with `limit`\nat the safety limit of devices per chain. Undo: `device.remove`.",
               "properties": {
                 "index": {
                   "format": "uint32",
@@ -19388,7 +19545,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Remove an effect from its track or from the master, with its settings. The\nautomation lanes that target the effect are deleted with it. Refused for an\ninstrument (the oscillator, the clip player: replace it with `track.set_instrument`).\nUndo: `device.restore` brings it back with its identifier, position, settings, bypass\nand automation lanes.",
+              "description": "Remove an effect (audio or MIDI) from its track or from the master, with its\nsettings. The automation lanes that target the effect are deleted with it. Refused for an\ninstrument (the oscillator, the clip player: replace it with `track.set_instrument`).\nUndo: `device.restore` brings it back with its identifier, position, settings, bypass\nand automation lanes.",
               "properties": {
                 "device": {
                   "$ref": "#/$defs/DeviceId"
@@ -19409,7 +19566,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Bring a removed effect back with its identifier, as `device.remove` took it out:\nthe inverse of a remove. `track` or `master: true` names the chain, as for\n`device.insert`. `snapshot` is the whole device: its order key, bypass, source,\nsettings and state. Refused when both or neither of `track` and `master` are given,\nwhen the identifier is already in use, at the safety limit of devices, or when the\nsnapshot is not an effect (a built-in device must be one of the registry, with only\nparameters it declares; a module device is taken as it is) or does not fit the\nchain. `lanes` are the automation lanes that targeted the device, as `device.remove`\ntook them out (absent: none); each must target this device and a parameter it has,\nunder an identifier not in use. Undo: `device.remove`.",
+              "description": "Bring a removed effect back with its identifier, as `device.remove` took it out:\nthe inverse of a remove. `track` or `master: true` names the chain, as for\n`device.insert`. `snapshot` is the whole device: its order key, bypass, source,\nsettings and state. Refused when both or neither of `track` and `master` are given,\nwhen the identifier is already in use, at the safety limit of devices, or when the\nsnapshot is not an audio or MIDI effect (a built-in device must be one of the\nregistry, with only parameters it declares; a module device is taken as it is) or does\nnot fit the chain (a MIDI effect goes before the instrument of a MIDI track only): the\nchain stays valid. `lanes` are the automation lanes that targeted the device, as `device.remove`\ntook them out (absent: none); each must target this device and a parameter it has,\nunder an identifier not in use. Undo: `device.remove`.",
               "properties": {
                 "device": {
                   "$ref": "#/$defs/DeviceId"
@@ -19459,7 +19616,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+              "description": "Move an effect to `index` among the effects of its kind in its chain (a track's or\nthe master's): an audio effect among the audio effects, 0 first (right after the\ninstrument on a track); a MIDI effect among the MIDI effects, 0 first (the start of the\nchain). An index past the end means last of that kind. The instrument cannot be moved,\nand an effect never crosses it. Refused with `invalid` when the devices around that\nposition share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
               "properties": {
                 "device": {
                   "$ref": "#/$defs/DeviceId"
@@ -19486,7 +19643,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Put an effect back under an exact order key: the inverse of `device.move`, which\ntakes an index. Refused when the key would put the effect before the instrument.\nUndo: set the key before this command back.",
+              "description": "Put an effect back under an exact order key: the inverse of `device.move`, which\ntakes an index. Refused when the key would break the chain's order (MIDI effects,\ninstrument, audio effects).\nUndo: set the key before this command back.",
               "properties": {
                 "device": {
                   "$ref": "#/$defs/DeviceId"
@@ -19654,12 +19811,24 @@
           "type": "object"
         },
         "DeviceRole": {
-          "description": "What a device does in the chain.",
-          "enum": [
-            "instrument",
-            "effect"
-          ],
-          "type": "string"
+          "description": "What a device does in the chain. A track's chain is, in order, its MIDI effects, its\ninstrument (at most one), then its audio effects; the master's holds audio effects only.",
+          "oneOf": [
+            {
+              "const": "instrument",
+              "description": "Notes in, sound out: the sound of the track.",
+              "type": "string"
+            },
+            {
+              "const": "effect",
+              "description": "An audio effect: sound in, sound out, after the instrument.",
+              "type": "string"
+            },
+            {
+              "const": "midi_effect",
+              "description": "Notes in, notes out, before the instrument, on a MIDI track only (#219).",
+              "type": "string"
+            }
+          ]
         },
         "DeviceSource": {
           "description": "Where a device comes from. Third-party plugins come after the MVP.",
@@ -21526,6 +21695,23 @@
               "properties": {
                 "type": {
                   "const": "project.allow_access",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "live",
+              "x-undo": "none"
+            },
+            {
+              "additionalProperties": false,
+              "description": "In Boost mode, show the project's folder to the helper so that its engine plays the\naudio clips from it: the helper opens its own folder dialog and takes the folder chosen\nwhen it is the one open in the page (same project, and the page's marker in it). Needed\nonce per folder: the helper remembers it. A dialog needs the user's click, so an agent\nthat is not driven by one gets a notice in the page instead. Refused with a notice in\nWeb mode and for a project kept in the browser (save it in a folder first). Changes\nnothing in the project, so it never enters the history.",
+              "properties": {
+                "type": {
+                  "const": "project.choose_helper_folder",
                   "type": "string"
                 }
               },
@@ -25131,7 +25317,7 @@
               "additionalProperties": false,
               "properties": {
                 "previous_index": {
-                  "description": "The effect's index before the command.",
+                  "description": "The effect's index among the effects of its kind before the command.",
                   "format": "uint32",
                   "minimum": 0,
                   "type": "integer"
@@ -25290,12 +25476,24 @@
           "type": "object"
         },
         "DeviceRole": {
-          "description": "What a device does in the chain.",
-          "enum": [
-            "instrument",
-            "effect"
-          ],
-          "type": "string"
+          "description": "What a device does in the chain. A track's chain is, in order, its MIDI effects, its\ninstrument (at most one), then its audio effects; the master's holds audio effects only.",
+          "oneOf": [
+            {
+              "const": "instrument",
+              "description": "Notes in, sound out: the sound of the track.",
+              "type": "string"
+            },
+            {
+              "const": "effect",
+              "description": "An audio effect: sound in, sound out, after the instrument.",
+              "type": "string"
+            },
+            {
+              "const": "midi_effect",
+              "description": "Notes in, notes out, before the instrument, on a MIDI track only (#219).",
+              "type": "string"
+            }
+          ]
         },
         "DeviceSource": {
           "description": "Where a device comes from. Third-party plugins come after the MVP.",
@@ -27021,6 +27219,19 @@
               "properties": {
                 "type": {
                   "const": "project.allow_access",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "const": "project.choose_helper_folder",
                   "type": "string"
                 }
               },
@@ -29663,6 +29874,435 @@
       ],
       "role": "effect",
       "version": 1
+    },
+    {
+      "kind": "faulk.stack",
+      "kind_id": 9,
+      "memory_bytes": 1341672,
+      "midi_output": {
+        "per_block": 896,
+        "per_input": 14
+      },
+      "name": "Stack",
+      "named_keys": [],
+      "params": [
+        {
+          "default": 0,
+          "description": "How the voices' intervals are read: in semitones, or in degrees of the project's scale (a third is two degrees) so the chord stays in key. Without a project scale, in semitones.",
+          "id": 0,
+          "key": "mode",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "semitones",
+            "scale"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Time from the first to the last note of the chord, from 0 (all at once) to 0.4 s: the notes are spread like a strummed guitar.",
+          "id": 1,
+          "key": "strum",
+          "max": 0.4,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0.001,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "How the strum's gaps change, from -100 % (they widen toward the last note) to +100 % (they tighten); 0 spaces the notes evenly.",
+          "id": 2,
+          "key": "tension",
+          "max": 100,
+          "min": -100,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Velocity across the strum: above 0 the notes grow louder toward the last, below 0 softer; at 100 % the first (or last) note is at the lowest velocity.",
+          "id": 3,
+          "key": "crescendo",
+          "max": 100,
+          "min": -100,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Order of the strum: up plays from the lowest note to the highest, down from the highest to the lowest.",
+          "id": 4,
+          "key": "direction",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "up",
+            "down"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Seed of the chance draws, from 0 to 1000: the same seed gives the same chords on every play from the start; another seed, another draw.",
+          "id": 5,
+          "key": "seed",
+          "max": 1000,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "Whether added voice 1 plays.",
+          "id": 10,
+          "key": "voice1",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 7,
+          "description": "Interval of voice 1 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+          "id": 11,
+          "key": "voice1_interval",
+          "max": 36,
+          "min": -36,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Velocity of voice 1, from 1 to 200 % of the received note's.",
+          "id": 12,
+          "key": "voice1_velocity",
+          "max": 200,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Chance that voice 1 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.",
+          "id": 13,
+          "key": "voice1_chance",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Whether added voice 2 plays.",
+          "id": 14,
+          "key": "voice2",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 4,
+          "description": "Interval of voice 2 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+          "id": 15,
+          "key": "voice2_interval",
+          "max": 36,
+          "min": -36,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Velocity of voice 2, from 1 to 200 % of the received note's.",
+          "id": 16,
+          "key": "voice2_velocity",
+          "max": 200,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Chance that voice 2 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.",
+          "id": 17,
+          "key": "voice2_chance",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Whether added voice 3 plays.",
+          "id": 18,
+          "key": "voice3",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 12,
+          "description": "Interval of voice 3 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+          "id": 19,
+          "key": "voice3_interval",
+          "max": 36,
+          "min": -36,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Velocity of voice 3, from 1 to 200 % of the received note's.",
+          "id": 20,
+          "key": "voice3_velocity",
+          "max": 200,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Chance that voice 3 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.",
+          "id": 21,
+          "key": "voice3_chance",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Whether added voice 4 plays.",
+          "id": 22,
+          "key": "voice4",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": -12,
+          "description": "Interval of voice 4 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+          "id": 23,
+          "key": "voice4_interval",
+          "max": 36,
+          "min": -36,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Velocity of voice 4, from 1 to 200 % of the received note's.",
+          "id": 24,
+          "key": "voice4_velocity",
+          "max": 200,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Chance that voice 4 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.",
+          "id": 25,
+          "key": "voice4_chance",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Whether added voice 5 plays.",
+          "id": 26,
+          "key": "voice5",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 19,
+          "description": "Interval of voice 5 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+          "id": 27,
+          "key": "voice5_interval",
+          "max": 36,
+          "min": -36,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Velocity of voice 5, from 1 to 200 % of the received note's.",
+          "id": 28,
+          "key": "voice5_velocity",
+          "max": 200,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Chance that voice 5 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.",
+          "id": 29,
+          "key": "voice5_chance",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Whether added voice 6 plays.",
+          "id": 30,
+          "key": "voice6",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 24,
+          "description": "Interval of voice 6 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+          "id": 31,
+          "key": "voice6_interval",
+          "max": 36,
+          "min": -36,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Velocity of voice 6, from 1 to 200 % of the received note's.",
+          "id": 32,
+          "key": "voice6_velocity",
+          "max": 200,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Chance that voice 6 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.",
+          "id": 33,
+          "key": "voice6_chance",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        }
+      ],
+      "role": "midi_effect",
+      "version": 1
     }
   ],
   "error_codes": {
@@ -30869,12 +31509,24 @@
           "type": "object"
         },
         "DeviceRole": {
-          "description": "What a device does in the chain.",
-          "enum": [
-            "instrument",
-            "effect"
-          ],
-          "type": "string"
+          "description": "What a device does in the chain. A track's chain is, in order, its MIDI effects, its\ninstrument (at most one), then its audio effects; the master's holds audio effects only.",
+          "oneOf": [
+            {
+              "const": "instrument",
+              "description": "Notes in, sound out: the sound of the track.",
+              "type": "string"
+            },
+            {
+              "const": "effect",
+              "description": "An audio effect: sound in, sound out, after the instrument.",
+              "type": "string"
+            },
+            {
+              "const": "midi_effect",
+              "description": "Notes in, notes out, before the instrument, on a MIDI track only (#219).",
+              "type": "string"
+            }
+          ]
         },
         "DeviceSource": {
           "description": "Where a device comes from. Third-party plugins come after the MVP.",
@@ -33800,7 +34452,7 @@
               "additionalProperties": false,
               "properties": {
                 "previous_index": {
-                  "description": "The effect's index before the command.",
+                  "description": "The effect's index among the effects of its kind before the command.",
                   "format": "uint32",
                   "minimum": 0,
                   "type": "integer"
@@ -33959,12 +34611,24 @@
           "type": "object"
         },
         "DeviceRole": {
-          "description": "What a device does in the chain.",
-          "enum": [
-            "instrument",
-            "effect"
-          ],
-          "type": "string"
+          "description": "What a device does in the chain. A track's chain is, in order, its MIDI effects, its\ninstrument (at most one), then its audio effects; the master's holds audio effects only.",
+          "oneOf": [
+            {
+              "const": "instrument",
+              "description": "Notes in, sound out: the sound of the track.",
+              "type": "string"
+            },
+            {
+              "const": "effect",
+              "description": "An audio effect: sound in, sound out, after the instrument.",
+              "type": "string"
+            },
+            {
+              "const": "midi_effect",
+              "description": "Notes in, notes out, before the instrument, on a MIDI track only (#219).",
+              "type": "string"
+            }
+          ]
         },
         "DeviceSource": {
           "description": "Where a device comes from. Third-party plugins come after the MVP.",
@@ -36829,6 +37493,19 @@
             {
               "additionalProperties": false,
               "properties": {
+                "type": {
+                  "const": "project.choose_helper_folder",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
                 "duration_secs": {
                   "description": "Seconds of content measured.",
                   "format": "double",
@@ -38666,7 +39343,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 42,
+  "protocol_version": 44,
   "scale_intervals": [
     {
       "intervals": [
@@ -38815,7 +39492,7 @@
         "description": "What the helper can do, announced in `hello` (BO-1).",
         "properties": {
           "disk": {
-            "description": "The helper reads and writes the project's folder for the page. Not yet: always `false`.",
+            "description": "The helper reads the audio files of the project's folder for its engine (AU-7): it takes\n`folder.open`, `folder.choose` and `folder.close`.",
             "type": "boolean"
           },
           "midi": {
@@ -38828,6 +39505,144 @@
           "disk"
         ],
         "type": "object"
+      },
+      "FolderRefusal": {
+        "description": "Why the folder chosen in the helper's dialog was not taken.",
+        "oneOf": [
+          {
+            "const": "cancelled",
+            "description": "The user closed the dialog.",
+            "type": "string"
+          },
+          {
+            "const": "no_project",
+            "description": "The folder holds no project.",
+            "type": "string"
+          },
+          {
+            "const": "other_project",
+            "description": "The folder holds another project.",
+            "type": "string"
+          },
+          {
+            "const": "not_this_folder",
+            "description": "The folder holds this project but not the page's marker: a copy, not the folder open in\nthe page.",
+            "type": "string"
+          },
+          {
+            "const": "unreadable",
+            "description": "The helper could not read the folder.",
+            "type": "string"
+          },
+          {
+            "const": "unavailable",
+            "description": "This system has no folder dialog the helper can show.",
+            "type": "string"
+          }
+        ]
+      },
+      "FolderStatus": {
+        "description": "Where the helper's folder of the page's project stands (`folder.state`, AU-7).",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "The helper reads the project's audio files from this folder (its name).",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "status": {
+                "const": "open",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "name"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "No folder: after `folder.close`, or a project the helper does not take.",
+            "properties": {
+              "status": {
+                "const": "closed",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The helper knows no folder holding the project and the page's marker: the user shows it\n(`folder.choose`).",
+            "properties": {
+              "status": {
+                "const": "unknown",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Several folders the helper knows hold them (a copy made since the marker was written):\nthe user shows the right one.",
+            "properties": {
+              "count": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "status": {
+                "const": "ambiguous",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "count"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The helper's folder dialog is open.",
+            "properties": {
+              "status": {
+                "const": "choosing",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The folder chosen was not taken.",
+            "properties": {
+              "reason": {
+                "$ref": "#/$defs/FolderRefusal"
+              },
+              "status": {
+                "const": "refused",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "reason"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "HelperUpdate": {
         "description": "What the helper's updater is doing.",
@@ -39282,6 +40097,30 @@
         "required": [
           "type",
           "agent"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Where the helper's folder of the page's project stands (AU-7): the answer to `folder.open`,\n`folder.choose` (`choosing` first, then the outcome) and `folder.close`. `project` is the\nproject it is about (`None` after `folder.close`): the page drops a state of another one.",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/$defs/FolderStatus"
+          },
+          "type": {
+            "const": "folder.state",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "state"
         ],
         "type": "object"
       },

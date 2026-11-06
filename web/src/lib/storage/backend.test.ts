@@ -34,6 +34,16 @@ describe('FolderBackend.apply', () => {
     expect(await store.scan()).toEqual(stamps)
   })
 
+  it('keeps the helper link marker out of every scan and read of the project (AU-7)', async () => {
+    const { store } = folder()
+    const stamps = await store.apply([write('project.json', '{"id":"x"}'), write('.faulk/link.json', '{"nonce":"n"}')])
+    expect(Object.keys(stamps)).toEqual(['project.json'])
+    // Not a change of the folder made outside the page, and not a file of the project it reads back.
+    expect(await store.scan()).toEqual(stamps)
+    const { entries } = await store.readFolder()
+    expect(entries.map((e) => e.path)).toEqual(['project.json'])
+  })
+
   it('replaces a file whole or not at all: a write that fails at close leaves the old file intact', async () => {
     const { dir, store } = folder()
     await store.apply([write('project.json', 'old')])
