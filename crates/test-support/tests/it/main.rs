@@ -5,6 +5,7 @@ mod arrangement_commands;
 mod audio_arrangement;
 mod audio_replay;
 mod big_project;
+mod bloom;
 mod clip_edit_playback;
 mod compiler;
 mod compressor;

@@ -1,6 +1,6 @@
 //! #700: an effect inserted by command into a running session (after the session's snapshot)
 //! plays as the export of the same project renders it, sample for sample, natively and in
-//! WASM, for each of the four effects.
+//! WASM, for each of the five effects.
 //!
 //! The gap #700 saw was the harness's: the session ran on a fresh examples' context, whose ids
 //! start from the seed the song's own ids came from, so the inserted effect took the id of the
@@ -17,11 +17,12 @@ use test_support::{
     PARITY_TOLERANCE, QUANTUM, Render, SAMPLE_RATE, Scenario, Session, render_native, render_wasm,
 };
 
-const EFFECTS: [&str; 4] = [
+const EFFECTS: [&str; 5] = [
     "faulk.compressor",
     "faulk.echo",
     "faulk.reverb",
     "faulk.filter",
+    "faulk.bloom",
 ];
 
 /// The demo song opened as a session, then `kind` inserted on its lead by command: the lead

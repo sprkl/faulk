@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 46;
+pub const PROTOCOL_VERSION: u32 = 50;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -43,6 +43,11 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 50 (#696; the number given to this task while 47 to 49 are open elsewhere): the device registry
+// gains Bloom (`faulk.bloom`, kind id 14, an audio effect: chorus, ensemble and vibrato); a
+// helper of an earlier version would refuse its `DeviceInsert` and its schema bundle would not
+// describe it. No message changes.
 
 // Version 46 (#319; 45 is #693's): the audio export in Boost. The session
 // gains `export.start` and `export.cancel` (page → helper) and `export.progress`, `export.done`

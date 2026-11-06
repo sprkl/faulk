@@ -19,6 +19,7 @@ import { history } from './history'
 import { controls } from './controls'
 import { devices } from './devices'
 import { drums } from './drums'
+import { bloom } from './bloom'
 import { compressor } from './compressor'
 import { agentConfirm } from './confirm'
 import { echo } from './echo'
@@ -64,6 +65,7 @@ export const features = {
   stack,
   compressor,
   trim,
+  bloom,
   devices,
   presets,
   keys,
