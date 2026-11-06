@@ -4,6 +4,7 @@ pub mod agents;
 pub mod audio;
 pub mod disk;
 pub mod export;
+pub mod import;
 pub mod instance;
 pub mod live;
 pub mod log;

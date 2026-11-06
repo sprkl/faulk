@@ -72,9 +72,13 @@ let nativeEngine: {
   place?: ReturnType<typeof vi.fn>
   chooseFolder?: ReturnType<typeof vi.fn>
   /** What the hello announced (#319: `export`). */
-  capabilities?: { midi: boolean; disk: boolean; export: boolean } | null
+  capabilities?: { midi: boolean; disk: boolean; export: boolean; import?: boolean } | null
   exportStart?: ReturnType<typeof vi.fn>
   exportCancel?: ReturnType<typeof vi.fn>
+  /** The helper's import (#778). */
+  importChoose?: ReturnType<typeof vi.fn>
+  importStart?: ReturnType<typeof vi.fn>
+  importCancel?: ReturnType<typeof vi.fn>
   close: ReturnType<typeof vi.fn>
 } | null = null
 /** The engine bytes the helper was sent since its `from`th send (BO-1: what a command means for its engine). */
@@ -90,6 +94,9 @@ vi.mock('../engine/native-engine', () => ({
         nativeEngine.chooseFolder ??= vi.fn()
         nativeEngine.exportStart ??= vi.fn()
         nativeEngine.exportCancel ??= vi.fn()
+        nativeEngine.importChoose ??= vi.fn()
+        nativeEngine.importStart ??= vi.fn()
+        nativeEngine.importCancel ??= vi.fn()
       }
       return nativeEngine ? Promise.resolve(nativeEngine) : Promise.reject(new Error('no helper in tests'))
     },
@@ -3423,5 +3430,144 @@ describe("an agent's audio file from a link waits for the user's answer, then im
     expect(await first).toMatchObject({ status: 'refused', error: { code: 'import.cancelled' } })
     expect(clips()).toEqual([])
     expect(session.audioImport.downloads).toEqual([])
+  })
+})
+
+describe("an agent's audio file of the project's folder is imported by the helper in Boost (#778)", () => {
+  const HASH = '5e'.repeat(32)
+
+  beforeEach(() => {
+    webs = []
+    nativeEngine = null
+    localStorage.clear()
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  /** A started page with an audio track; `boost`: paired, the helper importing, the project's folder open in it. */
+  async function page(boost: boolean) {
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
+      capabilities: { midi: false, disk: true, export: true, import: true },
+      close: vi.fn(() => Promise.resolve()),
+    }
+    const session = newSession()
+    await session.dispatcher.start()
+    session.dispatcher.run({ type: 'track.create', kind: 'audio' } as Command)
+    const view = session.project.view!.project
+    const track = Object.entries(view.tracks).find(([, t]) => t?.kind === 'audio')![0]
+    if (boost) {
+      localStorage.setItem(TOKEN_KEY, 'x')
+      await session.dispatcher.enterBoost()
+      nativeEvents!.onFolderState!(view.id, { status: 'open', name: 'Song' })
+    }
+    // The storage's queue runs the helper's task as is (its folder side: `storage.test.ts`).
+    const adopted = vi.spyOn(session.storage, 'importWithHelper').mockImplementation(async (task) => (await task()).media)
+    const clips = () => Object.values(session.project.view!.project.tracks[track]!.clips)
+    return { session, track, adopted, clips, history: session.dispatcher.history().undo.length }
+  }
+
+  const call = (track: string, path = 'imports/kick.wav'): Command => ({ type: 'clip.import_audio_file', track, path })
+
+  /** Answers the next `import.start` the helper gets with `answer`. */
+  function helperAnswers(answer: (id: number) => object) {
+    nativeEngine!.importStart!.mockImplementation((start: { id: number }) => {
+      queueMicrotask(() => nativeEvents!.onImport!(answer(start.id) as never))
+    })
+  }
+
+  it('without the helper or its folder the call is refused, typed, and nothing is sent', async () => {
+    const { session, track, clips } = await page(false)
+    expect(session.dispatcher.helperImportPort()).toBeNull()
+    expect(await session.dispatcher.runForAgent(call(track), 'agent:a')).toMatchObject({ status: 'refused', error: { code: 'import.no_folder' } })
+    expect(clips()).toEqual([])
+    // In Boost, but the helper does not import, or has no folder for this project.
+    const boosted = await page(true)
+    nativeEngine!.capabilities = { midi: false, disk: true, export: true, import: false }
+    expect(boosted.session.dispatcher.helperImportPort()).toBeNull()
+    expect(await boosted.session.dispatcher.runForAgent(call(boosted.track), 'agent:a')).toMatchObject({
+      status: 'refused',
+      error: { code: 'import.no_folder' },
+    })
+    nativeEngine!.capabilities = { midi: false, disk: true, export: true, import: true }
+    nativeEvents!.onFolderState!(boosted.session.project.view!.project.id, { status: 'unknown' })
+    expect(await boosted.session.dispatcher.runForAgent(call(boosted.track), 'agent:a')).toMatchObject({
+      status: 'refused',
+      error: { code: 'import.no_folder' },
+    })
+    expect(nativeEngine!.importStart).not.toHaveBeenCalled()
+  })
+
+  it('hands the path to the helper, stages what it decoded and makes the clip as the agent, one entry the user can undo', async () => {
+    const { session, track, clips, history, adopted } = await page(true)
+    helperAnswers((id) => ({
+      type: 'import.done',
+      id,
+      hash: HASH,
+      sample_rate: 44_100,
+      channels: 2,
+      frames: 22_050,
+      name: 'kick.wav',
+      direct: false,
+      created: true,
+      peaks: true,
+    }))
+    const result = await session.dispatcher.runForAgent(call(track), 'agent:claude-code')
+    expect(result).toMatchObject({ status: 'applied', output: { type: 'clip.import_audio_file', media: HASH } })
+    expect(nativeEngine!.importStart).toHaveBeenCalledTimes(1)
+    expect(nativeEngine!.importStart!.mock.calls[0][0]).toMatchObject({
+      project: session.project.view!.project.id,
+      source: { kind: 'folder', path: 'imports/kick.wav' },
+    })
+    expect(adopted).toHaveBeenCalledTimes(1)
+    expect(clips()).toHaveLength(1)
+    expect(clips()[0]).toMatchObject({ content: { audio: { media: { hash: HASH, name: 'kick.wav', frames: 22_050 } } } })
+    expect(session.dispatcher.history().undo).toHaveLength(history + 1)
+    expect(session.dispatcher.history().undo.at(-1)).toMatchObject({ name: 'clip.import_audio', author: 'agent:claude-code' })
+    // The same call again soon after (an answer lost to `page.timeout`): the clip made, nothing sent again.
+    expect(await session.dispatcher.runForAgent(call(track), 'agent:claude-code')).toEqual(result)
+    expect(nativeEngine!.importStart).toHaveBeenCalledTimes(1)
+    session.dispatcher.run({ type: 'history.undo' })
+    expect(clips()).toHaveLength(0)
+  })
+
+  it("passes the helper's refusal on, typed, and makes no clip; a wrong track or path never reaches the helper", async () => {
+    const { session, track, clips } = await page(true)
+    for (const [code, expected] of [
+      ['import.path', 'import.path'],
+      ['import.unreadable', 'import.unreadable'],
+      ['import.too_large', 'import.too_large'],
+      ['import.folder_changed', 'import.folder_changed'],
+    ]) {
+      helperAnswers((id) => ({ type: 'import.failed', id, code, message: 'x' }))
+      expect(await session.dispatcher.runForAgent(call(track, `imports/${code}.wav`), 'agent:a'), code).toMatchObject({
+        status: 'refused',
+        error: { code: expected },
+      })
+    }
+    expect(clips()).toEqual([])
+    const sent = nativeEngine!.importStart!.mock.calls.length
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const midi = Object.entries(session.project.view!.project.tracks).find(([, t]) => t?.kind !== 'audio')![0]
+    for (const command of [call(midi), call(track, '../kick.wav'), call(track, '/etc/kick.wav'), call(track, 'C:\\kick.wav')]) {
+      expect(await session.dispatcher.runForAgent(command, 'agent:a'), JSON.stringify(command)).toMatchObject({ status: 'refused', error: { code: 'invalid' } })
+    }
+    expect(nativeEngine!.importStart!.mock.calls.length).toBe(sent)
+  })
+
+  it('the helper gone mid-import ends it typed, and the port and its listeners go with the session', async () => {
+    const { session, track, clips } = await page(true)
+    const result = session.dispatcher.runForAgent(call(track), 'agent:a')
+    await vi.waitFor(() => expect(nativeEngine!.importStart).toHaveBeenCalledTimes(1))
+    nativeEvents!.onClosed()
+    expect(await result).toMatchObject({ status: 'refused', error: { code: 'import.helper_lost' } })
+    expect(clips()).toEqual([])
+    expect(session.dispatcher.helperImportPort()).toBeNull()
   })
 })

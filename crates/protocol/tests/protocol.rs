@@ -35,6 +35,22 @@ fn messages_round_trip_through_json() {
             stop: "AA==".into(),
         },
         ClientMessage::ExportCancel { id: 7 },
+        ClientMessage::ImportChoose { id: 3 },
+        ClientMessage::ImportStart {
+            id: 3,
+            project: "01J0000000000000000000000A".into(),
+            source: protocol::ImportSource::Folder {
+                path: "imports/kick.wav".into(),
+            },
+        },
+        ClientMessage::ImportStart {
+            id: 4,
+            project: "01J0000000000000000000000A".into(),
+            source: protocol::ImportSource::Picked {
+                token: "0123456789abcdef0123456789abcdef".into(),
+            },
+        },
+        ClientMessage::ImportCancel { id: 3 },
         ClientMessage::MidiSelectInput { id: None },
         ClientMessage::MidiSelectInput {
             id: Some("a".into()),
@@ -153,6 +169,7 @@ fn messages_round_trip_through_json() {
                 midi: true,
                 disk: false,
                 export: true,
+                import: true,
             },
         },
         ServerMessage::StreamRefused {
@@ -202,6 +219,33 @@ fn messages_round_trip_through_json() {
             code: protocol::errors::EXPORT_CANCELLED.into(),
             message: "x".into(),
         },
+        ServerMessage::ImportChosen {
+            id: 3,
+            files: vec![protocol::PickedFile {
+                token: "0123456789abcdef0123456789abcdef".into(),
+                name: "kick.wav".into(),
+            }],
+        },
+        ServerMessage::ImportProgress {
+            id: 3,
+            fraction: 0.25,
+        },
+        ServerMessage::ImportDone {
+            id: 3,
+            hash: "ab".repeat(32),
+            sample_rate: 44_100,
+            channels: 2,
+            frames: 22_050,
+            name: "kick.wav".into(),
+            direct: true,
+            created: false,
+            peaks: true,
+        },
+        ServerMessage::ImportFailed {
+            id: 3,
+            code: "import.too_large".into(),
+            message: "x".into(),
+        },
     ];
     let updates = [
         HelperUpdate::Disabled { reason: "r".into() },
@@ -245,13 +289,13 @@ fn every_server_message_is_in_the_round_trip_test() {
     let variants = bundle["server_message"]["oneOf"].as_array().unwrap();
     assert_eq!(
         variants.len(),
-        16,
+        20,
         "add the new message to messages_round_trip_through_json"
     );
     let clients = bundle["client_message"]["oneOf"].as_array().unwrap();
     assert_eq!(
         clients.len(),
-        11,
+        14,
         "add the new message to messages_round_trip_through_json"
     );
 }

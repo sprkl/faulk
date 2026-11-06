@@ -1,4 +1,5 @@
-import type { Engine, EngineEvents, HelperExportMessage } from '../engine/engine'
+import type { Engine, EngineEvents, HelperExportMessage, HelperImportMessage } from '../engine/engine'
+import type { HelperImportPort } from '../audio/import/helper-import'
 import { probeHelper, pairHelper } from '../engine/helper-client'
 import { peakOf } from '../engine/feedback'
 import { LoadMeter, sameLoad } from '../engine/load'
@@ -28,7 +29,7 @@ import type { AudioExport, ExportHost } from '../export/audio-export.svelte'
 import { browserCanAsk, importCommand, type AudioImport, type ImportPlacer } from '../audio/import/audio-import.svelte'
 import { audioNameOf } from '../audio/import/from-url'
 import { sortedTracks } from '../project/tracks'
-import { importAudioUrlOutput, isImportAudioUrl, type ImportAudioUrl } from '../clip-commands'
+import { importAudioFileOutput, importAudioUrlOutput, isImportAudioFile, isImportAudioUrl, type ImportAudioFile, type ImportAudioUrl } from '../clip-commands'
 import { audioMediaOf } from '../audio/import/media'
 import type { HelperLinkWrite, ProjectHost, ProjectStorage } from '../storage/storage.svelte'
 import { releaseAllNotes, requestMidiInputs } from './housekeeping'
@@ -133,6 +134,8 @@ export class Dispatcher {
   private native: NativeEngine | null = null
   /** Who listens to the helper's export messages (the export dialog, #319): told `null` when the session ends. */
   private exportListener: ((message: HelperExportMessage | null) => void) | null = null
+  /** Who listens to the helper's import messages (#778: an import, a dialog): told `null` when the session ends. */
+  private importListeners = new Set<(message: HelperImportMessage | null) => void>()
   private midi: WebMidiHost | null = null
 
   constructor(
@@ -219,6 +222,11 @@ export class Dispatcher {
         // The helper's export messages go to the export of the session the page plays (#319).
         if (kind !== 'native' || !current()) return
         this.exportListener?.(message)
+      },
+      onImport: (message) => {
+        // The helper's import messages go to the imports of the session the page plays (#778).
+        if (kind !== 'native' || !current()) return
+        for (const listener of [...this.importListeners]) listener(message)
       },
       onStreamRefused: (code, at, epoch) => {
         if (!current()) return
@@ -482,6 +490,33 @@ export class Dispatcher {
     const listener = this.exportListener
     this.exportListener = null
     listener?.(null)
+    // So do its imports and its file dialog (#778).
+    const imports = [...this.importListeners]
+    this.importListeners.clear()
+    for (const l of imports) l(null)
+  }
+
+  /**
+   * The helper's import (#778): Boost, a helper that imports, and the project's folder open in it for the project the
+   * page has open; `null` otherwise.
+   */
+  helperImportPort(): HelperImportPort | null {
+    const native = this.native
+    const folder = this.state.helperFolder
+    const project = this.project.view?.project.id ?? null
+    if (!native || !native.capabilities?.import || !folder || folder.state.status !== 'open' || !project || folder.project !== project) return null
+    return {
+      project,
+      choose: (id) => native.importChoose(id),
+      start: (start) => native.importStart(start),
+      cancel: (id) => native.importCancel(id),
+      listen: (listener) => {
+        this.importListeners.add(listener)
+        return () => {
+          this.importListeners.delete(listener)
+        }
+      },
+    }
   }
 
   /**
@@ -794,6 +829,8 @@ export class Dispatcher {
     if (isCancelImportPack(command)) return this.cancelImportPack()
     // An audio file from a link (#664): its own path, where the user's answer comes before any byte is fetched.
     if (isImportAudioUrl(command)) return this.importAudioUrl(command, author, deadline, signal)
+    // An audio file of the project's folder (#778): the helper imports it in Boost.
+    if (isImportAudioFile(command)) return this.importAudioFile(command, author, signal)
     // The queries that measure levels: the page stages its numbers in the core, then the command answers (#665).
     if (isMixerLevels(command) && this.core) this.stageLevels(this.core)
     const range = analyzeRange(command)
@@ -916,12 +953,51 @@ export class Dispatcher {
   }
 
   /** The answer of a link's import already done (#664): the same link and track, the same project, recent, its clip still there. */
-  private linkReplay(href: string, track: string): AgentResult | null {
+  private linkReplay(href: string, track: string, output: (clip: string, media: string) => unknown = importAudioUrlOutput): AgentResult | null {
     const project = this.project.view?.project
     const done = this.linkImports.get(href)
     if (!done || !project || done.project !== project.id || done.track !== track) return null
     if (this.confirmations.clock.now() - done.at >= LINK_IMPORT_KEPT_MS || !project.tracks[track]?.clips[done.clip]) return null
-    return { status: 'applied', output: importAudioUrlOutput(done.clip, done.media) }
+    return { status: 'applied', output: output(done.clip, done.media) }
+  }
+
+  /**
+   * `clip.import_audio_file` for an agent (#778): the core checks the track and the path's form; then, in Boost with the
+   * project's folder open in the helper, the helper reads and decodes the file of the folder and writes its blob, and the
+   * page makes the clip by `clip.import_audio` as `author`. Without the helper's folder: `import.no_folder`, nothing read,
+   * nothing sent. Nothing is asked: the file is the project folder's own. The same call again soon after (its answer lost
+   * to `page.timeout`) answers the clip already made, as for a link (`linkReplay`); one while it runs `import.busy`.
+   */
+  private async importAudioFile(command: ImportAudioFile, author: string, signal?: AbortSignal): Promise<AgentResult> {
+    const audioImport = this.audioImport
+    if (!this.core || !audioImport) return { status: 'unavailable', reason: 'the page has no project yet: start audio in the page first' }
+    const checked = this.execute(command, { quiet: true, author })
+    if (checked.status === 'started') return { status: 'unavailable', reason: 'the page answers this command later' }
+    if (checked.status !== 'applied') return checked
+    const key = `folder:${command.path}`
+    const replay = this.linkReplay(key, command.track, importAudioFileOutput)
+    if (replay) return replay
+    if (audioImport.importingFile(command.path)) {
+      return { status: 'refused', error: { code: 'import.busy', message: 'this file is already being imported: wait for its answer, then check track.get' } }
+    }
+    let clip: string | null = null
+    const place: ImportPlacer = (media) => {
+      const made = this.execute(importCommand(command.track, media.hash), { quiet: true, author })
+      if (made.status !== 'applied') return false
+      clip = (made.output as { clip: string }).clip
+      return true
+    }
+    const project = this.project.view?.project.id
+    const stillWanted = () => this.project.view?.project.id === project
+    const outcome = await audioImport.importFolderFile(command.track, command.path, place, signal, stillWanted)
+    if (signal?.aborted && outcome.status !== 'ok') return { status: 'unavailable', reason: 'the call ended before the file was imported: nothing changed' }
+    if (outcome.status !== 'ok') return { status: 'refused', error: { code: outcome.code, message: outcome.message } }
+    if (clip !== null && project) {
+      const now = this.confirmations.clock.now()
+      for (const [href, kept] of this.linkImports) if (now - kept.at >= LINK_IMPORT_KEPT_MS) this.linkImports.delete(href)
+      this.linkImports.set(key, { project, track: command.track, clip, media: outcome.hash, at: now })
+    }
+    return { status: 'applied', output: importAudioFileOutput(clip, outcome.hash) }
   }
 
   /** Stages what the meters held since the last `mixer.levels` for the core to answer with. */

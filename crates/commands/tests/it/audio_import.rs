@@ -483,6 +483,71 @@ fn importing_audio_from_a_link_is_for_an_audio_track_and_changes_nothing_until_t
 }
 
 #[test]
+fn importing_a_file_of_the_folder_is_for_an_audio_track_and_a_relative_path_and_changes_nothing_by_itself()
+ {
+    // #778: the helper reads and decodes the file, the page makes the clip; the command checks the
+    // track and the path's form only.
+    let f = fx();
+    let mut state = f.state.clone();
+    let import = |track: &::project::TrackId, path: &str| {
+        c(clip::Command::ImportAudioFile {
+            track: track.clone(),
+            path: path.into(),
+        })
+    };
+    for path in [
+        "imports/kick.wav",
+        "kick.wav",
+        "blobs/0123",
+        "a b/é.flac",
+        "..a/b..",
+    ] {
+        let out = run(
+            &import(&f.audio_track, path),
+            &mut state,
+            &mut bare_context(),
+        )
+        .unwrap();
+        assert!(
+            matches!(
+                out.output,
+                Output::Clip(clip::Output::ImportAudioFile {
+                    clip: None,
+                    media: None
+                })
+            ),
+            "{path}"
+        );
+        assert!(matches!(out.undo, Undo::None) && out.events.is_empty());
+        assert_eq!(state, f.state, "{path}");
+    }
+    let midi = check_refusal(&import(&f.track, "kick.wav"), &f.state, &context()).unwrap();
+    assert!(matches!(midi, CommandError::Invalid { ref field, .. } if field == "track"));
+    let long = "a/".repeat(600);
+    for path in [
+        "",
+        "/etc/kick.wav",
+        "C:/kick.wav",
+        "C:kick.wav",
+        "imports\\kick.wav",
+        "../kick.wav",
+        "imports/../kick.wav",
+        "./kick.wav",
+        "imports//kick.wav",
+        "imports/",
+        "kick\u{0}.wav",
+        long.as_str(),
+    ] {
+        let refused = check_refusal(&import(&f.audio_track, path), &f.state, &context())
+            .unwrap_or_else(|e| panic!("{path:?} is refused: {e:?}"));
+        assert!(
+            matches!(refused, CommandError::Invalid { ref field, .. } if field == "path"),
+            "{path:?}: {refused:?}"
+        );
+    }
+}
+
+#[test]
 fn a_new_or_opened_project_forgets_the_files_imported_into_the_old_one() {
     for command in [
         Command::Project(project::Command::New { name: None }),

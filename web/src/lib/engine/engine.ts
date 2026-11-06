@@ -4,6 +4,9 @@ import type { FeedbackReport } from './feedback'
 /** The helper's messages about its export (#319). */
 export type HelperExportMessage = Extract<ServerMessage, { type: 'export.progress' | 'export.done' | 'export.failed' }>
 
+/** The helper's messages about its imports and its file dialog (#778). */
+export type HelperImportMessage = Extract<ServerMessage, { type: 'import.chosen' | 'import.progress' | 'import.done' | 'import.failed' }>
+
 export type EngineKind = 'web' | 'native'
 
 /** The helper's self-update as its last `update.status` told it (#515). */
@@ -50,6 +53,8 @@ export interface EngineEvents {
   onFolderState?(project: string | null, state: FolderStatus): void
   /** Native engine only: how the helper's export goes (`export.progress`, `export.done`, `export.failed`, #319). */
   onExport?(message: HelperExportMessage): void
+  /** Native engine only: how the helper's imports and its file dialog go (`import.chosen`, `import.progress`, `import.done`, `import.failed`, #778). */
+  onImport?(message: HelperImportMessage): void
   /** Native engine only: an agent left (`agent.left`, #641): its last MCP session ended or it stayed silent too long. */
   onAgentLeft?(agent: string): void
   onError(code: string): void

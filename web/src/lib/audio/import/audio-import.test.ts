@@ -2,7 +2,9 @@
 // imported then staged then made a clip by `clip.import_audio` (in that order), a refused file
 // reported while the next ones are still imported, a cancel, the progress.
 import { describe, expect, it, vi } from 'vitest'
-import type { AudioMedia, Command } from '../../generated/protocol'
+import type { HelperImportMessage } from '../../engine/engine'
+import type { AudioMedia, Command, ImportSource } from '../../generated/protocol'
+import type { HelperImportPort } from './helper-import'
 import { StoreError } from '../../storage/types'
 import { ImportError } from './abi'
 import { AudioImport, importCommand, type AudioImportDeps } from './audio-import.svelte'
@@ -38,6 +40,10 @@ function setup(over: Partial<AudioImportDeps> = {}) {
     },
     pageHostname: () => 'faulk.app',
     download: async (_url, name) => ({ status: 'ok', file: new File([new Uint8Array(4)], name) }),
+    helper: () => null,
+    importWithHelper: async () => {
+      throw new Error('no helper in this test')
+    },
     ...over,
   }
   return { importer: new AudioImport(deps), log, staged, ran, pick: (files: File[]) => (picked = files) }
@@ -350,5 +356,122 @@ describe("an agent's file from a link (#664)", () => {
       expect(made, stopper).toEqual([])
       expect(importer.importing(LINK)).toBe(false)
     }
+  })
+})
+
+describe('importing audio files by the helper in Boost (#778)', () => {
+  /** A stand-in of the helper's port: its dialog answers `answer(id)` (the files picked by default). */
+  function helperPort(picked: { token: string; name: string }[], answer?: (id: number) => HelperImportMessage) {
+    const listeners = new Set<(m: HelperImportMessage | null) => void>()
+    const say = (m: HelperImportMessage | null) => [...listeners].forEach((l) => l(m))
+    const port: HelperImportPort = {
+      project: '01J0000000000000000000000A',
+      choose: (id) => queueMicrotask(() => say(answer ? answer(id) : { type: 'import.chosen', id, files: picked })),
+      start: () => {},
+      cancel: () => {},
+      listen: (l) => {
+        listeners.add(l)
+        return () => listeners.delete(l)
+      },
+    }
+    return port
+  }
+
+  it("in Boost a click opens the helper's dialog, and the helper imports each file picked, staged and made a clip in turn", async () => {
+    const sources: ImportSource[] = []
+    const port = helperPort([
+      { token: 'a'.repeat(32), name: 'kick.wav' },
+      { token: 'b'.repeat(32), name: 'snare.wav' },
+    ])
+    const { importer, log, ran } = setup({
+      helper: () => port,
+      importWithHelper: async (_p, source, onProgress) => {
+        sources.push(source)
+        log.push(`helper ${source.kind}`)
+        onProgress(0.5)
+        return media(sources.length === 1 ? 'kick.wav' : 'snare.wav', sources.length)
+      },
+    })
+    importer.choose('T1')
+    await importer.importFiles('T1', [])
+    // The page's own dialog never opened.
+    expect(log).toEqual(['helper picked', 'stage kick.wav', 'run clip.import_audio', 'helper picked', 'stage snare.wav', 'run clip.import_audio'])
+    expect(sources).toEqual([
+      { kind: 'picked', token: 'a'.repeat(32) },
+      { kind: 'picked', token: 'b'.repeat(32) },
+    ])
+    expect(ran).toHaveLength(2)
+    expect(importer.failure).toBeNull()
+  })
+
+  it("without a click no dialog opens, the helper's either; a refused dialog is a failure", async () => {
+    const port = helperPort([])
+    const choose = vi.spyOn(port, 'choose')
+    const { importer } = setup({ canAsk: () => false, helper: () => port })
+    importer.choose('T1')
+    expect(importer.needsClick).toBe(true)
+    expect(choose).not.toHaveBeenCalled()
+    const refusing = helperPort([], (id) => ({ type: 'import.failed', id, code: 'import.dialog_unavailable', message: '' }))
+    const second = setup({ helper: () => refusing })
+    second.importer.choose('T1')
+    await second.importer.importFiles('T1', [])
+    expect(second.importer.failure).toMatchObject({ track: 'T1', code: 'dialog_unavailable' })
+  })
+
+  it("an agent's file of the folder: refused without the helper, imported by it otherwise, one at a time per path", async () => {
+    const made: AudioMedia[] = []
+    const place = (m: AudioMedia) => {
+      made.push(m)
+      return true
+    }
+    const none = setup()
+    expect(await none.importer.importFolderFile('T1', 'imports/kick.wav', place)).toMatchObject({ status: 'refused', code: 'import.no_folder' })
+    let finish: () => void = () => {}
+    const sources: ImportSource[] = []
+    const { importer } = setup({
+      helper: () => helperPort([]),
+      importWithHelper: (_p, source) => {
+        sources.push(source)
+        return new Promise((resolve) => (finish = () => resolve(media('kick.wav', 3))))
+      },
+    })
+    const first = importer.importFolderFile('T1', 'imports/kick.wav', place)
+    await vi.waitFor(() => expect(sources).toHaveLength(1))
+    expect(importer.importingFile('imports/kick.wav')).toBe(true)
+    expect(await importer.importFolderFile('T1', 'imports/kick.wav', place)).toMatchObject({ status: 'refused', code: 'import.busy' })
+    finish()
+    expect(await first).toEqual({ status: 'ok', hash: media('kick.wav', 3).hash })
+    expect(sources).toEqual([{ kind: 'folder', path: 'imports/kick.wav' }])
+    expect(made.map((m) => m.name)).toEqual(['kick.wav'])
+    expect(importer.importingFile('imports/kick.wav')).toBe(false)
+  })
+
+  it("the helper's refusal is the agent's `import.<code>` and the panel's failure; a done that crossed a cancel makes no clip", async () => {
+    const made: AudioMedia[] = []
+    const place = (m: AudioMedia) => {
+      made.push(m)
+      return true
+    }
+    const refused = setup({
+      helper: () => helperPort([]),
+      importWithHelper: async () => {
+        throw new ImportError('path', 'path.escapes')
+      },
+    })
+    expect(await refused.importer.importFolderFile('T1', 'out/kick.wav', place)).toMatchObject({ status: 'refused', code: 'import.path' })
+    expect(refused.importer.failure).toMatchObject({ name: 'kick.wav', code: 'path' })
+    // A cancel while the helper finishes: its last word is a done (the blob kept), but no clip is made.
+    let finish: () => void = () => {}
+    const late = setup({
+      helper: () => helperPort([]),
+      importWithHelper: () => new Promise((resolve) => (finish = () => resolve(media('kick.wav', 4)))),
+    })
+    const running = late.importer.importFolderFile('T1', 'imports/kick.wav', place)
+    await vi.waitFor(() => expect(late.importer.running).not.toBeNull())
+    late.importer.cancel()
+    finish()
+    expect(await running).toMatchObject({ status: 'refused', code: 'import.cancelled' })
+    expect(made).toEqual([])
+    expect(late.staged).toEqual([])
   })
 })
