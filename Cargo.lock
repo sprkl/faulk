@@ -872,6 +872,7 @@ name = "helper"
 version = "0.1.1"
 dependencies = [
  "assert_no_alloc",
+ "audio-import",
  "base64",
  "bytes",
  "commands",

@@ -19,6 +19,21 @@ export type ImportErrorCode =
   | 'store'
   /** Not the module's: the page has no Worker to run the import in. */
   | 'unavailable'
+  /**
+   * The helper's import in Boost (#778, `import.failed`, `protocol::errors::IMPORT_*` without `import.`): no folder open
+   * in the helper for the project, a path it refuses, a file it cannot read, a write the folder refused, the folder
+   * changed meanwhile, an import or a dialog of its own already under way, a request it does not take, no file dialog
+   * on its system; and the page's own, the helper gone or silent during the import.
+   */
+  | 'no_folder'
+  | 'path'
+  | 'unreadable'
+  | 'write'
+  | 'folder_changed'
+  | 'busy'
+  | 'invalid'
+  | 'dialog_unavailable'
+  | 'helper_lost'
 
 const CODES: Record<number, ImportErrorCode> = {
   [-1]: 'unsupported_format',

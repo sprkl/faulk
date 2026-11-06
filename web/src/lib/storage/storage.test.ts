@@ -2,6 +2,8 @@
 // writes, what it says, and what it does when the folder, the permission or the page goes away.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CacheReport, ImportOutcome, MediaRef } from '../audio/import/pipeline'
+import type { HelperImported } from '../audio/import/helper-import'
+import { ImportError } from '../audio/import/abi'
 import type { FolderEntry, PackExport, PackImport, PackIO, PackUnpack, SaveEntry, SaveFrame, SaveMode } from '../project/core'
 import type { OpenOutcome } from '../stores/open'
 import {
@@ -3563,6 +3565,58 @@ describe('importing an audio file (AU-1)', () => {
     // A folder whose permission was withdrawn is not written by an import either.
     w.storage.block = 'permission'
     await expect(w.storage.importAudio(wav())).rejects.toMatchObject({ code: 'permission' })
+  })
+
+  it("the helper's import in Boost (#778): in the queue, and its blob, done or not, is never taken for an outside change", async () => {
+    for (const end of ['done', 'failed'] as const) {
+      const { w, store } = await saved()
+      const hash = (end === 'done' ? 'c' : 'd').repeat(64)
+      let release = () => {}
+      const held = new Promise<void>((resolve) => (release = resolve))
+      const order: string[] = []
+      // The helper writes the blob into the folder itself, then says how it ended (a done, or a word lost with the link).
+      const task = async (): Promise<HelperImported> => {
+        await held
+        store.files.set(`blobs/${hash}`, 'audio')
+        store.stamps.set(`blobs/${hash}`, 4242)
+        order.push('helper')
+        if (end === 'failed') throw new ImportError('helper_lost', 'gone')
+        return { media: { hash, sample_rate: 48_000, channels: 2, frames: 10, name: 'kick.wav' }, created: true, peaks: true }
+      }
+      const importing = w.storage.importWithHelper(task)
+      w.edit()
+      const flushed = w.storage.flush().then(() => order.push('flush'))
+      await vi.advanceTimersByTimeAsync(10)
+      expect(order, end).toEqual([])
+      const epoch = w.storage.peaksEpoch
+      release()
+      if (end === 'done') expect((await importing).name).toBe('kick.wav')
+      else await expect(importing).rejects.toMatchObject({ code: 'helper_lost' })
+      await flushed
+      expect(order, end).toEqual(['helper', 'flush'])
+      expect(w.storage.peaksEpoch, end).toBe(end === 'done' ? epoch + 1 : epoch)
+      // The project is changed (the clip); the watcher sees the new blob: the page's own, not a conflict.
+      w.edit()
+      w.watchers.forEach((f) => f())
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(w.storage.block, end).toBeNull()
+    }
+  })
+
+  it("the helper's import is for a project in a real folder only, and a stop before its turn starts nothing", async () => {
+    const w = world()
+    w.browser.available = true
+    await w.storage.importAudio(new File([new Uint8Array(4)], 'kick.wav'))
+    expect(w.storage.place).toBe('browser')
+    const task = vi.fn(async (): Promise<HelperImported> => {
+      throw new Error('never run')
+    })
+    await expect(w.storage.importWithHelper(task)).rejects.toMatchObject({ code: 'no_folder' })
+    const { w: saved2 } = await saved()
+    const stop = new AbortController()
+    stop.abort()
+    await expect(saved2.storage.importWithHelper(task, stop.signal)).rejects.toMatchObject({ code: 'cancelled' })
+    expect(task).not.toHaveBeenCalled()
   })
 
   it('tells the engine the folder it reads audio from on each attach, and none when the project leaves it (AU-3)', async () => {

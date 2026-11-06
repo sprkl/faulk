@@ -128,6 +128,12 @@ export class NativeEngine implements Engine {
           case 'export.failed':
             events.onExport?.(message)
             break
+          case 'import.chosen':
+          case 'import.progress':
+          case 'import.done':
+          case 'import.failed':
+            events.onImport?.(message)
+            break
           case 'update.status':
             engine.update = { current: message.current ?? null, checkedAt: message.checked_at ?? null, status: message.status }
             events.onHelperUpdate?.(engine.update)
@@ -221,6 +227,21 @@ export class NativeEngine implements Engine {
   /** Stops the helper's export `id` (`export.cancel`, #319): it writes nothing. */
   exportCancel(id: number) {
     this.message({ type: 'export.cancel', id })
+  }
+
+  /** Shows the helper's file dialog for audio files to import (`import.choose`, #778). */
+  importChoose(id: number) {
+    this.message({ type: 'import.choose', id })
+  }
+
+  /** Asks the helper to import a file into the project's folder (`import.start`, #778). */
+  importStart(start: Omit<Extract<ClientMessage, { type: 'import.start' }>, 'type'>) {
+    this.message({ type: 'import.start', ...start })
+  }
+
+  /** Stops the helper's import `id` (`import.cancel`, #778). */
+  importCancel(id: number) {
+    this.message({ type: 'import.cancel', id })
   }
 
   private message(message: ClientMessage) {

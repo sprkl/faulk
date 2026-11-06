@@ -12,6 +12,7 @@
 // browser has no folder to offer (Firefox, Safari) it is the project's normal home. A project in
 // the OPFS is "browser" in this file, a project in a folder the user chose is "folder".
 import { ImportError } from '../audio/import/abi'
+import type { HelperImported } from '../audio/import/helper-import'
 import type { CacheReport, ImportedMedia, MediaRef } from '../audio/import/pipeline'
 import { peaksPath } from '../audio/peaks/format'
 import type { MessageKey } from '../i18n'
@@ -1305,6 +1306,43 @@ export class ProjectStorage {
         if (this.current === current && (this.host.dirty() ?? false)) this.schedule()
       }
     })
+  }
+
+  /**
+   * An audio import by the helper in Boost (#778): `task` runs it (`runHelperImport`), in the storage's queue like the page's
+   * own import, so that a save as or an opening never runs in the middle of it. The helper writes `blobs/<sha256>` itself:
+   * whatever the outcome (a `done` lost with the link included), every blob the folder holds that the page did not know of
+   * joins the stamps of its own writes, so the folder's watcher never takes the import for an outside change. Only for a
+   * project in a real folder (the helper has no other).
+   */
+  importWithHelper(task: () => Promise<HelperImported>, signal?: AbortSignal): Promise<ImportedMedia> {
+    this.cancelTimers()
+    return this.enqueue(async () => {
+      while (this.attaching) await this.attaching
+      if (signal?.aborted) throw new ImportError('cancelled', 'cancelled before it started')
+      const current = this.current
+      if (!current || current.kind !== 'folder') throw new ImportError('no_folder', 'the project is not in a folder the helper can open')
+      try {
+        const outcome = await task()
+        if (this.current === current && outcome.peaks) this.peaksEpoch++
+        return outcome.media
+      } finally {
+        if (this.current === current) await this.adoptNewBlobs(current)
+        // What waited behind the import (an edit made meanwhile) is written now.
+        if (this.current === current && (this.host.dirty() ?? false)) this.schedule()
+      }
+    })
+  }
+
+  /** Adds the stamp of every blob of the folder that `expected` lacks (blobs are named by their bytes: one never changes a project). */
+  private async adoptNewBlobs(current: Attached) {
+    let found: Signature
+    try {
+      found = await current.store.scan()
+    } catch {
+      return
+    }
+    for (const [path, stamp] of Object.entries(found)) if (path.startsWith('blobs/') && !(path in current.expected)) current.expected[path] = stamp
   }
 
   /** Whether the recent projects, as last listed, hold this folder. */

@@ -73,6 +73,8 @@ let hasOutput = true
 let folderKnown = false
 /** The setup streams of the `export.start`s the stand-in received, decoded from base64 (#319). */
 const exportSetups: Buffer[] = []
+/** How the stand-in answers an `import.start` (#778): done with this media, or refused with this code. */
+let importAnswer: { hash: string; name: string } | { code: string } = { hash: '5e'.repeat(32), name: 'kick.wav' }
 
 test.beforeAll(async () => {
   server = new WebSocketServer({ host: HELPER_HOST, port: HELPER_PORT })
@@ -101,7 +103,7 @@ test.beforeAll(async () => {
         sample_rate: 48000,
         estimated_latency_ms: 5,
         epoch: HELLO_EPOCH,
-        capabilities: { midi: true, disk: true, export: true },
+        capabilities: { midi: true, disk: true, export: true, import: true },
       })
       send({ type: 'midi.inputs', inputs: [], selected: null })
       sessionSocket = ws
@@ -137,6 +139,33 @@ test.beforeAll(async () => {
                 missing: [],
               }),
             200,
+          )
+        }
+        // The native import (#778): the stand-in decodes nothing, it answers the metadata a real helper would.
+        if (message.type === 'import.choose') send({ type: 'import.chosen', id: message.id ?? 0, files: [{ token: 'ab'.repeat(16), name: 'snare.wav' }] })
+        if (message.type === 'import.start') {
+          const id = message.id ?? 0
+          send({ type: 'import.progress', id, fraction: 0.5 })
+          const answer = importAnswer
+          setTimeout(
+            () =>
+              send(
+                'code' in answer
+                  ? { type: 'import.failed', id, code: answer.code, message: 'stand-in' }
+                  : {
+                      type: 'import.done',
+                      id,
+                      hash: answer.hash,
+                      sample_rate: 48000,
+                      channels: 2,
+                      frames: 48000,
+                      name: answer.name,
+                      direct: false,
+                      created: true,
+                      peaks: false,
+                    },
+              ),
+            100,
           )
         }
         // The project's folder (AU-7): the stand-in knows none until the user shows it in its dialog.
@@ -188,6 +217,7 @@ test.beforeEach(() => {
   hasOutput = true
   folderKnown = false
   exportSetups.length = 0
+  importAnswer = { hash: '5e'.repeat(32), name: 'kick.wav' }
 })
 
 test('in Boost the page names its folder by a marker it writes there, never a path, and asks the user to show it to the helper (AU-7)', async ({ page }) => {
@@ -320,6 +350,75 @@ test('in Boost, with the folder open in the helper, the page hands the export jo
   expect(exportSetups).toHaveLength(1)
   expect(headers(exportSetups[0]!)[0]).toMatchObject({ tag: RESET })
   expect(headers(exportSetups[0]!).length).toBeGreaterThan(1)
+  expect(errors).toEqual([])
+})
+
+test("in Boost, with the folder open in the helper, an agent's file of the folder and a file picked in the helper's dialog are imported by the helper (#778)", async ({
+  page,
+}) => {
+  const { errors } = watch(page)
+  folderKnown = true
+  await page.addInitScript(() => {
+    const w = window as unknown as { __faulkNoBrowserStorage: boolean; showDirectoryPicker: () => Promise<FileSystemDirectoryHandle> }
+    w.__faulkNoBrowserStorage = true
+    w.showDirectoryPicker = async () => (await navigator.storage.getDirectory()).getDirectoryHandle('helper-778', { create: true })
+  })
+  await page.goto('/app')
+  await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
+  await engineUp(page, 'Web')
+  await skipWithoutDevHooks(page)
+  await page.getByTestId('project-menu').click()
+  await page.getByTestId('menu-save-as').click()
+  await page.getByTestId('save-as-field').fill('Song')
+  await page.getByTestId('save-as-submit').click()
+  await expect(page.getByTestId('save-state')).toHaveText(/^Saved at/)
+  const track = await page.evaluate(() => {
+    const w = window as unknown as { __faulkRun(c: object): boolean; __faulkView(): { project: { tracks: Record<string, { kind: string }> } } }
+    w.__faulkRun({ type: 'track.create', kind: 'audio' })
+    const id = Object.entries(w.__faulkView().project.tracks).find(([, t]) => t.kind === 'audio')![0]
+    w.__faulkRun({ type: 'view.select_track', track: id })
+    return id
+  })
+  await page.getByTestId('panel-clips').click()
+  await page.getByTestId('engine-mode').click()
+  await page.getByRole('textbox', { name: /code/i }).fill('1234 5678')
+  await page.getByRole('button', { name: 'Pair', exact: true }).click()
+  await engineUp(page, 'Boost')
+  await page.keyboard.press('Escape')
+  await expect.poll(() => messages.find((m) => (m as { type?: string }).type === 'folder.open')).toBeTruthy()
+  await expect(page.getByTestId('audio-boost-folder')).toBeHidden()
+  const id = await page.evaluate(() => (window as unknown as { __faulkView(): { project: { id: string } } }).__faulkView().project.id)
+
+  // An agent's file of the folder: its path goes to the helper, the clip is made in the page.
+  const result = await page.evaluate(
+    (t) =>
+      (window as unknown as { __faulkAgent(c: object): Promise<unknown> }).__faulkAgent({ type: 'clip.import_audio_file', track: t, path: 'imports/kick.wav' }),
+    track,
+  )
+  expect(result).toMatchObject({ status: 'applied', output: { type: 'clip.import_audio_file', media: '5e'.repeat(32) } })
+  const starts = () => messages.filter((m) => (m as { type?: string }).type === 'import.start') as Record<string, unknown>[]
+  expect(starts()).toHaveLength(1)
+  expect(starts()[0]).toMatchObject({ project: id, source: { kind: 'folder', path: 'imports/kick.wav' } })
+  await expect(page.getByTestId('pool-clip')).toHaveCount(1)
+
+  // A path the helper refuses: the agent and the panel are told, nothing is made.
+  importAnswer = { code: 'import.path' }
+  const refused = await page.evaluate(
+    (t) =>
+      (window as unknown as { __faulkAgent(c: object): Promise<unknown> }).__faulkAgent({ type: 'clip.import_audio_file', track: t, path: 'out/kick.wav' }),
+    track,
+  )
+  expect(refused).toMatchObject({ status: 'refused', error: { code: 'import.path' } })
+  await expect(page.getByTestId('audio-import-failure')).toHaveAttribute('data-code', 'path')
+  await expect(page.getByTestId('pool-clip')).toHaveCount(1)
+
+  // The user's click on Import: the helper's dialog, not the page's; the file picked imports by its token.
+  importAnswer = { hash: '6f'.repeat(32), name: 'snare.wav' }
+  await page.getByTestId('audio-import-button').click()
+  await expect(page.getByTestId('pool-clip')).toHaveCount(2)
+  expect(messages.filter((m) => (m as { type?: string }).type === 'import.choose')).toHaveLength(1)
+  expect(starts()[2]).toMatchObject({ project: id, source: { kind: 'picked', token: 'ab'.repeat(16) } })
+  expect(await page.getByTestId('audio-file-input').count()).toBe(0)
   expect(errors).toEqual([])
 })
 
