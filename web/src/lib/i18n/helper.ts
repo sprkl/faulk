@@ -23,6 +23,10 @@ export const helper = defineFeature(
     'helper.useWeb': 'Back to Web',
     'helper.lost': 'Connection to the helper lost: back to Web mode.',
     'helper.replaced': 'Another page took over the helper: back to Web mode.',
+    'helper.folderNeedsClick': 'The helper’s folder window opens only from a click: click Show the folder… in the Clips panel.',
+    'helper.folderNotBoost': 'The helper reads the project’s folder in Boost mode only.',
+    'helper.folderInBrowser': 'This project is kept in the browser: save it in a folder first (Save as).',
+    'helper.folderNoMarker': 'Faulk cannot write in the project’s folder yet: allow the access, then show the folder to the helper.',
     'helper.recheck': 'Check again',
     'helper.noOutput':
       'The helper has no audio output it can use. Plug in speakers or headphones, or pick another output in your system’s sound settings. Faulk plays in the browser meanwhile and switches to Boost by itself once the output is there.',
@@ -49,6 +53,10 @@ export const helper = defineFeature(
     'helper.useWeb': 'Revenir en Web',
     'helper.lost': 'Connexion au helper perdue : retour en mode Web.',
     'helper.replaced': 'Une autre page a pris le helper : retour en mode Web.',
+    'helper.folderNeedsClick': 'La fenêtre de dossier du helper ne s’ouvre que sur un clic : clique sur Montrer le dossier… dans le panneau Clips.',
+    'helper.folderNotBoost': 'Le helper ne lit le dossier du projet qu’en mode Boost.',
+    'helper.folderInBrowser': 'Ce projet est gardé dans le navigateur : enregistre-le d’abord dans un dossier (Enregistrer sous).',
+    'helper.folderNoMarker': 'Faulk ne peut pas encore écrire dans le dossier du projet : autorise l’accès, puis montre le dossier au helper.',
     'helper.recheck': 'Chercher à nouveau',
     'helper.noOutput':
       'Le helper n’a pas de sortie audio utilisable. Branche des enceintes ou un casque, ou choisis une autre sortie dans les réglages son du système. En attendant, Faulk joue dans le navigateur et passe en Boost tout seul dès que la sortie est là.',
