@@ -177,6 +177,35 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(page.getByTestId('device-card')).toHaveCount(1)
     await expect(filter).toHaveCount(0)
 
+    // Stack (#690), the first MIDI effect: listed apart, inserted before the instrument, its card
+    // generated from the descriptor (a voice's settings show while it is on), removed and undone.
+    await panel.getByTestId('browse-midi-effect').filter({ hasText: 'Stack' }).click()
+    await expect(page.getByTestId('device-card')).toHaveCount(2)
+    await expect(page.getByTestId('device-card').first()).toHaveAttribute('data-kind', 'faulk.stack')
+    await expect(page.getByTestId('device-card').first()).toHaveAttribute('data-role', 'midi_effect')
+    const stack = card(page, 'Stack')
+    // Its default adds the fifth: voice 1 shows its three settings, voices 2 to 6 only their switch.
+    await expect(stack.locator('[data-testid^=param-]')).toHaveCount(15)
+    await expect(stack.getByTestId('param-strum')).toContainText(lang === 'en' ? 'Strum' : 'Égrenage')
+    await expect(stack.getByTestId('param-voice3_interval')).toHaveCount(0)
+    await stack
+      .getByTestId('param-voice3')
+      .getByRole('radio', { name: lang === 'en' ? 'On' : 'Marche', exact: true })
+      .click()
+    await expect(stack.getByTestId('param-voice3_interval')).toBeVisible()
+    await expect(stack.locator('[data-testid^=param-]')).toHaveCount(18)
+    // Alone among the MIDI effects: it moves neither way, and never past the instrument.
+    await expect(stack.getByTestId('device-left')).toBeDisabled()
+    await expect(stack.getByTestId('device-right')).toBeDisabled()
+    await stack.getByRole('button', { name: x.remove('Stack'), exact: true }).click()
+    await expect(stack).toHaveCount(0)
+    await page.keyboard.press('Control+z')
+    await expect(stack).toHaveCount(1)
+    await page.keyboard.press('Control+z')
+    await expect(stack.getByTestId('param-voice3_interval')).toHaveCount(0)
+    await page.keyboard.press('Control+z')
+    await expect(stack).toHaveCount(0)
+
     // Switch the instrument from the browser: the panel is Drums' own, generated the same way, then back.
     await panel.getByRole('button', { name: x.use('Drums'), exact: true }).click()
     await expect(page.getByTestId('device-card')).toHaveCount(1)

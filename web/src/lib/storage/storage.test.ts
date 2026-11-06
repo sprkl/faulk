@@ -10,6 +10,7 @@ import {
   autosaveDelay,
   changedPaths,
   DOWNLOAD_PATH,
+  HELPER_LINK_PATH,
   MAX_PACK_BYTES,
   ProjectStorage,
   projectIdOf,
@@ -123,7 +124,12 @@ class FakeStore implements ProjectStore {
   /** Files with a stamp of their own (an imported blob); the others share the folder's. */
   stamps = new Map<string, number>()
   signature(): Signature {
-    return Object.fromEntries([...this.files.keys()].map((path) => [path, `${this.files.get(path)!.length}:${this.stamps.get(path) ?? this.stamp}`]))
+    // As the real folder's (`FolderBackend`): `.faulk/` is the folder's own business, never stamped.
+    return Object.fromEntries(
+      [...this.files.keys()]
+        .filter((path) => !path.startsWith('.faulk/'))
+        .map((path) => [path, `${this.files.get(path)!.length}:${this.stamps.get(path) ?? this.stamp}`]),
+    )
   }
   async apply(entries: SaveEntry[]) {
     if (this.hold) await this.hold
@@ -135,7 +141,7 @@ class FakeStore implements ProjectStore {
       if (entry.type === 'remove') this.files.delete(entry.path)
       else {
         this.files.set(entry.path, new TextDecoder().decode(entry.bytes))
-        written[entry.path] = `${entry.bytes.length}:${this.stamp}`
+        if (!entry.path.startsWith('.faulk/')) written[entry.path] = `${entry.bytes.length}:${this.stamp}`
       }
     }
     return written
@@ -3860,5 +3866,42 @@ describe('Save as names the project (#627)', () => {
     other.w.edit()
     expect(await other.w.storage.saveAs()).toBe(false)
     expect(other.w.storage.notice).toBe('storage.saveFailed')
+  })
+})
+
+describe("the helper's link marker (AU-7)", () => {
+  const NONCE = '0123456789abcdef0123456789abcdef'
+
+  it('is written in a real folder only, as a file of .faulk/', async () => {
+    const bare = world()
+    expect(await bare.storage.writeHelperLink(NONCE)).toEqual({ status: 'no_folder' })
+    const { w: browser } = await drafted()
+    expect(await browser.storage.writeHelperLink(NONCE)).toEqual({ status: 'no_folder' })
+    const { w, store } = await saved('Song')
+    expect(await w.storage.writeHelperLink(NONCE)).toEqual({ status: 'written', name: 'Song' })
+    expect(JSON.parse(store.files.get(HELPER_LINK_PATH)!)).toEqual({ nonce: NONCE })
+  })
+
+  it('is no change of the folder: the page keeps writing it in Boost, and reads its own changes back', async () => {
+    const { w, handle, store } = await saved('Song')
+    expect(await w.storage.writeHelperLink(NONCE)).toEqual({ status: 'written', name: 'Song' })
+    const saves = w.host.saves.length
+    w.edit()
+    await vi.advanceTimersByTimeAsync(AUTOSAVE_MAX_WAIT_MS)
+    await w.storage.wake()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(w.host.saves.length).toBeGreaterThan(saves)
+    expect(w.storage.block).toBeNull()
+    expect(w.storage.status).toBe('saved')
+    // The marker stays beside the project (the real folder never reads it back as a project file:
+    // `backend.test.ts`).
+    expect(store.files.has(HELPER_LINK_PATH)).toBe(true)
+    expect(w.stores.get(handle)).toBe(store)
+  })
+
+  it('a write that fails gives no place to tell the helper', async () => {
+    const { w, store } = await saved('Song')
+    store.fail = new StoreError('permission', 'denied')
+    expect(await w.storage.writeHelperLink(NONCE)).toEqual({ status: 'failed' })
   })
 })

@@ -1,8 +1,8 @@
-import type { Engine, EngineEvents } from '../engine/engine'
+import type { Engine, EngineEvents, HelperExportMessage } from '../engine/engine'
 import { probeHelper, pairHelper } from '../engine/helper-client'
 import { peakOf } from '../engine/feedback'
 import { LoadMeter, sameLoad } from '../engine/load'
-import { NativeEngine, NoOutputError } from '../engine/native-engine'
+import { NativeEngine, NoOutputError, type HelperPlace } from '../engine/native-engine'
 import { WebEngine } from '../engine/web-engine'
 import { withFrame } from '../engine/clock'
 import { decodeMidi } from '../midi/decode'
@@ -25,9 +25,12 @@ import {
   renameProject as renameProjectCommand,
 } from '../project-commands'
 import type { AudioExport, ExportHost } from '../export/audio-export.svelte'
-import type { AudioImport } from '../audio/import/audio-import.svelte'
+import { browserCanAsk, importCommand, type AudioImport, type ImportPlacer } from '../audio/import/audio-import.svelte'
+import { audioNameOf } from '../audio/import/from-url'
+import { sortedTracks } from '../project/tracks'
+import { importAudioUrlOutput, isImportAudioUrl, type ImportAudioUrl } from '../clip-commands'
 import { audioMediaOf } from '../audio/import/media'
-import type { ProjectHost, ProjectStorage } from '../storage/storage.svelte'
+import type { HelperLinkWrite, ProjectHost, ProjectStorage } from '../storage/storage.svelte'
 import { releaseAllNotes, requestMidiInputs } from './housekeeping'
 import { takePairLink } from '../pair-link'
 import { agentAuthor, answerAgentCall } from '../agents/agent-call'
@@ -47,6 +50,9 @@ import { refusalOf } from './refusal'
 import { storage, TOKEN_KEY } from './storage'
 import { isSetTheme, isThemeChoice, SET_THEME_OUTPUT, type ThemeChoice } from '../theme'
 
+/** How long a link's import answers a retry of the same call with its clip (#664), in ms: 10 minutes. */
+export const LINK_IMPORT_KEPT_MS = 10 * 60_000
+
 /** How `run` runs a command: `quiet` shows no refusal, `author` is the history's (`user` by default). */
 type RunOptions = {
   quiet?: boolean
@@ -60,6 +66,11 @@ type RunOptions = {
 
 /** The storage action a command started (`project.open_recent`, `project.delete_browser_project`…), `null` for none. */
 type StorageRun = { done: Promise<boolean> | null }
+
+/** A link marker for the helper (AU-7): 128 random bits as 32 lowercase hex digits (`helper::disk::valid_nonce`). */
+export function randomNonce(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, '0')).join('')
+}
 
 /** What the agents' questions need from the storage (`GuardView`). */
 function guardView(storage: ProjectStorage): GuardView {
@@ -120,6 +131,8 @@ export class Dispatcher {
   private engineStarts = 0
   private web: WebEngine | null = null
   private native: NativeEngine | null = null
+  /** Who listens to the helper's export messages (the export dialog, #319): told `null` when the session ends. */
+  private exportListener: ((message: HelperExportMessage | null) => void) | null = null
   private midi: WebMidiHost | null = null
 
   constructor(
@@ -196,6 +209,17 @@ export class Dispatcher {
       },
       // Whichever session tells it, even one no longer played: the agent left all the same (#641).
       onAgentLeft: (agent) => this.agentLeft(agent),
+      onFolderState: (project, state) => {
+        // A state about another project than the one open now (the page moved on since) is stale (AU-7).
+        if (kind !== 'native' || !current()) return
+        if (project !== null && project !== (this.project.view?.project.id ?? null)) return
+        this.state.helperFolder = { project, state }
+      },
+      onExport: (message) => {
+        // The helper's export messages go to the export of the session the page plays (#319).
+        if (kind !== 'native' || !current()) return
+        this.exportListener?.(message)
+      },
       onStreamRefused: (code, at, epoch) => {
         if (!current()) return
         if (kind === 'native') this.resyncNative(code, epoch)
@@ -225,6 +249,7 @@ export class Dispatcher {
       onClosed: () => {
         if (kind !== 'native' || !current()) return
         this.native = null
+        this.helperExportLost()
         this.linkLost()
         this.state.mode = 'web'
         if (this.state.notice !== 'helper.replaced') this.state.notice = 'helper.lost'
@@ -407,11 +432,99 @@ export class Dispatcher {
     folderChanged: (handle) => {
       this.folder = handle
       this.web?.setFolder?.(handle)
+      // In Boost, the helper reads the audio files of the project's new place (AU-7).
+      void this.tellHelperPlace()
     },
   }
 
   /** The project's folder, given to each Web engine for its disk side (AU-3). */
   private folder: FileSystemDirectoryHandle | null = null
+
+  /** The link marker this page wrote for the helper (AU-7), and the folder it is in: one per folder attached. */
+  private helperLink: { folder: FileSystemDirectoryHandle; nonce: string; name: string } | null = null
+  /** The marker write under way, and its folder: a second caller for that folder waits for it instead of writing another. */
+  private linkWrite: { folder: FileSystemDirectoryHandle; done: Promise<HelperLinkWrite> } | null = null
+
+  /**
+   * The project's place as the helper is told it (AU-7, #116): its id and the link marker the page wrote
+   * in its real folder (written once per folder attached, one write at a time), so that the helper, which
+   * never gets a path, opens that folder and not a copy. `no_folder` for a project without a real folder
+   * (kept in the browser); `failed` when the folder refused the marker (its permission not granted yet).
+   */
+  private async helperPlace(): Promise<HelperPlace | 'no_folder' | 'failed'> {
+    const folder = this.folder
+    const project = this.project.view?.project.id
+    if (!folder || !project || !this.storage) return 'no_folder'
+    if (this.helperLink?.folder !== folder) {
+      if (this.linkWrite?.folder !== folder) {
+        const nonce = randomNonce()
+        const storage = this.storage
+        const done = storage.writeHelperLink(nonce).then((written) => {
+          if (written.status === 'written' && this.folder === folder) this.helperLink = { folder, nonce, name: written.name }
+          return written
+        })
+        const write = { folder, done }
+        this.linkWrite = write
+        void done.finally(() => {
+          if (this.linkWrite === write) this.linkWrite = null
+        })
+      }
+      const written = await this.linkWrite!.done
+      // Another place since, or a browser project: nothing to tell for this folder.
+      if (this.folder !== folder || written.status === 'no_folder') return 'no_folder'
+      if (written.status === 'failed' || this.helperLink?.folder !== folder) return 'failed'
+    }
+    return { project, nonce: this.helperLink!.nonce, name: this.helperLink!.name }
+  }
+
+  /** The Boost session ended: the helper's export it carried ends with it (#319). */
+  private helperExportLost() {
+    const listener = this.exportListener
+    this.exportListener = null
+    listener?.(null)
+  }
+
+  /**
+   * Tells the helper session where the project lives now (`folder.open` or `folder.close`, AU-7). A marker
+   * the folder refused closes the helper's folder too (it never keeps reading a folder the page left), is
+   * said in the Clips panel, and is tried again when the user allows the access.
+   */
+  private async tellHelperPlace() {
+    const native = this.native
+    if (!native) return
+    const place = await this.helperPlace()
+    if (this.native !== native) return
+    this.state.helperLinkFailed = place === 'failed'
+    native.place(typeof place === 'string' ? null : place)
+  }
+
+  /**
+   * `project.choose_helper_folder` (AU-7): the helper shows its folder dialog for the project's folder. It
+   * needs Boost, the user's click (an agent's call without one gets a notice) and a real folder whose
+   * marker the page could write.
+   */
+  private async chooseHelperFolder() {
+    const native = this.native
+    if (!native) {
+      this.state.notice = 'helper.folderNotBoost'
+      return
+    }
+    if (!browserCanAsk()) {
+      this.state.notice = 'helper.folderNeedsClick'
+      return
+    }
+    const place = await this.helperPlace()
+    if (this.native !== native) return
+    this.state.helperLinkFailed = place === 'failed'
+    if (typeof place === 'string') native.place(null)
+    if (place === 'no_folder') this.state.notice = 'helper.folderInBrowser'
+    else if (place === 'failed') this.state.notice = 'helper.folderNoMarker'
+    else {
+      // The place the dialog is for is the one the helper knows: told first when it was not (a retry after a refused marker).
+      native.place(place)
+      native.chooseFolder(place)
+    }
+  }
 
   /** Stages an imported audio file in the core (AU-1), for `clip.import_audio`; false while there is no core. */
   stageMedia(media: AudioMedia): boolean {
@@ -457,6 +570,24 @@ export class Dispatcher {
     folder: async () => (await this.storage?.folderHandle()) ?? null,
     mediaFolder: () => this.folder,
     analysisRunning: () => this.analyzer?.busy ?? false,
+    helperExport: () => {
+      // Boost, a helper that exports, and the project's folder open in it (AU-7): the helper writes the file (#319).
+      const native = this.native
+      const folder = this.state.helperFolder
+      const project = this.project.view?.project.id ?? null
+      if (!native || !native.capabilities?.export || !folder || folder.state.status !== 'open' || folder.project !== project) return null
+      return {
+        start: (start) => native.exportStart(start),
+        cancel: (id) => native.exportCancel(id),
+        listen: (listener) => {
+          this.exportListener = listener
+          return () => {
+            if (this.exportListener === listener) this.exportListener = null
+          }
+        },
+      }
+    },
+    projectId: () => this.project.view?.project.id ?? '',
     mediaNames: (hashes) => {
       const names = new Map<string, string>()
       for (const track of Object.values(this.project.view?.project.tracks ?? {}))
@@ -661,6 +792,8 @@ export class Dispatcher {
     if (isSetTheme(command)) return this.setTheme(command.theme)
     // Needs no project either: the imports are the storage's, which says what it stopped (#735).
     if (isCancelImportPack(command)) return this.cancelImportPack()
+    // An audio file from a link (#664): its own path, where the user's answer comes before any byte is fetched.
+    if (isImportAudioUrl(command)) return this.importAudioUrl(command, author, deadline, signal)
     // The queries that measure levels: the page stages its numbers in the core, then the command answers (#665).
     if (isMixerLevels(command) && this.core) this.stageLevels(this.core)
     const range = analyzeRange(command)
@@ -718,6 +851,79 @@ export class Dispatcher {
     }
   }
 
+  /**
+   * `clip.import_audio_url` for an agent (#664). The core checks the track and the link's shape first, so that a wrong
+   * call is refused before the user is asked; then the page checks the link with the browser's parser and its own host
+   * (`url.refused`); then the user is asked, with the link's host and the file's name, until the call's `deadline`.
+   * Nothing is sent to the host before "Allow". Only then is the file downloaded and imported as a picked file, its clip
+   * made by `clip.import_audio` as `author`. The download and the import exist only here, after the answer: a `run` of
+   * the command (`applyEffects` has no case for it) only gets the core's check. Every way it ends without a clip is a
+   * typed refusal, nothing changed; `signal` (the call's link closed) stops it.
+   */
+  private async importAudioUrl(command: ImportAudioUrl, author: string, deadline: number, signal?: AbortSignal): Promise<AgentResult> {
+    const audioImport = this.audioImport
+    if (!this.core || !audioImport) return { status: 'unavailable', reason: 'the page has no project yet: start audio in the page first' }
+    const checked = this.execute(command, { quiet: true, author })
+    if (checked.status === 'started') return { status: 'unavailable', reason: 'the page answers this command later' }
+    if (checked.status !== 'applied') return checked
+    const link = audioImport.checkLink(command.url)
+    if (link.status !== 'ok') {
+      return {
+        status: 'refused',
+        error: {
+          code: 'url.refused',
+          message: 'the page does not fetch this link (https only; plain http only to this computer, from a page served by it): nothing changed',
+        },
+      }
+    }
+    // A second call for a link under way (an agent retrying after `page.timeout`) would import the file twice.
+    if (audioImport.importing(link.url)) {
+      return { status: 'refused', error: { code: 'import.busy', message: 'this link is already being imported: wait for its answer, then check track.get' } }
+    }
+    // The same call again, soon after it imported (its answer was lost to `page.timeout`): the clip it made, while it is
+    // there; nothing is asked, downloaded or changed.
+    const replay = this.linkReplay(link.url.href, command.track)
+    if (replay) return replay
+    const project = this.project.view?.project
+    const entry = project ? sortedTracks(project).find((e) => e.id === command.track) : undefined
+    const track = { name: entry?.track.name ?? '', index: entry?.index ?? 0 }
+    const name = audioNameOf(link.url)
+    const answer = await this.confirmations.ask(author, { kind: 'importAudio', host: link.host, name, track }, deadline, signal)
+    if (answer !== 'confirmed') return notConfirmed(answer)
+    // Two calls for the link asked at once: the first one allowed may have imported it meanwhile.
+    const late = this.linkReplay(link.url.href, command.track)
+    if (late) return late
+    let clip: string | null = null
+    const place: ImportPlacer = (media) => {
+      const made = this.execute(importCommand(command.track, media.hash), { quiet: true, author })
+      if (made.status !== 'applied') return false
+      clip = (made.output as { clip: string }).clip
+      return true
+    }
+    // The project the user allowed it for: another one opened meanwhile gets nothing of it.
+    const allowedFor = project?.id
+    const stillWanted = () => this.project.view?.project.id === allowedFor
+    const outcome = await audioImport.importUrl(command.track, link.url, link.host, name, place, signal, stillWanted)
+    if (signal?.aborted && outcome.status !== 'ok') return { status: 'unavailable', reason: 'the call ended before the file was imported: nothing changed' }
+    if (outcome.status !== 'ok') return { status: 'refused', error: { code: outcome.code, message: outcome.message } }
+    if (clip !== null && allowedFor) {
+      const now = this.confirmations.clock.now()
+      // Only the recent ones are kept: the map never grows past the links of the last 10 minutes.
+      for (const [href, kept] of this.linkImports) if (now - kept.at >= LINK_IMPORT_KEPT_MS) this.linkImports.delete(href)
+      this.linkImports.set(link.url.href, { project: allowedFor, track: command.track, clip, media: outcome.hash, at: now })
+    }
+    return { status: 'applied', output: importAudioUrlOutput(clip, outcome.hash) }
+  }
+
+  /** The answer of a link's import already done (#664): the same link and track, the same project, recent, its clip still there. */
+  private linkReplay(href: string, track: string): AgentResult | null {
+    const project = this.project.view?.project
+    const done = this.linkImports.get(href)
+    if (!done || !project || done.project !== project.id || done.track !== track) return null
+    if (this.confirmations.clock.now() - done.at >= LINK_IMPORT_KEPT_MS || !project.tracks[track]?.clips[done.clip]) return null
+    return { status: 'applied', output: importAudioUrlOutput(done.clip, done.media) }
+  }
+
   /** Stages what the meters held since the last `mixer.levels` for the core to answer with. */
   private stageLevels(core: ProjectCore) {
     const slots = this.project.view?.slots
@@ -765,6 +971,9 @@ export class Dispatcher {
 
   /** The page's questions before an agent's destructive call runs (AG-4), shown by `views/confirm/`. */
   readonly confirmations = new AgentConfirmations()
+
+  /** The files imported from links lately (#664), by link: a retry of the same call answers the clip already made. */
+  private linkImports = new Map<string, { project: string; track: string; clip: string; media: string; at: number }>()
 
   /** Where `view.set_theme` goes: the page's theme (`createStores` sets it); `null` in a bare dispatcher. */
   theme: { set(choice: ThemeChoice): void } | null = null
@@ -896,7 +1105,9 @@ export class Dispatcher {
       deleteBrowserProject: (dir) => track(this.storage?.deleteBrowserProject(dir, allowed)),
       keepMine: () => track(this.storage?.keepMine(allowed)),
       loadFolderVersion: () => track(this.storage?.loadDisk(allowed)),
-      allowAccess: () => void this.storage?.resume(),
+      // Once the folder can be written again, the helper's marker too (AU-7).
+      allowAccess: () => void this.storage?.resume().then(() => this.tellHelperPlace()),
+      chooseHelperFolder: () => void this.chooseHelperFolder(),
       exportAudio: (request) => this.audioExport?.request(request),
       chooseAudio: (track) => this.audioImport?.choose(track),
       cancelAudioImport: () => this.audioImport?.cancel(),
@@ -1394,6 +1605,10 @@ export class Dispatcher {
       // it before its snapshot (BO-1). A snapshot that does not encode leaves it nothing to play.
       this.nativeResyncs = []
       if (!this.syncNative(session, session.epoch)) throw new Error('the project snapshot for the helper did not encode')
+      // The helper's engine reads the project's audio files from its folder (AU-7).
+      this.state.helperFolder = null
+      this.state.helperLinkFailed = false
+      void this.tellHelperPlace()
       // The helper's first MIDI list may arrive before this engine became current.
       requestMidiInputs((command) => this.run(command))
       await this.midi?.releaseAll()
@@ -1450,10 +1665,13 @@ export class Dispatcher {
     const native = this.native
     const web = this.web
     this.native = null
+    this.helperExportLost()
     this.linkLost()
     this.boostSince = null
     this.state.mode = 'web'
     this.state.helperUpdate = null
+    this.state.helperFolder = null
+    this.state.helperLinkFailed = false
     this.state.activeNotes = []
     // The project moved on while the helper played: the Web engine catches up by snapshot.
     const ready = web ? this.syncWeb(web) : false

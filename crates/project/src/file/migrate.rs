@@ -35,7 +35,18 @@ pub const MIGRATIONS: &[Migration] = &[
         from: 4,
         apply: v4_to_v5,
     },
+    Migration {
+        from: 5,
+        apply: v5_to_v6,
+    },
 ];
+
+/// Format 6 (#219): a track's chain may hold MIDI effects (role `midi_effect`). Nothing in the
+/// files changes (a project of format 5 has none); the number does, so that a build of format 5
+/// reports the folder as made by a newer build.
+fn v5_to_v6(mem: &mut MemFs) -> Result<(), String> {
+    set_format(mem, 6)
+}
 
 /// Format 5 (#695): the project may hold a key and scale (`scale`). Nothing in the files
 /// changes (a project of format 4 has no scale); the number does, so that a build of format 4

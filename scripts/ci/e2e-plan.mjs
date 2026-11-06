@@ -163,10 +163,11 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/clips\.ts$/, areas('clips', 'audio')],
   [/^web\/src\/lib\/i18n\/audio\.ts$/, areas('arrangement', 'grid', 'clips', 'audio')],
   [/^web\/src\/lib\/i18n\/confirm\.ts$/, areas('helper', 'history')], // shown by the agents' question (lib/agents/, views/confirm/)
-  [/^web\/src\/lib\/i18n\/(devices|presets|synth|drums|echo|reverb|filter|compressor)\.ts$/, areas('devices')],
+  [/^web\/src\/lib\/i18n\/(devices|presets|synth|drums|echo|reverb|filter|compressor|stack|trim|lattice|scatter)\.ts$/, areas('devices')],
   [/^web\/src\/lib\/i18n\/controls\.ts$/, areas('mixer', 'tracks', 'devices', 'valueEntry', 'arrangement', 'pianoRoll')],
   [/^web\/src\/lib\/i18n\/engine\.ts$/, areas('arrangement', 'mixer', 'topBar')],
-  [/^web\/src\/lib\/i18n\/export\.ts$/, areas('export', 'storage')],
+  // The export's texts in Boost are shown through the helper (#319), whose message types share the keys' names.
+  [/^web\/src\/lib\/i18n\/export\.ts$/, areas('export', 'storage', 'helper')],
   [/^web\/src\/lib\/i18n\/gesture\.ts$/, areas('arrangement', 'pianoRoll')],
   [/^web\/src\/lib\/i18n\/grid\.ts$/, areas('grid', 'transport', 'topBar')],
   [/^web\/src\/lib\/i18n\/helper\.ts$/, areas('helper', 'topBar')],
@@ -180,7 +181,8 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/refusal\.ts$/, areas('refusal')],
   [/^web\/src\/lib\/i18n\/shell\.ts$/, areas('landing', 'storage', 'topBar')],
   [/^web\/src\/lib\/i18n\/shortcuts\.ts$/, areas('arrangement', 'shortcuts', 'shortcutsDialog', 'topBar')],
-  [/^web\/src\/lib\/i18n\/tracks\.ts$/, areas('arrangement', 'grid', 'mixer', 'tracks')],
+  // The default track name also names a track in an agent's question (#664, lib/agents/confirm-text.ts).
+  [/^web\/src\/lib\/i18n\/tracks\.ts$/, areas('arrangement', 'grid', 'mixer', 'tracks', 'helper', 'history')],
   [/^web\/src\/lib\/i18n\/transport\.ts$/, areas('transport', 'topBar')],
   [/^web\/src\/lib\/i18n\/scale\.ts$/, areas('transport', 'topBar')], // the key and scale picker of the transport bar (#695)
   // Libraries with one clear audience.

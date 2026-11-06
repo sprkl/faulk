@@ -1,7 +1,7 @@
 use project::{DeviceId, TrackId};
 use protocol::{
-    AgentResult, Capabilities, ClientMessage, HelperUpdate, MidiInput, PROTOCOL_VERSION,
-    ServerMessage, schema_bundle, single_synth,
+    AgentResult, Capabilities, ClientMessage, FolderRefusal, FolderStatus, HelperUpdate, MidiInput,
+    PROTOCOL_VERSION, ServerMessage, schema_bundle, single_synth,
 };
 
 #[test]
@@ -12,6 +12,29 @@ fn messages_round_trip_through_json() {
         },
         ClientMessage::MidiListInputs,
         ClientMessage::ControlFront,
+        ClientMessage::FolderOpen {
+            project: "01J0000000000000000000000A".into(),
+            nonce: "0123456789abcdef0123456789abcdef".into(),
+            name: "Song".into(),
+        },
+        ClientMessage::FolderChoose {
+            project: "01J0000000000000000000000A".into(),
+            nonce: "0123456789abcdef0123456789abcdef".into(),
+            name: "Song".into(),
+        },
+        ClientMessage::FolderClose,
+        ClientMessage::ExportStart {
+            id: 7,
+            project: "01J0000000000000000000000A".into(),
+            name: "Song".into(),
+            sample_rate: 48_000,
+            bits: 24,
+            body_frames: 96_000,
+            setup: "AAEC".into(),
+            start: "".into(),
+            stop: "AA==".into(),
+        },
+        ClientMessage::ExportCancel { id: 7 },
         ClientMessage::MidiSelectInput { id: None },
         ClientMessage::MidiSelectInput {
             id: Some("a".into()),
@@ -88,6 +111,26 @@ fn messages_round_trip_through_json() {
             audio_output: false,
         },
         ServerMessage::Paired { token: "t".into() },
+        ServerMessage::FolderState {
+            project: Some("01J0000000000000000000000A".into()),
+            state: FolderStatus::Open {
+                name: "Song".into(),
+            },
+        },
+        ServerMessage::FolderState {
+            project: None,
+            state: FolderStatus::Closed,
+        },
+        ServerMessage::FolderState {
+            project: Some("01J0000000000000000000000A".into()),
+            state: FolderStatus::Ambiguous { count: 2 },
+        },
+        ServerMessage::FolderState {
+            project: Some("01J0000000000000000000000A".into()),
+            state: FolderStatus::Refused {
+                reason: FolderRefusal::NotThisFolder,
+            },
+        },
         ServerMessage::AgentCall {
             id: 9,
             agent: "claude-code".into(),
@@ -109,6 +152,7 @@ fn messages_round_trip_through_json() {
             capabilities: Capabilities {
                 midi: true,
                 disk: false,
+                export: true,
             },
         },
         ServerMessage::StreamRefused {
@@ -133,6 +177,29 @@ fn messages_round_trip_through_json() {
         },
         ServerMessage::Error {
             code: "midi.connect".into(),
+            message: "x".into(),
+        },
+        ServerMessage::ExportProgress {
+            id: 7,
+            rendered: 10,
+            body: 96_000,
+            tail: false,
+        },
+        ServerMessage::ExportDone {
+            id: 7,
+            path: "exports/Song (2).wav".into(),
+            bytes: 576_044,
+            written: 96_000,
+            peak: 0.5,
+            clipped: 0,
+            reduction: 0.0,
+            silenced: 0,
+            tail_cut: false,
+            missing: vec!["00".repeat(32)],
+        },
+        ServerMessage::ExportFailed {
+            id: 7,
+            code: protocol::errors::EXPORT_CANCELLED.into(),
             message: "x".into(),
         },
     ];
@@ -178,13 +245,13 @@ fn every_server_message_is_in_the_round_trip_test() {
     let variants = bundle["server_message"]["oneOf"].as_array().unwrap();
     assert_eq!(
         variants.len(),
-        12,
+        16,
         "add the new message to messages_round_trip_through_json"
     );
     let clients = bundle["client_message"]["oneOf"].as_array().unwrap();
     assert_eq!(
         clients.len(),
-        6,
+        11,
         "add the new message to messages_round_trip_through_json"
     );
 }
@@ -223,6 +290,38 @@ fn bundle_lists_the_destructive_commands_the_page_confirms() {
     assert!(expected.contains(&"project.new".to_owned()));
     assert_eq!(bundle["destructive_commands"], serde_json::json!(expected));
     assert_eq!(bundle["agent_confirm_ms"], protocol::AGENT_CONFIRM_MS);
+}
+
+#[test]
+fn the_audio_link_import_tells_agents_the_page_s_own_numbers() {
+    // The description of `clip.import_audio_url` is prose: its figures are the constants the page
+    // uses (the bundle's), so that an agent is never told a wait or a cap the page does not keep.
+    let bundle = schema_bundle();
+    assert_eq!(
+        bundle["max_audio_url_bytes"],
+        commands::clip::MAX_AUDIO_URL_BYTES
+    );
+    let spec = commands::catalog()
+        .into_iter()
+        .find(|spec| spec.name == "clip.import_audio_url")
+        .expect("the command is in the catalog");
+    let seconds = protocol::AGENT_CONFIRM_MS / 1000;
+    let mib = commands::clip::MAX_AUDIO_URL_BYTES >> 20;
+    assert_eq!(mib << 20, commands::clip::MAX_AUDIO_URL_BYTES);
+    // The decoded cap an agent is told (#780) is the pipeline's.
+    let gib = project::limits::MAX_DECODED_BYTES >> 30;
+    assert_eq!(gib << 30, project::limits::MAX_DECODED_BYTES);
+    for figure in [
+        format!("{seconds} s"),
+        format!("{mib} MiB"),
+        format!("{gib} GiB"),
+    ] {
+        assert!(
+            spec.description.contains(&figure),
+            "the description says {figure}: {}",
+            spec.description
+        );
+    }
 }
 
 #[test]

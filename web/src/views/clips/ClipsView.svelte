@@ -11,13 +11,16 @@
   import { barStart } from '../../lib/arrangement-commands'
   import { CLIP_DRAG_TYPE, clipTrackType, freeScene, gridCommand, placeCommand, poolNames, poolOf, type PoolClip } from '../../lib/clip-pool'
   import { cancelAudioImport, chooseAudio, deleteClip } from '../../lib/clip-commands'
-  import type { ImportFailure } from '../../lib/audio/import/audio-import.svelte'
+  import { boostFolderNotice, chooseHelperFolder } from '../../lib/audio/boost-folder'
+  import type { DownloadProgress, ImportFailure } from '../../lib/audio/import/audio-import.svelte'
+  import { MAX_DECODED_BYTES } from '../../lib/audio/import/abi'
+  import { MAX_AUDIO_URL_MB } from '../../lib/agents/confirm-text'
   import type { MessageKey } from '../../lib/i18n'
   import { useStores } from '../../lib/stores'
   import { barTicks } from '../transport/time'
   import { trackColor } from '../../lib/project/tracks'
 
-  const { project, dispatcher, ui, engine, audioImport, peaks } = useStores()
+  const { project, dispatcher, ui, engine, audioImport, peaks, storage } = useStores()
   const t = ui.t
 
   /** What a failed import says: by why the file was refused, or that the folder refused it. */
@@ -30,10 +33,13 @@
       bad_sample_rate: 'clips.importFailed.badSampleRate',
       bad_channels: 'clips.importFailed.badChannels',
       too_long: 'clips.importFailed.tooLong',
+      too_large: 'clips.importFailed.tooLarge',
       unavailable: 'clips.importFailed.unavailable',
       io: 'clips.importFailed.unreadable',
+      download_unreachable: 'clips.importFailed.downloadUnreachable',
+      download_too_big: 'clips.importFailed.downloadTooBig',
     }
-    return t(known[failure.code] ?? 'clips.importFailed.store', { name: failure.name })
+    return t(known[failure.code] ?? 'clips.importFailed.store', { name: failure.name, max: MAX_AUDIO_URL_MB, gb: MAX_DECODED_BYTES / 2 ** 30 })
   }
 
   const trackId = $derived(project.view?.session.selected_track ?? null)
@@ -45,6 +51,19 @@
   /** The import under way into this track, and the last failure of one (AU-1). */
   const importing = $derived(audioImport.running && audioImport.running.track === trackId ? audioImport.running : null)
   const failed = $derived(audioImport.failure && audioImport.failure.track === trackId ? audioImport.failure : null)
+  /** In Boost, what the helper needs to play the audio clips from the project's folder (AU-7). */
+  const boostNotice = $derived(engine.mode === 'native' ? boostFolderNotice(storage.inBrowser, engine.helperFolder, engine.helperLinkFailed) : null)
+  /** A file an agent's link brings into this track (#664), while it downloads. */
+  const download = $derived(audioImport.downloads.find((d) => d.track === trackId) ?? null)
+
+  /** How far a download is, in percent; `null` when the host announced no length. */
+  const percentOf = (d: DownloadProgress): number | null => (d.total && d.total > 0 ? Math.min(100, Math.round((d.received / d.total) * 100)) : null)
+
+  function downloadText(d: DownloadProgress): string {
+    const percent = percentOf(d)
+    if (percent !== null) return t('clips.downloading', { name: d.name, host: d.host, percent })
+    return t('clips.downloadingSize', { name: d.name, host: d.host, size: (d.received / (1 << 20)).toFixed(1) })
+  }
 
   function where(entry: PoolClip): string {
     const parts: string[] = []
@@ -132,7 +151,15 @@
         data-testid="audio-import-button"
         onclick={() => dispatcher.run(chooseAudio(trackId))}>{t('clips.importAudio')}</button
       >
-      {#if importing}
+      {#if download && !importing}
+        <span class="progress" role="status" data-testid="audio-download-progress">
+          <span class="bar" aria-hidden="true"><span style:width="{percentOf(download) ?? 0}%"></span></span>
+          {downloadText(download)}
+        </span>
+        <button class="ghost" type="button" data-testid="audio-import-cancel" onclick={() => dispatcher.run(cancelAudioImport())}
+          >{t('clips.importCancel')}</button
+        >
+      {:else if importing}
         <span class="progress" role="status" data-testid="audio-import-progress" data-fraction={importing.fraction}>
           <span class="bar" aria-hidden="true"><span style:width="{Math.round(importing.fraction * 100)}%"></span></span>
           {importing.count > 1
@@ -148,9 +175,18 @@
       {:else if audioImport.needsClick}
         <span class="failure" role="status" data-testid="audio-import-needs-click">{t('clips.importNeedsClick')}</span>
         <button class="ghost" type="button" onclick={() => audioImport.dismiss()}>{t('clips.dismiss')}</button>
-      {:else if engine.mode === 'native'}
-        <!-- The helper reads no project folder yet (AU-7): its engine keeps audio clips silent. -->
-        <span class="note" role="status" data-testid="audio-boost-silent">{t('clips.boostSilent')}</span>
+      {:else if boostNotice}
+        <!-- In Boost the helper plays audio clips from the project's folder (AU-7): what it needs from the user. -->
+        <span class="note" role="status" data-testid="audio-boost-folder" data-key={boostNotice.key}>{t(boostNotice.key, boostNotice.vars)}</span>
+        {#if boostNotice.ask}
+          <button
+            class="ghost"
+            type="button"
+            title={t('clips.boostShowFolderHint')}
+            data-testid="audio-boost-show-folder"
+            onclick={() => dispatcher.run(chooseHelperFolder)}>{t('clips.boostShowFolderButton')}</button
+          >
+        {/if}
       {/if}
     </div>
   {/if}

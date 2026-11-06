@@ -16,6 +16,52 @@ use commands::{Author, Command, Context, State, automation, device, track};
 /// The test effect of the engine, as the commands name it.
 pub const EFFECT: &str = "faulk.test_gain";
 
+/// The test MIDI effect of the engine, as the commands name it (#219).
+pub const MIDI_EFFECT: &str = "faulk.test_transpose";
+
+/// Inserts a MIDI effect in a track's chain through the command, with the ids of
+/// [`own_context`].
+pub fn insert_midi(state: &mut State, ctx: &mut Context, track: &TrackId, index: u32) -> DeviceId {
+    let out = commands::run(
+        &d(device::Command::Insert {
+            track: Some(track.clone()),
+            master: false,
+            kind: MIDI_EFFECT.into(),
+            index,
+        }),
+        state,
+        ctx,
+    )
+    .unwrap();
+    let commands::Output::Device(device::Output::Insert { device }) = out.output else {
+        panic!("{:?}", out.output)
+    };
+    device
+}
+
+/// [`chain`] with two MIDI effects before the synth: `m1` then `m2` (#219).
+pub struct MidiChain {
+    pub chain: Chain,
+    pub m1: DeviceId,
+    pub m2: DeviceId,
+}
+
+pub fn midi_chain() -> MidiChain {
+    let mut chain = chain();
+    let mut ctx = Context::new(
+        Author::User,
+        IdGenerator::new(1_672_000_000_000, 0x00EE_0000_0000_0000_0000),
+    );
+    let m1 = insert_midi(&mut chain.state, &mut ctx, &chain.track, 0);
+    let m2 = insert_midi(&mut chain.state, &mut ctx, &chain.track, 1);
+    chain
+        .state
+        .project
+        .validate()
+        .expect("the MIDI effect fixture is valid");
+    MidiChain { chain, m1, m2 }
+}
+
 pub fn d(command: device::Command) -> Command {
     Command::Device(command)
 }
@@ -168,7 +214,56 @@ pub fn examples() -> Vec<(Command, State)> {
             device: c.ma.clone(),
         }),
     );
-    vec![
+    // MIDI effects (#219): insert first and last, remove and its inverse, move and its
+    // inverse, bypass, set a parameter.
+    let m = midi_chain();
+    let on_midi = |command: Command| (command, m.chain.state.clone());
+    let midi_removed = after(
+        m.chain.state.clone(),
+        &d(device::Command::Remove {
+            device: m.m1.clone(),
+        }),
+    );
+    let midi_moved = after(
+        m.chain.state.clone(),
+        &d(device::Command::Move {
+            device: m.m2.clone(),
+            index: 0,
+        }),
+    );
+    let mut all = vec![
+        on_midi(d(device::Command::Insert {
+            track: Some(m.chain.track.clone()),
+            master: false,
+            kind: MIDI_EFFECT.into(),
+            index: 0,
+        })),
+        on_midi(d(device::Command::Insert {
+            track: Some(m.chain.track.clone()),
+            master: false,
+            kind: MIDI_EFFECT.into(),
+            index: u32::MAX,
+        })),
+        on_midi(d(device::Command::Remove {
+            device: m.m1.clone(),
+        })),
+        (midi_removed.1, midi_removed.0),
+        on_midi(d(device::Command::Move {
+            device: m.m2.clone(),
+            index: 0,
+        })),
+        (midi_moved.1, midi_moved.0),
+        on_midi(d(device::Command::SetBypass {
+            device: m.m1.clone(),
+            bypass: true,
+        })),
+        on_midi(d(device::Command::SetParam {
+            device: m.m1.clone(),
+            param: "semitones".into(),
+            value: 7.0,
+        })),
+    ];
+    all.extend(vec![
         // The master's chain: insert first and last, remove, the inverse of a remove
         // (a restore into the master), move, bypass, set a parameter.
         (
@@ -298,7 +393,8 @@ pub fn examples() -> Vec<(Command, State)> {
             laned.clone(),
         ),
         (swapped.1, swapped.0),
-    ]
+    ]);
+    all
 }
 
 /// A state where one lane, with two points, targets the track's instrument.

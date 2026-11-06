@@ -100,7 +100,27 @@ test('automation: three points drawn by clicks, played into the device panel, ed
   await expect(page.getByTestId('arr-add-lane').first().locator('option', { hasText: 'Gain' })).toHaveCount(0)
   if (process.env.FAULK_E2E_SHOTS) await page.screenshot({ path: `${process.env.FAULK_E2E_SHOTS}/lane-empty.png` })
 
-  // Three clicks draw three points: a click on an empty part is one `automation.points.add`.
+  // With the Select tool (the default) a click in the lane gives the timeline the keyboard and adds no point (#769).
+  await stage(page).getByTestId('timegrid').focus()
+  await expect(page.getByTestId('arr-tool-select')).toHaveAttribute('aria-checked', 'true')
+  const empty = await spot(page, 0)
+  await page.mouse.click(empty.x(BAR / 4), empty.y(0.5))
+  await expect(page.getByTestId('arr-lane').first()).toHaveAttribute('data-points', '0')
+  expect(pointsOf((await lanes(page))[0]![1])).toHaveLength(0)
+  // A double click on an empty part opens the field of a new point there: Escape leaves the lane empty, Enter adds it (one entry).
+  await page.mouse.dblclick(empty.x(BAR / 4), empty.y(0.5))
+  await expect(page.getByTestId('value-input')).toBeFocused()
+  await page.keyboard.press('Escape')
+  expect(pointsOf((await lanes(page))[0]![1])).toHaveLength(0)
+  await page.mouse.dblclick(empty.x(BAR / 4), empty.y(0.5))
+  await page.keyboard.press('Enter')
+  expect(pointsOf((await lanes(page))[0]![1]).map((p) => p.tick)).toEqual([BAR / 4])
+  await expect(page.getByTestId('arr-said')).toContainText('Point added:')
+  await page.keyboard.press('Control+z')
+  expect(pointsOf((await lanes(page))[0]![1])).toHaveLength(0)
+
+  // Three clicks of the Draw tool draw three points: a click on an empty part is one `automation.points.add`, and it is said.
+  await page.getByTestId('arr-tool-draw').click()
   await stage(page).getByTestId('timegrid').focus()
   for (const [tick, value] of [
     [0, 0.9],
@@ -113,6 +133,9 @@ test('automation: three points drawn by clicks, played into the device panel, ed
   }
   const [laneId, lane] = (await lanes(page))[0]!
   expect(pointsOf(lane).map((p) => p.tick)).toEqual([0, BAR / 2, BAR])
+  await expect(page.getByTestId('arr-said')).toContainText('Point added:')
+  await expect(page.getByTestId('arr-said')).toContainText('at bar 2')
+  await expect(page.getByTestId('arr-lane-count').first()).toHaveText('Points: 3')
   pointsOf(lane).forEach((p, i) => expect(p.value).toBeCloseTo([0.9, 0.2, 0.9][i]!, 1))
   expect(pointsOf(lane).every((p) => p.shape === 'linear')).toBe(true)
   if (process.env.FAULK_E2E_SHOTS) await page.screenshot({ path: `${process.env.FAULK_E2E_SHOTS}/lane-three-points.png` })
@@ -383,6 +406,141 @@ test('automation: a limited or unreadable typed value says so in French (#421)',
   expect(seen.errors).toEqual([])
 })
 
+// #769: the lanes at the keyboard. Everything below the lane's creation is keys only: Shift+Tab to the lane's head, Ctrl+G
+// for the playhead, I for a point at the playhead with a typed value, R for a ramp (one command, one undo), the points as
+// cells of the timeline's grid (arrows, Enter, Alt+arrows, Delete, Escape), in English and in French. The parameter the lane
+// drives follows what was written: the track's volume readout at each position, as the engine applies it at a seek (#388).
+const KEYS_TEXT = {
+  en: {
+    added: 'Point added: −6.0 dB at bar 2',
+    ramp: 'Ramp: −6.0 dB at bar 2 to −24.0 dB at bar 4',
+    none: 'No point in this lane yet',
+    addButton: /Add a point at the playhead/,
+  },
+  fr: {
+    added: 'Point posé : −6.0 dB à la mesure 2',
+    ramp: 'Rampe : −6.0 dB à la mesure 2 jusqu’à −24.0 dB à la mesure 4',
+    none: 'Aucun point dans ce couloir',
+    addButton: /Ajouter un point à la tête de lecture/,
+  },
+} as const
+for (const lang of ['en', 'fr'] as const) {
+  test(`automation at the keyboard (#769): a point at the playhead, a ramp, the points as cells (${lang})`, async ({ page }) => {
+    test.setTimeout(120_000)
+    const seen = watch(page)
+    const refused: string[] = []
+    page.on('console', (message) => {
+      if (message.type() === 'warning' && /refused/.test(message.text())) refused.push(message.text())
+    })
+    const text = KEYS_TEXT[lang]
+    await open(page, 1600, false, lang)
+    test.skip((await hooks(page)) !== 'function', 'the dispatcher hook exists in the dev server only')
+    await page.getByTestId('arr-snap').selectOption('beat')
+    await addLane(page, 'Volume')
+    const lanePoints = async () => pointsOf((await lanes(page))[0]![1]).map((p) => [p.tick, p.value, p.shape])
+    const said = page.getByTestId('arr-said')
+    const head = page.getByTestId('arr-lane').first()
+    await expect(head.getByTestId('arr-lane-point')).toHaveAccessibleName(text.addButton)
+
+    // The keyboard reaches the lane's head from the menu that adds lanes; an empty lane says how to add a point.
+    await page.getByTestId('arr-add-lane').first().focus()
+    await page.keyboard.press('Shift+Tab')
+    await expect(head.getByTestId('arr-lane-delete')).toBeFocused()
+    await page.keyboard.press('ArrowRight')
+    await expect(said).toContainText(text.none)
+
+    // The playhead to bar 2 (Ctrl+G), back on the head, then I: the field opens on the lane's value there (the track's 0 dB).
+    await page.keyboard.press('Control+g')
+    await page.keyboard.type('2')
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('goto-dialog')).not.toBeVisible()
+    await expect(head.getByTestId('arr-lane-delete')).toBeFocused()
+    await page.keyboard.press('i')
+    await expect(page.getByTestId('value-input')).toBeFocused()
+    await expect(page.getByTestId('value-input')).toHaveValue('0.0 dB')
+    // Escape leaves the lane as it was: no point.
+    await page.keyboard.press('Escape')
+    expect(await lanePoints()).toEqual([])
+    await expect(head.getByTestId('arr-lane-delete')).toBeFocused()
+    await page.keyboard.press('i')
+    await page.keyboard.type('-6')
+    await page.keyboard.press('Enter')
+    expect(await lanePoints()).toEqual([[BAR, -6, 'linear']])
+    await expect(said).toHaveText(new RegExp(`^${text.added}`))
+    await expect(page.locator(`[data-testid=arr-point][data-tick="${BAR}"]`)).toBeFocused()
+    await expect(head).toHaveAttribute('data-points', '1')
+
+    // R: a ramp from the playhead (bar 2, -6 dB) to bar 4 at -24 dB, one `automation.points.restore`.
+    await page.keyboard.press('r')
+    await expect(page.getByTestId('ramp-dialog')).toBeVisible()
+    await expect(page.getByTestId('ramp-position')).toBeFocused()
+    await page.keyboard.type('2')
+    await page.keyboard.press('Enter')
+    // The playhead's own position is no ramp: said in the dialog, which stays open.
+    await expect(page.getByTestId('ramp-position-error')).toBeVisible()
+    await page.keyboard.press('Control+a')
+    await page.keyboard.type('4')
+    await page.keyboard.press('Tab')
+    await page.keyboard.press('Control+a')
+    await page.keyboard.type('-24')
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('ramp-dialog')).not.toBeVisible()
+    expect(await lanePoints()).toEqual([
+      [BAR, -6, 'linear'],
+      [3 * BAR, -24, 'linear'],
+    ])
+    await expect(said).toHaveText(new RegExp(`^${text.ramp}`))
+    await expect(page.locator(`[data-testid=arr-point][data-tick="${3 * BAR}"]`)).toBeFocused()
+    // One history entry: one undo takes the whole ramp back, one redo writes it again.
+    await page.keyboard.press('Control+z')
+    expect(await lanePoints()).toEqual([[BAR, -6, 'linear']])
+    await page.keyboard.press('Control+Shift+z')
+    expect(await lanePoints()).toEqual([
+      [BAR, -6, 'linear'],
+      [3 * BAR, -24, 'linear'],
+    ])
+
+    // The parameter moves as written: the track's volume at bar 2, half way, and bar 4 (the engine applies the lane at a seek).
+    const listGain = page.getByTestId('track-inspector').getByTestId('track-gain-readout')
+    const db = async () => Number(((await listGain.textContent()) ?? '').replace('−', '-'))
+    await run(page, { type: 'transport.seek', tick: BAR })
+    await expect(listGain).toHaveText('−6.0')
+    await run(page, { type: 'transport.seek', tick: 2 * BAR })
+    await expect.poll(db).toBeLessThan(-6)
+    expect(await db()).toBeGreaterThan(-24)
+    await run(page, { type: 'transport.seek', tick: 3 * BAR })
+    await expect(listGain).toHaveText('−24.0')
+
+    // The points as cells: Left goes to the first point; Enter types its value; Alt+Up raises it a step; Alt+Right moves it a beat.
+    await page.locator(`[data-testid=arr-point][data-tick="${3 * BAR}"]`).focus()
+    await page.keyboard.press('ArrowLeft')
+    const first = page.locator(`[data-testid=arr-point][data-tick="${BAR}"]`)
+    await expect(first).toBeFocused()
+    await expect(first).toHaveAttribute('aria-label', /−6\.0 dB/)
+    await expect(first).toHaveAttribute('aria-selected', 'true')
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('value-input')).toBeFocused()
+    await page.keyboard.type('-3')
+    await page.keyboard.press('Enter')
+    expect((await lanePoints())[0]).toEqual([BAR, -3, 'linear'])
+    await expect(first).toBeFocused()
+    await page.keyboard.press('Alt+ArrowUp')
+    expect((await lanePoints())[0]![1]).toBeGreaterThan(-3)
+    await page.keyboard.press('Alt+ArrowRight')
+    expect((await lanePoints()).map((p) => p[0])).toEqual([BAR + 960, 3 * BAR])
+    await expect(page.locator(`[data-testid=arr-point][data-tick="${BAR + 960}"]`)).toBeFocused()
+    // Delete removes it and the keyboard goes to the next point; Escape gives it back to the lane's head.
+    await page.keyboard.press('Delete')
+    expect((await lanePoints()).map((p) => p[0])).toEqual([3 * BAR])
+    await expect(page.locator(`[data-testid=arr-point][data-tick="${3 * BAR}"]`)).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(head.getByTestId('arr-lane-point')).toBeFocused()
+
+    expect(refused).toEqual([])
+    expect(seen.errors).toEqual([])
+  })
+}
+
 test('automation: changing the instrument takes its lanes with it, says so, and undo gives them back', async ({ page }) => {
   test.setTimeout(120_000)
   const seen = watch(page)
@@ -611,6 +769,8 @@ test('automation: master row in the timeline, a fade drawn, level confirmed', as
   // Draw the fade by pointer only: the master's level played at the end of this test is the fade drawn here,
   // not one added by a command. Click near the top at tick 0 (loud) and near the bottom at BAR (near silence,
   // the gain axis bottom is MIN_GAIN_DB = -96 dB).
+  // Points are drawn with the Draw tool: a click of the Select tool adds none (#769).
+  await page.getByTestId('arr-tool-draw').click()
   await stage(page).getByTestId('timegrid').focus()
   const masterLaneIndex = (await page.getByTestId('arr-lane').count()) - 1
   const topSpot = await spot(page, masterLaneIndex)

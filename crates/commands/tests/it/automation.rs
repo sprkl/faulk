@@ -1121,7 +1121,7 @@ fn a_cleared_or_deleted_device_lane_gives_its_parameter_back_to_the_stored_value
     let out = w.exec(&a(automation::Command::LaneClear {
         lane: f.effect_lane.clone(),
     }));
-    assert_eq!(param_sets(&out), vec![(1, 0.75)], "{:?}", out.control);
+    assert_eq!(param_sets(&out), vec![(17, 0.75)], "{:?}", out.control);
     // Undo brings the points back and the lane plays again: no ParamSet is needed.
     let out = w.exec(&undo());
     assert!(param_sets(&out).is_empty(), "{:?}", out.control);
@@ -1129,7 +1129,7 @@ fn a_cleared_or_deleted_device_lane_gives_its_parameter_back_to_the_stored_value
     let out = w.exec(&a(automation::Command::LaneDelete {
         lane: f.effect_lane.clone(),
     }));
-    assert_eq!(param_sets(&out), vec![(1, 0.75)], "{:?}", out.control);
+    assert_eq!(param_sets(&out), vec![(17, 0.75)], "{:?}", out.control);
     assert!(
         !w.s.ctx.engine.lane_targets.contains_key(&f.effect_lane),
         "the cached target is dropped with the lane"
@@ -1191,7 +1191,7 @@ fn a_parameter_the_project_does_not_hold_goes_back_to_its_default() {
         .find(|p| p.key == "gain")
         .map(|p| p.default as f32)
         .unwrap();
-    assert_eq!(param_sets(&out), vec![(1, default)], "{:?}", out.control);
+    assert_eq!(param_sets(&out), vec![(17, default)], "{:?}", out.control);
 }
 
 #[test]

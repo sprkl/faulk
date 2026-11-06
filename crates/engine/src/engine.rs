@@ -427,6 +427,8 @@ fn sanitize_points(points: &mut Vec<AutomationPoint>) {
 #[derive(Debug)]
 pub struct State {
     pub transport: TransportSettings,
+    /// The project's scale (`SetScale`, #690), copied into every block's transport.
+    pub scale: crate::device::PitchSet,
     pub metronome: Metronome,
     pub master: Master,
     /// The master's timed gain, pan and mute ([`crate::mixer`], MX-1): set off the audio
@@ -467,6 +469,7 @@ impl State {
     pub fn try_new() -> Result<Self, MsgError> {
         Ok(State {
             transport: TransportSettings::default(),
+            scale: crate::device::PitchSet::EMPTY,
             metronome: Metronome::default(),
             master: Master::default(),
             master_schedule: None,
@@ -1101,6 +1104,9 @@ impl Preparer {
                 count_in_bars,
             },
             ControlMsg::SetMaster { gain, pan, mute } => RtMsg::SetMaster { gain, pan, mute },
+            ControlMsg::SetScale { pitch_classes } => {
+                RtMsg::SetScale(crate::device::PitchSet::from_bits(pitch_classes))
+            }
             ControlMsg::TrackCreate { track, kind } => self.prepare_track(track, kind)?,
             ControlMsg::TrackRemove { track } => {
                 self.existing_track(track)?;
@@ -1537,7 +1543,8 @@ impl Preparer {
         let capacity = shadow.devices.len();
         // A MIDI effect receives at most what the track gives a sub-block, or what the
         // largest MIDI effect before it writes (MO-4: chained outputs never fill). One
-        // inserted later before it does not resize it: CT-5's safety net covers that.
+        // inserted before it moves it to the next slot (the project's slot band, #219), where it
+        // is built again and sized from the new one.
         let input_events = shadow
             .devices
             .iter()
@@ -1545,8 +1552,23 @@ impl Preparer {
             .flatten()
             .map(|d| d.midi_out)
             .fold(TRACK_INPUT_EVENTS, usize::max);
-        let (value, descriptor) =
-            self.build_device(&self.setup, track, kind, input_events, state_pairs(state))?;
+        // The chain shares one budget of MIDI output (#219): what the MIDI effects before it
+        // took is not this one's.
+        let used = shadow
+            .devices
+            .iter()
+            .take(device.0 as usize)
+            .flatten()
+            .map(|d| d.midi_out)
+            .sum();
+        let (value, descriptor) = self.build_device(
+            &self.setup,
+            track,
+            kind,
+            input_events,
+            midi_room(used),
+            state_pairs(state),
+        )?;
         let midi_out = value.events_out.as_ref().map_or(0, EventBuffer::capacity);
         // What a rebuild needs (#236): every declared id has room, so a later `ParamSet`
         // never allocates.
@@ -1593,14 +1615,15 @@ impl Preparer {
     }
 
     /// Builds a device of `kind` for `setup` with `params`, reset, its MIDI output sized
-    /// from `input_events`, enabled: the device of a `DeviceInsert`, or one built again at a
-    /// new sample rate (#236). Allocates fallibly, changes nothing.
+    /// from `input_events` and at most `room` events, enabled: the device of a `DeviceInsert`,
+    /// or one built again at a new sample rate (#236). Allocates fallibly, changes nothing.
     fn build_device(
         &self,
         setup: &DeviceSetup,
         track: TrackSlot,
         kind: DeviceKind,
         input_events: usize,
+        room: usize,
         params: impl Iterator<Item = (ParamId, f32)>,
     ) -> Result<(Box<DeviceEntry>, &'static DeviceDescriptor), MsgError> {
         let factory = (self.factories)(kind).ok_or(MsgError::UnknownDevice(kind))?;
@@ -1617,7 +1640,7 @@ impl Preparer {
         }
         let events_out = match (descriptor.role, descriptor.midi_output) {
             (DeviceRole::MidiEffect, Some(bounds)) => Some(EventBuffer::try_with_capacity(
-                bounds.capacity(input_events),
+                bounds.capacity(input_events).min(room),
             )?),
             _ => None,
         };
@@ -1704,6 +1727,7 @@ impl Preparer {
                 continue;
             };
             let mut input_events = TRACK_INPUT_EVENTS;
+            let mut used = 0;
             for (slot, kept) in chain.devices.iter().enumerate() {
                 let Some(kept) = kept else { continue };
                 let (mut value, _) = self.build_device(
@@ -1711,10 +1735,12 @@ impl Preparer {
                     track,
                     kept.kind,
                     input_events,
+                    midi_room(used),
                     kept.params.iter().copied(),
                 )?;
                 value.enabled = kept.enabled;
                 input_events = input_events.max(kept.midi_out);
+                used += kept.midi_out;
                 msgs.push(RtMsg::DevicePut {
                     track,
                     put: Put {
@@ -2605,6 +2631,10 @@ impl Engine {
                 };
                 None
             }
+            RtMsg::SetScale(scale) => {
+                state.scale = scale;
+                None
+            }
             RtMsg::SetMetronome {
                 enabled,
                 volume,
@@ -3166,6 +3196,24 @@ fn forget_lane(state: &mut State, graph: &mut Graph, track: TrackSlot, target: A
     }
 }
 
+/// The MIDI output a chain's effects share, in events (#219): each effect takes what its bounds
+/// ask ([`crate::device::MidiOutput::capacity`], at most [`crate::device::MAX_MIDI_OUTPUT_EVENTS`])
+/// within what the effects before it left, and never less than [`MIN_MIDI_OUTPUT_EVENTS`]. So a
+/// chain of effects that multiply their notes takes at most this budget plus that floor for each
+/// effect (`MAX_MIDI_EFFECTS_PER_TRACK` in the project), whatever their number; past it, the output
+/// buffer's safety net ends the notes.
+pub const CHAIN_MIDI_OUTPUT_EVENTS: usize = 2 * crate::device::MAX_MIDI_OUTPUT_EVENTS;
+
+/// The least output an effect of a chain gets, its budget spent or not.
+pub const MIN_MIDI_OUTPUT_EVENTS: usize = 4096;
+
+/// The room a MIDI effect's output gets when the effects before it in the chain took `used`.
+pub fn midi_room(used: usize) -> usize {
+    CHAIN_MIDI_OUTPUT_EVENTS
+        .saturating_sub(used)
+        .max(MIN_MIDI_OUTPUT_EVENTS)
+}
+
 /// Whether a chain entry receives notes (a MIDI effect or an instrument): changing one
 /// (insert, remove, enable, disable) switches the instrument's note stream, or skips the
 /// note-offs a bypassed one would have needed, so the graph releases the track's notes at
@@ -3199,7 +3247,8 @@ fn chain_audible(state: &State, graph: &Graph, track: TrackSlot) -> bool {
 /// fades toward its new state; otherwise it is there at once. An audio effect switched on
 /// starts clean, so a tail (an echo) never comes back from before the switch, unless it is
 /// still heard fading out (its tail goes on); one switched off is cleared once silent (at
-/// once, or by the graph at the end of its fade).
+/// once, or by the graph at the end of its fade). A MIDI effect does not fade and is cleared
+/// on every switch, on or off (#219).
 fn switch(entry: &mut DeviceEntry, enabled: bool, audible: bool) {
     let heard = entry.fade > 0.0;
     entry.enabled = enabled;
@@ -3208,7 +3257,10 @@ fn switch(entry: &mut DeviceEntry, enabled: bool, audible: bool) {
         entry.fade = entry.target();
     }
     let clear = if enabled { !(fading && heard) } else { !fading };
-    if clear && !takes_notes(entry) {
+    // A MIDI effect is cleared too (#219): while it is off the chain skips it, so it never
+    // sees the release its switch sends the instrument; a note it held or a strum note it
+    // had pending would start or end against a stream that went on without it.
+    if clear && entry.device.descriptor().role != DeviceRole::Instrument {
         entry.device.reset();
     }
 }

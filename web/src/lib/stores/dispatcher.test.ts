@@ -2,12 +2,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { NativeEngine, NoOutputError } from '../engine/native-engine'
 import type { EngineEvents } from '../engine/engine'
-import { AGENT_CONFIRM_MS, DESTRUCTIVE_COMMANDS, PROTOCOL_VERSION, SINGLE_SYNTH, type Command } from '../generated/protocol'
+import { AGENT_CONFIRM_MS, DESTRUCTIVE_COMMANDS, MAX_AUDIO_URL_BYTES, PROTOCOL_VERSION, SINGLE_SYNTH, type Command } from '../generated/protocol'
+import { ImportError } from '../audio/import/abi'
 import { STORAGE_GUARDED } from '../agents/guard'
 import { DEFAULT_PARAMS } from '../params'
 import { CoreError, ProjectCore, type FolderEntry } from '../project/core'
 import { readFolder, SONG_FOLDER } from '../project/reference-folder'
-import { CONTROL_RETRY_MS, OUTPUT_POLL_MS, REFUSAL_TOAST_MS } from './dispatcher'
+import { CONTROL_RETRY_MS, LINK_IMPORT_KEPT_MS, OUTPUT_POLL_MS, REFUSAL_TOAST_MS } from './dispatcher'
 import type { ControlEvents } from '../agents/control-link'
 import { TOKEN_KEY } from './storage'
 import type { PresetLibrary } from '../storage/presets'
@@ -67,6 +68,13 @@ let nativeEngine: {
   push: ReturnType<typeof vi.fn>
   /** `live.routing` (#598); a test that leaves it out gets a stub. */
   route?: ReturnType<typeof vi.fn>
+  /** `folder.open` / `folder.close` and `folder.choose` (AU-7); a test that leaves them out gets stubs. */
+  place?: ReturnType<typeof vi.fn>
+  chooseFolder?: ReturnType<typeof vi.fn>
+  /** What the hello announced (#319: `export`). */
+  capabilities?: { midi: boolean; disk: boolean; export: boolean } | null
+  exportStart?: ReturnType<typeof vi.fn>
+  exportCancel?: ReturnType<typeof vi.fn>
   close: ReturnType<typeof vi.fn>
 } | null = null
 /** The engine bytes the helper was sent since its `from`th send (BO-1: what a command means for its engine). */
@@ -76,7 +84,13 @@ vi.mock('../engine/native-engine', () => ({
   NativeEngine: {
     connect: (_token: string, events: EngineEvents) => {
       nativeEvents = events
-      if (nativeEngine) nativeEngine.route ??= vi.fn()
+      if (nativeEngine) {
+        nativeEngine.route ??= vi.fn()
+        nativeEngine.place ??= vi.fn()
+        nativeEngine.chooseFolder ??= vi.fn()
+        nativeEngine.exportStart ??= vi.fn()
+        nativeEngine.exportCancel ??= vi.fn()
+      }
       return nativeEngine ? Promise.resolve(nativeEngine) : Promise.reject(new Error('no helper in tests'))
     },
   },
@@ -2971,5 +2985,443 @@ describe("an agent's destructive calls wait for the user's answer in the page (A
     expect(session.dispatcher.confirmations.pending).toEqual([])
     expect(spies.keepMine).not.toHaveBeenCalled()
     expect(spies.loadDisk).not.toHaveBeenCalled()
+  })
+})
+
+describe('the project folder in Boost (AU-7)', () => {
+  beforeEach(() => {
+    webs = []
+    nativeEngine = null
+    midiOn = false
+    midiReleaseAll = () => Promise.resolve()
+    localStorage.clear()
+  })
+
+  afterEach(() => vi.restoreAllMocks())
+
+  async function boosted() {
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
+      close: vi.fn(() => Promise.resolve()),
+    }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    return session
+  }
+
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
+  const folder = (name: string) => ({ name }) as FileSystemDirectoryHandle
+
+  it('names the project and a marker written in its real folder, once per folder, and closes for a browser project', async () => {
+    const session = await boosted()
+    const nonces: string[] = []
+    const write = vi.spyOn(session.storage, 'writeHelperLink').mockImplementation((nonce) => {
+      nonces.push(nonce)
+      return Promise.resolve({ status: 'written' as const, name: 'Song' })
+    })
+    const song = folder('Song')
+    session.dispatcher.host.folderChanged!(song)
+    await session.dispatcher.enterBoost()
+    await settle()
+    const id = session.project.view!.project.id
+    expect(nativeEngine!.place).toHaveBeenLastCalledWith({ project: id, nonce: nonces[0], name: 'Song' })
+    expect(nonces[0]).toMatch(/^[0-9a-f]{32}$/)
+    // The same folder again (a second attach of it): the same marker, not written again.
+    session.dispatcher.host.folderChanged!(song)
+    await settle()
+    expect(write).toHaveBeenCalledTimes(1)
+    // Another folder: a new marker.
+    session.dispatcher.host.folderChanged!(folder('Other'))
+    await settle()
+    expect(write).toHaveBeenCalledTimes(2)
+    expect(nonces[1]).not.toBe(nonces[0])
+    // A project kept in the browser (the store writes no marker there): the helper closes its folder.
+    write.mockResolvedValue({ status: 'no_folder' })
+    session.dispatcher.host.folderChanged!(folder('draft-dir'))
+    await settle()
+    expect(nativeEngine!.place).toHaveBeenLastCalledWith(null)
+  })
+
+  it('keeps the helper state of the project open only, and forgets it back in Web', async () => {
+    const session = await boosted()
+    await session.dispatcher.enterBoost()
+    const id = session.project.view!.project.id
+    nativeEvents!.onFolderState!(id, { status: 'unknown' })
+    expect(session.engine.helperFolder).toEqual({ project: id, state: { status: 'unknown' } })
+    // About another project (the page opened one since): stale.
+    nativeEvents!.onFolderState!('01J0000000000000000000000B', { status: 'open', name: 'Old' })
+    expect(session.engine.helperFolder?.state).toEqual({ status: 'unknown' })
+    nativeEvents!.onFolderState!(null, { status: 'closed' })
+    expect(session.engine.helperFolder).toEqual({ project: null, state: { status: 'closed' } })
+    await session.dispatcher.enterWeb()
+    expect(session.engine.helperFolder).toBeNull()
+  })
+
+  it('hands the export to the helper only in Boost, with its folder open for this project, and ends it with the session (#319)', async () => {
+    const session = await boosted()
+    const host = session.dispatcher.exportHost
+    // Web mode: the page renders.
+    expect(host.helperExport()).toBeNull()
+    nativeEngine!.capabilities = { midi: false, disk: true, export: true }
+    await session.dispatcher.enterBoost()
+    const id = session.project.view!.project.id
+    expect(host.projectId()).toBe(id)
+    // The helper has no folder for the project yet.
+    expect(host.helperExport()).toBeNull()
+    nativeEvents!.onFolderState!(id, { status: 'unknown' })
+    expect(host.helperExport()).toBeNull()
+    nativeEvents!.onFolderState!(id, { status: 'open', name: 'Song' })
+    const port = host.helperExport()
+    expect(port).not.toBeNull()
+    // A helper that does not export: the page renders.
+    nativeEngine!.capabilities = { midi: false, disk: true, export: false }
+    expect(host.helperExport()).toBeNull()
+    nativeEngine!.capabilities = { midi: false, disk: true, export: true }
+    // The port sends on the session and hears its export messages; another session's or a stale one's are dropped.
+    const heard: unknown[] = []
+    const unlisten = port!.listen((message) => heard.push(message))
+    port!.cancel(3)
+    expect(nativeEngine!.exportCancel).toHaveBeenCalledWith(3)
+    const progress = { type: 'export.progress', id: 3, rendered: 1, body: 2, tail: false } as const
+    nativeEvents!.onExport!(progress)
+    expect(heard).toEqual([progress])
+    // The session ends: the export hears it once, and nothing after.
+    nativeEvents!.onClosed()
+    expect(heard).toEqual([progress, null])
+    nativeEvents!.onExport!(progress)
+    expect(heard).toHaveLength(2)
+    unlisten()
+    expect(host.helperExport()).toBeNull()
+  })
+
+  it('project.choose_helper_folder asks the helper with the place, and says why when it cannot', async () => {
+    const session = await boosted()
+    const write = vi.spyOn(session.storage, 'writeHelperLink').mockResolvedValue({ status: 'no_folder' })
+    // In Web mode: a notice.
+    expect(session.dispatcher.run({ type: 'project.choose_helper_folder' })).toBe(true)
+    await settle()
+    expect(session.engine.notice).toBe('helper.folderNotBoost')
+    await session.dispatcher.enterBoost()
+    // No real folder: a notice, nothing asked.
+    session.dispatcher.host.folderChanged!(folder('draft-dir'))
+    await settle()
+    expect(session.dispatcher.run({ type: 'project.choose_helper_folder' })).toBe(true)
+    await settle()
+    expect(session.engine.notice).toBe('helper.folderInBrowser')
+    expect(nativeEngine!.chooseFolder).not.toHaveBeenCalled()
+    write.mockResolvedValue({ status: 'written', name: 'Song' })
+    session.dispatcher.host.folderChanged!(folder('Song'))
+    await settle()
+    expect(session.dispatcher.run({ type: 'project.choose_helper_folder' })).toBe(true)
+    await settle()
+    expect(nativeEngine!.chooseFolder).toHaveBeenCalledWith(expect.objectContaining({ project: session.project.view!.project.id, name: 'Song' }))
+    // Without a click behind it (an agent's call): the helper's window is not opened.
+    const activation = Object.getOwnPropertyDescriptor(navigator, 'userActivation')
+    Object.defineProperty(navigator, 'userActivation', { configurable: true, value: { isActive: false } })
+    try {
+      expect(session.dispatcher.run({ type: 'project.choose_helper_folder' })).toBe(true)
+      await settle()
+      expect(session.engine.notice).toBe('helper.folderNeedsClick')
+      expect(nativeEngine!.chooseFolder).toHaveBeenCalledTimes(1)
+    } finally {
+      if (activation) Object.defineProperty(navigator, 'userActivation', activation)
+      else delete (navigator as { userActivation?: unknown }).userActivation
+    }
+  })
+
+  it('a marker the folder refused closes the helper folder, says so, and is tried again once the access is allowed', async () => {
+    const session = await boosted()
+    const write = vi.spyOn(session.storage, 'writeHelperLink').mockResolvedValue({ status: 'written', name: 'Old' })
+    const resume = vi.spyOn(session.storage, 'resume').mockResolvedValue(true)
+    await session.dispatcher.enterBoost()
+    session.dispatcher.host.folderChanged!(folder('Old'))
+    await settle()
+    expect(nativeEngine!.place).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'Old' }))
+    write.mockResolvedValue({ status: 'failed' })
+    session.dispatcher.host.folderChanged!(folder('Song'))
+    await settle()
+    // The helper stops reading the folder the page left; the Clips panel says why (not taken for a browser project).
+    expect(nativeEngine!.place).toHaveBeenLastCalledWith(null)
+    expect(session.engine.helperLinkFailed).toBe(true)
+    session.dispatcher.run({ type: 'project.choose_helper_folder' })
+    await settle()
+    expect(session.engine.notice).toBe('helper.folderNoMarker')
+    expect(nativeEngine!.chooseFolder).not.toHaveBeenCalled()
+    // The user allows the access again: the marker is written, and the helper told.
+    write.mockResolvedValue({ status: 'written', name: 'Song' })
+    session.dispatcher.run({ type: 'project.allow_access' })
+    await settle()
+    await settle()
+    expect(resume).toHaveBeenCalled()
+    expect(session.engine.helperLinkFailed).toBe(false)
+    expect(nativeEngine!.place).toHaveBeenLastCalledWith(expect.objectContaining({ name: 'Song' }))
+  })
+
+  it('two callers for one new folder share one marker write: the nonce told is the one written', async () => {
+    const session = await boosted()
+    await session.dispatcher.enterBoost()
+    let finish: (value: { status: 'written'; name: string }) => void = () => {}
+    const nonces: string[] = []
+    const write = vi.spyOn(session.storage, 'writeHelperLink').mockImplementation((nonce) => {
+      nonces.push(nonce)
+      return new Promise((resolve) => (finish = resolve))
+    })
+    session.dispatcher.host.folderChanged!(folder('Song'))
+    // The click comes before the write of the attach is done.
+    session.dispatcher.run({ type: 'project.choose_helper_folder' })
+    await settle()
+    finish({ status: 'written', name: 'Song' })
+    await settle()
+    await settle()
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(nativeEngine!.chooseFolder).toHaveBeenCalledWith(expect.objectContaining({ nonce: nonces[0] }))
+    for (const call of nativeEngine!.place!.mock.calls) if (call[0]) expect(call[0]).toMatchObject({ nonce: nonces[0] })
+  })
+})
+
+describe("an agent's audio file from a link waits for the user's answer, then imports as the user would (#664)", () => {
+  const HASH = '7c'.repeat(32)
+  const LINK = 'https://example.org/loops/kick%2001.wav'
+
+  beforeEach(() => {
+    webs = []
+    nativeEngine = null
+    midiOn = false
+    midiReleaseAll = () => Promise.resolve()
+    localStorage.clear()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+  })
+
+  /** A started page with an audio track, a host serving `body`, and the store's import of a file mocked. */
+  async function withAudioTrack(body: Uint8Array = new Uint8Array(64).fill(1)) {
+    const session = newSession()
+    await session.dispatcher.start()
+    session.dispatcher.run({ type: 'track.create', kind: 'audio' } as Command)
+    const view = session.project.view!.project
+    const track = Object.entries(view.tracks).find(([, t]) => t?.kind === 'audio')![0]
+    const midiTrack = Object.entries(view.tracks).find(([, t]) => t?.kind !== 'audio')![0]
+    const serve = async () => new Response(body.slice() as Uint8Array<ArrayBuffer>, { headers: { 'content-length': String(body.length) } })
+    const fetch = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(serve)
+    vi.stubGlobal('fetch', fetch)
+    const imported: File[] = []
+    vi.spyOn(session.storage, 'importAudio').mockImplementation(async (file) => {
+      imported.push(file)
+      return { hash: HASH, sample_rate: 44_100, channels: 2, frames: 22_050, name: file.name }
+    })
+    const history = session.dispatcher.history().undo.length
+    const clips = () => Object.values(session.project.view!.project.tracks[track]!.clips)
+    return { session, track, midiTrack, fetch, imported, history, clips }
+  }
+
+  const call = (track: string, url = LINK): Command => ({ type: 'clip.import_audio_url', track, url })
+
+  it("asks with the link's host, the file's name and the track, sends nothing before Allow, then makes the clip as the agent", async () => {
+    const { session, track, fetch, imported, history, clips } = await withAudioTrack()
+    const answer = session.dispatcher.runForAgent(call(track), 'agent:claude-code')
+    await vi.waitFor(() => expect(session.dispatcher.confirmations.current).not.toBeNull())
+    // A new audio track has no name of its own: the question names it as the track list does, by its position.
+    expect(session.dispatcher.confirmations.current).toMatchObject({
+      agent: 'agent:claude-code',
+      question: { kind: 'importAudio', host: 'example.org', name: 'kick 01.wav', track: { name: '', index: 1 } },
+    })
+    // Nothing reached the host while the user reads the question.
+    expect(fetch).not.toHaveBeenCalled()
+    session.dispatcher.confirmations.answer(true)
+    const result = await answer
+    expect(result).toMatchObject({ status: 'applied', output: { media: HASH } })
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(fetch).toHaveBeenCalledWith(new URL(LINK).href, expect.objectContaining({ credentials: 'omit', referrerPolicy: 'no-referrer', mode: 'cors' }))
+    // The file the store imported is the download, as a picked file would be; one clip, one entry of the agent's.
+    expect(imported.map((f) => [f.name, f.size, f.type])).toEqual([['kick 01.wav', 64, '']])
+    expect(clips()).toHaveLength(1)
+    expect((result as { output: { clip: string } }).output.clip).toBe(Object.keys(session.project.view!.project.tracks[track]!.clips)[0])
+    expect(session.dispatcher.history().undo).toHaveLength(history + 1)
+    expect(session.dispatcher.history().undo.at(-1)).toMatchObject({ name: 'clip.import_audio', author: 'agent:claude-code' })
+    // The user can undo it.
+    session.dispatcher.run({ type: 'history.undo' })
+    expect(clips()).toHaveLength(0)
+  })
+
+  it('a refusal, a timeout or a call that ended download nothing and change nothing, each answered typed', async () => {
+    for (const end of ['declined', 'timeout', 'withdrawn'] as const) {
+      const { session, track, fetch, imported, history, clips } = await withAudioTrack()
+      const link = new AbortController()
+      if (end === 'timeout') vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+      const answer = session.dispatcher.runForAgent(call(track), 'agent:a', link.signal)
+      await vi.waitFor(() => expect(session.dispatcher.confirmations.current).not.toBeNull())
+      if (end === 'declined') session.dispatcher.confirmations.answer(false)
+      else if (end === 'timeout') vi.advanceTimersByTime(AGENT_CONFIRM_MS)
+      else link.abort()
+      const result = await answer
+      if (end === 'withdrawn') expect(result, end).toMatchObject({ status: 'unavailable' })
+      else expect(result, end).toMatchObject({ status: 'refused', error: { code: `confirmation.${end}` } })
+      expect(fetch, end).not.toHaveBeenCalled()
+      expect(imported, end).toEqual([])
+      expect(clips(), end).toEqual([])
+      expect(session.dispatcher.history().undo, end).toHaveLength(history)
+      vi.useRealTimers()
+    }
+  })
+
+  it('a call whose deadline passed before its question is a timeout, not a download', async () => {
+    const { session, track, fetch } = await withAudioTrack()
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] })
+    const ask = vi.spyOn(session.dispatcher.confirmations, 'ask')
+    // The page is slow to reach the question (a busy tab): the call's deadline, set when it arrived, has passed.
+    const clock = vi.spyOn(session.dispatcher.confirmations.clock, 'now')
+    clock.mockReturnValueOnce(0).mockReturnValue(AGENT_CONFIRM_MS + 1)
+    expect(await session.dispatcher.runForAgent(call(track), 'agent:a')).toMatchObject({ status: 'refused', error: { code: 'confirmation.timeout' } })
+    expect(ask).toHaveBeenCalledTimes(1)
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('refuses a wrong track or a link the core or the page refuses before asking anything', async () => {
+    const { session, track, midiTrack, fetch } = await withAudioTrack()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const refusals: [Command, string][] = [
+      [call(midiTrack), 'invalid'],
+      [call(track, 'file:///C:/kick.wav'), 'invalid'],
+      [call(track, 'http://example.org/kick.wav'), 'invalid'],
+      [call(track, 'https://user:pw@example.org/kick.wav'), 'invalid'],
+      [call(track, 'data:audio/wav;base64,UklGRg=='), 'invalid'],
+    ]
+    for (const [command, code] of refusals) {
+      expect(await session.dispatcher.runForAgent(command, 'agent:a'), JSON.stringify(command)).toMatchObject({ status: 'refused', error: { code } })
+    }
+    // A link the core takes but the page does not: plain http to this computer from a page that is not served by it.
+    vi.spyOn(session.audioImport, 'checkLink').mockReturnValue({ status: 'refused' })
+    expect(await session.dispatcher.runForAgent(call(track, 'http://localhost:5491/kick.wav'), 'agent:a')).toMatchObject({
+      status: 'refused',
+      error: { code: 'url.refused' },
+    })
+    expect(session.dispatcher.confirmations.pending).toEqual([])
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("a user's run of the command, or the dev hook's, never downloads without the question", async () => {
+    const { session, track, fetch } = await withAudioTrack()
+    expect(session.dispatcher.run(call(track))).toBe(true)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(fetch).not.toHaveBeenCalled()
+    expect(session.dispatcher.confirmations.pending).toEqual([])
+  })
+
+  it('answers download.too_big, download.unreachable and import.<reason> typed, with nothing changed', async () => {
+    const cases: [Response | Error, string][] = [
+      [new Response(new Uint8Array(4), { headers: { 'content-length': String(MAX_AUDIO_URL_BYTES + 1) } }), 'download.too_big'],
+      [new Response(null, { status: 403 }), 'download.unreachable'],
+      [new TypeError('Failed to fetch'), 'download.unreachable'],
+    ]
+    for (const [served, code] of cases) {
+      const { session, track, fetch, imported, history, clips } = await withAudioTrack()
+      fetch.mockImplementation(async () => {
+        if (served instanceof Error) throw served
+        return served
+      })
+      const answer = session.dispatcher.runForAgent(call(track), 'agent:a')
+      await vi.waitFor(() => expect(session.dispatcher.confirmations.current).not.toBeNull())
+      session.dispatcher.confirmations.answer(true)
+      expect(await answer, code).toMatchObject({ status: 'refused', error: { code } })
+      expect(imported).toEqual([])
+      expect(clips()).toEqual([])
+      expect(session.dispatcher.history().undo).toHaveLength(history)
+    }
+    // A page of HTML under an audio name: the decoder refuses it (`audio-import`'s own tests); the agent hears why.
+    const { session, track, clips } = await withAudioTrack(new TextEncoder().encode('<!doctype html><p>404</p>'))
+    vi.spyOn(session.storage, 'importAudio').mockRejectedValue(new ImportError('unsupported_format', 'not an audio file'))
+    const answer = session.dispatcher.runForAgent(call(track), 'agent:a')
+    await vi.waitFor(() => expect(session.dispatcher.confirmations.current).not.toBeNull())
+    session.dispatcher.confirmations.answer(true)
+    expect(await answer).toMatchObject({ status: 'refused', error: { code: 'import.unsupported_format' } })
+    expect(clips()).toEqual([])
+  })
+
+  it('answers a retry of a finished call with its clip, without asking or downloading, while the clip is there and for 10 minutes', async () => {
+    const { session, track, fetch, clips } = await withAudioTrack()
+    const allow = async () => {
+      const answer = session.dispatcher.runForAgent(call(track), 'agent:a')
+      await vi.waitFor(() => expect(session.dispatcher.confirmations.current).not.toBeNull())
+      session.dispatcher.confirmations.answer(true)
+      return answer
+    }
+    const first = (await allow()) as { status: string; output: { clip: string; media: string } }
+    expect(first.status).toBe('applied')
+    // The agent heard `page.timeout` and calls again: the same answer, nothing asked, fetched or made.
+    expect(await session.dispatcher.runForAgent(call(track), 'agent:a')).toEqual(first)
+    expect(session.dispatcher.confirmations.pending).toEqual([])
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(clips()).toHaveLength(1)
+    // Its clip undone: the call asks and imports again.
+    session.dispatcher.run({ type: 'history.undo' })
+    expect(await allow()).toMatchObject({ status: 'applied' })
+    expect(fetch).toHaveBeenCalledTimes(2)
+    // Ten minutes later, the same: a new question.
+    const clock = vi.spyOn(session.dispatcher.confirmations.clock, 'now')
+    clock.mockReturnValue(Date.now() + LINK_IMPORT_KEPT_MS + 1)
+    const later = session.dispatcher.runForAgent(call(track), 'agent:a')
+    await vi.waitFor(() => expect(session.dispatcher.confirmations.current).not.toBeNull())
+    session.dispatcher.confirmations.answer(false)
+    expect(await later).toMatchObject({ status: 'refused', error: { code: 'confirmation.declined' } })
+  })
+
+  it('two calls for one link asked at once: the second allowed after the first imported answers its clip, one download', async () => {
+    const { session, track, fetch, clips } = await withAudioTrack()
+    const first = session.dispatcher.runForAgent(call(track), 'agent:a')
+    const second = session.dispatcher.runForAgent(call(track), 'agent:a')
+    await vi.waitFor(() => expect(session.dispatcher.confirmations.pending).toHaveLength(2))
+    session.dispatcher.confirmations.answer(true)
+    const made = (await first) as { status: string; output: { clip: string } }
+    expect(made.status).toBe('applied')
+    session.dispatcher.confirmations.answer(true)
+    expect(await second).toEqual(made)
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(clips()).toHaveLength(1)
+  })
+
+  it('imports nothing into a project opened after the user allowed it', async () => {
+    const { session, track, imported } = await withAudioTrack()
+    const answer = session.dispatcher.runForAgent(call(track), 'agent:a')
+    await vi.waitFor(() => expect(session.dispatcher.confirmations.current).not.toBeNull())
+    // Another project is open by the time the file's turn comes.
+    const view = session.project.view!
+    session.project.view = { ...view, project: { ...view.project, id: 'another-project' } }
+    session.dispatcher.confirmations.answer(true)
+    expect(await answer).toMatchObject({ status: 'refused', error: { code: 'import.project_changed' } })
+    expect(imported).toEqual([])
+  })
+
+  it('refuses a second call for a link under way without asking again, and stops on clip.cancel_audio_import', async () => {
+    const { session, track, fetch, clips } = await withAudioTrack()
+    // A host that answers and then sends nothing more.
+    fetch.mockImplementation(
+      async (...[, init]: [string, RequestInit?]) =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              init?.signal?.addEventListener('abort', () => controller.error(init?.signal?.reason), { once: true })
+            },
+          }),
+        ),
+    )
+    const first = session.dispatcher.runForAgent(call(track), 'agent:a')
+    await vi.waitFor(() => expect(session.dispatcher.confirmations.current).not.toBeNull())
+    session.dispatcher.confirmations.answer(true)
+    await vi.waitFor(() => expect(session.audioImport.downloads).toHaveLength(1))
+    expect(await session.dispatcher.runForAgent(call(track), 'agent:a')).toMatchObject({ status: 'refused', error: { code: 'import.busy' } })
+    expect(session.dispatcher.confirmations.pending).toEqual([])
+    expect(await session.dispatcher.runForAgent({ type: 'clip.cancel_audio_import' }, 'agent:a')).toMatchObject({ status: 'applied' })
+    expect(await first).toMatchObject({ status: 'refused', error: { code: 'import.cancelled' } })
+    expect(clips()).toEqual([])
+    expect(session.audioImport.downloads).toEqual([])
   })
 })

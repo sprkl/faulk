@@ -11,6 +11,7 @@ mod load_bench;
 mod markers;
 mod master_automation;
 mod master_chain;
+mod midi_effect_format;
 mod migrate_v2;
 mod migrate_v3;
 mod model;

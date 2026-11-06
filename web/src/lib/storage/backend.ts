@@ -20,6 +20,23 @@ import { IGNORED_FILES, SKIPPED_DIRS, StoreError, SWAP_SUFFIX, type FileWriter, 
 type Listable = { values(): AsyncIterable<FileSystemHandle> }
 const children = (dir: FileSystemDirectoryHandle): AsyncIterable<FileSystemHandle> => (dir as unknown as Listable).values()
 
+/** The prefix of the helper's temporary files in `.faulk/tmp/` (`crates/helper/src/disk.rs`, #319). */
+export const HELPER_TMP_PREFIX = 'helper-'
+/**
+ * How recently a helper's temporary file must have changed for the sweep to leave it (#319): a running export
+ * writes it at every step of its render, so one untouched for this long is left over from a helper that stopped.
+ */
+export const HELPER_TMP_FRESH_MS = 10 * 60_000
+
+/** Whether the file `name` of `dir` changed after `since` (ms since the epoch); `false` when it cannot be read. */
+async function changedSince(dir: FileSystemDirectoryHandle, name: string, since: number): Promise<boolean> {
+  try {
+    return (await (await dir.getFileHandle(name)).getFile()).lastModified > since
+  } catch {
+    return false
+  }
+}
+
 /** Reads this many files at once: thousands of small files are the cost of a folder, not their size. */
 const CONCURRENCY = 16
 
@@ -488,6 +505,8 @@ export class FolderBackend implements ProjectStore {
       const running = await runningImports()
       for (const name of left) {
         if (name.startsWith(IMPORT_TMP_PREFIX) && running.has(importLock(name.slice(IMPORT_TMP_PREFIX.length).replace(/\.pcm$/, '')))) continue
+        // The helper's export writes its file here as it renders (#319): one changed recently may be running.
+        if (name.startsWith(HELPER_TMP_PREFIX) && (await changedSince(tmp, name, Date.now() - HELPER_TMP_FRESH_MS))) continue
         await tmp.removeEntry(name).catch(() => undefined)
       }
     } catch {

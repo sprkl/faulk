@@ -35,6 +35,7 @@ export const browser = defineFeature(
     'browser.said.insertedMaster': '{device} inserted in the master, position {n}.',
     'browser.said.presetLoaded': '{device} loaded on {track}.',
     'browser.said.noInstrumentOnMaster': 'The master takes effects, not instruments.',
+    'browser.said.noMidiEffectHere': '{device} changes notes: it goes on a MIDI track.',
     'browser.said.refused': '{device} could not be added.',
   },
   {
@@ -65,6 +66,7 @@ export const browser = defineFeature(
     'browser.said.insertedMaster': '{device} inséré dans le master, position {n}.',
     'browser.said.presetLoaded': '{device} chargé sur {track}.',
     'browser.said.noInstrumentOnMaster': 'Le master accepte des effets, pas des instruments.',
+    'browser.said.noMidiEffectHere': '{device} transforme des notes : il va sur une piste MIDI.',
     'browser.said.refused': "{device} n'a pas pu être ajouté.",
   },
 )
