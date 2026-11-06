@@ -30303,6 +30303,132 @@
       ],
       "role": "midi_effect",
       "version": 1
+    },
+    {
+      "kind": "faulk.trim",
+      "kind_id": 10,
+      "memory_bytes": 1316960,
+      "midi_output": {
+        "per_block": 128,
+        "per_input": 2
+      },
+      "name": "Trim",
+      "named_keys": [],
+      "params": [
+        {
+          "default": 1,
+          "description": "How the length is set: a time in seconds (free) or a note value that follows the project tempo (synced).",
+          "id": 0,
+          "key": "mode",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "free",
+            "synced"
+          ]
+        },
+        {
+          "default": 0.1,
+          "description": "Length of every note in free mode, in seconds, from 1 ms to 10 s.",
+          "id": 1,
+          "key": "time",
+          "max": 10,
+          "min": 0.001,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 2,
+          "description": "Length of every note in synced mode, as a note value of the project tempo, from a 64th note to 4 bars of the time signature.",
+          "id": 2,
+          "key": "division",
+          "max": 8,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "sixty_fourth",
+            "thirty_second",
+            "sixteenth",
+            "eighth",
+            "quarter",
+            "half",
+            "bar",
+            "two_bars",
+            "four_bars"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Straight, triplet (two thirds of the note value) or dotted (one and a half times the note value), in synced mode.",
+          "id": 3,
+          "key": "feel",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "straight",
+            "triplet",
+            "dotted"
+          ]
+        },
+        {
+          "default": 100,
+          "description": "Share of the note value a note lasts in synced mode, from 1 % to 200 % (100 %: exactly the note value).",
+          "id": 4,
+          "key": "gate",
+          "max": 200,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "When a note comes out: when the key is pressed (start), or when it is let go (release), at the velocity it was pressed with.",
+          "id": 5,
+          "key": "trigger",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "start",
+            "release"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "How the length follows the pitch, from -100 % to +100 %: at +100 % it doubles one octave below C4 and halves one octave above.",
+          "id": 6,
+          "key": "key_track",
+          "max": 100,
+          "min": -100,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        }
+      ],
+      "role": "midi_effect",
+      "version": 1
     }
   ],
   "error_codes": {
@@ -39343,7 +39469,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 44,
+  "protocol_version": 45,
   "scale_intervals": [
     {
       "intervals": [
