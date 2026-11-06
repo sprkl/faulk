@@ -351,7 +351,8 @@ domain! {
     /// stall: the message says which), `import.cancelled` (`clip.cancel_audio_import`),
     /// `import.project_changed` (another project was opened before the file's turn) or
     /// `import.<reason>` (the file is not audio the page reads: `import.unsupported_format`,
-    /// `import.corrupt`…); nothing changed then. A large download can still end in
+    /// `import.corrupt`…, or `import.too_large`: it decodes to more than 16 GiB of audio, the
+    /// most a project keeps of one file, whatever its download size); nothing changed then. A large download can still end in
     /// `page.timeout` although it ran: the same call again (same link and track, within 10
     /// minutes, the clip still there) answers the clip already made, without asking or
     /// downloading again; `track.get` lists the track's clips too. Not undoable itself.
