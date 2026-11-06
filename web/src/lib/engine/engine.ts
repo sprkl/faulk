@@ -1,4 +1,4 @@
-import type { AgentResult, Command, HelperUpdate, MidiInput } from '../generated/protocol'
+import type { AgentResult, Command, FolderStatus, HelperUpdate, MidiInput } from '../generated/protocol'
 import type { FeedbackReport } from './feedback'
 
 export type EngineKind = 'web' | 'native'
@@ -40,6 +40,11 @@ export interface EngineEvents {
    * came from, once. `signal` aborts when that session ends: the call can no longer be answered (AG-4).
    */
   onAgentCall?(agent: string, command: unknown, answer: (result: AgentResult) => void, signal: AbortSignal): void
+  /**
+   * Native engine only: where the helper's folder of the page's project stands (`folder.state`, AU-7):
+   * the project it is about (`null` after `folder.close`) and its state.
+   */
+  onFolderState?(project: string | null, state: FolderStatus): void
   /** Native engine only: an agent left (`agent.left`, #641): its last MCP session ended or it stayed silent too long. */
   onAgentLeft?(agent: string): void
   onError(code: string): void

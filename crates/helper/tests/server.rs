@@ -371,7 +371,10 @@ async fn the_hello_announces_the_engines_epoch_and_what_the_helper_can_do() {
         } => {
             assert_eq!(protocol, PROTOCOL_VERSION);
             assert_eq!(epoch, 0, "a fresh engine");
-            assert!(!capabilities.disk, "the helper writes no project file yet");
+            assert!(
+                capabilities.disk,
+                "the helper reads the project's folder (AU-7)"
+            );
             assert_eq!(capabilities.midi, helper::midi::available());
         }
         other => panic!("expected hello, got {other:?}"),

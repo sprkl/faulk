@@ -267,6 +267,27 @@ impl EventSender {
         self.queue.set_sample_rate(rate)
     }
 
+    /// The disk planner's poll at `now_ms` (AU-3): its new read jobs, which the disk thread
+    /// serves from the project's folder (AU-7, `crate::disk`).
+    pub fn disk_poll(&mut self, now_ms: u64) -> &[engine::audio_source::Job] {
+        self.queue.prepare_mut().disk_poll(now_ms)
+    }
+
+    /// A read job's bytes, of a file of `file_len` bytes.
+    pub fn disk_done(&mut self, id: u32, bytes: &[u8], file_len: u64) {
+        self.queue.prepare_mut().disk_done(id, bytes, file_len);
+    }
+
+    /// The planner's read jobs in flight.
+    pub fn disk_in_flight(&self) -> usize {
+        self.queue.prepare().disk().in_flight()
+    }
+
+    /// A read job failed.
+    pub fn disk_failed(&mut self, id: u32, why: engine::audio_source::Failure) {
+        self.queue.prepare_mut().disk_failed(id, why);
+    }
+
     /// Streams waiting for the engine to take them.
     pub fn waiting(&self) -> usize {
         self.queue.waiting()
@@ -318,6 +339,16 @@ impl EngineSlot {
             .as_mut()
             .filter(|r| r.generation == generation)
             .map(|r| f(&mut r.sender))
+    }
+
+    /// Runs `f` on the sender of the open output and returns its engine's generation; `None` when
+    /// there is none.
+    pub fn with_generation_of(&self, f: impl FnOnce(&mut EventSender)) -> Option<u64> {
+        let mut running = self.running.lock().unwrap_or_else(|p| p.into_inner());
+        running.as_mut().map(|r| {
+            f(&mut r.sender);
+            r.generation
+        })
     }
 
     /// The generation and the epoch of the open output's engine; `None` when there is none.

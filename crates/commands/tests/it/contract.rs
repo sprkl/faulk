@@ -83,6 +83,7 @@ fn examples() -> Vec<(Command, State)> {
         on(Command::Project(project::Command::KeepMine {})),
         on(Command::Project(project::Command::LoadFolderVersion {})),
         on(Command::Project(project::Command::AllowAccess {})),
+        on(Command::Project(project::Command::ChooseHelperFolder {})),
         (
             Command::Project(project::Command::ExportAudio {
                 region: None,
