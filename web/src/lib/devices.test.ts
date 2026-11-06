@@ -125,7 +125,7 @@ describe('parameters shown in one mode only (#472)', () => {
   it('shows Lattice’s rule with a scale, its root and scale with its own, its cells with the matrix (#692)', () => {
     const lattice = descriptorOf('faulk.lattice')
     const shown = (source: string) => {
-      const index = lattice.params.find((p) => p.key === 'source')!.values.indexOf(source)
+      const index = (lattice.params.find((p) => p.key === 'source')!.values as readonly string[]).indexOf(source)
       return shownParams(lattice, (key) => (key === 'source' ? index : undefined)).map((p) => p.key)
     }
     // By default the project's scale: the rule and the transposition, nothing of the device's own scale or the matrix.

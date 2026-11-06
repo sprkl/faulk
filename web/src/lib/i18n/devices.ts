@@ -257,29 +257,29 @@ export const devices = defineFeature(
     'lattice.root.hint': 'Tonique de la gamme du device, de do à si (quand la source est le device).',
     'lattice.scale.hint': 'La gamme du device, bâtie sur sa tonique (quand la source est le device) : la liste des gammes du projet.',
     'lattice.map_c.hint':
-      'En mode matrice, la note que devient un do reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou muette (pas jouée).',
+      'En mode matrice, la note que devient un do reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
     'lattice.map_c_sharp.hint':
-      'En mode matrice, la note que devient un do♯ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou muette (pas jouée).',
+      'En mode matrice, la note que devient un do♯ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
     'lattice.map_d.hint':
-      'En mode matrice, la note que devient un ré reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou muette (pas jouée).',
+      'En mode matrice, la note que devient un ré reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
     'lattice.map_e_flat.hint':
-      'En mode matrice, la note que devient un mi♭ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou muette (pas jouée).',
+      'En mode matrice, la note que devient un mi♭ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
     'lattice.map_e.hint':
-      'En mode matrice, la note que devient un mi reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou muette (pas jouée).',
+      'En mode matrice, la note que devient un mi reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
     'lattice.map_f.hint':
-      'En mode matrice, la note que devient un fa reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou muette (pas jouée).',
+      'En mode matrice, la note que devient un fa reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
     'lattice.map_f_sharp.hint':
-      'En mode matrice, la note que devient un fa♯ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou muette (pas jouée).',
+      'En mode matrice, la note que devient un fa♯ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
     'lattice.map_g.hint':
-      'En mode matrice, la note que devient un sol reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou muette (pas jouée).',
+      'En mode matrice, la note que devient un sol reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
     'lattice.map_a_flat.hint':
-      'En mode matrice, la note que devient un la♭ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou muette (pas jouée).',
+      'En mode matrice, la note que devient un la♭ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
     'lattice.map_a.hint':
-      'En mode matrice, la note que devient un la reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou muette (pas jouée).',
+      'En mode matrice, la note que devient un la reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
     'lattice.map_b_flat.hint':
-      'En mode matrice, la note que devient un si♭ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou muette (pas jouée).',
+      'En mode matrice, la note que devient un si♭ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
     'lattice.map_b.hint':
-      'En mode matrice, la note que devient un si reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou muette (pas jouée).',
+      'En mode matrice, la note que devient un si reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
     'compressor.threshold.hint': 'Niveau, en décibels, au-dessus duquel le compresseur baisse le son, de -60 à 0 dB.',
     'compressor.ratio.hint':
       'Force avec laquelle le son au-dessus du seuil est baissé, de 1 (pas du tout) à 20 : à 4, un signal 8 dB au-dessus du seuil ressort 2 dB au-dessus.',
