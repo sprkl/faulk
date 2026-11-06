@@ -85,6 +85,10 @@ pub fn messages() -> Vec<Phase> {
             signature: TimeSignature::COMMON,
             launch_quantize: Quantize::Beat,
         },
+        // A minor (#690): the scale the MIDI effects read.
+        M::SetScale {
+            pitch_classes: 0b1010_1011_0101,
+        },
         M::SetMetronome {
             enabled: true,
             volume: 1.0,

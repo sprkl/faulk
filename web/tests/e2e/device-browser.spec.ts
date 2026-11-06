@@ -68,7 +68,7 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(groups.first()).toContainText(x.instruments)
     await expect(groups.nth(1)).toContainText(x.effects)
     const kinds = await panel.getByTestId('browse-device').evaluateAll((rows) => rows.map((r) => r.getAttribute('data-kind')))
-    expect(kinds).toEqual(['faulk.osc_synth', 'faulk.drums', 'faulk.echo', 'faulk.reverb', 'faulk.compressor', 'faulk.filter', 'faulk.trim'])
+    expect(kinds).toEqual(['faulk.osc_synth', 'faulk.drums', 'faulk.echo', 'faulk.reverb', 'faulk.compressor', 'faulk.filter', 'faulk.stack', 'faulk.trim'])
     await expect(panel.locator('[data-testid="browse-preset"][data-kind="faulk.osc_synth"]').first()).toBeVisible()
     await expect(panel.getByRole('option', { name: /Round Bass/ })).toHaveCount(1)
 
@@ -85,7 +85,7 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(panel.getByTestId('browser-results')).toHaveText(x.none)
     await page.getByRole('button', { name: x.clear }).click()
     await expect(search).toHaveValue('')
-    await expect(panel.getByTestId('browse-device')).toHaveCount(7)
+    await expect(panel.getByTestId('browse-device')).toHaveCount(8)
     // Escape clears the search, the next one closes the panel.
     await search.fill('echo')
     await page.keyboard.press('Escape')

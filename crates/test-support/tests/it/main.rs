@@ -29,4 +29,5 @@ mod presets;
 mod record_loop;
 mod reverb;
 mod scenes;
+mod stack;
 mod trim;

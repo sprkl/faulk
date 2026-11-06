@@ -16,6 +16,7 @@ pub mod echo;
 pub mod filter;
 pub mod osc_synth;
 pub mod reverb;
+pub mod stack;
 pub mod time_change;
 pub mod trim;
 
@@ -43,6 +44,7 @@ pub const REGISTRY: &[Builtin] = &[
     reverb::BUILTIN,
     compressor::BUILTIN,
     filter::BUILTIN,
+    stack::BUILTIN,
     trim::BUILTIN,
 ];
 

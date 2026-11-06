@@ -18,10 +18,11 @@ export interface ChainEntry {
   descriptor: DeviceDescriptor | null
   /** Its section of the chain. */
   section: ChainSection
-  /** Position among the audio effects (0 right after the instrument); null for the instrument and a MIDI effect. */
-  effectIndex: number | null
-  /** Position among the MIDI effects (0 at the start of the chain); null for the instrument and an audio effect. */
-  midiIndex: number | null
+  /**
+   * Position among the devices of its section, what `device.insert` and `device.move` take: among the MIDI effects (0 at
+   * the start of the chain) or among the audio effects (0 right after the instrument); null for the instrument.
+   */
+  index: number | null
 }
 
 /** The clip player's id (`project::CLIP_PLAYER`): an audio track's own player, not a device of the user's chain. */
@@ -38,17 +39,15 @@ export function chainOf(track: { devices: Track['devices'] }, descriptors: reado
   const ids = Object.keys(track.devices).filter((id) => track.devices[id])
   const key = (id: string) => track.devices[id]!.order
   ids.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : a < b ? -1 : a > b ? 1 : 0))
-  let effects = 0
-  let midi = 0
+  const counts: Record<ChainSection, number> = { midi: 0, instrument: 0, effect: 0 }
   const entries: ChainEntry[] = []
   for (const id of ids) {
     const device = track.devices[id]!
     const kind = 'builtin' in device.source ? device.source.builtin.id : null
     if (kind === CLIP_PLAYER) continue
     const section = sectionOf(device.role)
-    const effectIndex = section === 'effect' ? effects++ : null
-    const midiIndex = section === 'midi' ? midi++ : null
-    entries.push({ id, device, kind, descriptor: descriptors.find((d) => d.kind === kind) ?? null, section, effectIndex, midiIndex })
+    const index = section === 'instrument' ? null : counts[section]++
+    entries.push({ id, device, kind, descriptor: descriptors.find((d) => d.kind === kind) ?? null, section, index })
   }
   return entries
 }
@@ -57,20 +56,17 @@ export function chainOf(track: { devices: Track['devices'] }, descriptors: reado
 export const masterChainOf = (devices: Track['devices'] | undefined, descriptors: readonly DeviceDescriptor[] = DEVICES): ChainEntry[] =>
   chainOf({ devices: devices ?? {} }, descriptors)
 
+/** How many devices the chain holds in `section`. */
+export const sectionCount = (chain: readonly ChainEntry[], section: ChainSection): number => chain.filter((e) => e.section === section).length
+
 /** How many audio effects the chain holds. */
-export const effectCount = (chain: readonly ChainEntry[]): number => chain.filter((e) => e.section === 'effect').length
+export const effectCount = (chain: readonly ChainEntry[]): number => sectionCount(chain, 'effect')
 
 /** How many MIDI effects the chain holds. */
-export const midiEffectCount = (chain: readonly ChainEntry[]): number => chain.filter((e) => e.section === 'midi').length
+export const midiEffectCount = (chain: readonly ChainEntry[]): number => sectionCount(chain, 'midi')
 
 /** The chain's instrument, if it has one. */
 export const instrumentOf = (chain: readonly ChainEntry[]): ChainEntry | undefined => chain.find((e) => e.section === 'instrument')
-
-/** The index of an entry among the devices of its section (what `device.move` takes); null for the instrument. */
-export const sectionIndex = (entry: ChainEntry): number | null => (entry.section === 'midi' ? entry.midiIndex : entry.effectIndex)
-
-/** How many devices the section of `section` holds. */
-const sectionCount = (chain: readonly ChainEntry[], section: ChainSection): number => chain.filter((e) => e.section === section).length
 
 /**
  * The index `device.move` takes to move an effect (audio or MIDI) one place left or right among the effects of its section,
@@ -79,7 +75,7 @@ const sectionCount = (chain: readonly ChainEntry[], section: ChainSection): numb
  */
 export function moveTarget(chain: readonly ChainEntry[], id: string, direction: 'left' | 'right'): number | null {
   const entry = chain.find((e) => e.id === id)
-  const index = entry ? sectionIndex(entry) : null
+  const index = entry?.index ?? null
   if (!entry || index === null) return null
   const target = index + (direction === 'left' ? -1 : 1)
   return target < 0 || target >= sectionCount(chain, entry.section) ? null : target

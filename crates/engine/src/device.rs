@@ -253,8 +253,9 @@ pub fn event_frame(offset: u32, cursor: usize, frames: usize) -> usize {
 /// the descriptor's bounds and the most events the effect can receive in one block (the
 /// host cuts a block into sub-blocks when the events of its tables fill a fixed room, so
 /// the input is bounded whatever their size, MO-4; an effect after another is sized from
-/// the output of the largest before it), at most [`MAX_MIDI_OUTPUT_EVENTS`]: effects that
-/// each multiply their notes, chained, would otherwise multiply the buffer too (#219).
+/// the output of the largest before it), at most [`MAX_MIDI_OUTPUT_EVENTS`] and within the
+/// budget the chain's effects share (`crate::engine::CHAIN_MIDI_OUTPUT_EVENTS`): effects that
+/// each multiply their notes, chained, would otherwise multiply the buffers too (#219).
 /// Overflow is a safety net for an effect that breaks its declared bounds, or for a chain
 /// past that cap: one slot is kept in reserve; when a push is refused, the
 /// buffer counts it and [`EventBuffer::finish`] appends an [`Event::AllNotesOff`] in that
@@ -376,6 +377,9 @@ pub struct Transport {
     pub signature: TimeSignature,
     /// Position of the block's first frame, in ticks (fractional: 960 per quarter note).
     pub position_ticks: f64,
+    /// The project's scale (`ControlMsg::SetScale`, #690): what a MIDI effect that works "in
+    /// the scale" reads. Empty when the project has none (chromatic).
+    pub scale: PitchSet,
 }
 
 impl Default for Transport {
@@ -385,7 +389,38 @@ impl Default for Transport {
             tempo: Tempo::default(),
             signature: TimeSignature::default(),
             position_ticks: 0.0,
+            scale: PitchSet::EMPTY,
         }
+    }
+}
+
+/// A set of pitch classes, bit `c` for pitch class `c` (0 = C … 11 = B): the notes of a
+/// scale, whatever its root. Empty: no scale.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct PitchSet(u16);
+
+impl PitchSet {
+    /// No pitch class: a project without a scale.
+    pub const EMPTY: PitchSet = PitchSet(0);
+    /// The bits that name a pitch class.
+    pub const MASK: u16 = 0x0FFF;
+
+    /// The set of these bits; the bits above the twelfth are ignored.
+    pub const fn from_bits(bits: u16) -> Self {
+        Self(bits & Self::MASK)
+    }
+
+    pub const fn bits(self) -> u16 {
+        self.0
+    }
+
+    pub const fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Whether pitch class `pc` (taken modulo 12) is in the set.
+    pub const fn contains(self, pc: u8) -> bool {
+        self.0 & (1 << (pc % 12)) != 0
     }
 }
 
@@ -475,8 +510,11 @@ pub trait Device: Send {
 
     /// Clears the DSP state (voices, tails) and snaps smoothed parameters to their
     /// targets; parameter values are kept. The engine also calls it on the audio thread when
-    /// an audio effect is switched on or off: it must take constant time and allocate nothing
-    /// (never wipe a large buffer there: hide its content with a counter or a flag).
+    /// an audio effect or a MIDI effect is switched on or off (a MIDI effect on every switch,
+    /// #219: while it is off it never sees the release its switch sends the instrument): it
+    /// must take constant time, O(1) whatever the notes or the tail it holds, and allocate
+    /// nothing (never wipe a large buffer or a table there: hide its content with a counter
+    /// or a flag).
     ///
     /// It is also the hard cut of `ControlMsg::AllSoundOff` (#331): after a fade of the output,
     /// the engine calls it on every device of every track, so a device must leave no voice

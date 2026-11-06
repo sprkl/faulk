@@ -126,7 +126,10 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
     version: 1,
     name: "Trim",
     role: DeviceRole::MidiEffect,
-    memory_bytes: size_of::<Trim>() as u64,
+    // The device, and the most its output buffer can take (the host allocates it from the
+    // bounds below, #219).
+    memory_bytes: (size_of::<Trim>() + crate::device::MAX_MIDI_OUTPUT_EVENTS * size_of::<Event>())
+        as u64,
     midi_output: Some(MidiOutput {
         // A note-on and its own note-off in the same block, or the end of the oldest note on
         // an overflow and the note-on; an all-notes-off is one.
@@ -761,6 +764,7 @@ pub mod testing {
                     tempo,
                     signature: TimeSignature::new(n, d).unwrap_or_default(),
                     position_ticks: position,
+                    ..Transport::default()
                 },
             };
             out.clear();

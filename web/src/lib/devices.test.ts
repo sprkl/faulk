@@ -106,4 +106,18 @@ describe('parameters shown in one mode only (#472)', () => {
     const drums = descriptorOf('faulk.drums')
     expect(shownParams(drums, () => undefined)).toEqual(drums.params)
   })
+
+  it('shows a Stack voice’s interval, velocity and chance only while the voice is on (#690)', () => {
+    const stack = descriptorOf('faulk.stack')
+    // By default voices 1 and 2 are on, 3 to 6 off.
+    const keys = shownParams(stack, () => undefined).map((p) => p.key)
+    expect(keys).toContain('voice2_interval')
+    expect(keys).toContain('voice3')
+    expect(keys).not.toContain('voice3_interval')
+    expect(keys).not.toContain('voice6_chance')
+    const on = shownParams(stack, (key) => (key === 'voice3' ? 1 : undefined)).map((p) => p.key)
+    expect(on).toEqual(expect.arrayContaining(['voice3_interval', 'voice3_velocity', 'voice3_chance']))
+    expect(stack.role).toBe('midi_effect')
+    expect(stack.name).toBe('Stack')
+  })
 })

@@ -8,7 +8,7 @@
    */
   import { dropTarget, insertionIndex, type CardBox } from '../../lib/browser/dnd'
   import { putItem } from '../../lib/browser/put'
-  import { effectCount, chainOf, masterChainOf, midiEffectCount, sectionIndex } from '../../lib/project/chain'
+  import { chainOf, masterChainOf } from '../../lib/project/chain'
   import { isMidi, trackLabel } from '../../lib/project/tracks'
   import { useStores } from '../../lib/stores'
   import DeviceBrowser from './DeviceBrowser.svelte'
@@ -31,9 +31,18 @@
   let insertAt = $state<number | null>(null)
   /** The section the dragged item lands in: a MIDI effect among the MIDI effects, anything else among the audio effects. */
   const dragSection = $derived(ui.dragged?.category === 'midi_effect' ? 'midi' : 'effect')
-  const sectionEnd = $derived(dragSection === 'midi' ? midiEffectCount(chain) : effectCount(chain))
-  /** The first card after the MIDI effects (the instrument), before which a MIDI effect dropped last lands. */
-  const afterMidi = $derived(chain.find((e) => e.section !== 'midi')?.id ?? null)
+  /**
+   * The card the mark stands before (its id), `END` for after the last card, or null for no mark: the card at `insertAt`
+   * in the dragged item's section, else the end of that section (a MIDI effect's ends before the instrument).
+   */
+  const END = Symbol('end')
+  const markBefore = $derived.by((): string | typeof END | null => {
+    if (insertAt === null) return null
+    const at = chain.find((e) => e.section === dragSection && e.index === insertAt)
+    if (at) return at.id
+    const afterMidi = chain.find((e) => e.section !== 'midi')
+    return dragSection === 'midi' && afterMidi ? afterMidi.id : END
+  })
 
   /** The boxes of the cards of the dragged item's section, in chain order. */
   function boxes(): CardBox[] {
@@ -54,22 +63,14 @@
   }
 </script>
 
+{#snippet mark()}<span class="mark" aria-hidden="true" data-testid="insert-mark"></span>{/snippet}
+
 {#snippet cards(track: string | undefined)}
   {#each chain as entry (entry.id)}
-    {#if insertAt !== null && entry.section === dragSection && sectionIndex(entry) === insertAt}<span class="mark" aria-hidden="true" data-testid="insert-mark"
-      ></span>{/if}
-    {#if insertAt !== null && dragSection === 'midi' && insertAt >= sectionEnd && entry.id === afterMidi}<span
-        class="mark"
-        aria-hidden="true"
-        data-testid="insert-mark"
-      ></span>{/if}
+    {#if markBefore === entry.id}{@render mark()}{/if}
     <DeviceCard {entry} {chain} {track} {master} />
   {/each}
-  {#if insertAt !== null && insertAt >= sectionEnd && (dragSection === 'effect' || afterMidi === null)}<span
-      class="mark"
-      aria-hidden="true"
-      data-testid="insert-mark"
-    ></span>{/if}
+  {#if markBefore === END}{@render mark()}{/if}
 {/snippet}
 
 {#if master}

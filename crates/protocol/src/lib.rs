@@ -44,9 +44,15 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
-// Version 44 (#693; 42 is #664's, 43 is #690's): the device registry gains Trim (`faulk.trim`, kind
+// Version 44 (#693): the device registry gains Trim (`faulk.trim`, kind
 // id 10, a MIDI effect); a helper of an earlier version would refuse its `DeviceInsert` and its schema
 // bundle would not describe it. No message changes.
+
+// Version 43 (#690, #219; 42 is #664's): the engine takes `ControlMsg::SetScale` (tag 4, the project's
+// scale as a set of pitch classes), the registry gains the MIDI effect `faulk.stack` (device kind 9), and
+// the device commands insert, move and remove MIDI effects (role `midi_effect`). A helper of an earlier
+// version would skip the message and not build the device: a page and a helper of different versions
+// refuse each other.
 
 // Version 41 (#733): the report is `Feedback` version 9: the header grows from 92 to 100 bytes with
 // `host_frame` at offset 92 (the host's frame at the report's playhead), so that the page can place a

@@ -313,3 +313,77 @@ fn the_instrument_swap_keeps_the_midi_effects_first() {
     assert_eq!(ids(&s, &c.track)[..2], [m1, m2]);
     assert_eq!(roles(&s, &c.track)[2], DeviceRole::Instrument);
 }
+
+#[test]
+fn a_snapshot_whose_role_is_not_its_kinds_is_refused() {
+    // A MIDI effect restored as an audio effect, or an audio effect as a MIDI effect, would sit
+    // in the wrong section of the chain while the engine runs it as what it is.
+    let MidiChain { chain: c, m1, .. } = midi_chain();
+    for (device, role) in [(&m1, DeviceRole::Effect), (&c.a, DeviceRole::MidiEffect)] {
+        let mut gone = c.state.clone();
+        let out = run(
+            &d(device::Command::Remove {
+                device: device.clone(),
+            }),
+            &mut gone,
+            &mut fresh(),
+        )
+        .unwrap();
+        let commands::Undo::Inverse(inverse) = out.undo else {
+            panic!()
+        };
+        let Command::Device(device::Command::Restore {
+            track,
+            master,
+            device,
+            mut snapshot,
+            lanes,
+        }) = *inverse
+        else {
+            panic!()
+        };
+        snapshot.role = role;
+        let wrong = d(device::Command::Restore {
+            track,
+            master,
+            device,
+            snapshot,
+            lanes,
+        });
+        let error = refused(&wrong, &gone);
+        assert_eq!(error.code(), "invalid");
+        assert!(error.to_string().contains("not a"), "{error}");
+    }
+}
+
+#[test]
+fn restore_order_refuses_the_instruments_own_key() {
+    // Equal keys leave the order to the identifiers' sort: a MIDI effect or an audio effect
+    // never takes the instrument's key, whatever the identifiers.
+    let MidiChain { chain: c, m1, .. } = midi_chain();
+    let synth_key = c.state.project.tracks[&c.track].devices[&c.synth]
+        .order
+        .clone();
+    for device in [&m1, &c.a] {
+        let same = d(device::Command::RestoreOrder {
+            device: device.clone(),
+            order: synth_key.clone(),
+        });
+        assert_eq!(refused(&same, &c.state).code(), "invalid");
+    }
+}
+
+#[test]
+fn a_track_holds_at_most_sixteen_midi_effects() {
+    let MidiChain { chain: c, .. } = midi_chain();
+    let mut s = c.state.clone();
+    let mut ctx = fresh();
+    for _ in 2..::project::limits::MAX_MIDI_EFFECTS_PER_TRACK {
+        run(&insert(Some(&c.track), MIDI_EFFECT, 0), &mut s, &mut ctx).unwrap();
+    }
+    s.project.validate().unwrap();
+    let error = refused(&insert(Some(&c.track), MIDI_EFFECT, 0), &s);
+    assert_eq!(error.code(), "limit");
+    // Audio effects still go in.
+    run(&insert(Some(&c.track), EFFECT, 0), &mut s, &mut ctx).unwrap();
+}

@@ -74,6 +74,22 @@ const FILES: &[(&str, &str)] = &[
         include_str!("factory/faulk.filter/thin-highpass.json"),
     ),
     (
+        "faulk.stack/major-triad",
+        include_str!("factory/faulk.stack/major-triad.json"),
+    ),
+    (
+        "faulk.stack/minor-triad",
+        include_str!("factory/faulk.stack/minor-triad.json"),
+    ),
+    (
+        "faulk.stack/fifth-and-octave",
+        include_str!("factory/faulk.stack/fifth-and-octave.json"),
+    ),
+    (
+        "faulk.stack/scale-seventh",
+        include_str!("factory/faulk.stack/scale-seventh.json"),
+    ),
+    (
         "faulk.trim/tight-pluck",
         include_str!("factory/faulk.trim/tight-pluck.json"),
     ),

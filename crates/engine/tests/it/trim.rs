@@ -54,6 +54,7 @@ fn transport(bpm: f64, sig: (u8, u8), playing: bool) -> Transport {
         tempo: Tempo::new(bpm).unwrap(),
         signature: TimeSignature::new(sig.0, sig.1).unwrap(),
         position_ticks: 0.0,
+        ..Transport::default()
     }
 }
 
@@ -424,6 +425,33 @@ fn reset_forgets_every_note_and_emits_nothing_after() {
     t.reset();
     assert_eq!(t.sounding(), 0);
     assert!(render(&mut t, 200_000, 2048, &[]).is_empty());
+}
+
+#[test]
+fn reset_with_both_tables_full_takes_constant_time_and_allocates_nothing() {
+    // The engine resets a MIDI effect on the audio thread at each bypass toggle (#219).
+    for trigger in [trim::START, RELEASE] {
+        let mut t = trim_with(
+            SR,
+            &[
+                (DIVISION, trim::DIV_4_BARS as f32),
+                (TRIGGER, trigger as f32),
+            ],
+        );
+        let input: Vec<_> = (0..CAPACITY as u32)
+            .flat_map(|i| {
+                [
+                    (u64::from(i), on(i + 1, 60)),
+                    (u64::from(i), off(i + 1, 60)),
+                ]
+            })
+            .chain((0..CAPACITY as u32).map(|i| (200 + u64::from(i), on(1_000 + i, 64))))
+            .collect();
+        render(&mut t, 1_024, 1_024, &input);
+        assert_eq!(t.sounding(), CAPACITY);
+        assert_no_alloc(|| t.reset());
+        assert_eq!((t.sounding(), t.held()), (0, 0));
+    }
 }
 
 #[test]

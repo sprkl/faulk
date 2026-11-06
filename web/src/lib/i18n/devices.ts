@@ -73,6 +73,39 @@ export const devices = defineFeature(
     'filter.cutoff.hint': 'Frequency, in hertz, where the filter starts to cut, from 20 Hz to 20 kHz.',
     'filter.resonance.hint': 'Boost of the sound around the cutoff, from 0 (none) to 1 (a sharp peak that stays stable).',
     'filter.mix.hint': 'Balance between the dry sound (0) and the filtered sound (1).',
+    'stack.mode.hint':
+      "How the voices' intervals are read: in semitones, or in degrees of the project's scale (a third is two degrees) so the chord stays in key. Without a project scale, in semitones.",
+    'stack.strum.hint': 'Time from the first to the last note of the chord, from 0 (all at once) to 0.4 s: the notes are spread like a strummed guitar.',
+    'stack.tension.hint': "How the strum's gaps change, from -100 % (they widen toward the last note) to +100 % (they tighten); 0 spaces the notes evenly.",
+    'stack.crescendo.hint':
+      'Velocity across the strum: above 0 the notes grow louder toward the last, below 0 softer; at 100 % the first (or last) note is at the lowest velocity.',
+    'stack.direction.hint': 'Order of the strum: up plays from the lowest note to the highest, down from the highest to the lowest.',
+    'stack.seed.hint':
+      'Seed of the chance draws, from 0 to 1000: the same seed gives the same chords on every play from the start; another seed, another draw.',
+    'stack.voice1.hint': 'Whether added voice 1 plays.',
+    'stack.voice1_interval.hint': "Interval of voice 1 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+    'stack.voice1_velocity.hint': "Velocity of voice 1, from 1 to 200 % of the received note's.",
+    'stack.voice1_chance.hint': 'Chance that voice 1 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.',
+    'stack.voice2.hint': 'Whether added voice 2 plays.',
+    'stack.voice2_interval.hint': "Interval of voice 2 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+    'stack.voice2_velocity.hint': "Velocity of voice 2, from 1 to 200 % of the received note's.",
+    'stack.voice2_chance.hint': 'Chance that voice 2 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.',
+    'stack.voice3.hint': 'Whether added voice 3 plays.',
+    'stack.voice3_interval.hint': "Interval of voice 3 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+    'stack.voice3_velocity.hint': "Velocity of voice 3, from 1 to 200 % of the received note's.",
+    'stack.voice3_chance.hint': 'Chance that voice 3 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.',
+    'stack.voice4.hint': 'Whether added voice 4 plays.',
+    'stack.voice4_interval.hint': "Interval of voice 4 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+    'stack.voice4_velocity.hint': "Velocity of voice 4, from 1 to 200 % of the received note's.",
+    'stack.voice4_chance.hint': 'Chance that voice 4 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.',
+    'stack.voice5.hint': 'Whether added voice 5 plays.',
+    'stack.voice5_interval.hint': "Interval of voice 5 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+    'stack.voice5_velocity.hint': "Velocity of voice 5, from 1 to 200 % of the received note's.",
+    'stack.voice5_chance.hint': 'Chance that voice 5 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.',
+    'stack.voice6.hint': 'Whether added voice 6 plays.',
+    'stack.voice6_interval.hint': "Interval of voice 6 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+    'stack.voice6_velocity.hint': "Velocity of voice 6, from 1 to 200 % of the received note's.",
+    'stack.voice6_chance.hint': 'Chance that voice 6 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.',
     'compressor.threshold.hint': 'Level, in decibels, above which the compressor turns the sound down, from -60 to 0 dB.',
     'compressor.ratio.hint':
       'How strongly the sound above the threshold is turned down, from 1 (not at all) to 20: at 4, a signal 8 dB over the threshold comes out 2 dB over it.',
@@ -152,6 +185,46 @@ export const devices = defineFeature(
     'filter.cutoff.hint': 'Fréquence, en hertz, à partir de laquelle le filtre coupe, de 20 Hz à 20 kHz.',
     'filter.resonance.hint': 'Renforcement du son autour de la fréquence de coupure, de 0 (aucun) à 1 (un pic net qui reste stable).',
     'filter.mix.hint': 'Équilibre entre le son direct (0) et le son filtré (1).',
+    'stack.mode.hint':
+      'Comment lire les intervalles des voix : en demi-tons, ou en degrés de la gamme du projet (une tierce vaut deux degrés) pour que l’accord reste dans la tonalité. Sans gamme réglée, en demi-tons.',
+    'stack.strum.hint': 'Temps entre la première et la dernière note de l’accord, de 0 (toutes ensemble) à 0,4 s : les notes s’égrènent comme sur une guitare.',
+    'stack.tension.hint':
+      'Comment évoluent les écarts de l’égrenage, de -100 % (ils s’étalent vers la dernière note) à +100 % (ils se resserrent) ; 0 espace les notes également.',
+    'stack.crescendo.hint':
+      'Vélocité le long de l’égrenage : au-dessus de 0 les notes montent vers la dernière, en dessous elles baissent ; à 100 % la première (ou la dernière) est à la vélocité la plus basse.',
+    'stack.direction.hint': 'Ordre de l’égrenage : montant joue de la note la plus grave à la plus aiguë, descendant de la plus aiguë à la plus grave.',
+    'stack.seed.hint':
+      'Graine des tirages de chance, de 0 à 1000 : la même graine donne les mêmes accords à chaque lecture depuis le début ; une autre graine, un autre tirage.',
+    'stack.voice1.hint': 'Si la voix ajoutée 1 joue.',
+    'stack.voice1_interval.hint':
+      'Intervalle de la voix 1 depuis la note reçue, de -36 à +36 : en demi-tons, ou en degrés de la gamme du projet dans le mode gamme.',
+    'stack.voice1_velocity.hint': 'Vélocité de la voix 1, de 1 à 200 % de celle de la note reçue.',
+    'stack.voice1_chance.hint': 'Chance que la voix 1 joue à chaque note reçue, de 0 à 100 % : un tirage reproductible, fixé par la graine.',
+    'stack.voice2.hint': 'Si la voix ajoutée 2 joue.',
+    'stack.voice2_interval.hint':
+      'Intervalle de la voix 2 depuis la note reçue, de -36 à +36 : en demi-tons, ou en degrés de la gamme du projet dans le mode gamme.',
+    'stack.voice2_velocity.hint': 'Vélocité de la voix 2, de 1 à 200 % de celle de la note reçue.',
+    'stack.voice2_chance.hint': 'Chance que la voix 2 joue à chaque note reçue, de 0 à 100 % : un tirage reproductible, fixé par la graine.',
+    'stack.voice3.hint': 'Si la voix ajoutée 3 joue.',
+    'stack.voice3_interval.hint':
+      'Intervalle de la voix 3 depuis la note reçue, de -36 à +36 : en demi-tons, ou en degrés de la gamme du projet dans le mode gamme.',
+    'stack.voice3_velocity.hint': 'Vélocité de la voix 3, de 1 à 200 % de celle de la note reçue.',
+    'stack.voice3_chance.hint': 'Chance que la voix 3 joue à chaque note reçue, de 0 à 100 % : un tirage reproductible, fixé par la graine.',
+    'stack.voice4.hint': 'Si la voix ajoutée 4 joue.',
+    'stack.voice4_interval.hint':
+      'Intervalle de la voix 4 depuis la note reçue, de -36 à +36 : en demi-tons, ou en degrés de la gamme du projet dans le mode gamme.',
+    'stack.voice4_velocity.hint': 'Vélocité de la voix 4, de 1 à 200 % de celle de la note reçue.',
+    'stack.voice4_chance.hint': 'Chance que la voix 4 joue à chaque note reçue, de 0 à 100 % : un tirage reproductible, fixé par la graine.',
+    'stack.voice5.hint': 'Si la voix ajoutée 5 joue.',
+    'stack.voice5_interval.hint':
+      'Intervalle de la voix 5 depuis la note reçue, de -36 à +36 : en demi-tons, ou en degrés de la gamme du projet dans le mode gamme.',
+    'stack.voice5_velocity.hint': 'Vélocité de la voix 5, de 1 à 200 % de celle de la note reçue.',
+    'stack.voice5_chance.hint': 'Chance que la voix 5 joue à chaque note reçue, de 0 à 100 % : un tirage reproductible, fixé par la graine.',
+    'stack.voice6.hint': 'Si la voix ajoutée 6 joue.',
+    'stack.voice6_interval.hint':
+      'Intervalle de la voix 6 depuis la note reçue, de -36 à +36 : en demi-tons, ou en degrés de la gamme du projet dans le mode gamme.',
+    'stack.voice6_velocity.hint': 'Vélocité de la voix 6, de 1 à 200 % de celle de la note reçue.',
+    'stack.voice6_chance.hint': 'Chance que la voix 6 joue à chaque note reçue, de 0 à 100 % : un tirage reproductible, fixé par la graine.',
     'compressor.threshold.hint': 'Niveau, en décibels, au-dessus duquel le compresseur baisse le son, de -60 à 0 dB.',
     'compressor.ratio.hint':
       'Force avec laquelle le son au-dessus du seuil est baissé, de 1 (pas du tout) à 20 : à 4, un signal 8 dB au-dessus du seuil ressort 2 dB au-dessus.',

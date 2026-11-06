@@ -97,7 +97,8 @@ export function applyItem(host: DropHost, item: BrowserItem, target: DropTarget)
   if (at.type === 'selection') {
     const selected = host.selectedTrack()
     // The master shows its own chain: an effect goes there; an instrument has no track in view to replace, so it starts one.
-    if (host.masterSelected()) at = item.category === 'instrument' ? { type: 'new-track' } : { type: 'master' }
+    // A MIDI effect plays on notes: like an instrument, it starts a MIDI track of its own.
+    if (host.masterSelected()) at = item.category === 'effect' ? { type: 'master' } : { type: 'new-track' }
     else at = selected ? { type: 'track', track: selected } : { type: 'new-track' }
   }
   if (at.type === 'master' && item.category === 'instrument') return refused('browser.said.noInstrumentOnMaster')

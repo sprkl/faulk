@@ -38,7 +38,7 @@ use crate::query::{DeviceKindInfo, DeviceSummary};
 use engine::device::{DeviceDescriptor, DeviceRole as EngineRole};
 use engine::devices::{Builtin, REGISTRY};
 use engine::{Param, Synth};
-use project::limits::MAX_DEVICES_PER_TRACK;
+use project::limits::{MAX_DEVICES_PER_TRACK, MAX_MIDI_EFFECTS_PER_TRACK};
 use project::order::by_order;
 use project::{
     AutomationLane, AutomationTarget, CLIP_PLAYER, Device, DeviceId, DeviceRole, DeviceSource,
@@ -457,6 +457,12 @@ pub(crate) fn check_device(
         return Ok(());
     };
     if kind == CLIP_PLAYER {
+        if device.role != DeviceRole::Instrument {
+            return Err(invalid(
+                "snapshot",
+                format!("device {id}: the clip player is an instrument"),
+            ));
+        }
         if !device.params.is_empty() {
             return Err(invalid(
                 "snapshot",
@@ -469,6 +475,19 @@ pub(crate) fn check_device(
         .iter()
         .find(|b| b.descriptor.kind == kind)
         .ok_or_else(|| invalid("snapshot", format!("device {id}: unknown device {kind}")))?;
+    // The role is the kind's (#219): a role the descriptor does not have would put the device
+    // in the wrong section of the chain, where the engine runs it as what it is.
+    let role = match builtin.descriptor.role {
+        EngineRole::Instrument => DeviceRole::Instrument,
+        EngineRole::Effect => DeviceRole::Effect,
+        EngineRole::MidiEffect => DeviceRole::MidiEffect,
+    };
+    if device.role != role {
+        return Err(invalid(
+            "snapshot",
+            format!("device {id}: {kind} is a {role:?}, not a {:?}", device.role),
+        ));
+    }
     if let Some(param) = device.params.keys().find(|k| {
         !builtin
             .descriptor
@@ -583,6 +602,18 @@ fn insert(
     let devices = chain_mut(state, place)?;
     if devices.len() >= MAX_DEVICES_PER_TRACK {
         return Err(limit());
+    }
+    if role == DeviceRole::MidiEffect
+        && devices
+            .values()
+            .filter(|d| d.role == DeviceRole::MidiEffect)
+            .count()
+            >= MAX_MIDI_EFFECTS_PER_TRACK
+    {
+        return Err(CommandError::Limit {
+            entity: "MIDI effects".into(),
+            max: MAX_MIDI_EFFECTS_PER_TRACK as u64,
+        });
     }
     let key = key_at(
         devices,
@@ -836,10 +867,12 @@ fn restore_order(
     }
     let before = std::mem::replace(&mut device.order, order.clone());
     // The chain keeps its order: MIDI effects, instrument, audio effects (the master's chain
-    // holds audio effects only: any position holds).
-    let in_order = by_order(&*devices, |d| &d.order)
-        .windows(2)
-        .all(|w| rank(w[0].1.role) <= rank(w[1].1.role));
+    // holds audio effects only: any position holds). A key equal to the one of a device of
+    // another role would leave their order to the identifiers' sort: refused too.
+    let in_order = by_order(&*devices, |d| &d.order).windows(2).all(|w| {
+        let (a, b) = (w[0].1, w[1].1);
+        rank(a.role) <= rank(b.role) && (a.role == b.role || a.order != b.order)
+    });
     if !in_order {
         if let Some(device) = devices.get_mut(device_id) {
             device.order = before;
