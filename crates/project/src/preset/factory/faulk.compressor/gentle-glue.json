@@ -4,11 +4,11 @@
   "format": 1,
   "name": "Gentle Glue",
   "params": {
-    "attack": 0.1,
-    "makeup": 3.5,
-    "ratio": 3.0,
-    "release": 0.5,
-    "threshold": -21.0
+    "attack": 0.0001,
+    "makeup": 9.3,
+    "ratio": 8.0,
+    "release": 0.02,
+    "threshold": -22.0
   },
   "version": 1
 }

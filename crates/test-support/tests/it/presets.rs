@@ -288,6 +288,33 @@ const DISTINCT_DB: f32 = 3.0;
 /// that the list only shrinks. Empty since #801 retuned the last three.
 const KNOWN_ALIKE: &[(&str, &str)] = &[];
 
+const COMPRESSOR: &str = "faulk.compressor";
+
+/// A compressor is measured against its source on its crest factor (peak over RMS), not on the
+/// spectrum: a glue compressor must stay discreet in spectrum, and judged by the spectral
+/// distance it would pass by merely turning the mix down. It must take at least this much off
+/// the crest factor of the source (it is still compared with the device's other presets).
+const MIN_CREST_REDUCTION_DB: f32 = 2.0;
+
+/// Glue compressors, which make up for their gain reduction: their output RMS stays within
+/// `LEVEL_MATCH_DB` of the source's, so that what is heard is the compression, not a quieter mix.
+const LEVEL_MATCHED: &[&str] = &["faulk.compressor/gentle-glue"];
+const LEVEL_MATCH_DB: f32 = 1.0;
+
+fn measured() -> std::ops::Range<f32> {
+    LOAD_AT + 0.1..LOAD_AT + AFTER as f32 * STEP
+}
+
+/// Peak over RMS, in dB, over the bar after the load.
+fn crest_db(render: &Render) -> f32 {
+    let w = measured();
+    20.0 * (render.peak_in(w.clone()) / render.rms_in(w).max(1e-9)).log10()
+}
+
+fn level_db(render: &Render) -> f32 {
+    20.0 * render.rms_in(measured()).max(1e-9).log10()
+}
+
 fn qa_dir(name: &str) -> PathBuf {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../.qa")
@@ -336,8 +363,11 @@ fn every_factory_preset_loads_while_playing_and_sounds_unlike_its_source_and_its
         let grid = spectrogram(&with_preset);
         let mut line = format!("{}: peak {:.3}", f.id, with_preset.peak());
         let siblings = heard.entry(kind.to_owned()).or_default();
+        // A compressor is judged on its crest factor, not on its spectrum (see `crest_db`).
+        let against_source = kind != COMPRESSOR;
         let others = refs
             .iter()
+            .filter(|_| against_source)
             .map(|(name, g)| (name.as_str(), g))
             .chain(siblings.iter().map(|(id, g, _)| (id.as_str(), g)));
         for (name, other) in others {
@@ -353,6 +383,27 @@ fn every_factory_preset_loads_while_playing_and_sounds_unlike_its_source_and_its
                 } else {
                     format!("{} sounds like {name} ({d:.2} dB)", f.id)
                 });
+            }
+        }
+        if LEVEL_MATCHED.contains(&f.id) {
+            let source = render_native(effect_session(Setup::Source).scenario());
+            let reduced = crest_db(&source) - crest_db(&with_preset);
+            let level = level_db(&with_preset) - level_db(&source);
+            let _ = write!(
+                line,
+                ", crest {reduced:.2} dB under the source, level {level:+.2} dB"
+            );
+            if reduced < MIN_CREST_REDUCTION_DB {
+                failures.push(format!(
+                    "{} barely compresses ({reduced:.2} dB of crest factor, under                      {MIN_CREST_REDUCTION_DB} dB)",
+                    f.id
+                ));
+            }
+            if level.abs() > LEVEL_MATCH_DB {
+                failures.push(format!(
+                    "{} is {level:+.2} dB from the source's level (over {LEVEL_MATCH_DB} dB)",
+                    f.id
+                ));
             }
         }
         println!("{line}");
