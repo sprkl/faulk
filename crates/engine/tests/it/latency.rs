@@ -29,6 +29,38 @@ use engine::msg::{
 use engine::time::{Quantize, Tempo, Tick, TimeSignature};
 
 const BLOCK: usize = 128;
+
+/// Every built-in device's latency stays within the longest it declares, at its defaults and
+/// with each parameter at its maximum, at 44.1, 48, 96 and 192 kHz: the graph sizes the bypass
+/// line, and holds a device's fade in for its warm-up, from that bound.
+#[test]
+fn no_builtin_reports_more_latency_than_it_declares() {
+    for rate in [44_100.0, 48_000.0, 96_000.0, 192_000.0] {
+        let setup = DeviceSetup {
+            sample_rate: rate,
+            ..DeviceSetup::default()
+        };
+        for builtin in engine::devices::REGISTRY {
+            let mut device = (builtin.factory)(&setup).unwrap();
+            let kind = builtin.descriptor.kind;
+            assert!(
+                device.latency_frames() <= device.max_latency_frames(),
+                "{kind} at {rate} Hz, its defaults"
+            );
+            // Before any frame since the build, a latency change applies at once.
+            for p in builtin.descriptor.params {
+                device.set_param(p.id, p.max as f32);
+            }
+            assert!(
+                device.latency_frames() <= device.max_latency_frames(),
+                "{kind} at {rate} Hz, every parameter at its maximum: {} > {}",
+                device.latency_frames(),
+                device.max_latency_frames()
+            );
+        }
+    }
+}
+
 /// A note of the test tone (220 Hz).
 const NOTE: u8 = 57;
 

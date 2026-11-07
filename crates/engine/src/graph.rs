@@ -3279,8 +3279,8 @@ fn run_chain(
                     // the delayed signal, its fade held at 0. At a latency of 0 nothing is in
                     // flight: it fades in at once, as a device without a line does (a Compressor
                     // with no look-ahead renders the samples it rendered before #749).
-                    let held = holding
-                        || (entry.enabled && entry.fade <= 0.0 && (b.warm < latency || waits));
+                    let held =
+                        holding || (entry.enabled && entry.fade <= 0.0 && (b.warm < own || waits));
                     if settled_off {
                         b.off = true;
                         b.warm = 0;
