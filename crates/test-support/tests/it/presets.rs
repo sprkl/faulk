@@ -284,15 +284,9 @@ fn distance(a: &[f32], b: &[f32]) -> f32 {
 /// 2.08 dB apart and 1.6 dB from the source.
 const DISTINCT_DB: f32 = 3.0;
 
-/// Presets known to sound like what they are compared with, measured when this test came
-/// (#156) and left to their own devices' owners: each pair must still be alike, so that the
-/// list only shrinks.
-const KNOWN_ALIKE: &[(&str, &str)] = &[
-    // A gentle bus compressor: 0.92 dB from the source.
-    ("faulk.compressor/gentle-glue", "the source"),
-    // A short room: 2.16 dB from the source.
-    ("faulk.reverb/small-room", "the source"),
-];
+/// Presets known to sound like what they are compared with: each pair must still be alike, so
+/// that the list only shrinks. Empty since #801 retuned the last three.
+const KNOWN_ALIKE: &[(&str, &str)] = &[];
 
 fn qa_dir(name: &str) -> PathBuf {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))

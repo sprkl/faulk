@@ -5,10 +5,10 @@
   "name": "Slapback",
   "params": {
     "division": 5.0,
-    "feedback": 0.1,
-    "mix": 0.35,
+    "feedback": 0.25,
+    "mix": 0.6,
     "mode": 0.0,
-    "time": 0.11,
+    "time": 0.09,
     "time_change": 0.0
   },
   "version": 1
