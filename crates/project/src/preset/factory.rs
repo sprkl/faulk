@@ -74,6 +74,30 @@ const FILES: &[(&str, &str)] = &[
         include_str!("factory/faulk.filter/thin-highpass.json"),
     ),
     (
+        "faulk.filter/quarter-wobble",
+        include_str!("factory/faulk.filter/quarter-wobble.json"),
+    ),
+    (
+        "faulk.filter/slow-sweep",
+        include_str!("factory/faulk.filter/slow-sweep.json"),
+    ),
+    (
+        "faulk.filter/talking-filter",
+        include_str!("factory/faulk.filter/talking-filter.json"),
+    ),
+    (
+        "faulk.filter/random-steps",
+        include_str!("factory/faulk.filter/random-steps.json"),
+    ),
+    (
+        "faulk.ceiling/safe-master",
+        include_str!("factory/faulk.ceiling/safe-master.json"),
+    ),
+    (
+        "faulk.ceiling/loud-master",
+        include_str!("factory/faulk.ceiling/loud-master.json"),
+    ),
+    (
         "faulk.stack/major-triad",
         include_str!("factory/faulk.stack/major-triad.json"),
     ),
@@ -96,6 +120,42 @@ const FILES: &[(&str, &str)] = &[
     (
         "faulk.trim/held-bar",
         include_str!("factory/faulk.trim/held-bar.json"),
+    ),
+    (
+        "faulk.lattice/black-keys",
+        include_str!("factory/faulk.lattice/black-keys.json"),
+    ),
+    (
+        "faulk.lattice/blues-in-c",
+        include_str!("factory/faulk.lattice/blues-in-c.json"),
+    ),
+    (
+        "faulk.lattice/root-and-fifth",
+        include_str!("factory/faulk.lattice/root-and-fifth.json"),
+    ),
+    (
+        "faulk.scatter/octave-leaps",
+        include_str!("factory/faulk.scatter/octave-leaps.json"),
+    ),
+    (
+        "faulk.scatter/scale-wander",
+        include_str!("factory/faulk.scatter/scale-wander.json"),
+    ),
+    (
+        "faulk.scatter/rising-thirds",
+        include_str!("factory/faulk.scatter/rising-thirds.json"),
+    ),
+    (
+        "faulk.hiccup/half-bar-stutter",
+        include_str!("factory/faulk.hiccup/half-bar-stutter.json"),
+    ),
+    (
+        "faulk.hiccup/drum-roll",
+        include_str!("factory/faulk.hiccup/drum-roll.json"),
+    ),
+    (
+        "faulk.hiccup/tape-scatter",
+        include_str!("factory/faulk.hiccup/tape-scatter.json"),
     ),
     (
         "faulk.bloom/soft-chorus",

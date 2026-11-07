@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { FeedbackReport } from './engine/feedback'
 import { offTimeline } from './off-timeline'
 
-const slots = { epoch: 3, tracks: { a: 0, b: 1, c: 2 }, scenes: { s: 0 } }
+const slots = { epoch: 3, tracks: { a: 0, b: 1, c: 2 }, scenes: { s: 0 }, devices: {} }
 const report = (clips: FeedbackReport['clips'], held: number[], epoch = 3) => ({ epoch, clips, held })
 const cell = (track: number, state: FeedbackReport['clips'][number]['state']) => ({ track, scene: 0, state, anchor: 0 })
 

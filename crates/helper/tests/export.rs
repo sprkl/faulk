@@ -431,6 +431,7 @@ async fn a_cancel_mid_render_leaves_no_file_and_no_temporary_file() {
     assert_eq!(failed_code(&ended.end), errors::EXPORT_CANCELLED);
     nothing_written(&h.song);
     assert!(!h.shared.export_running());
+    assert_eq!(h.shared.export_threads(), 0, "a run told its end is over");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -520,9 +521,13 @@ async fn a_page_gone_mid_render_leaves_no_file_and_frees_the_helper() {
             break;
         }
     }
+    assert!(h.shared.export_running());
+    assert_eq!(h.shared.export_threads(), 1, "the run's thread is counted");
     drop(ws);
+    // The slot is freed as soon as the helper sees the page gone, while the run's thread still
+    // unwinds: the folder is checked once that thread is over too, its write dropped (#792).
     let deadline = Instant::now() + Duration::from_secs(30);
-    while h.shared.export_running() {
+    while h.shared.export_running() || h.shared.export_threads() > 0 {
         assert!(Instant::now() < deadline, "the export never stopped");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
@@ -679,6 +684,7 @@ async fn an_export_started_right_after_a_cancel_is_not_refused_busy() {
     assert_eq!(second.as_deref(), Some("exports/Short.wav"));
     assert!(!h.song.join("exports").join("Long.wav").exists());
     assert!(files(&h.song.join(".faulk").join("tmp")).is_empty());
+    assert_eq!(h.shared.export_threads(), 0, "both runs are over");
 }
 
 /// A watch whose export is cancelled once its render is over: the cancel reaches the run between

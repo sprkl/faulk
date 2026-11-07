@@ -1154,3 +1154,341 @@ fn the_helper_removes_only_a_plain_file_it_names_outside_the_reserved_zones() {
     );
     assert_eq!(fs::read(s.outside.join("canary.txt")).unwrap(), b"canary");
 }
+
+// ---------------------------------------------------------------- the media write (#778)
+
+/// A hash to name a media by.
+fn media_hash(seed: u8) -> project::Hash {
+    project::Hash([seed; 32])
+}
+
+/// Writes `bytes` as the media file `kind` of `hash` through the hash-addressed write.
+fn put_media(
+    folder: &ProjectFolder,
+    kind: MediaFile,
+    hash: &project::Hash,
+    bytes: &[u8],
+) -> Result<bool, PathError> {
+    let mut w = folder.begin_media()?;
+    w.write(bytes)?;
+    w.commit_media(kind, hash)
+}
+
+/// The names in `.faulk/tmp/` of `root`.
+fn temp_files(root: &Path) -> Vec<String> {
+    fs::read_dir(root.join(".faulk").join("tmp"))
+        .map(|d| {
+            d.map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The directory holding `dirs`' last component, below `root`.
+fn parent_of(root: &Path, dirs: &[&str]) -> PathBuf {
+    let mut parent = root.to_path_buf();
+    for d in &dirs[..dirs.len() - 1] {
+        parent.push(d);
+    }
+    parent
+}
+
+#[test]
+fn a_media_write_lands_at_the_place_its_hash_names_and_leaves_no_temporary_file() {
+    let s = setup("media");
+    let h = media_hash(0xab);
+    assert!(put_media(&s.folder, MediaFile::Blob, &h, b"blob").unwrap());
+    assert!(put_media(&s.folder, MediaFile::Pcm, &h, b"pcm").unwrap());
+    assert!(put_media(&s.folder, MediaFile::Peaks, &h, b"peaks").unwrap());
+    let hex = h.to_string();
+    assert_eq!(fs::read(s.root.join("blobs").join(&hex)).unwrap(), b"blob");
+    assert_eq!(
+        fs::read(s.root.join(format!(".faulk/cache/pcm/{hex}.pcm"))).unwrap(),
+        b"pcm"
+    );
+    assert_eq!(
+        fs::read(s.root.join(format!(".faulk/cache/peaks/{hex}.peaks"))).unwrap(),
+        b"peaks"
+    );
+    assert!(temp_files(&s.root).is_empty());
+    // A blob is never replaced (one blob per file: the one there is kept, `false`); a cache is.
+    assert!(!put_media(&s.folder, MediaFile::Blob, &h, b"other").unwrap());
+    assert_eq!(fs::read(s.root.join("blobs").join(&hex)).unwrap(), b"blob");
+    assert!(put_media(&s.folder, MediaFile::Pcm, &h, b"pcm 2").unwrap());
+    assert_eq!(
+        fs::read(s.root.join(format!(".faulk/cache/pcm/{hex}.pcm"))).unwrap(),
+        b"pcm 2"
+    );
+    assert!(
+        temp_files(&s.root).is_empty(),
+        "the kept blob's copy is gone"
+    );
+    // A media write is committed by its hash only, a path write by its path only.
+    let w = s.folder.begin("exports/a.wav").unwrap();
+    assert!(matches!(
+        w.commit_media(MediaFile::Blob, &h),
+        Err(PathError::Io(_))
+    ));
+    let w = s.folder.begin_media().unwrap();
+    assert!(matches!(
+        w.commit(Collision::Replace),
+        Err(PathError::Io(_))
+    ));
+    assert!(temp_files(&s.root).is_empty());
+}
+
+#[test]
+fn a_media_write_dropped_before_its_commit_leaves_nothing() {
+    let s = setup("media-drop");
+    {
+        let mut w = s.folder.begin_media().unwrap();
+        w.write(b"half").unwrap();
+    }
+    assert!(temp_files(&s.root).is_empty());
+    assert!(!s.root.join("blobs").exists());
+}
+
+#[test]
+fn a_folder_replaced_between_a_media_writes_start_and_its_commit_gets_nothing() {
+    for replacement in ["another project", "a link leading out"] {
+        let s = setup("media-swap");
+        let parent = s.root.parent().unwrap().to_path_buf();
+        let moved = parent.join("Song-moved");
+        let decoy = project_dir(&parent, "decoy", PROJECT);
+        let mut w = s.folder.begin_media().unwrap();
+        w.write(b"attack").unwrap();
+        w.finish().unwrap();
+        fs::rename(&s.root, &moved).unwrap();
+        if replacement == "another project" {
+            project_dir(&parent, "Song", OTHER);
+        } else {
+            dir_link(&decoy, &s.root);
+        }
+        assert_eq!(
+            w.commit_media(MediaFile::Blob, &media_hash(1)).unwrap_err(),
+            PathError::FolderChanged,
+            "{replacement}"
+        );
+        for dir in [&s.root, &moved, &decoy] {
+            assert!(
+                !dir.join("blobs").exists(),
+                "{replacement}: no blob in {}",
+                dir.display()
+            );
+        }
+    }
+}
+
+#[test]
+fn a_media_folder_that_is_a_link_is_refused_leading_out_or_staying_inside() {
+    for kind in [MediaFile::Blob, MediaFile::Pcm, MediaFile::Peaks] {
+        let dirs = kind.dirs();
+        let last = dirs[dirs.len() - 1];
+        // Leading out: the outside folder gets nothing.
+        let s = setup("media-link-out");
+        fs::create_dir_all(parent_of(&s.root, dirs)).unwrap();
+        dir_link(&s.outside, &parent_of(&s.root, dirs).join(last));
+        assert_eq!(
+            put_media(&s.folder, kind, &media_hash(2), b"attack").unwrap_err(),
+            PathError::Escapes,
+            "{kind:?} out"
+        );
+        assert_eq!(
+            listing(&s.outside).len(),
+            1,
+            "{kind:?}: only the canary outside"
+        );
+        assert!(temp_files(&s.root).is_empty());
+        // Staying inside (to `tracks/`): a media file never lands among the project's files.
+        let s = setup("media-link-in");
+        fs::create_dir_all(s.root.join("tracks")).unwrap();
+        fs::create_dir_all(parent_of(&s.root, dirs)).unwrap();
+        dir_link(&s.root.join("tracks"), &parent_of(&s.root, dirs).join(last));
+        assert_eq!(
+            put_media(&s.folder, kind, &media_hash(3), b"attack").unwrap_err(),
+            PathError::Escapes,
+            "{kind:?} in"
+        );
+        assert!(
+            fs::read_dir(s.root.join("tracks"))
+                .unwrap()
+                .next()
+                .is_none()
+        );
+    }
+    // `.faulk/cache` itself leading out, for the caches.
+    let s = setup("media-cache-out");
+    fs::create_dir_all(s.root.join(".faulk")).unwrap();
+    dir_link(&s.outside, &s.root.join(".faulk").join("cache"));
+    assert_eq!(
+        put_media(&s.folder, MediaFile::Pcm, &media_hash(4), b"attack").unwrap_err(),
+        PathError::Escapes
+    );
+    assert_eq!(listing(&s.outside).len(), 1);
+}
+
+#[test]
+fn a_media_write_through_a_temporary_folder_that_is_a_link_is_refused_before_anything_is_made() {
+    let s = setup("media-tmplink");
+    fs::create_dir_all(s.root.join(".faulk")).unwrap();
+    dir_link(&s.outside, &s.root.join(".faulk").join("tmp"));
+    let before = s.snapshot();
+    assert_eq!(s.folder.begin_media().unwrap_err(), PathError::Escapes);
+    assert_eq!(s.snapshot(), before);
+}
+
+#[test]
+fn a_blob_that_is_a_link_or_a_folder_is_never_taken_for_the_blob_nor_written_through() {
+    let s = setup("blob-link");
+    fs::create_dir_all(s.root.join("blobs")).unwrap();
+    // A folder where the blob goes: refused, typed.
+    let h = media_hash(5);
+    fs::create_dir_all(s.root.join("blobs").join(h.to_string())).unwrap();
+    assert_eq!(
+        put_media(&s.folder, MediaFile::Blob, &h, b"x").unwrap_err(),
+        PathError::IsDirectory
+    );
+    // A file link leading out: refused, the outside file untouched.
+    let h = media_hash(6);
+    if file_link(
+        &s.outside.join("canary.txt"),
+        &s.root.join("blobs").join(h.to_string()),
+    ) {
+        assert_eq!(
+            put_media(&s.folder, MediaFile::Blob, &h, b"attack").unwrap_err(),
+            PathError::Escapes
+        );
+        assert_eq!(fs::read(s.outside.join("canary.txt")).unwrap(), b"canary");
+    }
+    // A directory link leading out at the blob's name: refused too.
+    let h = media_hash(7);
+    dir_link(&s.outside, &s.root.join("blobs").join(h.to_string()));
+    assert_eq!(
+        put_media(&s.folder, MediaFile::Blob, &h, b"attack").unwrap_err(),
+        PathError::Escapes
+    );
+    assert_eq!(listing(&s.outside).len(), 1);
+    // A file link staying inside the folder (to a project file): no blob either.
+    let h = media_hash(9);
+    fs::create_dir_all(s.root.join("tracks")).unwrap();
+    fs::write(s.root.join("tracks").join("a.json"), b"{}").unwrap();
+    if file_link(
+        &s.root.join("tracks").join("a.json"),
+        &s.root.join("blobs").join(h.to_string()),
+    ) {
+        assert_eq!(
+            put_media(&s.folder, MediaFile::Blob, &h, b"audio").unwrap_err(),
+            PathError::Escapes
+        );
+        assert_eq!(
+            fs::read(s.root.join("tracks").join("a.json")).unwrap(),
+            b"{}"
+        );
+    }
+    // A directory link staying inside the folder at the blob's name: refused too.
+    let h = media_hash(10);
+    dir_link(
+        &s.root.join("tracks"),
+        &s.root.join("blobs").join(h.to_string()),
+    );
+    assert!(put_media(&s.folder, MediaFile::Blob, &h, b"audio").is_err());
+    assert!(temp_files(&s.root).is_empty());
+}
+
+#[test]
+fn a_cache_that_is_a_link_is_replaced_itself_never_written_through() {
+    let s = setup("cache-link");
+    let h = media_hash(8);
+    fs::create_dir_all(s.root.join(".faulk").join("cache").join("pcm")).unwrap();
+    let at = s.root.join(format!(".faulk/cache/pcm/{h}.pcm"));
+    if !file_link(&s.outside.join("canary.txt"), &at) {
+        return;
+    }
+    assert!(put_media(&s.folder, MediaFile::Pcm, &h, b"pcm").unwrap());
+    assert_eq!(fs::read(s.outside.join("canary.txt")).unwrap(), b"canary");
+    assert!(!fs::symlink_metadata(&at).unwrap().file_type().is_symlink());
+    assert_eq!(fs::read(&at).unwrap(), b"pcm");
+}
+
+// ---------------------------------------------------------------- an import's source (#778)
+
+#[test]
+fn a_source_of_the_folder_opens_and_every_other_is_refused_by_its_typed_error() {
+    let s = setup("source");
+    fs::create_dir_all(s.root.join("imports").join("dir")).unwrap();
+    fs::write(s.root.join("imports").join("kick.wav"), b"wav").unwrap();
+    fs::create_dir_all(s.root.join("blobs")).unwrap();
+    fs::write(s.root.join("blobs").join("ab"), b"blob").unwrap();
+    fs::create_dir_all(s.root.join(".faulk").join("tmp")).unwrap();
+    fs::write(
+        s.root.join(".faulk").join("tmp").join("helper-x.tmp"),
+        b"half",
+    )
+    .unwrap();
+    let read = |path: &str| -> Result<Vec<u8>, PathError> {
+        let mut source = s.folder.open_source(path)?;
+        let mut bytes = Vec::new();
+        source.file.read_to_end(&mut bytes).unwrap();
+        assert_eq!(source.len, bytes.len() as u64);
+        Ok(bytes)
+    };
+    assert_eq!(read("imports/kick.wav").unwrap(), b"wav");
+    assert_eq!(read("blobs/ab").unwrap(), b"blob", "a blob already there");
+    for (path, error) in [
+        ("../outside/canary.txt", PathError::Dot),
+        ("/etc/passwd", PathError::Absolute),
+        ("C:/x", PathError::Colon),
+        ("imports\\kick.wav", PathError::Backslash),
+        ("imports/./kick.wav", PathError::Dot),
+        ("imports/kick.wav.", PathError::Trailing),
+        ("NUL.wav", PathError::Device),
+        (".faulk/tmp/helper-x.tmp", PathError::Reserved),
+        (".Faulk/tmp/helper-x.tmp", PathError::Reserved),
+        (".git/config", PathError::Reserved),
+        (".gitignore", PathError::Reserved),
+        ("imports/missing.wav", PathError::NotFound),
+        ("imports/dir", PathError::IsDirectory),
+    ] {
+        assert_eq!(read(path).unwrap_err(), error, "{path}");
+    }
+    // A link inside the folder to `.faulk/`: the canonical path is checked again.
+    dir_link(&s.root.join(".faulk"), &s.root.join("in"));
+    assert_eq!(
+        read("in/tmp/helper-x.tmp").unwrap_err(),
+        PathError::Reserved
+    );
+    // A link leading out, a folder or a file.
+    dir_link(&s.outside, &s.root.join("out"));
+    assert_eq!(read("out/canary.txt").unwrap_err(), PathError::Escapes);
+    if file_link(
+        &s.outside.join("canary.txt"),
+        &s.root.join("imports").join("l.wav"),
+    ) {
+        assert_eq!(read("imports/l.wav").unwrap_err(), PathError::Escapes);
+    }
+    // A short name of `.faulk`, where the volume makes them.
+    if s.root.join("FAULK~1").exists() {
+        assert_eq!(
+            read("FAULK~1/tmp/helper-x.tmp").unwrap_err(),
+            PathError::Reserved
+        );
+    } else {
+        eprintln!("skipped the short name: this volume makes no 8.3 names");
+    }
+}
+
+#[test]
+fn a_source_is_read_only_while_the_folder_is_the_one_opened() {
+    let s = setup("source-swap");
+    fs::create_dir_all(s.root.join("imports")).unwrap();
+    fs::write(s.root.join("imports").join("kick.wav"), b"wav").unwrap();
+    let parent = s.root.parent().unwrap().to_path_buf();
+    fs::rename(&s.root, parent.join("Song-moved")).unwrap();
+    project_dir(&parent, "Song", OTHER);
+    fs::create_dir_all(s.root.join("imports")).unwrap();
+    fs::write(s.root.join("imports").join("kick.wav"), b"decoy").unwrap();
+    assert_eq!(
+        s.folder.open_source("imports/kick.wav").unwrap_err(),
+        PathError::FolderChanged
+    );
+}

@@ -419,6 +419,13 @@ pub fn live_examples() -> Vec<(Command, State)> {
             }),
             f.state.clone(),
         ),
+        (
+            c(clip::Command::ImportAudioFile {
+                track: f.audio_track.clone(),
+                path: "imports/kick 01.wav".into(),
+            }),
+            f.state.clone(),
+        ),
         (c(clip::Command::CancelAudioImport {}), f.state),
     ]
 }

@@ -292,8 +292,8 @@ describe('the shipped engine module, two instances on one shared memory', () => 
   })
 
   it('turns a refused memory.grow into a typed error and keeps playing', () => {
-    // A memory capped at 20 MiB (16 MiB initial) stands in for the 4 GiB cap.
-    const memory = sharedMemory(320)
+    // A memory capped at 24 MiB (16 MiB initial) stands in for the 4 GiB cap.
+    const memory = sharedMemory(384)
     const { prepare, render, ch } = channel(memory)
     const session = steps('session.stream')
     for (const step of session) {

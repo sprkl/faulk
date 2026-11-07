@@ -3,7 +3,7 @@ import type { FeedbackReport, RecordedNote } from '../engine/feedback'
 import type { Command, ProjectEvent, ViewSlots } from '../generated/protocol'
 import { GIVE_UP_MS, Recorder, SETTLE_MS } from './recorder.svelte'
 
-const SLOTS: ViewSlots = { epoch: 1, tracks: { a: 0, b: 1 }, scenes: { s1: 0, s2: 1 } }
+const SLOTS: ViewSlots = { epoch: 1, tracks: { a: 0, b: 1 }, scenes: { s1: 0, s2: 1 }, devices: {} }
 
 function rig(applies = true, mode: 'web' | 'native' = 'web') {
   let now = 0
@@ -41,6 +41,8 @@ function report(over: Partial<FeedbackReport>): FeedbackReport {
     pcmOverBudget: false,
     pcmKib: 0,
     silencedFrames: 0,
+    latencyFrames: 0,
+    latencyCapped: false,
     voices: 0,
     tracks: [],
     master: { peakL: 0, peakR: 0, rmsL: 0, rmsR: 0, gainReductionDb: 0 },
@@ -51,6 +53,7 @@ function report(over: Partial<FeedbackReport>): FeedbackReport {
     recordDropped: 0,
     recordCapturing: false,
     recorded: [],
+    readouts: [],
     ...over,
   }
 }

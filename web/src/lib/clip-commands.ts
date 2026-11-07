@@ -57,3 +57,8 @@ export type ImportAudioUrl = Extract<Command, { type: 'clip.import_audio_url' }>
 export const isImportAudioUrl = (command: Command): command is ImportAudioUrl => command.type === 'clip.import_audio_url'
 /** The page's answer to an agent's `clip.import_audio_url`: the clip it made and the file's SHA-256. */
 export const importAudioUrlOutput = (clip: string | null, media: string) => ({ type: 'clip.import_audio_url', clip, media }) as const
+/** An agent's audio file of the project's folder (#778): the helper imports it in Boost, the page makes the clip. */
+export type ImportAudioFile = Extract<Command, { type: 'clip.import_audio_file' }>
+export const isImportAudioFile = (command: Command): command is ImportAudioFile => command.type === 'clip.import_audio_file'
+/** The page's answer to an agent's `clip.import_audio_file`: the clip it made and the file's SHA-256. */
+export const importAudioFileOutput = (clip: string | null, media: string) => ({ type: 'clip.import_audio_file', clip, media }) as const

@@ -18,6 +18,11 @@ use std::collections::BTreeMap;
 
 const RATE: f32 = 48_000.0;
 
+/// The ticks of one frame at the default tempo.
+fn ticks_per_frame() -> f64 {
+    Transport::default().tempo.ticks_per_second() / f64::from(RATE)
+}
+
 /// A MIDI pitch class set: A minor (the notes of C major).
 const A_MINOR: PitchSet = PitchSet::from_bits(0b1010_1011_0101);
 
@@ -47,6 +52,8 @@ struct Rig {
     out: EventBuffer,
     frame: u64,
     playing: bool,
+    /// The song position, in ticks, of absolute frame 0.
+    origin_ticks: f64,
     scale: PitchSet,
     block: usize,
     log: Vec<Out>,
@@ -80,6 +87,7 @@ impl Rig {
             out: EventBuffer::try_with_capacity(capacity).unwrap(),
             frame: 0,
             playing: true,
+            origin_ticks: 0.0,
             scale: PitchSet::EMPTY,
             block,
             log: Vec::new(),
@@ -106,6 +114,7 @@ impl Rig {
                 transport: Transport {
                     playing: self.playing,
                     scale: self.scale,
+                    position_ticks: self.origin_ticks + self.frame as f64 * ticks_per_frame(),
                     ..Transport::default()
                 },
             };
@@ -208,7 +217,7 @@ fn off(voice: u32, key: u8) -> Event {
     }
 }
 
-fn v(voice: u32, which: u32) -> u32 {
+const fn v(voice: u32, which: u32) -> u32 {
     voice_param(voice, which)
 }
 
@@ -420,33 +429,132 @@ fn chance_draws_the_same_at_equal_seed_and_about_its_share() {
     assert_ne!(a, draw(8.0), "another seed, another draw");
     let added = a.len() - 400;
     assert!((320..=480).contains(&added), "about half of 800: {added}");
-    // A start of the transport restarts the count: the same chords again.
-    let mut r = Rig::new(&[
-        (SEED, 7.0),
-        (v(0, VOICE_CHANCE), 50.0),
-        (v(1, VOICE_CHANCE), 50.0),
-    ]);
-    let notes: Vec<(u64, Event)> = (0..20u64)
-        .flat_map(|n| {
-            [
-                (n * 100, on(n as u32, 60, 1.0)),
-                (n * 100 + 50, off(n as u32, 60)),
-            ]
-        })
-        .collect();
-    r.run(&notes, 2_048);
-    let first: Vec<u8> = r.ons().iter().map(|o| o.1).collect();
-    r.playing = false;
-    r.run(&[], 2_176);
-    r.playing = true;
-    r.log.clear();
-    let shifted: Vec<(u64, Event)> = notes.iter().map(|(f, e)| (f + 2_176, *e)).collect();
-    r.run(&shifted, 4_400);
-    assert_eq!(r.ons().iter().map(|o| o.1).collect::<Vec<_>>(), first);
     // 0 % never plays, 100 % always.
     let mut never = Rig::new(&[(v(0, VOICE_CHANCE), 0.0), (v(1, VOICE_CHANCE), 0.0)]);
     never.run(&[(0, on(1, 60, 1.0))], 128);
     assert_eq!(never.ons().len(), 1);
+}
+
+/// The key of the `n`-th note of [`notes_every_100_frames`] (twelve different ones).
+fn key(n: u64) -> u8 {
+    55 + (n * 7 % 12) as u8
+}
+
+/// 20 notes of different keys, 100 frames apart, each ended 50 frames later.
+fn notes_every_100_frames(from: u64) -> Vec<(u64, Event)> {
+    (0..20u64)
+        .flat_map(|n| {
+            [
+                (from + n * 100, on(n as u32, key(n), 1.0)),
+                (from + n * 100 + 50, off(n as u32, key(n))),
+            ]
+        })
+        .collect()
+}
+
+const HALF: [(u32, f32); 3] = [
+    (SEED, 7.0),
+    (v(0, VOICE_CHANCE), 50.0),
+    (v(1, VOICE_CHANCE), 50.0),
+];
+
+#[test]
+fn a_play_from_another_start_draws_the_same_chords_for_the_same_song_positions() {
+    // The whole song from tick 0, in blocks of 128 frames.
+    let mut whole = Rig::new(&HALF);
+    whole.run(&notes_every_100_frames(0), 2_400);
+    let all = whole.ons();
+    // Plays that start elsewhere (a jump, a start in bar 9), at a frame off the notes' grid, with
+    // the blocks cut elsewhere: the notes from there draw the same chords.
+    for (start, block) in [(1_000u64, 77usize), (1_037, 128), (1_733, 61)] {
+        let mut late = Rig::with_block(&HALF, block);
+        late.origin_ticks = start as f64 * ticks_per_frame();
+        let later: Vec<(u64, Event)> = notes_every_100_frames(0)
+            .into_iter()
+            .filter(|(f, _)| *f >= start)
+            .map(|(f, e)| (f - start, e))
+            .collect();
+        late.run(&later, 2_400 - start);
+        let from: Vec<(u64, u8, f32)> = all.iter().copied().filter(|o| o.0 >= start).collect();
+        let got: Vec<(u64, u8, f32)> = late.ons().iter().map(|o| (o.0 + start, o.1, o.2)).collect();
+        assert!(from.len() >= 3, "the chords are drawn: {}", from.len());
+        assert_eq!(got, from, "export equals playback from {start}");
+    }
+    // A loop: the same position gives the same chord on the next pass.
+    let mut again = Rig::new(&HALF);
+    again.run(&notes_every_100_frames(0), 2_400);
+    again.log.clear();
+    again.frame = 0; // the playhead jumps back to tick 0
+    again.run(&notes_every_100_frames(0), 2_400);
+    assert_eq!(again.ons(), all, "a loop plays the same draw on every pass");
+}
+
+#[test]
+fn a_live_note_played_meanwhile_shifts_no_other_draw() {
+    let mut plain = Rig::new(&HALF);
+    plain.run(&notes_every_100_frames(0), 2_400);
+    let mut live = Rig::new(&HALF);
+    let mut events = notes_every_100_frames(0);
+    // Live notes at frames between the clip's notes, other keys and voices.
+    for k in 0..10u64 {
+        events.push((k * 200 + 20, on(100 + k as u32, key(k), 1.0)));
+        events.push((k * 200 + 30, off(100 + k as u32, key(k))));
+    }
+    live.run(&events, 2_400);
+    // Everything the clip's notes made, whole: the live notes sit between the clip's frames.
+    let frames: Vec<u64> = plain.ons().iter().map(|o| o.0).collect();
+    let clip: Vec<(u64, u8, f32)> = live
+        .ons()
+        .into_iter()
+        .filter(|o| frames.contains(&o.0))
+        .collect();
+    assert_eq!(clip, plain.ons(), "a live note shifts no draw");
+}
+
+#[test]
+fn a_live_note_while_stopped_counts_from_the_reset() {
+    let run = || {
+        let mut r = Rig::new(&HALF);
+        r.playing = false;
+        r.run(&notes_every_100_frames(0), 2_400);
+        r.ons().iter().map(|o| o.1).collect::<Vec<_>>()
+    };
+    let first = run();
+    assert_eq!(first, run(), "stopped notes draw by their count");
+    let mut r = Rig::new(&HALF);
+    r.playing = false;
+    r.run(&notes_every_100_frames(0), 2_400);
+    r.stack.reset();
+    r.log.clear();
+    r.frame = 0;
+    r.run(&notes_every_100_frames(0), 2_400);
+    assert_eq!(r.ons().iter().map(|o| o.1).collect::<Vec<_>>(), first);
+}
+
+#[test]
+fn a_chance_of_0_and_100_percent_give_the_same_chord_whatever_the_position() {
+    for chance in [0.0f32, 100.0] {
+        let mut r = Rig::new(&[
+            (SEED, 3.0),
+            (v(0, VOICE_CHANCE), chance),
+            (v(1, VOICE_CHANCE), chance),
+        ]);
+        r.run(&notes_every_100_frames(0), 2_400);
+        let keys: Vec<u8> = r.ons().iter().map(|o| o.1).collect();
+        let per_note = if chance == 0.0 { 1 } else { 3 };
+        assert_eq!(keys.len(), 20 * per_note, "{chance} %");
+        for (n, chunk) in keys.chunks(per_note).enumerate() {
+            let mut c = chunk.to_vec();
+            c.sort_unstable();
+            let root = key(n as u64);
+            let expect: Vec<u8> = if chance == 0.0 {
+                vec![root]
+            } else {
+                vec![root, root + 4, root + 7]
+            };
+            assert_eq!(c, expect, "{chance} %, note {n}");
+        }
+    }
 }
 
 // ---------------------------------------------------------------- no stuck note

@@ -47,9 +47,38 @@ export class MeterStore {
     this.snaps = next
   }
 
+  /**
+   * The live value of a parameter a device moves by itself (#686: the Filter's cutoff under its LFO), by device id
+   * then parameter id, from the last report of the slot table's epoch; empty when reports stop.
+   */
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  readouts = $state.raw<Map<string, Map<number, number>>>(new Map())
+
+  /** The live value of a device's parameter, or `undefined` when the engine reports none. */
+  readout(device: string, param: number): number | undefined {
+    return this.readouts.get(device)?.get(param)
+  }
+
   /** Feeds the bank from a report, or silence (`null`). Reads nothing reactive. */
   feed(report: NonNullable<EngineStore['feedback']> | null, now: number) {
     const slots = this.project.view?.slots
+    // A copy that replaces the raw state, never mutated in place.
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity
+    const readouts = new Map<string, Map<number, number>>()
+    if (report && slots && report.epoch === slots.epoch && report.readouts.length > 0) {
+      // eslint-disable-next-line svelte/prefer-svelte-reactivity
+      const byPlace = new Map<string, string>()
+      for (const [id, place] of Object.entries(slots.devices)) if (place) byPlace.set(`${place.track ?? 'm'}:${place.slot}`, id)
+      for (const r of report.readouts) {
+        const id = byPlace.get(`${r.track ?? 'm'}:${r.device}`)
+        if (id === undefined) continue
+        // eslint-disable-next-line svelte/prefer-svelte-reactivity
+        const params = readouts.get(id) ?? new Map<number, number>()
+        params.set(r.param, r.value)
+        readouts.set(id, params)
+      }
+    }
+    if (readouts.size > 0 || this.readouts.size > 0) this.readouts = readouts
     const ids = this.project.tracks.map((entry) => entry.id)
     const silence = { peakL: 0, peakR: 0 }
     this.snaps = this.bank.update(

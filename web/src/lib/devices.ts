@@ -93,6 +93,8 @@ export function formatValue(p: ParamDescriptor, value: number): string {
   const unit: string = p.unit
   switch (unit) {
     case 'seconds':
+      // Under 10 ms to a tenth (a look-ahead, a short attack), whole milliseconds up to 1 s.
+      if (value < 0.01) return `${+(value * 1000).toFixed(1)} ms`
       return value < 1 ? `${Math.round(value * 1000)} ms` : `${value.toFixed(2)} s`
     case 'hertz':
       // Below 10 Hz (a modulation rate) the decimals matter: 0.8 Hz, not 1 Hz.
@@ -108,6 +110,10 @@ export function formatValue(p: ParamDescriptor, value: number): string {
       return `${value > 0 ? '+' : ''}${Math.round(value)} ct`
     case 'percent':
       return `${Math.round(value)} %`
+    case 'degrees':
+      return `${Math.round(value)}°`
+    case 'octaves':
+      return `${value > 0 && p.min < 0 ? '+' : ''}${+value.toFixed(2)} oct`
     default:
       return p.min === 0 && p.max <= 1 ? `${Math.round(value * 100)} %` : `${+value.toFixed(2)}`
   }
@@ -117,12 +123,26 @@ export function formatValue(p: ParamDescriptor, value: number): string {
  * Parameters that only matter in one mode of their device (display only: the engine keeps every parameter, and a
  * hidden one keeps its value). Per device kind, per parameter key: the choice parameter that decides, and the keys of
  * its values for which the parameter is shown. Echo: the delay time in free mode, the note value in synced mode. Stack:
- * a voice's settings while the voice is on. Bloom: the rate when free, the note value when synced, the mix outside
+ * a voice's settings while the voice is on. Lattice: the rule with a scale, the root and scale with its own, the cells with the matrix. Ceiling: the release time in manual release.
+ * Compressor: the release time in manual release, the sidechain frequency with the sidechain high-pass on. Filter: the LFO rate
+ * and restart in free mode, the note value in synced mode. Bloom: the rate when free, the note value when synced, the mix outside
  * vibrato (which has no dry sound).
  */
 export const SHOWN_IN_MODE: Readonly<Record<string, Readonly<Record<string, { by: string; values: readonly string[] }>>>> = {
   'faulk.echo': { time: { by: 'mode', values: ['free'] }, division: { by: 'mode', values: ['synced'] } },
   'faulk.stack': stackVoices(),
+  'faulk.lattice': latticeSources(),
+  'faulk.ceiling': { release: { by: 'release_mode', values: ['manual'] } },
+  'faulk.compressor': {
+    release: { by: 'release_mode', values: ['manual'] },
+    sidechain_freq: { by: 'sidechain_hpf', values: ['on'] },
+  },
+  // Filter: the LFO's rate and restart in free mode, its note value in synced mode (#686).
+  'faulk.filter': {
+    lfo_rate: { by: 'lfo_sync', values: ['free'] },
+    lfo_restart: { by: 'lfo_sync', values: ['free'] },
+    lfo_division: { by: 'lfo_sync', values: ['synced'] },
+  },
   'faulk.bloom': { rate: { by: 'sync', values: ['free'] }, division: { by: 'sync', values: ['synced'] }, mix: { by: 'mode', values: ['chorus', 'ensemble'] } },
 }
 
@@ -148,4 +168,17 @@ export function shownParams(device: DeviceDescriptor, valueOf: (key: string) => 
     const chosen = choices(by).find((choice) => choice.value === value)
     return chosen ? rule.values.includes(chosen.key) : true
   })
+}
+
+/** Lattice (#692): the rule applies to a scale, the root and scale to the device's own, the twelve cells to the matrix. */
+function latticeSources(): Record<string, { by: string; values: readonly string[] }> {
+  const rules: Record<string, { by: string; values: readonly string[] }> = {
+    rule: { by: 'source', values: ['project', 'device'] },
+    root: { by: 'source', values: ['device'] },
+    scale: { by: 'source', values: ['device'] },
+  }
+  // The cells are the descriptor's `map_` parameters, so a cell renamed there needs no change here.
+  const lattice = DEVICES.find((d) => d.kind === 'faulk.lattice')
+  for (const p of lattice?.params ?? []) if (p.key.startsWith('map_')) rules[p.key] = { by: 'source', values: ['matrix'] }
+  return rules
 }

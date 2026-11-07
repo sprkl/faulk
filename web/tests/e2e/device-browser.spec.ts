@@ -77,9 +77,13 @@ for (const lang of ['en', 'fr'] as const) {
       'faulk.reverb',
       'faulk.compressor',
       'faulk.filter',
+      'faulk.ceiling',
+      'faulk.hiccup',
       'faulk.bloom',
       'faulk.stack',
       'faulk.trim',
+      'faulk.lattice',
+      'faulk.scatter',
     ])
     // The MIDI effects have their own group (#219).
     await expect(groups.nth(2)).toContainText(x.midiEffects)
@@ -99,7 +103,7 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(panel.getByTestId('browser-results')).toHaveText(x.none)
     await page.getByRole('button', { name: x.clear }).click()
     await expect(search).toHaveValue('')
-    await expect(panel.getByTestId('browse-device')).toHaveCount(9)
+    await expect(panel.getByTestId('browse-device')).toHaveCount(13)
     // Escape clears the search, the next one closes the panel.
     await search.fill('echo')
     await page.keyboard.press('Escape')

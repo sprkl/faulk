@@ -27,8 +27,8 @@
   // An audio or a MIDI effect moves (within its section) and is removed; the instrument does neither.
   const isEffect = $derived(entry.section !== 'instrument')
   const actions = $derived(cardActions(chain, entry))
-  // The Compressor shows the gain it takes off (the engine reports the largest reduction of the strip's enabled compressors).
-  const reduces = $derived(entry.kind === 'faulk.compressor')
+  // The Compressor and Ceiling show the gain they take off (the engine reports the largest reduction of the strip's enabled devices).
+  const reduces = $derived(entry.kind === 'faulk.compressor' || entry.kind === 'faulk.ceiling')
   const reduction = $derived(bypassed ? 0 : meters.snap(master ? MASTER_METER : (track ?? MASTER_METER)).reductionDb)
 
   // A knob drag is one history group: one undo takes it back whole.
@@ -160,6 +160,7 @@
             onchange={(value) => dispatcher.run(setDeviceParam(entry.id, param.key, value))}
             onbegin={gesture.begin}
             onend={gesture.end}
+            live={bypassed ? undefined : meters.readout(entry.id, param.id)}
           />
           {#if master || track}
             <button
