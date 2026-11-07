@@ -36,10 +36,10 @@ use crate::device::{DeviceSetup, Factory};
 use crate::engine::{Engine, Preparer, channel as engine_channel};
 use crate::msg::{
     ACTIVE_CLIP_BYTES, ActiveClip, ClipState, DEVICE_READOUT_BYTES, DeviceKind, DeviceReadout,
-    DeviceSlot, FEEDBACK_HEADER_BYTES, FEEDBACK_VERSION, Feedback, HEADER_BYTES,
-    MAX_READOUTS_PER_REPORT, MAX_RECORDED_PER_REPORT, MSG_VERSION, MsgError, Note, ParamId,
-    RECORDED_NOTE_WIRE_BYTES, RecordedNote, TRACK_METER_BYTES, Tag, TrackMeter, TrackSlot,
-    TransportState, limits,
+    DeviceSlot, FEEDBACK_HEADER_BYTES, FEEDBACK_LATENCY_OFFSET, FEEDBACK_READOUTS_OFFSET, FEEDBACK_VERSION, Feedback,
+    HEADER_BYTES, MAX_READOUTS_PER_REPORT, MAX_RECORDED_PER_REPORT, MSG_VERSION, MsgError, Note,
+    ParamId, RECORDED_NOTE_WIRE_BYTES, RecordedNote, TRACK_METER_BYTES, Tag, TrackMeter,
+    TrackSlot, TransportState, limits,
 };
 use crate::time::SampleRate;
 
@@ -867,8 +867,8 @@ impl Host {
     /// then the take's number, count and last notes (RE-2), the disk's underruns, offline
     /// sources, budget flag and PCM in memory (AU-3), and the frames the output protection
     /// silenced because a sample was non-finite (#667), the host's frame at the playhead (#733),
-    /// and after the notes the devices' readouts (#686).
-    /// No allocation.
+    /// the device latency the graph compensates (#749), and after the notes the devices'
+    /// readouts (#686). No allocation.
     pub fn write_feedback(&mut self) {
         let seq = self.feedback_seq.wrapping_add(1) | 1;
         let fb = &self.feedback;
@@ -915,6 +915,11 @@ impl Host {
             (disk.pcm_bytes.load(Ordering::Relaxed) / 1024).min(u64::from(u32::MAX)) as u32,
         );
         put(88, silenced_word(self.engine.limiter_silenced()));
+        let graph = self.engine.graph();
+        put(
+            FEEDBACK_LATENCY_OFFSET,
+            crate::msg::latency_word(graph.latency(), graph.latency_capped()),
+        );
         put(40, tracks as u32);
         put(52, self.period_voices);
         let mut at = FEEDBACK_HEADER_BYTES;
@@ -982,7 +987,7 @@ impl Host {
                 readouts += 1;
             }
         });
-        put(100, readouts);
+        put(FEEDBACK_READOUTS_OFFSET, readouts);
         put(56, recorder.take());
         put(60, recorder.total());
         put(64, recorder.dropped());
@@ -1084,7 +1089,7 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
     let tracks = u32_at(40)?;
     let clips = u32_at(44)?;
     let recorded = u32_at(48)?;
-    let readouts = u32_at(100)?;
+    let readouts = u32_at(FEEDBACK_READOUTS_OFFSET)?;
     if tracks > limits::MAX_TRACKS
         || clips > 2 * tracks
         || recorded as usize > MAX_RECORDED_PER_REPORT
@@ -1169,6 +1174,8 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
         pcm_flags: u32_at(80)?,
         pcm_kib: u32_at(84)?,
         silenced_frames: u32_at(88)?,
+        latency_frames: u32_at(FEEDBACK_LATENCY_OFFSET)? & !crate::msg::FEEDBACK_LATENCY_CAPPED,
+        latency_capped: u32_at(FEEDBACK_LATENCY_OFFSET)? & crate::msg::FEEDBACK_LATENCY_CAPPED != 0,
         meters,
         master: meter(tracks as usize)?,
         voices: u32_at(52)?,

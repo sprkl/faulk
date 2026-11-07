@@ -381,7 +381,14 @@ fn limits_fit_under_the_wasm32_cap() {
         + 2 * (LIVE_QUEUE_CAPACITY as u64) * size_of::<LiveEvent>() as u64;
     let inbox = u64::from(MAX_CONTROL_MSG_BYTES) * 2;
     let feedback = Feedback::max_size_for(MAX_TRACKS as usize) as u64;
-    let total = 2 * tables + largest + rings + inbox + feedback;
+    // The graph's latency buffers (#749): one compensation ring and one metronome line for
+    // the whole engine, whatever the number of tracks.
+    let compensation = engine::graph::Graph::latency_bytes(MAX_BLOCK_FRAMES);
+    assert!(
+        compensation < 2 << 20,
+        "{compensation} bytes of compensation"
+    );
+    let total = 2 * tables + largest + rings + inbox + feedback + compensation;
     eprintln!("worst case of the tables: {} MiB", total >> 20);
     // The devices are not a count: their declared sizes count against the engine memory
     // budget, which the tables' worst case must leave room for.

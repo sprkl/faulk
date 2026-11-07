@@ -2512,6 +2512,23 @@ type: "mixer.set_master_pan"
 previous: boolean
 type: "mixer.set_solo"
 } | {
+/**
+ * True when a chain's latency goes beyond what the engine compensates (16 383 samples
+ * of difference between two tracks): the tracks that would need more are delayed by
+ * the limit only and play early; every other track stays aligned.
+ */
+latency_capped: boolean
+/**
+ * The delay the devices add to what is heard, in samples at the engine's rate: the
+ * longest chain of the tracks plus the master's (0 with no such device). The engine
+ * compensates it: the tracks and the metronome stay aligned. Counted whether or not the
+ * transport runs.
+ */
+latency_frames: number
+/**
+ * The same delay in milliseconds (0 when the engine's rate is unknown).
+ */
+latency_ms: number
 master: Level1
 /**
  * Whether the transport was playing or recording at the last reading.
@@ -2560,8 +2577,10 @@ type: "record.set_settings"
 count_in: boolean
 /**
  * How much earlier the engine places the notes: `latency_ms` plus the session's
- * offset (`record.set_settings`), in milliseconds. The notes it reports are already
- * moved: they are written with `record.commit_take`'s `shift_ms` 0.
+ * offset (`record.set_settings`), in milliseconds; the engine adds the latency of its
+ * devices on top (`mixer.levels` `latency_ms`, which this figure leaves out: the
+ * command does not know it). The notes it reports are already moved: they are
+ * written with `record.commit_take`'s `shift_ms` 0.
  */
 shift_ms: number
 /**

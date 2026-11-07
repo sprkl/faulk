@@ -75,16 +75,12 @@
 //!
 //! # Latency
 //!
-//! [`Device::latency_frames`] is `L`, 0 by default. The engine does not compensate a device's
-//! latency yet: a Compressor with a look-ahead on one track plays that track this much later
-//! than the others (the look-ahead control shows that delay); on the master chain everything
-//! is delayed together. For the same reason the graph's 5 ms crossfade of a bypass, an insert
-//! or a removal mixes the undelayed dry signal with the delayed one (a short comb). A device
-//! just switched on, inserted or put back is reset, so for its first `L` frames it outputs
-//! silence (its line holds nothing yet): the graph's fade from the dry signal then dips into
-//! that silence before the delayed signal starts, a short dropout and a step on a sustained
-//! sound (with `L` = 10 ms, about 5 ms of near silence). Only a graph that delays its dry
-//! side by [`Device::latency_frames`], or the engine's latency compensation, removes it.
+//! [`Device::latency_frames`] is `L`, 0 by default, at most [`Device::max_latency_frames`]
+//! (the longest look-ahead at the device's rate). The graph compensates it (#749,
+//! [`crate::graph`] > Latency), as the Ceiling's: the other tracks are delayed to match, and a
+//! bypassed, inserted or removed Compressor keeps its timing through the graph's bypass line
+//! (its dry side delayed by `L`), so a bypass neither moves the track nor combs.
+//! [`MEMORY_BYTES`] counts that line.
 //!
 //! A change of `lookahead` while the device sounds goes through the [`LatencySwitch`]: one
 //! switch per gesture, a fade out, a silence of the new latency, a fade in. A change made
@@ -274,7 +270,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(LOOKAHEAD),
             key: "lookahead",
-            description: "How far ahead the compressor sees the sound, from 0 to 10 ms, so a short attack catches a hit whole. It delays its track (on the master, the whole mix) by that time: no other track is delayed to match. A change fades out and back in.",
+            description: "How far ahead the compressor sees the sound, from 0 to 10 ms, so a short attack catches a hit whole. It delays the sound by that time; the other tracks are delayed to match, so everything stays in time. A change fades out and back in.",
             unit: Unit::Seconds,
             min: 0.0,
             max: LOOKAHEAD_MAX_SECONDS,
@@ -369,9 +365,19 @@ const fn capacity(sample_rate: f32) -> usize {
 /// maximum (a frame index and a reduction).
 const BYTES_PER_FRAME: usize = 3 * size_of::<f32>() + size_of::<u64>();
 
-/// The most memory an instance takes, at [`MAX_SAMPLE_RATE`].
-const MEMORY_BYTES: u64 =
-    (size_of::<Compressor>() + capacity(MAX_SAMPLE_RATE) * BYTES_PER_FRAME) as u64;
+/// The most latency an instance at `sample_rate` adds: the longest look-ahead, bounded by
+/// its line (as [`Compressor::new`] bounds it).
+const fn max_latency_at(sample_rate: f32) -> u32 {
+    let longest = (LOOKAHEAD_MAX_SECONDS * sample_rate as f64 + 0.5) as u32;
+    let line = (capacity(sample_rate) - 2) as u32;
+    if longest < line { longest } else { line }
+}
+
+/// The most memory an instance takes, at [`MAX_SAMPLE_RATE`], with the graph's bypass line for
+/// its latency and its wrapper (#749, [`crate::latency::Latent`]).
+pub const MEMORY_BYTES: u64 = (size_of::<Compressor>()
+    + capacity(MAX_SAMPLE_RATE) * BYTES_PER_FRAME) as u64
+    + crate::latency::Latent::bytes_for(max_latency_at(MAX_SAMPLE_RATE));
 
 fn sanitize(x: f32) -> f32 {
     if !x.is_finite() || x.abs() < DENORMAL_FLOOR {
@@ -758,6 +764,12 @@ impl Device for Compressor {
 
     fn latency_frames(&self) -> u32 {
         self.latency()
+    }
+
+    /// The longest look-ahead at the device's rate (#749): the graph sizes its bypass line
+    /// from it.
+    fn max_latency_frames(&self) -> u32 {
+        lookahead_frames(LOOKAHEAD_MAX_SECONDS as f32, self.sample_rate).min(self.longest)
     }
 
     /// Opens the gain, rests the detector, hides the line's content, takes a pending

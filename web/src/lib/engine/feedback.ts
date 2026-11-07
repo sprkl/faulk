@@ -4,7 +4,11 @@
 // frames (`decodeFeedback` on the frame). One decoder, so that both modes show the same thing.
 
 /** Size of the fixed part of a report. */
-export const FEEDBACK_HEADER_BYTES = 104
+export const FEEDBACK_HEADER_BYTES = 108
+/** Where the number of device readouts sits (`FEEDBACK_READOUTS_OFFSET`, #686). */
+export const READOUTS_OFFSET = 100
+/** Where the device latency sits (`FEEDBACK_LATENCY_OFFSET`, #749): one place, so the field moves in one place. */
+export const LATENCY_OFFSET = 104
 /** Size of one meter. */
 export const TRACK_METER_BYTES = 20
 /** Size of one active clip (track u32, scene u16, state u8, one padding byte, anchor i64). */
@@ -90,7 +94,7 @@ export interface FeedbackReport {
   /** Playhead, in frames since the clock started. */
   playheadFrame: number
   /**
-   * The host's frame at the playhead, the last word of the header (offset 92, version 9, #733): with the Web engine the audio
+   * The host's frame at the playhead, at offset 92 (version 9, #733): with the Web engine the audio
    * context's frame (the worklet's `currentFrame`, the clock the page stamps MIDI notes in) the playhead sits at, with the
    * helper its own sample counter. `host frame - playheadFrame` is the host frame of the transport's position 0 only while it runs at one tempo, with no loop wrap and no sample-rate change since the Play (the host frame goes on while stopped, the playhead frame does not).
    */
@@ -114,6 +118,13 @@ export interface FeedbackReport {
    * since the engine was built (#667). The meters measure before the protection and skip such samples: this is the signal.
    */
   silencedFrames: number
+  /**
+   * The delay the devices add to what is heard, in frames at the engine's rate (#749): the longest chain latency of the
+   * tracks plus the master's. The engine delays the other tracks and the metronome to match.
+   */
+  latencyFrames: number
+  /** A track needs more than the engine compensates and is no longer aligned (bit 31 of the latency word, #749). */
+  latencyCapped: boolean
   /** Most voices sounding in the tracks' devices during the period. */
   voices: number
   /** Per track slot, after the track's fader (all zeros for an empty slot). */
@@ -209,7 +220,7 @@ export function decodeFeedback(bytes: ArrayBufferLike, at = 0, len = bytes.byteL
     })
   }
   // Then the devices' readouts, all inside the bytes.
-  const readoutCount = view.getUint32(100, true)
+  const readoutCount = view.getUint32(READOUTS_OFFSET, true)
   const readoutsAt = notesAt + recordedCount * RECORDED_NOTE_BYTES
   if (readoutCount > MAX_READOUTS_PER_REPORT || readoutsAt + readoutCount * DEVICE_READOUT_BYTES > len) return null
   const readouts: DeviceReadout[] = []
@@ -241,6 +252,8 @@ export function decodeFeedback(bytes: ArrayBufferLike, at = 0, len = bytes.byteL
     pcmOverBudget: (view.getUint32(80, true) & 1) === 1,
     pcmKib: view.getUint32(84, true),
     silencedFrames: view.getUint32(88, true),
+    latencyFrames: view.getUint32(LATENCY_OFFSET, true) & 0x7fff_ffff,
+    latencyCapped: view.getUint32(LATENCY_OFFSET, true) >>> 31 === 1,
     voices: view.getUint32(52, true),
     tracks: meters,
     master: meterAt(view, FEEDBACK_HEADER_BYTES + tracks * TRACK_METER_BYTES),
@@ -272,7 +285,7 @@ export function readFeedback(buffer: ArrayBufferLike, at: number, len: number): 
   const clips = Math.min(header.getUint32(44, true), 2 * tracks)
   // Then the take's last notes and the devices' readouts (a larger count is refused by the decoder).
   const notes = Math.min(header.getUint32(48, true), MAX_RECORDED_PER_REPORT)
-  const readouts = Math.min(header.getUint32(100, true), MAX_READOUTS_PER_REPORT)
+  const readouts = Math.min(header.getUint32(READOUTS_OFFSET, true), MAX_READOUTS_PER_REPORT)
   const used = Math.min(
     len,
     FEEDBACK_HEADER_BYTES + (tracks + 1) * TRACK_METER_BYTES + clips * ACTIVE_CLIP_BYTES + notes * RECORDED_NOTE_BYTES + readouts * DEVICE_READOUT_BYTES,

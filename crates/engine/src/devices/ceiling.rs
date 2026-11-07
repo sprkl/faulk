@@ -55,12 +55,11 @@
 //!
 //! # Latency
 //!
-//! [`Device::latency_frames`] is `L`; with `true_peak` on, `max(L, TP_MIN_LOOKAHEAD) + TP_DELAY`. The engine does
-//! not compensate a device's latency yet: a Ceiling on one track plays that track this much
-//! later than the others (72 frames, 1.5 ms, at the defaults and 48 kHz). On the master
-//! chain, its place, everything is delayed together. For the same reason the graph's 5 ms
-//! crossfade of a bypass, an insert or a removal mixes the undelayed dry signal with the
-//! delayed one (a short comb), and the track moves by the latency.
+//! [`Device::latency_frames`] is `L`; with `true_peak` on, `max(L, TP_MIN_LOOKAHEAD) + TP_DELAY`
+//! (72 frames, 1.5 ms, at the defaults and 48 kHz), at most [`Ceiling::max_latency`]. The graph
+//! compensates it (#749, [`crate::graph`] > Latency): the other tracks are delayed to match, and
+//! a bypassed Ceiling keeps its latency through the graph's bypass line, so a bypass neither
+//! moves the track nor combs. [`MEMORY_BYTES`] counts that line.
 //!
 //! A change of `lookahead` or `true_peak` changes the latency. While the device sounds, the
 //! change waits until no other one came for [`SETTLE_SECONDS`] (a drag of the control or an
@@ -195,7 +194,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(LOOKAHEAD),
             key: "lookahead",
-            description: "How far ahead the limiter sees the peaks, from 0 to 5 ms: it turns down smoothly before each one. It delays this track by that time: the other tracks are not delayed to match. A change fades out and back in.",
+            description: "How far ahead the limiter sees the peaks, from 0 to 5 ms: it turns down smoothly before each one. It delays the sound by that time; the other tracks are delayed to match, so everything stays in time. A change fades out and back in.",
             unit: Unit::Seconds,
             min: 0.0,
             max: LOOKAHEAD_MAX_SECONDS,
@@ -280,9 +279,23 @@ const fn capacity(sample_rate: f32) -> usize {
 const BYTES_PER_FRAME: usize =
     3 * size_of::<f32>() + size_of::<f32>() + size_of::<u64>() + size_of::<f32>();
 
-/// The most memory an instance takes, at [`MAX_SAMPLE_RATE`].
-const MEMORY_BYTES: u64 =
-    (size_of::<Ceiling>() + capacity(MAX_SAMPLE_RATE) * BYTES_PER_FRAME) as u64;
+/// The most latency an instance at `sample_rate` adds: the longest look-ahead (at least the
+/// true-peak one) plus the interpolator's delay.
+const fn max_latency_at(sample_rate: f32) -> u32 {
+    let longest = (LOOKAHEAD_MAX_SECONDS * sample_rate as f64 + 0.5) as u32;
+    let lookahead = if longest > TP_MIN_LOOKAHEAD {
+        longest
+    } else {
+        TP_MIN_LOOKAHEAD
+    };
+    lookahead + TP_DELAY
+}
+
+/// The most memory an instance takes, at [`MAX_SAMPLE_RATE`], with the graph's bypass line for
+/// its latency and its wrapper (#749, [`crate::latency::Latent`]).
+pub const MEMORY_BYTES: u64 = (size_of::<Ceiling>() + capacity(MAX_SAMPLE_RATE) * BYTES_PER_FRAME)
+    as u64
+    + crate::latency::Latent::bytes_for(max_latency_at(MAX_SAMPLE_RATE));
 
 /// The index of the first frame after a reset: frame indices start here so that the
 /// interpolator's oldest tap is never below 0; an index below it reads as silence.
@@ -507,6 +520,12 @@ impl Ceiling {
     /// the true-peak detection.
     pub fn latency(&self) -> u32 {
         self.lookahead + if self.true_peak { TP_DELAY } else { 0 }
+    }
+
+    /// The most latency this instance adds, whatever its parameters: the longest look-ahead at
+    /// its rate (at least [`TP_MIN_LOOKAHEAD`]) plus [`TP_DELAY`].
+    pub fn max_latency(&self) -> u32 {
+        max_latency_at(self.sample_rate)
     }
 
     /// The windows start again at the current frame, with no reduction.
@@ -790,6 +809,10 @@ impl Device for Ceiling {
 
     fn latency_frames(&self) -> u32 {
         self.latency()
+    }
+
+    fn max_latency_frames(&self) -> u32 {
+        self.max_latency()
     }
 
     /// Opens the gain, hides the line's content, takes a pending latency and snaps the

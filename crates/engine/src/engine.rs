@@ -1632,6 +1632,8 @@ impl Preparer {
             built.set_param(id, value);
         }
         built.reset();
+        // A device with a latency gets its bypass line (#749, `crate::graph` > Latency).
+        let built = crate::latency::Latent::wrap(built)?;
         let descriptor = built.descriptor();
         // The master's chain holds effects only (#364): nothing feeds an instrument or a
         // MIDI effect there, and the graph runs the chain without notes.
@@ -2221,6 +2223,8 @@ impl Engine {
             } else {
                 &[]
             };
+            // The chains' latencies for this block, which the recorder and the graph share (#749).
+            self.graph.measure_latency(&mut self.state);
             // Recording (RE-2): the clock of the start of the block and its live events.
             self.recorder.block(
                 &self.state,
@@ -2233,7 +2237,16 @@ impl Engine {
                     frames,
                     anchors: self.transport.anchors(),
                     rate: f64::from(self.transport.sample_rate().hz()),
-                    shift_us: self.state.playback.record_shift_us,
+                    // The take lands where it was heard: the output plays the device latency
+                    // later than the playhead (#749).
+                    shift_us: self
+                        .state
+                        .playback
+                        .record_shift_us
+                        .saturating_add(latency_us(
+                            self.graph.latency(),
+                            self.transport.sample_rate().hz(),
+                        )),
                     looping: self.transport.armed_loop(),
                 },
                 live,
@@ -2258,14 +2271,28 @@ impl Engine {
                 &mut left[start..end],
                 &mut right[start..end],
             );
-            self.clicker.render(
-                &metronome,
-                self.state.transport.signature,
-                self.segments.as_slice(),
-                click_until,
-                &mut left[start..end],
-                &mut right[start..end],
-            );
+            // The clicks are delayed with the music (#749); a metronome off whose line holds
+            // nothing more costs nothing (the clicker only silences itself).
+            let delayed = metronome.enabled || self.graph.clicks_busy();
+            {
+                let (click_left, click_right): (&mut [f32], &mut [f32]) = if delayed {
+                    self.graph.click_buffers(frames)
+                } else {
+                    (&mut left[start..end], &mut right[start..end])
+                };
+                self.clicker.render(
+                    &metronome,
+                    self.state.transport.signature,
+                    self.segments.as_slice(),
+                    click_until,
+                    click_left,
+                    click_right,
+                );
+            }
+            if delayed {
+                self.graph
+                    .add_clicks(&mut left[start..end], &mut right[start..end]);
+            }
             let cut_done = self.apply_cut(&mut left[start..end], &mut right[start..end]);
             // The output's meter: what leaves the engine, the metronome included.
             self.graph
@@ -2328,14 +2355,19 @@ impl Engine {
     fn reset_devices(&mut self) {
         // The silence a cut leaves does not carry the gain of the overs before it.
         self.limiter.reset();
+        // Nothing delayed before the cut comes back after it (#749).
+        self.graph.clear_latency();
         // The output is already silent: every device fade ends where it goes (#233), and the
         // outgoing devices leave at the next block.
         for track in self.state.tracks.as_mut_slice().iter_mut().flatten() {
             for entry in track.devices.as_mut_slice().iter_mut().flatten() {
                 entry.device.reset();
                 entry.fade = entry.target();
+                clear_bypass(entry);
             }
             track.graph.outgoing().end();
+            // A slot's switch under way is over: nothing it would pause or catch up sounds.
+            track.graph.end_switch();
             track.graph.release_notes();
             // The audio clips start again at the next block, from where they are (AU-4).
             track.audio.reset();
@@ -2349,6 +2381,7 @@ impl Engine {
         {
             entry.device.reset();
             entry.fade = entry.target();
+            clear_bypass(entry);
         }
         self.graph.master_outgoing().end();
     }
@@ -2814,7 +2847,7 @@ impl Engine {
                 None
             }
             RtMsg::DevicePut { track, put } => {
-                let audible = chain_audible(state, &self.graph, track);
+                let audible = chain_audible(state, &mut self.graph, track);
                 match state.chain_mut(track) {
                     Some(chain) => {
                         let device = DeviceSlot(put.slot as u16);
@@ -2834,12 +2867,44 @@ impl Engine {
                         if placed {
                             // The new device fades in on a heard chain; the one it replaces
                             // fades out at its slot (#233).
+                            let mut took = false;
                             if let Some(entry) = device_mut(state, track, device) {
                                 entry.fade = if audible && fades(entry) { 0.0 } else { 1.0 };
+                                // A device put in the place of one with the same line takes its
+                                // line: the slot keeps its timing (#749). It takes the strip's
+                                // levels that wait for its sound too, and the old one leaves
+                                // without them: the timing stays in the chain, an outgoing
+                                // strip line would delay the strip a second time (#758). So
+                                // with the values of the next devices that wait (#765).
+                                if let Some(old) = spare.item.as_deref_mut()
+                                    && let Some(from) = old.device.bypass()
+                                    && let Some(to) = entry.device.bypass()
+                                    && to.line.copy_from(&from.line)
+                                    && to.strip.copy_from(&from.strip)
+                                {
+                                    from.strip.restart(0);
+                                    core::mem::swap(&mut to.events, &mut from.events);
+                                    took = true;
+                                }
                             }
+                            // The values meant for the device it replaced are forgotten; the
+                            // ones its line still delays go on without its latency (#765).
+                            leave_slot(
+                                state,
+                                &mut self.graph,
+                                track,
+                                device,
+                                spare.item.as_deref_mut(),
+                            );
                             if let Some(old) = spare.item.take() {
-                                spare.item =
-                                    send_off(state, &mut self.graph, track, device, old, audible);
+                                spare.item = send_off(
+                                    state,
+                                    &mut self.graph,
+                                    track,
+                                    device,
+                                    old,
+                                    (audible, !took),
+                                );
                             }
                         }
                         resend_lanes(state, &self.graph, track, device);
@@ -2855,7 +2920,7 @@ impl Engine {
                 }
             }
             RtMsg::DeviceRemove { track, device } => {
-                let audible = chain_audible(state, &self.graph, track);
+                let audible = chain_audible(state, &mut self.graph, track);
                 match state.chain_mut(track).map(|chain| {
                     let old = take_slot(chain, device.0.into());
                     let release = matches!(&old, Ok(Some(entry)) if takes_notes(entry));
@@ -2865,10 +2930,12 @@ impl Engine {
                         if release && let Some(t) = state.track_mut(track) {
                             t.graph.release_notes();
                         }
+                        let mut old = old;
+                        leave_slot(state, &mut self.graph, track, device, old.as_deref_mut());
                         // A heard device fades out at its slot (#233), then comes back
                         // through the retire ring.
                         let item = old.and_then(|old| {
-                            send_off(state, &mut self.graph, track, device, old, audible)
+                            send_off(state, &mut self.graph, track, device, old, (audible, true))
                         });
                         Some(Garbage::Devices(Spare { table: None, item }))
                     }
@@ -2884,7 +2951,7 @@ impl Engine {
                 enabled,
             } => {
                 let mut release = false;
-                let audible = chain_audible(state, &self.graph, track);
+                let audible = chain_audible(state, &mut self.graph, track);
                 match device_mut(state, track, device) {
                     Some(entry) => {
                         let changed = entry.enabled != enabled;
@@ -2910,9 +2977,11 @@ impl Engine {
                 match device_mut(state, track, device) {
                     Some(entry) => {
                         entry.device.set_param(param, value);
-                        // A gesture holds the lane that drives this parameter (AM-2).
+                        // A gesture holds the lane that drives this parameter (AM-2): none of
+                        // its values that wait for the sound lands after it (#765).
                         let target = AutomationTarget::DeviceParam { device, param };
                         hold_lanes(state, &self.graph, track, |t| t == target);
+                        forget_values(state, &mut self.graph, track, device, Some(param));
                     }
                     None => skipped = true,
                 }
@@ -3263,18 +3332,10 @@ fn fades(entry: &DeviceEntry) -> bool {
 }
 
 /// Whether the chain of `track` (the master's for the master) is heard: its strip is not at
-/// silence. A change of a chain nobody hears (a track not yet faded in, a muted one) applies
-/// at once (#233).
-fn chain_audible(state: &State, graph: &Graph, track: TrackSlot) -> bool {
-    let (l, r) = if track.is_master() {
-        graph.master_levels()
-    } else {
-        match state.track(track) {
-            Some(t) => t.graph.levels(),
-            None => return false,
-        }
-    };
-    l != 0.0 || r != 0.0
+/// silence, its delayed levels included (#758). A change of a chain nobody hears (a track not
+/// yet faded in, a muted one) applies at once (#233).
+fn chain_audible(state: &mut State, graph: &mut Graph, track: TrackSlot) -> bool {
+    graph.strip_heard(state, track)
 }
 
 /// Switches a device on or off (#233). On a heard chain an instrument or an audio effect
@@ -3309,10 +3370,34 @@ fn send_off(
     track: TrackSlot,
     slot: DeviceSlot,
     mut old: Box<DeviceEntry>,
-    audible: bool,
+    (audible, alone): (bool, bool),
 ) -> Option<Box<DeviceEntry>> {
-    if !audible || !fades(&old) || old.fade <= 0.0 {
+    // A device with a bypass line (#749) leaves with what its slot gave: its line, blended
+    // with its own output by its fade (`mix`), faded out as a whole, so the chain's timing
+    // never jumps by its latency. One that gave nothing delayed (no tap, silent) leaves at once.
+    let fade = old.fade;
+    let latent = match old.device.bypass() {
+        Some(b) => {
+            let keep = fade > 0.0 || b.line.tap() > 0 || b.line.crossfading();
+            b.mix = fade;
+            // On a track, where no device took its line, it holds the slot's timing until the
+            // graph switches it (#761): its own output fades into its line, then the slot's
+            // timing and the track's delay move at the same frame.
+            b.hold = alone && !track.is_master();
+            b.glide = false;
+            Some(keep)
+        }
+        None => None,
+    };
+    let heard = match latent {
+        Some(keep) => keep,
+        None => fade > 0.0,
+    };
+    if !audible || !fades(&old) || !heard {
         return Some(old);
+    }
+    if latent.is_some() {
+        old.fade = 1.0;
     }
     let list: &mut Outgoing = if track.is_master() {
         graph.master_outgoing()
@@ -3325,6 +3410,66 @@ fn send_off(
     old.enabled = false;
     old.slot = slot.0;
     list.push(old).err()
+}
+
+/// Forgets the values waiting in the event lines of `track`'s chain (and the master's own
+/// line, for the master) for `device` (its parameter `param` only, when given), #765.
+fn forget_values(
+    state: &mut State,
+    graph: &mut Graph,
+    track: TrackSlot,
+    device: DeviceSlot,
+    param: Option<ParamId>,
+) {
+    if let Some(chain) = state.chain_mut(track) {
+        crate::graph::forget_values(chain.as_mut_slice(), device, param);
+    }
+    if track.is_master() {
+        graph.master_events().forget(device, param);
+    }
+}
+
+/// A device left slot `device` of `track`'s chain (removed, or replaced by `old`'s successor),
+/// #765: the values that waited for it are forgotten, and the values its own event line still
+/// delays (`old` being a device with a latency) go on toward their devices.
+fn leave_slot(
+    state: &mut State,
+    graph: &mut Graph,
+    track: TrackSlot,
+    device: DeviceSlot,
+    old: Option<&mut DeviceEntry>,
+) {
+    let mut lost = crate::latency::Lost::default();
+    if let Some(old) = old
+        && let Some(chain) = state.chain_mut(track)
+    {
+        lost = crate::graph::hand_on(old, chain.as_mut_slice(), device.0 as usize);
+    }
+    forget_values(state, graph, track, device, None);
+    // A value a full line refused went to its device at once: older ones of it may still
+    // wait, so its lanes send their value again.
+    for slot in lost.slots() {
+        resend_lanes(state, graph, track, slot);
+    }
+}
+
+/// Hides what a device's bypass line holds and starts its warm-up again (#749): the panic cut.
+fn clear_bypass(entry: &mut DeviceEntry) {
+    let off = entry.fade <= 0.0;
+    if let Some(b) = entry.device.bypass() {
+        b.line.clear();
+        b.off = off;
+        b.warm = 0;
+    }
+}
+
+/// `frames` at `rate` hertz in whole microseconds, saturating (0 at a rate of 0).
+fn latency_us(frames: u32, rate: u32) -> i32 {
+    if rate == 0 {
+        return 0;
+    }
+    let us = (u64::from(frames) * 1_000_000 + u64::from(rate) / 2) / u64::from(rate);
+    us.min(i32::MAX as u64) as i32
 }
 
 fn device_mut(state: &mut State, track: TrackSlot, device: DeviceSlot) -> Option<&mut DeviceEntry> {

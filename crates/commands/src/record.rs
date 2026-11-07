@@ -156,6 +156,8 @@ domain! {
     /// is the output latency the host estimates (0 to 1000, default 0). The notes come
     /// back from the engine, already moved `shift_ms` earlier (the latency plus the session's
     /// offset) on the engine's clock, so that a note heard before a loop wrap stays before it;
+    /// the engine also moves them back by the latency its devices add, which it compensates
+    /// (`mixer.levels` `latency_ms`): `latency_ms` is the host's output latency only;
     /// `record.stop` ends the take, which the host then writes with `record.commit_take`
     /// (`shift_ms` 0), one history entry. Not undoable itself.
     "record.start" (kind = "live", undo = "none", destructive = false)
@@ -171,8 +173,10 @@ domain! {
         /// The tracks that record.
         tracks: Vec<TrackId>,
         /// How much earlier the engine places the notes: `latency_ms` plus the session's
-        /// offset (`record.set_settings`), in milliseconds. The notes it reports are already
-        /// moved: they are written with `record.commit_take`'s `shift_ms` 0.
+        /// offset (`record.set_settings`), in milliseconds; the engine adds the latency of its
+        /// devices on top (`mixer.levels` `latency_ms`, which this figure leaves out: the
+        /// command does not know it). The notes it reports are already moved: they are
+        /// written with `record.commit_take`'s `shift_ms` 0.
         shift_ms: f64,
         /// Whether a count-in runs before the take.
         count_in: bool,

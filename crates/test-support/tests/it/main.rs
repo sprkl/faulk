@@ -20,6 +20,7 @@ mod harness;
 mod hiccup;
 mod journey_pack;
 mod lattice;
+mod latency;
 mod live_input;
 mod live_insert_export;
 mod master_automation;

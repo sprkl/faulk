@@ -148,6 +148,36 @@ fn a_note_on_an_armed_track_is_stamped_at_its_block_and_keeps_its_played_length(
 }
 
 #[test]
+fn a_take_is_moved_back_by_the_device_latency_the_engine_compensates() {
+    // A device on track 1 delays what is heard by 250 frames (10 ticks, #749): the note played
+    // against what was heard lands 10 ticks before the playhead it was stamped at.
+    let mut rig = Rig::new();
+    rig.send(&[M::DeviceInsert {
+        track: TrackSlot(1),
+        device: engine::msg::DeviceSlot(0),
+        kind: engine::device::testing::DELAY.kind_id,
+        state: engine::msg::encode_state(&[(engine::device::testing::delay::FRAMES, 250.0)]),
+    }]);
+    rig.blocks(2);
+    assert_eq!(rig.e.graph().latency(), 250);
+    let played = rig.record(0);
+    rig.blocks(10);
+    let start = rig.tick_since(played, 0);
+    rig.on(0, 60);
+    rig.blocks(30);
+    rig.off(0, 60);
+    rig.blocks(2);
+    let notes = rig.notes();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert_eq!(notes[0].note.start, Tick(start - 10));
+    assert_eq!(
+        notes[0].note.length,
+        Tick((30.0 * BLOCK as f64 / SPT).round() as i64),
+        "the length is the played one"
+    );
+}
+
+#[test]
 fn nothing_is_captured_unless_the_transport_records() {
     let mut rig = Rig::new();
     // Playing without recording.

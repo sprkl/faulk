@@ -2825,6 +2825,17 @@ describe("an agent's destructive calls wait for the user's answer in the page (A
     expect(answer).toMatchObject({ status: 'applied', output: { silenced_frames: 131 } })
   })
 
+  it('tells an agent through mixer.levels the device latency the engine compensates (#749)', async () => {
+    const session = await started()
+    session.engine.latencyFrames = 72
+    session.engine.status = { kind: 'web', sampleRate: 48_000, estimatedLatencyMs: null }
+    const answer = await session.dispatcher.runForAgent({ type: 'mixer.levels' }, 'agent:a')
+    expect(answer).toMatchObject({ status: 'applied', output: { latency_frames: 72, latency_ms: 1.5, latency_capped: false } })
+    session.engine.latencyCapped = true
+    const capped = await session.dispatcher.runForAgent({ type: 'mixer.levels' }, 'agent:a')
+    expect(capped).toMatchObject({ status: 'applied', output: { latency_capped: true } })
+  })
+
   describe('project.analyze_render (#665)', () => {
     const levels = {
       frames: 192_000,

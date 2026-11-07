@@ -177,7 +177,7 @@ export const devices = defineFeature(
     'compressor.detection.hint':
       'What level the compressor reacts to: peak (each sample, it catches the hits) or RMS (the average over 10 ms, it follows the loudness and lets short hits through).',
     'compressor.lookahead.hint':
-      'How far ahead the compressor sees the sound, from 0 to 10 ms, so a short attack catches a hit whole. It delays its track (on the master, the whole mix) by that time: no other track is delayed to match. A change fades out and back in.',
+      'How far ahead the compressor sees the sound, from 0 to 10 ms, so a short attack catches a hit whole. It delays the sound by that time; the other tracks are delayed to match, so everything stays in time. A change fades out and back in.',
     'compressor.sidechain_hpf.hint':
       'When on, the compressor does not react to the lows under the sidechain frequency (a 12 dB per octave high-pass on what it listens to, not on the sound): a kick or a bass no longer pumps everything else.',
     'compressor.sidechain_freq.hint': 'With the sidechain high-pass on, the frequency under which the compressor stops reacting, from 20 to 500 Hz.',
@@ -188,7 +188,7 @@ export const devices = defineFeature(
     'ceiling.compensate.hint':
       'When on, the output is turned down by the input gain: the gain changes how hard the sound is limited, not how loud it is, to compare by ear.',
     'ceiling.lookahead.hint':
-      'How far ahead the limiter sees the peaks, from 0 to 5 ms: it turns down smoothly before each one. It delays this track by that time: the other tracks are not delayed to match. A change fades out and back in.',
+      'How far ahead the limiter sees the peaks, from 0 to 5 ms: it turns down smoothly before each one. It delays the sound by that time; the other tracks are delayed to match, so everything stays in time. A change fades out and back in.',
     'ceiling.release_mode.hint':
       'How the limiter lets the sound back up after a peak: manual (the release time) or auto (fast after a short peak, slower under sustained limiting).',
     'ceiling.release.hint':
@@ -402,7 +402,7 @@ export const devices = defineFeature(
     'compressor.detection.hint':
       'À quel niveau le compresseur réagit : crête (chaque échantillon, il attrape les coups) ou RMS (la moyenne sur 10 ms, il suit le volume et laisse passer les coups brefs).',
     'compressor.lookahead.hint':
-      'Avance avec laquelle le compresseur voit venir le son, de 0 à 10 ms, pour qu’une attaque courte attrape un coup en entier. Sa piste (sur le master, tout le mix) est retardée d’autant, aucune autre piste ne l’est. Un changement se fait par un fondu de sortie puis d’entrée.',
+      'Avance avec laquelle le compresseur voit venir le son, de 0 à 10 ms, pour qu’une attaque courte attrape un coup en entier. Le son est retardé d’autant ; les autres pistes le sont aussi, pour que tout reste en place. Un changement se fait par un fondu de sortie puis d’entrée.',
     'compressor.sidechain_hpf.hint':
       'Activé, le compresseur ne réagit plus aux graves sous la fréquence du sidechain (un passe-haut à 12 dB par octave sur ce qu’il écoute, pas sur le son) : un kick ou une basse ne fait plus pomper tout le reste.',
     'compressor.sidechain_freq.hint': 'Avec le passe-haut du sidechain activé, fréquence sous laquelle le compresseur cesse de réagir, de 20 à 500 Hz.',
@@ -413,7 +413,7 @@ export const devices = defineFeature(
     'ceiling.compensate.hint':
       'Activée, la sortie est baissée du gain d’entrée : le gain change la force de la limitation, pas le volume, pour comparer à l’oreille.',
     'ceiling.lookahead.hint':
-      'Avance avec laquelle le limiteur voit venir les crêtes, de 0 à 5 ms : il baisse le son en douceur avant chacune. Cette piste est retardée d’autant, les autres pistes ne le sont pas. Un changement se fait par un fondu de sortie puis d’entrée.',
+      'Avance avec laquelle le limiteur voit venir les crêtes, de 0 à 5 ms : il baisse le son en douceur avant chacune. Le son est retardé d’autant ; les autres pistes le sont aussi, pour que tout reste en place. Un changement se fait par un fondu de sortie puis d’entrée.',
     'ceiling.release_mode.hint':
       'Comment le limiteur relève le son après une crête : manuel (le temps de relâchement) ou auto (vite après une crête brève, plus lentement quand la limitation dure).',
     'ceiling.release.hint':

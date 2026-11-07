@@ -235,6 +235,16 @@ for (const lang of ['en', 'fr'] as const) {
     const gain = ceiling.getByTestId('param-gain').getByRole('slider')
     await gain.press('End')
     await expect(gain).toHaveAttribute('aria-valuetext', /24/)
+    // Its latency is compensated (#749): the engine dialog says how much, then it is gone with the device.
+    await page.getByTestId('engine-mode').click()
+    const compensation = page.getByTestId('engine-dialog-compensation')
+    await expect(compensation).toHaveText(
+      lang === 'en'
+        ? /^Devices add [\d.]+ ms \(\d+ samples\), compensated: everything stays in time$/
+        : /^Les appareils ajoutent [\d,]+ ms \(\d+ échantillons\), compensés : tout reste en place$/,
+    )
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('engine-dialog')).toBeHidden()
     await ceiling.getByRole('button', { name: x.remove('Ceiling'), exact: true }).click()
     await expect(ceiling).toHaveCount(0)
     await page.keyboard.press('Control+z')

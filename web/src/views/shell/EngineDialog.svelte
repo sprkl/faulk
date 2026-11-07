@@ -33,6 +33,17 @@
   // The engine's load (#486): smoothed, and the peak of the last seconds.
   const load = $derived(engine.load ? t('engine.loadValue', { pct: Math.round(engine.load.smoothed * 100), peak: Math.round(engine.load.peak * 100) }) : null)
 
+  // The device latency the engine compensates (#749), in milliseconds and samples.
+  const compensation = $derived.by(() => {
+    const n = engine.latencyFrames
+    const rate = engine.status?.sampleRate ?? 0
+    if (n === 0) return t('engine.compensationNone')
+    const capped = engine.latencyCapped
+    if (!(rate > 0)) return t(capped ? 'engine.compensationCappedFrames' : 'engine.compensationFrames', { n })
+    const ms = ((n * 1000) / rate).toLocaleString(ui.lang, { maximumFractionDigits: 2 })
+    return t(capped ? 'engine.compensationCapped' : 'engine.compensationValue', { ms, n })
+  })
+
   // What the output protection silenced since this engine started (#667), as a duration.
   const silenced = $derived.by(() => {
     if (engine.silencedFrames === 0) return t('engine.silencedNone')
@@ -175,6 +186,8 @@
         <dd data-testid="engine-dialog-load">{load ?? t('engine.loadNone')}</dd>
         <dt>{t('engine.voicesLabel')}</dt>
         <dd data-testid="engine-dialog-voices">{engine.voices}</dd>
+        <dt>{t('engine.compensationLabel')}</dt>
+        <dd data-testid="engine-dialog-compensation" title={t('engine.compensationHint')}>{compensation}</dd>
         <dt>{t('engine.silencedLabel')}</dt>
         <dd data-testid="engine-dialog-silenced" title={t('engine.silencedHint')}>{silenced}</dd>
         <dt>{t('meter.label')}</dt>

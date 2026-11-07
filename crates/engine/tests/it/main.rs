@@ -31,6 +31,8 @@ mod growth;
 mod hiccup;
 mod host;
 mod lattice;
+mod latency;
+mod latency_switch;
 mod launcher;
 mod live_stamps;
 mod master_automation;
