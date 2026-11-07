@@ -26,6 +26,7 @@ mod fuzz;
 mod graph;
 mod grid_render;
 mod growth;
+mod hiccup;
 mod host;
 mod lattice;
 mod launcher;

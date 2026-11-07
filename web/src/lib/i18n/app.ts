@@ -44,6 +44,7 @@ import { synth } from './synth'
 import { tracks } from './tracks'
 import { transport } from './transport'
 import { trim } from './trim'
+import { hiccup } from './hiccup'
 
 export { DEVICE_NAME_KEYS } from './synth'
 
@@ -70,6 +71,7 @@ export const features = {
   compressor,
   ceiling,
   trim,
+  hiccup,
   devices,
   presets,
   keys,
