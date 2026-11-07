@@ -445,7 +445,8 @@ pub struct Level {
 /// to the last one that was occupied at a report, and the output's.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Levels {
-    /// Frames rendered since the tally started, up to the last report.
+    /// Frames the output's level covers: rendered since the tally started up to the last
+    /// report, or the frames of its window ([`Host::tally_levels_over`]).
     pub frames: u64,
     /// By track slot.
     pub tracks: Vec<Level>,
@@ -454,14 +455,22 @@ pub struct Levels {
 }
 
 /// The sums behind [`Levels`]: one `(peak, sum of squares)` pair per channel, per slot and
-/// for the output (last).
+/// for the output (last), each over its own window of the tally's frames (#755).
 #[derive(Debug)]
 struct Tally {
+    /// Frames since the tally started, up to the last report.
     frames: u64,
     /// Slots up to the last one a report carried.
     used: usize,
     peak: Box<[[f32; 2]]>,
     squares: Box<[[f64; 2]]>,
+    /// Where each strip's window starts, in the tally's frames: a strip folds the reports whose
+    /// period starts in `[from, from + window)`.
+    from: Box<[u64]>,
+    /// The length of every strip's window (`u64::MAX`: every report from `from` on).
+    window: u64,
+    /// The frames each strip folded.
+    folded: Box<[u64]>,
 }
 
 impl Tally {
@@ -472,38 +481,51 @@ impl Tally {
             used: 0,
             peak: try_slice(n, [0.0; 2])?,
             squares: try_slice(n, [0.0; 2])?,
+            from: try_slice(n, 0)?,
+            window: u64::MAX,
+            folded: try_slice(n, 0)?,
         }))
     }
 
-    /// Folds one report's meters, taken over `frames` frames. A meter's RMS is the root of
-    /// its mean square over its period, so the squares are put back with the period's length.
+    /// Folds one report's meters, taken over `frames` frames, into every strip whose window
+    /// holds the period's first frame (a caller with windows cuts the periods at their edges).
+    /// A meter's RMS is the root of its mean square over its period, so the squares are put
+    /// back with the period's length. No allocation.
     fn add(&mut self, frames: u32, tracks: &[TrackMeter], master: TrackMeter) {
         let master_at = self.peak.len() - 1;
         let n = f64::from(frames.max(1));
+        let (now, window) = (self.frames, self.window);
         let mut fold = |at: usize, m: &TrackMeter| {
+            let from = self.from[at];
+            if now < from || now - from >= window {
+                return;
+            }
             self.peak[at][0] = self.peak[at][0].max(m.peak_l);
             self.peak[at][1] = self.peak[at][1].max(m.peak_r);
             self.squares[at][0] += f64::from(m.rms_l) * f64::from(m.rms_l) * n;
             self.squares[at][1] += f64::from(m.rms_r) * f64::from(m.rms_r) * n;
+            self.folded[at] = self.folded[at].saturating_add(u64::from(frames));
         };
         for (at, m) in tracks.iter().enumerate().take(master_at) {
             fold(at, m);
         }
         fold(master_at, &master);
         self.used = self.used.max(tracks.len().min(master_at));
-        self.frames += u64::from(frames);
+        self.frames = self.frames.saturating_add(u64::from(frames));
     }
 
     fn levels(&self) -> Levels {
-        let n = self.frames.max(1) as f64;
-        let level = |at: usize| Level {
-            peak_l: self.peak[at][0],
-            peak_r: self.peak[at][1],
-            rms_l: (self.squares[at][0] / n).sqrt() as f32,
-            rms_r: (self.squares[at][1] / n).sqrt() as f32,
+        let level = |at: usize| {
+            let n = self.folded[at].max(1) as f64;
+            Level {
+                peak_l: self.peak[at][0],
+                peak_r: self.peak[at][1],
+                rms_l: (self.squares[at][0] / n).sqrt() as f32,
+                rms_r: (self.squares[at][1] / n).sqrt() as f32,
+            }
         };
         Levels {
-            frames: self.frames,
+            frames: self.folded[self.peak.len() - 1],
             tracks: (0..self.used).map(level).collect(),
             master: level(self.peak.len() - 1),
         }
@@ -847,6 +869,30 @@ impl Host {
     /// thread. A second call starts again from zero. `Err` when the memory is refused.
     pub fn tally_levels(&mut self) -> Result<(), MsgError> {
         self.tally = Some(Tally::new()?);
+        Ok(())
+    }
+
+    /// [`Host::tally_levels`] over one window of `frames` frames per strip (#755): track slot
+    /// `s` folds the reports whose period starts in `[track_lead(s), track_lead(s) + frames)`
+    /// frames from now, the output those that start in `[master_lead, master_lead + frames)`.
+    /// The offline render gives each strip the latency of its signal, so that every strip
+    /// measures the same stretch of the song. The caller cuts its blocks and writes a report
+    /// ([`Host::write_feedback`]) at every edge, so that no period crosses one. Allocates:
+    /// never on the audio thread. `Err` when the memory is refused.
+    pub fn tally_levels_over(
+        &mut self,
+        frames: u64,
+        track_lead: impl Fn(usize) -> u64,
+        master_lead: u64,
+    ) -> Result<(), MsgError> {
+        let mut tally = Tally::new()?;
+        let master_at = tally.from.len() - 1;
+        for (at, from) in tally.from.iter_mut().enumerate().take(master_at) {
+            *from = track_lead(at);
+        }
+        tally.from[master_at] = master_lead;
+        tally.window = frames;
+        self.tally = Some(tally);
         Ok(())
     }
 
