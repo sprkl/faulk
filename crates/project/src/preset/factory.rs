@@ -74,6 +74,22 @@ const FILES: &[(&str, &str)] = &[
         include_str!("factory/faulk.filter/thin-highpass.json"),
     ),
     (
+        "faulk.filter/quarter-wobble",
+        include_str!("factory/faulk.filter/quarter-wobble.json"),
+    ),
+    (
+        "faulk.filter/slow-sweep",
+        include_str!("factory/faulk.filter/slow-sweep.json"),
+    ),
+    (
+        "faulk.filter/talking-filter",
+        include_str!("factory/faulk.filter/talking-filter.json"),
+    ),
+    (
+        "faulk.filter/random-steps",
+        include_str!("factory/faulk.filter/random-steps.json"),
+    ),
+    (
         "faulk.ceiling/safe-master",
         include_str!("factory/faulk.ceiling/safe-master.json"),
     ),
@@ -128,6 +144,18 @@ const FILES: &[(&str, &str)] = &[
     (
         "faulk.scatter/rising-thirds",
         include_str!("factory/faulk.scatter/rising-thirds.json"),
+    ),
+    (
+        "faulk.hiccup/half-bar-stutter",
+        include_str!("factory/faulk.hiccup/half-bar-stutter.json"),
+    ),
+    (
+        "faulk.hiccup/drum-roll",
+        include_str!("factory/faulk.hiccup/drum-roll.json"),
+    ),
+    (
+        "faulk.hiccup/tape-scatter",
+        include_str!("factory/faulk.hiccup/tape-scatter.json"),
     ),
 ];
 

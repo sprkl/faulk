@@ -386,7 +386,13 @@ describe('running commands through the project core', () => {
   it('shows the slots the engine holds the tracks in, again after each snapshot (the launch grid reads the engine by them)', async () => {
     const session = newSession()
     await session.dispatcher.start()
-    expect(session.project.view?.slots).toEqual({ epoch: 1, tracks: { [SINGLE_SYNTH.track]: 0 }, scenes: {} })
+    expect(session.project.view?.slots).toEqual({
+      epoch: 1,
+      tracks: { [SINGLE_SYNTH.track]: 0 },
+      scenes: {},
+      // The instrument sits past the band of MIDI effect slots (#219: 16 of them).
+      devices: { [SINGLE_SYNTH.device]: { track: 0, slot: 16 } },
+    })
     webEvents?.onStreamRefused?.(-3, 128)
     await session.dispatcher.start()
     expect(session.project.view?.slots.epoch).toBe(2)
@@ -2818,6 +2824,17 @@ describe("an agent's destructive calls wait for the user's answer in the page (A
     session.engine.silencedFrames = 131
     const answer = await session.dispatcher.runForAgent({ type: 'mixer.levels' }, 'agent:a')
     expect(answer).toMatchObject({ status: 'applied', output: { silenced_frames: 131 } })
+  })
+
+  it('tells an agent through mixer.levels the device latency the engine compensates (#749)', async () => {
+    const session = await started()
+    session.engine.latencyFrames = 72
+    session.engine.status = { kind: 'web', sampleRate: 48_000, estimatedLatencyMs: null }
+    const answer = await session.dispatcher.runForAgent({ type: 'mixer.levels' }, 'agent:a')
+    expect(answer).toMatchObject({ status: 'applied', output: { latency_frames: 72, latency_ms: 1.5, latency_capped: false } })
+    session.engine.latencyCapped = true
+    const capped = await session.dispatcher.runForAgent({ type: 'mixer.levels' }, 'agent:a')
+    expect(capped).toMatchObject({ status: 'applied', output: { latency_capped: true } })
   })
 
   describe('project.analyze_render (#665)', () => {

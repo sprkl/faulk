@@ -51,6 +51,11 @@ fn session(kind: &str, preset: Option<&str>) -> (Session, Vec<u8>) {
             device
         }
     };
+    // Hiccup captures on the transport's grid (#689): with the clock stopped it does nothing,
+    // so its session plays.
+    if kind == "faulk.hiccup" {
+        s.run(Command::Transport(commands::transport::Command::Play {}));
+    }
     let notes: Vec<u8> = if descriptor.named_keys.is_empty() {
         vec![45, 52, 57]
     } else {

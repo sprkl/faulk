@@ -537,11 +537,37 @@ pub trait Device: Send {
 
     /// The latency this device adds now, in frames: how many frames after an input sample
     /// the output sample it becomes comes out (a look-ahead, #159); 0 for a device that adds
-    /// none. It may change with the parameters. The engine does not compensate it yet: a
-    /// device with a latency delays its track against the others by that much. It reads a
-    /// field: no allocation, no lock.
+    /// none. It may change with the parameters, and never goes above
+    /// [`Device::max_latency_frames`] (the graph bounds it there). The graph compensates it
+    /// (#749, [`crate::graph`] > Latency): every track, the master and the metronome stay on
+    /// one timing, and a bypassed device keeps its latency. It reads a field: no allocation,
+    /// no lock.
     fn latency_frames(&self) -> u32 {
         0
+    }
+
+    /// The live value of one of this device's parameters after the last block, when the
+    /// device moves it by itself (the Filter's cutoff under its LFO and envelope, #686), for the
+    /// visual feedback: the parameter and its value, in the parameter's unit, finite. `None`
+    /// for a device that moves none. It reads a field: no allocation, no lock.
+    fn readout(&self) -> Option<(ParamId, f32)> {
+        None
+    }
+
+    /// The most [`Device::latency_frames`] returns for this instance (at the rate it was built
+    /// for), whatever its parameters: `prepare` sizes the device's bypass line from it (#749),
+    /// which the device's [`DeviceDescriptor::memory_bytes`] counts
+    /// ([`crate::latency::Latent::bytes_for`] at [`MAX_SAMPLE_RATE`]). 0 for a device that adds
+    /// no latency.
+    fn max_latency_frames(&self) -> u32 {
+        0
+    }
+
+    /// The graph's bypass line of a device with a latency (#749): `prepare` wraps such a
+    /// device in [`crate::latency::Latent`], which answers here. A device leaves it to this
+    /// default.
+    fn bypass(&mut self) -> Option<&mut crate::latency::Bypass> {
+        None
     }
 }
 
@@ -565,6 +591,10 @@ pub enum Unit {
     Semitones,
     Cents,
     Percent,
+    /// An angle, in degrees (a phase).
+    Degrees,
+    /// A frequency ratio, in octaves (a depth of modulation: 1 octave doubles the frequency).
+    Octaves,
 }
 
 /// How a control maps its travel to the value.

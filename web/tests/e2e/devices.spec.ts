@@ -152,12 +152,13 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(page.getByTestId('device-card')).toHaveCount(1)
     await expect(reverb).toHaveCount(0)
 
-    // Filter (DV-2): inserted from the browser, one control per parameter, the mode is a choice of
-    // three, the cutoff shows hertz and the resonance a percentage, removed, then undone.
+    // Filter (DV-2, #686): inserted from the browser, one control per parameter shown in its LFO mode (synced:
+    // fourteen of sixteen), the mode is a choice of
+    // four, the cutoff shows hertz and the resonance a percentage, removed, then undone.
     await panel.getByRole('button', { name: x.add('Filter'), exact: true }).click()
     const filter = card(page, 'Filter')
-    await expect(filter.locator('[data-testid^=param-]')).toHaveCount(4)
-    await expect(filter.getByTestId('param-mode').getByRole('radio')).toHaveCount(3)
+    await expect(filter.locator('[data-testid^=param-]')).toHaveCount(14)
+    await expect(filter.getByTestId('param-mode').getByRole('radio')).toHaveCount(4)
     const lowpass = filter.getByRole('radio', { name: lang === 'en' ? 'Low-pass' : 'Passe-bas', exact: true })
     await expect(lowpass).toHaveAttribute('aria-checked', 'true')
     const bandpass = filter.getByRole('radio', { name: lang === 'en' ? 'Band-pass' : 'Passe-bande', exact: true })
@@ -176,6 +177,43 @@ for (const lang of ['en', 'fr'] as const) {
     for (let i = 0; i < 3; i++) await page.keyboard.press('Control+z')
     await expect(page.getByTestId('device-card')).toHaveCount(1)
     await expect(filter).toHaveCount(0)
+
+    // Compressor (#157): inserted from the browser, its reduction meter, one control per parameter with the
+    // release time shown only in manual release and the sidechain frequency only with the sidechain high-pass
+    // on, its switches, removed, then undone.
+    await panel.getByRole('button', { name: x.add('Compressor'), exact: true }).click()
+    const comp = card(page, 'Compressor')
+    await expect(comp.getByTestId('gain-reduction')).toBeVisible()
+    // Manual release and no high-pass, the defaults: eleven of the twelve parameters.
+    await expect(comp.locator('[data-testid^=param-]')).toHaveCount(11)
+    await expect(comp.getByTestId('param-sidechain_freq')).toHaveCount(0)
+    await expect(comp.getByTestId('param-release')).toBeVisible()
+    await expect(comp.getByTestId('param-knee').getByRole('slider')).toHaveAttribute('aria-valuetext', /dB/)
+    await expect(comp.getByTestId('param-lookahead').getByRole('slider')).toHaveAttribute('aria-valuetext', /ms/)
+    await expect(comp.getByTestId('param-mix').getByRole('slider')).toHaveAttribute('aria-valuetext', /100\s?%/)
+    const hpfOn = comp.getByTestId('param-sidechain_hpf').getByRole('radio', { name: lang === 'en' ? 'On' : 'Oui', exact: true })
+    await hpfOn.click()
+    await expect(hpfOn).toHaveAttribute('aria-checked', 'true')
+    await expect(comp.getByTestId('param-sidechain_freq').getByRole('slider')).toHaveAttribute('aria-valuetext', /Hz/)
+    await expect(comp.locator('[data-testid^=param-]')).toHaveCount(12)
+    const rms = comp.getByTestId('param-detection').getByRole('radio', { name: 'RMS', exact: true })
+    await rms.click()
+    await expect(rms).toHaveAttribute('aria-checked', 'true')
+    await comp.getByTestId('param-release_mode').getByRole('radio', { name: 'Auto', exact: true }).click()
+    await expect(comp.getByTestId('param-release')).toHaveCount(0)
+    await expect(comp.locator('[data-testid^=param-]')).toHaveCount(11)
+    const mix = comp.getByTestId('param-mix').getByRole('slider')
+    await mix.press('Home')
+    await expect(mix).toHaveAttribute('aria-valuetext', /^0\s?%/)
+    await comp.getByRole('button', { name: x.remove('Compressor'), exact: true }).click()
+    await expect(comp).toHaveCount(0)
+    await page.keyboard.press('Control+z')
+    await expect(comp).toHaveCount(1)
+    await expect(comp.getByTestId('param-sidechain_freq')).toBeVisible()
+    // The mix, the release mode, the detection, the high-pass, then the insertion.
+    for (let i = 0; i < 5; i++) await page.keyboard.press('Control+z')
+    await expect(page.getByTestId('device-card')).toHaveCount(1)
+    await expect(comp).toHaveCount(0)
 
     // Ceiling (#159): inserted from the browser, its reduction meter, one control per parameter
     // with the release time shown only in manual release, its switches, removed, then undone.
@@ -197,6 +235,16 @@ for (const lang of ['en', 'fr'] as const) {
     const gain = ceiling.getByTestId('param-gain').getByRole('slider')
     await gain.press('End')
     await expect(gain).toHaveAttribute('aria-valuetext', /24/)
+    // Its latency is compensated (#749): the engine dialog says how much, then it is gone with the device.
+    await page.getByTestId('engine-mode').click()
+    const compensation = page.getByTestId('engine-dialog-compensation')
+    await expect(compensation).toHaveText(
+      lang === 'en'
+        ? /^Devices add [\d.]+ ms \(\d+ samples\), compensated: everything stays in time$/
+        : /^Les appareils ajoutent [\d,]+ ms \(\d+ échantillons\), compensés : tout reste en place$/,
+    )
+    await page.keyboard.press('Escape')
+    await expect(page.getByTestId('engine-dialog')).toBeHidden()
     await ceiling.getByRole('button', { name: x.remove('Ceiling'), exact: true }).click()
     await expect(ceiling).toHaveCount(0)
     await page.keyboard.press('Control+z')

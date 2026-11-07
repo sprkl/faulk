@@ -3,7 +3,7 @@ import type { ActiveClip } from '../../lib/engine/feedback'
 import type { Placement, ViewSlots } from '../../lib/generated/protocol'
 import { MAX_EXTRAPOLATION_MS, clipLocal, liveTick, playheadIn, settle, type PlayheadInput } from './playhead'
 
-const slots: ViewSlots = { epoch: 4, tracks: { T1: 0, T2: 1 }, scenes: { S1: 0, S2: 1 } }
+const slots: ViewSlots = { epoch: 4, tracks: { T1: 0, T2: 1 }, scenes: { S1: 0, S2: 1 }, devices: {} }
 const place = (clip: string, start: number, length: number, offset = 0): Placement => ({ clip, start, span: { ticks: { length, offset } } })
 
 function input(over: Partial<PlayheadInput> & { cells?: ActiveClip[]; epoch?: number }): PlayheadInput {

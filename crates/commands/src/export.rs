@@ -18,8 +18,11 @@
 //!   so the file is what playback gives. A file that cannot be read leaves its clips silent;
 //!   the render reports its media (`Offline::missing`).
 //! - **The start.** The setup holds no `Play`: [`ExportJob::start`] goes in after the
-//!   engine's pre-roll (`engine::offline::PREROLL_SECONDS`), once the fade in of the new
-//!   tracks and devices is over, so the first frame is heard as when playing.
+//!   engine's pre-roll (`engine::offline::PREROLL_SECONDS`, longer with a device that has a
+//!   latency), once the fade in of the new tracks and devices is over, so the first frame is
+//!   heard as when playing. The device latency the engine compensates is dropped from the
+//!   start of the file (#755, `engine::offline` > Device latency): the file starts on the
+//!   song's first frame.
 
 use engine::msg::{ControlMsg, MsgError};
 use engine::offline::{self, MAX_BODY_SECS, SampleFormat};

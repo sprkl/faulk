@@ -55,12 +55,11 @@
 //!
 //! # Latency
 //!
-//! [`Device::latency_frames`] is `L`; with `true_peak` on, `max(L, TP_MIN_LOOKAHEAD) + TP_DELAY`. The engine does
-//! not compensate a device's latency yet: a Ceiling on one track plays that track this much
-//! later than the others (72 frames, 1.5 ms, at the defaults and 48 kHz). On the master
-//! chain, its place, everything is delayed together. For the same reason the graph's 5 ms
-//! crossfade of a bypass, an insert or a removal mixes the undelayed dry signal with the
-//! delayed one (a short comb), and the track moves by the latency.
+//! [`Device::latency_frames`] is `L`; with `true_peak` on, `max(L, TP_MIN_LOOKAHEAD) + TP_DELAY`
+//! (72 frames, 1.5 ms, at the defaults and 48 kHz), at most [`Ceiling::max_latency`]. The graph
+//! compensates it (#749, [`crate::graph`] > Latency): the other tracks are delayed to match, and
+//! a bypassed Ceiling keeps its latency through the graph's bypass line, so a bypass neither
+//! moves the track nor combs. [`MEMORY_BYTES`] counts that line.
 //!
 //! A change of `lookahead` or `true_peak` changes the latency. While the device sounds, the
 //! change waits until no other one came for [`SETTLE_SECONDS`] (a drag of the control or an
@@ -73,7 +72,8 @@
 //! target; one during the silence takes the newer latency and starts the silence again; one
 //! during the fade in waits again (the fade in goes on meanwhile). A value that brings the
 //! latency back to the one in use cancels the wait. The fades only lower the output: the
-//! ceiling holds through them.
+//! ceiling holds through them. The switch is [`super::latency_switch::LatencySwitch`], shared
+//! with the Compressor (#157).
 //!
 //! # Parameters and smoothing
 //!
@@ -100,6 +100,8 @@ use crate::device::{
 use crate::msg::{DeviceKind, MsgError, ParamId, try_box};
 use crate::param::Smoother;
 
+use super::latency_switch::{LatencySwitch, Take};
+
 /// Ids of the parameters.
 pub const CEILING: u32 = 0;
 pub const GAIN: u32 = 1;
@@ -124,10 +126,7 @@ pub const TP_PHASES: usize = 4;
 pub const TP_MIN_LOOKAHEAD: u32 = 16;
 /// The Kaiser window's shape of the interpolator.
 const TP_KAISER_BETA: f64 = 7.0;
-/// How long a change of latency waits for the next one before it fades out.
-pub const SETTLE_SECONDS: f32 = 0.05;
-/// Fade out, then in, around a change of latency.
-pub const FADE_SECONDS: f32 = 0.005;
+pub use super::latency_switch::{FADE_SECONDS, SETTLE_SECONDS};
 /// The auto release's fast and slow time constants.
 pub const AUTO_FAST_SECONDS: f32 = 0.02;
 pub const AUTO_SLOW_SECONDS: f32 = 0.5;
@@ -195,7 +194,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(LOOKAHEAD),
             key: "lookahead",
-            description: "How far ahead the limiter sees the peaks, from 0 to 5 ms: it turns down smoothly before each one. It delays this track by that time: the other tracks are not delayed to match. A change fades out and back in.",
+            description: "How far ahead the limiter sees the peaks, from 0 to 5 ms: it turns down smoothly before each one. It delays the sound by that time; the other tracks are delayed to match, so everything stays in time. A change fades out and back in.",
             unit: Unit::Seconds,
             min: 0.0,
             max: LOOKAHEAD_MAX_SECONDS,
@@ -280,9 +279,23 @@ const fn capacity(sample_rate: f32) -> usize {
 const BYTES_PER_FRAME: usize =
     3 * size_of::<f32>() + size_of::<f32>() + size_of::<u64>() + size_of::<f32>();
 
-/// The most memory an instance takes, at [`MAX_SAMPLE_RATE`].
-const MEMORY_BYTES: u64 =
-    (size_of::<Ceiling>() + capacity(MAX_SAMPLE_RATE) * BYTES_PER_FRAME) as u64;
+/// The most latency an instance at `sample_rate` adds: the longest look-ahead (at least the
+/// true-peak one) plus the interpolator's delay.
+const fn max_latency_at(sample_rate: f32) -> u32 {
+    let longest = (LOOKAHEAD_MAX_SECONDS * sample_rate as f64 + 0.5) as u32;
+    let lookahead = if longest > TP_MIN_LOOKAHEAD {
+        longest
+    } else {
+        TP_MIN_LOOKAHEAD
+    };
+    lookahead + TP_DELAY
+}
+
+/// The most memory an instance takes, at [`MAX_SAMPLE_RATE`], with the graph's bypass line for
+/// its latency and its wrapper (#749, [`crate::latency::Latent`]).
+pub const MEMORY_BYTES: u64 = (size_of::<Ceiling>() + capacity(MAX_SAMPLE_RATE) * BYTES_PER_FRAME)
+    as u64
+    + crate::latency::Latent::bytes_for(max_latency_at(MAX_SAMPLE_RATE));
 
 /// The index of the first frame after a reset: frame indices start here so that the
 /// interpolator's oldest tap is never below 0; an index below it reads as silence.
@@ -380,21 +393,6 @@ fn effective((lookahead, true_peak): (u32, bool)) -> (u32, bool) {
     }
 }
 
-/// What the output is doing around a change of latency.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Phase {
-    Steady,
-    /// A change of latency waits for these many more frames without a new one (a drag of
-    /// the control sends many), fading back in meanwhile if it was.
-    Settle(u32),
-    /// Fading out towards the switch.
-    Out,
-    /// Silent for these many more frames after the switch.
-    Mute(u32),
-    /// Fading back in.
-    In,
-}
-
 #[derive(Debug)]
 pub struct Ceiling {
     sample_rate: f32,
@@ -446,10 +444,8 @@ pub struct Ceiling {
     between: f32,
     last_l: f32,
     last_r: f32,
-    phase: Phase,
-    fade: f32,
-    fade_step: f32,
-    settle_frames: u32,
+    /// The switch of a change of latency (fade out, silence, fade in).
+    switch: LatencySwitch,
     /// The smallest average gain of the last block, for the visual feedback.
     block_gain: f32,
     reported_db: f32,
@@ -512,10 +508,7 @@ impl Ceiling {
             between: 0.0,
             last_l: 0.0,
             last_r: 0.0,
-            phase: Phase::Steady,
-            fade: 1.0,
-            fade_step: 1.0 / (FADE_SECONDS * sample_rate),
-            settle_frames: (SETTLE_SECONDS * sample_rate) as u32,
+            switch: LatencySwitch::new(sample_rate),
             block_gain: 1.0,
             reported_db: 0.0,
         };
@@ -527,6 +520,12 @@ impl Ceiling {
     /// the true-peak detection.
     pub fn latency(&self) -> u32 {
         self.lookahead + if self.true_peak { TP_DELAY } else { 0 }
+    }
+
+    /// The most latency this instance adds, whatever its parameters: the longest look-ahead at
+    /// its rate (at least [`TP_MIN_LOOKAHEAD`]) plus [`TP_DELAY`].
+    pub fn max_latency(&self) -> u32 {
+        max_latency_at(self.sample_rate)
     }
 
     /// The windows start again at the current frame, with no reduction.
@@ -543,19 +542,8 @@ impl Ceiling {
         self.last_r = 0.0;
     }
 
-    /// Silent for the latency just taken (nothing older than it may be heard), then the fade
-    /// in; with no latency nothing is in flight: straight to the fade in.
-    fn mute(&mut self) {
-        let latency = self.latency();
-        self.phase = if latency > 0 {
-            Phase::Mute(latency)
-        } else {
-            Phase::In
-        };
-    }
-
     /// Takes the wanted latency.
-    fn switch(&mut self) {
+    fn take_latency(&mut self) {
         (self.lookahead, self.true_peak) = effective(self.wanted);
         self.restart_windows();
     }
@@ -585,37 +573,19 @@ impl Ceiling {
     /// since the reset, else through the settle, the fade and the silence.
     fn ask_latency(&mut self, wanted: (u32, bool)) {
         self.wanted = wanted;
-        if self.frame == 0 {
-            self.switch();
-            self.phase = Phase::Steady;
-            self.fade = 1.0;
-            return;
-        }
-        let differs = effective(wanted) != (self.lookahead, self.true_peak);
-        match self.phase {
-            // A drag sends many values: the switch waits until they stop.
-            Phase::Steady | Phase::In | Phase::Settle(_) => {
-                self.phase = if differs {
-                    Phase::Settle(self.settle_frames)
-                } else if self.phase == Phase::Steady {
-                    Phase::Steady
-                } else {
-                    Phase::In
-                };
-            }
-            // Taken back during the fade out: it fades back in, nothing switches.
-            Phase::Out => {
-                if !differs {
-                    self.phase = Phase::In;
-                }
-            }
-            Phase::Mute(_) => {
-                if differs {
-                    self.switch();
-                    self.mute();
-                }
+        match self.switch.ask(self.frame == 0, self.differs()) {
+            Take::Later => {}
+            Take::Now => self.take_latency(),
+            Take::NowSilent => {
+                self.take_latency();
+                self.switch.silence(self.latency());
             }
         }
+    }
+
+    /// The wanted latency is not the one in use.
+    fn differs(&self) -> bool {
+        effective(self.wanted) != (self.lookahead, self.true_peak)
     }
 
     /// The largest magnitude reconstructed from the sample `k` (included) to the sample
@@ -684,9 +654,9 @@ impl Ceiling {
     /// One frame in, one frame out.
     #[inline]
     fn frame_of(&mut self, in_l: f32, in_r: f32) -> (f32, f32) {
-        if self.phase == Phase::Out && self.fade <= 0.0 {
-            self.switch();
-            self.mute();
+        if self.switch.due() {
+            self.take_latency();
+            self.switch.silence(self.latency());
         }
         let ceiling_db = self.ceiling.next_value().clamp(-12.0, 0.0);
         if ceiling_db != self.ceiling_db {
@@ -794,39 +764,7 @@ impl Ceiling {
             // while the sample is in flight).
             g *= inv;
         }
-        match self.phase {
-            Phase::Steady => {}
-            Phase::Settle(left) => {
-                self.fade = (self.fade + self.fade_step).min(1.0);
-                g *= self.fade;
-                self.phase = if left > 1 {
-                    Phase::Settle(left - 1)
-                } else if effective(self.wanted) != (self.lookahead, self.true_peak) {
-                    Phase::Out
-                } else {
-                    Phase::In
-                };
-            }
-            Phase::Out => {
-                self.fade = (self.fade - self.fade_step).max(0.0);
-                g *= self.fade;
-            }
-            Phase::Mute(left) => {
-                g = 0.0;
-                self.phase = if left <= 1 {
-                    Phase::In
-                } else {
-                    Phase::Mute(left - 1)
-                };
-            }
-            Phase::In => {
-                self.fade = (self.fade + self.fade_step).min(1.0);
-                g *= self.fade;
-                if self.fade >= 1.0 {
-                    self.phase = Phase::Steady;
-                }
-            }
-        }
+        g *= self.switch.gain(self.differs());
         self.frame += 1;
         (flush((dl * g).clamp(-c, c)), flush((dr * g).clamp(-c, c)))
     }
@@ -873,13 +811,16 @@ impl Device for Ceiling {
         self.latency()
     }
 
+    fn max_latency_frames(&self) -> u32 {
+        self.max_latency()
+    }
+
     /// Opens the gain, hides the line's content, takes a pending latency and snaps the
     /// ramps; the parameter values are kept. Constant time: no buffer is wiped.
     fn reset(&mut self) {
         self.frame = 0;
-        self.switch();
-        self.phase = Phase::Steady;
-        self.fade = 1.0;
+        self.take_latency();
+        self.switch.reset();
         self.ceiling.snap();
         self.gain.snap();
         self.block_gain = 1.0;
