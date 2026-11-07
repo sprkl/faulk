@@ -2,8 +2,13 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   ACTIVE_CLIP_BYTES,
+  DEVICE_READOUT_BYTES,
   FEEDBACK_HEADER_BYTES,
+  MASTER_TRACK_SLOT,
+  MAX_READOUTS_PER_REPORT,
   FEEDBACK_VERSION,
+  LATENCY_OFFSET,
+  READOUTS_OFFSET,
   MAX_RECORDED_PER_REPORT,
   RECORDED_NOTE_BYTES,
   TRACK_METER_BYTES,
@@ -116,6 +121,7 @@ describe('decodeFeedback', () => {
         v.setUint32(84, 4096, true)
         v.setUint32(88, 131, true)
         v.setBigUint64(92, 5_000_000n, true)
+        v.setUint32(LATENCY_OFFSET, 156, true)
       }),
     )!
     expect(r).toMatchObject({
@@ -134,6 +140,7 @@ describe('decodeFeedback', () => {
       pcmOverBudget: true,
       pcmKib: 4096,
       silencedFrames: 131,
+      latencyFrames: 156,
     })
     expect(r.tracks).toHaveLength(3)
     expect(r.tracks[2].peakL).toBeCloseTo(0.3)
@@ -152,7 +159,16 @@ describe('decodeFeedback', () => {
     expect(decodeFeedback(report(1, (v) => v.setFloat32(at + 16, NaN, true)))!.tracks[0].gainReductionDb).toBe(0)
   })
 
-  it('refuses a report of the previous layouts (version 8: a 92-byte header, without the host frame; version 7: an 88-byte header, without the silenced frames; version 5: 72 bytes; version 4: 56 bytes; version 3)', () => {
+  it('keeps the device latency in the last word of the header, its high bit the cap (#749)', () => {
+    expect(LATENCY_OFFSET + 4).toBe(FEEDBACK_HEADER_BYTES)
+    expect(LATENCY_OFFSET % 4).toBe(0)
+    expect(decodeFeedback(report(0))).toMatchObject({ latencyFrames: 0, latencyCapped: false })
+    const capped = decodeFeedback(report(0, (v) => v.setUint32(LATENCY_OFFSET, 0x8000_0000 + 20_480, true)))!
+    expect(capped).toMatchObject({ latencyFrames: 20_480, latencyCapped: true })
+  })
+
+  it('refuses a report of the previous layouts (version 9: a 100-byte header, without the readouts count and the device latency; version 8: a 92-byte header, without the host frame; version 7: an 88-byte header, without the silenced frames; version 5: 72 bytes; version 4: 56 bytes; version 3)', () => {
+    expect(decodeFeedback(report(2, (v) => v.setUint8(0, 9)))).toBeNull()
     expect(decodeFeedback(report(2, (v) => v.setUint8(0, 8)))).toBeNull()
     expect(decodeFeedback(report(2, (v) => v.setUint8(0, 7)))).toBeNull()
     expect(decodeFeedback(report(2, (v) => v.setUint8(0, 5)))).toBeNull()
@@ -184,8 +200,10 @@ describe('decodeFeedback', () => {
     expect(decodeFeedback(report(0, (v) => v.setFloat32(72, -1, true)))!.cpuPeak).toBeNull()
     expect(decodeFeedback(report(0, (v) => v.setFloat32(72, NaN, true)))!.cpuPeak).toBeNull()
     expect(decodeFeedback(report(0, (v) => v.setFloat32(72, 2, true)))!.cpuPeak).toBe(1)
-    // The meters start after it.
-    expect(FEEDBACK_HEADER_BYTES).toBe(100)
+    // The meters start after it (version 10: the readouts count at 100, #686, then the latency at 104, #749).
+    expect(FEEDBACK_HEADER_BYTES).toBe(108)
+    expect(READOUTS_OFFSET).toBe(100)
+    expect(LATENCY_OFFSET + 4).toBe(FEEDBACK_HEADER_BYTES)
   })
 
   it('refuses another version, a short buffer and a track count beyond the bytes', () => {
@@ -284,6 +302,43 @@ describe('readFeedback', () => {
     // The tracks word announces more than the region holds: nothing, never a read past it.
     const big = report(2, (v) => v.setUint32(40, 5000, true))
     expect(readFeedback(shared(big, 10), 8, big.byteLength)).toBeNull()
+  })
+
+  /** `report` with device readouts after the (absent) notes: track, device, param, value. */
+  function withReadouts(tracks: number, readouts: [number, number, number, number][]): ArrayBuffer {
+    const base = new Uint8Array(report(tracks))
+    const buffer = new ArrayBuffer(base.length + readouts.length * DEVICE_READOUT_BYTES)
+    new Uint8Array(buffer).set(base)
+    const view = new DataView(buffer)
+    view.setUint32(READOUTS_OFFSET, readouts.length, true)
+    readouts.forEach(([track, device, param, value], i) => {
+      const at = base.length + i * DEVICE_READOUT_BYTES
+      view.setUint32(at, track, true)
+      view.setUint16(at + 4, device, true)
+      view.setUint16(at + 6, param, true)
+      view.setFloat32(at + 8, value, true)
+    })
+    return buffer
+  }
+
+  it('reads the devices’ readouts after the notes, the master’s as a null track (#686)', () => {
+    const bytes = withReadouts(2, [
+      [1, 1, 1, 523.5],
+      [MASTER_TRACK_SLOT, 0, 1, 2000],
+      [0, 2, 1, NaN],
+    ])
+    expect(decodeFeedback(bytes)!.readouts).toEqual([
+      { track: 1, device: 1, param: 1, value: 523.5 },
+      { track: null, device: 0, param: 1, value: 2000 },
+    ])
+    // Through the shared memory too, the copy covering the readouts.
+    expect(readFeedback(shared(bytes, 10), 8, bytes.byteLength)!.readouts).toHaveLength(2)
+    // A count past the bytes, or past the most a report carries, is refused.
+    expect(decodeFeedback(bytes.slice(0, bytes.byteLength - 1))).toBeNull()
+    const many = withReadouts(1, [])
+    new DataView(many).setUint32(READOUTS_OFFSET, MAX_READOUTS_PER_REPORT + 1, true)
+    expect(decodeFeedback(many)).toBeNull()
+    expect(decodeFeedback(report(1))!.readouts).toEqual([])
   })
 })
 

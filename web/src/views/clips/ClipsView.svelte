@@ -18,7 +18,7 @@
   import type { MessageKey } from '../../lib/i18n'
   import { useStores } from '../../lib/stores'
   import { barTicks } from '../transport/time'
-  import { trackColor } from '../../lib/project/tracks'
+  import { trackColor, trackLabel } from '../../lib/project/tracks'
 
   const { project, dispatcher, ui, engine, audioImport, peaks, storage } = useStores()
   const t = ui.t
@@ -38,12 +38,22 @@
       io: 'clips.importFailed.unreadable',
       download_unreachable: 'clips.importFailed.downloadUnreachable',
       download_too_big: 'clips.importFailed.downloadTooBig',
+      // The helper's import in Boost (#778).
+      no_folder: 'clips.importFailed.noFolder',
+      path: 'clips.importFailed.outsideFolder',
+      unreadable: 'clips.importFailed.unreadable',
+      folder_changed: 'clips.importFailed.folderChanged',
+      busy: 'clips.importFailed.busy',
+      dialog_unavailable: 'clips.importFailed.dialogUnavailable',
+      helper_lost: 'clips.importFailed.helperLost',
     }
     return t(known[failure.code] ?? 'clips.importFailed.store', { name: failure.name, max: MAX_AUDIO_URL_MB, gb: MAX_DECODED_BYTES / 2 ** 30 })
   }
 
   const trackId = $derived(project.view?.session.selected_track ?? null)
   const track = $derived(trackId ? (project.view?.project.tracks[trackId] ?? null) : null)
+  /** The track as the track list names it, a name or its default (#781). */
+  const trackTitle = $derived(project.selected ? trackLabel(project.selected, t) : '')
   /** The colour a clip without its own shows: its track's, as in the timeline. */
   const color = $derived(project.selected ? trackColor(project.selected.track.color, project.selected.index) : 'currentColor')
   const pool = $derived(project.view && trackId ? poolOf(project.view.project, trackId) : [])
@@ -193,9 +203,9 @@
   {#if !track}
     <p class="empty">{t('clips.noTrack')}</p>
   {:else if pool.length === 0}
-    <p class="empty">{t('clips.empty', { track: track.name })}</p>
+    <p class="empty">{t('clips.empty', { track: trackTitle })}</p>
   {:else}
-    <ul class="list" aria-label={t('clips.label', { track: track.name })}>
+    <ul class="list" aria-label={t('clips.label', { track: trackTitle })}>
       {#each pool as entry (entry.id)}
         <li class="row" class:unused={entry.uses === 0} data-testid="pool-clip" data-clip={entry.id} data-uses={entry.uses}>
           <span

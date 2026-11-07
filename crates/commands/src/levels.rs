@@ -43,6 +43,24 @@ pub struct LevelsStage {
     /// since that engine started for the page (#667), whether or not the transport runs.
     #[serde(default)]
     pub silenced_frames: u64,
+    /// The device latency the engine compensates, in frames (#749): what its report carries.
+    #[serde(default)]
+    pub latency_frames: u32,
+    /// The compensation is capped: a track needs more than the engine compensates (#749).
+    #[serde(default)]
+    pub latency_capped: bool,
+    /// The engine's sample rate, in hertz, to give that latency in milliseconds; 0 unknown.
+    #[serde(default)]
+    pub sample_rate: f64,
+}
+
+/// `frames` at `rate` hertz in milliseconds, rounded to a hundredth; 0 for an unknown rate.
+pub fn latency_ms(frames: u32, rate: f64) -> f64 {
+    if rate.is_finite() && rate > 0.0 {
+        (f64::from(frames) * 1000.0 / rate * 100.0).round() / 100.0
+    } else {
+        0.0
+    }
 }
 
 /// The measures a host staged for `project.analyze_render`.
@@ -166,6 +184,14 @@ mod tests {
         assert!((l.rms_db.unwrap() - 20.0 * 0.5f64.log10()).abs() < 1e-9);
         assert_eq!(level_of(&m(0.0, 0.0)).peak_db, None);
         assert_eq!(level_of(&m(f32::NAN, f32::INFINITY)).rms_db, None);
+    }
+
+    #[test]
+    fn a_latency_is_given_in_milliseconds() {
+        assert_eq!(latency_ms(72, 48_000.0), 1.5);
+        assert_eq!(latency_ms(72, 44_100.0), 1.63);
+        assert_eq!(latency_ms(72, 0.0), 0.0);
+        assert_eq!(latency_ms(72, f64::NAN), 0.0);
     }
 
     #[test]

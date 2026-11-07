@@ -1,6 +1,7 @@
 import { MAX_AUDIO_URL_BYTES } from '../generated/protocol'
 import type { MessageKey } from '../i18n/app'
 import type { PendingQuestion } from './confirm.svelte'
+import { trackName } from '../project/tracks'
 
 type Translate = (key: MessageKey, vars?: Record<string, string | number>) => string
 
@@ -49,8 +50,8 @@ const BODIES: Record<PendingQuestion['question']['kind'], MessageKey> = {
 export function questionBody(pending: PendingQuestion, t: Translate): string {
   const q = pending.question
   if (q.kind === 'importAudio') {
-    // As the track list shows it (`trackLabel`): its name, or its default name by its position.
-    const track = q.track.name.trim() || t('tracks.defaultName', { n: q.track.index + 1 })
+    // As the track list shows it (`trackLabel`, #781): its name, or its default name by its position.
+    const track = trackName(q.track.name, q.track.index, t)
     return t(BODIES[q.kind], { name: q.name, host: q.host, track, max: MAX_AUDIO_URL_MB })
   }
   return t(BODIES[q.kind], { name: 'target' in q ? (q.target ?? '') : '' })

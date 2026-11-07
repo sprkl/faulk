@@ -317,3 +317,98 @@ fn a_held_key_keeps_its_strummed_chord_through_a_stop_and_its_release_ends_it() 
         r.rms_in(1.6..2.15)
     );
 }
+
+/// The chance draw is by song position (#786): a song played from the start and the same song
+/// played after a seek give the same chords for the notes they share, natively and in WASM.
+#[test]
+fn the_chance_draw_follows_the_song_position_so_a_play_after_a_seek_matches_the_song() {
+    let build = || {
+        let f = fixture();
+        let mut s = Session::from_state(f.state.clone(), context());
+        let out = s.exec(Command::Device(device::Command::Insert {
+            track: Some(f.track.clone()),
+            master: false,
+            kind: "faulk.stack".into(),
+            index: 0,
+        }));
+        let Output::Device(device::Output::Insert { device: fx }) = out else {
+            panic!("{out:?}")
+        };
+        set(&mut s, &fx, "seed", 11.0);
+        set(&mut s, &fx, "voice1_interval", 4.0);
+        set(&mut s, &fx, "voice1_chance", 50.0);
+        set(&mut s, &fx, "voice2", 1.0);
+        set(&mut s, &fx, "voice2_interval", 7.0);
+        set(&mut s, &fx, "voice2_chance", 50.0);
+        set(&mut s, &f.device, "release", 0.05);
+        let Output::Clip(clip::Output::Create { clip: c, .. }) =
+            s.exec(Command::Clip(clip::Command::Create {
+                track: f.track.clone(),
+                at: clip::ClipTarget::Arrangement { start: Tick(0) },
+                length: Some(Tick(16 * 960)),
+                name: None,
+            }))
+        else {
+            panic!("a clip")
+        };
+        let notes = (0..16i64)
+            .map(|n| Note {
+                start: Tick(n * 960),
+                pitch: 60,
+                length: Tick(240),
+                velocity: 110,
+                cents: 0,
+                chance: Note::DEFAULT_CHANCE,
+                repeat: Note::DEFAULT_REPEAT,
+            })
+            .collect();
+        s.run(Command::Clip(clip::Command::NotesAdd { clip: c, notes }));
+        s
+    };
+    // 120 BPM: a quarter note is half a second. The whole song, 8 s.
+    let mut whole = build();
+    whole.run(Command::Transport(transport::Command::Play {}));
+    whole.render_secs(8.0);
+    let all = parity(whole.scenario());
+    all.assert_clean();
+    // The same song from its fifth quarter note.
+    let mut late = build();
+    late.run(Command::Transport(transport::Command::Seek {
+        tick: Tick(4 * 960),
+    }));
+    late.run(Command::Transport(transport::Command::Play {}));
+    late.render_secs(6.0);
+    let from = parity(late.scenario());
+    from.assert_clean();
+    // Per quarter note (each holds one note and its release): the same level, and the draws do
+    // vary (a chord of one, two or three notes differs in level).
+    let mut levels = Vec::new();
+    for q in 0..12usize {
+        let a = all.rms_in(0.5 * (q + 4) as f32..0.5 * (q + 4) as f32 + 0.3);
+        let b = from.rms_in(0.5 * q as f32..0.5 * q as f32 + 0.3);
+        assert!(a > 0.001, "note {q} sounds: {a}");
+        assert!(
+            (a - b).abs() <= 0.03 * a.max(b),
+            "note {q}: {a} against {b}"
+        );
+        levels.push(a);
+        // The same keys sound, not only the same level: the third and the fifth of the chord.
+        for key in [64u8, 67] {
+            let (ka, kb) = (
+                level_at(&all, 0.5 * (q + 4) as f32..0.5 * (q + 4) as f32 + 0.3, key),
+                level_at(&from, 0.5 * q as f32..0.5 * q as f32 + 0.3, key),
+            );
+            assert!(
+                (ka - kb).abs() <= 0.1 * ka.max(kb).max(0.01),
+                "note {q}, key {key}: {ka} against {kb}"
+            );
+        }
+    }
+    let (lo, hi) = levels
+        .iter()
+        .fold((f32::MAX, 0.0f32), |(lo, hi), l| (lo.min(*l), hi.max(*l)));
+    assert!(
+        hi > 1.1 * lo,
+        "the chords differ from note to note: {levels:?}"
+    );
+}

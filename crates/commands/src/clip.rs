@@ -322,10 +322,13 @@ domain! {
     /// its file dialog, then imports each file chosen (its bytes are kept in the project's
     /// `blobs/`, its decoded audio checked) and makes a clip of it with `clip.import_audio`.
     /// A file dialog needs a click by the user, so an agent that is not driven by one gets a
-    /// notice in the page instead. Formats: WAV, AIFF, CAF, FLAC, MP3, AAC (MP4, M4A, ADTS),
-    /// ALAC, Ogg Vorbis, Opus (Ogg, WebM: mono or stereo). The answer only says the request was
-    /// accepted; the clips arrive with `clip.import_audio`, one history entry each. Refused
-    /// when the track is not an audio track. Not undoable itself.
+    /// notice in the page instead. In Boost, with the project's folder open in the helper, the
+    /// dialog is the helper's own and the helper imports each file chosen into the folder
+    /// (#778); an agent with a file already in the project's folder imports it with
+    /// `clip.import_audio_file`. Formats: WAV, AIFF, CAF, FLAC, MP3, AAC
+    /// (MP4, M4A, ADTS), ALAC, Ogg Vorbis, Opus (Ogg, WebM: mono or stereo). The answer only
+    /// says the request was accepted; the clips arrive with `clip.import_audio`, one history
+    /// entry each. Refused when the track is not an audio track. Not undoable itself.
     "clip.choose_audio" (kind = "live", undo = "none", destructive = false)
     ChooseAudio { track: TrackId } => {};
 
@@ -361,6 +364,40 @@ domain! {
         track: TrackId,
         #[schemars(length(min = 1, max = 2048))]
         url: String,
+    } => {
+        /// The clip made of the file (in the track's pool).
+        clip: Option<ClipId>,
+        /// The SHA-256 of the file, the name of its blob.
+        media: Option<Hash>,
+    };
+
+    /// Import an audio file of the project's folder into an audio track, for an agent (#778):
+    /// Boost only, once the project's folder is open in the helper (`project.choose_helper_folder`
+    /// shows it to the helper). `path` is the file's path relative to the project's folder (the
+    /// folder holding `project.json`), `/` separated: a file the agent or the user put there
+    /// (`imports/kick.wav`), or a blob already there (`blobs/<sha256>`). Never a path outside the
+    /// folder, never `.faulk/` or `.git`. The helper reads and decodes the file on this computer
+    /// (nothing of it crosses to the page), keeps its bytes in the project's `blobs/` and its
+    /// decoded audio checked, as for a file the user picks; the page then makes a clip in the
+    /// track's pool with `clip.import_audio`, one history entry the user can undo. The file in
+    /// the folder is left as it is. Formats: those of `clip.choose_audio`. The answer gives the
+    /// `clip` made and the file's SHA-256 (`media`); both are `null` only from a host that
+    /// imports nothing. Refused at once when the track is not an audio track or the path is
+    /// absolute. Otherwise the page answers `command.refused` with the error code
+    /// `import.no_folder` (Web mode, or the helper has no folder open for this project: nothing
+    /// is read), `import.path` (a path that leaves the folder or names its own data: the
+    /// message says why, `path.escapes`, `path.reserved`, `path.dot`…), `import.unreadable` (no
+    /// such file, or not a file), `import.busy`, `import.cancelled`
+    /// (`clip.cancel_audio_import`), `import.folder_changed` (the folder was closed or replaced
+    /// meanwhile), `import.write` (the disk refused), `import.project_changed` or
+    /// `import.<reason>` (not audio Faulk reads: `import.unsupported_format`, `import.corrupt`…,
+    /// `import.too_large`: it decodes to more than 16 GiB of audio); nothing changed then. Not
+    /// undoable itself.
+    "clip.import_audio_file" (kind = "live", undo = "none", destructive = false)
+    ImportAudioFile {
+        track: TrackId,
+        #[schemars(length(min = 1, max = 1024))]
+        path: String,
     } => {
         /// The clip made of the file (in the track's pool).
         clip: Option<ClipId>,
@@ -1303,6 +1340,17 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
                 media: None,
             }))
         }
+        // The helper reads and decodes the file, the page makes the clip (`runForAgent`): the
+        // command checks the track and that the path is one of the folder's by its form (the
+        // helper checks it fully against the folder), so that a wrong call is refused at once.
+        Command::ImportAudioFile { track, path } => {
+            audio_track(&state.project, track)?;
+            check_folder_path(path)?;
+            Ok(unchanged(Output::ImportAudioFile {
+                clip: None,
+                media: None,
+            }))
+        }
         // The import runs in the page: the command only says it is to stop.
         Command::CancelAudioImport {} => Ok(unchanged(Output::CancelAudioImport {})),
         Command::Duplicate { clip, slot, track } => {
@@ -1495,6 +1543,38 @@ fn delete(state: &mut State, clip_id: &ClipId) -> Result<Out, CommandError> {
 /// it in memory before it imports it, as it holds a `.faulkpack` where the browser keeps no
 /// projects.
 pub const MAX_AUDIO_URL_BYTES: u64 = 192 << 20;
+
+/// The longest path `clip.import_audio_file` takes, in bytes (the helper's own limit).
+pub const MAX_FOLDER_PATH_BYTES: usize = 1024;
+
+/// Checks the form of a path of the project's folder (`clip.import_audio_file`, #778): not empty,
+/// at most [`MAX_FOLDER_PATH_BYTES`], relative and `/` separated (no leading `/`, no `\`, no drive
+/// letter or stream `:`, no `.` or `..` component, no control character). The helper checks it
+/// again, fully, against the folder itself.
+fn check_folder_path(path: &str) -> Result<(), CommandError> {
+    let refuse = |why: &str| {
+        Err(invalid(
+            "path",
+            format!("{why}: give the file's path relative to the project's folder, `/` separated"),
+        ))
+    };
+    if path.is_empty() || path.len() > MAX_FOLDER_PATH_BYTES {
+        return refuse("the path is empty or longer than 1024 bytes");
+    }
+    if path.starts_with('/') || path.contains('\\') || path.contains(':') {
+        return refuse("the path is absolute, or holds `\\` or `:`");
+    }
+    if path.chars().any(char::is_control) {
+        return refuse("the path holds a control character");
+    }
+    if path
+        .split('/')
+        .any(|part| part.is_empty() || part == "." || part == "..")
+    {
+        return refuse("the path has an empty, `.` or `..` part");
+    }
+    Ok(())
+}
 
 pub(crate) fn audio_track<'a>(
     project: &'a Project,

@@ -46,6 +46,14 @@
 //! that nothing clicks. A step between two points of a lane with the `Step` shape is a jump
 //! of the level: it is what the lane says.
 //!
+//! "At its sample" is the sample of the sound: behind a chain with a latency (a look-ahead,
+//! #749), the chain's output at a frame is what entered it that latency earlier, so the graph
+//! writes the strip's levels frame by frame ([`Mixer::levels_into`]) and delays them by the
+//! chain's latency before it multiplies the sound by them ([`mix_with`], [`apply_with`]):
+//! the whole strip, its timed values and its fades alike, lands on the sound it belongs to
+//! once the chain's timing is steady (#758, [`crate::graph`] > Latency, which says how it
+//! follows a change of that timing).
+//!
 //! A message changes a field of the strip only when that field changed since the last
 //! message (a gesture on the fader), so a lane's value is not overwritten at every block
 //! nor by a gesture on another field; a gesture on a field a lane drives holds the lane
@@ -441,6 +449,35 @@ impl Mixer {
         });
     }
 
+    /// Writes the strip's levels of a sub-block, frame by frame, into `out_left` and
+    /// `out_right` (of one length): the gains [`Mixer::mix_into`] would multiply the sound by,
+    /// with the same timed parameters, for a chain with a latency whose sound they must wait
+    /// for (#758, [`crate::graph`] > Latency). The strip moves exactly as `mix_into` moves it.
+    pub(crate) fn levels_into(
+        &mut self,
+        out_left: &mut [f32],
+        out_right: &mut [f32],
+        events: impl Iterator<Item = TimedParam>,
+        fade: u32,
+    ) {
+        let frames = out_left.len().min(out_right.len());
+        self.drive(frames, events, fade, |g, gl, gr, from, to| {
+            let still = g.is_still() && gl.is_still() && gr.is_still();
+            let (a, b) = (g.target() * gl.target(), g.target() * gr.target());
+            for k in from..to {
+                if still {
+                    out_left[k] = a;
+                    out_right[k] = b;
+                } else {
+                    let i = (k - from) as u32;
+                    let g = g.at(i);
+                    out_left[k] = g * gl.at(i);
+                    out_right[k] = g * gr.at(i);
+                }
+            }
+        });
+    }
+
     /// Applies the strip in place to `left` and `right` (the master); a sample that is not
     /// finite or is denormal leaves as 0.
     pub(crate) fn apply_in_place(
@@ -465,6 +502,49 @@ impl Mixer {
 impl Default for Mixer {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Mixes a track's sub-block with levels given frame by frame ([`Mixer::levels_into`], then
+/// delayed): adds `left[k] × levels_left[k]` to `out_left` (and the right side alike) and the
+/// faded signal to `meter`, as [`Mixer::mix_into`] does with its own levels.
+pub(crate) fn mix_with(
+    (left, right): (&[f32], &[f32]),
+    (levels_left, levels_right): (&[f32], &[f32]),
+    (out_left, out_right): (&mut [f32], &mut [f32]),
+    meter: &mut MeterAcc,
+) {
+    let frames = left
+        .len()
+        .min(right.len())
+        .min(levels_left.len())
+        .min(levels_right.len())
+        .min(out_left.len())
+        .min(out_right.len());
+    for k in 0..frames {
+        let (l, r) = (left[k] * levels_left[k], right[k] * levels_right[k]);
+        meter.push(0, l);
+        meter.push(1, r);
+        out_left[k] += l;
+        out_right[k] += r;
+    }
+}
+
+/// Applies levels given frame by frame in place (the master behind a chain with a latency,
+/// #758), as [`Mixer::apply_in_place`] does with its own: a sample that is not finite or is
+/// denormal leaves as 0.
+pub(crate) fn apply_with(
+    (left, right): (&mut [f32], &mut [f32]),
+    (levels_left, levels_right): (&[f32], &[f32]),
+) {
+    let frames = left
+        .len()
+        .min(right.len())
+        .min(levels_left.len())
+        .min(levels_right.len());
+    for k in 0..frames {
+        left[k] = flush(left[k] * levels_left[k]);
+        right[k] = flush(right[k] * levels_right[k]);
     }
 }
 

@@ -188,7 +188,10 @@ the user to allow them in the page, for up to 45 s, then answer once the page di
 with `project_list_stored`, `track_get` for an audio file from a link, or the project before \
 calling again). When the user refuses, or does \
 not answer in time, the call answers `command.refused` with the error code \
-`confirmation.declined` or `confirmation.timeout`, and nothing changed. Without a paired page open every tool answers the error \
+`confirmation.declined` or `confirmation.timeout`, and nothing changed. An audio file on this \
+computer is imported with `clip_import_audio_file` once it is in the project's folder (its path \
+relative to that folder), in Boost mode with the folder shown to this helper: the helper reads \
+it there, never elsewhere. Without a paired page open every tool answers the error \
 `page.absent`: ask the user to open Faulk in the browser.";
 
 /// The MCP handler of one MCP session, or of one stateless request: lists the tools, relays
@@ -447,6 +450,7 @@ mod tests {
             })
             .collect();
         assert!(named.contains(&"clip_import_audio_url"), "{named:?}");
+        assert!(named.contains(&"clip_import_audio_file"), "{named:?}");
         assert!(named.contains(&"project_open_url"), "{named:?}");
         for word in named {
             assert!(

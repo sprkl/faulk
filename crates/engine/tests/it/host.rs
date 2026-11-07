@@ -657,7 +657,7 @@ fn a_report_is_copied_as_bytes_and_decodes_alike() {
     assert_eq!(decoded, read_feedback(session.host.feedback()).unwrap());
     // Truncated or of another version: nothing.
     assert!(engine::host::decode_feedback(&bytes[..bytes.len() - 1]).is_none());
-    bytes[0] = 10;
+    bytes[0] = engine::msg::FEEDBACK_VERSION - 1;
     assert!(engine::host::decode_feedback(&bytes).is_none());
     // Torn (odd seq): `false`, the buffer cleared of a half copy.
     let region = session.host.feedback();
@@ -1105,6 +1105,63 @@ fn the_report_carries_the_host_frame_at_the_playhead() {
     }
 }
 
+/// The report carries the device latency the graph compensates (#749, version 10), at its one
+/// offset, the last word of the header: a Ceiling at its defaults on a track is 72 frames at
+/// 48 kHz, one on the master with the true peak adds 84.
+#[test]
+fn the_report_carries_the_device_latency() {
+    use engine::devices::ceiling::{DESCRIPTOR as CEILING, TRUE_PEAK};
+    use engine::msg::{FEEDBACK_HEADER_BYTES, FEEDBACK_LATENCY_OFFSET, encode_state};
+    assert_eq!(FEEDBACK_LATENCY_OFFSET + 4, FEEDBACK_HEADER_BYTES);
+    // The readouts' count is the word before it (#686, the same version 10).
+    assert_eq!(
+        engine::msg::FEEDBACK_READOUTS_OFFSET + 4,
+        FEEDBACK_LATENCY_OFFSET
+    );
+    assert_eq!(FEEDBACK_LATENCY_OFFSET % 4, 0);
+    let mut session = Session::new();
+    session.host.render(128);
+    session.host.write_feedback();
+    assert_eq!(
+        read_feedback(session.host.feedback())
+            .unwrap()
+            .latency_frames,
+        0
+    );
+    session.send(&[M::DeviceInsert {
+        track: TrackSlot(0),
+        device: DeviceSlot(1),
+        kind: CEILING.kind_id,
+        state: Vec::new(),
+    }]);
+    session.host.render(128);
+    // A device inserted on a heard chain holds its fade until it ran its latency: its slot
+    // gives its line, whose tap reaches the latency by its own crossfade.
+    for _ in 0..3 {
+        session.host.render(128);
+    }
+    session.host.write_feedback();
+    assert_eq!(
+        read_feedback(session.host.feedback())
+            .unwrap()
+            .latency_frames,
+        72
+    );
+    session.send(&[M::DeviceInsert {
+        track: TrackSlot::MASTER,
+        device: DeviceSlot(0),
+        kind: CEILING.kind_id,
+        state: encode_state(&[(engine::msg::ParamId(TRUE_PEAK), 1.0)]),
+    }]);
+    session.host.render(128);
+    for _ in 0..3 {
+        session.host.render(128);
+    }
+    session.host.write_feedback();
+    let fb = read_feedback(session.host.feedback()).unwrap();
+    assert_eq!(fb.latency_frames, 72 + 84);
+}
+
 /// A report of version 7 (the header of 88 bytes, without the silenced frames) is refused, and so is one of version 8.
 #[test]
 fn a_report_of_version_7_is_refused() {
@@ -1118,4 +1175,187 @@ fn a_report_of_version_7_is_refused() {
     assert!(engine::host::decode_feedback(&bytes).is_none());
     bytes[0] = 8;
     assert!(engine::host::decode_feedback(&bytes).is_none());
+}
+
+// ------------------------------------------------------------ device readouts (#686)
+
+/// A Filter after the synth of track 1 whose LFO swings the cutoff, and a still one on the
+/// master; the track's filter can be left disabled.
+fn filtered(track_on: bool) -> Session {
+    use engine::devices::filter::{CUTOFF, DESCRIPTOR as FILTER, LFO_DEPTH};
+    let mut session = two_tracks(1.0);
+    let mut msgs = Vec::new();
+    for (track, device, depth) in [
+        (TrackSlot(1), DeviceSlot(1), 2.0),
+        (TrackSlot::MASTER, DeviceSlot(0), 0.0),
+    ] {
+        msgs.push(M::DeviceInsert {
+            track,
+            device,
+            kind: FILTER.kind_id,
+            state: Vec::new(),
+        });
+        for (param, value) in [(CUTOFF, 500.0), (LFO_DEPTH, depth)] {
+            msgs.push(M::ParamSet {
+                track,
+                device,
+                param: ParamId(param),
+                value,
+            });
+        }
+    }
+    if !track_on {
+        msgs.push(M::DeviceSetEnabled {
+            track: TrackSlot(1),
+            device: DeviceSlot(1),
+            enabled: false,
+        });
+    }
+    session.send(&msgs);
+    for _ in 0..50 {
+        session.host.render(128);
+    }
+    session
+}
+
+#[test]
+fn a_filters_effective_cutoff_travels_in_the_report_with_its_slots() {
+    use engine::devices::filter::CUTOFF;
+    let mut session = filtered(true);
+    session.host.write_feedback();
+    let mut bytes = Vec::new();
+    assert!(copy_feedback(session.host.feedback(), &mut bytes));
+    let decoded = engine::host::decode_feedback(&bytes).unwrap();
+    assert_eq!(decoded.readouts.len(), 2, "{:?}", decoded.readouts);
+    let track = decoded.readouts[0];
+    assert_eq!(
+        (track.track, track.device, track.param),
+        (TrackSlot(1), DeviceSlot(1), ParamId(CUTOFF))
+    );
+    // The synced triangle has moved the cutoff off its centre (the transport is stopped at
+    // tick 0, where the triangle is 0: the swing is what the LFO holds there).
+    assert!(track.value.is_finite() && track.value >= 20.0, "{track:?}");
+    let master = decoded.readouts[1];
+    assert_eq!(
+        (master.track, master.device),
+        (TrackSlot::MASTER, DeviceSlot(0))
+    );
+    assert_eq!(master.value, 500.0, "no movement: the centre");
+    // The count word and the bytes after the notes.
+    assert_eq!(
+        u32::from_le_bytes(
+            bytes[engine::msg::FEEDBACK_READOUTS_OFFSET..][..4]
+                .try_into()
+                .unwrap()
+        ),
+        2
+    );
+    // A disabled device reports nothing.
+    let mut off = filtered(false);
+    off.host.write_feedback();
+    let report = engine::host::read_feedback(off.host.feedback()).unwrap();
+    assert_eq!(report.readouts.len(), 1);
+    assert_eq!(report.readouts[0].track, TrackSlot::MASTER);
+    // A report cut before its readouts is refused.
+    bytes.truncate(bytes.len() - 1);
+    assert!(engine::host::decode_feedback(&bytes).is_none());
+}
+
+/// #686: the master's chain runs cut at the clock's segments, so a Filter on the master whose
+/// LFO follows the transport sees a loop's wrap at its frame: the render does not depend on the
+/// block size, with the wrap in the middle of a block. With a Ceiling after it (a latency on the
+/// master, #749), whose look-ahead moves while the loop plays, the master's strip is delayed
+/// piece by piece with its chain (#758): the render still does not depend on the block size.
+#[test]
+fn a_master_filter_sees_a_loop_wrap_inside_a_block_whatever_the_block_size() {
+    for ceiling in [false, true] {
+        master_filter_wrap(ceiling);
+    }
+}
+
+fn master_filter_wrap(with_ceiling: bool) {
+    use engine::devices::ceiling::{DESCRIPTOR as CEILING, LOOKAHEAD};
+    use engine::devices::filter::{CUTOFF, DESCRIPTOR as FILTER, LFO_DEPTH, RESONANCE};
+    use engine::time::LoopRegion;
+    let render = |block: usize| {
+        let mut session = Session::new();
+        let mut msgs = vec![M::DeviceInsert {
+            track: TrackSlot::MASTER,
+            device: DeviceSlot(0),
+            kind: FILTER.kind_id,
+            state: Vec::new(),
+        }];
+        if with_ceiling {
+            msgs.push(M::DeviceInsert {
+                track: TrackSlot::MASTER,
+                device: DeviceSlot(1),
+                kind: CEILING.kind_id,
+                state: Vec::new(),
+            });
+        }
+        for (p, value) in [(CUTOFF, 600.0), (LFO_DEPTH, 3.0), (RESONANCE, 0.7)] {
+            msgs.push(M::ParamSet {
+                track: TrackSlot::MASTER,
+                device: DeviceSlot(0),
+                param: ParamId(p),
+                value,
+            });
+        }
+        msgs.push(param(Param::Waveform, 1.0));
+        msgs.push(note_on(45, 127));
+        // A loop of 4081 ticks: 102 025 frames at 120 BPM (the triangle at its top when it wraps to
+        // 0), its wrap inside a block of any of the
+        // sizes below.
+        msgs.push(M::SetLoop {
+            region: Some(LoopRegion::new(Tick(0), Tick(4081)).unwrap()),
+        });
+        msgs.push(M::Play { from: Tick(0) });
+        session.send(&msgs);
+        let mut out = Vec::new();
+        let total = 2 * 102_025 + 20_000;
+        let mut moved = false;
+        while out.len() < 2 * total {
+            if with_ceiling && !moved && out.len() == 2 * 99_600 {
+                // A longer look-ahead 2 425 frames before the first wrap, on a frame every block
+                // size reaches: the master's latency moves,
+                // it settles 50 ms then fades out across the wrap.
+                moved = true;
+                session.send(&[M::ParamSet {
+                    track: TrackSlot::MASTER,
+                    device: DeviceSlot(1),
+                    param: ParamId(LOOKAHEAD),
+                    value: 0.004,
+                }]);
+            }
+            let n = session.host.render(block);
+            for i in 0..n {
+                out.push(session.host.left()[i]);
+                out.push(session.host.right()[i]);
+            }
+        }
+        out.truncate(2 * total);
+        out
+    };
+    // Blocks that all reach the look-ahead's frame with the Ceiling (99 600, a multiple of 1200),
+    // the wrap (102 025) inside one of each size.
+    let (first, others) = if with_ceiling {
+        (100, [300, 1200])
+    } else {
+        (128, [100, 1000])
+    };
+    // A Ceiling inserted at the start warms up block by block (its fade in starts on the first
+    // block past its latency, #761): the comparison starts 100 ms in, long before the wrap.
+    let skip = if with_ceiling { 2 * 4_800 } else { 0 };
+    let reference = render(first);
+    for block in others {
+        let other = render(block);
+        let worst = reference[skip..]
+            .iter()
+            .zip(&other[skip..])
+            .fold(0f32, |m, (a, b)| m.max((a - b).abs()));
+        assert!(
+            worst < 1e-5,
+            "blocks of {block} (a Ceiling: {with_ceiling}): differs by {worst}"
+        );
+    }
 }

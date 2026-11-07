@@ -99,7 +99,8 @@ domain! {
     /// Bring a removed effect back with its identifier, as `device.remove` took it out:
     /// the inverse of a remove. `track` or `master: true` names the chain, as for
     /// `device.insert`. `snapshot` is the whole device: its order key, bypass, source,
-    /// settings and state. Refused when both or neither of `track` and `master` are given,
+    /// settings and state; a built-in device lacking parameters its type declares (saved
+    /// before it gained them) gets them at their defaults. Refused when both or neither of `track` and `master` are given,
     /// when the identifier is already in use, at the safety limit of devices, or when the
     /// snapshot is not an audio or MIDI effect (a built-in device must be one of the
     /// registry, with only parameters it declares; a module device is taken as it is) or does
@@ -424,6 +425,35 @@ pub(crate) fn descriptor_of<'r>(
         .map(|b| b.descriptor)
 }
 
+/// Gives a built-in device the parameters its descriptor declares and it does not hold, at
+/// their defaults (#157, #754): a device saved before its kind gained a parameter (the MVP's
+/// Compressor and its five) comes in with the new one at its neutral default, the value the
+/// engine already plays it with, and it can be set, shown and undone like the others. A key
+/// the descriptor does not declare is kept as it is. The one place that fills: every path
+/// that brings a serialized device into the project goes through it (`project.open` through
+/// [`add_missing_params`], `device.restore`, `track.restore`, `track.restore_instrument`).
+pub(crate) fn fill_missing_params(registry: &[Builtin], device: &mut Device) {
+    let Some(descriptor) = descriptor_of(registry, device) else {
+        return;
+    };
+    for p in descriptor.params {
+        device.params.entry(p.key.to_owned()).or_insert(p.default);
+    }
+}
+
+/// [`fill_missing_params`] on every built-in device of `project`, for `project.open`.
+pub(crate) fn add_missing_params(project: &mut project::Project) {
+    let registry = registry();
+    let devices = project
+        .tracks
+        .values_mut()
+        .flat_map(|t| t.devices.values_mut())
+        .chain(project.master_devices.values_mut());
+    for device in devices {
+        fill_missing_params(registry, device);
+    }
+}
+
 /// A new device of a built-in kind, at its default settings, not bypassed.
 pub(crate) fn built(builtin: &Builtin, role: DeviceRole, order: OrderKey) -> Device {
     let descriptor = builtin.descriptor;
@@ -706,12 +736,16 @@ fn restore(
         ));
     }
     check_device(registry, device_id, snapshot)?;
-    check_lanes(state, place, device_id, snapshot, lanes)?;
+    // A snapshot from before the kind gained parameters comes in complete (#754), lanes
+    // included: one may target a parameter the snapshot lacks.
+    let mut device = snapshot.clone();
+    fill_missing_params(registry, &mut device);
+    check_lanes(state, place, device_id, &device, lanes)?;
     let devices = chain_mut(state, place)?;
     if devices.len() >= MAX_DEVICES_PER_TRACK {
         return Err(limit());
     }
-    devices.insert(device_id.clone(), snapshot.clone());
+    devices.insert(device_id.clone(), device);
     if let Some(place_lanes) = state.project.lanes_mut(place.track().as_ref()) {
         place_lanes.extend(lanes.iter().map(|(id, lane)| (id.clone(), lane.clone())));
     }
