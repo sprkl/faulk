@@ -256,6 +256,10 @@ pub enum ParamUnit {
     Semitones,
     Cents,
     Percent,
+    /// An angle, in degrees.
+    Degrees,
+    /// A frequency ratio, in octaves.
+    Octaves,
 }
 
 /// How a control maps its travel to a parameter's value.
@@ -699,6 +703,8 @@ fn param_spec(p: &ParamDescriptor) -> ParamSpec {
             Unit::Semitones => ParamUnit::Semitones,
             Unit::Cents => ParamUnit::Cents,
             Unit::Percent => ParamUnit::Percent,
+            Unit::Degrees => ParamUnit::Degrees,
+            Unit::Octaves => ParamUnit::Octaves,
         },
         min: p.min,
         max: p.max,

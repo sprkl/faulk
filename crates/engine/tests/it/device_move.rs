@@ -467,3 +467,66 @@ fn a_device_entry_is_no_larger_than_before() {
     // outgoing mode (#800) fits in its padding.
     assert_eq!(size_of::<DeviceEntry>(), 56);
 }
+
+/// Plays the low note through `setup` and sends `change` after 40 blocks: the output and the
+/// device latency the graph reports at each block.
+fn timed_with(setup: &[M], change: &[M]) -> (Vec<f32>, Vec<u32>) {
+    let mut r = Rig::new();
+    r.send(setup);
+    let (mut out, mut latency) = (Vec::new(), Vec::new());
+    for block in 0..120 {
+        if block == 40 {
+            r.send(change);
+        }
+        out.extend(r.run(1));
+        latency.push(r.e.graph().latency());
+    }
+    assert_eq!(r.outgoing(), 0);
+    assert_eq!(r.e.skipped(), 0);
+    (out, latency)
+}
+
+#[test]
+fn a_ceiling_moved_keeps_its_timing() {
+    use engine::devices::ceiling::DESCRIPTOR as CEILING;
+    // The tone (0.125) is under the Ceiling's ceiling: the Ceiling only delays it, by its
+    // look-ahead (72 frames at 48 kHz).
+    let ceiling = |slot: u16| insert(slot, CEILING.kind_id, &[]);
+    let setup = playing(&[ceiling(1)]);
+    let (untouched, steady) = timed_with(&setup, &[]);
+    assert!(steady.iter().skip(2).all(|l| *l == 72), "{steady:?}");
+    // A unity gain inserted in front: the Ceiling moves one slot further with its lines, so the
+    // timing never moves and the output is the same, to the bit.
+    let (moved, latency) = timed_with(&setup, &[mv(1, 2), gain_fx(1, 1.0)]);
+    assert_eq!(latency, steady, "the timing never moved");
+    assert_eq!(max_diff(&untouched, &moved), 0.0);
+    // Removed in front of it: the same.
+    let setup = playing(&[gain_fx(1, 1.0), ceiling(2)]);
+    let (untouched, steady) = timed_with(&setup, &[]);
+    let (moved, latency) = timed_with(&setup, &[remove(1), mv(2, 1)]);
+    assert_eq!(latency, steady, "the timing never moved");
+    assert_eq!(max_diff(&untouched, &moved), 0.0);
+    // The control: the Ceiling built again one slot further, as before #800 (its line starts
+    // empty, the slot switches its timing).
+    let setup = playing(&[ceiling(1)]);
+    let (rebuilt, _) = timed_with(&setup, &[gain_fx(1, 1.0), ceiling(2)]);
+    assert!(max_diff(&untouched, &rebuilt) > 0.0);
+}
+
+#[test]
+fn a_device_moved_into_the_slot_a_ceiling_holds_waits_then_fades_in() {
+    use engine::devices::ceiling::DESCRIPTOR as CEILING;
+    // The Ceiling in front of a quarter gain is removed and the gain moves into its slot: the
+    // Ceiling holds the slot's timing (#761), the gain runs unheard meanwhile, then fades in.
+    let setup = playing(&[insert(1, CEILING.kind_id, &[]), gain_fx(2, 0.25)]);
+    let (out, latency) = timed_with(&setup, &[remove(1), mv(2, 1)]);
+    assert_eq!(latency[0], 72);
+    assert_eq!(
+        *latency.last().unwrap(),
+        0,
+        "the timing left with the Ceiling"
+    );
+    // Settled on the quarter at the end.
+    let end = peak(&out[out.len() - 10 * BLOCK..]);
+    assert!((end - 0.25 * 0.125).abs() < 1e-3, "{end}");
+}

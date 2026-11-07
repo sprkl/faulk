@@ -10,8 +10,8 @@
 use assert_no_alloc::assert_no_alloc;
 use engine::device::{AudioIo, BlockCtx, Device, Event, EventBuffer, Transport};
 use engine::devices::filter::{
-    self, BAND_PASS, CUTOFF, DESCRIPTOR, Filter, HIGH_PASS, K_MIN, LOW_PASS, MIX, MODE, RESONANCE,
-    damping,
+    self, BAND_PASS, CUTOFF, DESCRIPTOR, DRIVE, ENV_AMOUNT, Filter, HIGH_PASS, K_MIN, LFO_DEPTH,
+    LOW_PASS, MIX, MODE, NOTCH, RESONANCE, damping,
 };
 use engine::msg::ParamId;
 
@@ -398,25 +398,45 @@ fn it_survives_non_finite_and_huge_input() {
     input[40] = 3.0e38;
     input[50] = -3.0e38;
     input[60] = 1.0e-40;
-    for mode in [LOW_PASS, HIGH_PASS, BAND_PASS] {
-        let mut f = with(&[(MODE, mode as f32), (RESONANCE, 1.0)]);
-        let out = mono(&mut f, &input);
-        check(&out);
-        assert!(peak(&out) < 1e6 * BOUND);
+    for mode in [LOW_PASS, HIGH_PASS, BAND_PASS, NOTCH] {
+        // Still, then with the drive and the whole movement on (#686).
+        for drive in [0.0, 1.0] {
+            let mut f = with(&[
+                (MODE, mode as f32),
+                (RESONANCE, 1.0),
+                (DRIVE, drive),
+                (LFO_DEPTH, 5.0 * drive),
+                (ENV_AMOUNT, 5.0 * drive),
+            ]);
+            let out = mono(&mut f, &input);
+            check(&out);
+            assert!(peak(&out) < 1e6 * BOUND, "mode {mode}, drive {drive}");
+        }
     }
 }
 
 #[test]
 fn every_parameter_swept_to_its_bounds_gives_clean_output() {
     let input = noise(SR as usize, 21);
-    for corner in 0..16u32 {
+    // All at the minimum, all at the maximum, then 62 corners whose bits come from a hash: each
+    // parameter at its minimum or its maximum. The movement is on in most of them.
+    for corner in 0..64u64 {
+        let bits = match corner {
+            0 => 0,
+            1 => u64::MAX,
+            _ => {
+                let mut z = corner.wrapping_mul(0x9e37_79b9_7f4a_7c15);
+                z ^= z >> 31;
+                z.wrapping_mul(0xbf58_476d_1ce4_e5b9)
+            }
+        };
         let mut f = Filter::new(SR);
         let events: Vec<(usize, Event)> = DESCRIPTOR
             .params
             .iter()
             .enumerate()
             .map(|(i, p)| {
-                let high = (corner >> i) & 1 == 1;
+                let high = (bits >> i) & 1 == 1;
                 (0, param(p.id.0, (if high { p.max } else { p.min }) as f32))
             })
             .collect();
@@ -590,7 +610,7 @@ fn unknown_or_invalid_parameters_are_ignored() {
     a.set_param(ParamId(RESONANCE), 7.0);
     a.set_param(ParamId(MODE), 9.0);
     a.reset();
-    let mut b = with(&[(CUTOFF, 20_000.0), (RESONANCE, 1.0), (MODE, 2.0)]);
+    let mut b = with(&[(CUTOFF, 20_000.0), (RESONANCE, 1.0), (MODE, 3.0)]);
     assert_eq!(mono(&mut a, &input), mono(&mut b, &input));
 }
 
@@ -600,10 +620,13 @@ fn unknown_or_invalid_parameters_are_ignored() {
 fn the_descriptor_names_the_device_and_its_defaults_are_the_constructors() {
     assert_eq!(DESCRIPTOR.kind, "faulk.filter");
     assert_eq!(DESCRIPTOR.name, "Filter");
-    assert_eq!(DESCRIPTOR.params.len(), 4);
+    assert_eq!(DESCRIPTOR.params.len(), 16);
     let keys: Vec<&str> = DESCRIPTOR.params.iter().map(|p| p.key).collect();
-    assert_eq!(keys, ["mode", "cutoff", "resonance", "mix"]);
-    assert_eq!(DESCRIPTOR.param(ParamId(MODE)).unwrap().values.len(), 3);
+    assert_eq!(&keys[..4], ["mode", "cutoff", "resonance", "mix"]);
+    for (i, p) in DESCRIPTOR.params.iter().enumerate() {
+        assert_eq!(p.id.0 as usize, i, "ids follow the order of the panel");
+    }
+    assert_eq!(DESCRIPTOR.param(ParamId(MODE)).unwrap().values.len(), 4);
     assert_eq!(filter::BUILTIN.descriptor.kind_id, DESCRIPTOR.kind_id);
     // A fresh filter and one set to the defaults render the same.
     let input = noise(4_000, 81);
@@ -656,7 +679,7 @@ fn the_cost_of_a_block_is_small() {
                 right: &mut right,
                 events_out: &mut unused,
             };
-            f.process(&ctx, &events, &mut io);
+            assert_no_alloc(|| f.process(&ctx, &events, &mut io));
         }
         let per_block = start.elapsed().as_nanos() as f64 / f64::from(blocks);
         println!("{label}: {per_block:.0} ns per block of 128 frames (stereo)");

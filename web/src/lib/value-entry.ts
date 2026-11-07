@@ -22,7 +22,7 @@ const normalise = (text: string): string => text.trim().toLowerCase().replace(/[
 
 /** The number and the unit of a text, or null when it holds anything else. */
 export function parseQuantity(text: string): Quantity | null {
-  const m = /^([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*([a-zµ%]*)$/.exec(normalise(text))
+  const m = /^([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*([a-zµ%°]*)$/.exec(normalise(text))
   if (!m) return null
   const value = Number(m[1])
   return Number.isFinite(value) ? { value, unit: m[2] } : null
@@ -58,6 +58,10 @@ export function baseUnit(p: ParamDescriptor): string {
       return 'ct'
     case 'percent':
       return '%'
+    case 'degrees':
+      return '°'
+    case 'octaves':
+      return 'oct'
     default:
       return p.min === 0 && p.max <= 1 ? '%' : ''
   }
@@ -113,6 +117,14 @@ export function parseParamEntry(p: ParamDescriptor, text: string): ParamEntry | 
       break
     case 'percent':
       if (u !== '' && u !== '%') return null
+      result = value
+      break
+    case 'degrees':
+      if (u !== '' && u !== '°' && u !== 'deg') return null
+      result = value
+      break
+    case 'octaves':
+      if (u !== '' && u !== 'oct') return null
       result = value
       break
     default:

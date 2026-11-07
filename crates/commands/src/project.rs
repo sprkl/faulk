@@ -833,7 +833,9 @@ fn open_folder(
     };
     let (blobs, root) = (files_in("blobs"), files_in(""));
     let name = opened.project.name.clone();
-    let mut next = State::new(opened.project);
+    let mut project = opened.project;
+    crate::device::add_missing_params(&mut project);
+    let mut next = State::new(project);
     next.session = session;
     // The user's preset library is every project's.
     next.library = std::mem::take(&mut state.library);

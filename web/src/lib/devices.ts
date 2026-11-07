@@ -93,6 +93,8 @@ export function formatValue(p: ParamDescriptor, value: number): string {
   const unit: string = p.unit
   switch (unit) {
     case 'seconds':
+      // Under 10 ms to a tenth (a look-ahead, a short attack), whole milliseconds up to 1 s.
+      if (value < 0.01) return `${+(value * 1000).toFixed(1)} ms`
       return value < 1 ? `${Math.round(value * 1000)} ms` : `${value.toFixed(2)} s`
     case 'hertz':
       return value < 1000 ? `${Math.round(value)} Hz` : `${(value / 1000).toFixed(2)} kHz`
@@ -106,6 +108,10 @@ export function formatValue(p: ParamDescriptor, value: number): string {
       return `${value > 0 ? '+' : ''}${Math.round(value)} ct`
     case 'percent':
       return `${Math.round(value)} %`
+    case 'degrees':
+      return `${Math.round(value)}°`
+    case 'octaves':
+      return `${value > 0 && p.min < 0 ? '+' : ''}${+value.toFixed(2)} oct`
     default:
       return p.min === 0 && p.max <= 1 ? `${Math.round(value * 100)} %` : `${+value.toFixed(2)}`
   }
@@ -115,12 +121,25 @@ export function formatValue(p: ParamDescriptor, value: number): string {
  * Parameters that only matter in one mode of their device (display only: the engine keeps every parameter, and a
  * hidden one keeps its value). Per device kind, per parameter key: the choice parameter that decides, and the keys of
  * its values for which the parameter is shown. Echo: the delay time in free mode, the note value in synced mode. Stack:
- * a voice's settings while the voice is on. Lattice: the rule with a scale, the root and scale with its own, the cells with the matrix.
+ * a voice's settings while the voice is on. Lattice: the rule with a scale, the root and scale with its own, the cells with the matrix. Ceiling: the release time in manual release.
+ * Compressor: the release time in manual release, the sidechain frequency with the sidechain high-pass on. Filter: the LFO rate
+ * and restart in free mode, the note value in synced mode.
  */
 export const SHOWN_IN_MODE: Readonly<Record<string, Readonly<Record<string, { by: string; values: readonly string[] }>>>> = {
   'faulk.echo': { time: { by: 'mode', values: ['free'] }, division: { by: 'mode', values: ['synced'] } },
   'faulk.stack': stackVoices(),
   'faulk.lattice': latticeSources(),
+  'faulk.ceiling': { release: { by: 'release_mode', values: ['manual'] } },
+  'faulk.compressor': {
+    release: { by: 'release_mode', values: ['manual'] },
+    sidechain_freq: { by: 'sidechain_hpf', values: ['on'] },
+  },
+  // Filter: the LFO's rate and restart in free mode, its note value in synced mode (#686).
+  'faulk.filter': {
+    lfo_rate: { by: 'lfo_sync', values: ['free'] },
+    lfo_restart: { by: 'lfo_sync', values: ['free'] },
+    lfo_division: { by: 'lfo_sync', values: ['synced'] },
+  },
 }
 
 /** Stack (#690): a voice's interval, velocity and chance show while the voice is on. */

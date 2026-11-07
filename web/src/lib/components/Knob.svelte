@@ -21,6 +21,7 @@
     automated,
     onbegin,
     onend,
+    live,
   }: {
     label: string
     position: number
@@ -41,6 +42,11 @@
     /** A drag starts and ends: the owner groups it as one history entry. */
     onbegin?: () => void
     onend?: () => void
+    /**
+     * Where the engine moves the value by itself right now (#686: the Filter's cutoff under its LFO), drawn as a dot
+     * on the arc: its position (0–1) and its text.
+     */
+    live?: { position: number; text: string }
   } = $props()
 
   const { ui } = useStores()
@@ -49,6 +55,13 @@
   const START = -135
   const SWEEP = 270
   const angle = $derived(START + SWEEP * position)
+  const liveAt = $derived(live ? at(START + SWEEP * Math.min(1, Math.max(0, live.position))) : null)
+
+  /** A point of the arc at `deg` degrees. */
+  function at(deg: number) {
+    const rad = ((deg - 90) * Math.PI) / 180
+    return { x: 24 + 18 * Math.cos(rad), y: 24 + 18 * Math.sin(rad) }
+  }
 
   function arc(from: number, to: number) {
     const r = 18
@@ -85,6 +98,9 @@
         <path d={arc(START, angle)} class="fill" />
       {/if}
       <line x1="24" y1="24" x2="24" y2="10" class="needle" transform={`rotate(${angle} 24 24)`} />
+      {#if live && liveAt}
+        <circle cx={liveAt.x} cy={liveAt.y} r="3.5" class="live" data-testid="knob-live" data-live={live.text} />
+      {/if}
     </svg>
   </Slider>
   {#if entry}
@@ -137,6 +153,11 @@
     stroke: var(--fk-text-muted);
     stroke-width: 4;
     stroke-linecap: round;
+  }
+  .live {
+    fill: var(--fk-accent);
+    stroke: var(--fk-bg);
+    stroke-width: 1;
   }
   .needle {
     stroke: var(--fk-text);
