@@ -308,9 +308,9 @@ mod live_routing_tests {
             view.devices.get(&on_track),
             Some(&DeviceSlotRef {
                 track: Some(t),
-                slot: 1
+                slot: crate::engine_msgs::MIDI_EFFECT_SLOTS + 1
             }),
-            "after the synth"
+            "after the synth, past the MIDI effects' band (#219)"
         );
         assert_eq!(
             view.devices.get(&on_master),

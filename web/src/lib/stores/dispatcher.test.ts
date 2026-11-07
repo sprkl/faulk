@@ -390,7 +390,8 @@ describe('running commands through the project core', () => {
       epoch: 1,
       tracks: { [SINGLE_SYNTH.track]: 0 },
       scenes: {},
-      devices: { [SINGLE_SYNTH.device]: { track: 0, slot: 0 } },
+      // The instrument sits past the band of MIDI effect slots (#219: 16 of them).
+      devices: { [SINGLE_SYNTH.device]: { track: 0, slot: 16 } },
     })
     webEvents?.onStreamRefused?.(-3, 128)
     await session.dispatcher.start()
