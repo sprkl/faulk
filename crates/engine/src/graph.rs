@@ -3273,13 +3273,14 @@ fn run_chain(
                     let settled_off = !entry.enabled && entry.fade <= 0.0;
                     // A line that waits for its switch: the device is not heard before it.
                     let waits = pass.track && (b.line.tap() != own || b.line.crossfading());
-                    // Off, or just switched on and not yet run for its latency (its own line was
-                    // reset), or its slot's timing not yet its own, or held by the device that
-                    // left the slot (#761): the slot gives the delayed signal, its fade held at 0.
+                    // Just switched on and not yet run for its latency (its own line was reset:
+                    // `warm` counts from 0 whenever `off` is set), or its slot's timing not yet
+                    // its own, or held by the device that left the slot (#761): the slot gives
+                    // the delayed signal, its fade held at 0. At a latency of 0 nothing is in
+                    // flight: it fades in at once, as a device without a line does (a Compressor
+                    // with no look-ahead renders the samples it rendered before #749).
                     let held = holding
-                        || (entry.enabled
-                            && entry.fade <= 0.0
-                            && (b.off || b.warm < latency || waits));
+                        || (entry.enabled && entry.fade <= 0.0 && (b.warm < latency || waits));
                     if settled_off {
                         b.off = true;
                         b.warm = 0;

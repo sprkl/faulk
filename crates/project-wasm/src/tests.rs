@@ -863,7 +863,7 @@ fn the_view_gives_the_engine_slots_of_tracks_and_scenes() {
     let slots = h.view()["slots"].clone();
     assert_eq!(slots["tracks"], json!({first: 0, second: 1}));
     assert_eq!(slots["scenes"], json!({scene.clone(): 0}));
-    // Each track's instrument by its engine slots (#686).
+    // Each track's instrument by its engine slots (#686), past the MIDI effects' band (#219).
     let mut devices: Vec<_> = slots["devices"]
         .as_object()
         .unwrap()
@@ -874,8 +874,8 @@ fn the_view_gives_the_engine_slots_of_tracks_and_scenes() {
     assert_eq!(
         devices,
         vec![
-            json!({"track": 0, "slot": 0}),
-            json!({"track": 1, "slot": 0})
+            json!({"track": 0, "slot": commands::engine_msgs::MIDI_EFFECT_SLOTS}),
+            json!({"track": 1, "slot": commands::engine_msgs::MIDI_EFFECT_SLOTS})
         ]
     );
 

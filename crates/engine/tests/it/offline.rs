@@ -743,8 +743,37 @@ fn assert_same_export(what: &str, a: &Exported, b: &Exported) {
     assert_eq!(xl.len(), yl.len(), "{what}: the length");
     let differs = (0..xl.len()).find(|&i| xl[i] != yl[i] || xr[i] != yr[i]);
     assert_eq!(differs, None, "{what}: the first frame that differs");
-    // Every strip's peak and RMS over the same frames of the song, to the bit.
-    assert_eq!(x.measure(), y.measure(), "{what}: the levels");
+    // Every strip's peak over the same frames of the song, to the bit; its RMS to the
+    // precision of a report's: each report carries an `f32` RMS of its period, and a strip's
+    // window is cut by the other windows' edges (the render closes a report at each), so two
+    // exports whose latencies differ fold the same frames over other periods and may differ in
+    // the last bit (`Host::levels`).
+    let (Some(a), Some(b)) = (x.measure(), y.measure()) else {
+        panic!("{what}: a render without its levels");
+    };
+    assert_eq!(
+        (a.frames, a.silenced, a.reduction),
+        (b.frames, b.silenced, b.reduction),
+        "{what}: the levels"
+    );
+    assert_eq!(a.tracks.len(), b.tracks.len(), "{what}: the strips");
+    let close = |p: f32, q: f32| (p - q).abs() <= 4.0 * f32::EPSILON * p.abs().max(q.abs());
+    let strips = a
+        .tracks
+        .iter()
+        .zip(&b.tracks)
+        .chain([(&a.master, &b.master)]);
+    for (i, (p, q)) in strips.enumerate() {
+        assert_eq!(
+            (p.peak_l, p.peak_r),
+            (q.peak_l, q.peak_r),
+            "{what}: strip {i}'s peak"
+        );
+        assert!(
+            close(p.rms_l, q.rms_l) && close(p.rms_r, q.rms_r),
+            "{what}: strip {i}'s RMS {p:?} against {q:?}"
+        );
+    }
 }
 
 /// A case of the latency test: its name, where each Ceiling goes and whether it detects true

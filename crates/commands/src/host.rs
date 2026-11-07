@@ -323,7 +323,7 @@ mod live_routing_tests {
         assert!(view.devices.values().any(|r| *r
             == DeviceSlotRef {
                 track: Some(t),
-                slot: 0
+                slot: crate::engine_msgs::MIDI_EFFECT_SLOTS
             }));
         // A removed device leaves the view.
         run(
