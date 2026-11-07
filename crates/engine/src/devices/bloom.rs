@@ -4,13 +4,14 @@
 //! # Signal
 //!
 //! One delay line per channel (left to left, right to right), read by three **voices**. A
-//! voice's delay, in seconds, is
+//! voice's delay, in seconds, is `centre + half * lfo`, with `lfo` in `[-1, 1]`, `half =
+//! depth * MAX_SWEEP_SECONDS / 2` and, once settled, `centre = delay + half`:
 //!
 //! `delay + depth * MAX_SWEEP_SECONDS * (1 + lfo) / 2`
 //!
-//! with `lfo` in `[-1, 1]`: the `delay` setting is the shortest delay and the voice sweeps from
-//! it to `delay + depth * 10 ms` and back (the peak-to-peak excursion is `depth` times
-//! [`MAX_SWEEP_SECONDS`]). The three voices of a channel are a third of a cycle apart (0, 120
+//! the `delay` setting is the shortest delay and the voice sweeps from it to `delay + depth *
+//! 10 ms` and back (the peak-to-peak excursion is `depth` times [`MAX_SWEEP_SECONDS`]). The
+//! three voices of a channel are a third of a cycle apart (0, 120
 //! and 240 degrees); the right channel's voices are `stereo_phase` degrees further on.
 //!
 //! The **mode** chooses what is heard:
@@ -37,12 +38,21 @@
 //! never moves faster than that (`sweep <= MAX_SWEEP_SPEED / (pi * cycles per frame)`); the
 //! cycle stays on the beat, the depth gives way.
 //!
+//! **Centre**: the pitch a voice gives is `1 - d'` (the speed of its read position). Moving
+//! the read position to follow a new setting is heard as a bend: gliding from 12 ms to 1 ms
+//! over 100 ms sounded 2 to 4 semitones sharp, "between two notes" (founder, 2026-11-07, on the
+//! Vibrato preset loaded over a sounding note). So a change never moves a voice: a new `depth`
+//! (or a speed limit that narrows the sweep) changes `half` at once, and a jump of the LFO's
+//! value (a new shape, stereo phase, synchronisation or note value, a seek, a start of playback)
+//! changes `lfo` at once; each voice's centre is then taken again as `delay_now - half * lfo`,
+//! so the voice stays where it is and swings by the new `half` from its first oscillation. The
+//! centre then drifts toward `delay + half` at [`MAX_DRIFT`] frames per frame, a pitch offset of
+//! 5 cents at most while it moves (a new `delay` only moves the centre). While the lines are
+//! silent the centres go there at once (nothing to hear).
+//!
 //! **Slew limit**: before it is read, each voice's delay moves by at most [`MAX_SLEW`] frames
-//! per frame toward the delay its LFO asks for. The movement of the LFO stays below it (speed
-//! limit above); what would jump glides instead: a switch of shape at the same phase, a new
-//! stereo phase or note value, a seek or a loop's wrap that moves a synced phase, a fast move of
-//! `depth` or `delay` on top of the LFO. The read position never steps, so no change of a
-//! setting clicks; while a voice glides at the limit its pitch bends by up to 50 %.
+//! per frame: a safety net that the movement above never reaches (speed limit, centre drift). The
+//! read position never steps, so no change of a setting clicks.
 //!
 //! **Tone**: a one-pole high-pass (topology-preserving transform) on the wet signal of each
 //! channel, from 20 Hz to 2 kHz. It sits in the feedback loop, so the low end does not pile up
@@ -80,9 +90,9 @@
 //!
 //! When the transport starts playing, the LFO takes its starting phase. On the first block after
 //! the device is built or reset, and at a start of playback while the lines are silent (nothing
-//! but zeros written for a line's length), every voice's delay goes to it at once, without the
-//! glide: the same start as an export, which is what makes the two the same, sample for sample.
-//! While a sound rings through Bloom, the voices glide there instead (no click).
+//! but zeros written for a line's length), every voice's delay goes to it at once: the same start
+//! as an export, which is what makes the two the same, sample for sample. While a sound rings
+//! through Bloom, the voices stay where they are and their centres drift instead (no click).
 //!
 //! # Memory
 //!
@@ -95,9 +105,9 @@
 //! # Parameters and smoothing
 //!
 //! `mode`, `sync`, `division` and `shape` are stepped; `rate` is not ramped (the phase is
-//! continuous, so a new rate never jumps); `stereo_phase` is not ramped either (the slew limit
-//! glides the voices to their new delays); `feedback`, `tone` and `mix` follow the 20 ms ramp the
-//! descriptor declares, `depth` a 50 ms one and `delay` a 100 ms one. Every value goes through
+//! continuous, so a new rate never jumps); `stereo_phase`, `depth` and `delay` declare no ramp
+//! (the response is the device's own, "Centre"); `feedback`, `tone` and `mix` follow the 20 ms
+//! ramp the descriptor declares. Every value goes through
 //! [`ParamDescriptor::sanitize`].
 
 use super::Builtin;
@@ -140,6 +150,9 @@ pub const MAX_SWEEP_SECONDS: f32 = 0.010;
 pub const FEEDBACK_MAX: f32 = 0.9;
 /// Fastest a voice's delay moves, in frames per frame (see the module's "Slew limit").
 pub const MAX_SLEW: f64 = 0.5;
+/// Fastest a voice's centre drifts toward the one the settings ask for, in frames per frame:
+/// a pitch offset of 0.3 % (5 cents) while it moves (see the module's "Centre").
+pub const MAX_DRIFT: f64 = 0.003;
 /// Fastest the LFO moves a voice's delay, in frames per frame: a sine at 10 Hz over
 /// [`MAX_SWEEP_SECONDS`] (see the module's "Speed limit").
 pub const MAX_SWEEP_SPEED: f64 = core::f64::consts::PI * 10.0 * MAX_SWEEP_SECONDS as f64;
@@ -247,27 +260,27 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(DEPTH),
             key: "depth",
-            description: "How far the delay moves, from 0 to 100 %: at 100 % it sweeps 10 ms above the delay setting and back. More depth, more pitch movement; synced cycles faster than 10 Hz sweep less.",
+            description: "How far the delay moves, from 0 to 100 %: at 100 % it sweeps 10 ms above the delay setting and back. More depth, more pitch movement; synced cycles faster than 10 Hz sweep less. A change never bends the pitch.",
             unit: Unit::Percent,
             min: 0.0,
             max: 100.0,
             default: 40.0,
             scale: Scale::Linear,
             step: 0.0,
-            smoothing_seconds: 0.05,
+            smoothing_seconds: 0.0,
             values: &[],
         },
         ParamDescriptor {
             id: ParamId(DELAY),
             key: "delay",
-            description: "Shortest delay of the moving copies, from 1 to 30 ms: 5 to 20 ms for a chorus; below 5 ms, with feedback, a soft flanger.",
+            description: "Shortest delay of the moving copies, from 1 to 30 ms: 5 to 20 ms for a chorus; below 5 ms, with feedback, a soft flanger. A change moves there slowly, without a pitch bend.",
             unit: Unit::Seconds,
             min: 0.001,
             max: 0.030,
             default: 0.012,
             scale: Scale::Log,
             step: 0.0,
-            smoothing_seconds: 0.1,
+            smoothing_seconds: 0.0,
             values: &[],
         },
         ParamDescriptor {
@@ -539,8 +552,9 @@ pub struct Bloom {
     division: usize,
     /// The right channel's offset, in cycles.
     stereo: f64,
-    depth: Smoother,
-    delay: Smoother,
+    /// The depth, as a share, and the shortest delay, in seconds, the parameters ask for.
+    depth: f32,
+    delay: f32,
     feedback: Smoother,
     tone: Smoother,
     mix: Smoother,
@@ -558,13 +572,20 @@ pub struct Bloom {
     dry_weight: Smoother,
     /// 1 in ensemble (the three voices), 0 otherwise (the first voice).
     ensemble_weight: Smoother,
-    ramp_frames: [u32; 5],
+    ramp_frames: [u32; 3],
     mode_frames: u32,
     tone_g: f32,
     filters: [HighPass; 2],
     lfo: Lfo,
     /// The delay each voice reads, in frames: `[channel][voice]`.
     voices: [[f64; VOICES]; 2],
+    /// The centre each voice swings around, in frames: `[channel][voice]` (module doc, "Centre").
+    centres: [[f64; VOICES]; 2],
+    /// Half the sweep of the last frame, in frames.
+    half: f64,
+    /// The LFO's value jumped (shape, stereo phase, synchronisation, note value, a seek): the
+    /// next frame takes the centres again from where the voices are.
+    rebase: bool,
     /// The next frame takes the delays the LFO asks for, without the glide.
     snap: bool,
 }
@@ -598,8 +619,8 @@ impl Bloom {
             rate: default(RATE),
             division: default(DIVISION) as usize,
             stereo: f64::from(default(STEREO_PHASE)) / 360.0,
-            depth: Smoother::new(default(DEPTH)),
-            delay: Smoother::new(default(DELAY)),
+            depth: default(DEPTH) * 0.01,
+            delay: default(DELAY),
             feedback: Smoother::new(default(FEEDBACK)),
             tone: Smoother::new(default(TONE)),
             mix: Smoother::new(default(MIX)),
@@ -610,18 +631,15 @@ impl Bloom {
             quiet: frames,
             dry_weight: Smoother::new(dry_weight(mode)),
             ensemble_weight: Smoother::new(ensemble_weight(mode)),
-            ramp_frames: [
-                ramp(DEPTH),
-                ramp(DELAY),
-                ramp(FEEDBACK),
-                ramp(TONE),
-                ramp(MIX),
-            ],
+            ramp_frames: [ramp(FEEDBACK), ramp(TONE), ramp(MIX)],
             mode_frames: (MODE_RAMP_SECONDS * sample_rate).round() as u32,
             tone_g: tone_gain(default(TONE), sample_rate),
             filters: [HighPass { state: 0.0 }; 2],
             lfo: Lfo::new(),
             voices: [[0.0; VOICES]; 2],
+            centres: [[0.0; VOICES]; 2],
+            half: 0.0,
+            rebase: false,
             snap: true,
         };
         Ok(bloom)
@@ -640,16 +658,28 @@ impl Bloom {
                 self.ensemble_weight
                     .set(ensemble_weight(value), self.mode_frames);
             }
-            SYNC => self.synced = value >= 0.5,
+            SYNC => {
+                self.synced = value >= 0.5;
+                self.rebase = true;
+            }
             RATE => self.rate = value,
-            DIVISION => self.division = value as usize,
-            DEPTH => self.depth.set(value, self.ramp_frames[0]),
-            DELAY => self.delay.set(value, self.ramp_frames[1]),
-            SHAPE => self.triangle = value >= 0.5,
-            STEREO_PHASE => self.stereo = f64::from(value) / 360.0,
-            FEEDBACK => self.feedback.set(value, self.ramp_frames[2]),
-            TONE => self.tone.set(value, self.ramp_frames[3]),
-            MIX => self.mix.set(value, self.ramp_frames[4]),
+            DIVISION => {
+                self.division = value as usize;
+                self.rebase = true;
+            }
+            DEPTH => self.depth = value * 0.01,
+            DELAY => self.delay = value,
+            SHAPE => {
+                self.triangle = value >= 0.5;
+                self.rebase = true;
+            }
+            STEREO_PHASE => {
+                self.stereo = f64::from(value) / 360.0;
+                self.rebase = true;
+            }
+            FEEDBACK => self.feedback.set(value, self.ramp_frames[0]),
+            TONE => self.tone.set(value, self.ramp_frames[1]),
+            MIX => self.mix.set(value, self.ramp_frames[2]),
             _ => {}
         }
     }
@@ -703,8 +733,6 @@ impl Bloom {
             f64::MAX
         };
         for (l, r) in left.iter_mut().zip(right.iter_mut()) {
-            let depth = self.depth.next_value().clamp(0.0, 100.0) * 0.01;
-            let delay = self.delay.next_value();
             let feedback = (self.feedback.next_value() * 0.01).clamp(-FEEDBACK_MAX, FEEDBACK_MAX);
             // The gains follow the ramps to their very last value (the target included).
             let mix = self.mix.next_value();
@@ -725,20 +753,49 @@ impl Bloom {
             let wake = all_voices && !self.all_voices;
             self.all_voices = all_voices;
             let voices_read = if all_voices { VOICES } else { 1 };
-            let shortest = f64::from(delay) * f64::from(rate);
-            let sweep = (f64::from(depth * MAX_SWEEP_SECONDS) * f64::from(rate)).min(widest);
+            let shortest = f64::from(self.delay) * f64::from(rate);
+            let sweep = (f64::from(self.depth * MAX_SWEEP_SECONDS) * f64::from(rate)).min(widest);
+            // Each voice swings by `half` around its centre; the centre drifts toward
+            // `shortest + half` (module doc, "Centre").
+            let half = 0.5 * sweep;
+            let goal = shortest + half;
+            let rebase = self.rebase || half != self.half;
+            self.rebase = false;
+            self.half = half;
+            // Silent lines: moving the read position is not heard, the centres go at once.
+            let silent = self.quiet >= len;
             let phase = self.lfo.phase(self.synced, period);
             let weights = [1.0 - 2.0 * ens / 3.0, ens / 3.0, ens / 3.0];
             let mut wet = [0.0f32; 2];
-            for (channel, voices) in self.voices.iter_mut().enumerate() {
+            for (channel, (voices, centres)) in self
+                .voices
+                .iter_mut()
+                .zip(self.centres.iter_mut())
+                .enumerate()
+            {
                 let offset = if channel == 1 { self.stereo } else { 0.0 };
-                for (v, voice) in voices.iter_mut().enumerate().take(voices_read) {
+                for (v, (voice, centre)) in voices
+                    .iter_mut()
+                    .zip(centres.iter_mut())
+                    .enumerate()
+                    .take(voices_read)
+                {
                     let p = phase + offset + v as f64 / VOICES as f64;
                     let lfo = f64::from(shape_value(self.triangle, p));
-                    let target = (shortest + sweep * (1.0 + lfo) * 0.5)
+                    let jump = self.snap || silent || (wake && v > 0);
+                    if jump {
+                        *centre = goal;
+                    } else {
+                        if rebase {
+                            // The voice stays where it is: the new swing starts from there.
+                            *centre = *voice - half * lfo;
+                        }
+                        *centre += (goal - *centre).clamp(-MAX_DRIFT, MAX_DRIFT);
+                    }
+                    let target = (*centre + half * lfo)
                         .max(MIN_READ_FRAMES)
                         .min(self.max_read);
-                    *voice = if self.snap || (wake && v > 0) {
+                    *voice = if jump {
                         target
                     } else {
                         *voice + (target - *voice).clamp(-MAX_SLEW, MAX_SLEW)
@@ -816,7 +873,16 @@ impl Device for Bloom {
         let frames = (ctx.frames as usize).min(io.left.len()).min(io.right.len());
         // At the start of playback the voices take their delays at once only when the lines
         // are silent (as when an export starts): a sound ringing through Bloom glides instead.
-        if self.lfo.begin(&ctx.transport, self.sample_rate) && self.quiet >= self.lines[0].len() {
+        // A seek, a loop's wrap or a start of playback can move the LFO's phase: the voices then
+        // keep their place and their centres drift (module doc, "Centre").
+        let period = self.period_ticks();
+        let before = self.lfo.phase(self.synced, period);
+        let started = self.lfo.begin(&ctx.transport, self.sample_rate);
+        let moved = self.lfo.phase(self.synced, period) - before;
+        if (moved - moved.round()).abs() > 1e-9 {
+            self.rebase = true;
+        }
+        if started && self.quiet >= self.lines[0].len() {
             self.snap = true;
             // The tone filter's tail of a silent line is all that is left: an export starts
             // without it.
@@ -849,8 +915,6 @@ impl Device for Bloom {
         self.filled = 0;
         self.filters = [HighPass { state: 0.0 }; 2];
         for s in [
-            &mut self.depth,
-            &mut self.delay,
             &mut self.feedback,
             &mut self.tone,
             &mut self.mix,

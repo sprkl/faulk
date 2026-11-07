@@ -1067,6 +1067,57 @@ fn playback_started_while_a_sound_rings_glides_instead_of_clicking() {
 }
 
 #[test]
+fn a_new_delay_and_depth_never_bend_the_pitch() {
+    // The Vibrato preset's settings land on a vibrato at the defaults while a tone sounds
+    // (founder, 2026-11-07: the old glide from 12 ms to 1 ms sounded "between two notes"). From
+    // the first frame the delay moves only as the new vibrato does, plus the centre's drift.
+    let len = 4 * 48_000;
+    let change = 24_000;
+    let events = [
+        param(change, RATE, 5.5),
+        param(change, DEPTH, 10.0),
+        param(change, DELAY, 0.001),
+    ];
+    let mut b = bloom_with(&[(MODE, VIBRATO), (STEREO_PHASE, 0.0)]);
+    let (l, r) = run(
+        &mut b,
+        &sine(len, 440.0, 0.5, false),
+        &sine(len, 440.0, 0.5, true),
+        256,
+        |_| stopped(),
+        &events,
+    );
+    let d = delay_of(&l, &r, 440.0);
+    // The new vibrato's fastest movement: pi x 5.5 Hz x 1 ms = 0.0173 frames per frame.
+    let vibrato = core::f64::consts::PI * 5.5 / 48_000.0 * 48.0;
+    let speed = d[change..]
+        .windows(2)
+        .fold(0f64, |m, w| m.max((w[1] - w[0]).abs()));
+    println!("fastest after the change: {speed:.4} frames/frame (vibrato {vibrato:.4})");
+    assert!(speed < vibrato + bloom::MAX_DRIFT + 0.001, "{speed}");
+    // The first cycle swings as wide as the later ones (the drift is a straight line, taken
+    // out by comparing the cycle's swing around its own trend).
+    let cycle = (48_000.0 / 5.5) as usize;
+    let swing = |from: usize| {
+        let part = &d[from..from + cycle];
+        let trend = (part[cycle - 1] - part[0]) / (cycle - 1) as f64;
+        let detrended: Vec<f64> = part
+            .iter()
+            .enumerate()
+            .map(|(i, x)| x - trend * i as f64)
+            .collect();
+        let (lo, hi) = min_max(&detrended);
+        hi - lo
+    };
+    let (first, later) = (swing(change), swing(len - cycle - 10));
+    println!("swing: first cycle {first:.2} frames, later {later:.2}");
+    assert!(
+        (first - 48.0).abs() < 2.0 && (later - 48.0).abs() < 1.0,
+        "{first} {later}"
+    );
+}
+
+#[test]
 fn a_tempo_change_and_a_stop_keep_a_synced_movement_continuous() {
     // Playing at 120 BPM, then 90 BPM from frame 48,000 (the position goes on from where it
     // was), then stopped from frame 96,000 (the LFO goes on from its phase at the tempo's rate).

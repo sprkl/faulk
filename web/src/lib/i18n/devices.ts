@@ -128,8 +128,9 @@ export const devices = defineFeature(
     'bloom.division.hint':
       'Length of one cycle in synced mode, as a note value of the project tempo: 1/32 to a whole note, with triplets (T) and dotted values (.).',
     'bloom.depth.hint':
-      'How far the delay moves, from 0 to 100 %: at 100 % it sweeps 10 ms above the delay setting and back. More depth, more pitch movement; synced cycles faster than 10 Hz sweep less.',
-    'bloom.delay.hint': 'Shortest delay of the moving copies, from 1 to 30 ms: 5 to 20 ms for a chorus; below 5 ms, with feedback, a soft flanger.',
+      'How far the delay moves, from 0 to 100 %: at 100 % it sweeps 10 ms above the delay setting and back. More depth, more pitch movement; synced cycles faster than 10 Hz sweep less. A change never bends the pitch.',
+    'bloom.delay.hint':
+      'Shortest delay of the moving copies, from 1 to 30 ms: 5 to 20 ms for a chorus; below 5 ms, with feedback, a soft flanger. A change moves there slowly, without a pitch bend.',
     'bloom.shape.hint':
       'Shape of the movement: sine (smooth) or triangle (the delay moves at a steady speed, so the pitch sits a little sharp, then a little flat).',
     'bloom.stereo_phase.hint':
@@ -266,8 +267,9 @@ export const devices = defineFeature(
     'bloom.division.hint':
       'Durée d’un cycle en mode au tempo, en valeur de note du tempo du projet : de la triple croche à la ronde, avec triolets (T) et valeurs pointées (.).',
     'bloom.depth.hint':
-      'Amplitude du mouvement du retard, de 0 à 100 % : à 100 %, il balaie 10 ms au-dessus du réglage de retard, aller et retour. Plus de profondeur, plus la hauteur bouge ; au tempo, un cycle plus rapide que 10 Hz balaie moins.',
-    'bloom.delay.hint': 'Retard le plus court des copies, de 1 à 30 ms : de 5 à 20 ms pour un chorus ; sous 5 ms, avec du retour, un flanger doux.',
+      'Amplitude du mouvement du retard, de 0 à 100 % : à 100 %, il balaie 10 ms au-dessus du réglage de retard, aller et retour. Plus de profondeur, plus la hauteur bouge ; au tempo, un cycle plus rapide que 10 Hz balaie moins. Un changement ne plie jamais la hauteur.',
+    'bloom.delay.hint':
+      'Retard le plus court des copies, de 1 à 30 ms : de 5 à 20 ms pour un chorus ; sous 5 ms, avec du retour, un flanger doux. Un changement y va lentement, sans plier la hauteur.',
     'bloom.shape.hint':
       'Forme du mouvement : sinus (doux) ou triangle (le retard bouge à vitesse constante, la hauteur reste un peu au-dessus, puis un peu en dessous).',
     'bloom.stereo_phase.hint':
