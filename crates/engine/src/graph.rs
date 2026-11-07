@@ -102,7 +102,8 @@
 //!   keep receiving its output while it fades, so their input never jumps. A device moved
 //!   toward the tail into a slot where a removed one fades out was in front of it: the
 //!   removed one moves one slot further, so that it stays after it (it may then fade out one
-//!   past the chain's last slot). At 0 it goes to the retire ring (a full ring keeps it,
+//!   past the chain's last slot). A device that moves takes the ones it replaced with it, and,
+//!   toward the head, the removed ones in front of it. At 0 it goes to the retire ring (a full ring keeps it,
 //!   silent, for the next block), as a retiring track does.
 //! - A MIDI effect has no sound of its own and does not fade: its change releases the
 //!   instrument's notes, which the instruments end with their own release.
@@ -217,16 +218,18 @@ impl Outgoing {
         }
     }
 
-    /// The devices removed from `from` follow the device that leaves it toward the head, to
-    /// `to` (#800, module doc > Device fades): they were in front of it. They go after the
-    /// ones already fading out at `to`, which were in front of them.
-    pub(crate) fn follow(&mut self, from: u16, to: u16) {
+    /// The devices fading out at `from` follow the device that leaves it for `to` (#800,
+    /// module doc > Device fades): the ones it replaced (in parallel) always, the removed ones
+    /// (in series, in front of it) when it moves toward the head; with `replaced_only` (a move
+    /// toward the tail) the removed ones stay, still in front of it. They go after the ones
+    /// already fading out at `to`, which were in front of them.
+    pub(crate) fn follow(&mut self, from: u16, to: u16, replaced_only: bool) {
         let mut i = 0;
         let mut left = self.len;
         while i < left {
             let hit = self.devices[i]
                 .as_deref()
-                .is_some_and(|e| e.series && e.slot == from);
+                .is_some_and(|e| e.slot == from && !(replaced_only && e.series));
             if hit {
                 if let Some(e) = self.devices[i].as_deref_mut() {
                     e.slot = to;

@@ -1554,8 +1554,9 @@ pub enum RtMsg {
     },
     /// The device of `from` moved to the free slot `to` (#800), after the row is grown to
     /// `grown` when `to` is beyond it: no device is built, dropped or faded, it keeps its
-    /// state. Anything kept per slot outside [`DeviceEntry`] (none today) must move with it
-    /// in the same step.
+    /// state. The automation lanes name a slot and stay: the project uploads the moved
+    /// device's lanes again. Anything else kept per slot outside [`DeviceEntry`] (none today)
+    /// must move with it in the same step.
     DeviceMove {
         track: TrackSlot,
         from: DeviceSlot,

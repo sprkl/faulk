@@ -2957,21 +2957,21 @@ impl Engine {
                     };
                     skipped |= !moved;
                     if moved {
-                        // The devices removed around it keep their place in the chain it left
-                        // (graph module doc > Device fades): one fading out at `to` was after it
-                        // when it moves toward the tail; those fading out in front of it follow
-                        // it toward the head.
+                        // The devices fading out around it keep their place in the chain it
+                        // left (graph module doc > Device fades): one removed at `to` was after
+                        // it when it moves toward the tail; the ones it replaced follow it, and
+                        // the removed ones in front of it too when it moves toward the head.
                         let list = if track.is_master() {
                             Some(self.graph.master_outgoing())
                         } else {
                             state.track_mut(track).map(|t| t.graph.outgoing())
                         };
                         if let Some(list) = list {
-                            if from.0 < to.0 {
+                            let tailward = from.0 < to.0;
+                            if tailward {
                                 list.shift_after(to.0);
-                            } else {
-                                list.follow(from.0, to.0);
                             }
+                            list.follow(from.0, to.0, tailward);
                         }
                     }
                     Some(Garbage::Devices(spare))

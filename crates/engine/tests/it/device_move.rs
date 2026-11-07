@@ -1,6 +1,5 @@
 //! A device moved between slots keeps its instance (#800): `DeviceMove` neither builds,
-//! drops nor fades it, so an echo's tail, a compressor's envelope or an instrument's voices
-//! go on when a device is inserted or removed in front of it. Offline renders through the
+//! drops nor fades it, so an echo's tail or a compressor's envelope goes on when a device is inserted or removed in front of it. Offline renders through the
 //! real `Preparer`, `Engine::apply` and `Engine::process`, every audio-side call under the
 //! allocation detector: a move with a transparent device inserted or removed in front gives
 //! the same output, to the bit, as no change at all; a removal in front of an echo that moves
@@ -332,6 +331,42 @@ fn two_removals_within_one_fade_keep_the_order_of_the_chain() {
     out.extend(r.run(40));
     assert_no_jump("two removals a block apart", &out, blocks * BLOCK);
     assert_eq!(r.outgoing(), 0);
+}
+
+#[test]
+fn a_device_that_moves_takes_the_one_it_replaced_with_it() {
+    // The echo in slot 2 is replaced (a sample-rate rebuild does that to every device): the
+    // old one crossfades in parallel at slot 2. Within the fade the half gain in front is
+    // removed and the new echo moves into its slot: the old echo goes with it.
+    let setup = playing(&[gain_fx(1, 0.5), echo(2)]);
+    let mut x = Rig::new();
+    x.send(&setup);
+    x.run(4);
+    x.send(&[echo(2)]);
+    x.run_frames(BLOCK / 2);
+    x.send(&[remove(1), mv(2, 1)]);
+    x.run_frames(BLOCK / 2);
+    let mut places = x.places();
+    places.sort_unstable();
+    assert_eq!(
+        places,
+        [(1, false), (1, true)],
+        "both at the echo's new slot"
+    );
+    // And toward the tail: the replaced one follows, the removed one stays in front.
+    let setup = playing(&[gain_fx(1, 0.5), echo(2)]);
+    let mut x = Rig::new();
+    x.send(&setup);
+    x.run(4);
+    x.send(&[echo(2)]);
+    x.run_frames(BLOCK / 2);
+    x.send(&[mv(2, 3), gain_fx(2, 1.0)]);
+    x.run_frames(BLOCK / 2);
+    assert_eq!(
+        x.places(),
+        [(3, false)],
+        "the old echo moved with the new one"
+    );
 }
 
 #[test]

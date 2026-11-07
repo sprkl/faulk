@@ -749,9 +749,9 @@ fn chain_slots(chain: &[(&DeviceId, &Device)], midi_band: bool) -> Vec<u32> {
 /// brought back, or the instrument replaced): the engine runs the chain in slot order and a
 /// device's slot is its place in the chain, as in the snapshot ([`chain_slots`]: the MIDI
 /// effects in the first slots, the instrument and the audio effects after a fixed band). So a
-/// device whose place changed goes to its new slot ([`sync_devices`]): an instrument or an
-/// audio effect is moved there as it is (#800: its voices, tail and state go on), a MIDI
-/// effect is built again there (from its project settings); a freed slot nobody takes is
+/// device whose place changed goes to its new slot ([`sync_devices`]): an audio effect is
+/// moved there as it is (#800: its tail and state go on), a MIDI effect is built again there
+/// (from its project settings; the instrument, first after the MIDI band, never shifts); a freed slot nobody takes is
 /// emptied, and a device that keeps its place is not touched: a MIDI effect inserted, moved
 /// or removed leaves the instrument and the audio effects alone. A `DeviceInsert` on an
 /// occupied slot replaces the device there. The automation lanes that target a device built
