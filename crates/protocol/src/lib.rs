@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 51;
+pub const PROTOCOL_VERSION: u32 = 53;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -43,6 +43,13 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 53 (#688; 52 is #802's): the registry gains the audio effect `faulk.ripple` (device
+// kind 15, a phaser and flanger moved by a tempo LFO and an envelope follower). No message
+// changes shape, but a helper of an earlier version does not know kind 15: its engine refuses
+// a stream that inserts it (`UnknownDevice`), so a project holding a Ripple would not play in
+// Boost. The Filter's movement now runs on the shared block `engine::dsp::movement` and renders
+// the same samples.
 
 // Version 51 (one batch of 2026-11-07: #689, #157, #754, #686, #749, #755, #758, #765, #761): a
 // page and a helper of different versions refuse each other, because:

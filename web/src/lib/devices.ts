@@ -123,7 +123,8 @@ export function formatValue(p: ParamDescriptor, value: number): string {
  * its values for which the parameter is shown. Echo: the delay time in free mode, the note value in synced mode. Stack:
  * a voice's settings while the voice is on. Lattice: the rule with a scale, the root and scale with its own, the cells with the matrix. Ceiling: the release time in manual release.
  * Compressor: the release time in manual release, the sidechain frequency with the sidechain high-pass on. Filter: the LFO rate
- * and restart in free mode, the note value in synced mode.
+ * and restart in free mode, the note value in synced mode. Ripple: the stages, centre and spread in phaser mode, the
+ * delay in flanger mode, and the Filter's LFO rules.
  */
 export const SHOWN_IN_MODE: Readonly<Record<string, Readonly<Record<string, { by: string; values: readonly string[] }>>>> = {
   'faulk.echo': { time: { by: 'mode', values: ['free'] }, division: { by: 'mode', values: ['synced'] } },
@@ -136,6 +137,17 @@ export const SHOWN_IN_MODE: Readonly<Record<string, Readonly<Record<string, { by
   },
   // Filter: the LFO's rate and restart in free mode, its note value in synced mode (#686).
   'faulk.filter': {
+    lfo_rate: { by: 'lfo_sync', values: ['free'] },
+    lfo_restart: { by: 'lfo_sync', values: ['free'] },
+    lfo_division: { by: 'lfo_sync', values: ['synced'] },
+  },
+  // Ripple: the stages, centre and spread in phaser mode, the delay in flanger mode, and the
+  // Filter's LFO rules (#688).
+  'faulk.ripple': {
+    stages: { by: 'mode', values: ['phaser'] },
+    centre: { by: 'mode', values: ['phaser'] },
+    spread: { by: 'mode', values: ['phaser'] },
+    delay: { by: 'mode', values: ['flanger'] },
     lfo_rate: { by: 'lfo_sync', values: ['free'] },
     lfo_restart: { by: 'lfo_sync', values: ['free'] },
     lfo_division: { by: 'lfo_sync', values: ['synced'] },

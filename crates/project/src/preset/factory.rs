@@ -157,6 +157,18 @@ const FILES: &[(&str, &str)] = &[
         "faulk.hiccup/tape-scatter",
         include_str!("factory/faulk.hiccup/tape-scatter.json"),
     ),
+    (
+        "faulk.ripple/slow-phaser",
+        include_str!("factory/faulk.ripple/slow-phaser.json"),
+    ),
+    (
+        "faulk.ripple/synced-flanger",
+        include_str!("factory/faulk.ripple/synced-flanger.json"),
+    ),
+    (
+        "faulk.ripple/envelope-phaser",
+        include_str!("factory/faulk.ripple/envelope-phaser.json"),
+    ),
 ];
 
 /// The raw files, for the tests that hold them to the canonical format.

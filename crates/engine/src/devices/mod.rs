@@ -24,6 +24,7 @@ pub mod lattice;
 pub mod osc_synth;
 pub mod params;
 pub mod reverb;
+pub mod ripple;
 pub mod scale;
 pub mod scatter;
 pub mod stack;
@@ -60,6 +61,7 @@ pub const REGISTRY: &[Builtin] = &[
     lattice::BUILTIN,
     scatter::BUILTIN,
     hiccup::BUILTIN,
+    ripple::BUILTIN,
 ];
 
 /// The registry's line of `kind`.

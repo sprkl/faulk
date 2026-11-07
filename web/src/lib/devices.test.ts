@@ -193,3 +193,25 @@ describe('the Filter shows the LFO settings of its mode (#686)', () => {
     expect(order.indexOf('lfo_restart')).toBeLessThan(order.indexOf('env_amount'))
   })
 })
+
+describe('Ripple shows the settings of its mode and of its LFO (#688)', () => {
+  it('stages, centre and spread for the phaser, the delay for the flanger, the LFO as the Filter', () => {
+    const ripple = descriptorOf('faulk.ripple')
+    const keys = (mode: number, sync: number) => shownParams(ripple, (key) => (key === 'mode' ? mode : key === 'lfo_sync' ? sync : undefined)).map((p) => p.key)
+    const phaser = keys(0, 1)
+    expect(phaser).toEqual(expect.arrayContaining(['stages', 'centre', 'spread', 'lfo_division']))
+    expect(phaser).not.toContain('delay')
+    expect(phaser).not.toContain('lfo_rate')
+    const flanger = keys(1, 0)
+    expect(flanger).toEqual(expect.arrayContaining(['delay', 'lfo_rate', 'lfo_restart']))
+    for (const k of ['stages', 'centre', 'spread', 'lfo_division']) expect(flanger).not.toContain(k)
+    // Shared by both modes: feedback, polarity, mix and the movement.
+    for (const k of ['mode', 'feedback', 'polarity', 'mix', 'lfo_shape', 'lfo_depth', 'env_amount']) {
+      expect(phaser).toContain(k)
+      expect(flanger).toContain(k)
+    }
+    expect(phaser).toHaveLength(ripple.params.length - 3)
+    expect(flanger).toHaveLength(ripple.params.length - 4)
+    expect(ripple.name).toBe('Ripple')
+  })
+})

@@ -1,0 +1,28 @@
+{
+  "category": "Movement",
+  "device": "faulk.ripple",
+  "format": 1,
+  "name": "Synced Flanger",
+  "params": {
+    "centre": 800.0,
+    "delay": 0.0015,
+    "env_amount": 0.0,
+    "env_attack": 0.01,
+    "env_release": 0.15,
+    "feedback": 70.0,
+    "lfo_depth": 1.5,
+    "lfo_division": 8.0,
+    "lfo_phase": 0.0,
+    "lfo_rate": 0.5,
+    "lfo_restart": 1.0,
+    "lfo_shape": 0.0,
+    "lfo_stereo": 0.0,
+    "lfo_sync": 1.0,
+    "mix": 100.0,
+    "mode": 1.0,
+    "polarity": 0.0,
+    "spread": 0.0,
+    "stages": 0.0
+  },
+  "version": 1
+}

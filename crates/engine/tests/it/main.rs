@@ -50,6 +50,7 @@ mod recorder;
 mod render;
 mod reverb;
 mod reverb_glide_fingerprint;
+mod ripple;
 mod sample_rate;
 mod scatter;
 mod stack;

@@ -52,8 +52,9 @@ fn session(kind: &str, preset: Option<&str>) -> (Session, Vec<u8>) {
         }
     };
     // Hiccup captures on the transport's grid (#689): with the clock stopped it does nothing,
-    // so its session plays.
-    if kind == "faulk.hiccup" {
+    // so its session plays. Ripple's synced LFO holds while the transport is stopped (#688):
+    // its session plays too, so that its presets are heard sweeping.
+    if kind == "faulk.hiccup" || kind == "faulk.ripple" {
         s.run(Command::Transport(commands::transport::Command::Play {}));
     }
     let notes: Vec<u8> = if descriptor.named_keys.is_empty() {
