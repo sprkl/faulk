@@ -371,7 +371,10 @@ async fn the_hello_announces_the_engines_epoch_and_what_the_helper_can_do() {
         } => {
             assert_eq!(protocol, PROTOCOL_VERSION);
             assert_eq!(epoch, 0, "a fresh engine");
-            assert!(!capabilities.disk, "the helper writes no project file yet");
+            assert!(
+                capabilities.disk,
+                "the helper reads the project's folder (AU-7)"
+            );
             assert_eq!(capabilities.midi, helper::midi::available());
         }
         other => panic!("expected hello, got {other:?}"),
@@ -1752,6 +1755,62 @@ async fn a_destructive_call_waits_for_the_users_answer_and_a_refusal_reaches_the
     assert_eq!(call["result"]["isError"], true);
     assert_eq!(result_text(call)["code"], "command.refused");
     assert_eq!(result_text(call)["error"], error);
+}
+
+#[tokio::test]
+async fn an_audio_file_from_a_link_is_relayed_to_the_page_and_its_typed_answers_reach_the_agent() {
+    // #664: the helper only relays `clip_import_audio_url`; the page asks the user, downloads and
+    // imports. Its clip comes back as the tool's structured content, its refusals typed.
+    let h = start().await;
+    let (mut page, _) = open_session(&h).await;
+    let mut lines = initialize();
+    let kick = "https://example.org/kick.wav";
+    let big = "https://example.org/big.wav";
+    lines.push(tool_call(
+        2,
+        "clip_import_audio_url",
+        serde_json::json!({"track":"t1","url":kick}),
+    ));
+    lines.push(tool_call(
+        3,
+        "clip_import_audio_url",
+        serde_json::json!({"track":"t1","url":big}),
+    ));
+    let running = bridge(h.port, Some(MCP_TOKEN), lines);
+    let media = "ab".repeat(32);
+    // The two calls may reach the page in either order: each is answered by its link.
+    for _ in 0..2 {
+        let ServerMessage::AgentCall { id, command, .. } = next(&mut page).await else {
+            panic!("expected agent.call")
+        };
+        let url = command["url"].as_str().unwrap_or_default().to_owned();
+        assert_eq!(
+            command,
+            serde_json::json!({"type":"clip.import_audio_url","track":"t1","url":url})
+        );
+        let result = if url == kick {
+            AgentResult::Applied {
+                output: serde_json::json!({"type":"clip.import_audio_url","clip":"c1","media":media}),
+            }
+        } else {
+            assert_eq!(url, big);
+            AgentResult::Refused {
+                error: serde_json::json!({"code":"download.too_big","message":"the file is over 192 MiB: nothing changed"}),
+            }
+        };
+        send(&mut page, &ClientMessage::AgentResult { id, result }).await;
+    }
+    let answers = running.await.unwrap();
+    let made = answer(&answers, 2);
+    assert_eq!(made["result"]["isError"], false, "{made}");
+    assert_eq!(
+        made["result"]["structuredContent"],
+        serde_json::json!({"clip":"c1","media":media})
+    );
+    let refused = answer(&answers, 3);
+    assert_eq!(refused["result"]["isError"], true);
+    assert_eq!(result_text(refused)["code"], "command.refused");
+    assert_eq!(result_text(refused)["error"]["code"], "download.too_big");
 }
 
 #[tokio::test]

@@ -52,9 +52,45 @@ fn build_broken(_setup: &DeviceSetup) -> Result<Box<dyn Device>, MsgError> {
     Ok(try_box(Broken)?)
 }
 
+/// A MIDI effect that passes notes through and counts its resets (#219).
+struct Counting;
+
+static RESETS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+static COUNTING: DeviceDescriptor = DeviceDescriptor {
+    kind: "faulk.test_counting",
+    kind_id: DeviceKind(0xFFFF_00AB),
+    name: "Counting",
+    ..TRANSPOSE
+};
+
+impl Device for Counting {
+    fn descriptor(&self) -> &'static DeviceDescriptor {
+        &COUNTING
+    }
+
+    fn process(&mut self, _ctx: &BlockCtx, events: &[Event], io: &mut AudioIo<'_>) {
+        for event in events {
+            io.events_out.push(*event);
+        }
+    }
+
+    fn set_param(&mut self, _id: ParamId, _value: f32) {}
+
+    fn reset(&mut self) {
+        RESETS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+fn build_counting(_setup: &DeviceSetup) -> Result<Box<dyn Device>, MsgError> {
+    Ok(try_box(Counting)?)
+}
+
 fn resolver(kind: DeviceKind) -> Option<Factory> {
     if kind == BROKEN.kind_id {
         Some(build_broken)
+    } else if kind == COUNTING.kind_id {
+        Some(build_counting)
     } else {
         // The test devices, then the registry: the synth is the shipped one (DV-1).
         engine::device::testing::factory(kind)
@@ -481,6 +517,41 @@ fn a_track_added_during_playback_fades_in() {
     let both = r.run(4).0;
     let step = max_step(&both);
     assert!(step < 0.2 * TONE_LEVEL, "the add clicks: step {step}");
+}
+
+#[test]
+fn an_instrument_put_on_an_empty_track_fades_in_with_its_first_note() {
+    // #759: an empty track renders nothing, but its strip's fade in runs all the same; the
+    // instrument put on it once that is over is on a heard chain and fades in by its own fade (#233),
+    // the note it gets at once included: the same ramp as a new track's, no click, no lost
+    // attack. The device's fade takes its first step on its first frame (one frame ahead of
+    // the strip's).
+    let n = fade_frames(RATE) as usize;
+    let mut r = Rig::new();
+    r.send(&[create(0)]);
+    assert_eq!(peak(&r.run(10).0), 0.0);
+    assert_eq!(
+        r.e.state().track(t(0)).unwrap().graph.levels(),
+        (1.0, 1.0),
+        "an empty track's strip is at its levels"
+    );
+    r.send(&[tone(0), note(0, 69)]);
+    let out = r.run(4).0;
+    for (k, s) in out.iter().enumerate().take(n) {
+        let ramp = TONE_LEVEL * (k + 1) as f32 / n as f32;
+        assert!(
+            s.abs() <= ramp + 1e-6,
+            "frame {k}: {s} above the ramp {ramp}"
+        );
+    }
+    assert!(
+        (peak(&out[n..]) - TONE_LEVEL).abs() < 1e-3,
+        "full level after the fade"
+    );
+    assert!(
+        peak(&out[n / 2..n]) > 0.25 * TONE_LEVEL,
+        "the attack is there"
+    );
 }
 
 #[test]
@@ -981,4 +1052,44 @@ fn listening_render() {
         }
     }
     std::fs::write(dir.join("56-eight-tracks.wav"), bytes).unwrap();
+}
+
+/// #219: a MIDI effect switched off, then on, is cleared each time, on a heard chain too: while
+/// it is off the chain skips it, so it never sees the release its switch sends the instrument.
+#[test]
+fn a_midi_effect_is_cleared_when_it_is_switched_on_or_off() {
+    use std::sync::atomic::Ordering;
+    let mut r = Rig::new();
+    r.send(&[
+        create(0),
+        insert(0, 0, COUNTING.kind_id, &[]),
+        insert(0, 1, TONE.kind_id, &[]),
+        note(0, 69),
+    ]);
+    let heard = r.run(40).0;
+    assert!(peak(&heard[2_400..]) > 0.0, "the chain is heard");
+    let built = RESETS.load(Ordering::Relaxed);
+    let switch = |enabled| M::DeviceSetEnabled {
+        track: t(0),
+        device: DeviceSlot(0),
+        enabled,
+    };
+    r.send(&[switch(false)]);
+    r.run(2);
+    assert_eq!(
+        RESETS.load(Ordering::Relaxed),
+        built + 1,
+        "cleared when switched off"
+    );
+    r.send(&[switch(true)]);
+    r.run(2);
+    assert_eq!(
+        RESETS.load(Ordering::Relaxed),
+        built + 2,
+        "cleared when switched on"
+    );
+    // The same state again changes nothing.
+    r.send(&[switch(true)]);
+    r.run(2);
+    assert_eq!(RESETS.load(Ordering::Relaxed), built + 2);
 }

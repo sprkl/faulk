@@ -32,7 +32,7 @@ describe('the browser list', () => {
       for (const device of group.devices)
         expect(DEVICES.find((d) => d.kind === device.kind)?.role === 'instrument' ? 'instrument' : group.category).toBe(group.category)
     }
-    expect(groups.map((g) => g.category)).toEqual(['instrument', 'effect'])
+    expect(groups.map((g) => g.category)).toEqual(['instrument', 'effect', 'midi_effect'])
   })
 
   it('shows a device added to the registry, in its group, with no change to the list', () => {
@@ -44,7 +44,7 @@ describe('the browser list', () => {
     const groups = buildCatalog(() => [], extra)
     expect(groups.map((g) => g.category)).toEqual(['instrument', 'effect', 'midi_effect'])
     expect(groups[0]!.devices.map((d) => d.name)).toContain('Pluck')
-    expect(groups[2]!.devices.map((d) => d.name)).toEqual(['Gate'])
+    expect(groups[2]!.devices.map((d) => d.name)).toContain('Gate')
   })
 
   it('lists the presets that can be loaded under their device, factory and user, and leaves out a newer one', () => {

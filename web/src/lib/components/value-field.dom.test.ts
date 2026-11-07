@@ -5,6 +5,7 @@ import type { DeviceDescriptor, ParamDescriptor } from '../devices'
 import { storesContext, type Stores } from '../stores'
 import { UiStore } from '../stores/ui.svelte'
 import ParamControl from './ParamControl.svelte'
+import ValueField from './ValueField.svelte'
 
 // The real dispatcher pulls in the wasm modules of the engine and the project, which a knob never touches.
 vi.mock('../stores/dispatcher', () => ({ Dispatcher: class {} }))
@@ -225,5 +226,55 @@ describe('typing a value (#365)', () => {
   it('a double click still resets to the default', () => {
     setup(0.9).dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))
     expect(changes).toEqual([0.3])
+  })
+})
+
+describe('a field that makes something new (#769: a point at the playhead)', () => {
+  function fresh(isFresh: boolean) {
+    const commits: string[] = []
+    const closes: boolean[] = []
+    const stores = { ui: new UiStore('arrangement', 'devices'), dispatcher: {} } as unknown as Stores
+    const anchor = document.createElement('div')
+    host.append(anchor)
+    app = mount(ValueField as never, {
+      target: host,
+      props: {
+        anchor,
+        initial: '0.0 dB',
+        label: 'Value of the point',
+        fresh: isFresh,
+        commit: (text: string) => {
+          commits.push(text)
+          return true
+        },
+        onclose: (refocus: boolean) => closes.push(refocus),
+      },
+      context: storesContext(stores),
+    })
+    flushSync()
+    return { input: field()!, commits, closes }
+  }
+
+  it('applies the text it opened with on Enter, selected for a new entry', () => {
+    const { input, commits, closes } = fresh(true)
+    expect(input.selectionStart).toBe(0)
+    expect(input.selectionEnd).toBe('0.0 dB'.length)
+    key(input, 'Enter')
+    expect(commits).toEqual(['0.0 dB'])
+    expect(closes).toEqual([true])
+  })
+
+  it('applies nothing on a blur with the text untouched, so that a click elsewhere cancels it', () => {
+    const { input, commits, closes } = fresh(true)
+    input.dispatchEvent(new FocusEvent('blur'))
+    flushSync()
+    expect(commits).toEqual([])
+    expect(closes).toEqual([false])
+  })
+
+  it('keeps the plain rule without it: the text it opened with is no entry', () => {
+    const { input, commits } = fresh(false)
+    key(input, 'Enter')
+    expect(commits).toEqual([])
   })
 })

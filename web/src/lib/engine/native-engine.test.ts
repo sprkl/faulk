@@ -107,6 +107,43 @@ describe('the Boost engine reads the helper', () => {
     expect(events.onError).not.toHaveBeenCalled()
   })
 
+  it("hands the helper's export messages to onExport and sends export.start and export.cancel (#319)", async () => {
+    vi.stubGlobal('WebSocket', FakeSocket)
+    const onExport = vi.fn()
+    const events = { onStatus: vi.fn(), onFeedback: vi.fn(), onError: vi.fn(), onClosed: vi.fn(), onExport } satisfies EngineEvents
+    const connected = NativeEngine.connect('t', events)
+    const socket = FakeSocket.last
+    socket.onmessage!({ data: JSON.stringify({ type: 'hello', protocol: PROTOCOL_VERSION, sample_rate: 48000 }) })
+    const engine = await connected
+    const messages = [
+      { type: 'export.progress', id: 3, rendered: 10, body: 20, tail: false },
+      {
+        type: 'export.done',
+        id: 3,
+        path: 'exports/Song.wav',
+        bytes: 44,
+        written: 0,
+        peak: 0,
+        clipped: 0,
+        reduction: 0,
+        silenced: 0,
+        tail_cut: false,
+        missing: [],
+      },
+      { type: 'export.failed', id: 4, code: 'export.busy', message: 'x' },
+    ]
+    for (const message of messages) socket.onmessage!({ data: JSON.stringify(message) })
+    expect(onExport.mock.calls.map((c) => c[0])).toEqual(messages)
+    const start = { id: 5, project: 'p', name: 'Song', sample_rate: 48000, bits: 24, body_frames: 1, setup: 'AA==', start: '', stop: '' }
+    engine.exportStart(start)
+    engine.exportCancel(5)
+    expect(socket.sent.slice(-2).map((m) => JSON.parse(m as string))).toEqual([
+      { type: 'export.start', ...start },
+      { type: 'export.cancel', id: 5 },
+    ])
+    expect(events.onError).not.toHaveBeenCalled()
+  })
+
   it("aborts its agents' calls when the session ends: their questions are withdrawn (AG-4)", async () => {
     vi.stubGlobal('WebSocket', FakeSocket)
     const onAgentCall = vi.fn()
@@ -184,7 +221,7 @@ describe('the Boost engine reads the helper', () => {
     const connected = NativeEngine.connect('t', events)
     const socket = FakeSocket.last
     socket.onmessage!({
-      data: JSON.stringify({ type: 'hello', protocol: PROTOCOL_VERSION, sample_rate: 48000, epoch, capabilities: { midi: true, disk: false } }),
+      data: JSON.stringify({ type: 'hello', protocol: PROTOCOL_VERSION, sample_rate: 48000, epoch, capabilities: { midi: true, disk: false, export: true } }),
     })
     return { engine: await connected, socket, events }
   }
@@ -192,7 +229,7 @@ describe('the Boost engine reads the helper', () => {
   it('keeps the epoch and the capabilities of the hello (BO-1)', async () => {
     const { engine } = await session(41)
     expect(engine.epoch).toBe(41)
-    expect(engine.capabilities).toEqual({ midi: true, disk: false })
+    expect(engine.capabilities).toEqual({ midi: true, disk: false, export: true })
   })
 
   it('sends the engine bytes of a command in a binary frame, and only the MIDI input commands as messages (BO-1)', async () => {
@@ -251,6 +288,31 @@ describe('the Boost engine reads the helper', () => {
     const next = await session(3)
     next.engine.route({ epoch: 5, tracks: [] })
     expect(next.socket.sent).toHaveLength(1)
+  })
+
+  it('tells the helper the project folder only when it changed, never a path, and hands its state over (AU-7)', async () => {
+    const { engine, socket, events } = await session()
+    const onFolderState = vi.fn()
+    ;(events as EngineEvents).onFolderState = onFolderState
+    const place = { project: '01J0000000000000000000000A', nonce: '0123456789abcdef0123456789abcdef', name: 'Song' }
+    engine.place(place)
+    engine.place({ ...place })
+    expect(socket.sent).toEqual([JSON.stringify({ type: 'folder.open', ...place })])
+    engine.place(null)
+    engine.place(null)
+    engine.place(place)
+    expect(socket.sent.slice(1)).toEqual([JSON.stringify({ type: 'folder.close' }), JSON.stringify({ type: 'folder.open', ...place })])
+    engine.chooseFolder(place)
+    expect(socket.sent.at(-1)).toBe(JSON.stringify({ type: 'folder.choose', ...place }))
+    for (const sent of socket.sent) expect(Object.keys(JSON.parse(sent as string) as object).sort()).not.toContain('path')
+    socket.onmessage!({ data: JSON.stringify({ type: 'folder.state', project: place.project, state: { status: 'ambiguous', count: 2 } }) })
+    expect(onFolderState).toHaveBeenCalledWith(place.project, { status: 'ambiguous', count: 2 })
+    socket.onmessage!({ data: JSON.stringify({ type: 'folder.state', project: null, state: { status: 'closed' } }) })
+    expect(onFolderState).toHaveBeenLastCalledWith(null, { status: 'closed' })
+    // A new session tells its place again, even the same one.
+    const next = await session()
+    next.engine.place(null)
+    expect(next.socket.sent).toEqual([JSON.stringify({ type: 'folder.close' })])
   })
 
   it('takes a session closed without a word for a refused one', async () => {

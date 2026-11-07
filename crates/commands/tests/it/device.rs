@@ -19,7 +19,9 @@ use commands::{
 use std::collections::BTreeMap;
 
 use crate::device_examples;
-use device_examples::{EFFECT, chain, d, insert, insert_master, own_context, t};
+use device_examples::{
+    EFFECT, MIDI_EFFECT, chain, d, insert, insert_master, midi_chain, own_context, t,
+};
 
 fn refused(command: &Command, state: &State) -> CommandError {
     check_refusal(command, state, &context()).unwrap()
@@ -1073,6 +1075,72 @@ fn kinds(msgs: &[ControlMsg]) -> Vec<&'static str> {
 }
 
 #[test]
+fn every_midi_effect_command_and_its_undo_leave_the_engine_as_a_snapshot_would() {
+    // #219: the MIDI effects take the first slots, the instrument and the audio effects the
+    // ones after; each change and its undo leave the engine as a snapshot of the project.
+    let m = midi_chain();
+    let c = &m.chain;
+    let (msgs, _) = snapshot(&c.state.project, &c.state.session);
+    let transpose = engine::device::testing::TRANSPOSE.kind_id;
+    let slots: Vec<u16> = msgs
+        .iter()
+        .filter_map(|msg| match msg {
+            ControlMsg::DeviceInsert {
+                track,
+                device,
+                kind,
+                ..
+            } if *kind == transpose && !track.is_master() => Some(device.0),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(slots, [0, 1]);
+    let mut w = World::new(c.state.clone());
+    let midi = |index| {
+        d(device::Command::Insert {
+            track: Some(c.track.clone()),
+            master: false,
+            kind: MIDI_EFFECT.into(),
+            index,
+        })
+    };
+    let commands = [
+        midi(0),
+        mv(&m.m2, 0),
+        bypass(&m.m1, true),
+        param(&m.m1, "semitones", 5.0),
+        remove(&m.m1),
+        set_instrument(&c.track, "faulk.drums"),
+        midi(u32::MAX),
+        bypass(&m.m1, false),
+    ];
+    let mut done = 0;
+    for command in &commands {
+        match w.s.run(command) {
+            Ok((outcome, _)) => {
+                w.replay.apply(&outcome.control);
+                w.check();
+                done += 1;
+            }
+            Err(commands::engine_msgs::SyncError::Refused(_)) => {}
+            Err(e) => panic!("{command:?}: {e:?}"),
+        }
+    }
+    assert_eq!(
+        done,
+        commands.len() - 1,
+        "only the bypass of the removed one is refused"
+    );
+    for _ in 0..done {
+        w.exec(&undo());
+    }
+    assert_eq!(w.s.state.project, c.state.project);
+    for _ in 0..done {
+        w.exec(&redo());
+    }
+}
+
+#[test]
 fn every_chain_command_and_its_undo_leave_the_engine_as_a_snapshot_would() {
     let c = chain();
     let mut w = World::new(c.state.clone());
@@ -1175,7 +1243,7 @@ fn an_effect_on_an_audio_track_takes_the_slot_after_the_clip_players_hole() {
     let ControlMsg::DeviceInsert { device, .. } = &out.control[0] else {
         panic!()
     };
-    assert_eq!(*device, engine::msg::DeviceSlot(1));
+    assert_eq!(*device, engine::msg::DeviceSlot(17));
     // A second effect in front shifts the first one; the hole is never removed.
     let out = w.exec(&ins(&c.audio_track, 0));
     assert!(
@@ -1207,7 +1275,7 @@ fn the_lanes_of_a_device_that_shifts_follow_it() {
     assert_eq!(
         *target,
         engine::msg::AutomationTarget::DeviceParam {
-            device: engine::msg::DeviceSlot(3),
+            device: engine::msg::DeviceSlot(19),
             param: engine::msg::ParamId(0)
         }
     );
@@ -1529,4 +1597,50 @@ fn a_bypass_and_a_parameter_on_the_master_reach_the_engine_and_the_track_ones_do
         m,
         ControlMsg::DeviceSetEnabled { track, .. } if track.is_master()
     )));
+}
+
+/// #219: a MIDI effect inserted, moved, removed or brought back never moves the instrument or
+/// the audio effects: their slots (16 and after) get no message, so the engine never builds
+/// them again (their voices and tails go on; `test-support stack::` hears it).
+#[test]
+fn a_midi_effect_change_leaves_the_instrument_and_the_audio_effects_alone() {
+    let m = midi_chain();
+    let c = &m.chain;
+    let mut w = World::new(c.state.clone());
+    let midi = |index| {
+        d(device::Command::Insert {
+            track: Some(c.track.clone()),
+            master: false,
+            kind: MIDI_EFFECT.into(),
+            index,
+        })
+    };
+    for command in [
+        midi(0),
+        mv(&m.m2, 0),
+        remove(&m.m1),
+        midi(u32::MAX),
+        undo(),
+        undo(),
+    ] {
+        let out = w.exec(&command);
+        for msg in &out.control {
+            let slot = match msg {
+                ControlMsg::DeviceInsert { device, .. }
+                | ControlMsg::DeviceRemove { device, .. }
+                | ControlMsg::DeviceSetEnabled { device, .. } => Some(device.0),
+                ControlMsg::AutomationLaneUpload {
+                    target: engine::msg::AutomationTarget::DeviceParam { device, .. },
+                    ..
+                } => Some(device.0),
+                _ => None,
+            };
+            if let Some(slot) = slot {
+                assert!(
+                    u32::from(slot) < commands::engine_msgs::MIDI_EFFECT_SLOTS,
+                    "{command:?} touched slot {slot}: {msg:?}"
+                );
+            }
+        }
+    }
 }

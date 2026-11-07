@@ -81,12 +81,18 @@ pub enum ViolationKind {
     PanOutOfRange,
     /// More than one instrument in a chain.
     TooManyInstruments,
-    /// An instrument that is not first in its chain.
+    /// An instrument that is not first in its chain after the MIDI effects.
     InstrumentNotFirst,
+    /// A MIDI effect after the instrument or after an audio effect: a chain's MIDI effects
+    /// come first (#219).
+    MidiEffectOutOfPlace,
+    /// A MIDI effect on an audio track, which plays no notes (#219).
+    MidiEffectOnAudioTrack,
     /// The clip player on a MIDI track or as an effect, or another instrument on an audio
     /// track.
     WrongInstrument,
-    /// A device of the master's chain that is not an effect: the master holds effects only.
+    /// A device of the master's chain that is not an audio effect (an instrument, a MIDI
+    /// effect): the master holds audio effects only.
     NotAnEffect,
     /// An audio file with no channel or more than [`MAX_CHANNELS`].
     BadChannels,
@@ -386,13 +392,34 @@ impl Project {
             path,
             ViolationKind::MissingInstrument,
         );
+        // The order: the MIDI effects, then the instrument, then the audio effects (#219).
+        let midi_effects = chain
+            .iter()
+            .take_while(|(_, d)| d.role == DeviceRole::MidiEffect)
+            .count();
+        c.count(
+            chain
+                .iter()
+                .filter(|(_, d)| d.role == DeviceRole::MidiEffect)
+                .count(),
+            crate::limits::MAX_MIDI_EFFECTS_PER_TRACK,
+            path,
+        );
         for (i, (id, device)) in chain.iter().enumerate() {
             let path = format!("{path}/devices/{id}");
             c.id(&id.0, &path);
             let is_player =
                 matches!(&device.source, DeviceSource::Builtin { id, .. } if id == CLIP_PLAYER);
+            if device.role == DeviceRole::MidiEffect {
+                c.check(
+                    track.kind == TrackKind::Midi,
+                    &path,
+                    ViolationKind::MidiEffectOnAudioTrack,
+                );
+                c.check(i < midi_effects, &path, ViolationKind::MidiEffectOutOfPlace);
+            }
             if device.role == DeviceRole::Instrument {
-                c.check(i == 0, &path, ViolationKind::InstrumentNotFirst);
+                c.check(i == midi_effects, &path, ViolationKind::InstrumentNotFirst);
                 c.check(
                     is_player == (track.kind == TrackKind::Audio),
                     &path,

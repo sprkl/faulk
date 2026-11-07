@@ -18,6 +18,9 @@ export const agentConfirm = defineFeature(
     'agentConfirm.loadFolder.title': '{agent} wants to load the folder’s version',
     'agentConfirm.loadFolder.body': '“{name}” is reloaded from the folder. The changes made since the last save are lost.',
     'agentConfirm.command.title': '{agent} wants to run {command}',
+    'agentConfirm.importAudio.title': '{agent} wants to download an audio file from {host}',
+    'agentConfirm.importAudio.body':
+      'File: {name}. Faulk downloads it from {host} (up to {max} MB) and adds it to the clips of “{track}”. Nothing is sent to {host} unless you allow it. You can undo the clip.',
     'agentConfirm.command.body': 'This cannot be undone.',
     'agentConfirm.allow': 'Allow',
     'agentConfirm.refuse': 'Refuse',
@@ -41,6 +44,9 @@ export const agentConfirm = defineFeature(
     'agentConfirm.loadFolder.title': '{agent} veut charger la version du dossier',
     'agentConfirm.loadFolder.body': '« {name} » est rechargé depuis le dossier. Les modifications faites depuis le dernier enregistrement sont perdues.',
     'agentConfirm.command.title': '{agent} veut lancer {command}',
+    'agentConfirm.importAudio.title': '{agent} veut télécharger un fichier audio depuis {host}',
+    'agentConfirm.importAudio.body':
+      'Fichier : {name}. Faulk le télécharge depuis {host} (jusqu’à {max} Mo) et l’ajoute aux clips de « {track} ». Rien n’est envoyé à {host} sans ton accord. Tu pourras annuler le clip.',
     'agentConfirm.command.body': 'Cette action ne s’annule pas.',
     'agentConfirm.allow': 'Autoriser',
     'agentConfirm.refuse': 'Refuser',

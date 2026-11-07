@@ -24,6 +24,9 @@ import { ceiling } from './ceiling'
 import { agentConfirm } from './confirm'
 import { echo } from './echo'
 import { filter } from './filter'
+import { stack } from './stack'
+import { lattice } from './lattice'
+import { scatter } from './scatter'
 import { reverb } from './reverb'
 import { keys } from './keys'
 import { layout } from './layout'
@@ -40,6 +43,7 @@ import { shortcuts } from './shortcuts'
 import { synth } from './synth'
 import { tracks } from './tracks'
 import { transport } from './transport'
+import { trim } from './trim'
 
 export { DEVICE_NAME_KEYS } from './synth'
 
@@ -60,8 +64,12 @@ export const features = {
   echo,
   reverb,
   filter,
+  stack,
+  lattice,
+  scatter,
   compressor,
   ceiling,
+  trim,
   devices,
   presets,
   keys,

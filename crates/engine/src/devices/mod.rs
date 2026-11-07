@@ -12,12 +12,20 @@ pub mod ceiling;
 /// and run by the graph, not a registry device (its module doc says why).
 pub mod clip_player;
 pub mod compressor;
+pub mod draw;
 pub mod drums;
 pub mod echo;
 pub mod filter;
+pub mod held;
+pub mod lattice;
 pub mod osc_synth;
+pub mod params;
 pub mod reverb;
+pub mod scale;
+pub mod scatter;
+pub mod stack;
 pub mod time_change;
+pub mod trim;
 
 /// A built-in device: its static descriptor and the factory that builds it off the audio
 /// path.
@@ -44,6 +52,10 @@ pub const REGISTRY: &[Builtin] = &[
     compressor::BUILTIN,
     filter::BUILTIN,
     ceiling::BUILTIN,
+    stack::BUILTIN,
+    trim::BUILTIN,
+    lattice::BUILTIN,
+    scatter::BUILTIN,
 ];
 
 /// The registry's line of `kind`.

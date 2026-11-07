@@ -438,6 +438,116 @@ fn choosing_audio_files_is_for_an_audio_track_and_changes_nothing() {
 }
 
 #[test]
+fn importing_audio_from_a_link_is_for_an_audio_track_and_changes_nothing_until_the_page_imports() {
+    let f = fx();
+    let mut state = f.state.clone();
+    let import = |track: &::project::TrackId, url: &str| {
+        c(clip::Command::ImportAudioUrl {
+            track: track.clone(),
+            url: url.into(),
+        })
+    };
+    let url = "https://example.org/kick.wav";
+    let out = run(
+        &import(&f.audio_track, url),
+        &mut state,
+        &mut bare_context(),
+    )
+    .unwrap();
+    // The page answers the clip it made; the command alone makes none and records nothing.
+    assert!(matches!(
+        out.output,
+        Output::Clip(clip::Output::ImportAudioUrl {
+            clip: None,
+            media: None
+        })
+    ));
+    assert!(matches!(out.undo, Undo::None) && out.events.is_empty());
+    assert_eq!(state, f.state);
+    // A MIDI track and an unknown one are refused before the link is even looked at; a bad link
+    // into an audio track names the `url` (the full list of links: `contract.rs`).
+    let midi = check_refusal(&import(&f.track, url), &f.state, &context()).unwrap();
+    assert!(matches!(midi, CommandError::Invalid { ref field, .. } if field == "track"));
+    let gone = ::project::TrackId::generate(&mut ::project::IdGenerator::new(1, 1));
+    assert_eq!(
+        code(check_refusal(&import(&gone, url), &f.state, &context()).unwrap()),
+        "not_found"
+    );
+    let file = check_refusal(
+        &import(&f.audio_track, "file:///C:/kick.wav"),
+        &f.state,
+        &context(),
+    )
+    .unwrap();
+    assert!(matches!(file, CommandError::Invalid { ref field, .. } if field == "url"));
+}
+
+#[test]
+fn importing_a_file_of_the_folder_is_for_an_audio_track_and_a_relative_path_and_changes_nothing_by_itself()
+ {
+    // #778: the helper reads and decodes the file, the page makes the clip; the command checks the
+    // track and the path's form only.
+    let f = fx();
+    let mut state = f.state.clone();
+    let import = |track: &::project::TrackId, path: &str| {
+        c(clip::Command::ImportAudioFile {
+            track: track.clone(),
+            path: path.into(),
+        })
+    };
+    for path in [
+        "imports/kick.wav",
+        "kick.wav",
+        "blobs/0123",
+        "a b/é.flac",
+        "..a/b..",
+    ] {
+        let out = run(
+            &import(&f.audio_track, path),
+            &mut state,
+            &mut bare_context(),
+        )
+        .unwrap();
+        assert!(
+            matches!(
+                out.output,
+                Output::Clip(clip::Output::ImportAudioFile {
+                    clip: None,
+                    media: None
+                })
+            ),
+            "{path}"
+        );
+        assert!(matches!(out.undo, Undo::None) && out.events.is_empty());
+        assert_eq!(state, f.state, "{path}");
+    }
+    let midi = check_refusal(&import(&f.track, "kick.wav"), &f.state, &context()).unwrap();
+    assert!(matches!(midi, CommandError::Invalid { ref field, .. } if field == "track"));
+    let long = "a/".repeat(600);
+    for path in [
+        "",
+        "/etc/kick.wav",
+        "C:/kick.wav",
+        "C:kick.wav",
+        "imports\\kick.wav",
+        "../kick.wav",
+        "imports/../kick.wav",
+        "./kick.wav",
+        "imports//kick.wav",
+        "imports/",
+        "kick\u{0}.wav",
+        long.as_str(),
+    ] {
+        let refused = check_refusal(&import(&f.audio_track, path), &f.state, &context())
+            .unwrap_or_else(|e| panic!("{path:?} is refused: {e:?}"));
+        assert!(
+            matches!(refused, CommandError::Invalid { ref field, .. } if field == "path"),
+            "{path:?}: {refused:?}"
+        );
+    }
+}
+
+#[test]
 fn a_new_or_opened_project_forgets_the_files_imported_into_the_old_one() {
     for command in [
         Command::Project(project::Command::New { name: None }),

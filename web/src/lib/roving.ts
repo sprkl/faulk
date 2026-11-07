@@ -134,6 +134,36 @@ export function timelineCursorStep(snap: number | null, beat: number, bar: numbe
   return Math.max(snap ?? bar, beat)
 }
 
+/** A jump of the free cursor along time (#771): to the start or the end of the clip, or one bar earlier or later. */
+export type CursorJump = 'start' | 'end' | 'barBack' | 'barForward'
+
+/**
+ * The keys that make the free cursor jump (#771): Home and End (to the start and the end of the clip), Ctrl or Cmd + Left
+ * and Right (one bar). Null for any other key, and with Alt or Shift held.
+ */
+export function cursorJumpKey(event: Pick<KeyboardEvent, 'key' | 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey'>): CursorJump | null {
+  if (event.altKey || event.shiftKey) return null
+  const mod = event.ctrlKey || event.metaKey
+  if (!mod && event.key === 'Home') return 'start'
+  if (!mod && event.key === 'End') return 'end'
+  if (mod && event.key === 'ArrowLeft') return 'barBack'
+  if (mod && event.key === 'ArrowRight') return 'barForward'
+  return null
+}
+
+/**
+ * Where a jump takes the cursor's tick (#771), whatever the step: the start of the clip, the last `step` line before its
+ * `end`, or `bar` ticks earlier or later, kept on the `step` grid inside `[0, last]` (a jump past an edge stops there).
+ */
+export function jumpCursor(tick: number, jump: CursorJump, steps: { step: number; bar: number }, end: number): number {
+  const step = Math.max(1, Math.round(steps.step))
+  const last = Math.max(0, Math.floor((Math.max(1, end) - 1) / step) * step)
+  if (jump === 'start') return 0
+  if (jump === 'end') return last
+  const to = tick + (jump === 'barBack' ? -1 : 1) * Math.max(1, Math.round(steps.bar))
+  return Math.min(last, Math.max(0, Math.floor(to / step) * step))
+}
+
 /** The item under the cursor: in its row, the one whose span holds its tick (the latest start first), or null. */
 export function itemAt<T extends Item>(items: readonly T[], cursor: Cursor): T | null {
   let found: T | null = null

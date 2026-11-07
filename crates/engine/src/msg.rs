@@ -35,7 +35,7 @@
 //! | `ControlMsg` | `RtMsg` |
 //! |---|---|
 //! | `Reset { epoch }` | `Reset`: a fresh engine state, the old one is one garbage item (its tracks first fade out in the graph and come back through the retire ring, MO-3) |
-//! | `SetTransport`, `SetMetronome`, `SetMaster` | the same, copied |
+//! | `SetTransport`, `SetMetronome`, `SetMaster`, `SetScale` | the same, copied |
 //! | `TrackCreate` | `TrackPut`: the new track, and the grown track table when the slot is beyond it (a track it replaces fades out, then comes back through the retire ring, MO-3) |
 //! | `TrackRemove` | `TrackRemove`: the track owns its devices and tables; it fades out in the graph, then comes back through the retire ring (MO-3), not the garbage ring |
 //! | `TrackSetMix/Solo/Arm/Monitor`, `HoldMix`, `SelectTrack`, `DeviceSetEnabled`, `ParamSet` | the same, copied |
@@ -462,6 +462,12 @@ pub enum ControlMsg {
         signature: TimeSignature,
         launch_quantize: Quantize,
     },
+    /// The project's scale (#690), as a set of pitch classes (bit `c` for pitch class `c`, 0 =
+    /// C; bits above the twelfth ignored; 0: no scale). The MIDI effects that work "in the
+    /// scale" read it in `device::Transport::scale`. A `Reset` clears it.
+    SetScale {
+        pitch_classes: u16,
+    },
     /// Metronome (TR-2): on or off, its level (a linear gain, 1.0 the reference level of the
     /// click, 0 to 4; the project's `gain_db` is converted by the sender), bars of count-in
     /// before a recording.
@@ -688,6 +694,7 @@ pub enum Tag {
     SetTransport = 1,
     SetMetronome = 2,
     SetMaster = 3,
+    SetScale = 4,
     TrackCreate = 10,
     TrackRemove = 11,
     TrackSetMix = 12,
@@ -728,11 +735,12 @@ pub enum Tag {
 
 impl Tag {
     /// Every tag, in declaration order (for exhaustive tests and generated tables).
-    pub const ALL: [Tag; 40] = [
+    pub const ALL: [Tag; 41] = [
         Tag::Reset,
         Tag::SetTransport,
         Tag::SetMetronome,
         Tag::SetMaster,
+        Tag::SetScale,
         Tag::TrackCreate,
         Tag::TrackRemove,
         Tag::TrackSetMix,
@@ -791,6 +799,7 @@ impl ControlMsg {
             ControlMsg::SetTransport { .. } => Tag::SetTransport,
             ControlMsg::SetMetronome { .. } => Tag::SetMetronome,
             ControlMsg::SetMaster { .. } => Tag::SetMaster,
+            ControlMsg::SetScale { .. } => Tag::SetScale,
             ControlMsg::TrackCreate { .. } => Tag::TrackCreate,
             ControlMsg::TrackRemove { .. } => Tag::TrackRemove,
             ControlMsg::TrackSetMix { .. } => Tag::TrackSetMix,
@@ -1007,6 +1016,7 @@ impl ControlMsg {
             | ControlMsg::SetTransport { .. }
             | ControlMsg::SetMetronome { .. }
             | ControlMsg::SetMaster { .. }
+            | ControlMsg::SetScale { .. }
             | ControlMsg::StopAll
             | ControlMsg::AllSoundOff
             | ControlMsg::BackToArrangement
@@ -1466,6 +1476,7 @@ pub enum RtMsg {
         signature: TimeSignature,
         launch_quantize: Quantize,
     },
+    SetScale(crate::device::PitchSet),
     SetMetronome {
         enabled: bool,
         volume: f32,

@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 42;
+pub const PROTOCOL_VERSION: u32 = 50;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -44,9 +44,54 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
-// Version 42 (#159): a new built-in device, `faulk.ceiling` (kind id 7, the brick-wall
-// limiter). No message changes shape, but a helper of an earlier version does not know kind 7: its engine
-// refuses a stream that inserts it (`UnknownDevice`), so a project holding a Ceiling would not play in Boost.
+// Version 50 (#159): the registry gains the audio effect `faulk.ceiling` (device kind 7, the
+// brick-wall limiter). No message changes shape, but a helper of an earlier version does not know
+// kind 7: its engine refuses a stream that inserts it (`UnknownDevice`), so a project holding a
+// Ceiling would not play in Boost.
+
+// Version 49 (#778; 48 is #691's): the native audio import in Boost. The session gains `import.choose`,
+// `import.start` and `import.cancel` (page → helper) and `import.chosen`, `import.progress`,
+// `import.done` and `import.failed` (helper → page); `hello`'s capabilities gain `import`. The
+// helper decodes a file of the project's folder, or one the user picked in its dialog, and writes
+// its blob and caches into the folder; the page makes the clip. The commands gain
+// `clip.import_audio_file`, and `clip.choose_audio`'s description changes (the helper's dialog in
+// Boost); the schema bundle gains `import_progress_ms` and `import_error_codes`.
+
+// Version 48 (#691; 45 is #693's, 46 #789's, 47 #692's): the registry gains the MIDI
+// effect `faulk.scatter` (device kind 11: a note's pitch moved, at a chance, to one of up to 24 choices, in semitones or in the
+// project's scale). A helper of an earlier version would not build the device: a page and a
+// helper of different versions refuse each other.
+
+// Version 47 (#692; 46 is #789's): the registry gains the MIDI effect
+// `faulk.lattice` (device kind 12), which puts the notes it receives on the project's scale, a scale of
+// its own or a matrix. A helper of an earlier version would not build the device: a page and a helper of
+// different versions refuse each other.
+
+// Version 46 (#319; 45 is #693's): the audio export in Boost. The session
+// gains `export.start` and `export.cancel` (page → helper) and `export.progress`, `export.done`
+// and `export.failed` (helper → page); `hello`'s capabilities gain `export`. The helper renders
+// the page's export job and writes the file into the project's folder (`exports/`); the schema
+// bundle gains `max_export_stream_bytes`, `export_name` and `export_error_codes`.
+
+// Version 45 (#693): the device registry gains Trim (`faulk.trim`, kind
+// id 10, a MIDI effect); a helper of an earlier version would refuse its `DeviceInsert` and its schema
+// bundle would not describe it. No message changes.
+
+// Version 44 (#690, #219; 43 is #783's): the engine takes `ControlMsg::SetScale` (tag 4, the project's
+// scale as a set of pitch classes), the registry gains the MIDI effect `faulk.stack` (device kind 9), and
+// the device commands insert, move and remove MIDI effects (role `midi_effect`). A helper of an earlier
+// version would skip the message and not build the device: a page and a helper of different versions
+// refuse each other.
+
+// Version 43 (#116, AU-7): the helper reads the audio files of the project's folder. The session gains
+// `folder.open`, `folder.choose` and `folder.close` (page → helper) and `folder.state` (helper → page);
+// `hello`'s `disk` is `true`; the commands gain `project.choose_helper_folder`.
+
+// Version 42 (#664): the commands gain `clip.import_audio_url` (an agent's audio file from a
+// link, imported by the page once the user allowed it); the helper generates its MCP tools from
+// the commands, so a helper of version 41 would not offer it to an agent. No message changes:
+// the download and the import run in the page in both modes. The schema bundle gains
+// `max_audio_url_bytes`.
 
 // Version 41 (#733): the report is `Feedback` version 9: the header grows from 92 to 100 bytes with
 // `host_frame` at offset 92 (the host's frame at the report's playhead), so that the page can place a
@@ -182,7 +227,77 @@ pub mod errors {
     /// The audio output failed and its engine is gone: the page plays itself again. Before
     /// `hello`, the page takes it as [`NO_OUTPUT`].
     pub const AUDIO_STREAM: &str = "audio.stream";
+    /// `export.failed` (#319): an export runs already (one at a time).
+    pub const EXPORT_BUSY: &str = "export.busy";
+    /// `export.failed`: the helper has no folder open for the export's project.
+    pub const EXPORT_NO_FOLDER: &str = "export.no_folder";
+    /// `export.failed`: the request is not one the helper renders (name, format, rate, length,
+    /// streams).
+    pub const EXPORT_INVALID: &str = "export.invalid";
+    /// `export.failed`: the engine refused the streams or the render failed.
+    pub const EXPORT_RENDER: &str = "export.render";
+    /// `export.failed`: the disk refused the file (`message` holds the path error's code).
+    pub const EXPORT_WRITE: &str = "export.write";
+    /// `export.failed`: the project's folder changed during the export (another place named, the
+    /// folder closed, moved or replaced on disk).
+    pub const EXPORT_FOLDER_CHANGED: &str = "export.folder_changed";
+    /// `export.failed`: the page cancelled it, or its session ended.
+    pub const EXPORT_CANCELLED: &str = "export.cancelled";
+    /// `import.failed` (#778): an import runs already (one at a time), or the helper's dialog is
+    /// open already.
+    pub const IMPORT_BUSY: &str = "import.busy";
+    /// `import.failed`: the helper has no folder open for the import's project, in this session.
+    pub const IMPORT_NO_FOLDER: &str = "import.no_folder";
+    /// `import.failed`: the request is not one the helper takes (a project id, a token).
+    pub const IMPORT_INVALID: &str = "import.invalid";
+    /// `import.failed`: the source's path is refused (`message` holds the path error's code:
+    /// `path.escapes`, `path.reserved`, `path.dot`...).
+    pub const IMPORT_PATH: &str = "import.path";
+    /// `import.failed`: the source cannot be read (gone, not a file, a token unknown, used, expired
+    /// or of another session).
+    pub const IMPORT_UNREADABLE: &str = "import.unreadable";
+    /// `import.failed`: the disk refused a file of the import (`message` holds the path error's
+    /// code).
+    pub const IMPORT_WRITE: &str = "import.write";
+    /// `import.failed`: the project's folder changed during the import (another place named, the
+    /// folder closed, moved or replaced on disk).
+    pub const IMPORT_FOLDER_CHANGED: &str = "import.folder_changed";
+    /// `import.failed`: the page cancelled it, or its session ended.
+    pub const IMPORT_CANCELLED: &str = "import.cancelled";
+    /// `import.failed` of `import.choose`: this system has no file dialog the helper can show.
+    pub const IMPORT_DIALOG_UNAVAILABLE: &str = "import.dialog_unavailable";
+    /// The prefix of `import.failed` for a file the decoder refuses: `import.` and
+    /// `audio_import::ImportError::code` (`import.too_large`, `import.corrupt`...).
+    pub const IMPORT_DECODE_PREFIX: &str = "import.";
 }
+
+/// The shortest time between two `import.progress` of one import, in milliseconds (#778).
+pub const IMPORT_PROGRESS_MS: u64 = 100;
+
+/// How long a token of `import.chosen` stays valid, in seconds (#778).
+pub const IMPORT_TOKEN_SECS: u64 = 600;
+
+/// The shortest time between two `export.progress` of one export, in milliseconds.
+pub const EXPORT_PROGRESS_MS: u64 = 100;
+
+/// The longest file name of an `export.start` (#319), in UTF-8 bytes, before `.wav`: the page
+/// cuts its names to it, the helper refuses a longer one.
+pub const EXPORT_NAME_MAX_BYTES: usize = 120;
+
+/// The Windows device names (#319, AU-7): a file of that name, with any extension, is the device
+/// in every folder. The helper refuses them as a path's component; the page changes an export
+/// name that is one.
+pub const WINDOWS_DEVICE_NAMES: &[&str] = &[
+    "con", "prn", "aux", "nul", "conin$", "conout$", "com1", "com2", "com3", "com4", "com5",
+    "com6", "com7", "com8", "com9", "com0", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7",
+    "lpt8", "lpt9", "lpt0", "com¹", "com²", "com³", "lpt¹", "lpt²", "lpt³",
+];
+
+/// The most bytes the three streams of an `export.start` may hold together, before base64
+/// (#319). The page renders a larger job in its own export Worker (the browser's file dialog),
+/// as in Web mode: the streams travel as base64 in one JSON message, encoded on the page's main
+/// thread and parsed on the session's reader, which also carries the live engine streams.
+pub const MAX_EXPORT_STREAM_BYTES: usize = 64 << 20;
 
 /// Name the helper announces in its probe answer.
 pub const HELPER_NAME: &str = "faulk-helper";
@@ -244,6 +359,101 @@ pub enum ClientMessage {
     /// drives the one the user last looked at. Only on a control link.
     #[serde(rename = "control.front")]
     ControlFront,
+    /// The page's project lives in a real folder (AU-7, #116): `project` is its id (a ULID),
+    /// `nonce` the page's link marker (32 lowercase hex digits) that the page wrote in that folder
+    /// as `.faulk/link.json` before sending this, `name` the folder's name (for the dialog's
+    /// title only, never a path). The helper opens the remembered folder that holds both the id
+    /// and the marker, and answers `folder.state`. No message names a path: the helper learns a
+    /// folder only from its own dialog (`folder.choose`). Sent after each `hello` and on each
+    /// change of the project's place. Only on a session.
+    #[serde(rename = "folder.open")]
+    FolderOpen {
+        project: String,
+        nonce: String,
+        name: String,
+    },
+    /// The user asked to show the project's folder to the helper: the helper opens its folder
+    /// dialog (one at a time) and opens the folder chosen when it holds the project's id and the
+    /// page's marker, then answers `folder.state`. Only on a session.
+    #[serde(rename = "folder.choose")]
+    FolderChoose {
+        project: String,
+        nonce: String,
+        name: String,
+    },
+    /// The page's project has no real folder (kept in the browser), or none: the helper closes
+    /// its folder (its audio clips go offline). Only on a session.
+    #[serde(rename = "folder.close")]
+    FolderClose,
+    /// Render the page's export job and write the file into the project's folder (#319): the
+    /// helper renders the three streams of `commands::export::job` (`setup`, `start`, `stop`, each
+    /// in standard base64) with `engine::offline`, as the page's export Worker does, and writes
+    /// the WAV file as `exports/<name>.wav` in the folder it has open for `project` (AU-7's
+    /// confined write; an existing file is kept and the first free `<name> (2).wav`... is taken).
+    /// `id` is the page's number for this run: every answer carries it (`export.progress`, then
+    /// one `export.done` or `export.failed`). One export at a time. Only on a session.
+    #[serde(rename = "export.start")]
+    ExportStart {
+        id: u32,
+        project: String,
+        name: String,
+        sample_rate: u32,
+        /// 16, 24 or 32 (float).
+        bits: u32,
+        body_frames: u64,
+        setup: String,
+        start: String,
+        stop: String,
+    },
+    /// Stop the export `id`: nothing is written (answered `export.failed` `export.cancelled`).
+    /// Only on a session.
+    #[serde(rename = "export.cancel")]
+    ExportCancel { id: u32 },
+    /// Show the helper's own file dialog for audio files to import (#778): one dialog of the
+    /// helper at a time (the folder dialog included). Answered by `import.chosen` with this `id`
+    /// (no file when the user closed it), or `import.failed`. The page never learns the files'
+    /// paths: each comes with a token for `import.start`. Only on a session.
+    #[serde(rename = "import.choose")]
+    ImportChoose { id: u32 },
+    /// Import an audio file into the project's folder (#778): the helper decodes it with the
+    /// page's decoder (`crates/audio-import`, natively) and writes its blob and caches through
+    /// AU-7's confined write, in the folder it has open for `project`; the page then makes the
+    /// clip. `id` is the page's number for this import: every answer carries it
+    /// (`import.progress`, then one `import.done` or `import.failed`). One import at a time.
+    /// Only on a session.
+    #[serde(rename = "import.start")]
+    ImportStart {
+        id: u32,
+        project: String,
+        source: ImportSource,
+    },
+    /// Stop the import `id` (answered `import.failed` `import.cancelled`, or `import.done` when
+    /// its blob was already in place). Only on a session.
+    #[serde(rename = "import.cancel")]
+    ImportCancel { id: u32 },
+}
+
+/// The file an `import.start` imports (#778).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ImportSource {
+    /// A file of the project's folder: its path relative to the folder's root, `/` separated
+    /// (a file the user or an agent put there, `blobs/<sha256>` included). Never a path outside
+    /// the folder, never `.faulk/` or `.git*`.
+    Folder { path: String },
+    /// A file the user picked in the helper's file dialog: the token `import.chosen` gave it
+    /// (single use, this session's only, for [`IMPORT_TOKEN_SECS`]).
+    Picked { token: String },
+}
+
+/// A file the user picked in the helper's dialog (`import.chosen`, #778).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PickedFile {
+    /// 32 lowercase hex digits: what `import.start` names the file by.
+    pub token: String,
+    /// The file's own name (no folder).
+    pub name: String,
 }
 
 /// What running an agent's command in the page did (`agent.result`).
@@ -272,8 +482,54 @@ pub enum AgentResult {
 pub struct Capabilities {
     /// The helper can open MIDI inputs (its system has a MIDI backend).
     pub midi: bool,
-    /// The helper reads and writes the project's folder for the page. Not yet: always `false`.
+    /// The helper reads the audio files of the project's folder for its engine (AU-7): it takes
+    /// `folder.open`, `folder.choose` and `folder.close`.
     pub disk: bool,
+    /// The helper renders an export and writes it into the project's folder (#319): it takes
+    /// `export.start` and `export.cancel`.
+    pub export: bool,
+    /// The helper imports an audio file into the project's folder (#778): it takes
+    /// `import.choose`, `import.start` and `import.cancel`.
+    pub import: bool,
+}
+
+/// Where the helper's folder of the page's project stands (`folder.state`, AU-7).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "status", rename_all = "snake_case", deny_unknown_fields)]
+pub enum FolderStatus {
+    /// The helper reads the project's audio files from this folder (its name).
+    Open { name: String },
+    /// No folder: after `folder.close`, or a project the helper does not take.
+    Closed,
+    /// The helper knows no folder holding the project and the page's marker: the user shows it
+    /// (`folder.choose`).
+    Unknown,
+    /// Several folders the helper knows hold them (a copy made since the marker was written):
+    /// the user shows the right one.
+    Ambiguous { count: u32 },
+    /// The helper's folder dialog is open.
+    Choosing,
+    /// The folder chosen was not taken.
+    Refused { reason: FolderRefusal },
+}
+
+/// Why the folder chosen in the helper's dialog was not taken.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum FolderRefusal {
+    /// The user closed the dialog.
+    Cancelled,
+    /// The folder holds no project.
+    NoProject,
+    /// The folder holds another project.
+    OtherProject,
+    /// The folder holds this project but not the page's marker: a copy, not the folder open in
+    /// the page.
+    NotThisFolder,
+    /// The helper could not read the folder.
+    Unreadable,
+    /// This system has no folder dialog the helper can show.
+    Unavailable,
 }
 
 /// A MIDI input as the helper sees it.
@@ -381,6 +637,83 @@ pub enum ServerMessage {
     /// withdraws its questions to the user. Sent on the session and on every control link.
     #[serde(rename = "agent.left")]
     AgentLeft { agent: String },
+    /// Where the helper's folder of the page's project stands (AU-7): the answer to `folder.open`,
+    /// `folder.choose` (`choosing` first, then the outcome) and `folder.close`. `project` is the
+    /// project it is about (`None` after `folder.close`): the page drops a state of another one.
+    #[serde(rename = "folder.state")]
+    FolderState {
+        project: Option<String>,
+        state: FolderStatus,
+    },
+    /// How far the export `id` is (#319), at most every [`EXPORT_PROGRESS_MS`]: frames of the
+    /// content rendered, of `body`, and whether the content is done and the effects ring out.
+    #[serde(rename = "export.progress")]
+    ExportProgress {
+        id: u32,
+        rendered: u64,
+        body: u64,
+        tail: bool,
+    },
+    /// The export `id` is written (#319): `path` is the file's path in the project's folder
+    /// (`/` separated, `exports/<name>.wav` or the free name taken), `bytes` its size, `written`
+    /// its frames; the figures are `engine::offline::Offline`'s, as the page's Worker reports
+    /// them; `missing` the media (hex SHA-256) whose file could not be read (silent clips).
+    #[serde(rename = "export.done")]
+    ExportDone {
+        id: u32,
+        path: String,
+        bytes: u64,
+        written: u64,
+        peak: f32,
+        clipped: u64,
+        reduction: f32,
+        silenced: u64,
+        tail_cut: bool,
+        missing: Vec<String>,
+    },
+    /// The export `id` ended without a file (#319): `code` is one of [`errors`]' `EXPORT_*`,
+    /// `message` is for developers. Nothing is left in the folder, not even a temporary file.
+    #[serde(rename = "export.failed")]
+    ExportFailed {
+        id: u32,
+        code: String,
+        message: String,
+    },
+    /// The files the user picked in the helper's dialog for `import.choose` `id` (#778): none when
+    /// the dialog was closed.
+    #[serde(rename = "import.chosen")]
+    ImportChosen { id: u32, files: Vec<PickedFile> },
+    /// How far the import `id` is (#778), from 0 to 1, at most every [`IMPORT_PROGRESS_MS`].
+    #[serde(rename = "import.progress")]
+    ImportProgress { id: u32, fraction: f64 },
+    /// The import `id` is in the project's folder (#778): the media as `clip.import_audio` takes it
+    /// (`hash`, the file's SHA-256 and the name of its blob; the decoded `sample_rate`, `channels`,
+    /// `frames`), `name` the source file's own name (the page makes the media's name of it),
+    /// `direct` whether the blob is read directly (no PCM cache), `created` whether this import
+    /// wrote `blobs/<hash>` (the folder may hold it already), `peaks` whether its waveform peaks
+    /// were written.
+    #[serde(rename = "import.done")]
+    ImportDone {
+        id: u32,
+        hash: String,
+        sample_rate: u32,
+        channels: u16,
+        frames: u64,
+        name: String,
+        direct: bool,
+        created: bool,
+        peaks: bool,
+    },
+    /// The import (or the dialog) `id` ended without a file in the folder (#778): `code` is one of
+    /// [`errors`]' `IMPORT_*`, or `import.<reason>` for a file the decoder refuses
+    /// (`audio_import::ImportError::code`: `import.too_large`, `import.corrupt`...); `message` is
+    /// for developers. Nothing is left in the folder, not even a temporary file.
+    #[serde(rename = "import.failed")]
+    ImportFailed {
+        id: u32,
+        code: String,
+        message: String,
+    },
     /// The helper could not do something; `code` is stable, `message` is for developers.
     #[serde(rename = "error")]
     Error { code: String, message: String },
@@ -436,9 +769,38 @@ pub fn schema_bundle() -> serde_json::Value {
         "protocol_version": PROTOCOL_VERSION,
         "param_ids": param_ids,
         "error_codes": { "no_output": errors::NO_OUTPUT, "audio_stream": errors::AUDIO_STREAM },
+        "max_export_stream_bytes": MAX_EXPORT_STREAM_BYTES,
+        "export_progress_ms": EXPORT_PROGRESS_MS,
+        "export_name": {
+            "max_bytes": EXPORT_NAME_MAX_BYTES,
+            "devices": WINDOWS_DEVICE_NAMES,
+        },
+        "export_error_codes": {
+            "busy": errors::EXPORT_BUSY,
+            "no_folder": errors::EXPORT_NO_FOLDER,
+            "invalid": errors::EXPORT_INVALID,
+            "render": errors::EXPORT_RENDER,
+            "write": errors::EXPORT_WRITE,
+            "folder_changed": errors::EXPORT_FOLDER_CHANGED,
+            "cancelled": errors::EXPORT_CANCELLED,
+        },
+        "import_progress_ms": IMPORT_PROGRESS_MS,
+        "import_error_codes": {
+            "busy": errors::IMPORT_BUSY,
+            "no_folder": errors::IMPORT_NO_FOLDER,
+            "invalid": errors::IMPORT_INVALID,
+            "path": errors::IMPORT_PATH,
+            "unreadable": errors::IMPORT_UNREADABLE,
+            "write": errors::IMPORT_WRITE,
+            "folder_changed": errors::IMPORT_FOLDER_CHANGED,
+            "cancelled": errors::IMPORT_CANCELLED,
+            "dialog_unavailable": errors::IMPORT_DIALOG_UNAVAILABLE,
+            "decode_prefix": errors::IMPORT_DECODE_PREFIX,
+        },
         "max_stream_bytes": MAX_STREAM_BYTES,
         "control_pushed_out": CONTROL_PUSHED_OUT,
         "agent_confirm_ms": AGENT_CONFIRM_MS,
+        "max_audio_url_bytes": commands::clip::MAX_AUDIO_URL_BYTES,
         // The commands whose call by an agent waits for the user's confirmation in the page
         // (`x-destructive`, AG-4): the page reads the list from here, never from the schema.
         "destructive_commands": commands::catalog()

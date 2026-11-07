@@ -81,6 +81,54 @@ const FILES: &[(&str, &str)] = &[
         "faulk.ceiling/loud-master",
         include_str!("factory/faulk.ceiling/loud-master.json"),
     ),
+    (
+        "faulk.stack/major-triad",
+        include_str!("factory/faulk.stack/major-triad.json"),
+    ),
+    (
+        "faulk.stack/minor-triad",
+        include_str!("factory/faulk.stack/minor-triad.json"),
+    ),
+    (
+        "faulk.stack/fifth-and-octave",
+        include_str!("factory/faulk.stack/fifth-and-octave.json"),
+    ),
+    (
+        "faulk.stack/scale-seventh",
+        include_str!("factory/faulk.stack/scale-seventh.json"),
+    ),
+    (
+        "faulk.trim/tight-pluck",
+        include_str!("factory/faulk.trim/tight-pluck.json"),
+    ),
+    (
+        "faulk.trim/held-bar",
+        include_str!("factory/faulk.trim/held-bar.json"),
+    ),
+    (
+        "faulk.lattice/black-keys",
+        include_str!("factory/faulk.lattice/black-keys.json"),
+    ),
+    (
+        "faulk.lattice/blues-in-c",
+        include_str!("factory/faulk.lattice/blues-in-c.json"),
+    ),
+    (
+        "faulk.lattice/root-and-fifth",
+        include_str!("factory/faulk.lattice/root-and-fifth.json"),
+    ),
+    (
+        "faulk.scatter/octave-leaps",
+        include_str!("factory/faulk.scatter/octave-leaps.json"),
+    ),
+    (
+        "faulk.scatter/scale-wander",
+        include_str!("factory/faulk.scatter/scale-wander.json"),
+    ),
+    (
+        "faulk.scatter/rising-thirds",
+        include_str!("factory/faulk.scatter/rising-thirds.json"),
+    ),
 ];
 
 /// The raw files, for the tests that hold them to the canonical format.
