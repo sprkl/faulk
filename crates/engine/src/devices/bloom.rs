@@ -970,10 +970,7 @@ mod tests {
         // At lfo = -1 with the voice on the floor, `(2 + 0.3) - 0.3` rounds below 2: the floor
         // branch is taken and its denominator `1 + lfo` is 0.
         let (voice, half, max) = (MIN_READ_FRAMES, 0.3, 1_000.0);
-        assert!(
-            voice - half * -1.0 - half < MIN_READ_FRAMES,
-            "the case is reached"
-        );
+        assert!(voice + half - half < MIN_READ_FRAMES, "the case is reached");
         let c = rebased_centre(voice, half, -1.0, max, 50.0);
         assert!(c.is_finite(), "{c}");
         assert!((c - (voice + half)).abs() < 1e-9, "{c}");
