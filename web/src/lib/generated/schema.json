@@ -5418,6 +5418,16 @@
                   "const": "gain",
                   "description": "A linear gain (1 is unity).",
                   "type": "string"
+                },
+                {
+                  "const": "degrees",
+                  "description": "An angle, in degrees.",
+                  "type": "string"
+                },
+                {
+                  "const": "octaves",
+                  "description": "A frequency ratio, in octaves.",
+                  "type": "string"
                 }
               ]
             },
@@ -26859,6 +26869,16 @@
               "const": "gain",
               "description": "A linear gain (1 is unity).",
               "type": "string"
+            },
+            {
+              "const": "degrees",
+              "description": "An angle, in degrees.",
+              "type": "string"
+            },
+            {
+              "const": "octaves",
+              "description": "A frequency ratio, in octaves.",
+              "type": "string"
             }
           ]
         },
@@ -29461,6 +29481,16 @@
             "const": "gain",
             "description": "A linear gain (an amplitude factor, 1 = unity): shown in decibels, `20 log10(value)`.",
             "type": "string"
+          },
+          {
+            "const": "degrees",
+            "description": "An angle, in degrees (a phase).",
+            "type": "string"
+          },
+          {
+            "const": "octaves",
+            "description": "A frequency ratio, in octaves (a depth of modulation: 1 octave doubles the frequency).",
+            "type": "string"
           }
         ]
       }
@@ -30241,17 +30271,17 @@
     {
       "kind": "faulk.filter",
       "kind_id": 6,
-      "memory_bytes": 152,
+      "memory_bytes": 344,
       "midi_output": null,
       "name": "Filter",
       "named_keys": [],
       "params": [
         {
           "default": 0,
-          "description": "What the filter lets through: the sound below the cutoff (low-pass), above it (high-pass) or around it (band-pass). A change fades over 10 ms.",
+          "description": "What the filter lets through: the sound below the cutoff (low-pass), above it (high-pass), around it (band-pass) or all but it (notch). A change fades over 10 ms.",
           "id": 0,
           "key": "mode",
-          "max": 2,
+          "max": 3,
           "min": 0,
           "scale": "linear",
           "smoothing_seconds": 0,
@@ -30260,12 +30290,13 @@
           "values": [
             "lowpass",
             "highpass",
-            "bandpass"
+            "bandpass",
+            "notch"
           ]
         },
         {
           "default": 1000,
-          "description": "Frequency, in hertz, where the filter starts to cut, from 20 Hz to 20 kHz.",
+          "description": "Frequency, in hertz, where the filter starts to cut, from 20 Hz to 20 kHz: the centre the LFO and the envelope move the cutoff around.",
           "id": 1,
           "key": "cutoff",
           "max": 20000,
@@ -30300,6 +30331,189 @@
           "smoothing_seconds": 0.02,
           "step": 0,
           "unit": "none",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Soft saturation before the filter, from 0 (none) to 1: louder and rounder, so a strong resonance bites instead of whistling.",
+          "id": 4,
+          "key": "drive",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "Shape of the LFO that moves the cutoff: sine, triangle, rising saw, falling saw, square, or random (a new value at each cycle).",
+          "id": 5,
+          "key": "lfo_shape",
+          "max": 5,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "sine",
+            "triangle",
+            "saw_up",
+            "saw_down",
+            "square",
+            "random"
+          ]
+        },
+        {
+          "default": 1,
+          "description": "Whether the LFO runs at its own rate in hertz (free) or follows the tempo (synced), each cycle on the same beat of every bar.",
+          "id": 6,
+          "key": "lfo_sync",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "free",
+            "synced"
+          ]
+        },
+        {
+          "default": 1,
+          "description": "Speed of the LFO in free mode, in cycles per second, from 0.01 to 20 Hz.",
+          "id": 7,
+          "key": "lfo_rate",
+          "max": 20,
+          "min": 0.01,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 6,
+          "description": "Length of one LFO cycle in synced mode, a note value from 1/32 to 8 bars.",
+          "id": 8,
+          "key": "lfo_division",
+          "max": 12,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "thirty_second",
+            "sixteenth",
+            "eighth_triplet",
+            "eighth",
+            "quarter_triplet",
+            "eighth_dotted",
+            "quarter",
+            "quarter_dotted",
+            "half",
+            "whole",
+            "two_bars",
+            "four_bars",
+            "eight_bars"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Where in its cycle the LFO starts, from 0 to 360 degrees: in synced mode, where in the bar the cutoff peaks.",
+          "id": 9,
+          "key": "lfo_phase",
+          "max": 360,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "degrees",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Offset of the right channel's LFO, from 0 to 180 degrees: at 180 the two channels open in opposition.",
+          "id": 10,
+          "key": "lfo_stereo",
+          "max": 180,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "degrees",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "How far the LFO moves the cutoff either side of its centre, in octaves, from 0 (no movement) to 5.",
+          "id": 11,
+          "key": "lfo_depth",
+          "max": 5,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "octaves",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "In free mode, whether the LFO starts again from its phase each time playback starts (on) or runs on freely (off).",
+          "id": 12,
+          "key": "lfo_restart",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "How far the level of the incoming sound moves the cutoff, in octaves at full level, from -5 (louder closes) to +5 (louder opens); 0 for none.",
+          "id": 13,
+          "key": "env_amount",
+          "max": 5,
+          "min": -5,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "octaves",
+          "values": []
+        },
+        {
+          "default": 0.01,
+          "description": "Time the envelope follower takes to rise with the sound, from 1 ms to 500 ms.",
+          "id": 14,
+          "key": "env_attack",
+          "max": 0.5,
+          "min": 0.001,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0.15,
+          "description": "Time the envelope follower takes to fall back when the sound gets quieter, from 10 ms to 2 s.",
+          "id": 15,
+          "key": "env_release",
+          "max": 2,
+          "min": 0.01,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
           "values": []
         }
       ],
@@ -32813,6 +33027,31 @@
             }
           ]
         },
+        "DeviceSlotRef": {
+          "additionalProperties": false,
+          "description": "Where a device sits in the engine.",
+          "properties": {
+            "slot": {
+              "description": "Its place in the chain.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "track": {
+              "description": "Its track's slot; `None` for the master's chain.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "slot"
+          ],
+          "type": "object"
+        },
         "DeviceSource": {
           "description": "Where a device comes from. Third-party plugins come after the MVP.",
           "oneOf": [
@@ -33802,6 +34041,16 @@
           "additionalProperties": false,
           "description": "The engine slots of the tracks and scenes that have one. The engine reports the state of\na launch-grid cell by slots (its track slot, its scene slot), never by identifier; the\nlaunch grid reads this table to find the cell of a report. An entity the engine was never\ntold about is absent.",
           "properties": {
+            "devices": {
+              "additionalProperties": false,
+              "description": "The engine slots of the devices, the master's included: the engine reports the live\nvalue of a parameter a device moves by itself (the Filter's cutoff, #686) by its track\nslot and its device slot.",
+              "patternProperties": {
+                "^[0-7][0-9A-HJKMNP-TV-Z]{25}$": {
+                  "$ref": "#/$defs/DeviceSlotRef"
+                }
+              },
+              "type": "object"
+            },
             "epoch": {
               "description": "The epoch of the engine stream these slots belong to: a report of another epoch (an\nengine behind a snapshot) names other slots and is not read against this table.",
               "format": "uint16",
@@ -33835,7 +34084,8 @@
           "required": [
             "epoch",
             "tracks",
-            "scenes"
+            "scenes",
+            "devices"
           ],
           "type": "object"
         }
@@ -37208,6 +37458,16 @@
             {
               "const": "gain",
               "description": "A linear gain (1 is unity).",
+              "type": "string"
+            },
+            {
+              "const": "degrees",
+              "description": "An angle, in degrees.",
+              "type": "string"
+            },
+            {
+              "const": "octaves",
+              "description": "A frequency ratio, in octaves.",
               "type": "string"
             }
           ]

@@ -9,6 +9,7 @@ pub mod automation;
 pub mod clip_player;
 pub mod device;
 pub mod devices;
+pub mod dsp;
 pub mod time;
 
 pub use devices::osc_synth::{DESCRIPTOR as OSC_SYNTH, MAX_VOICES, Param, Synth, Waveform};

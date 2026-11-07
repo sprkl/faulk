@@ -74,6 +74,22 @@ const FILES: &[(&str, &str)] = &[
         include_str!("factory/faulk.filter/thin-highpass.json"),
     ),
     (
+        "faulk.filter/quarter-wobble",
+        include_str!("factory/faulk.filter/quarter-wobble.json"),
+    ),
+    (
+        "faulk.filter/slow-sweep",
+        include_str!("factory/faulk.filter/slow-sweep.json"),
+    ),
+    (
+        "faulk.filter/talking-filter",
+        include_str!("factory/faulk.filter/talking-filter.json"),
+    ),
+    (
+        "faulk.filter/random-steps",
+        include_str!("factory/faulk.filter/random-steps.json"),
+    ),
+    (
         "faulk.ceiling/safe-master",
         include_str!("factory/faulk.ceiling/safe-master.json"),
     ),

@@ -175,3 +175,21 @@ describe('parameters shown in one mode only (#472)', () => {
     expect(lattice.name).toBe('Lattice')
   })
 })
+
+describe('the Filter shows the LFO settings of its mode (#686)', () => {
+  it('rate and restart when free, note value when synced; everything else always', () => {
+    const filter = descriptorOf('faulk.filter')
+    const keys = (sync: number) => shownParams(filter, (key) => (key === 'lfo_sync' ? sync : undefined)).map((p) => p.key)
+    expect(keys(0)).toContain('lfo_rate')
+    expect(keys(0)).toContain('lfo_restart')
+    expect(keys(0)).not.toContain('lfo_division')
+    expect(keys(1)).toContain('lfo_division')
+    expect(keys(1)).not.toContain('lfo_rate')
+    expect(keys(1)).not.toContain('lfo_restart')
+    expect(keys(1)).toHaveLength(filter.params.length - 2)
+    // In the panel's order: the filter, then the LFO, then the envelope.
+    const order = filter.params.map((p) => p.key)
+    expect(order.indexOf('mix')).toBeLessThan(order.indexOf('lfo_shape'))
+    expect(order.indexOf('lfo_restart')).toBeLessThan(order.indexOf('env_amount'))
+  })
+})

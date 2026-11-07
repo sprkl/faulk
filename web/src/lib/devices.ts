@@ -108,6 +108,10 @@ export function formatValue(p: ParamDescriptor, value: number): string {
       return `${value > 0 ? '+' : ''}${Math.round(value)} ct`
     case 'percent':
       return `${Math.round(value)} %`
+    case 'degrees':
+      return `${Math.round(value)}°`
+    case 'octaves':
+      return `${value > 0 && p.min < 0 ? '+' : ''}${+value.toFixed(2)} oct`
     default:
       return p.min === 0 && p.max <= 1 ? `${Math.round(value * 100)} %` : `${+value.toFixed(2)}`
   }
@@ -118,7 +122,8 @@ export function formatValue(p: ParamDescriptor, value: number): string {
  * hidden one keeps its value). Per device kind, per parameter key: the choice parameter that decides, and the keys of
  * its values for which the parameter is shown. Echo: the delay time in free mode, the note value in synced mode. Stack:
  * a voice's settings while the voice is on. Lattice: the rule with a scale, the root and scale with its own, the cells with the matrix. Ceiling: the release time in manual release.
- * Compressor: the release time in manual release, the sidechain frequency with the sidechain high-pass on.
+ * Compressor: the release time in manual release, the sidechain frequency with the sidechain high-pass on. Filter: the LFO rate
+ * and restart in free mode, the note value in synced mode.
  */
 export const SHOWN_IN_MODE: Readonly<Record<string, Readonly<Record<string, { by: string; values: readonly string[] }>>>> = {
   'faulk.echo': { time: { by: 'mode', values: ['free'] }, division: { by: 'mode', values: ['synced'] } },
@@ -128,6 +133,12 @@ export const SHOWN_IN_MODE: Readonly<Record<string, Readonly<Record<string, { by
   'faulk.compressor': {
     release: { by: 'release_mode', values: ['manual'] },
     sidechain_freq: { by: 'sidechain_hpf', values: ['on'] },
+  },
+  // Filter: the LFO's rate and restart in free mode, its note value in synced mode (#686).
+  'faulk.filter': {
+    lfo_rate: { by: 'lfo_sync', values: ['free'] },
+    lfo_restart: { by: 'lfo_sync', values: ['free'] },
+    lfo_division: { by: 'lfo_sync', values: ['synced'] },
   },
 }
 

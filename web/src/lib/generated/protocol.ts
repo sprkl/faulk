@@ -4526,7 +4526,7 @@ step: number
 /**
  * The unit of the value.
  */
-unit: (("seconds" | "hertz" | "decibels" | "semitones" | "cents" | "percent") | "none" | "gain")
+unit: (("seconds" | "hertz" | "decibels" | "semitones" | "cents" | "percent") | "none" | "gain" | "degrees" | "octaves")
 /**
  * For an enumerated parameter, the key of each value from `min` to `max`; empty
  * otherwise.
@@ -5407,6 +5407,14 @@ replace?: boolean
  */
 export interface ViewSlots {
 /**
+ * The engine slots of the devices, the master's included: the engine reports the live
+ * value of a parameter a device moves by itself (the Filter's cutoff, #686) by its track
+ * slot and its device slot.
+ */
+devices: {
+[k: string]: DeviceSlotRef | undefined
+}
+/**
  * The epoch of the engine stream these slots belong to: a report of another epoch (an
  * engine behind a snapshot) names other slots and is not read against this table.
  */
@@ -5425,5 +5433,21 @@ tracks: {
  */
 [k: string]: number | undefined
 }
+}
+/**
+ * Where a device sits in the engine.
+ * 
+ * This interface was referenced by `undefined`'s JSON-Schema definition
+ * via the `patternProperty` "^[0-7][0-9A-HJKMNP-TV-Z]{25}$".
+ */
+export interface DeviceSlotRef {
+/**
+ * Its place in the chain.
+ */
+slot: number
+/**
+ * Its track's slot; `None` for the master's chain.
+ */
+track?: (number | null)
 }
 

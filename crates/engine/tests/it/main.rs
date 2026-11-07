@@ -22,6 +22,8 @@ mod drums;
 mod echo;
 mod events;
 mod filter;
+mod filter_movement;
+mod filter_reference;
 mod fuzz;
 mod graph;
 mod grid_render;

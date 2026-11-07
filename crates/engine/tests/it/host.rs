@@ -1119,3 +1119,136 @@ fn a_report_of_version_7_is_refused() {
     bytes[0] = 8;
     assert!(engine::host::decode_feedback(&bytes).is_none());
 }
+
+// ------------------------------------------------------------ device readouts (#686)
+
+/// A Filter after the synth of track 1 whose LFO swings the cutoff, and a still one on the
+/// master; the track's filter can be left disabled.
+fn filtered(track_on: bool) -> Session {
+    use engine::devices::filter::{CUTOFF, DESCRIPTOR as FILTER, LFO_DEPTH};
+    let mut session = two_tracks(1.0);
+    let mut msgs = Vec::new();
+    for (track, device, depth) in [
+        (TrackSlot(1), DeviceSlot(1), 2.0),
+        (TrackSlot::MASTER, DeviceSlot(0), 0.0),
+    ] {
+        msgs.push(M::DeviceInsert {
+            track,
+            device,
+            kind: FILTER.kind_id,
+            state: Vec::new(),
+        });
+        for (param, value) in [(CUTOFF, 500.0), (LFO_DEPTH, depth)] {
+            msgs.push(M::ParamSet {
+                track,
+                device,
+                param: ParamId(param),
+                value,
+            });
+        }
+    }
+    if !track_on {
+        msgs.push(M::DeviceSetEnabled {
+            track: TrackSlot(1),
+            device: DeviceSlot(1),
+            enabled: false,
+        });
+    }
+    session.send(&msgs);
+    for _ in 0..50 {
+        session.host.render(128);
+    }
+    session
+}
+
+#[test]
+fn a_filters_effective_cutoff_travels_in_the_report_with_its_slots() {
+    use engine::devices::filter::CUTOFF;
+    let mut session = filtered(true);
+    session.host.write_feedback();
+    let mut bytes = Vec::new();
+    assert!(copy_feedback(session.host.feedback(), &mut bytes));
+    let decoded = engine::host::decode_feedback(&bytes).unwrap();
+    assert_eq!(decoded.readouts.len(), 2, "{:?}", decoded.readouts);
+    let track = decoded.readouts[0];
+    assert_eq!(
+        (track.track, track.device, track.param),
+        (TrackSlot(1), DeviceSlot(1), ParamId(CUTOFF))
+    );
+    // The synced triangle has moved the cutoff off its centre (the transport is stopped at
+    // tick 0, where the triangle is 0: the swing is what the LFO holds there).
+    assert!(track.value.is_finite() && track.value >= 20.0, "{track:?}");
+    let master = decoded.readouts[1];
+    assert_eq!(
+        (master.track, master.device),
+        (TrackSlot::MASTER, DeviceSlot(0))
+    );
+    assert_eq!(master.value, 500.0, "no movement: the centre");
+    // The count word and the bytes after the notes.
+    assert_eq!(u32::from_le_bytes(bytes[100..104].try_into().unwrap()), 2);
+    // A disabled device reports nothing.
+    let mut off = filtered(false);
+    off.host.write_feedback();
+    let report = engine::host::read_feedback(off.host.feedback()).unwrap();
+    assert_eq!(report.readouts.len(), 1);
+    assert_eq!(report.readouts[0].track, TrackSlot::MASTER);
+    // A report cut before its readouts is refused.
+    bytes.truncate(bytes.len() - 1);
+    assert!(engine::host::decode_feedback(&bytes).is_none());
+}
+
+/// #686: the master's chain runs cut at the clock's segments, so a Filter on the master whose
+/// LFO follows the transport sees a loop's wrap at its frame: the render does not depend on the
+/// block size, with the wrap in the middle of a block.
+#[test]
+fn a_master_filter_sees_a_loop_wrap_inside_a_block_whatever_the_block_size() {
+    use engine::devices::filter::{CUTOFF, DESCRIPTOR as FILTER, LFO_DEPTH, RESONANCE};
+    use engine::time::LoopRegion;
+    let render = |block: usize| {
+        let mut session = Session::new();
+        let mut msgs = vec![M::DeviceInsert {
+            track: TrackSlot::MASTER,
+            device: DeviceSlot(0),
+            kind: FILTER.kind_id,
+            state: Vec::new(),
+        }];
+        for (p, value) in [(CUTOFF, 600.0), (LFO_DEPTH, 3.0), (RESONANCE, 0.7)] {
+            msgs.push(M::ParamSet {
+                track: TrackSlot::MASTER,
+                device: DeviceSlot(0),
+                param: ParamId(p),
+                value,
+            });
+        }
+        msgs.push(param(Param::Waveform, 1.0));
+        msgs.push(note_on(45, 127));
+        // A loop of 4081 ticks: 102 025 frames at 120 BPM (the triangle at its top when it wraps to
+        // 0), its wrap inside a block of any of the
+        // sizes below.
+        msgs.push(M::SetLoop {
+            region: Some(LoopRegion::new(Tick(0), Tick(4081)).unwrap()),
+        });
+        msgs.push(M::Play { from: Tick(0) });
+        session.send(&msgs);
+        let mut out = Vec::new();
+        let total = 2 * 102_025 + 20_000;
+        while out.len() < 2 * total {
+            let n = session.host.render(block);
+            for i in 0..n {
+                out.push(session.host.left()[i]);
+                out.push(session.host.right()[i]);
+            }
+        }
+        out.truncate(2 * total);
+        out
+    };
+    let reference = render(128);
+    for block in [100, 1000] {
+        let other = render(block);
+        let worst = reference
+            .iter()
+            .zip(&other)
+            .fold(0f32, |m, (a, b)| m.max((a - b).abs()));
+        assert!(worst < 1e-5, "blocks of {block}: differs by {worst}");
+    }
+}

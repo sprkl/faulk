@@ -1,10 +1,10 @@
-// Decodes the engine's report (the `Feedback` layout of crates/engine/src/msg.rs, version 9). The
+// Decodes the engine's report (the `Feedback` layout of crates/engine/src/msg.rs, version 10). The
 // same bytes reach the page two ways: the Web engine's render instance writes them under a
 // seqlock into the shared memory (`readFeedback`), the helper sends them as binary WebSocket
 // frames (`decodeFeedback` on the frame). One decoder, so that both modes show the same thing.
 
 /** Size of the fixed part of a report. */
-export const FEEDBACK_HEADER_BYTES = 100
+export const FEEDBACK_HEADER_BYTES = 104
 /** Size of one meter. */
 export const TRACK_METER_BYTES = 20
 /** Size of one active clip (track u32, scene u16, state u8, one padding byte, anchor i64). */
@@ -13,8 +13,14 @@ export const ACTIVE_CLIP_BYTES = 16
 export const RECORDED_NOTE_BYTES = 32
 /** Most recorded notes one report carries (`MAX_RECORDED_PER_REPORT`). */
 export const MAX_RECORDED_PER_REPORT = 256
+/** Size of one device readout (track u32, device slot u16, parameter id u16, value f32). */
+export const DEVICE_READOUT_BYTES = 12
+/** Most device readouts one report carries (`MAX_READOUTS_PER_REPORT`). */
+export const MAX_READOUTS_PER_REPORT = 128
+/** The track of a readout of the master's chain (`TrackSlot::MASTER`). */
+export const MASTER_TRACK_SLOT = 0xffffffff
 /** The layout version this page reads. */
-export const FEEDBACK_VERSION = 9
+export const FEEDBACK_VERSION = 10
 
 /** Peak and RMS of both channels, linear amplitude, and the gain reduction of the strip's devices. */
 export interface Meter {
@@ -58,6 +64,21 @@ export interface RecordedNote {
   length: number
   pitch: number
   velocity: number
+}
+
+/**
+ * The live value of a parameter a device moves by itself, after the last block of the period (#686: the Filter's
+ * cutoff under its LFO and envelope), by the device's engine slots (`ViewSlots.devices`).
+ */
+export interface DeviceReadout {
+  /** Track slot; `null` for the master's chain. */
+  track: number | null
+  /** Device slot in the chain. */
+  device: number
+  /** The parameter's id in the device's descriptor. */
+  param: number
+  /** In the parameter's unit. */
+  value: number
 }
 
 export interface FeedbackReport {
@@ -117,6 +138,8 @@ export interface FeedbackReport {
   recordCapturing: boolean
   /** The last notes of the take (at most 256), oldest first, numbered `recordTotal - recorded.length` on. */
   recorded: RecordedNote[]
+  /** The devices' readouts: enabled devices only, by track slot then device slot, the master's last. */
+  readouts: DeviceReadout[]
 }
 
 const TRANSPORT: TransportState[] = ['stopped', 'playing', 'recording']
@@ -185,6 +208,19 @@ export function decodeFeedback(bytes: ArrayBufferLike, at = 0, len = bytes.byteL
       velocity: view.getUint8(at + 25),
     })
   }
+  // Then the devices' readouts, all inside the bytes.
+  const readoutCount = view.getUint32(100, true)
+  const readoutsAt = notesAt + recordedCount * RECORDED_NOTE_BYTES
+  if (readoutCount > MAX_READOUTS_PER_REPORT || readoutsAt + readoutCount * DEVICE_READOUT_BYTES > len) return null
+  const readouts: DeviceReadout[] = []
+  for (let i = 0; i < readoutCount; i++) {
+    const at = readoutsAt + i * DEVICE_READOUT_BYTES
+    const value = view.getFloat32(at + 8, true)
+    // A corrupt float is left out: a readout is display only.
+    if (!Number.isFinite(value)) continue
+    const track = view.getUint32(at, true)
+    readouts.push({ track: track === MASTER_TRACK_SLOT ? null : track, device: view.getUint16(at + 4, true), param: view.getUint16(at + 6, true), value })
+  }
   const meters: Meter[] = []
   for (let i = 0; i < tracks; i++) meters.push(meterAt(view, FEEDBACK_HEADER_BYTES + i * TRACK_METER_BYTES))
   const load = view.getFloat32(24, true)
@@ -215,6 +251,7 @@ export function decodeFeedback(bytes: ArrayBufferLike, at = 0, len = bytes.byteL
     recordDropped: view.getUint32(64, true),
     recordCapturing: (view.getUint32(68, true) & 1) === 1,
     recorded,
+    readouts,
   }
 }
 
@@ -233,9 +270,13 @@ export function readFeedback(buffer: ArrayBufferLike, at: number, len: number): 
   const tracks = header.getUint32(40, true)
   // The meters, then the active clips (at most two per track: a larger count is refused by the decoder).
   const clips = Math.min(header.getUint32(44, true), 2 * tracks)
-  // Then the take's last notes (a larger count is refused by the decoder).
+  // Then the take's last notes and the devices' readouts (a larger count is refused by the decoder).
   const notes = Math.min(header.getUint32(48, true), MAX_RECORDED_PER_REPORT)
-  const used = Math.min(len, FEEDBACK_HEADER_BYTES + (tracks + 1) * TRACK_METER_BYTES + clips * ACTIVE_CLIP_BYTES + notes * RECORDED_NOTE_BYTES)
+  const readouts = Math.min(header.getUint32(100, true), MAX_READOUTS_PER_REPORT)
+  const used = Math.min(
+    len,
+    FEEDBACK_HEADER_BYTES + (tracks + 1) * TRACK_METER_BYTES + clips * ACTIVE_CLIP_BYTES + notes * RECORDED_NOTE_BYTES + readouts * DEVICE_READOUT_BYTES,
+  )
   const copy = new Uint8Array(used)
   copy.set(new Uint8Array(buffer, at, used))
   const report = decodeFeedback(copy.buffer)
