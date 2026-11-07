@@ -157,6 +157,18 @@ const FILES: &[(&str, &str)] = &[
         "faulk.hiccup/tape-scatter",
         include_str!("factory/faulk.hiccup/tape-scatter.json"),
     ),
+    (
+        "faulk.bloom/soft-chorus",
+        include_str!("factory/faulk.bloom/soft-chorus.json"),
+    ),
+    (
+        "faulk.bloom/wide-ensemble",
+        include_str!("factory/faulk.bloom/wide-ensemble.json"),
+    ),
+    (
+        "faulk.bloom/vibrato",
+        include_str!("factory/faulk.bloom/vibrato.json"),
+    ),
 ];
 
 /// The raw files, for the tests that hold them to the canonical format.
