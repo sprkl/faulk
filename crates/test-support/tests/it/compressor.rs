@@ -375,3 +375,70 @@ fn the_drum_loop_with_lookahead_knee_and_mix() {
         std::fs::write(dir.join(format!("{name}.wav")), r.wav()).unwrap();
     }
 }
+
+/// #754: a Compressor restored from a snapshot of the MVP (its five keys), by
+/// `device.restore` and by `track.restore`, renders the very same samples as the one that was
+/// never removed, and then takes `knee` and `mix`.
+#[test]
+fn an_mvp_compressor_restored_renders_the_same_samples_and_takes_the_new_parameters() {
+    let mut base = Session::from_state(fixture().state, context());
+    let track = drums_track(&mut base);
+    let fx = match base.exec(Command::Device(device::Command::Insert {
+        track: Some(track.clone()),
+        master: false,
+        kind: "faulk.compressor".into(),
+        index: 0,
+    })) {
+        Output::Device(device::Output::Insert { device }) => device,
+        other => panic!("{other:?}"),
+    };
+    for (key, value) in MVP_KEYS.iter().zip([-26.0, 6.0, 0.003, 0.08, 5.0]) {
+        set(&mut base, &fx, key, value);
+    }
+    let before = base.state().clone();
+    let mvp_device = {
+        let mut d = before.project.tracks[&track].devices[&fx].clone();
+        d.params.retain(|k, _| MVP_KEYS.contains(&k.as_str()));
+        d
+    };
+    let render = |s: &Session| {
+        let mut s = Session::from_state(s.state().clone(), context());
+        drum_loop(&mut s, &track);
+        let r = test_support::render_native(s.scenario());
+        r.assert_clean();
+        fingerprint(&r)
+    };
+    let expected = render(&base);
+    // device.restore
+    let mut by_device = Session::from_state(before.clone(), context());
+    by_device.run(Command::Device(device::Command::Remove {
+        device: fx.clone(),
+    }));
+    by_device.run(Command::Device(device::Command::Restore {
+        track: Some(track.clone()),
+        master: false,
+        device: fx.clone(),
+        snapshot: mvp_device.clone(),
+        lanes: Default::default(),
+    }));
+    // track.restore
+    let mut by_track = Session::from_state(before.clone(), context());
+    by_track.run(Command::Track(track::Command::Delete {
+        track: track.clone(),
+    }));
+    let mut snapshot = before.project.tracks[&track].clone();
+    *snapshot.devices.get_mut(&fx).unwrap() = mvp_device;
+    by_track.run(Command::Track(track::Command::Restore {
+        track: track.clone(),
+        snapshot,
+    }));
+    for (how, mut s) in [("device.restore", by_device), ("track.restore", by_track)] {
+        assert_eq!(s.state().project, before.project, "{how}");
+        // Before any setting, the render is the one of the Compressor never removed.
+        assert_eq!(render(&s), expected, "{how}");
+        // The new parameters can be set, and they change the sound.
+        set(&mut s, &fx, "knee", 24.0);
+        set(&mut s, &fx, "mix", 0.5);
+        assert_ne!(render(&s), expected, "{how}");
+    }
+}
