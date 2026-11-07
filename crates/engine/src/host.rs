@@ -36,10 +36,10 @@ use crate::device::{DeviceSetup, Factory};
 use crate::engine::{Engine, Preparer, channel as engine_channel};
 use crate::msg::{
     ACTIVE_CLIP_BYTES, ActiveClip, ClipState, DEVICE_READOUT_BYTES, DeviceKind, DeviceReadout,
-    DeviceSlot, FEEDBACK_HEADER_BYTES, FEEDBACK_LATENCY_OFFSET, FEEDBACK_READOUTS_OFFSET, FEEDBACK_VERSION, Feedback,
-    HEADER_BYTES, MAX_READOUTS_PER_REPORT, MAX_RECORDED_PER_REPORT, MSG_VERSION, MsgError, Note,
-    ParamId, RECORDED_NOTE_WIRE_BYTES, RecordedNote, TRACK_METER_BYTES, Tag, TrackMeter,
-    TrackSlot, TransportState, limits,
+    DeviceSlot, FEEDBACK_HEADER_BYTES, FEEDBACK_LATENCY_OFFSET, FEEDBACK_READOUTS_OFFSET,
+    FEEDBACK_VERSION, Feedback, HEADER_BYTES, MAX_READOUTS_PER_REPORT, MAX_RECORDED_PER_REPORT,
+    MSG_VERSION, MsgError, Note, ParamId, RECORDED_NOTE_WIRE_BYTES, RecordedNote,
+    TRACK_METER_BYTES, Tag, TrackMeter, TrackSlot, TransportState, limits,
 };
 use crate::time::SampleRate;
 
@@ -1093,7 +1093,13 @@ pub fn copy_feedback(region: &[AtomicU32], out: &mut Vec<u8>) -> bool {
     if seq == 0 || seq & 1 == 1 {
         return false;
     }
-    let len = report_len(load(10), load(11), load(12), load(22)).min(region.len() * 4);
+    let len = report_len(
+        load(10),
+        load(11),
+        load(12),
+        load(FEEDBACK_READOUTS_OFFSET / 4),
+    )
+    .min(region.len() * 4);
     out.clear();
     out.extend((0..len.div_ceil(4)).flat_map(|i| load(i).to_le_bytes()));
     out.truncate(len);

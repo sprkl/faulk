@@ -50,6 +50,7 @@ fn transport(playing: bool, bpm: f64, position: f64) -> Transport {
         tempo: Tempo::new(bpm).unwrap(),
         signature: TimeSignature::COMMON,
         position_ticks: position,
+        ..Transport::default()
     }
 }
 

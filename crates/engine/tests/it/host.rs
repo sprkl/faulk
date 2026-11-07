@@ -1114,7 +1114,10 @@ fn the_report_carries_the_device_latency() {
     use engine::msg::{FEEDBACK_HEADER_BYTES, FEEDBACK_LATENCY_OFFSET, encode_state};
     assert_eq!(FEEDBACK_LATENCY_OFFSET + 4, FEEDBACK_HEADER_BYTES);
     // The readouts' count is the word before it (#686, the same version 10).
-    assert_eq!(engine::msg::FEEDBACK_READOUTS_OFFSET + 4, FEEDBACK_LATENCY_OFFSET);
+    assert_eq!(
+        engine::msg::FEEDBACK_READOUTS_OFFSET + 4,
+        FEEDBACK_LATENCY_OFFSET
+    );
     assert_eq!(FEEDBACK_LATENCY_OFFSET % 4, 0);
     let mut session = Session::new();
     session.host.render(128);
@@ -1239,7 +1242,14 @@ fn a_filters_effective_cutoff_travels_in_the_report_with_its_slots() {
     );
     assert_eq!(master.value, 500.0, "no movement: the centre");
     // The count word and the bytes after the notes.
-    assert_eq!(u32::from_le_bytes(bytes[engine::msg::FEEDBACK_READOUTS_OFFSET..][..4].try_into().unwrap()), 2);
+    assert_eq!(
+        u32::from_le_bytes(
+            bytes[engine::msg::FEEDBACK_READOUTS_OFFSET..][..4]
+                .try_into()
+                .unwrap()
+        ),
+        2
+    );
     // A disabled device reports nothing.
     let mut off = filtered(false);
     off.host.write_feedback();

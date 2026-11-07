@@ -4508,7 +4508,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Bring a removed effect back with its identifier, as `device.remove` took it out:\nthe inverse of a remove. `track` or `master: true` names the chain, as for\n`device.insert`. `snapshot` is the whole device: its order key, bypass, source,\nsettings and state. Refused when both or neither of `track` and `master` are given,\nwhen the identifier is already in use, at the safety limit of devices, or when the\nsnapshot is not an audio or MIDI effect (a built-in device must be one of the\nregistry, with only parameters it declares; a module device is taken as it is) or does\nnot fit the chain (a MIDI effect goes before the instrument of a MIDI track only): the\nchain stays valid. `lanes` are the automation lanes that targeted the device, as `device.remove`\ntook them out (absent: none); each must target this device and a parameter it has,\nunder an identifier not in use. Undo: `device.remove`.",
+        "description": "Bring a removed effect back with its identifier, as `device.remove` took it out:\nthe inverse of a remove. `track` or `master: true` names the chain, as for\n`device.insert`. `snapshot` is the whole device: its order key, bypass, source,\nsettings and state; a built-in device lacking parameters its type declares (saved\nbefore it gained them) gets them at their defaults. Refused when both or neither of `track` and `master` are given,\nwhen the identifier is already in use, at the safety limit of devices, or when the\nsnapshot is not an audio or MIDI effect (a built-in device must be one of the\nregistry, with only parameters it declares; a module device is taken as it is) or does\nnot fit the chain (a MIDI effect goes before the instrument of a MIDI track only): the\nchain stays valid. `lanes` are the automation lanes that targeted the device, as `device.remove`\ntook them out (absent: none); each must target this device and a parameter it has,\nunder an identifier not in use. Undo: `device.remove`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -19890,7 +19890,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Bring a removed effect back with its identifier, as `device.remove` took it out:\nthe inverse of a remove. `track` or `master: true` names the chain, as for\n`device.insert`. `snapshot` is the whole device: its order key, bypass, source,\nsettings and state. Refused when both or neither of `track` and `master` are given,\nwhen the identifier is already in use, at the safety limit of devices, or when the\nsnapshot is not an audio or MIDI effect (a built-in device must be one of the\nregistry, with only parameters it declares; a module device is taken as it is) or does\nnot fit the chain (a MIDI effect goes before the instrument of a MIDI track only): the\nchain stays valid. `lanes` are the automation lanes that targeted the device, as `device.remove`\ntook them out (absent: none); each must target this device and a parameter it has,\nunder an identifier not in use. Undo: `device.remove`.",
+              "description": "Bring a removed effect back with its identifier, as `device.remove` took it out:\nthe inverse of a remove. `track` or `master: true` names the chain, as for\n`device.insert`. `snapshot` is the whole device: its order key, bypass, source,\nsettings and state; a built-in device lacking parameters its type declares (saved\nbefore it gained them) gets them at their defaults. Refused when both or neither of `track` and `master` are given,\nwhen the identifier is already in use, at the safety limit of devices, or when the\nsnapshot is not an audio or MIDI effect (a built-in device must be one of the\nregistry, with only parameters it declares; a module device is taken as it is) or does\nnot fit the chain (a MIDI effect goes before the instrument of a MIDI track only): the\nchain stays valid. `lanes` are the automation lanes that targeted the device, as `device.remove`\ntook them out (absent: none); each must target this device and a parameter it has,\nunder an identifier not in use. Undo: `device.remove`.",
               "properties": {
                 "device": {
                   "$ref": "#/$defs/DeviceId"
@@ -30130,7 +30130,7 @@
     {
       "kind": "faulk.compressor",
       "kind_id": 5,
-      "memory_bytes": 41272,
+      "memory_bytes": 98896,
       "midi_output": null,
       "name": "Compressor",
       "named_keys": [],
@@ -30234,7 +30234,7 @@
         },
         {
           "default": 0,
-          "description": "How far ahead the compressor sees the sound, from 0 to 10 ms, so a short attack catches a hit whole. It delays its track (on the master, the whole mix) by that time: no other track is delayed to match. A change fades out and back in.",
+          "description": "How far ahead the compressor sees the sound, from 0 to 10 ms, so a short attack catches a hit whole. It delays the sound by that time; the other tracks are delayed to match, so everything stays in time. A change fades out and back in.",
           "id": 10,
           "key": "lookahead",
           "max": 0.01,
@@ -31776,6 +31776,207 @@
         }
       ],
       "role": "midi_effect",
+      "version": 1
+    },
+    {
+      "kind": "faulk.hiccup",
+      "kind_id": 13,
+      "memory_bytes": 18438560,
+      "midi_output": null,
+      "name": "Hiccup",
+      "named_keys": [],
+      "params": [
+        {
+          "default": 4,
+          "description": "How often a slice may be captured, on the transport's grid: every 1/16 note to every 4 bars of the time signature. Captures happen only while the transport plays.",
+          "id": 0,
+          "key": "interval",
+          "max": 6,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "sixteenth",
+            "eighth",
+            "quarter",
+            "half",
+            "bar",
+            "two_bars",
+            "four_bars"
+          ]
+        },
+        {
+          "default": 100,
+          "description": "Chance that a capture happens at each grid point, from 0 to 100 %. The draw depends only on the seed and the grid position: playback and export give the same captures.",
+          "id": 1,
+          "key": "chance",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Seed of the chance and random length draws, from 0 to 1000: the same seed gives the same captures, another seed another sequence.",
+          "id": 2,
+          "key": "seed",
+          "max": 1000,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Manual capture: turning it on captures at once and the repeats last while it stays on; off ends them. A capture starts only when the value turns on; a transport stop ends it.",
+          "id": 3,
+          "key": "capture",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 3,
+          "description": "Length of the repeated slice, as a note value of the project tempo: 1/64 to 1 bar, with triplets (T). A slice longer than 12 seconds is shortened to 12 seconds.",
+          "id": 4,
+          "key": "size",
+          "max": 8,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "sixty_fourth",
+            "thirty_second",
+            "sixteenth_triplet",
+            "sixteenth",
+            "eighth_triplet",
+            "eighth",
+            "quarter",
+            "half",
+            "bar"
+          ]
+        },
+        {
+          "default": 25,
+          "description": "How long the repeats last after a capture, as a share of the interval, from 1 to 100 %. The slice plays first, then repeats until the gate ends.",
+          "id": 5,
+          "key": "gate",
+          "max": 100,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Length of each repeat. Fixed: the slice. Shorter: halved every two slices, a roll speeding up (1/8, 1/16, 1/32). Random: the slice, half or a quarter, from the seed. Never under 1/8 of the slice nor 40 ms, unless the slice is shorter.",
+          "id": 6,
+          "key": "variation",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "fixed",
+            "shorter",
+            "random"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Level lost at each repeat, from 0 to 100 %: at 50 %, each repeat is half as loud as the one before. A change applies from the next repeat.",
+          "id": 7,
+          "key": "decay",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "A filter that closes over the repeats. Low-pass: from 20 kHz down to 200 Hz at the end of the gate, darker at each repeat. High-pass: from 20 Hz up to 2 kHz, thinner at each repeat. A change applies from the next capture.",
+          "id": 8,
+          "key": "filter",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "low_pass",
+            "high_pass"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Pitch of the repeats, from -12 to +12 semitones, by playing the slice faster or slower. Raised, a repeat ends when the slice runs out. A change applies from the next repeat.",
+          "id": 9,
+          "key": "pitch",
+          "max": 12,
+          "min": -12,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "semitones",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "How the repeats meet the sound. Layer: on top of it. Insert: the sound is muted while the repeats play. Repeats only: only the captured slices and their repeats are heard.",
+          "id": 10,
+          "key": "mode",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "layer",
+            "insert",
+            "repeats_only"
+          ]
+        },
+        {
+          "default": 100,
+          "description": "Level of the repeats, from 0 to 100 %. In insert mode it also sets how much the sound is muted while they play.",
+          "id": 11,
+          "key": "mix",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        }
+      ],
+      "role": "effect",
       "version": 1
     }
   ],
@@ -40977,7 +41178,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 50,
+  "protocol_version": 51,
   "scale_intervals": [
     {
       "intervals": [

@@ -699,7 +699,7 @@ type Exported = (Offline, Vec<f32>, Vec<f32>);
 
 /// An export of the impulses' song at `rate` (its body: the clip), every block's render under
 /// the allocation detector.
-fn export_impulses(rate: u32, devices: &[M]) -> Exported {
+fn export_latent_impulses(rate: u32, devices: &[M]) -> Exported {
     use engine::audio_source::{Failure, FileKind};
     let wav = impulse_wav(rate);
     let (setup, start) = impulse_streams(rate, devices);
@@ -756,7 +756,7 @@ fn an_export_starts_on_the_songs_first_frame_whatever_the_device_latency() {
     let (track, master) = (TrackSlot(1), TrackSlot::MASTER);
     for rate in [44_100, 48_000, 96_000] {
         let body = impulse_frames(rate);
-        let plain = export_impulses(rate, &[]);
+        let plain = export_latent_impulses(rate, &[]);
         assert_eq!(plain.0.lead(), 0);
         // The impulses on their frames of the file and nothing else, from the song's second
         // frame (its first is the clip's fade in at 0) to its last.
@@ -790,8 +790,8 @@ fn an_export_starts_on_the_songs_first_frame_whatever_the_device_latency() {
                 .iter()
                 .map(|&(t, _)| ceiling(t, 0, false, Some(0.0)))
                 .collect();
-            let latent = export_impulses(rate, &latent);
-            let flat = export_impulses(rate, &flat);
+            let latent = export_latent_impulses(rate, &latent);
+            let flat = export_latent_impulses(rate, &flat);
             println!(
                 "{what}: lead {} frames, {} frames written, the first impulse at frame {:?}",
                 latent.0.lead(),
@@ -822,7 +822,7 @@ fn under_a_capped_compensation_the_file_starts_where_the_first_track_comes_out()
     let devices: Vec<M> = (0..66)
         .map(|d| ceiling(TrackSlot(1), d, true, Some(0.005)))
         .collect();
-    let (offline, left, _) = export_impulses(rate, &devices);
+    let (offline, left, _) = export_latent_impulses(rate, &devices);
     let track1 = 66 * u64::from(ceiling_latency_at(rate, 0.005));
     assert!(track1 > u64::from(MAX_COMPENSATION_FRAMES));
     println!(
@@ -845,7 +845,7 @@ fn under_a_capped_compensation_the_file_starts_where_the_first_track_comes_out()
     let flat: Vec<M> = (0..66)
         .map(|d| ceiling(TrackSlot(1), d, false, Some(0.0)))
         .collect();
-    let (reference, _, _) = export_impulses(rate, &flat);
+    let (reference, _, _) = export_latent_impulses(rate, &flat);
     let (m, want) = (offline.measure().unwrap(), reference.measure().unwrap());
     assert_eq!(m.frames, impulse_frames(rate));
     assert_eq!(m.tracks, want.tracks, "the tracks' levels");

@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 50;
+pub const PROTOCOL_VERSION: u32 = 51;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -43,6 +43,28 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 51 (one batch of 2026-11-07: #689, #157, #754, #686, #749, #755, #758, #765, #761): a
+// page and a helper of different versions refuse each other, because:
+// - the registry gains the audio effect `faulk.hiccup` (#689, device kind 13, a stutter on the
+//   transport's grid): a helper of an earlier version refuses its `DeviceInsert`;
+// - the Compressor (kind 5, #157) gains seven parameters, ids 5 to 11 (`knee`, `detection`,
+//   `release_mode`, `sidechain_hpf`, `sidechain_freq`, `lookahead`, `mix`): an earlier helper's
+//   Compressor would ignore them silently and play another sound than the page;
+// - the Filter (kind 6, #686) gains its movement parameters (a tempo LFO, an envelope follower,
+//   drive and a notch mode) and the device contract the units `degrees` and `octaves`;
+// - the report is `Feedback` version 10: the header grows from 100 to 108 bytes, the number of
+//   device readouts at offset 100 (`FEEDBACK_READOUTS_OFFSET`, #686) and the device latency word
+//   at 104 (`FEEDBACK_LATENCY_OFFSET`, #749: bits 0 to 30 the frames the graph compensates, bit 31
+//   the capped flag), and a section of device readouts (track slot, device slot, parameter id,
+//   value: 12 bytes each) follows the recorded notes: the live value of a parameter a device
+//   moves by itself (the Filter's cutoff under its LFO and envelope);
+// - the engine compensates the devices' latency (#749; the export drops it from the file's start,
+//   #755; the strip, #758, and the devices' automation, #765, land on their sound behind it; a
+//   device inserted or switched with a latency stays seamless, #761), and `mixer.levels` answers
+//   it (`latency_frames`, `latency_capped`);
+// - `device.restore`, `track.restore` and `track.restore_instrument` fill the parameters a
+//   snapshot lacks (#754), so their descriptions, which the helper's MCP tools carry, change.
 
 // Version 50 (#159): the registry gains the audio effect `faulk.ceiling` (device kind 7, the
 // brick-wall limiter). No message changes shape, but a helper of an earlier version does not know
