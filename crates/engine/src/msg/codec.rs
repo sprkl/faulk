@@ -485,6 +485,11 @@ impl ControlMsg {
                 w.u32(track.0);
                 w.u16(device.0);
             }
+            ControlMsg::DeviceMove { track, from, to } => {
+                w.u32(track.0);
+                w.u16(from.0);
+                w.u16(to.0);
+            }
             ControlMsg::DeviceSetEnabled {
                 track,
                 device,
@@ -730,6 +735,11 @@ impl ControlMsg {
             Tag::DeviceRemove => ControlMsg::DeviceRemove {
                 track: r.track()?,
                 device: r.device()?,
+            },
+            Tag::DeviceMove => ControlMsg::DeviceMove {
+                track: r.track()?,
+                from: r.device()?,
+                to: r.device()?,
             },
             Tag::DeviceSetEnabled => ControlMsg::DeviceSetEnabled {
                 track: r.track()?,

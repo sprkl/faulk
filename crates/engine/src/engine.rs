@@ -50,7 +50,7 @@ use crate::msg::{
     ActiveClip, AutomationPoint, AutomationTarget, ClipSlot, ControlMsg, DeviceKind, DeviceSlot,
     Feedback, Garbage, HEADER_BYTES, Header, LaneSlot, LaunchMsg, LiveEvent, LiveOverflow,
     MsgError, Note, PAGE_SLOTS, Page, PagedGrowth, PagedPut, PagedSpare, ParamId, Placement, Put,
-    RtMsg, SceneSlot, Slots, SourceSlot, Spare, Table, TrackKind, TrackMeter, TrackSlot,
+    RtMsg, SceneSlot, Slots, SourceSlot, Spare, Table, Tag, TrackKind, TrackMeter, TrackSlot,
     TransportMsg, TransportState, limits, state_pairs, try_box,
 };
 use crate::recorder::{RecordClock, Recorder};
@@ -96,6 +96,10 @@ pub struct DeviceEntry {
     pub(crate) fade: f32,
     /// The slot an outgoing device held: it fades out there.
     pub(crate) slot: u16,
+    /// An outgoing device that was removed (not replaced) fades out in series, before the
+    /// device now in its slot (#800, [`crate::graph`] > Device fades); a replaced one in
+    /// parallel with its replacement.
+    pub(crate) series: bool,
 }
 
 impl DeviceEntry {
@@ -107,6 +111,7 @@ impl DeviceEntry {
             events_out,
             fade: 1.0,
             slot: 0,
+            series: false,
         }
     }
 
@@ -1164,6 +1169,12 @@ impl Preparer {
                 self.remove_device(track, device);
                 RtMsg::DeviceRemove { track, device }
             }
+            ControlMsg::DeviceMove { track, from, to } => {
+                match self.prepare_move(track, from, to)? {
+                    Some(rt) => rt,
+                    None => return Ok(None),
+                }
+            }
             ControlMsg::DeviceSetEnabled {
                 track,
                 device,
@@ -1612,6 +1623,69 @@ impl Preparer {
                 grown,
             },
         })
+    }
+
+    /// What a `DeviceMove` needs (#800): `from` holds an audio effect (a MIDI effect's output
+    /// is sized from its place, #219; an instrument plays first after the MIDI effects), `to`
+    /// is free, and the row is grown when `to` is
+    /// beyond it (allocated fallibly before anything changes). Commits the move of the shadow.
+    /// `None` when `from` is `to`: nothing to move.
+    fn prepare_move(
+        &mut self,
+        track: TrackSlot,
+        from: DeviceSlot,
+        to: DeviceSlot,
+    ) -> Result<Option<RtMsg>, MsgError> {
+        self.existing_device(track, from)?;
+        let shadow = self.shadow.chain(track).ok_or(MsgError::NoSuchTarget)?;
+        let midi = |slot: DeviceSlot| {
+            shadow
+                .devices
+                .get(slot.0 as usize)
+                .and_then(Option::as_ref)
+                .is_some_and(|d| d.descriptor.role == DeviceRole::MidiEffect)
+        };
+        if from == to {
+            return Ok(None);
+        }
+        // A MIDI effect is sized from its place; a move goes to a free slot.
+        let taken = shadow
+            .devices
+            .get(to.0 as usize)
+            .is_some_and(Option::is_some);
+        // An instrument never moves: it plays after the MIDI effects, first of its band.
+        let instrument = shadow
+            .devices
+            .get(from.0 as usize)
+            .and_then(Option::as_ref)
+            .is_some_and(|d| d.descriptor.role == DeviceRole::Instrument);
+        if midi(from) || instrument || taken {
+            return Err(MsgError::BadPayload {
+                tag: Tag::DeviceMove as u16,
+            });
+        }
+        let capacity = shadow.devices.len();
+        let grown = grow_for(capacity, to.0 as usize, limits::MAX_DEVICES_PER_TRACK)?;
+        let mut flags = None;
+        if let Some(g) = &grown {
+            flags = Some(try_vec(g.capacity(), None)?);
+        }
+        // Commit.
+        if let Some(t) = self.shadow.chain_mut(track) {
+            if let Some(mut flags) = flags {
+                for (to, from) in flags.iter_mut().zip(t.devices.iter_mut()) {
+                    *to = from.take();
+                }
+                t.devices = flags;
+            }
+            t.devices.swap(from.0 as usize, to.0 as usize);
+        }
+        Ok(Some(RtMsg::DeviceMove {
+            track,
+            from,
+            to,
+            grown,
+        }))
     }
 
     /// Builds a device of `kind` for `setup` with `params`, reset, its MIDI output sized
@@ -2804,8 +2878,15 @@ impl Engine {
                                 entry.fade = if audible && fades(entry) { 0.0 } else { 1.0 };
                             }
                             if let Some(old) = spare.item.take() {
-                                spare.item =
-                                    send_off(state, &mut self.graph, track, device, old, audible);
+                                spare.item = send_off(
+                                    state,
+                                    &mut self.graph,
+                                    track,
+                                    device,
+                                    old,
+                                    audible,
+                                    false,
+                                );
                             }
                         }
                         resend_lanes(state, &self.graph, track, device);
@@ -2834,7 +2915,7 @@ impl Engine {
                         // A heard device fades out at its slot (#233), then comes back
                         // through the retire ring.
                         let item = old.and_then(|old| {
-                            send_off(state, &mut self.graph, track, device, old, audible)
+                            send_off(state, &mut self.graph, track, device, old, audible, true)
                         });
                         Some(Garbage::Devices(Spare { table: None, item }))
                     }
@@ -2844,6 +2925,65 @@ impl Engine {
                     }
                 }
             }
+            RtMsg::DeviceMove {
+                track,
+                from,
+                to,
+                grown,
+            } => match state.chain_mut(track) {
+                Some(chain) => {
+                    // The instance changes slots, nothing else (#800): no device is built,
+                    // dropped, faded, or loses its notes.
+                    let mut spare = Spare::NONE;
+                    if let Some(mut next) = grown {
+                        if next.capacity() > chain.capacity() {
+                            next.take_slots_from(chain);
+                            spare.table = Some(core::mem::replace(chain, next));
+                        } else {
+                            spare.table = Some(next);
+                            skipped = true;
+                        }
+                    }
+                    let (a, b) = (usize::from(from.0), usize::from(to.0));
+                    let slots = chain.as_mut_slice();
+                    let moved = match (slots.get(a), slots.get(b)) {
+                        (Some(Some(_)), Some(None)) => {
+                            slots.swap(a, b);
+                            true
+                        }
+                        // An empty `from`, an occupied `to` or a slot beyond the row: a
+                        // contract violation, nothing moves.
+                        _ => false,
+                    };
+                    skipped |= !moved;
+                    if moved {
+                        // The devices removed around it keep their place in the chain it left
+                        // (graph module doc > Device fades): one fading out at `to` was after it
+                        // when it moves toward the tail; those fading out in front of it follow
+                        // it toward the head.
+                        let list = if track.is_master() {
+                            Some(self.graph.master_outgoing())
+                        } else {
+                            state.track_mut(track).map(|t| t.graph.outgoing())
+                        };
+                        if let Some(list) = list {
+                            if from.0 < to.0 {
+                                list.shift_after(to.0);
+                            } else {
+                                list.follow(from.0, to.0);
+                            }
+                        }
+                    }
+                    Some(Garbage::Devices(spare))
+                }
+                None => {
+                    skipped = true;
+                    Some(Garbage::Devices(Spare {
+                        table: grown,
+                        item: None,
+                    }))
+                }
+            },
             RtMsg::DeviceSetEnabled {
                 track,
                 device,
@@ -3276,6 +3416,7 @@ fn send_off(
     slot: DeviceSlot,
     mut old: Box<DeviceEntry>,
     audible: bool,
+    series: bool,
 ) -> Option<Box<DeviceEntry>> {
     if !audible || !fades(&old) || old.fade <= 0.0 {
         return Some(old);
@@ -3290,6 +3431,7 @@ fn send_off(
     };
     old.enabled = false;
     old.slot = slot.0;
+    old.series = series;
     list.push(old).err()
 }
 

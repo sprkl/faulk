@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 49;
+pub const PROTOCOL_VERSION: u32 = 60;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -44,6 +44,11 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
+// Version 60 (#800, provisional: 50 to 58 are reserved by the pull requests merged before it;
+// the final number is set at the merge): the engine's control stream gains `DeviceMove`
+// (tag 24), which moves a device to a free slot of its chain without building it again. A
+// helper of version 49 would skip it as an unknown tag and its chain would drift from the
+// page's.
 // Version 49 (#778; 48 is #691's): the native audio import in Boost. The session gains `import.choose`,
 // `import.start` and `import.cancel` (page → helper) and `import.chosen`, `import.progress`,
 // `import.done` and `import.failed` (helper → page); `hello`'s capabilities gain `import`. The

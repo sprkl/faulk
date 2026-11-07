@@ -10,6 +10,7 @@ mod compiler;
 mod compressor;
 mod device_commands;
 mod device_fade;
+mod device_move;
 mod drums;
 mod echo;
 mod export;

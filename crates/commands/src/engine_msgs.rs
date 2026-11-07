@@ -749,13 +749,15 @@ fn chain_slots(chain: &[(&DeviceId, &Device)], midi_band: bool) -> Vec<u32> {
 /// brought back, or the instrument replaced): the engine runs the chain in slot order and a
 /// device's slot is its place in the chain, as in the snapshot ([`chain_slots`]: the MIDI
 /// effects in the first slots, the instrument and the audio effects after a fixed band). So a
-/// device whose place changed leaves its slot and is built again at the new one (from its
-/// project settings: its tail and voices restart), a freed slot nobody takes is emptied, and a
-/// device that keeps its place is not touched: a MIDI effect inserted, moved or removed leaves
-/// the instrument and the audio effects alone. A `DeviceInsert` on an occupied slot replaces the
-/// device there. The automation lanes that target a device built again are uploaded again,
-/// since a lane names a slot. A track the engine was never told about gets nothing.
-/// `insert_of` says what the engine can build (the registry's devices).
+/// device whose place changed goes to its new slot ([`sync_devices`]): an instrument or an
+/// audio effect is moved there as it is (#800: its voices, tail and state go on), a MIDI
+/// effect is built again there (from its project settings); a freed slot nobody takes is
+/// emptied, and a device that keeps its place is not touched: a MIDI effect inserted, moved
+/// or removed leaves the instrument and the audio effects alone. A `DeviceInsert` on an
+/// occupied slot replaces the device there. The automation lanes that target a device built
+/// again or moved are uploaded again, since a lane names a slot. A track the engine was never
+/// told about gets nothing. `insert_of` says what the engine can build (the registry's
+/// devices).
 fn sync_chain(
     track_id: &TrackId,
     project: &Project,
@@ -798,9 +800,9 @@ fn sync_chain(
 }
 
 /// [`sync_chain`] for the master's chain (#364): the same rule, on the master's slot table.
-/// The master's lanes that target a device built again are uploaded again, as a track's are
-/// (#378). Note that inserting or moving an effect early in the chain builds again the ones
-/// that follow it (their tails restart), on the whole mix.
+/// The master's lanes that target a device built again or moved are uploaded again, as a track's are
+/// (#378). An effect inserted, removed or moved early in the chain moves the ones that
+/// follow it (#800): their tails go on.
 fn sync_master_chain(
     project: &Project,
     sync: &mut EngineSlots,
@@ -858,7 +860,17 @@ fn master_chain_msgs(project: &Project, sync: &mut EngineSlots, out: &mut Vec<Co
 
 /// What the engine needs after a chain changed, for the chain `chain` in the engine's row
 /// `slot` (a track's, or [`TrackSlot::MASTER`]) whose slots `table` holds: see
-/// [`sync_chain`]. Returns the devices built (again).
+/// [`sync_chain`]. Returns the devices built (again) or moved, whose lanes name a new slot.
+///
+/// A device that shifts is moved, not built again (#800), unless it is a MIDI effect (its
+/// output is sized from its place, #219; it has no tail): first the devices gone (and the
+/// MIDI effects out of place) leave the table, with a `DeviceRemove` unless a `DeviceInsert`
+/// lands on their slot (a replacement crossfades); then each device out of place moves into
+/// its slot once it is free (`DeviceMove`: a shift is a run of such moves, from the tail for
+/// an insert, from the head for a removal); a reorder, where no target is free, builds again
+/// the device that goes furthest; then the new devices and those built again take their
+/// slots. The engine fades a removed device out in front of the ones moved into its place
+/// (`engine::graph` > Device fades), so nothing jumps.
 fn sync_devices(
     slot: TrackSlot,
     chain: &[(&DeviceId, &Device)],
@@ -878,25 +890,84 @@ fn sync_devices(
             Some((*at, *id, *device, kind, state))
         })
         .collect();
-    let belongs = |id: &DeviceId| wanted.iter().find(|w| w.1 == id).map(|w| w.0);
-    // Devices out of place: gone from the chain, or at another index than their slot.
-    let stale: Vec<(u32, DeviceId)> = table
+    let belongs = |id: &DeviceId| wanted.iter().find(|w| w.1 == id).map(|w| (w.0, w.2));
+    // The engine moves an audio effect (`ControlMsg::DeviceMove`); a MIDI effect is sized
+    // from its place, and the instrument never shifts (first after the MIDI band).
+    let movable = |device: &Device| device.role == project::DeviceRole::Effect;
+    let mut changed = BTreeSet::new();
+    // Devices that leave the table: gone from the chain, or one the engine does not move out
+    // of place.
+    let leaving: Vec<(u32, DeviceId)> = table
         .iter()
-        .filter(|(at, id)| belongs(id) != Some(*at))
+        .filter(|(at, id)| match belongs(id) {
+            None => true,
+            Some((to, device)) => to != *at && !movable(device),
+        })
         .map(|(at, id)| (at, id.clone()))
         .collect();
-    for (at, id) in &stale {
+    for (_, id) in &leaving {
         table.release(id);
-        if !wanted.iter().any(|w| w.0 == *at) {
+    }
+    // A slot gets a `DeviceInsert` when the device that belongs there is not in the table
+    // (new, or one that just left it).
+    let inserted_at = |at: u32, table: &project::SlotTable<DeviceId>| {
+        wanted.iter().any(|w| w.0 == at && table.get(w.1).is_none())
+    };
+    for (at, _) in &leaving {
+        if !inserted_at(*at, table) {
             out.push(ControlMsg::DeviceRemove {
                 track: slot,
                 device: DeviceSlot(*at as u16),
             });
         }
     }
-    let mut built = BTreeSet::new();
+    // The moves, each into a free slot: each one puts a device in its slot for good. When
+    // none is left with a free target, the rest are cycles (a reorder): the device that goes
+    // furthest (the one the user moved) leaves and is built again at its place, which frees a
+    // slot for the others. So this ends.
+    loop {
+        let misplaced = || {
+            wanted.iter().filter_map(|w| {
+                let at = table.get(w.1)?;
+                (at != w.0).then_some((at, w.0, w.1))
+            })
+        };
+        let free = misplaced().find(|m| table.id_at(m.1).is_none());
+        let Some((from, to, id)) = free else {
+            // Furthest first, then the one going toward the head.
+            let Some((from, _, id)) = misplaced().max_by_key(|m| (m.0.abs_diff(m.1), m.1 < m.0))
+            else {
+                break;
+            };
+            table.release(id);
+            out.push(ControlMsg::DeviceRemove {
+                track: slot,
+                device: DeviceSlot(from as u16),
+            });
+            continue;
+        };
+        table.release(id);
+        if table
+            .insert_at(id, to, limits::MAX_DEVICES_PER_TRACK)
+            .is_none()
+        {
+            // Beyond the engine's limit (the project caps a chain below it): it leaves the
+            // engine, and the inserts below count it in `overflow`.
+            out.push(ControlMsg::DeviceRemove {
+                track: slot,
+                device: DeviceSlot(from as u16),
+            });
+            continue;
+        }
+        out.push(ControlMsg::DeviceMove {
+            track: slot,
+            from: DeviceSlot(from as u16),
+            to: DeviceSlot(to as u16),
+        });
+        changed.insert(id.clone());
+    }
     for (index, id, device, kind, state) in wanted {
-        if table.get(id) == Some(index) {
+        if table.get(id).is_some() {
             continue;
         }
         let Some(at) = table.insert_at(id, index, limits::MAX_DEVICES_PER_TRACK) else {
@@ -916,9 +987,9 @@ fn sync_devices(
                 enabled: false,
             });
         }
-        built.insert(id.clone());
+        changed.insert(id.clone());
     }
-    built
+    changed
 }
 
 /// A whole track, given a slot: its mix, solo, chain, clips, arrangement and lanes.

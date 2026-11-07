@@ -40451,7 +40451,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 49,
+  "protocol_version": 60,
   "scale_intervals": [
     {
       "intervals": [
