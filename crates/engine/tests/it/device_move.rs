@@ -517,7 +517,10 @@ fn a_ceiling_moved_keeps_its_timing() {
 fn a_device_moved_into_the_slot_a_ceiling_holds_waits_then_fades_in() {
     use engine::devices::ceiling::DESCRIPTOR as CEILING;
     // The Ceiling in front of a quarter gain is removed and the gain moves into its slot: the
-    // Ceiling holds the slot's timing (#761), the gain runs unheard meanwhile, then fades in.
+    // Ceiling holds the slot's timing (#761), so the gain is built again there (the spare
+    // `prepare` made), held then faded in, while the moved one fades out where it was, on the
+    // Ceiling's line: the behaviour before #800 for this case, with no step. (Its level rises
+    // toward the unattenuated tone during the hold, as it did then.)
     let setup = playing(&[insert(1, CEILING.kind_id, &[]), gain_fx(2, 0.25)]);
     let (out, latency) = timed_with(&setup, &[remove(1), mv(2, 1)]);
     assert_eq!(latency[0], 72);
@@ -529,4 +532,32 @@ fn a_device_moved_into_the_slot_a_ceiling_holds_waits_then_fades_in() {
     // Settled on the quarter at the end.
     let end = peak(&out[out.len() - 10 * BLOCK..]);
     assert!((end - 0.25 * 0.125).abs() < 1e-3, "{end}");
+    // No step: no larger than what the messages before #800 gave (the device built again in
+    // place of the Ceiling, the old one removed), far below the cut of a hard switch (an
+    // unheld move measured 0.031).
+    let n = fade_frames(RATE) as usize;
+    for (name, chain, before) in [
+        (
+            "a gain moved into a held slot",
+            gain_fx(2, 0.25),
+            [gain_fx(1, 0.25), remove(2)],
+        ),
+        (
+            "an echo moved into a held slot",
+            echo(2),
+            [echo(1), remove(2)],
+        ),
+    ] {
+        let setup = playing(&[insert(1, CEILING.kind_id, &[]), chain]);
+        let (out, at, r) = held_with(&setup, &[remove(1), mv(2, 1)]);
+        let (old, old_at, _) = held_with(&setup, &before);
+        let step = max_step(&out[at - BLOCK..at + 8 * n]);
+        let reference = max_step(&old[old_at - BLOCK..old_at + 8 * n]);
+        assert!(
+            step <= reference * 1.05 + 1e-6 && step < 0.005,
+            "{name}: a step of {step} against {reference} before #800"
+        );
+        assert_eq!(r.outgoing(), 0);
+        assert_eq!(r.e.skipped(), 0);
+    }
 }

@@ -638,7 +638,15 @@ struct TrackShadow {
     /// which a MIDI effect inserted after it is sized.
     devices: Vec<Option<DeviceShadow>>,
     scenes_capacity: usize,
+    /// The slots a device with a latency line was removed from and nothing took since
+    /// (#800): a device moved into one may find the leaving device holding the slot's timing
+    /// (#761), so `prepare` builds it again too and `apply` picks one or the other. At most
+    /// [`VACATED_ROOM`], reserved at creation (no allocation after).
+    vacated: Vec<u16>,
 }
+
+/// The vacated slots a chain's shadow remembers (#800): as many as its outgoing list holds.
+const VACATED_ROOM: usize = crate::graph::OUTGOING_ROOM;
 
 /// What the prepare side keeps of a device to build it again at another sample rate (#236):
 /// its kind, the parameter values it was given (by its insert, then by `ParamSet`; only the
@@ -651,6 +659,8 @@ struct DeviceShadow {
     descriptor: &'static DeviceDescriptor,
     params: Vec<(ParamId, f32)>,
     enabled: bool,
+    /// Whether `prepare` wrapped it with a latency line (#749).
+    lined: bool,
 }
 
 impl DeviceShadow {
@@ -670,9 +680,14 @@ impl DeviceShadow {
 
 impl TrackShadow {
     fn try_new() -> Result<Self, MsgError> {
+        let mut vacated = Vec::new();
+        vacated
+            .try_reserve_exact(VACATED_ROOM)
+            .map_err(|_| oom::<u16>(VACATED_ROOM))?;
         Ok(TrackShadow {
             devices: try_vec(initial::DEVICES_PER_TRACK, None)?,
             scenes_capacity: initial::SCENES_PER_TRACK,
+            vacated,
         })
     }
 }
@@ -1496,7 +1511,11 @@ impl Preparer {
         if let Some(t) = self.shadow.chain_mut(track)
             && let Some(flag) = t.devices.get_mut(device.0 as usize)
         {
+            let lined = flag.as_ref().is_some_and(|d| d.lined);
             *flag = None;
+            if lined && !t.vacated.contains(&device.0) && t.vacated.len() < VACATED_ROOM {
+                t.vacated.push(device.0);
+            }
         }
     }
 
@@ -1572,7 +1591,7 @@ impl Preparer {
             .flatten()
             .map(|d| d.midi_out)
             .sum();
-        let (value, descriptor) = self.build_device(
+        let (mut value, descriptor) = self.build_device(
             &self.setup,
             track,
             kind,
@@ -1587,12 +1606,14 @@ impl Preparer {
         params
             .try_reserve_exact(descriptor.params.len())
             .map_err(|_| oom::<(ParamId, f32)>(descriptor.params.len()))?;
+        let lined = value.device.bypass().is_some();
         let mut kept = DeviceShadow {
             midi_out,
             kind,
             descriptor,
             params,
             enabled: true,
+            lined,
         };
         for (id, v) in state_pairs(state) {
             kept.set(id, v);
@@ -1614,6 +1635,7 @@ impl Preparer {
             if let Some(flag) = t.devices.get_mut(slot) {
                 *flag = Some(kept);
             }
+            t.vacated.retain(|v| usize::from(*v) != slot);
         }
         Ok(RtMsg::DevicePut {
             track,
@@ -1670,6 +1692,24 @@ impl Preparer {
         if let Some(g) = &grown {
             flags = Some(try_vec(g.capacity(), None)?);
         }
+        // Into the slot a device with a line left (#761): the same device built again, for
+        // `apply` to put there instead when the leaving one still holds the slot's timing.
+        let mut spare = None;
+        if !track.is_master()
+            && shadow.vacated.contains(&to.0)
+            && let Some(kept) = shadow.devices.get(from.0 as usize).and_then(Option::as_ref)
+        {
+            let (mut value, _) = self.build_device(
+                &self.setup,
+                track,
+                kept.kind,
+                TRACK_INPUT_EVENTS,
+                midi_room(0),
+                kept.params.iter().copied(),
+            )?;
+            value.enabled = kept.enabled;
+            spare = Some(value);
+        }
         // Commit.
         if let Some(t) = self.shadow.chain_mut(track) {
             if let Some(mut flags) = flags {
@@ -1679,12 +1719,14 @@ impl Preparer {
                 t.devices = flags;
             }
             t.devices.swap(from.0 as usize, to.0 as usize);
+            t.vacated.retain(|v| *v != to.0);
         }
         Ok(Some(RtMsg::DeviceMove {
             track,
             from,
             to,
             grown,
+            spare,
         }))
     }
 
@@ -3041,77 +3083,99 @@ impl Engine {
                 from,
                 to,
                 grown,
-            } => match state.chain_mut(track) {
-                Some(chain) => {
-                    // The instance changes slots, nothing else (#800): no device is built,
-                    // dropped, faded, or loses its notes.
-                    let mut spare = Spare::NONE;
-                    if let Some(mut next) = grown {
-                        if next.capacity() > chain.capacity() {
-                            next.take_slots_from(chain);
-                            spare.table = Some(core::mem::replace(chain, next));
-                        } else {
-                            spare.table = Some(next);
-                            skipped = true;
-                        }
-                    }
-                    let (a, b) = (usize::from(from.0), usize::from(to.0));
-                    let slots = chain.as_mut_slice();
-                    let moved = match (slots.get(a), slots.get(b)) {
-                        (Some(Some(_)), Some(None)) => {
-                            slots.swap(a, b);
-                            true
-                        }
-                        // An empty `from`, an occupied `to` or a slot beyond the row: a
-                        // contract violation, nothing moves.
-                        _ => false,
-                    };
-                    skipped |= !moved;
-                    if moved {
-                        // The devices fading out around it keep their place in the chain it
-                        // left (graph module doc > Device fades): one removed at `to` was after
-                        // it when it moves toward the tail; the ones it replaced follow it, and
-                        // the removed ones in front of it too when it moves toward the head.
-                        let list = if track.is_master() {
-                            Some(self.graph.master_outgoing())
-                        } else {
-                            state.track_mut(track).map(|t| t.graph.outgoing())
-                        };
-                        let mut held = false;
-                        if let Some(list) = list {
-                            let tailward = from.0 < to.0;
-                            if tailward {
-                                list.shift_after(to.0);
+                spare: rebuilt,
+            } => {
+                // A device with a line that left `to` still holds the slot's timing (#761): the
+                // device built again by `prepare` goes there instead, held then faded in, and
+                // the moved one leaves from `from` (as before #800).
+                let held = rebuilt.is_some()
+                    && !track.is_master()
+                    && state
+                        .track_mut(track)
+                        .is_some_and(|t| t.graph.outgoing().holder_at(usize::from(to.0)).is_some());
+                let audible = chain_audible(state, &mut self.graph, track);
+                match state.chain_mut(track) {
+                    Some(chain) => {
+                        let mut spare = Spare::NONE;
+                        if let Some(mut next) = grown {
+                            if next.capacity() > chain.capacity() {
+                                next.take_slots_from(chain);
+                                spare.table = Some(core::mem::replace(chain, next));
+                            } else {
+                                spare.table = Some(next);
+                                skipped = true;
                             }
-                            list.follow(from.0, to.0, tailward);
-                            // A device with a line that left `to` still holds its timing (#761):
-                            // the moved device runs, not heard, until it is gone, then fades in,
-                            // as a device put there does.
-                            held =
-                                !track.is_master() && list.holder_at(usize::from(to.0)).is_some();
                         }
-                        // Its lines go with it (they live in its `Latent`); the values waiting
-                        // for it in the lines before it follow it (#765).
-                        if let Some(chain) = state.chain_mut(track) {
-                            crate::graph::retarget_values(chain.as_mut_slice(), from, to);
+                        let (a, b) = (usize::from(from.0), usize::from(to.0));
+                        let slots = chain.as_mut_slice();
+                        let fits =
+                            matches!((slots.get(a), slots.get(b)), (Some(Some(_)), Some(None)));
+                        skipped |= !fits;
+                        if fits
+                            && held
+                            && let Some(mut new) = rebuilt
+                        {
+                            new.fade = if audible && fades(&new) { 0.0 } else { 1.0 };
+                            let mut old = slots[a].take();
+                            slots[b] = Some(new);
+                            leave_slot(state, &mut self.graph, track, from, old.as_deref_mut());
+                            spare.item = old.and_then(|old| {
+                                send_off(
+                                    state,
+                                    &mut self.graph,
+                                    track,
+                                    from,
+                                    old,
+                                    (audible, true),
+                                    true,
+                                )
+                            });
+                            resend_lanes(state, &self.graph, track, to);
+                        } else {
+                            // The spare, not needed, goes back.
+                            spare.item = rebuilt;
+                            if fits {
+                                // The instance changes slots, nothing else (#800): no device is
+                                // built, dropped, faded, or loses its notes.
+                                slots.swap(a, b);
+                                // The devices fading out around it keep their place in the chain
+                                // it left (graph module doc > Device fades): one removed at `to`
+                                // was after it when it moves toward the tail; the ones it
+                                // replaced follow it, and the removed ones in front of it too
+                                // when it moves toward the head.
+                                let list = if track.is_master() {
+                                    Some(self.graph.master_outgoing())
+                                } else {
+                                    state.track_mut(track).map(|t| t.graph.outgoing())
+                                };
+                                if let Some(list) = list {
+                                    let tailward = from.0 < to.0;
+                                    if tailward {
+                                        list.shift_after(to.0);
+                                    }
+                                    list.follow(from.0, to.0, tailward);
+                                }
+                                // Its lines go with it (they live in its `Latent`); the values
+                                // waiting for it in the lines before it follow it (#765).
+                                if let Some(chain) = state.chain_mut(track) {
+                                    crate::graph::retarget_values(chain.as_mut_slice(), from, to);
+                                }
+                                if track.is_master() {
+                                    self.graph.master_events().retarget(from, to);
+                                }
+                            }
                         }
-                        if track.is_master() {
-                            self.graph.master_events().retarget(from, to);
-                        }
-                        if held && let Some(entry) = device_mut(state, track, to) {
-                            entry.fade = 0.0;
-                        }
+                        Some(Garbage::Devices(spare))
                     }
-                    Some(Garbage::Devices(spare))
+                    None => {
+                        skipped = true;
+                        Some(Garbage::Devices(Spare {
+                            table: grown,
+                            item: rebuilt,
+                        }))
+                    }
                 }
-                None => {
-                    skipped = true;
-                    Some(Garbage::Devices(Spare {
-                        table: grown,
-                        item: None,
-                    }))
-                }
-            },
+            }
             RtMsg::DeviceSetEnabled {
                 track,
                 device,
