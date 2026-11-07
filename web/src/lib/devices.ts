@@ -115,12 +115,13 @@ export function formatValue(p: ParamDescriptor, value: number): string {
  * Parameters that only matter in one mode of their device (display only: the engine keeps every parameter, and a
  * hidden one keeps its value). Per device kind, per parameter key: the choice parameter that decides, and the keys of
  * its values for which the parameter is shown. Echo: the delay time in free mode, the note value in synced mode. Stack:
- * a voice's settings while the voice is on. Lattice: the rule with a scale, the root and scale with its own, the cells with the matrix.
+ * a voice's settings while the voice is on. Lattice: the rule with a scale, the root and scale with its own, the cells with the matrix. Ceiling: the release time in manual release.
  */
 export const SHOWN_IN_MODE: Readonly<Record<string, Readonly<Record<string, { by: string; values: readonly string[] }>>>> = {
   'faulk.echo': { time: { by: 'mode', values: ['free'] }, division: { by: 'mode', values: ['synced'] } },
   'faulk.stack': stackVoices(),
   'faulk.lattice': latticeSources(),
+  'faulk.ceiling': { release: { by: 'release_mode', values: ['manual'] } },
 }
 
 /** Stack (#690): a voice's interval, velocity and chance show while the voice is on. */

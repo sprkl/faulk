@@ -1,0 +1,16 @@
+{
+  "category": "Dynamics",
+  "device": "faulk.ceiling",
+  "format": 1,
+  "name": "Safe Master",
+  "params": {
+    "ceiling": -1.0,
+    "compensate": 0.0,
+    "gain": 3.0,
+    "lookahead": 0.0015,
+    "release": 0.1,
+    "release_mode": 1.0,
+    "true_peak": 1.0
+  },
+  "version": 1
+}

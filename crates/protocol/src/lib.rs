@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 49;
+pub const PROTOCOL_VERSION: u32 = 50;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -43,6 +43,11 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 50 (#159): the registry gains the audio effect `faulk.ceiling` (device kind 7, the
+// brick-wall limiter). No message changes shape, but a helper of an earlier version does not know
+// kind 7: its engine refuses a stream that inserts it (`UnknownDevice`), so a project holding a
+// Ceiling would not play in Boost.
 
 // Version 49 (#778; 48 is #691's): the native audio import in Boost. The session gains `import.choose`,
 // `import.start` and `import.cancel` (page → helper) and `import.chosen`, `import.progress`,

@@ -74,6 +74,14 @@ const FILES: &[(&str, &str)] = &[
         include_str!("factory/faulk.filter/thin-highpass.json"),
     ),
     (
+        "faulk.ceiling/safe-master",
+        include_str!("factory/faulk.ceiling/safe-master.json"),
+    ),
+    (
+        "faulk.ceiling/loud-master",
+        include_str!("factory/faulk.ceiling/loud-master.json"),
+    ),
+    (
         "faulk.stack/major-triad",
         include_str!("factory/faulk.stack/major-triad.json"),
     ),

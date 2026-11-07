@@ -113,6 +113,17 @@ describe('parameters shown in one mode only (#472)', () => {
     expect(shownParams(drums, () => undefined)).toEqual(drums.params)
   })
 
+  it('shows the release time of Ceiling only in manual release', () => {
+    const ceiling = descriptorOf('faulk.ceiling')
+    const mode = choices(ceiling.params.find((p) => p.key === 'release_mode')!)
+    const keys = (value: number | undefined) => shownParams(ceiling, (key) => (key === 'release_mode' ? value : undefined)).map((p) => p.key)
+    const all = ['ceiling', 'gain', 'compensate', 'lookahead', 'release_mode', 'release', 'true_peak']
+    expect(keys(mode.find((c) => c.key === 'manual')!.value)).toEqual(all)
+    expect(keys(mode.find((c) => c.key === 'auto')!.value)).toEqual(all.filter((k) => k !== 'release'))
+    // Auto is the default.
+    expect(keys(undefined)).toEqual(all.filter((k) => k !== 'release'))
+  })
+
   it('shows a Stack voice’s interval, velocity and chance only while the voice is on (#690)', () => {
     const stack = descriptorOf('faulk.stack')
     // By default voice 1 is on (the fifth), 2 to 6 off.

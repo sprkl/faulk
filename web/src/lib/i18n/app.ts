@@ -20,6 +20,7 @@ import { controls } from './controls'
 import { devices } from './devices'
 import { drums } from './drums'
 import { compressor } from './compressor'
+import { ceiling } from './ceiling'
 import { agentConfirm } from './confirm'
 import { echo } from './echo'
 import { filter } from './filter'
@@ -67,6 +68,7 @@ export const features = {
   lattice,
   scatter,
   compressor,
+  ceiling,
   trim,
   devices,
   presets,

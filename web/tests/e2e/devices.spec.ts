@@ -177,6 +177,35 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(page.getByTestId('device-card')).toHaveCount(1)
     await expect(filter).toHaveCount(0)
 
+    // Ceiling (#159): inserted from the browser, its reduction meter, one control per parameter
+    // with the release time shown only in manual release, its switches, removed, then undone.
+    await panel.getByRole('button', { name: x.add('Ceiling'), exact: true }).click()
+    const ceiling = card(page, 'Ceiling')
+    await expect(ceiling.getByTestId('gain-reduction')).toBeVisible()
+    // Auto release, its default: six of the seven parameters.
+    await expect(ceiling.locator('[data-testid^=param-]')).toHaveCount(6)
+    await expect(ceiling.getByTestId('param-release')).toHaveCount(0)
+    await expect(ceiling.getByTestId('param-ceiling').getByRole('slider')).toHaveAttribute('aria-valuetext', /dB/)
+    await expect(ceiling.getByTestId('param-gain').getByRole('slider')).toHaveAttribute('aria-valuetext', /dB/)
+    await expect(ceiling.getByTestId('param-lookahead').getByRole('slider')).toHaveAttribute('aria-valuetext', /ms/)
+    await ceiling.getByRole('radio', { name: lang === 'en' ? 'Manual' : 'Manuel', exact: true }).click()
+    await expect(ceiling.getByTestId('param-release')).toBeVisible()
+    await expect(ceiling.locator('[data-testid^=param-]')).toHaveCount(7)
+    const truePeak = ceiling.getByTestId('param-true_peak').getByRole('radio', { name: lang === 'en' ? 'On' : 'Oui', exact: true })
+    await truePeak.click()
+    await expect(truePeak).toHaveAttribute('aria-checked', 'true')
+    const gain = ceiling.getByTestId('param-gain').getByRole('slider')
+    await gain.press('End')
+    await expect(gain).toHaveAttribute('aria-valuetext', /24/)
+    await ceiling.getByRole('button', { name: x.remove('Ceiling'), exact: true }).click()
+    await expect(ceiling).toHaveCount(0)
+    await page.keyboard.press('Control+z')
+    await expect(ceiling).toHaveCount(1)
+    await expect(ceiling.getByTestId('param-release')).toBeVisible()
+    for (let i = 0; i < 4; i++) await page.keyboard.press('Control+z')
+    await expect(page.getByTestId('device-card')).toHaveCount(1)
+    await expect(ceiling).toHaveCount(0)
+
     // Stack (#690), the first MIDI effect: listed apart, inserted before the instrument, its card
     // generated from the descriptor (a voice's settings show while it is on), removed and undone.
     await panel.getByTestId('browse-midi-effect').filter({ hasText: 'Stack' }).click()

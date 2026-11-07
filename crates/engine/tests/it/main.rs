@@ -10,6 +10,7 @@ mod arrangement_render;
 mod audio_clip;
 mod audio_source;
 mod automation;
+mod ceiling;
 mod clip_edit;
 mod clip_player;
 mod clip_render;

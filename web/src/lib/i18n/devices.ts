@@ -3,7 +3,7 @@
  * `<device kind without "faulk.">.<parameter key>.hint`; its English text is the description in the
  * device's descriptor (`i18n.test.ts` checks they are the same), its French text is a translation.
  * A device name is not here: it comes from the descriptor, one English name never translated.
- * Labels of the parameters and of their values are in `synth.ts`, `drums.ts`, `echo.ts`, `reverb.ts`, `filter.ts`, `compressor.ts` and `trim.ts`.
+ * Labels of the parameters and of their values are in `synth.ts`, `drums.ts`, `echo.ts`, `reverb.ts`, `filter.ts`, `compressor.ts`, `ceiling.ts` and `trim.ts`.
  */
 
 import { defineFeature } from './feature'
@@ -156,6 +156,18 @@ export const devices = defineFeature(
       'Time the compressor takes to turn the sound down once it passes the threshold, from 0.1 ms to 200 ms: short catches the first hit, long lets it through.',
     'compressor.release.hint': 'Time the compressor takes to let the sound back up once it falls under the threshold, from 10 ms to 2 s.',
     'compressor.makeup.hint': 'Gain added after the compression to make up for the level it took away, from 0 to 24 dB.',
+    'ceiling.ceiling.hint': 'Highest level the output may reach, in decibels of full scale, from -12 to 0 dB: no sample goes above it.',
+    'ceiling.gain.hint': 'Gain added before the limiter, from 0 to 24 dB: it pushes the sound against the ceiling, so it gets louder without going over.',
+    'ceiling.compensate.hint':
+      'When on, the output is turned down by the input gain: the gain changes how hard the sound is limited, not how loud it is, to compare by ear.',
+    'ceiling.lookahead.hint':
+      'How far ahead the limiter sees the peaks, from 0 to 5 ms: it turns down smoothly before each one. It delays this track by that time: the other tracks are not delayed to match. A change fades out and back in.',
+    'ceiling.release_mode.hint':
+      'How the limiter lets the sound back up after a peak: manual (the release time) or auto (fast after a short peak, slower under sustained limiting).',
+    'ceiling.release.hint':
+      'In manual release, time the limiter takes to let the sound back up after a peak, from 1 ms to 1 s: short is louder, long is smoother.',
+    'ceiling.true_peak.hint':
+      'When on, the limiter also catches the peaks between samples (4x oversampled detection), for a converter or an encoder. It adds 12 samples of delay and a look-ahead of at least 16 samples. A change fades out and back in.',
     'trim.mode.hint': 'How the length is set: a time in seconds (free) or a note value that follows the project tempo (synced).',
     'trim.time.hint': 'Length of every note in free mode, in seconds, from 1 ms to 10 s.',
     'trim.division.hint': 'Length of every note in synced mode, as a note value of the project tempo, from a 64th note to 4 bars of the time signature.',
@@ -318,6 +330,18 @@ export const devices = defineFeature(
       'Temps que le compresseur met à baisser le son une fois le seuil dépassé, de 0,1 ms à 200 ms : court attrape le début du coup, long le laisse passer.',
     'compressor.release.hint': 'Temps que le compresseur met à relever le son une fois repassé sous le seuil, de 10 ms à 2 s.',
     'compressor.makeup.hint': 'Gain ajouté après la compression pour rattraper le niveau qu’elle a retiré, de 0 à 24 dB.',
+    'ceiling.ceiling.hint': 'Niveau le plus haut que la sortie peut atteindre, en décibels de pleine échelle, de -12 à 0 dB : aucun échantillon ne le dépasse.',
+    'ceiling.gain.hint': 'Gain ajouté avant le limiteur, de 0 à 24 dB : il pousse le son contre le plafond, qui devient plus fort sans le dépasser.',
+    'ceiling.compensate.hint':
+      'Activée, la sortie est baissée du gain d’entrée : le gain change la force de la limitation, pas le volume, pour comparer à l’oreille.',
+    'ceiling.lookahead.hint':
+      'Avance avec laquelle le limiteur voit venir les crêtes, de 0 à 5 ms : il baisse le son en douceur avant chacune. Cette piste est retardée d’autant, les autres pistes ne le sont pas. Un changement se fait par un fondu de sortie puis d’entrée.',
+    'ceiling.release_mode.hint':
+      'Comment le limiteur relève le son après une crête : manuel (le temps de relâchement) ou auto (vite après une crête brève, plus lentement quand la limitation dure).',
+    'ceiling.release.hint':
+      'En relâchement manuel, temps que le limiteur met à relever le son après une crête, de 1 ms à 1 s : court sonne plus fort, long plus doux.',
+    'ceiling.true_peak.hint':
+      'Activée, le limiteur rattrape aussi les crêtes entre les échantillons (détection suréchantillonnée 4 fois), pour un convertisseur ou un encodeur. Ajoute 12 échantillons de retard et au moins 16 échantillons d’anticipation. Un changement se fait par un fondu de sortie puis d’entrée.',
     'trim.mode.hint': 'Comment la longueur est réglée : une durée en secondes (libre) ou une valeur de note qui suit le tempo du projet (au tempo).',
     'trim.time.hint': 'Longueur de chaque note en mode libre, en secondes, de 1 ms à 10 s.',
     'trim.division.hint':
