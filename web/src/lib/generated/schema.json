@@ -30064,7 +30064,7 @@
     {
       "kind": "faulk.compressor",
       "kind_id": 5,
-      "memory_bytes": 80,
+      "memory_bytes": 41272,
       "midi_output": null,
       "name": "Compressor",
       "named_keys": [],
@@ -30096,6 +30096,19 @@
           "values": []
         },
         {
+          "default": 6,
+          "description": "Width, in decibels, of the zone around the threshold where the compression comes in gradually, from 0 (hard: the full ratio right at the threshold) to 24 dB (soft).",
+          "id": 5,
+          "key": "knee",
+          "max": 24,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        },
+        {
           "default": 0.01,
           "description": "Time the compressor takes to turn the sound down once it passes the threshold, from 0.1 ms to 200 ms: short catches the first hit, long lets it through.",
           "id": 2,
@@ -30109,8 +30122,24 @@
           "values": []
         },
         {
+          "default": 0,
+          "description": "How the compressor lets the sound back up: manual (the release time) or auto (fast after a short hit, slower after a long compression, so it pumps less).",
+          "id": 7,
+          "key": "release_mode",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "manual",
+            "auto"
+          ]
+        },
+        {
           "default": 0.15,
-          "description": "Time the compressor takes to let the sound back up once it falls under the threshold, from 10 ms to 2 s.",
+          "description": "In manual release, time the compressor takes to let the sound back up once it falls under the threshold, from 10 ms to 2 s.",
           "id": 3,
           "key": "release",
           "max": 2,
@@ -30119,6 +30148,64 @@
           "smoothing_seconds": 0,
           "step": 0,
           "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "What level the compressor reacts to: peak (each sample, it catches the hits) or RMS (the average over 10 ms, it follows the loudness and lets short hits through).",
+          "id": 6,
+          "key": "detection",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "peak",
+            "rms"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "How far ahead the compressor sees the sound, from 0 to 10 ms, so a short attack catches a hit whole. It delays its track (on the master, the whole mix) by that time: no other track is delayed to match. A change fades out and back in.",
+          "id": 10,
+          "key": "lookahead",
+          "max": 0.01,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "When on, the compressor does not react to the lows under the sidechain frequency (a 12 dB per octave high-pass on what it listens to, not on the sound): a kick or a bass no longer pumps everything else.",
+          "id": 8,
+          "key": "sidechain_hpf",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 100,
+          "description": "With the sidechain high-pass on, the frequency under which the compressor stops reacting, from 20 to 500 Hz.",
+          "id": 9,
+          "key": "sidechain_freq",
+          "max": 500,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "hertz",
           "values": []
         },
         {
@@ -30132,6 +30219,19 @@
           "smoothing_seconds": 0.02,
           "step": 0,
           "unit": "decibels",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "Balance between the dry sound (0) and the compressed sound (1): in between is parallel compression, the hits keep their attack and the quiet parts come up.",
+          "id": 11,
+          "key": "mix",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
           "values": []
         }
       ],

@@ -73,7 +73,8 @@
 //! target; one during the silence takes the newer latency and starts the silence again; one
 //! during the fade in waits again (the fade in goes on meanwhile). A value that brings the
 //! latency back to the one in use cancels the wait. The fades only lower the output: the
-//! ceiling holds through them.
+//! ceiling holds through them. The switch is [`super::latency_switch::LatencySwitch`], shared
+//! with the Compressor (#157).
 //!
 //! # Parameters and smoothing
 //!
@@ -100,6 +101,8 @@ use crate::device::{
 use crate::msg::{DeviceKind, MsgError, ParamId, try_box};
 use crate::param::Smoother;
 
+use super::latency_switch::{LatencySwitch, Take};
+
 /// Ids of the parameters.
 pub const CEILING: u32 = 0;
 pub const GAIN: u32 = 1;
@@ -124,10 +127,7 @@ pub const TP_PHASES: usize = 4;
 pub const TP_MIN_LOOKAHEAD: u32 = 16;
 /// The Kaiser window's shape of the interpolator.
 const TP_KAISER_BETA: f64 = 7.0;
-/// How long a change of latency waits for the next one before it fades out.
-pub const SETTLE_SECONDS: f32 = 0.05;
-/// Fade out, then in, around a change of latency.
-pub const FADE_SECONDS: f32 = 0.005;
+pub use super::latency_switch::{FADE_SECONDS, SETTLE_SECONDS};
 /// The auto release's fast and slow time constants.
 pub const AUTO_FAST_SECONDS: f32 = 0.02;
 pub const AUTO_SLOW_SECONDS: f32 = 0.5;
@@ -380,21 +380,6 @@ fn effective((lookahead, true_peak): (u32, bool)) -> (u32, bool) {
     }
 }
 
-/// What the output is doing around a change of latency.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Phase {
-    Steady,
-    /// A change of latency waits for these many more frames without a new one (a drag of
-    /// the control sends many), fading back in meanwhile if it was.
-    Settle(u32),
-    /// Fading out towards the switch.
-    Out,
-    /// Silent for these many more frames after the switch.
-    Mute(u32),
-    /// Fading back in.
-    In,
-}
-
 #[derive(Debug)]
 pub struct Ceiling {
     sample_rate: f32,
@@ -446,10 +431,8 @@ pub struct Ceiling {
     between: f32,
     last_l: f32,
     last_r: f32,
-    phase: Phase,
-    fade: f32,
-    fade_step: f32,
-    settle_frames: u32,
+    /// The switch of a change of latency (fade out, silence, fade in).
+    switch: LatencySwitch,
     /// The smallest average gain of the last block, for the visual feedback.
     block_gain: f32,
     reported_db: f32,
@@ -512,10 +495,7 @@ impl Ceiling {
             between: 0.0,
             last_l: 0.0,
             last_r: 0.0,
-            phase: Phase::Steady,
-            fade: 1.0,
-            fade_step: 1.0 / (FADE_SECONDS * sample_rate),
-            settle_frames: (SETTLE_SECONDS * sample_rate) as u32,
+            switch: LatencySwitch::new(sample_rate),
             block_gain: 1.0,
             reported_db: 0.0,
         };
@@ -543,19 +523,8 @@ impl Ceiling {
         self.last_r = 0.0;
     }
 
-    /// Silent for the latency just taken (nothing older than it may be heard), then the fade
-    /// in; with no latency nothing is in flight: straight to the fade in.
-    fn mute(&mut self) {
-        let latency = self.latency();
-        self.phase = if latency > 0 {
-            Phase::Mute(latency)
-        } else {
-            Phase::In
-        };
-    }
-
     /// Takes the wanted latency.
-    fn switch(&mut self) {
+    fn take_latency(&mut self) {
         (self.lookahead, self.true_peak) = effective(self.wanted);
         self.restart_windows();
     }
@@ -585,37 +554,19 @@ impl Ceiling {
     /// since the reset, else through the settle, the fade and the silence.
     fn ask_latency(&mut self, wanted: (u32, bool)) {
         self.wanted = wanted;
-        if self.frame == 0 {
-            self.switch();
-            self.phase = Phase::Steady;
-            self.fade = 1.0;
-            return;
-        }
-        let differs = effective(wanted) != (self.lookahead, self.true_peak);
-        match self.phase {
-            // A drag sends many values: the switch waits until they stop.
-            Phase::Steady | Phase::In | Phase::Settle(_) => {
-                self.phase = if differs {
-                    Phase::Settle(self.settle_frames)
-                } else if self.phase == Phase::Steady {
-                    Phase::Steady
-                } else {
-                    Phase::In
-                };
-            }
-            // Taken back during the fade out: it fades back in, nothing switches.
-            Phase::Out => {
-                if !differs {
-                    self.phase = Phase::In;
-                }
-            }
-            Phase::Mute(_) => {
-                if differs {
-                    self.switch();
-                    self.mute();
-                }
+        match self.switch.ask(self.frame == 0, self.differs()) {
+            Take::Later => {}
+            Take::Now => self.take_latency(),
+            Take::NowSilent => {
+                self.take_latency();
+                self.switch.silence(self.latency());
             }
         }
+    }
+
+    /// The wanted latency is not the one in use.
+    fn differs(&self) -> bool {
+        effective(self.wanted) != (self.lookahead, self.true_peak)
     }
 
     /// The largest magnitude reconstructed from the sample `k` (included) to the sample
@@ -684,9 +635,9 @@ impl Ceiling {
     /// One frame in, one frame out.
     #[inline]
     fn frame_of(&mut self, in_l: f32, in_r: f32) -> (f32, f32) {
-        if self.phase == Phase::Out && self.fade <= 0.0 {
-            self.switch();
-            self.mute();
+        if self.switch.due() {
+            self.take_latency();
+            self.switch.silence(self.latency());
         }
         let ceiling_db = self.ceiling.next_value().clamp(-12.0, 0.0);
         if ceiling_db != self.ceiling_db {
@@ -794,39 +745,7 @@ impl Ceiling {
             // while the sample is in flight).
             g *= inv;
         }
-        match self.phase {
-            Phase::Steady => {}
-            Phase::Settle(left) => {
-                self.fade = (self.fade + self.fade_step).min(1.0);
-                g *= self.fade;
-                self.phase = if left > 1 {
-                    Phase::Settle(left - 1)
-                } else if effective(self.wanted) != (self.lookahead, self.true_peak) {
-                    Phase::Out
-                } else {
-                    Phase::In
-                };
-            }
-            Phase::Out => {
-                self.fade = (self.fade - self.fade_step).max(0.0);
-                g *= self.fade;
-            }
-            Phase::Mute(left) => {
-                g = 0.0;
-                self.phase = if left <= 1 {
-                    Phase::In
-                } else {
-                    Phase::Mute(left - 1)
-                };
-            }
-            Phase::In => {
-                self.fade = (self.fade + self.fade_step).min(1.0);
-                g *= self.fade;
-                if self.fade >= 1.0 {
-                    self.phase = Phase::Steady;
-                }
-            }
-        }
+        g *= self.switch.gain(self.differs());
         self.frame += 1;
         (flush((dl * g).clamp(-c, c)), flush((dr * g).clamp(-c, c)))
     }
@@ -877,9 +796,8 @@ impl Device for Ceiling {
     /// ramps; the parameter values are kept. Constant time: no buffer is wiped.
     fn reset(&mut self) {
         self.frame = 0;
-        self.switch();
-        self.phase = Phase::Steady;
-        self.fade = 1.0;
+        self.take_latency();
+        self.switch.reset();
         self.ceiling.snap();
         self.gain.snap();
         self.block_gain = 1.0;

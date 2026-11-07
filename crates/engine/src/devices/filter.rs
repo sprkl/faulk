@@ -195,7 +195,7 @@ fn weights(mode: u32) -> [f32; 3] {
 
 /// The coefficients of one sample.
 #[derive(Clone, Copy, Debug)]
-struct Coefficients {
+pub(super) struct Coefficients {
     a1: f32,
     a2: f32,
     a3: f32,
@@ -203,7 +203,7 @@ struct Coefficients {
 }
 
 impl Coefficients {
-    fn new(cutoff_hz: f32, resonance: f32, sample_rate: f32) -> Self {
+    pub(super) fn new(cutoff_hz: f32, resonance: f32, sample_rate: f32) -> Self {
         let top = CUTOFF_NYQUIST_SHARE * sample_rate;
         let hz = if cutoff_hz.is_finite() {
             cutoff_hz.clamp(CUTOFF_MIN as f32, top.max(CUTOFF_MIN as f32))
@@ -225,7 +225,7 @@ impl Coefficients {
 
 /// The two integrator states of one channel.
 #[derive(Clone, Copy, Debug, Default)]
-struct Channel {
+pub(super) struct Channel {
     ic1: f32,
     ic2: f32,
 }
@@ -233,7 +233,7 @@ struct Channel {
 impl Channel {
     /// One sample: `(low, high, band)` outputs of the sanitized input `x`.
     #[inline]
-    fn tick(&mut self, x: f32, c: &Coefficients) -> (f32, f32, f32) {
+    pub(super) fn tick(&mut self, x: f32, c: &Coefficients) -> (f32, f32, f32) {
         let v3 = x - self.ic2;
         let v1 = c.a1 * self.ic1 + c.a2 * v3;
         let v2 = self.ic2 + c.a2 * self.ic1 + c.a3 * v3;

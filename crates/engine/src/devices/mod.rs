@@ -19,6 +19,8 @@ pub mod filter;
 pub mod held;
 pub mod hiccup;
 pub mod lattice;
+/// The switch of a latency while a device sounds (Ceiling, Compressor).
+pub mod latency_switch;
 pub mod osc_synth;
 pub mod params;
 pub mod reverb;
