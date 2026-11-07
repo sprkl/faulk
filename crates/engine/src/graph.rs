@@ -1354,7 +1354,12 @@ impl Graph {
             fade,
         );
         // With lanes (#378) the chain and the strip run sub-block by sub-block, as a track's.
-        if self.master_lanes.head != NO_LANE {
+        // So does a running block cut at the clock's segments (a loop's wrap, a seek inside the
+        // block): each piece at its own position, so that a device that follows the
+        // transport's position (the Filter's synced LFO, #686) sees the wrap at its frame,
+        // whatever the block size, and the strip's levels, delayed behind a chain with a
+        // latency (#758), follow each piece's timing (#749).
+        if self.master_lanes.head != NO_LANE || (clock.running && clock.segments.len() > 1) {
             self.master_lane_pass(state, clock, ctx, left, right);
             return;
         }
@@ -1372,81 +1377,29 @@ impl Graph {
         // no note, so the sink is empty. An empty or bypassed chain leaves the sum as it is.
         // Values its lanes sent before they went still wait for the sound (#765).
         scratch.sink.clear();
-        // Cut at the clock's segments (a loop's wrap, a seek inside the block), each piece at
-        // its own position, as a track's chain is: a device that follows the transport's
-        // position (the Filter's synced LFO, #686) sees the wrap at its frame, whatever the
-        // block size. A block of one segment, or a stopped clock, is one call as before. The
-        // values waiting in the master's event line (#765) come out piece by piece, as in
-        // `master_lane_pass`; the strip below still runs over the whole block.
-        let pieces = if clock.running && clock.segments.len() > 1 {
-            clock.segments
-        } else {
-            &[]
-        };
-        if pieces.is_empty() {
-            let src = master_values(
-                master_events,
-                &scratch.sink,
-                state.master_devices.as_slice(),
-                tracks,
-                frames as u32,
-                &mut scratch.carry,
-            );
-            run_chain(
-                state.master_devices.as_mut_slice(),
-                master_outgoing,
-                &scratch.sink,
-                &mut scratch.carry,
-                src,
-                &mut scratch.merged,
-                &mut scratch.unused,
-                &mut scratch.blend,
-                fade,
-                ctx,
-                left,
-                right,
-                Pass::whole(false),
-            );
-        } else {
-            for segment in pieces {
-                let from = segment.offset.min(frames);
-                let to = (from + segment.frames).min(frames);
-                if to <= from {
-                    continue;
-                }
-                let sub = BlockCtx {
-                    frames: (to - from) as u32,
-                    transport: Transport {
-                        position_ticks: segment.position_at(from),
-                        ..ctx.transport
-                    },
-                    ..*ctx
-                };
-                let src = master_values(
-                    master_events,
-                    &scratch.sink,
-                    state.master_devices.as_slice(),
-                    tracks,
-                    (to - from) as u32,
-                    &mut scratch.carry,
-                );
-                run_chain(
-                    state.master_devices.as_mut_slice(),
-                    master_outgoing,
-                    &scratch.sink,
-                    &mut scratch.carry,
-                    src,
-                    &mut scratch.merged,
-                    &mut scratch.unused,
-                    &mut scratch.blend,
-                    fade,
-                    &sub,
-                    &mut left[from..to],
-                    &mut right[from..to],
-                    Pass::whole(false),
-                );
-            }
-        }
+        let src = master_values(
+            master_events,
+            &scratch.sink,
+            state.master_devices.as_slice(),
+            tracks,
+            frames as u32,
+            &mut scratch.carry,
+        );
+        run_chain(
+            state.master_devices.as_mut_slice(),
+            master_outgoing,
+            &scratch.sink,
+            &mut scratch.carry,
+            src,
+            &mut scratch.merged,
+            &mut scratch.unused,
+            &mut scratch.blend,
+            fade,
+            ctx,
+            left,
+            right,
+            Pass::whole(false),
+        );
         // Nothing to send again, and nothing dropped: the sink is empty, so no value went into
         // a line here, and a line drops a value only on its way in (`Events::carry`); what
         // still waits from the lanes only comes out. The master's lanes, while there are any,

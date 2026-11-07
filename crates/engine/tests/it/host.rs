@@ -1263,9 +1263,18 @@ fn a_filters_effective_cutoff_travels_in_the_report_with_its_slots() {
 
 /// #686: the master's chain runs cut at the clock's segments, so a Filter on the master whose
 /// LFO follows the transport sees a loop's wrap at its frame: the render does not depend on the
-/// block size, with the wrap in the middle of a block.
+/// block size, with the wrap in the middle of a block. With a Ceiling after it (a latency on the
+/// master, #749), whose look-ahead moves while the loop plays, the master's strip is delayed
+/// piece by piece with its chain (#758): the render still does not depend on the block size.
 #[test]
 fn a_master_filter_sees_a_loop_wrap_inside_a_block_whatever_the_block_size() {
+    for ceiling in [false, true] {
+        master_filter_wrap(ceiling);
+    }
+}
+
+fn master_filter_wrap(with_ceiling: bool) {
+    use engine::devices::ceiling::{DESCRIPTOR as CEILING, LOOKAHEAD};
     use engine::devices::filter::{CUTOFF, DESCRIPTOR as FILTER, LFO_DEPTH, RESONANCE};
     use engine::time::LoopRegion;
     let render = |block: usize| {
@@ -1276,6 +1285,14 @@ fn a_master_filter_sees_a_loop_wrap_inside_a_block_whatever_the_block_size() {
             kind: FILTER.kind_id,
             state: Vec::new(),
         }];
+        if with_ceiling {
+            msgs.push(M::DeviceInsert {
+                track: TrackSlot::MASTER,
+                device: DeviceSlot(1),
+                kind: CEILING.kind_id,
+                state: Vec::new(),
+            });
+        }
         for (p, value) in [(CUTOFF, 600.0), (LFO_DEPTH, 3.0), (RESONANCE, 0.7)] {
             msgs.push(M::ParamSet {
                 track: TrackSlot::MASTER,
@@ -1296,7 +1313,20 @@ fn a_master_filter_sees_a_loop_wrap_inside_a_block_whatever_the_block_size() {
         session.send(&msgs);
         let mut out = Vec::new();
         let total = 2 * 102_025 + 20_000;
+        let mut moved = false;
         while out.len() < 2 * total {
+            if with_ceiling && !moved && out.len() == 2 * 99_600 {
+                // A longer look-ahead 2 425 frames before the first wrap, on a frame every block
+                // size reaches: the master's latency moves,
+                // it settles 50 ms then fades out across the wrap.
+                moved = true;
+                session.send(&[M::ParamSet {
+                    track: TrackSlot::MASTER,
+                    device: DeviceSlot(1),
+                    param: ParamId(LOOKAHEAD),
+                    value: 0.004,
+                }]);
+            }
             let n = session.host.render(block);
             for i in 0..n {
                 out.push(session.host.left()[i]);
@@ -1306,13 +1336,26 @@ fn a_master_filter_sees_a_loop_wrap_inside_a_block_whatever_the_block_size() {
         out.truncate(2 * total);
         out
     };
-    let reference = render(128);
-    for block in [100, 1000] {
+    // Blocks that all reach the look-ahead's frame with the Ceiling (99 600, a multiple of 1200),
+    // the wrap (102 025) inside one of each size.
+    let (first, others) = if with_ceiling {
+        (100, [300, 1200])
+    } else {
+        (128, [100, 1000])
+    };
+    // A Ceiling inserted at the start warms up block by block (its fade in starts on the first
+    // block past its latency, #761): the comparison starts 100 ms in, long before the wrap.
+    let skip = if with_ceiling { 2 * 4_800 } else { 0 };
+    let reference = render(first);
+    for block in others {
         let other = render(block);
-        let worst = reference
+        let worst = reference[skip..]
             .iter()
-            .zip(&other)
+            .zip(&other[skip..])
             .fold(0f32, |m, (a, b)| m.max((a - b).abs()));
-        assert!(worst < 1e-5, "blocks of {block}: differs by {worst}");
+        assert!(
+            worst < 1e-5,
+            "blocks of {block} (a Ceiling: {with_ceiling}): differs by {worst}"
+        );
     }
 }
