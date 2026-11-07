@@ -47,8 +47,12 @@
 //! changes `lfo` at once; each voice's centre is then taken again as `delay_now - half * lfo`,
 //! so the voice stays where it is and swings by the new `half` from its first oscillation. The
 //! centre then drifts toward `delay + half` at [`MAX_DRIFT`] frames per frame, a pitch offset of
-//! 5 cents at most while it moves (a new `delay` only moves the centre). While the lines are
-//! silent the centres go there at once (nothing to hear).
+//! 5 cents at most while it moves (a new `delay` only moves the centre: up to about 10 s for the
+//! whole 29 ms range, so `delay` is a setting, not a sweep). When the ends of the line leave no
+//! room for the whole swing around that centre (a deeper swing at a short delay), the centre is
+//! the one that keeps the voice in place with the widest swing that fits, and the swing widens
+//! as the centre drifts. While the lines are silent the centres go there at once (nothing to
+//! hear).
 //!
 //! **Slew limit**: before it is read, each voice's delay moves by at most [`MAX_SLEW`] frames
 //! per frame: a safety net that the movement above never reaches (speed limit, centre drift). The
@@ -787,12 +791,26 @@ impl Bloom {
                         *centre = goal;
                     } else {
                         if rebase {
-                            // The voice stays where it is: the new swing starts from there.
-                            *centre = *voice - half * lfo;
+                            // The voice stays where it is: the new swing starts from there. When
+                            // the line's ends leave no room for the whole swing, the centre is
+                            // the one that keeps the voice in place with the widest swing that
+                            // fits (`swing` below); it widens as the centre drifts.
+                            let at = *voice - half * lfo;
+                            *centre = if at - half < MIN_READ_FRAMES {
+                                (*voice + MIN_READ_FRAMES * lfo) / (1.0 + lfo)
+                            } else if at + half > self.max_read {
+                                (*voice - self.max_read * lfo) / (1.0 - lfo)
+                            } else {
+                                at
+                            };
                         }
                         *centre += (goal - *centre).clamp(-MAX_DRIFT, MAX_DRIFT);
                     }
-                    let target = (*centre + half * lfo)
+                    let swing = half
+                        .min(*centre - MIN_READ_FRAMES)
+                        .min(self.max_read - *centre)
+                        .max(0.0);
+                    let target = (*centre + swing * lfo)
                         .max(MIN_READ_FRAMES)
                         .min(self.max_read);
                     *voice = if jump {

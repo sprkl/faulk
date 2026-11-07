@@ -1118,6 +1118,48 @@ fn a_new_delay_and_depth_never_bend_the_pitch() {
 }
 
 #[test]
+fn a_deeper_swing_with_no_room_below_widens_as_the_centre_rises() {
+    // A 1 ms vibrato, depth raised from 10 to 100 % at the top of its cycle: the full swing would
+    // dip below the newest frame. The voice stays in place, swings as wide as fits, and the swing
+    // widens to its full 480 frames as the centre drifts up: never stuck on the floor, no step.
+    let len = 4 * 48_000;
+    // 5.5 Hz from frame 0: the top of a cycle is a quarter period in.
+    let cycle = 48_000.0 / 5.5;
+    let change = (10.25 * cycle) as usize;
+    let mut b = bloom_with(&[
+        (MODE, VIBRATO),
+        (STEREO_PHASE, 0.0),
+        (RATE, 5.5),
+        (DEPTH, 10.0),
+        (DELAY, 0.001),
+    ]);
+    let (l, r) = run(
+        &mut b,
+        &sine(len, 440.0, 0.5, false),
+        &sine(len, 440.0, 0.5, true),
+        256,
+        |_| stopped(),
+        &[param(change, DEPTH, 100.0)],
+    );
+    let d = delay_of(&l, &r, 440.0);
+    // The new vibrato's fastest movement plus the centre's drift and the swing's widening.
+    let fastest = core::f64::consts::PI * 5.5 / 48_000.0 * 480.0 + 2.0 * bloom::MAX_DRIFT + 0.002;
+    let speed = d[4_800..]
+        .windows(2)
+        .fold(0f64, |m, w| m.max((w[1] - w[0]).abs()));
+    assert!(speed < fastest, "{speed} vs {fastest}");
+    // Never held on the floor: the delay keeps moving in every 10 ms window (a held voice would
+    // not move at all; the slowest legitimate window, at the bottom of a swing, moves frames).
+    for w in d[change..].windows(480).step_by(240) {
+        let (lo, hi) = min_max(w);
+        assert!(hi - lo > 0.5, "held at {lo}");
+    }
+    let (lo, hi) = min_max(&d[len - 2 * cycle as usize..]);
+    println!("swing at the end: {:.1} frames", hi - lo);
+    assert!((hi - lo - 480.0).abs() < 2.0, "{}", hi - lo);
+}
+
+#[test]
 fn a_tempo_change_and_a_stop_keep_a_synced_movement_continuous() {
     // Playing at 120 BPM, then 90 BPM from frame 48,000 (the position goes on from where it
     // was), then stopped from frame 96,000 (the LFO goes on from its phase at the tempo's rate).
