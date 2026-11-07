@@ -795,14 +795,7 @@ impl Bloom {
                             // the line's ends leave no room for the whole swing, the centre is
                             // the one that keeps the voice in place with the widest swing that
                             // fits (`swing` below); it widens as the centre drifts.
-                            let at = *voice - half * lfo;
-                            *centre = if at - half < MIN_READ_FRAMES {
-                                (*voice + MIN_READ_FRAMES * lfo) / (1.0 + lfo)
-                            } else if at + half > self.max_read {
-                                (*voice - self.max_read * lfo) / (1.0 - lfo)
-                            } else {
-                                at
-                            };
+                            *centre = rebased_centre(*voice, half, lfo, self.max_read, goal);
                         }
                         *centre += (goal - *centre).clamp(-MAX_DRIFT, MAX_DRIFT);
                     }
@@ -868,6 +861,23 @@ fn mix_gains(mix: f32) -> (f32, f32) {
         let a = mix * core::f32::consts::FRAC_PI_2;
         (a.cos(), a.sin())
     }
+}
+
+/// The centre that keeps a voice at `voice` frames while it swings by up to `half` at `lfo`,
+/// within the line (`MIN_READ_FRAMES` to `max_read`): `voice - half * lfo` when the whole swing
+/// fits, otherwise the centre whose widest fitting swing still passes through `voice`. At an
+/// exact extreme of the LFO (`1 +/- lfo` near 0) the plain centre is kept (the swing then clamps
+/// to what fits); a result that is not finite gives `fallback`.
+fn rebased_centre(voice: f64, half: f64, lfo: f64, max_read: f64, fallback: f64) -> f64 {
+    let at = voice - half * lfo;
+    let centre = if at - half < MIN_READ_FRAMES && 1.0 + lfo > 1e-6 {
+        (voice + MIN_READ_FRAMES * lfo) / (1.0 + lfo)
+    } else if at + half > max_read && 1.0 - lfo > 1e-6 {
+        (voice - max_read * lfo) / (1.0 - lfo)
+    } else {
+        at
+    };
+    if centre.is_finite() { centre } else { fallback }
 }
 
 /// The weight of the dry sound in `mode`.
@@ -948,5 +958,37 @@ impl Device for Bloom {
         self.quiet = self.lines[0].len();
         self.lfo = Lfo::new();
         self.snap = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_rebase_at_an_exact_extreme_on_the_floor_stays_finite() {
+        // At lfo = -1 with the voice on the floor, `(2 + 0.3) - 0.3` rounds below 2: the floor
+        // branch is taken and its denominator `1 + lfo` is 0.
+        let (voice, half, max) = (MIN_READ_FRAMES, 0.3, 1_000.0);
+        assert!(
+            voice - half * -1.0 - half < MIN_READ_FRAMES,
+            "the case is reached"
+        );
+        let c = rebased_centre(voice, half, -1.0, max, 50.0);
+        assert!(c.is_finite(), "{c}");
+        assert!((c - (voice + half)).abs() < 1e-9, "{c}");
+        // The same at the top of the line, lfo = +1.
+        let (voice, half, max) = (1_000.0, 0.3, 1_000.0);
+        let c = rebased_centre(voice, half, 1.0, max, 50.0);
+        assert!(c.is_finite(), "{c}");
+        // Inside the line the voice stays in place: centre + half * lfo = voice.
+        for lfo in [-0.9, -0.3, 0.0, 0.4, 0.95] {
+            let c = rebased_centre(300.0, 40.0, lfo, 1_000.0, 50.0);
+            assert!((c + 40.0 * lfo - 300.0).abs() < 1e-9, "{lfo}: {c}");
+        }
+        // Near the floor: the widest fitting swing passes through the voice.
+        let c = rebased_centre(10.0, 100.0, 0.5, 1_000.0, 50.0);
+        let swing = (c - MIN_READ_FRAMES).min(100.0);
+        assert!((c + swing * 0.5 - 10.0).abs() < 1e-9, "{c}");
     }
 }

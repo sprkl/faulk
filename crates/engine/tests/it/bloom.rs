@@ -1160,6 +1160,42 @@ fn a_deeper_swing_with_no_room_below_widens_as_the_centre_rises() {
 }
 
 #[test]
+fn a_rebase_at_an_exact_extreme_with_the_voice_on_the_floor_stays_finite() {
+    // Triangle at 1 ms, full depth: at three quarters of a cycle the LFO is exactly -1. The
+    // depth is moved at every frame around there, so a rebase lands on that very frame with the
+    // voice at the bottom of the line. (The rounding that makes `1 + lfo` exactly 0 in the
+    // floor branch is unit-tested in `devices/bloom.rs`.)
+    let rate = 6.0;
+    let cycle = 48_000.0 / rate as f64;
+    let len = 48_000;
+    let around = (2.75 * cycle) as usize;
+    let mut b = bloom_with(&[
+        (MODE, VIBRATO),
+        (SHAPE, TRIANGLE),
+        (RATE, rate),
+        (DEPTH, 100.0),
+        (DELAY, 0.001),
+    ]);
+    let events: Vec<(usize, Event)> = (around - 8..around + 8)
+        .map(|n| param(n, DEPTH, if n % 2 == 0 { 100.0 } else { 99.0 }))
+        .collect();
+    let (l, r) = run(
+        &mut b,
+        &sine(len, 440.0, 0.5, false),
+        &sine(len, 440.0, 0.5, true),
+        1,
+        |_| stopped(),
+        &events,
+    );
+    check(&l);
+    check(&r);
+    let d = delay_of(&l, &r, 440.0);
+    // Still moving afterwards (a centre gone to infinity would hold the voice still).
+    let (lo, hi) = min_max(&d[around + 4_800..]);
+    assert!(hi - lo > 400.0, "{}", hi - lo);
+}
+
+#[test]
 fn a_tempo_change_and_a_stop_keep_a_synced_movement_continuous() {
     // Playing at 120 BPM, then 90 BPM from frame 48,000 (the position goes on from where it
     // was), then stopped from frame 96,000 (the LFO goes on from its phase at the tempo's rate).
