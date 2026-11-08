@@ -97,6 +97,8 @@ export function formatValue(p: ParamDescriptor, value: number): string {
       if (value < 0.01) return `${+(value * 1000).toFixed(1)} ms`
       return value < 1 ? `${Math.round(value * 1000)} ms` : `${value.toFixed(2)} s`
     case 'hertz':
+      // Below 10 Hz (a modulation rate) the decimals matter: 0.8 Hz, not 1 Hz.
+      if (value < 10) return `${+value.toFixed(2)} Hz`
       return value < 1000 ? `${Math.round(value)} Hz` : `${(value / 1000).toFixed(2)} kHz`
     case 'gain':
       return value > 0 ? `${(20 * Math.log10(value)).toFixed(1)} dB` : '−∞ dB'
@@ -123,7 +125,8 @@ export function formatValue(p: ParamDescriptor, value: number): string {
  * its values for which the parameter is shown. Echo: the delay time in free mode, the note value in synced mode. Stack:
  * a voice's settings while the voice is on. Lattice: the rule with a scale, the root and scale with its own, the cells with the matrix. Ceiling: the release time in manual release.
  * Compressor: the release time in manual release, the sidechain frequency with the sidechain high-pass on. Filter: the LFO rate
- * and restart in free mode, the note value in synced mode.
+ * and restart in free mode, the note value in synced mode. Bloom: the rate when free, the note value when synced, the mix outside
+ * vibrato (which has no dry sound).
  */
 export const SHOWN_IN_MODE: Readonly<Record<string, Readonly<Record<string, { by: string; values: readonly string[] }>>>> = {
   'faulk.echo': { time: { by: 'mode', values: ['free'] }, division: { by: 'mode', values: ['synced'] } },
@@ -140,6 +143,7 @@ export const SHOWN_IN_MODE: Readonly<Record<string, Readonly<Record<string, { by
     lfo_restart: { by: 'lfo_sync', values: ['free'] },
     lfo_division: { by: 'lfo_sync', values: ['synced'] },
   },
+  'faulk.bloom': { rate: { by: 'sync', values: ['free'] }, division: { by: 'sync', values: ['synced'] }, mix: { by: 'mode', values: ['chorus', 'ensemble'] } },
 }
 
 /** Stack (#690): a voice's interval, velocity and chance show while the voice is on. */
