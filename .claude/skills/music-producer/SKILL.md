@@ -29,9 +29,9 @@ The work moves through five phases; each ends on a deliverable you can show. Whe
 
 ### 1. Frame
 
-Write the **brief and constraints**: tempo (inside the genre's range, or outside it on purpose), key and scale, the palette as roles (pulse, bass, harmony, lead, texture) with the sound family for each, the target length in bars, and two or three **arbitrary constraints** you commit to (no hi-hats; one chord; every sound from one sample; the melody uses five notes). If references exist, the catalog goes here.
+Write the **brief and constraints**: tempo (inside the genre's range, or outside it on purpose), key and scale, the palette as roles (pulse, bass, harmony, lead, texture) with the sound family for each, the target length in bars, and two or three **arbitrary constraints** you commit to (no hi-hats; one chord; every sound from one sample; the melody uses five notes). Choose the **form** now, by the rule in [forms.md](references/forms.md) → Choosing the form (never one of the two previous runs' forms), and write it as `Form: F<n> <name>`: it decides the palette as much as the genre does. If references exist, the catalog goes here.
 
-Done when: every one of the five parameters has a line, the constraints are written, and nothing in the frame depends on a sound that does not exist yet.
+Done when: every one of the five parameters has a line, the form is named, the constraints are written, and nothing in the frame depends on a sound that does not exist yet.
 
 ### 2. Seed
 
@@ -43,11 +43,13 @@ Done when: `scripts/sheet_tool.py check` reports no errors, every in-key warning
 
 Turn the seed into a **pool of material** by mutation over generations: duplicate, change exactly one meaningful thing (sound, harmony, melody, rhythm or form), duplicate the duplicate, never revert; six to eight generations. Add at least one structural device from the Progressing part of [creative-strategies.md](references/creative-strategies.md) that fits the genre: a polyrhythmic loop, a linear drum pattern, a hocket, parallel harmony, a decision about silence and noise. Name every pattern by what it carries (`Beat A`, `Beat A no kick`, `Bass gen3 octave`).
 
-Done when: there are enough distinct patterns to fill the form chosen in phase 4 with a different combination per section, and each one has passed the check.
+Before leaving this phase, write the chord cycle of every section of the form. If two sections share the same cycle in the same key and order, apply a move from [creative-strategies.md](references/creative-strategies.md) → Harmonic travel, unless the single cycle is one of your stated constraints.
+
+Done when: there are enough distinct patterns to fill the form chosen in Frame with a different combination per section, each section has its cycle on paper, and each pattern has passed the check.
 
 ### 4. Arrange
 
-Choose the **form** (by sections, or by density: [arrangement.md](references/arrangement.md)), fix the total length in bars, then arrange **subtractively**: fill everything everywhere, carve per section, work backwards from the densest moment. Place the **dramatic arc** or its static substitute. Blur every seam with a coarse edit and the important ones with an anticipation or a hesitation. Insert three to six **unique events** with bar and beat. Write the **movement of the sounds** as `automation` blocks ([notation.md](references/notation.md)): at least two lanes (a filter cutoff, a resonance, an FM index, a level or a pan), each aimed at a pattern, with points by bar and beat and a curve chosen for the feel; a style profile that asks for automation lanes is answered here, not by prose alone. Write the arrangement block: sections of 8 or 16 bars, and the seam edits as **windows** on the parts (`Bass A [from=15.3]`, `Lead [to=95.3]`, `Beat A [mute=27]`), so that a pattern exists only where the notes differ. Ten to twenty patterns carry a whole track; past that, arrangement edits are being written as patterns.
+Lay the **form** chosen in Frame on bars ([forms.md](references/forms.md) for its map, [arrangement.md](references/arrangement.md) for sections or density), fix the total length in bars, then arrange **subtractively**: fill everything everywhere, carve per section (or per parameter, for a form built on transformation), work backwards from the most intense moment. Place the **dramatic arc** or its static substitute. Blur every seam with a coarse edit and the important ones with an anticipation or a hesitation. Insert three to six **unique events** with bar and beat, at least one of them structural (a bar of silence, a meter change, a role swap: see [arrangement.md](references/arrangement.md) → Unique events). Write the **movement of the sounds** as `automation` blocks ([notation.md](references/notation.md)): at least two lanes (a filter cutoff, a resonance, an FM index, a level or a pan), each aimed at a pattern, with points by bar and beat and a curve chosen for the feel; a style profile that asks for automation lanes is answered here, not by prose alone. Write the arrangement block: sections of 8 or 16 bars, and the seam edits as **windows** on the parts (`Bass A [from=15.3]`, `Lead [to=95.3]`, `Beat A [mute=27]`), so that a pattern exists only where the notes differ. Ten to twenty patterns carry a whole track; past that, arrangement edits are being written as patterns.
 
 Done when: the arrangement block covers every bar from 1 to the end with no gaps, every section lists its parts, section lengths are multiples of 4 except where the irregularity is named, every seam has its blur noted (as a window where it is a timing edit, in prose where it is processing), the unique events are placed, the automation lanes sit inside the arrangement and aim at parts that play, and the check passes.
 
@@ -67,7 +69,7 @@ One Markdown file, written in the user's language from the title to the headings
 ## Catalog of attributes      only when references or a style profile were given
 ## Seed loop                  pattern blocks + one line each on why
 ## Variations                 the generations, one line each on what changed
-## Arrangement                the arrangement block, then seams and unique events by bar
+## Arrangement                `Form: F<n> <name>` on the first line, the arrangement block, then each section's chord cycle, seams and unique events by bar
 ## Automation                 the automation blocks, one line each on what moves and why that curve
 ## Finishing notes            sounds, humanising, what is left to the ear, next version
 ## Check                      the output of sheet_tool.py check, verbatim
@@ -88,7 +90,9 @@ Go through this list against the actual files, not from memory:
 - every pattern block passes the check; every warning left standing is a decision written next to the pattern;
 - every monophonic melody has one peak, or the exception is named;
 - the bass agrees with the chords on every change, or the clash is the idea;
-- the arrangement has no gaps, no unnamed irregular lengths, blurred seams and placed unique events;
+- the arrangement has no gaps, no unnamed irregular lengths, blurred seams and placed unique events, one of them structural;
+- the form is named, and is not one of the two previous runs' forms (or the brief imposed it);
+- at least two sections have a different chord cycle, or the single cycle is a stated constraint;
 - the constraints from phase 1 are still honoured, or the moment they were dropped is recorded;
 - tempo, key and length match the brief, or the deviation is explained in a line.
 
@@ -102,5 +106,6 @@ The report states what was produced, what was verified and how (quote the check)
 | [references/creative-strategies.md](references/creative-strategies.md) | at the start of each phase, the part that matches it (Beginning, Progressing, Finishing); and whenever the user describes a block |
 | [references/theory.md](references/theory.md) | when choosing key, scale, chords, bass or melody notes, or when the check reports out-of-key notes |
 | [references/patterns.md](references/patterns.md) | when seeding a part from an archetype, or when a part sounds generic and needs a different model |
-| [references/arrangement.md](references/arrangement.md) | in phases 4 and 5: forms by bar count, seams, unique events, endings, the good-enough list |
+| [references/forms.md](references/forms.md) | in phase 1, to choose the form by the rotation rule; in phase 4, for its bar map |
+| [references/arrangement.md](references/arrangement.md) | in phases 4 and 5: sections and density, the harmonic plan on bars, seams, unique events, endings, the good-enough list |
 | [references/styles/README.md](references/styles/README.md) | only when the brief names a style profile: how to apply it, and the list of profiles |
