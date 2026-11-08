@@ -36,6 +36,10 @@ Write the texts short and factual: what the agent tried, how far it got, what wa
 
 The cover is generated from the date, the slug and the musical data (`art.ts`): nothing to draw or store, and fixing a typo in the texts does not change it.
 
+## Correcting a published day
+
+When the founder asks to replace a day's track (a wrong note, a bad export), keep the date, the slug and the folder, so the day's URL stays. In the audio repository, replace only the files that changed (`track.mp3`, `project.faulkpack`; `sheet.md` and `track.mid` stay when the sheet was right), then purge them on jsDelivr (`https://purge.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/<date>-<slug>/<file>`) and check that the served file is the new one (same checksum). In the entry, add ` (v2)` to `title` (then v3…; the slug does not change) and one sentence in `built`, in both languages, saying what the new version changed and why; leave `journal` on the run's comment and post the correction as a reply in #362. Check every melodic clip of the corrected project against the sheet before publishing.
+
 ## 3. Check and ship
 
 From `web/`: `pnpm exec vitest run src/lib/journey` validates every entry (fields, file name, bars, links; the build throws on an invalid one too), then `pnpm exec playwright test journey` (with `FAULK_E2E_PROJECTS=dev`). Open the pull request against `develop` as usual; the newest entry becomes the featured one and the previous one moves to the feed.

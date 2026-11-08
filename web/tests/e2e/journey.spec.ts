@@ -263,7 +263,8 @@ for (const lang of ['en', 'fr'] as const) {
     await days.first().locator('a.permalink').click()
     await expect(page).toHaveURL(new RegExp(`/${lang}/journey/\\d{4}-\\d{2}-\\d{2}-[a-z0-9-]+$`))
     await expect(page.locator('h1')).toHaveText(title)
-    await expect(page).toHaveTitle(new RegExp(title))
+    // Escaped: a title may hold regex characters, such as "Floraison (v2)".
+    await expect(page).toHaveTitle(new RegExp(title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
     await expect(page.locator('[data-fk-player]')).toHaveCount(1)
     await expect(page.locator('[data-fk-actions] a')).toHaveCount(4)
     // The language switch stays on this day.
