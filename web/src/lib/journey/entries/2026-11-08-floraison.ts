@@ -3,7 +3,7 @@ import type { JourneyEntry } from '../types'
 export default {
   date: '2026-11-08',
   slug: 'floraison',
-  title: 'Floraison',
+  title: 'Floraison (v2)',
   commit: '98332b8',
   genre: { en: 'Mid-tempo instrumental electronic', fr: 'Instrumental électronique à mi-tempo' },
   bpm: 108,
@@ -17,8 +17,8 @@ export default {
     fr: 'Aucun profil de style. 108 bpm en Mi mineur, un seul cycle de quatre accords (Em, C, G, D) du début à la fin : ce qui change, c’est le son, pas l’harmonie. Écrit pour mettre à l’épreuve Bloom, le chorus arrivé la veille : une nappe qui s’élargit, de sèche à désaccordée en ensemble, et un lead vibré qui se répond une quarte plus haut, une transposition mécanique que Lattice ramène dans la gamme. La basse est une figure 3-3-2 et rien d’autre.',
   },
   built: {
-    en: 'The sixth day built through the interface only: no command, no page script, no import of the sheet’s MIDI. 54 minutes. 7 tracks, 10 patterns, 136 linked placements, 8 cuts with Ctrl+E and 3 automation lanes with 14 points. The mix exported as a WAV, the project saved, reopened from the recent projects with everything back, and exported as a .faulkpack. Bloom, Trim, Lattice, the Filter’s envelope follower and drive, and the Compressor’s knee, lookahead and mix all audible in the export.',
-    fr: 'Sixième jour construit par l’interface seule : aucune commande, aucun script de page, aucun import du MIDI de la fiche. 54 minutes. 7 pistes, 10 motifs, 136 placements liés, 8 coupes avec Ctrl+E et 3 couloirs d’automation à 14 points. Le mix exporté en WAV, le projet enregistré, rouvert depuis les projets récents avec tout revenu, et exporté en .faulkpack. Bloom, Trim, Lattice, le suiveur d’enveloppe et la saturation du Filter, le genou, l’anticipation et le mélange du Compressor, tous audibles dans l’export.',
+    en: 'The sixth day built through the interface only: no command, no page script, no import of the sheet’s MIDI. 54 minutes. 7 tracks, 10 patterns, 136 linked placements, 8 cuts with Ctrl+E and 3 automation lanes with 14 points. The mix exported as a WAV, the project saved, reopened from the recent projects with everything back, and exported as a .faulkpack. Version 2: in the first export the arpeggio played C minor, G minor and D minor over C, G and D major (a semitone transposition of the Em bar); its three bars were corrected in the interface, nothing else changed. Bloom, Trim, Lattice, the Filter’s envelope follower and drive, and the Compressor’s knee, lookahead and mix all audible in the export.',
+    fr: 'Sixième jour construit par l’interface seule : aucune commande, aucun script de page, aucun import du MIDI de la fiche. 54 minutes. 7 pistes, 10 motifs, 136 placements liés, 8 coupes avec Ctrl+E et 3 couloirs d’automation à 14 points. Le mix exporté en WAV, le projet enregistré, rouvert depuis les projets récents avec tout revenu, et exporté en .faulkpack. Version 2 : dans le premier export, l’arpège jouait Do mineur, Sol mineur et Ré mineur sur Do, Sol et Ré majeurs (une transposition en demi-tons de la mesure de Mi mineur) ; ses trois mesures ont été corrigées dans l’interface, rien d’autre n’a changé. Bloom, Trim, Lattice, le suiveur d’enveloppe et la saturation du Filter, le genou, l’anticipation et le mélange du Compressor, tous audibles dans l’export.',
   },
   tested: [
     {
