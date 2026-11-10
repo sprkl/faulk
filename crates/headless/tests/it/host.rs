@@ -133,22 +133,25 @@ fn an_agent_exports_into_the_folder_without_overwriting() {
     host.save().expect("saved");
     let first = host.call(AUTHOR, &json!({ "type": "project.export_audio" }));
     let Answer::Applied {
-        file: Some(file),
+        export: Some(export),
         output,
     } = first
     else {
         panic!("{first:?}")
     };
-    assert_eq!(file, "exports/My song.wav");
+    assert_eq!(export.file, "exports/My song.wav");
+    assert!(export.missing.is_empty() && export.silenced_frames == 0);
+    assert!(export.peak_db.is_some());
     assert!(output["duration_secs"].as_f64().is_some_and(|s| s > 1.9));
     let second = host.call(AUTHOR, &json!({ "type": "project.export_audio" }));
     let Answer::Applied {
-        file: Some(file), ..
+        export: Some(export),
+        ..
     } = second
     else {
         panic!("{second:?}")
     };
-    assert_eq!(file, "exports/My song 2.wav");
+    assert_eq!(export.file, "exports/My song 2.wav");
     assert!(root.join("exports/My song.wav").is_file());
     // An export is no edit: nothing to save, and the exports stay out of the project.
     assert!(!host.dirty());

@@ -1,10 +1,11 @@
 //! The project folder on disk, as the headless host reads and writes it.
 //!
 //! - Opening: the folder is read into the frame `project_wasm::parse_folder` takes, as the page
-//!   builds it from its storage (`folderFrame` in `web/src/lib/project/core.ts`): every file
-//!   whole, except the blobs, which are listed by size, the blobs of dense automation lanes
-//!   (`FKAUTO01`) excepted. What is not the project's (`.git/`, `exports/`, `.faulk/cache/`,
-//!   `.faulk/tmp/`) and symbolic links are left out.
+//!   builds it from its storage (`readFolder` in `web/src/lib/storage/backend.ts`, `folderFrame`
+//!   in `web/src/lib/project/core.ts`): the same files (`project.json`, `tracks/`, `master/`,
+//!   `presets/`, `blobs/`, then `.faulk/session.json`, `.gitignore`, `.gitattributes`), every one
+//!   whole except the blobs, which are listed by size, the blobs of dense automation lanes
+//!   (`FKAUTO01`) excepted. Symbolic links are left out.
 //! - Saving: the core's save frame (`crates/project-wasm/src/save.rs`) is parsed and applied
 //!   with `project::file::StdFs` (temporary file then rename, paths confined to the folder).
 //! - Rendering: the engine's reads of audio files (`blobs/<hash>`, `.faulk/cache/pcm/<hash>.pcm`),
@@ -23,13 +24,22 @@ pub const STAGED_NAME: &str = "headless";
 /// The first bytes of a blob of dense automation points (`crates/project/src/file/unit.rs`).
 const LANE_BLOB_MAGIC: &[u8; 8] = b"FKAUTO01";
 
-/// What is in a project folder but is not the project: never staged.
-const SKIPPED: [&str; 4] = [".git", "exports", ".faulk/cache", ".faulk/tmp"];
+/// What of the root belongs to the project, as the page's storage scans it
+/// (`PROJECT_ROOT_FILES`, `PROJECT_ROOT_DIRS` in `web/src/lib/storage/backend.ts`): a README, a
+/// mixdown, the file manager's files are the user's, never staged.
+const PROJECT_ROOT_FILES: [&str; 1] = ["project.json"];
+const PROJECT_ROOT_DIRS: [&str; 4] = ["tracks", "master", "presets", "blobs"];
+/// Directories skipped at any depth (`SKIPPED_DIRS`).
+const SKIPPED_DIRS: [&str; 1] = [".git"];
+/// The suffix of a browser's swap file (`SWAP_SUFFIX`).
+const SWAP_SUFFIX: &str = ".crswap";
+/// The files outside the scan that opening reads too (`readFolder`).
+const EXTRA_FILES: [&str; 3] = [".faulk/session.json", ".gitignore", ".gitattributes"];
 
-/// The folder frame of `root` for `project_wasm::Core::stage` (layout: `parse_folder`).
-pub fn folder_frame(root: &Path) -> Result<Vec<u8>, String> {
-    let mut frame = Vec::new();
-    push_text(&mut frame, STAGED_NAME);
+/// The project's files below `root`, as the page's `walk` lists them, then the extra files that
+/// exist: relative paths. Symbolic links and names that are not UTF-8 are left out.
+pub fn project_files(root: &Path) -> Result<Vec<String>, String> {
+    let mut files = Vec::new();
     let mut pending = vec![String::new()];
     while let Some(dir) = pending.pop() {
         let full = if dir.is_empty() {
@@ -42,51 +52,79 @@ pub fn folder_frame(root: &Path) -> Result<Vec<u8>, String> {
             .map_err(|e| format!("{}: {e}", full.display()))?;
         entries.sort_by_key(|e| e.file_name());
         for entry in entries {
-            // A name that is not UTF-8 is no file of the project's format.
             let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
                 continue;
             };
+            let kind = entry.file_type().map_err(|e| format!("{name}: {e}"))?;
             let path = if dir.is_empty() {
-                name
+                name.clone()
             } else {
                 format!("{dir}/{name}")
             };
-            if SKIPPED.contains(&path.as_str()) {
-                continue;
-            }
-            let kind = entry.file_type().map_err(|e| format!("{path}: {e}"))?;
-            if kind.is_symlink() {
-                continue;
-            }
             if kind.is_dir() {
-                pending.push(path);
-                continue;
+                let wanted = if dir.is_empty() {
+                    PROJECT_ROOT_DIRS.contains(&name.as_str())
+                } else {
+                    !SKIPPED_DIRS.contains(&name.as_str())
+                };
+                if wanted {
+                    pending.push(path);
+                }
+            } else if kind.is_file()
+                && !name.ends_with(SWAP_SUFFIX)
+                && (!dir.is_empty() || PROJECT_ROOT_FILES.contains(&name.as_str()))
+            {
+                files.push(path);
             }
-            if !kind.is_file() {
-                continue;
+        }
+    }
+    files.sort();
+    for extra in EXTRA_FILES {
+        let path = root.join(extra);
+        let is_file = fs::symlink_metadata(&path).is_ok_and(|m| m.file_type().is_file());
+        if is_file {
+            files.push(extra.to_owned());
+        }
+    }
+    Ok(files)
+}
+
+/// The folder frame of `root` for `project_wasm::Core::stage` (layout: `parse_folder`).
+pub fn folder_frame(root: &Path) -> Result<Vec<u8>, String> {
+    let too_big = || {
+        format!(
+            "the project's files hold more than {} bytes",
+            project_wasm::MAX_FOLDER_FRAME
+        )
+    };
+    let mut frame = Vec::new();
+    push_text(&mut frame, STAGED_NAME);
+    for path in project_files(root)? {
+        let blob = path.strip_prefix("blobs/");
+        if blob.is_some_and(|name| name.contains('/')) {
+            // The format keeps blobs flat: a nested file is none of its.
+            continue;
+        }
+        let full = root.join(&path);
+        let size = fs::metadata(&full)
+            .map_err(|e| format!("{path}: {e}"))?
+            .len();
+        push_text(&mut frame, &path);
+        if blob.is_some() && !is_lane_blob(&full)? {
+            frame.push(1);
+            frame.extend_from_slice(&size.to_le_bytes());
+        } else {
+            // Checked before reading: a file too big for the frame is never loaded.
+            if frame.len() as u64 + size > project_wasm::MAX_FOLDER_FRAME as u64 {
+                return Err(too_big());
             }
-            let blob = path.strip_prefix("blobs/");
-            if blob.is_some_and(|name| name.contains('/')) {
-                // The format keeps blobs flat: a nested file is none of its.
-                continue;
-            }
-            push_text(&mut frame, &path);
-            if blob.is_some() && !is_lane_blob(&entry.path())? {
-                let size = entry.metadata().map_err(|e| format!("{path}: {e}"))?.len();
-                frame.push(1);
-                frame.extend_from_slice(&size.to_le_bytes());
-            } else {
-                let bytes = fs::read(entry.path()).map_err(|e| format!("{path}: {e}"))?;
-                frame.push(0);
-                frame.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
-                frame.extend_from_slice(&bytes);
-            }
-            if frame.len() > project_wasm::MAX_FOLDER_FRAME {
-                return Err(format!(
-                    "the project's files hold more than {} bytes",
-                    project_wasm::MAX_FOLDER_FRAME
-                ));
-            }
+            let bytes = fs::read(&full).map_err(|e| format!("{path}: {e}"))?;
+            frame.push(0);
+            frame.extend_from_slice(&(bytes.len() as u64).to_le_bytes());
+            frame.extend_from_slice(&bytes);
+        }
+        if frame.len() > project_wasm::MAX_FOLDER_FRAME {
+            return Err(too_big());
         }
     }
     Ok(frame)
@@ -239,6 +277,41 @@ impl Media {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_the_project_files_are_staged_as_the_page_scans_them() {
+        let root = std::env::temp_dir().join(format!("faulk-headless-scan-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        for (path, bytes) in [
+            ("project.json", &b"{}"[..]),
+            ("README.md", b"mine"),
+            ("mixdown.wav", b"RIFF"),
+            ("tracks/a/track.json", b"{}"),
+            ("tracks/a/x.json.crswap", b"swap"),
+            ("tracks/.git/HEAD", b"ref"),
+            ("blobs/ab", b"audio"),
+            ("exports/song.wav", b"RIFF"),
+            ("other/file", b"x"),
+            (".faulk/session.json", b"{}"),
+            (".faulk/cache/pcm/ab.pcm", b"pcm"),
+            (".gitignore", b"x"),
+        ] {
+            let full = root.join(path);
+            fs::create_dir_all(full.parent().unwrap()).unwrap();
+            fs::write(full, bytes).unwrap();
+        }
+        assert_eq!(
+            project_files(&root).unwrap(),
+            [
+                "blobs/ab",
+                "project.json",
+                "tracks/a/track.json",
+                ".faulk/session.json",
+                ".gitignore"
+            ]
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
 
     #[test]
     fn a_save_frame_round_trips_and_a_bad_one_is_refused() {

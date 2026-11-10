@@ -42,26 +42,36 @@ impl std::fmt::Display for HostError {
 /// What a command did.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Answer {
-    /// It applied: the command's output, and the file the host wrote for it (an export).
-    Applied { output: Value, file: Option<String> },
+    /// It applied: the command's output, and what the host wrote for it (an export: the file,
+    /// its peak, what was silenced, the media missing from the folder).
+    Applied {
+        output: Value,
+        export: Option<Exported>,
+    },
     /// The project refused it (the command's error): nothing changed.
     Refused { error: Value },
     /// It is not a command this build knows, or its author is not valid: nothing changed.
     Invalid { message: String },
     /// The headless host does not run it ([`policy::UNSUPPORTED`]): nothing changed.
     Unsupported { message: String },
-    /// The host failed to do its part (write the folder, render): the message says what.
+    /// The host failed to do its part (render, write the export): nothing changed in the project.
     Failed { message: String },
+    /// The command applied in the project, but the folder could not be written: the project
+    /// holds the change and the next save writes it again. Not to be retried.
+    Unsaved { output: Value, message: String },
 }
+
+/// The error code of [`Answer::Unsaved`].
+pub const UNSAVED: &str = "host.unsaved";
 
 impl Answer {
     /// The answer as one JSON object with its `status`.
     pub fn to_json(&self) -> Value {
         match self {
-            Answer::Applied { output, file } => {
+            Answer::Applied { output, export } => {
                 let mut body = json!({ "status": "applied", "output": output });
-                if let Some(file) = file {
-                    body["file"] = json!(file);
+                if let Some(export) = export {
+                    body["export"] = export.to_json();
                 }
                 body
             }
@@ -71,6 +81,12 @@ impl Answer {
                 json!({ "status": "unsupported", "code": policy::UNSUPPORTED, "message": message })
             }
             Answer::Failed { message } => json!({ "status": "failed", "message": message }),
+            Answer::Unsaved { output, message } => json!({
+                "status": "unsaved",
+                "code": UNSAVED,
+                "output": output,
+                "message": message
+            }),
         }
     }
 
@@ -239,7 +255,10 @@ impl Host {
             Route::Core => self.run(&bytes),
             Route::Save => match self.run(&bytes) {
                 Answer::Applied { output, .. } => match self.save() {
-                    Ok(_) => Answer::Applied { output, file: None },
+                    Ok(_) => Answer::Applied {
+                        output,
+                        export: None,
+                    },
                     Err(e) => Answer::Failed {
                         message: e.to_string(),
                     },
@@ -250,7 +269,7 @@ impl Host {
                 Answer::Applied { output, .. } => match self.export(&fields(command, None), None) {
                     Ok(exported) => Answer::Applied {
                         output,
-                        file: Some(exported.file),
+                        export: Some(exported),
                     },
                     Err(ExportFailure::Refused(error)) => Answer::Refused { error },
                     Err(ExportFailure::Failed(message)) => Answer::Failed { message },
@@ -274,7 +293,7 @@ impl Host {
         match report {
             RunReport::Applied { output, .. } => Answer::Applied {
                 output: serde_json::to_value(output).unwrap_or(Value::Null),
-                file: None,
+                export: None,
             },
             RunReport::Refused { error } => Answer::Refused {
                 error: serde_json::to_value(error).unwrap_or(Value::Null),
@@ -337,8 +356,17 @@ impl Host {
         let rendered = self.render(request)?;
         let file = match out {
             Some(path) => {
-                std::fs::write(path, &rendered.wav)
-                    .map_err(|e| ExportFailure::Failed(format!("{}: {e}", path.display())))?;
+                // Whole or not at all: beside the target, then renamed over it, so that a failed
+                // write never leaves a truncated file where an earlier one was.
+                let mut part = path.as_os_str().to_owned();
+                part.push(".part");
+                let part = PathBuf::from(part);
+                let failed = |e: std::io::Error| {
+                    let _ = std::fs::remove_file(&part);
+                    ExportFailure::Failed(format!("{}: {e}", path.display()))
+                };
+                std::fs::write(&part, &rendered.wav).map_err(failed)?;
+                std::fs::rename(&part, path).map_err(failed)?;
                 path.display().to_string()
             }
             None => {

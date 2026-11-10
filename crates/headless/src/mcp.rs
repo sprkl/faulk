@@ -98,25 +98,31 @@ pub fn command_json(command: &str, arguments: Option<Map<String, Value>>) -> Res
 
 /// What a tool call answers: the command's output on success; otherwise an error whose text is a
 /// JSON object with a stable `code` (`command.refused`, `command.invalid`,
-/// [`policy::UNSUPPORTED`], `host.failed`), a `message` and, for a refusal, the command's `error`.
+/// [`policy::UNSUPPORTED`], `host.failed`, [`crate::host::UNSAVED`]), a `message` and, for a
+/// refusal, the command's `error`. An export's answer adds a second text block: the file written,
+/// its peak, the frames silenced and the media missing from the folder (silent clips).
 pub fn tool_result(answer: Answer) -> CallToolResult {
-    let error = |code: &str, message: String, detail: Option<Value>| {
+    let error = |code: &str, message: String, detail: Option<(&str, Value)>| {
         let mut body = json!({ "code": code, "message": message });
-        if let Some(detail) = detail {
-            body["error"] = detail;
+        if let Some((key, detail)) = detail {
+            body[key] = detail;
         }
         CallToolResult::error(vec![ContentBlock::text(body.to_string())])
     };
     match answer {
-        Answer::Applied { output, file } => match output {
+        Answer::Applied { output, export } => match output {
             Value::Object(mut fields) => {
                 fields.remove("type");
                 let output = Value::Object(fields);
                 let mut content = vec![ContentBlock::text(output.to_string())];
-                if let Some(file) = file {
-                    content.push(ContentBlock::text(format!(
-                        "written: {file} (in the project's folder)"
-                    )));
+                if let Some(export) = export {
+                    let mut written = export.to_json();
+                    written["note"] = json!(if export.missing.is_empty() {
+                        "the file is in the project's folder"
+                    } else {
+                        "the file is in the project's folder; the clips of the missing media are silent in it"
+                    });
+                    content.push(ContentBlock::text(written.to_string()));
                 }
                 let mut result = CallToolResult::success(content);
                 result.structured_content = Some(output);
@@ -127,11 +133,16 @@ pub fn tool_result(answer: Answer) -> CallToolResult {
         Answer::Refused { error: detail } => error(
             "command.refused",
             "the command was refused: nothing changed".to_owned(),
-            Some(detail),
+            Some(("error", detail)),
         ),
         Answer::Invalid { message } => error("command.invalid", message, None),
         Answer::Unsupported { message } => error(policy::UNSUPPORTED, message, None),
         Answer::Failed { message } => error("host.failed", message, None),
+        Answer::Unsaved { output, message } => error(
+            crate::host::UNSAVED,
+            format!("{message}: the command applied, do not run it again"),
+            Some(("output", output)),
+        ),
     }
 }
 
@@ -177,9 +188,12 @@ impl Handler {
         let mut answer = host.call(author, &command);
         if answer.applied() && host.dirty() {
             // What an agent did is in the folder before it is answered: a crash loses nothing.
-            if let Err(e) = host.save() {
-                answer = Answer::Failed {
-                    message: format!("the command applied but the folder was not saved: {e}"),
+            if let Err(e) = host.save()
+                && let Answer::Applied { output, .. } = answer
+            {
+                answer = Answer::Unsaved {
+                    output,
+                    message: format!("the folder was not saved: {e}"),
                 };
             }
         }

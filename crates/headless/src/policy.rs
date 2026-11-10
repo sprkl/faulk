@@ -101,6 +101,34 @@ mod tests {
     }
 
     #[test]
+    fn each_command_of_the_catalog_takes_exactly_its_route() {
+        let refused_by_name = [
+            "project.new",
+            "project.open",
+            "project.list_stored",
+            "mixer.levels",
+        ];
+        for spec in commands::catalog() {
+            let name = spec.name.as_str();
+            let expected = match name {
+                "project.save" => Route::Save,
+                "project.export_audio" => Route::Export,
+                "project.analyze_render" => Route::Analyze,
+                _ if LIVE_IN_CORE.contains(&name) => Route::Core,
+                _ if refused_by_name.contains(&name) || spec.kind == Kind::Live => {
+                    assert!(
+                        matches!(route(name, spec.kind), Route::Refused(_)),
+                        "{name}"
+                    );
+                    continue;
+                }
+                _ => Route::Core,
+            };
+            assert_eq!(route(name, spec.kind), expected, "{name}");
+        }
+    }
+
+    #[test]
     fn the_served_and_core_live_commands_exist_in_the_catalog() {
         for name in [
             "project.save",
