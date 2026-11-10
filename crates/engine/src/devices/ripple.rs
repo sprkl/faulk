@@ -583,8 +583,11 @@ impl Ripple {
                 let chosen = (value.round() as usize).min(1);
                 for (i, w) in self.modes.iter_mut().enumerate() {
                     let target = if i == chosen { 1.0 } else { 0.0 };
-                    // A mode fully faded out starts again from cleared states.
-                    if target > 0.0 && w.is_still() && w.current() == 0.0 {
+                    // A mode fully faded out (at 0 and aimed at 0: it is not computed) starts
+                    // again from cleared states. `aim` below leaves a restated mode alone, so a
+                    // repeated value (a seek, an automation lane, an agent) never restarts a
+                    // ramp that would hide this state.
+                    if target > 0.0 && w.current() == 0.0 && w.target() == 0.0 {
                         if i == PHASER as usize {
                             self.chains = [Chain::default(); 2];
                             self.ran = 0;
@@ -595,7 +598,7 @@ impl Ripple {
                             }
                         }
                     }
-                    w.set(target, fade);
+                    w.aim(target, fade);
                 }
             }
             STAGES => {

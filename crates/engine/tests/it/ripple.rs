@@ -661,6 +661,60 @@ fn the_choices_fade_instead_of_clicking_even_when_changed_back_quickly() {
     }
 }
 
+/// The flanger rings noise at 90 % feedback, the phaser takes over until it has fully faded
+/// out and the input is silent, then the flanger is chosen again (with the current mode
+/// restated `restate` frames before, as a seek or an automation lane does): it must start from
+/// cleared lines, so the output stays exactly silent.
+fn flanger_after_a_full_fade(restate: Option<usize>) -> Vec<f32> {
+    let sr = SR as usize;
+    let len = 2 * sr;
+    let mut x = noise(len, 41);
+    let quiet = sr / 2 + sr / 5;
+    for s in &mut x[quiet..] {
+        *s = 0.0;
+    }
+    let back = sr + sr / 2;
+    let mut events: Vec<(usize, Event)> = vec![
+        (0, param(MODE, FLANGER as f32)),
+        (sr / 2, param(MODE, PHASER as f32)),
+        (back, param(MODE, FLANGER as f32)),
+    ];
+    if let Some(before) = restate {
+        events.push((back - before, param(MODE, PHASER as f32)));
+        events.sort_by_key(|(at, _)| *at);
+    }
+    let mut r = with(&[
+        (FEEDBACK, 90.0),
+        (DELAY, 0.005),
+        (LFO_DEPTH, 0.0),
+        (MIX, 100.0),
+    ]);
+    let y = render(&mut r, (&x, &x), 64, &events, &stopped, None).0;
+    // The flanger rang (its lines are full) and the phaser has died out before the switch.
+    assert!(peak(&y[sr / 4..sr / 2]) > 0.1);
+    assert!(
+        y[back - 4_800..back].iter().all(|s| *s == 0.0),
+        "the phaser has not died out"
+    );
+    y[back..].to_vec()
+}
+
+#[test]
+fn a_mode_chosen_again_after_a_full_fade_starts_from_cleared_states() {
+    let y = flanger_after_a_full_fade(None);
+    assert!(y.iter().all(|s| *s == 0.0), "peak {}", peak(&y));
+}
+
+#[test]
+fn restating_the_current_mode_does_not_keep_a_faded_mode_from_being_cleared() {
+    // The current mode restated 5 ms (240 frames, inside the 10 ms fade) and 1 frame before
+    // the switch: with a restarted ramp the flanger would reuse its old lines.
+    for before in [240, 1] {
+        let y = flanger_after_a_full_fade(Some(before));
+        assert!(y.iter().all(|s| *s == 0.0), "{before}: peak {}", peak(&y));
+    }
+}
+
 #[test]
 fn reset_clears_the_states_and_renders_like_a_new_device() {
     let x = noise(SR as usize / 4, 30);
