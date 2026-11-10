@@ -163,7 +163,7 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/clips\.ts$/, areas('clips', 'audio')],
   [/^web\/src\/lib\/i18n\/audio\.ts$/, areas('arrangement', 'grid', 'clips', 'audio')],
   [/^web\/src\/lib\/i18n\/confirm\.ts$/, areas('helper', 'history')], // shown by the agents' question (lib/agents/, views/confirm/)
-  [/^web\/src\/lib\/i18n\/(devices|presets|synth|drums|echo|reverb|filter|compressor|stack|trim|lattice|scatter|ceiling|hiccup)\.ts$/, areas('devices')],
+  [/^web\/src\/lib\/i18n\/(devices|presets|synth|drums|echo|reverb|filter|compressor|stack|trim|lattice|scatter|ceiling|hiccup|bloom)\.ts$/, areas('devices')],
   [/^web\/src\/lib\/i18n\/controls\.ts$/, areas('mixer', 'tracks', 'devices', 'valueEntry', 'arrangement', 'pianoRoll')],
   [/^web\/src\/lib\/i18n\/engine\.ts$/, areas('arrangement', 'mixer', 'topBar')],
   // The export's texts in Boost are shown through the helper (#319), whose message types share the keys' names.

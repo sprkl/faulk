@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 52;
+pub const PROTOCOL_VERSION: u32 = 55;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -44,10 +44,15 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
-// Version 52 (#800): the engine's control stream gains `DeviceMove` (tag 24), which moves an
-// audio effect to a free slot of its chain without building it again (its tail, its state and
-// its latency lines go with it). A helper of version 51 would skip it as an unknown tag and its
-// chain would drift from the page's.
+// Version 55 (#800; 53 and 54 are Contour's): the engine's control stream gains `DeviceMove`
+// (tag 24), which moves an audio effect to a free slot of its chain without building it again
+// (its tail, its state and its latency lines go with it). A helper of an earlier version would
+// skip it as an unknown tag and its chain would drift from the page's.
+
+// Version 52 (#696): the device registry
+// gains Bloom (`faulk.bloom`, kind id 14, an audio effect: chorus, ensemble and vibrato); a
+// helper of an earlier version would refuse its `DeviceInsert` and its schema bundle would not
+// describe it. No message changes.
 
 // Version 51 (one batch of 2026-11-07: #689, #157, #754, #686, #749, #755, #758, #765, #761): a
 // page and a helper of different versions refuse each other, because:

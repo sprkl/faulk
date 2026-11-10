@@ -103,6 +103,10 @@ describe('parseParamEntry (#410)', () => {
     // The readout does not enter the reading: the same text gives the same value at 52 Hz and at 5 kHz.
     expect(formatValue(hertz, 5000)).toBe('5.00 kHz')
     expect(formatValue(hertz, 52)).toBe('52 Hz')
+    // A modulation rate below 10 Hz keeps its decimals (#696).
+    expect(formatValue(hertz, 0.8)).toBe('0.8 Hz')
+    expect(formatValue(hertz, 0.05)).toBe('0.05 Hz')
+    expect(formatValue(hertz, 5.5)).toBe('5.5 Hz')
     expect(parseParamEntry(hertz, '450')).toEqual({ value: 450 })
     expect(parseParamEntry(hertz, '450,5')).toEqual({ value: 450.5 })
     expect(parseParamEntry(seconds, '450')).toEqual({ value: 0.45 })

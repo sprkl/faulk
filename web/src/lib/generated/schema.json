@@ -31978,6 +31978,182 @@
       ],
       "role": "effect",
       "version": 1
+    },
+    {
+      "kind": "faulk.bloom",
+      "kind_id": 14,
+      "memory_bytes": 61848,
+      "midi_output": null,
+      "name": "Bloom",
+      "named_keys": [],
+      "params": [
+        {
+          "default": 0,
+          "description": "Chorus: one moving copy mixed with the dry sound. Ensemble: three copies a third of a cycle apart, wider. Vibrato: the moving copy alone, no dry sound, so the pitch wavers (mix does not act).",
+          "id": 0,
+          "key": "mode",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "chorus",
+            "ensemble",
+            "vibrato"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Whether the movement runs at its own rate in hertz (free) or follows the project tempo (synced), cycles counted from the start of the song.",
+          "id": 1,
+          "key": "sync",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "free",
+            "synced"
+          ]
+        },
+        {
+          "default": 0.8,
+          "description": "Speed of the movement in free mode, in cycles per second, from 0.05 to 10 Hz.",
+          "id": 2,
+          "key": "rate",
+          "max": 10,
+          "min": 0.05,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 9,
+          "description": "Length of one cycle in synced mode, as a note value of the project tempo: 1/32 to a whole note, with triplets (T) and dotted values (.).",
+          "id": 3,
+          "key": "division",
+          "max": 9,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "thirty_second",
+            "sixteenth",
+            "eighth_triplet",
+            "eighth",
+            "quarter_triplet",
+            "eighth_dotted",
+            "quarter",
+            "quarter_dotted",
+            "half",
+            "whole"
+          ]
+        },
+        {
+          "default": 40,
+          "description": "How far the delay moves, from 0 to 100 %: at 100 % it sweeps 10 ms above the delay setting and back. More depth, more pitch movement; synced cycles faster than 10 Hz sweep less. A change never bends the pitch.",
+          "id": 4,
+          "key": "depth",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0.012,
+          "description": "Shortest delay of the moving copies, from 1 to 30 ms: 5 to 20 ms for a chorus; below 5 ms, with feedback, a soft flanger. A change moves there slowly, without a pitch bend.",
+          "id": 5,
+          "key": "delay",
+          "max": 0.03,
+          "min": 0.001,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Shape of the movement: sine (smooth) or triangle (the delay moves at a steady speed, so the pitch sits a little sharp, then a little flat).",
+          "id": 6,
+          "key": "shape",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "sine",
+            "triangle"
+          ]
+        },
+        {
+          "default": 90,
+          "description": "Offset of the right channel's movement, from 0 to 180 degrees: 0 keeps both channels alike, 180 moves them in opposition, the widest.",
+          "id": 7,
+          "key": "stereo_phase",
+          "max": 180,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Share of the moving copy fed back into the delay, from -90 % to +90 %: a metallic, resonant edge; negative values hollow the sound.",
+          "id": 8,
+          "key": "feedback",
+          "max": 90,
+          "min": -90,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 20,
+          "description": "High-pass on the moving copies, from 20 Hz to 2 kHz: higher keeps the low end clean and steady.",
+          "id": 9,
+          "key": "tone",
+          "max": 2000,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 0.5,
+          "description": "Balance between the dry sound (0) and the moving copies (1), in chorus and ensemble. Vibrato has no dry sound.",
+          "id": 10,
+          "key": "mix",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        }
+      ],
+      "role": "effect",
+      "version": 1
     }
   ],
   "error_codes": {
@@ -41178,7 +41354,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 52,
+  "protocol_version": 55,
   "scale_intervals": [
     {
       "intervals": [

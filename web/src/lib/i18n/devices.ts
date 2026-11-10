@@ -3,7 +3,7 @@
  * `<device kind without "faulk.">.<parameter key>.hint`; its English text is the description in the
  * device's descriptor (`i18n.test.ts` checks they are the same), its French text is a translation.
  * A device name is not here: it comes from the descriptor, one English name never translated.
- * Labels of the parameters and of their values are in `synth.ts`, `drums.ts`, `echo.ts`, `reverb.ts`, `filter.ts`, `compressor.ts`, `ceiling.ts`, `trim.ts` and `hiccup.ts`.
+ * Labels of the parameters and of their values are in `synth.ts`, `drums.ts`, `echo.ts`, `reverb.ts`, `filter.ts`, `compressor.ts`, `ceiling.ts`, `trim.ts`, `hiccup.ts` and `bloom.ts`.
  */
 
 import { defineFeature } from './feature'
@@ -224,6 +224,25 @@ export const devices = defineFeature(
     'hiccup.mode.hint':
       'How the repeats meet the sound. Layer: on top of it. Insert: the sound is muted while the repeats play. Repeats only: only the captured slices and their repeats are heard.',
     'hiccup.mix.hint': 'Level of the repeats, from 0 to 100 %. In insert mode it also sets how much the sound is muted while they play.',
+    'bloom.mode.hint':
+      'Chorus: one moving copy mixed with the dry sound. Ensemble: three copies a third of a cycle apart, wider. Vibrato: the moving copy alone, no dry sound, so the pitch wavers (mix does not act).',
+    'bloom.sync.hint':
+      'Whether the movement runs at its own rate in hertz (free) or follows the project tempo (synced), cycles counted from the start of the song.',
+    'bloom.rate.hint': 'Speed of the movement in free mode, in cycles per second, from 0.05 to 10 Hz.',
+    'bloom.division.hint':
+      'Length of one cycle in synced mode, as a note value of the project tempo: 1/32 to a whole note, with triplets (T) and dotted values (.).',
+    'bloom.depth.hint':
+      'How far the delay moves, from 0 to 100 %: at 100 % it sweeps 10 ms above the delay setting and back. More depth, more pitch movement; synced cycles faster than 10 Hz sweep less. A change never bends the pitch.',
+    'bloom.delay.hint':
+      'Shortest delay of the moving copies, from 1 to 30 ms: 5 to 20 ms for a chorus; below 5 ms, with feedback, a soft flanger. A change moves there slowly, without a pitch bend.',
+    'bloom.shape.hint':
+      'Shape of the movement: sine (smooth) or triangle (the delay moves at a steady speed, so the pitch sits a little sharp, then a little flat).',
+    'bloom.stereo_phase.hint':
+      "Offset of the right channel's movement, from 0 to 180 degrees: 0 keeps both channels alike, 180 moves them in opposition, the widest.",
+    'bloom.feedback.hint':
+      'Share of the moving copy fed back into the delay, from -90 % to +90 %: a metallic, resonant edge; negative values hollow the sound.',
+    'bloom.tone.hint': 'High-pass on the moving copies, from 20 Hz to 2 kHz: higher keeps the low end clean and steady.',
+    'bloom.mix.hint': 'Balance between the dry sound (0) and the moving copies (1), in chorus and ensemble. Vibrato has no dry sound.',
   },
   {
     'devices.noTrack': 'Sélectionne une piste pour voir son instrument et ses effets.',
@@ -452,5 +471,23 @@ export const devices = defineFeature(
     'hiccup.mode.hint':
       'Comment les répétitions rejoignent le son. Superposé : par-dessus. Insertion : le son se tait pendant les répétitions. Répétitions seules : on n’entend que les tranches capturées et leurs répétitions.',
     'hiccup.mix.hint': 'Niveau des répétitions, de 0 à 100 %. En mode insertion, il règle aussi combien le son se tait pendant qu’elles jouent.',
+    'bloom.mode.hint':
+      'Chorus : une copie qui ondule, mêlée au son direct. Ensemble : trois copies décalées d’un tiers de cycle, plus large. Vibrato : la copie seule, sans son direct, la hauteur ondule (le mélange n’agit pas).',
+    'bloom.sync.hint': 'Si le mouvement suit sa propre vitesse en hertz (libre) ou le tempo du projet (au tempo), cycles comptés depuis le début du morceau.',
+    'bloom.rate.hint': 'Vitesse du mouvement en mode libre, en cycles par seconde, de 0,05 à 10 Hz.',
+    'bloom.division.hint':
+      'Durée d’un cycle en mode au tempo, en valeur de note du tempo du projet : de la triple croche à la ronde, avec triolets (T) et valeurs pointées (.).',
+    'bloom.depth.hint':
+      'Amplitude du mouvement du retard, de 0 à 100 % : à 100 %, il balaie 10 ms au-dessus du réglage de retard, aller et retour. Plus de profondeur, plus la hauteur bouge ; au tempo, un cycle plus rapide que 10 Hz balaie moins. Un changement ne plie jamais la hauteur.',
+    'bloom.delay.hint':
+      'Retard le plus court des copies, de 1 à 30 ms : de 5 à 20 ms pour un chorus ; sous 5 ms, avec du retour, un flanger doux. Un changement y va lentement, sans plier la hauteur.',
+    'bloom.shape.hint':
+      'Forme du mouvement : sinus (doux) ou triangle (le retard bouge à vitesse constante, la hauteur reste un peu au-dessus, puis un peu en dessous).',
+    'bloom.stereo_phase.hint':
+      'Décalage du mouvement du canal droit, de 0 à 180 degrés : à 0 les deux canaux sont pareils, à 180 ils bougent en opposition, le plus large.',
+    'bloom.feedback.hint':
+      'Part de la copie renvoyée dans le retard, de -90 % à +90 % : un grain métallique et résonant ; les valeurs négatives creusent le son.',
+    'bloom.tone.hint': 'Passe-haut sur les copies, de 20 Hz à 2 kHz : plus haut, le grave reste net et stable.',
+    'bloom.mix.hint': 'Équilibre entre le son direct (0) et les copies (1), en chorus et en ensemble. Le vibrato n’a pas de son direct.',
   },
 )
