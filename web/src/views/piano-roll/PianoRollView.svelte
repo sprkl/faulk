@@ -594,11 +594,15 @@
       run(addNotes(g.clip, [g.note]))
       picked = new Set([noteKey(g.note)])
       // Every note written is said and brought into sight (#835), as a note written from the keyboard is.
+      // Nothing is said when the command did not apply (the dispatcher already shows why). A click (no drag) whose length
+      // did not fit before the clip's end draws a shorter note: said with it (#623, #280).
       const written = g.note
-      announce(t('pianoRoll.saidAdded', { pitch: keyNames?.get(written.pitch) ?? pitchName(written.pitch) }))
-      revealNote({ start: written.start, note: written })
-      // A click (no drag) whose length did not fit before the clip's end draws a shorter note: said (#623, #280).
-      if (!g.dragged && g.note.length < nextLength) announce(t('pianoRoll.saidLengthCut', { length: gestureLength(t, signature, g.note.length) }))
+      if (notes.some((n) => noteKey(n) === noteKey(written))) {
+        const added = t('pianoRoll.saidAdded', { pitch: keyNames?.get(written.pitch) ?? pitchName(written.pitch) })
+        const cut = !g.dragged && written.length < nextLength
+        announce(cut ? t('pianoRoll.saidAddedCut', { added, length: gestureLength(t, signature, written.length) }) : added)
+        revealNote({ start: written.start, note: written })
+      }
       lastLength = g.note.length
     } else if (g.kind === 'move' || g.kind === 'resize' || g.kind === 'velocity') {
       // The notes the gesture holds must still be in the clip: after an undo they are gone and nothing is sent.
@@ -1337,6 +1341,7 @@
     announce(copies.length === 1 ? t('pianoRoll.saidDuplicatedOne') : t('pianoRoll.saidDuplicated', { n: copies.length }))
     const first = [...copies].sort((a, b) => a.start - b.start || b.pitch - a.pitch)[0]
     if (inCells && first && notes.some((n) => noteKey(n) === noteKey(first))) void focusNote(noteKey(first))
+    else if (first) revealNote({ start: first.start, note: first })
   }
 
   // --- repeat end to end (#710) -------------------------------------------------------------------------------------
@@ -1386,6 +1391,7 @@
           : t(one ? 'pianoRoll.saidRepeatedOne' : 'pianoRoll.saidRepeated', vars),
     )
     if (focusInCells && result.copies[0]) void focusNote(noteKey(result.copies[0]))
+    else if (result.copies[0]) revealNote({ start: result.copies[0].start, note: result.copies[0] })
   }
 
   /** "every 1 bar", "every 2 beats", "every 0.25 beat": the period of a repeat (#770), in bars when it is whole bars. */
@@ -1565,6 +1571,7 @@
     picked = new Set(made.map(noteKey))
     const pitch = keyNames?.get(settings.pitch!) ?? pitchName(settings.pitch!)
     announce(t(remove.length > 0 ? 'pianoRoll.saidEuclideanReplace' : 'pianoRoll.saidEuclidean', { n: add.length, pitch, m: remove.length }))
+    if (!inCells && made[0]) revealNote({ start: made[0].start, note: made[0] })
     void closeEuclid(inCells ? (made[0] ?? null) : null)
   }
 
@@ -1625,6 +1632,7 @@
     // The notes pasted, already there or not: they are the selection.
     announce(pasted.length === 1 ? t('pianoRoll.saidPastedOne', where) : t('pianoRoll.saidPasted', { n: pasted.length, ...where }))
     if (anchor.cell) void focusNote(noteKey(first))
+    else revealNote({ start: first.start, note: first })
   }
 </script>
 
