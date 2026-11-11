@@ -1,0 +1,16 @@
+{
+  "category": "Length",
+  "device": "faulk.trim",
+  "format": 1,
+  "name": "Tight Pluck",
+  "params": {
+    "division": 2.0,
+    "feel": 0.0,
+    "gate": 50.0,
+    "key_track": 50.0,
+    "mode": 1.0,
+    "time": 0.1,
+    "trigger": 0.0
+  },
+  "version": 1
+}

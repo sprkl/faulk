@@ -20,6 +20,15 @@ pub const MAX_TICK: i64 = 1 << 40;
 /// Largest frame index or frame count in an audio clip: 2^40 (about 260 days at 48 kHz).
 pub const MAX_FRAME: u64 = 1 << 40;
 
+/// Most bytes one audio file may decode to (#780), counted as its PCM cache counts them:
+/// frames × channels × 4 (`f32`). 16 GiB, the most a whole project's `.faulkpack` carries
+/// (`file::pack::PackLimits::max_total`): a file that compresses very well (a FLAC of
+/// silence, a low-rate Opus) would otherwise fill the disk with its decoded copy. An hour
+/// of stereo at 192 kHz (5.5 GB) or of 7.1 at 96 kHz (11.1 GB) fits; an hour of 16 channels
+/// at 96 kHz (22.1 GB) does not. A WAV or AIFF read directly (no cache) never reaches it:
+/// its 32-bit chunk sizes hold less than 4 GiB of samples of 16 bits or more.
+pub const MAX_DECODED_BYTES: u64 = 16 << 30;
+
 /// Longest name (project, track, scene, clip, module, audio file), in characters.
 pub const MAX_NAME_CHARS: usize = 200;
 
@@ -37,6 +46,12 @@ pub const MAX_MARKERS: usize = 1024;
 
 /// Most devices in one track's chain.
 pub const MAX_DEVICES_PER_TRACK: usize = 1_000;
+
+/// Most MIDI effects in one track's chain (#219): the engine keeps that many slots before a
+/// track's instrument, so that a MIDI effect inserted or moved never moves the instrument or
+/// the audio effects; with every other device of the chain after them, the slots stay under
+/// the engine's limit.
+pub const MAX_MIDI_EFFECTS_PER_TRACK: usize = 16;
 
 /// Most parameters stored for one device.
 pub const MAX_PARAMS_PER_DEVICE: usize = 10_000;
@@ -128,6 +143,10 @@ const _: () = {
     assert!(MAX_TRACKS <= engine::MAX_TRACKS as usize);
     assert!(MAX_SCENES <= engine::MAX_SCENES as usize);
     assert!(MAX_DEVICES_PER_TRACK <= engine::MAX_DEVICES_PER_TRACK as usize);
+    assert!(
+        MAX_MIDI_EFFECTS_PER_TRACK + MAX_DEVICES_PER_TRACK
+            <= engine::MAX_DEVICES_PER_TRACK as usize
+    );
     assert!(MAX_CLIPS_PER_TRACK <= engine::MAX_CLIPS as usize);
     assert!(MAX_PLACEMENTS_PER_TRACK <= engine::MAX_PLACEMENTS_PER_TRACK as usize);
     assert!(MAX_LANES_PER_TRACK <= engine::MAX_LANES as usize);

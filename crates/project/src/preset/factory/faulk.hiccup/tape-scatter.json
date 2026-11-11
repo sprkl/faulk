@@ -1,0 +1,21 @@
+{
+  "category": "Repeat",
+  "device": "faulk.hiccup",
+  "format": 1,
+  "name": "Tape Scatter",
+  "params": {
+    "capture": 0.0,
+    "chance": 40.0,
+    "decay": 25.0,
+    "filter": 1.0,
+    "gate": 75.0,
+    "interval": 2.0,
+    "mix": 70.0,
+    "mode": 0.0,
+    "pitch": 0.0,
+    "seed": 17.0,
+    "size": 2.0,
+    "variation": 2.0
+  },
+  "version": 1
+}

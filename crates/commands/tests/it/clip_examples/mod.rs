@@ -401,13 +401,28 @@ pub fn examples() -> Vec<(Command, State)> {
 }
 
 /// The live clip commands (no inverse, so apart from [`examples`], whose every example is
-/// undone and redone by `tests/it/clip.rs`): asking the page for audio files.
+/// undone and redone by `tests/it/clip.rs`): asking the page for audio files, from the user or
+/// from a link (#664).
 pub fn live_examples() -> Vec<(Command, State)> {
     let f = fx();
     vec![
         (
             c(clip::Command::ChooseAudio {
                 track: f.audio_track.clone(),
+            }),
+            f.state.clone(),
+        ),
+        (
+            c(clip::Command::ImportAudioUrl {
+                track: f.audio_track.clone(),
+                url: "https://example.org/loops/kick%2001.wav?v=2".into(),
+            }),
+            f.state.clone(),
+        ),
+        (
+            c(clip::Command::ImportAudioFile {
+                track: f.audio_track.clone(),
+                path: "imports/kick 01.wav".into(),
             }),
             f.state.clone(),
         ),

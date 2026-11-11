@@ -12,6 +12,7 @@
 // browser has no folder to offer (Firefox, Safari) it is the project's normal home. A project in
 // the OPFS is "browser" in this file, a project in a folder the user chose is "folder".
 import { ImportError } from '../audio/import/abi'
+import type { HelperImported } from '../audio/import/helper-import'
 import type { CacheReport, ImportedMedia, MediaRef } from '../audio/import/pipeline'
 import { peaksPath } from '../audio/peaks/format'
 import type { MessageKey } from '../i18n'
@@ -31,6 +32,12 @@ import {
   type RecentProjects,
   type Signature,
 } from './types'
+
+/** The helper's link marker in the project's folder (AU-7): written by the page, read by the helper (`helper::disk::LINK_FILE`). */
+export const HELPER_LINK_PATH = '.faulk/link.json'
+
+/** What writing the helper's link marker came to (`ProjectStorage.writeHelperLink`). */
+export type HelperLinkWrite = { status: 'written'; name: string } | { status: 'no_folder' } | { status: 'failed' }
 
 /** Waits this long after the last change before writing (a knob drag is one write, not hundreds). */
 export const AUTOSAVE_DELAY_MS = 1500
@@ -332,8 +339,14 @@ export class ProjectStorage {
   downloadProgress = $state<number | null>(null)
   /** The host a pack could not be downloaded from: the banner offers to import a file instead. */
   downloadFailed = $state<string | null>(null)
-  /** The share of the media written so far (0 to 1) while a `.faulkpack` is being made, else `null`. */
+  /**
+   * The share of the media written so far (0 to 1) while a `.faulkpack` is being made, else `null`: from the click
+   * (the file dialog and the preparation are part of the export, and Cancel counts there) until the last piece is
+   * written and the file closed, so that its end is never announced before the pack is whole (#737).
+   */
   exporting = $state<number | null>(null)
+  /** The export under way writes its pack (outside the queue): its banner then goes before an import's or a download's. */
+  private exportWriting = $state(false)
   /** The share of the pack read so far (0 to 1) while a `.faulkpack` is being imported into the browser's storage, else `null`. */
   importing = $state<number | null>(null)
   /** A link of the address (`/app?open=`) waiting for the user's answer before anything is downloaded. */
@@ -348,8 +361,6 @@ export class ProjectStorage {
   private current: Attached | null = null
   /** Stops the export under way, if any. */
   private exportAbort: AbortController | null = null
-  /** An export is under way, from the click on: the file dialog and the preparation included. */
-  private exportBusy = false
   /** The imports asked for and not over (#682): `cancelImport` stops them all, but those whose project started to open. */
   // eslint-disable-next-line svelte/prefer-svelte-reactivity -- never read by the interface
   private readonly importRuns = new Map<AbortSignal, ImportRun>()
@@ -1297,12 +1308,68 @@ export class ProjectStorage {
     })
   }
 
+  /**
+   * An audio import by the helper in Boost (#778): `task` runs it (`runHelperImport`), in the storage's queue like the page's
+   * own import, so that a save as or an opening never runs in the middle of it. The helper writes `blobs/<sha256>` itself:
+   * whatever the outcome (a `done` lost with the link included), every blob the folder holds that the page did not know of
+   * joins the stamps of its own writes, so the folder's watcher never takes the import for an outside change. Only for a
+   * project in a real folder (the helper has no other).
+   */
+  importWithHelper(task: () => Promise<HelperImported>, signal?: AbortSignal): Promise<ImportedMedia> {
+    this.cancelTimers()
+    return this.enqueue(async () => {
+      while (this.attaching) await this.attaching
+      if (signal?.aborted) throw new ImportError('cancelled', 'cancelled before it started')
+      const current = this.current
+      if (!current || current.kind !== 'folder') throw new ImportError('no_folder', 'the project is not in a folder the helper can open')
+      try {
+        const outcome = await task()
+        if (this.current === current && outcome.peaks) this.peaksEpoch++
+        return outcome.media
+      } finally {
+        if (this.current === current) await this.adoptNewBlobs(current)
+        // What waited behind the import (an edit made meanwhile) is written now.
+        if (this.current === current && (this.host.dirty() ?? false)) this.schedule()
+      }
+    })
+  }
+
+  /** Adds the stamp of every blob of the folder that `expected` lacks (blobs are named by their bytes: one never changes a project). */
+  private async adoptNewBlobs(current: Attached) {
+    let found: Signature
+    try {
+      found = await current.store.scan()
+    } catch {
+      return
+    }
+    for (const [path, stamp] of Object.entries(found)) if (path.startsWith('blobs/') && !(path in current.expected)) current.expected[path] = stamp
+  }
+
   /** Whether the recent projects, as last listed, hold this folder. */
   private async isRemembered(handle: FolderHandle): Promise<boolean> {
     for (const entry of this.recent) {
       if (entry.handle === handle || (await entry.handle.isSameEntry?.(handle)?.catch(() => false))) return true
     }
     return false
+  }
+
+  /**
+   * Writes the helper's link marker (AU-7, #116) in the project's real folder: `.faulk/link.json` holding
+   * `nonce`, so that the helper, which never learns a path from the page, can tell the folder open here
+   * from a copy of it (`crates/helper/src/disk.rs`). Not a project file: outside every scan and save.
+   * `written` with the name of the folder it went to; `no_folder` when the project has no real folder now
+   * (kept in the browser, none at all, or another place since); `failed` when the folder refused the
+   * write (its permission not granted yet, a disk error): a later try may succeed.
+   */
+  async writeHelperLink(nonce: string): Promise<HelperLinkWrite> {
+    const current = this.current
+    if (!current || current.kind !== 'folder') return { status: 'no_folder' }
+    try {
+      await current.store.apply([{ type: 'write', path: HELPER_LINK_PATH, bytes: new TextEncoder().encode(`${JSON.stringify({ nonce })}\n`) }])
+    } catch {
+      return this.current === current ? { status: 'failed' } : { status: 'no_folder' }
+    }
+    return this.current === current ? { status: 'written', name: current.handle.name } : { status: 'no_folder' }
   }
 
   private async detach() {
@@ -1493,9 +1560,12 @@ export class ProjectStorage {
     'permission' | 'full' | 'error' | 'external' | 'reopen' | 'warning' | 'notice' | 'exporting' | 'importing' | 'downloading' | 'downloadFailed' | null {
     if (this.block) return this.block
     // A pack being written (#617) or read (#682), then a pack opened by its link (#497): the download under way, then why it failed.
-    if (this.exporting !== null) return 'exporting'
+    // An export that writes goes first: its banner's end says the pack is whole (#737). One that has not started writing
+    // (the dialog, the queue an import holds) waits behind an import or a download, whose banner keeps its Cancel.
+    if (this.exporting !== null && this.exportWriting) return 'exporting'
     if (this.importing !== null) return 'importing'
     if (this.downloading) return 'downloading'
+    if (this.exporting !== null) return 'exporting'
     if (this.downloadFailed) return 'downloadFailed'
     if (this.notice) return 'notice'
     if (this.reopen) return 'reopen'
@@ -1661,31 +1731,49 @@ export class ProjectStorage {
    * where the browser has no such dialog, to a download.
    */
   async exportPack(): Promise<boolean> {
-    // One at a time, from the click to the end: the file dialog is part of it.
-    if (this.exportBusy) return false
-    this.exportBusy = true
-    // A cancel counts from the click on: during the dialog and the preparation too.
+    // One at a time, from the click to the end: the file dialog is part of it. `exporting` says one is under way.
+    if (this.exporting !== null) return false
+    // A cancel counts from the click on: during the dialog and the preparation too. So does the banner, which offers
+    // it: shown before the first wait, it is gone only once this call is over (#737).
     const abort = new AbortController()
     this.exportAbort = abort
+    this.exporting = 0
+    // A cancel ends the wait for the queue at once (a long save or import may hold it); the queued step then does nothing.
+    const cancelled = abort.signal.aborted
+      ? Promise.resolve('cancelled' as const)
+      : new Promise<'cancelled'>((resolve) => abort.signal.addEventListener('abort', () => resolve('cancelled'), { once: true }))
     try {
       // The place of the pack first, before anything waits (the queue, a store): the browser opens its file
       // dialog only for a call that follows a click closely.
-      const target = await this.packTarget(`${this.packFileName()}.faulkpack`, await this.mediaBytes())
+      const bytes = await this.mediaBytes()
+      // Cancelled from the banner before the dialog opened: no dialog for an export that is over.
+      if (abort.signal.aborted) {
+        this.notice = 'pack.exportCancelled'
+        return false
+      }
+      const target = await this.packTarget(`${this.packFileName()}.faulkpack`, bytes)
       if (target === 'cancelled') return false
       if (target === 'noRoom') {
         this.notice = 'pack.noRoom'
         return false
       }
-      const prepared = await this.enqueue(() => this.prepareExport())
-      if (!prepared || abort.signal.aborted) {
+      const prepared = await Promise.race([this.enqueue(() => (abort.signal.aborted ? Promise.resolve(null) : this.prepareExport(abort.signal))), cancelled])
+      if (prepared === 'cancelled' || abort.signal.aborted) {
         await target.abort().catch(() => undefined)
-        if (prepared) this.notice = 'pack.exportCancelled'
+        this.notice = 'pack.exportCancelled'
+        return false
+      }
+      if (!prepared) {
+        await target.abort().catch(() => undefined)
         return false
       }
       // Outside the queue: a long export never holds a save back.
+      this.exportWriting = true
       return await this.writePack(prepared, target, abort)
     } finally {
-      this.exportBusy = false
+      // After `writePack`, which closes the file (or aborts it) before it returns.
+      this.exporting = null
+      this.exportWriting = false
       this.exportAbort = null
     }
   }
@@ -1717,7 +1805,7 @@ export class ProjectStorage {
   }
 
   /** What the export writes: the project as it is now, as a folder. `null` when there is nothing to export. */
-  private async prepareExport(): Promise<{ entries: FolderEntry[]; store: ProjectStore | null } | null> {
+  private async prepareExport(signal: AbortSignal): Promise<{ entries: FolderEntry[]; store: ProjectStore | null } | null> {
     const current = this.current
     let frame: SaveFrame | null
     try {
@@ -1742,6 +1830,8 @@ export class ProjectStorage {
       for (const entry of frame.entries) if (entry.type === 'write') files[entry.path] = { path: entry.path, bytes: entry.bytes }
       return { entries: Object.values(files), store: current?.store ?? null }
     } catch (error) {
+      // Cancelled while it read the media: the export already ended and said so, a late failure does not say otherwise.
+      if (signal.aborted) return null
       this.errorDetail = error instanceof Error ? error.message : String(error)
       this.notice = 'pack.exportFailed'
       return null
@@ -1773,7 +1863,6 @@ export class ProjectStorage {
   }
 
   private async writePack(prepared: { entries: FolderEntry[]; store: ProjectStore | null }, target: PackTarget, abort: AbortController): Promise<boolean> {
-    this.exporting = 0
     const { store } = prepared
     let written = 0
     try {
@@ -1815,8 +1904,6 @@ export class ProjectStorage {
       this.errorDetail = error instanceof Error ? error.message : String(error)
       this.notice = 'pack.exportFailed'
       return false
-    } finally {
-      this.exporting = null
     }
   }
 

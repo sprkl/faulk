@@ -13,6 +13,7 @@ const TEXTS = {
     clear: 'Clear the search',
     instruments: 'Instruments',
     effects: 'Audio effects',
+    midiEffects: 'MIDI effects',
     none: 'No device or preset matches "zzzz".',
     drop: 'Drop an instrument or a preset here to start a MIDI track, or audio files to start an audio track.',
     audio: 'A new audio track takes the files: its Clips panel shows the import.',
@@ -25,6 +26,7 @@ const TEXTS = {
     clear: 'Effacer la recherche',
     instruments: 'Instruments',
     effects: 'Effets audio',
+    midiEffects: 'Effets MIDI',
     none: 'Aucun device ni preset ne correspond à « zzzz ».',
     drop: 'Dépose un instrument ou un preset ici pour créer une piste MIDI, ou des fichiers audio pour une piste audio.',
     audio: 'Une nouvelle piste audio reçoit les fichiers : son panneau Clips montre l’import.',
@@ -68,7 +70,24 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(groups.first()).toContainText(x.instruments)
     await expect(groups.nth(1)).toContainText(x.effects)
     const kinds = await panel.getByTestId('browse-device').evaluateAll((rows) => rows.map((r) => r.getAttribute('data-kind')))
-    expect(kinds).toEqual(['faulk.osc_synth', 'faulk.drums', 'faulk.echo', 'faulk.reverb', 'faulk.compressor', 'faulk.filter', 'faulk.contour'])
+    expect(kinds).toEqual([
+      'faulk.osc_synth',
+      'faulk.drums',
+      'faulk.echo',
+      'faulk.reverb',
+      'faulk.compressor',
+      'faulk.filter',
+      'faulk.ceiling',
+      'faulk.hiccup',
+      'faulk.bloom',
+      'faulk.contour',
+      'faulk.stack',
+      'faulk.trim',
+      'faulk.lattice',
+      'faulk.scatter',
+    ])
+    // The MIDI effects have their own group (#219).
+    await expect(groups.nth(2)).toContainText(x.midiEffects)
     await expect(panel.locator('[data-testid="browse-preset"][data-kind="faulk.osc_synth"]').first()).toBeVisible()
     await expect(panel.getByRole('option', { name: /Round Bass/ })).toHaveCount(1)
 
@@ -85,7 +104,7 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(panel.getByTestId('browser-results')).toHaveText(x.none)
     await page.getByRole('button', { name: x.clear }).click()
     await expect(search).toHaveValue('')
-    await expect(panel.getByTestId('browse-device')).toHaveCount(7)
+    await expect(panel.getByTestId('browse-device')).toHaveCount(14)
     // Escape clears the search, the next one closes the panel.
     await search.fill('echo')
     await page.keyboard.press('Escape')

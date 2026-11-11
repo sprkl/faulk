@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classify, FolderBackend } from './backend'
+import { classify, FolderBackend, HELPER_TMP_FRESH_MS } from './backend'
 import { MemoryDir } from './memory-dir'
 import { StoreError } from './types'
 
@@ -32,6 +32,16 @@ describe('FolderBackend.apply', () => {
     ])
     expect(Object.keys(stamps).sort()).toEqual(['project.json', 'tracks/a/track.json'])
     expect(await store.scan()).toEqual(stamps)
+  })
+
+  it('keeps the helper link marker out of every scan and read of the project (AU-7)', async () => {
+    const { store } = folder()
+    const stamps = await store.apply([write('project.json', '{"id":"x"}'), write('.faulk/link.json', '{"nonce":"n"}')])
+    expect(Object.keys(stamps)).toEqual(['project.json'])
+    // Not a change of the folder made outside the page, and not a file of the project it reads back.
+    expect(await store.scan()).toEqual(stamps)
+    const { entries } = await store.readFolder()
+    expect(entries.map((e) => e.path)).toEqual(['project.json'])
   })
 
   it('replaces a file whole or not at all: a write that fails at close leaves the old file intact', async () => {
@@ -207,6 +217,17 @@ describe('FolderBackend blobs and swap files', () => {
     dir.put('.faulk/tmp/1-a', 'half a new file').put('.faulk/session.json', '{}')
     await store.cleanUp()
     expect(dir.paths().sort()).toEqual(['.faulk/session.json', 'tracks/a/notes.tsv'])
+  })
+
+  it("leaves the temporary file of a helper's export that runs, and removes one left over (#319)", async () => {
+    const { dir, store } = folder()
+    dir.put('.faulk/tmp/helper-0011223344556677.tmp', 'rendering').put('.faulk/tmp/helper-8899aabbccddeeff.tmp', 'left over')
+    const tmp = await (await dir.getDirectoryHandle('.faulk')).getDirectoryHandle('tmp')
+    // The running export wrote a moment ago; the other one stopped long ago.
+    ;(await tmp.getFileHandle('helper-0011223344556677.tmp')).modified = Date.now()
+    ;(await tmp.getFileHandle('helper-8899aabbccddeeff.tmp')).modified = Date.now() - HELPER_TMP_FRESH_MS - 1
+    await store.cleanUp()
+    expect(dir.paths()).toEqual(['.faulk/tmp/helper-0011223344556677.tmp'])
   })
 })
 

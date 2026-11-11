@@ -845,7 +845,7 @@ fn the_view_gives_the_engine_slots_of_tracks_and_scenes() {
     h.call0(pw_setup);
     assert_eq!(
         h.view()["slots"],
-        json!({"epoch": 1, "tracks": {}, "scenes": {}})
+        json!({"epoch": 1, "tracks": {}, "scenes": {}, "devices": {}})
     );
 
     let first = h.apply(json!({"type": "track.create", "kind": "midi"}))["track"]
@@ -864,15 +864,21 @@ fn the_view_gives_the_engine_slots_of_tracks_and_scenes() {
     assert_eq!(slots["epoch"], json!(1));
     assert_eq!(slots["tracks"], json!({first: 0, second: 1}));
     assert_eq!(slots["scenes"], json!({scene.clone(): 0}));
-    // Each track's instrument, by its track slot and its place in the chain (#156).
+    // Each track's instrument by its engine slots (#686), past the MIDI effects' band (#219).
     let mut devices: Vec<_> = slots["devices"]
         .as_object()
         .unwrap()
         .values()
         .cloned()
         .collect();
-    devices.sort_by_key(|d| d[0].as_u64());
-    assert_eq!(devices, [json!([0, 0]), json!([1, 0])]);
+    devices.sort_by_key(|d| d["track"].as_u64());
+    assert_eq!(
+        devices,
+        vec![
+            json!({"track": 0, "slot": commands::engine_msgs::MIDI_EFFECT_SLOTS}),
+            json!({"track": 1, "slot": commands::engine_msgs::MIDI_EFFECT_SLOTS})
+        ]
+    );
 
     // A deleted scene gives its slot back, and the next one takes it.
     h.apply(json!({"type": "scene.delete", "scene": scene}));

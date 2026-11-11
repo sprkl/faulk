@@ -467,8 +467,17 @@ fn main() {
                 Box::new(move |event| notify(event))
             },
         )
-        .with_updates(updates.watch()),
+        .with_updates(updates.watch())
+        // The project's folder (AU-7): the folders the user picked, kept in the config folder
+        // (the one file the helper writes outside a project folder), and the system's dialog.
+        .with_folders(
+            helper::disk::Remembered::load(config_dir.join(helper::disk::REMEMBERED_FILE)),
+            Arc::new(helper::disk::SystemPicker),
+            lang,
+        ),
     );
+    // The disk thread: serves the engine's reads from the folder the page has open (AU-7).
+    let _disk = helper::disk::spawn_disk(&engine, shared.open_folder());
     runtime.spawn(serve(listener, shared.clone()));
 
     // The audio output, on its own thread: opened now if there is one, else as soon as one

@@ -113,7 +113,8 @@ const DENORMAL_FLOOR: f32 = 1e-20;
 const GUARD_FRAMES: usize = 4;
 
 const VALUES_MODE: &[&str] = &["free", "synced"];
-const VALUES_DIVISION: &[&str] = &[
+/// The keys of the note values, in the order of [`DIVISION_BEATS`] (shared with Bloom).
+pub const VALUES_DIVISION: &[&str] = &[
     "thirty_second",
     "sixteenth",
     "eighth_triplet",

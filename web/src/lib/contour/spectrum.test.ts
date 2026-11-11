@@ -2,14 +2,21 @@ import { describe, expect, it } from 'vitest'
 import type { Spectrum } from '../engine/feedback'
 import { SETTLE_MS, STALE_MS, SpectrumTracker } from './spectrum'
 
+/** The master's chain's track slot in the engine; the page reads it as `null`. */
+const MASTER = 4294967295
+
 const spectrum = (track: number, device: number, level = -20): Spectrum => ({
-  track,
+  track: track === MASTER ? null : track,
   device,
   sampleRate: 48000,
   bands: new Float32Array(96).fill(level),
 })
 
-const slots = (devices: Record<string, [number, number]>, epoch = 1) => ({ epoch, devices })
+/** A slot table from `[track slot, device slot]` pairs, as `ViewSlots.devices` names them. */
+const slots = (devices: Record<string, [number, number]>, epoch = 1) => ({
+  epoch,
+  devices: Object.fromEntries(Object.entries(devices).map(([id, [track, slot]]) => [id, { track: track === MASTER ? null : track, slot }])),
+})
 
 /** A tracker that has seen `devices` at their slots long enough to take their spectra. */
 function settled(devices: Record<string, [number, number]>) {
@@ -67,8 +74,8 @@ describe('the spectra by device', () => {
   })
 
   it('reads the master chain by its track slot', () => {
-    const t = settled({ m: [4294967295, 0] })
-    t.feed(1, [spectrum(4294967295, 0)], slots({ m: [4294967295, 0] }), SETTLE_MS)
+    const t = settled({ m: [MASTER, 0] })
+    t.feed(1, [spectrum(MASTER, 0)], slots({ m: [MASTER, 0] }), SETTLE_MS)
     expect(t.get('m', SETTLE_MS)).not.toBeNull()
   })
 })

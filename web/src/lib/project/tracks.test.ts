@@ -11,6 +11,7 @@ import {
   TRACK_COLORS,
   trackColor,
   trackLabel,
+  trackName,
   hueKey,
 } from './tracks'
 
@@ -43,6 +44,15 @@ describe('the track list', () => {
     expect(trackLabel({ track: track('a'), index: 2 }, t)).toBe('Piste 3 tracks.defaultName')
     expect(trackLabel({ track: track('a', { name: '  ' }), index: 0 }, t)).toBe('Piste 1 tracks.defaultName')
     expect(trackLabel({ track: track('a', { name: 'Bass' }), index: 2 }, t)).toBe('Bass')
+  })
+
+  it('names a track from a stored name and a position with the same rule as the list (#781)', () => {
+    const t = (key: 'tracks.defaultName', vars: { n: number }) => `Track ${vars.n} ${key}`
+    expect(trackName('', 1, t)).toBe('Track 2 tracks.defaultName')
+    expect(trackName(' 	', 0, t)).toBe('Track 1 tracks.defaultName')
+    expect(trackName(' Drums ', 1, t)).toBe('Drums')
+    const entry = { track: track('a', { name: '' }), index: 4 }
+    expect(trackName(entry.track.name, entry.index, t)).toBe(trackLabel(entry, t))
   })
 
   it('reads the instrument of a track from its devices, by the descriptors', () => {

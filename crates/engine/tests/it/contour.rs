@@ -173,7 +173,7 @@ fn the_descriptor_is_valid_with_stable_ids_and_one_english_name() {
     assert_eq!(DESCRIPTOR.validate(), Ok(()));
     assert_eq!(DESCRIPTOR.kind, "faulk.contour");
     assert_eq!(DESCRIPTOR.name, "Contour");
-    assert_eq!(DESCRIPTOR.kind_id.0, 7);
+    assert_eq!(DESCRIPTOR.kind_id.0, 8);
     assert_eq!(DESCRIPTOR.params.len(), 29);
     // The ids are 0..29 in order, the keys `<band>_<what>` then `output`.
     let prefixes = ["hp", "low", "bell1", "bell2", "bell3", "high", "lp"];

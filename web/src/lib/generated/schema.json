@@ -74,6 +74,47 @@
             "type": "object"
           }
         ]
+      },
+      "ImportSource": {
+        "description": "The file an `import.start` imports (#778).",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "A file of the project's folder: its path relative to the folder's root, `/` separated\n(a file the user or an agent put there, `blobs/<sha256>` included). Never a path outside\nthe folder, never `.faulk/` or `.git*`.",
+            "properties": {
+              "kind": {
+                "const": "folder",
+                "type": "string"
+              },
+              "path": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "path"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "A file the user picked in the helper's file dialog: the token `import.chosen` gave it\n(single use, this session's only, for [`IMPORT_TOKEN_SECS`]).",
+            "properties": {
+              "kind": {
+                "const": "picked",
+                "type": "string"
+              },
+              "token": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "token"
+            ],
+            "type": "object"
+          }
+        ]
       }
     },
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -196,6 +237,219 @@
         },
         "required": [
           "type"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The page's project lives in a real folder (AU-7, #116): `project` is its id (a ULID),\n`nonce` the page's link marker (32 lowercase hex digits) that the page wrote in that folder\nas `.faulk/link.json` before sending this, `name` the folder's name (for the dialog's\ntitle only, never a path). The helper opens the remembered folder that holds both the id\nand the marker, and answers `folder.state`. No message names a path: the helper learns a\nfolder only from its own dialog (`folder.choose`). Sent after each `hello` and on each\nchange of the project's place. Only on a session.",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "nonce": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "type": {
+            "const": "folder.open",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "project",
+          "nonce",
+          "name"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The user asked to show the project's folder to the helper: the helper opens its folder\ndialog (one at a time) and opens the folder chosen when it holds the project's id and the\npage's marker, then answers `folder.state`. Only on a session.",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "nonce": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "type": {
+            "const": "folder.choose",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "project",
+          "nonce",
+          "name"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The page's project has no real folder (kept in the browser), or none: the helper closes\nits folder (its audio clips go offline). Only on a session.",
+        "properties": {
+          "type": {
+            "const": "folder.close",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Render the page's export job and write the file into the project's folder (#319): the\nhelper renders the three streams of `commands::export::job` (`setup`, `start`, `stop`, each\nin standard base64) with `engine::offline`, as the page's export Worker does, and writes\nthe WAV file as `exports/<name>.wav` in the folder it has open for `project` (AU-7's\nconfined write; an existing file is kept and the first free `<name> (2).wav`... is taken).\n`id` is the page's number for this run: every answer carries it (`export.progress`, then\none `export.done` or `export.failed`). One export at a time. Only on a session.",
+        "properties": {
+          "bits": {
+            "description": "16, 24 or 32 (float).",
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "body_frames": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "project": {
+            "type": "string"
+          },
+          "sample_rate": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "setup": {
+            "type": "string"
+          },
+          "start": {
+            "type": "string"
+          },
+          "stop": {
+            "type": "string"
+          },
+          "type": {
+            "const": "export.start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "project",
+          "name",
+          "sample_rate",
+          "bits",
+          "body_frames",
+          "setup",
+          "start",
+          "stop"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Stop the export `id`: nothing is written (answered `export.failed` `export.cancelled`).\nOnly on a session.",
+        "properties": {
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "export.cancel",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Show the helper's own file dialog for audio files to import (#778): one dialog of the\nhelper at a time (the folder dialog included). Answered by `import.chosen` with this `id`\n(no file when the user closed it), or `import.failed`. The page never learns the files'\npaths: each comes with a token for `import.start`. Only on a session.",
+        "properties": {
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "import.choose",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Import an audio file into the project's folder (#778): the helper decodes it with the\npage's decoder (`crates/audio-import`, natively) and writes its blob and caches through\nAU-7's confined write, in the folder it has open for `project`; the page then makes the\nclip. `id` is the page's number for this import: every answer carries it\n(`import.progress`, then one `import.done` or `import.failed`). One import at a time.\nOnly on a session.",
+        "properties": {
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "project": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/$defs/ImportSource"
+          },
+          "type": {
+            "const": "import.start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "project",
+          "source"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Stop the import `id` (answered `import.failed` `import.cancelled`, or `import.done` when\nits blob was already in place). Only on a session.",
+        "properties": {
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "import.cancel",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id"
         ],
         "type": "object"
       }
@@ -822,6 +1076,25 @@
         "undo": "none"
       },
       {
+        "description": "In Boost mode, show the project's folder to the helper so that its engine plays the\naudio clips from it: the helper opens its own folder dialog and takes the folder chosen\nwhen it is the one open in the page (same project, and the page's marker in it). Needed\nonce per folder: the helper remembers it. A dialog needs the user's click, so an agent\nthat is not driven by one gets a notice in the page instead. Refused with a notice in\nWeb mode and for a project kept in the browser (save it in a folder first). Changes\nnothing in the project, so it never enters the history.",
+        "destructive": false,
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "kind": "live",
+        "name": "project.choose_helper_folder",
+        "output_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "undo": "none"
+      },
+      {
         "description": "Measure how loud the song is without playing it nor writing a file: the same\noffline render as `project.export_audio` (the engine that plays the song, run\nfaster than real time), but only the levels come back, per track and for the\nmaster, so an agent without ears learns whether its song sounds, whether it is too\nloud, and whether a track is silent. The range is the whole song by default, or\nbars `from_bar` to `to_bar` (both, counted from 1, the last one included); the\ntail after the range is not measured. Levels are in dBFS (0 is full scale), `null`\nis silence; a peak is the larger of the two channels, an RMS the power mean of\nboth, over the whole range (not the loudest short window that `mixer.levels`\ngives). The metronome and the loop are off, the solo and mute state are on. Audio\nclips are measured as they play: the render reads their files from the project's\nfolder, and a file that cannot be read leaves its clip silent. Refused, as an export\nis, when there is nothing to render (empty arrangement, a range that starts after\nthe end of the arrangement or is out of order), and when the range lasts more than\n10 minutes (a `limit` error). The page runs the render in the background (a few\nseconds for a few minutes of music), one at a time; it answers `unavailable` when\nanother analysis runs or the page's engine is not ready. A query: changes nothing\nin the project and never enters the history.",
         "destructive": false,
         "input_schema": {
@@ -1193,12 +1466,24 @@
               "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
-              "description": "What a device does in the chain.",
-              "enum": [
-                "instrument",
-                "effect"
-              ],
-              "type": "string"
+              "description": "What a device does in the chain. A track's chain is, in order, its MIDI effects, its\ninstrument (at most one), then its audio effects; the master's holds audio effects only.",
+              "oneOf": [
+                {
+                  "const": "instrument",
+                  "description": "Notes in, sound out: the sound of the track.",
+                  "type": "string"
+                },
+                {
+                  "const": "effect",
+                  "description": "An audio effect: sound in, sound out, after the instrument.",
+                  "type": "string"
+                },
+                {
+                  "const": "midi_effect",
+                  "description": "Notes in, notes out, before the instrument, on a MIDI track only (#219).",
+                  "type": "string"
+                }
+              ]
             },
             "DeviceSource": {
               "description": "Where a device comes from. Third-party plugins come after the MVP.",
@@ -1650,7 +1935,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Bring a deleted track back with its identifier, as `track.delete` removed it: the\ninverse of a delete. `snapshot` is the whole track: its order key, mixer,\ndevices, clips, placements and automation. Refused when the track's identifier or\nany identifier inside it is already in use, at the safety limit of tracks, or when\nthe snapshot is not a valid track of the project. Undo: `track.delete`.",
+        "description": "Bring a deleted track back with its identifier, as `track.delete` removed it: the\ninverse of a delete. `snapshot` is the whole track: its order key, mixer,\ndevices (a built-in device lacking parameters its type declares gets them at their\ndefaults), clips, placements and automation. Refused when the track's identifier or\nany identifier inside it is already in use, at the safety limit of tracks, or when\nthe snapshot is not a valid track of the project. Undo: `track.delete`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -2022,12 +2307,24 @@
               "type": "object"
             },
             "DeviceRole": {
-              "description": "What a device does in the chain.",
-              "enum": [
-                "instrument",
-                "effect"
-              ],
-              "type": "string"
+              "description": "What a device does in the chain. A track's chain is, in order, its MIDI effects, its\ninstrument (at most one), then its audio effects; the master's holds audio effects only.",
+              "oneOf": [
+                {
+                  "const": "instrument",
+                  "description": "Notes in, sound out: the sound of the track.",
+                  "type": "string"
+                },
+                {
+                  "const": "effect",
+                  "description": "An audio effect: sound in, sound out, after the instrument.",
+                  "type": "string"
+                },
+                {
+                  "const": "midi_effect",
+                  "description": "Notes in, notes out, before the instrument, on a MIDI track only (#219).",
+                  "type": "string"
+                }
+              ]
             },
             "DeviceSource": {
               "description": "Where a device comes from. Third-party plugins come after the MVP.",
@@ -2874,7 +3171,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Swap a track's instrument for a device taken out earlier: the inverse of\n`track.set_instrument`. `current` is the instrument in the track now, replaced by\n`snapshot` under the identifier `device`. Refused when `device` is already in use,\nwhen `current` is not the track's instrument, or when the snapshot is not an\ninstrument that fits the track (a built-in device must be one of the registry; a\nmodule device is taken as it is). The lanes that target `current` are removed with\nit; `lanes` (absent: none) are the lanes that targeted the instrument put back, as\n`track.set_instrument` took them out: each must target the restored instrument and\na parameter it has, under an identifier not in use. Undo: the same swap the other\nway, which takes `lanes` out again and brings the lanes of `current` back.",
+        "description": "Swap a track's instrument for a device taken out earlier: the inverse of\n`track.set_instrument`. `current` is the instrument in the track now, replaced by\n`snapshot` under the identifier `device`. Refused when `device` is already in use,\nwhen `current` is not the track's instrument, or when the snapshot is not an\ninstrument that fits the track (a built-in device must be one of the registry; a\nmodule device is taken as it is; one lacking parameters its type declares gets them\nat their defaults). The lanes that target `current` are removed with\nit; `lanes` (absent: none) are the lanes that targeted the instrument put back, as\n`track.set_instrument` took them out: each must target the restored instrument and\na parameter it has, under an identifier not in use. Undo: the same swap the other\nway, which takes `lanes` out again and brings the lanes of `current` back.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -3058,12 +3355,24 @@
               "type": "object"
             },
             "DeviceRole": {
-              "description": "What a device does in the chain.",
-              "enum": [
-                "instrument",
-                "effect"
-              ],
-              "type": "string"
+              "description": "What a device does in the chain. A track's chain is, in order, its MIDI effects, its\ninstrument (at most one), then its audio effects; the master's holds audio effects only.",
+              "oneOf": [
+                {
+                  "const": "instrument",
+                  "description": "Notes in, sound out: the sound of the track.",
+                  "type": "string"
+                },
+                {
+                  "const": "effect",
+                  "description": "An audio effect: sound in, sound out, after the instrument.",
+                  "type": "string"
+                },
+                {
+                  "const": "midi_effect",
+                  "description": "Notes in, notes out, before the instrument, on a MIDI track only (#219).",
+                  "type": "string"
+                }
+              ]
             },
             "DeviceSource": {
               "description": "Where a device comes from. Third-party plugins come after the MVP.",
@@ -3724,12 +4033,24 @@
               "description": "Identifier of a device in a track's chain or in the master's."
             },
             "DeviceRole": {
-              "description": "What a device does in the chain.",
-              "enum": [
-                "instrument",
-                "effect"
-              ],
-              "type": "string"
+              "description": "What a device does in the chain. A track's chain is, in order, its MIDI effects, its\ninstrument (at most one), then its audio effects; the master's holds audio effects only.",
+              "oneOf": [
+                {
+                  "const": "instrument",
+                  "description": "Notes in, sound out: the sound of the track.",
+                  "type": "string"
+                },
+                {
+                  "const": "effect",
+                  "description": "An audio effect: sound in, sound out, after the instrument.",
+                  "type": "string"
+                },
+                {
+                  "const": "midi_effect",
+                  "description": "Notes in, notes out, before the instrument, on a MIDI track only (#219).",
+                  "type": "string"
+                }
+              ]
             },
             "DeviceSource": {
               "description": "Where a device comes from. Third-party plugins come after the MVP.",
@@ -4053,7 +4374,7 @@
         "undo": "none"
       },
       {
-        "description": "Insert an effect in a track's chain, or in the master's. Name the chain with\n`track` (a track's identifier) or with `master: true` (the master: the effects\nthere process the sum of all the tracks before the master's volume), exactly one\nof the two. `kind` is the type id of a built-in effect (an instrument is refused:\n`track.set_instrument` replaces a track's instrument, and the master has none).\n`index` is the position among the chain's effects, 0 first (right after the\ninstrument on a track); an index past the end means last. The new device starts at\nits default settings, not bypassed. Refused with `invalid` when both or neither of\n`track` and `master` are given, when the effects around that position share an\norder key (a merge made them equal), and with `limit` at the safety limit of\ndevices per chain. Undo: `device.remove`.",
+        "description": "Insert an effect in a track's chain, or in the master's. Name the chain with\n`track` (a track's identifier) or with `master: true` (the master: the effects\nthere process the sum of all the tracks before the master's volume), exactly one\nof the two. `kind` is the type id of a built-in audio effect or MIDI effect (an\ninstrument is refused: `track.set_instrument` replaces a track's instrument, and the\nmaster has none). An audio effect goes after the instrument, `index` counting the\naudio effects, 0 first (right after the instrument on a track). A MIDI effect (it\nturns the notes the track plays into other notes before the instrument hears them)\ngoes before the instrument, `index` counting the MIDI effects, 0 first; it is refused\non the master and on an audio track, which play no notes. An index past the end means\nlast. The new device starts at its default settings, not bypassed. Refused with\n`invalid` when both or neither of `track` and `master` are given, when the devices\naround that position share an order key (a merge made them equal), and with `limit`\nat the safety limit of devices per chain. Undo: `device.remove`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -4128,7 +4449,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Remove an effect from its track or from the master, with its settings. The\nautomation lanes that target the effect are deleted with it. Refused for an\ninstrument (the oscillator, the clip player: replace it with `track.set_instrument`).\nUndo: `device.restore` brings it back with its identifier, position, settings, bypass\nand automation lanes.",
+        "description": "Remove an effect (audio or MIDI) from its track or from the master, with its\nsettings. The automation lanes that target the effect are deleted with it. Refused for an\ninstrument (the oscillator, the clip player: replace it with `track.set_instrument`).\nUndo: `device.restore` brings it back with its identifier, position, settings, bypass\nand automation lanes.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -4187,7 +4508,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Bring a removed effect back with its identifier, as `device.remove` took it out:\nthe inverse of a remove. `track` or `master: true` names the chain, as for\n`device.insert`. `snapshot` is the whole device: its order key, bypass, source,\nsettings and state. Refused when both or neither of `track` and `master` are given,\nwhen the identifier is already in use, at the safety limit of devices, or when the\nsnapshot is not an effect (a built-in device must be one of the registry, with only\nparameters it declares; a module device is taken as it is) or does not fit the\nchain. `lanes` are the automation lanes that targeted the device, as `device.remove`\ntook them out (absent: none); each must target this device and a parameter it has,\nunder an identifier not in use. Undo: `device.remove`.",
+        "description": "Bring a removed effect back with its identifier, as `device.remove` took it out:\nthe inverse of a remove. `track` or `master: true` names the chain, as for\n`device.insert`. `snapshot` is the whole device: its order key, bypass, source,\nsettings and state; a built-in device lacking parameters its type declares (saved\nbefore it gained them) gets them at their defaults. Refused when both or neither of `track` and `master` are given,\nwhen the identifier is already in use, at the safety limit of devices, or when the\nsnapshot is not an audio or MIDI effect (a built-in device must be one of the\nregistry, with only parameters it declares; a module device is taken as it is) or does\nnot fit the chain (a MIDI effect goes before the instrument of a MIDI track only): the\nchain stays valid. `lanes` are the automation lanes that targeted the device, as `device.remove`\ntook them out (absent: none); each must target this device and a parameter it has,\nunder an identifier not in use. Undo: `device.remove`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -4371,12 +4692,24 @@
               "type": "object"
             },
             "DeviceRole": {
-              "description": "What a device does in the chain.",
-              "enum": [
-                "instrument",
-                "effect"
-              ],
-              "type": "string"
+              "description": "What a device does in the chain. A track's chain is, in order, its MIDI effects, its\ninstrument (at most one), then its audio effects; the master's holds audio effects only.",
+              "oneOf": [
+                {
+                  "const": "instrument",
+                  "description": "Notes in, sound out: the sound of the track.",
+                  "type": "string"
+                },
+                {
+                  "const": "effect",
+                  "description": "An audio effect: sound in, sound out, after the instrument.",
+                  "type": "string"
+                },
+                {
+                  "const": "midi_effect",
+                  "description": "Notes in, notes out, before the instrument, on a MIDI track only (#219).",
+                  "type": "string"
+                }
+              ]
             },
             "DeviceSource": {
               "description": "Where a device comes from. Third-party plugins come after the MVP.",
@@ -4543,7 +4876,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+        "description": "Move an effect to `index` among the effects of its kind in its chain (a track's or\nthe master's): an audio effect among the audio effects, 0 first (right after the\ninstrument on a track); a MIDI effect among the MIDI effects, 0 first (the start of the\nchain). An index past the end means last of that kind. The instrument cannot be moved,\nand an effect never crosses it. Refused with `invalid` when the devices around that\nposition share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -4580,7 +4913,7 @@
           "additionalProperties": false,
           "properties": {
             "previous_index": {
-              "description": "The effect's index before the command.",
+              "description": "The effect's index among the effects of its kind before the command.",
               "format": "uint32",
               "minimum": 0,
               "type": "integer"
@@ -4594,7 +4927,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Put an effect back under an exact order key: the inverse of `device.move`, which\ntakes an index. Refused when the key would put the effect before the instrument.\nUndo: set the key before this command back.",
+        "description": "Put an effect back under an exact order key: the inverse of `device.move`, which\ntakes an index. Refused when the key would break the chain's order (MIDI effects,\ninstrument, audio effects).\nUndo: set the key before this command back.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -4838,12 +5171,24 @@
               "type": "object"
             },
             "DeviceRole": {
-              "description": "What a device does in the chain.",
-              "enum": [
-                "instrument",
-                "effect"
-              ],
-              "type": "string"
+              "description": "What a device does in the chain. A track's chain is, in order, its MIDI effects, its\ninstrument (at most one), then its audio effects; the master's holds audio effects only.",
+              "oneOf": [
+                {
+                  "const": "instrument",
+                  "description": "Notes in, sound out: the sound of the track.",
+                  "type": "string"
+                },
+                {
+                  "const": "effect",
+                  "description": "An audio effect: sound in, sound out, after the instrument.",
+                  "type": "string"
+                },
+                {
+                  "const": "midi_effect",
+                  "description": "Notes in, notes out, before the instrument, on a MIDI track only (#219).",
+                  "type": "string"
+                }
+              ]
             },
             "DeviceSource": {
               "description": "Where a device comes from. Third-party plugins come after the MVP.",
@@ -5072,6 +5417,16 @@
                 {
                   "const": "gain",
                   "description": "A linear gain (1 is unity).",
+                  "type": "string"
+                },
+                {
+                  "const": "degrees",
+                  "description": "An angle, in degrees.",
+                  "type": "string"
+                },
+                {
+                  "const": "octaves",
+                  "description": "A frequency ratio, in octaves.",
                   "type": "string"
                 }
               ]
@@ -7270,7 +7625,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Ask the user for audio files to import into an audio track (AU-1): the page opens\nits file dialog, then imports each file chosen (its bytes are kept in the project's\n`blobs/`, its decoded audio checked) and makes a clip of it with `clip.import_audio`.\nA file dialog needs a click by the user, so an agent that is not driven by one gets a\nnotice in the page instead. Formats: WAV, AIFF, CAF, FLAC, MP3, AAC (MP4, M4A, ADTS),\nALAC, Ogg Vorbis, Opus (Ogg, WebM: mono or stereo). The answer only says the request was\naccepted; the clips arrive with `clip.import_audio`, one history entry each. Refused\nwhen the track is not an audio track. Not undoable itself.",
+        "description": "Ask the user for audio files to import into an audio track (AU-1): the page opens\nits file dialog, then imports each file chosen (its bytes are kept in the project's\n`blobs/`, its decoded audio checked) and makes a clip of it with `clip.import_audio`.\nA file dialog needs a click by the user, so an agent that is not driven by one gets a\nnotice in the page instead. In Boost, with the project's folder open in the helper, the\ndialog is the helper's own and the helper imports each file chosen into the folder\n(#778); an agent with a file already in the project's folder imports it with\n`clip.import_audio_file`. Formats: WAV, AIFF, CAF, FLAC, MP3, AAC\n(MP4, M4A, ADTS), ALAC, Ogg Vorbis, Opus (Ogg, WebM: mono or stereo). The answer only\nsays the request was accepted; the clips arrive with `clip.import_audio`, one history\nentry each. Refused when the track is not an audio track. Not undoable itself.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -7300,6 +7655,168 @@
         "output_schema": {
           "additionalProperties": false,
           "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "undo": "none"
+      },
+      {
+        "description": "Import the audio file hosted at `url` into an audio track, for an agent (#664): `https`,\nwith no user name or password in it (plain `http` only to `localhost`, `127.0.0.1` or\n`[::1]`, and the page takes it only when Faulk itself runs on this computer). The page\nfirst asks the user, for up to 45 s, showing the link's host and the file's name (the\nlast part of the link's path); nothing is sent to the host before the user allows it, so\nthe size is known only once the download starts. Then it downloads the file without\ncookies, credentials or referrer, as a CORS request (the host must allow any origin with\n`Access-Control-Allow-Origin`), at most 192 MiB, given up after 30 s without data, and\nimports it as `clip.choose_audio` imports a file the user picks: its bytes kept in the\nproject's `blobs/`, its content decoded and checked whatever its extension or type\n(formats: those of `clip.choose_audio`), then a clip in the track's pool made by\n`clip.import_audio`, one history entry the user can undo. The answer, once the file is\nin, gives the `clip` made and the file's SHA-256 (`media`); both are `null` only from a\nhost that imports nothing. Refused at once when the track is not an audio track or the\nlink is not one the page fetches. Otherwise the page answers `command.refused` with the\nerror code `confirmation.declined` or `confirmation.timeout` (the user refused or did\nnot answer), `url.refused` (a link the page does not fetch), `import.busy` (the same\nlink is already being imported), `download.too_big`, `download.unreachable` (network,\nCORS, an answer that is not a success, a redirect to a link the page would not fetch, a\nstall: the message says which), `import.cancelled` (`clip.cancel_audio_import`),\n`import.project_changed` (another project was opened before the file's turn) or\n`import.<reason>` (the file is not audio the page reads: `import.unsupported_format`,\n`import.corrupt`…, or `import.too_large`: it decodes to more than 16 GiB of audio, the\nmost a project keeps of one file, whatever its download size); nothing changed then. A large download can still end in\n`page.timeout` although it ran: the same call again (same link and track, within 10\nminutes, the clip still there) answers the clip already made, without asking or\ndownloading again; `track.get` lists the track's clips too. Not undoable itself.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            },
+            "TrackId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a track."
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "track": {
+              "$ref": "#/$defs/TrackId"
+            },
+            "url": {
+              "maxLength": 2048,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "track",
+            "url"
+          ],
+          "type": "object"
+        },
+        "kind": "live",
+        "name": "clip.import_audio_url",
+        "output_schema": {
+          "$defs": {
+            "ClipId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a clip."
+            },
+            "Hash": {
+              "description": "The SHA-256 of a blob, 64 lower-case hexadecimal characters.",
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "clip": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ClipId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The clip made of the file (in the track's pool)."
+            },
+            "media": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Hash"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The SHA-256 of the file, the name of its blob."
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "undo": "none"
+      },
+      {
+        "description": "Import an audio file of the project's folder into an audio track, for an agent (#778):\nBoost only, once the project's folder is open in the helper (`project.choose_helper_folder`\nshows it to the helper). `path` is the file's path relative to the project's folder (the\nfolder holding `project.json`), `/` separated: a file the agent or the user put there\n(`imports/kick.wav`), or a blob already there (`blobs/<sha256>`). Never a path outside the\nfolder, never `.faulk/` or `.git`. The helper reads and decodes the file on this computer\n(nothing of it crosses to the page), keeps its bytes in the project's `blobs/` and its\ndecoded audio checked, as for a file the user picks; the page then makes a clip in the\ntrack's pool with `clip.import_audio`, one history entry the user can undo. The file in\nthe folder is left as it is. Formats: those of `clip.choose_audio`. The answer gives the\n`clip` made and the file's SHA-256 (`media`); both are `null` only from a host that\nimports nothing. Refused at once when the track is not an audio track or the path is\nabsolute. Otherwise the page answers `command.refused` with the error code\n`import.no_folder` (Web mode, or the helper has no folder open for this project: nothing\nis read), `import.path` (a path that leaves the folder or names its own data: the\nmessage says why, `path.escapes`, `path.reserved`, `path.dot`…), `import.unreadable` (no\nsuch file, or not a file), `import.busy`, `import.cancelled`\n(`clip.cancel_audio_import`), `import.folder_changed` (the folder was closed or replaced\nmeanwhile), `import.write` (the disk refused), `import.project_changed` or\n`import.<reason>` (not audio Faulk reads: `import.unsupported_format`, `import.corrupt`…,\n`import.too_large`: it decodes to more than 16 GiB of audio); nothing changed then. Not\nundoable itself.",
+        "destructive": false,
+        "input_schema": {
+          "$defs": {
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            },
+            "TrackId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a track."
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            "track": {
+              "$ref": "#/$defs/TrackId"
+            }
+          },
+          "required": [
+            "track",
+            "path"
+          ],
+          "type": "object"
+        },
+        "kind": "live",
+        "name": "clip.import_audio_file",
+        "output_schema": {
+          "$defs": {
+            "ClipId": {
+              "$ref": "#/$defs/Id",
+              "description": "Identifier of a clip."
+            },
+            "Hash": {
+              "description": "The SHA-256 of a blob, 64 lower-case hexadecimal characters.",
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "Id": {
+              "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
+              "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
+              "type": "string"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "clip": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ClipId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The clip made of the file (in the track's pool)."
+            },
+            "media": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Hash"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The SHA-256 of the file, the name of its blob."
+            }
+          },
           "required": [],
           "type": "object"
         },
@@ -8587,7 +9104,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Repeat notes of a MIDI clip end to end up to the tick `until` (#710), in one batch\n(one history entry): an arpeggio, a hi-hat or a bass figure of a beat or two filled\nup to the end of a bar. Each source note is addressed by its whole value and must be\nin the clip. The period of the repetition is the span of the notes, from the first\nstart to the last end, rounded up to a whole number of `grid` steps (ticks, at least\n1; leave it out for the exact span): copy k of every note starts k periods later,\nfor each copy of the figure that starts before `until`. A copied note that would\nstart at or after `until` is left out, and one that would end after it is shortened\nto end there. To fill up to the end of bar N, give the tick where bar N ends. The\ncopies never pass the end of the clip: when `until` is past it, a copied note that\nwould end past the clip's end is shortened to end there and one that would start\nthere or later is left out; `at_clip_end` says whether that happened (a copy shortened\nor left out because the clip ends before `until`). Refused when `grid` is\nbelow 1, when `until` is not after the start of the first copy, when the first copy\nwould start at or after the end of the clip, or when the copies would pass the limit\nof notes. A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+        "description": "Repeat notes of a MIDI clip end to end up to the tick `until` (#710), in one batch\n(one history entry): an arpeggio, a hi-hat or a bass figure of a beat or two filled\nup to the end of a bar. Each source note is addressed by its whole value and must be\nin the clip. The period of the repetition (#770) is the extent of the notes, from the\n`grid` line at or before the first start to the last end, rounded up to a whole\nnumber of a unit that depends on that extent: the `grid` step (ticks, at least 1) for\na figure of one beat or less, the beat for one of more than a beat up to half a bar,\nthe bar for one of more than half a bar (a unit finer than the grid takes the grid\nstep); beat and bar are the project's time signature's. Leave `grid` out for the\nexact span, first start to last end, with no rounding. Copy k of every note starts k\nperiods later, for each copy of the figure that starts before `until`. A copied note that would\nstart at or after `until` is left out, and one that would end after it is shortened\nto end there. To fill up to the end of bar N, give the tick where bar N ends. The\ncopies never pass the end of the clip: when `until` is past it, a copied note that\nwould end past the clip's end is shortened to end there and one that would start\nthere or later is left out; `at_clip_end` says whether that happened (a copy shortened\nor left out because the clip ends before `until`). Refused when `grid` is\nbelow 1, when `until` is not after the start of the first copy, when the first copy\nwould start at or after the end of the clip, or when the copies would pass the limit\nof notes. A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -15178,7 +15695,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Read how loud the project sounds now, per track and for the master, from the\nmeters of the playing engine: how an agent without ears learns whether a song\nsounds. Call it while the transport plays (`transport.play`): the meters keep the\nlargest peak and the loudest RMS since the previous call (at most the last 10\nseconds), so a call right after a passage covers it. That RMS is the loudest of\nthe engine's short windows (about 30 ms), so it reads higher than the RMS of a\nwhole passage, which is what `project.analyze_render` gives. Levels are in dBFS (0 is\nfull scale; the master is measured before the output protection, so it can read\nabove 0), `null` is silence; a peak is the larger of the two channels, an RMS the\npower mean of both. `playing` says whether the transport ran: when it did not (or\nthe audio is not started, or the engine has stopped reporting), every level is\n`null`. Tracks come in display order, after their fader and mute. To measure a\nstretch without playing it, use `project.analyze_render`. `silenced_frames` above 0\nsays the output protection silenced an invalid (non-finite) signal since the page's\naudio started, which the levels cannot show. A query: changes nothing\nand never enters the history.",
+        "description": "Read how loud the project sounds now, per track and for the master, from the\nmeters of the playing engine: how an agent without ears learns whether a song\nsounds. Call it while the transport plays (`transport.play`): the meters keep the\nlargest peak and the loudest RMS since the previous call (at most the last 10\nseconds), so a call right after a passage covers it. That RMS is the loudest of\nthe engine's short windows (about 30 ms), so it reads higher than the RMS of a\nwhole passage, which is what `project.analyze_render` gives. Levels are in dBFS (0 is\nfull scale; the master is measured before the output protection, so it can read\nabove 0), `null` is silence; a peak is the larger of the two channels, an RMS the\npower mean of both. `playing` says whether the transport ran: when it did not (or\nthe audio is not started, or the engine has stopped reporting), every level is\n`null`. Tracks come in display order, after their fader and mute. To measure a\nstretch without playing it, use `project.analyze_render`. `silenced_frames` above 0\nsays the output protection silenced an invalid (non-finite) signal since the page's\naudio started, which the levels cannot show. `latency_ms` is the delay the devices add\nto what is heard (a look-ahead limiter's): the engine delays what plays beside those\ndevices (the other tracks, the metronome) to match, so everything stays in time, and\nmoves recorded takes back by it.\nA query: changes nothing and never enters the history.",
         "destructive": false,
         "input_schema": {
           "additionalProperties": false,
@@ -15264,6 +15781,21 @@
           },
           "additionalProperties": false,
           "properties": {
+            "latency_capped": {
+              "description": "True when a chain's latency goes beyond what the engine compensates (16 383 samples\nof difference between two tracks): the tracks that would need more are delayed by\nthe limit only and play early; every other track stays aligned.",
+              "type": "boolean"
+            },
+            "latency_frames": {
+              "description": "The delay the devices add to what is heard, in samples at the engine's rate: the\nlongest chain of the tracks plus the master's (0 with no such device). The engine\ncompensates it: the tracks and the metronome stay aligned. Counted whether or not the\ntransport runs.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "latency_ms": {
+              "description": "The same delay in milliseconds (0 when the engine's rate is unknown).",
+              "format": "double",
+              "type": "number"
+            },
             "master": {
               "$ref": "#/$defs/Level",
               "description": "The level of the output, after the master and before the output protection."
@@ -15290,7 +15822,10 @@
             "playing",
             "tracks",
             "master",
-            "silenced_frames"
+            "silenced_frames",
+            "latency_frames",
+            "latency_ms",
+            "latency_capped"
           ],
           "type": "object"
         },
@@ -15421,7 +15956,7 @@
         "undo": "none"
       },
       {
-        "description": "Start recording the armed MIDI tracks (`track.arm`); refused when none is armed or\nwhen a take is still waiting to be committed. `target`: `{\"at\": \"scene\", \"scene\":\n<id>}` (the launch grid: overdub into the cell's clip, or a new clip in an empty\ncell) or `{\"at\": \"arrangement\"}` (the default: each note where it is played). From a\nstopped transport it plays from the play position, after the metronome's count-in\nbars (heard, not recorded), and with a scene target it launches that scene's clip\nof each armed track first; on a running transport it records at once. `latency_ms`\nis the output latency the host estimates (0 to 1000, default 0). The notes come\nback from the engine, already moved `shift_ms` earlier (the latency plus the session's\noffset) on the engine's clock, so that a note heard before a loop wrap stays before it;\n`record.stop` ends the take, which the host then writes with `record.commit_take`\n(`shift_ms` 0), one history entry. Not undoable itself.",
+        "description": "Start recording the armed MIDI tracks (`track.arm`); refused when none is armed or\nwhen a take is still waiting to be committed. `target`: `{\"at\": \"scene\", \"scene\":\n<id>}` (the launch grid: overdub into the cell's clip, or a new clip in an empty\ncell) or `{\"at\": \"arrangement\"}` (the default: each note where it is played). From a\nstopped transport it plays from the play position, after the metronome's count-in\nbars (heard, not recorded), and with a scene target it launches that scene's clip\nof each armed track first; on a running transport it records at once. `latency_ms`\nis the output latency the host estimates (0 to 1000, default 0). The notes come\nback from the engine, already moved `shift_ms` earlier (the latency plus the session's\noffset) on the engine's clock, so that a note heard before a loop wrap stays before it;\nthe engine also moves them back by the latency its devices add, which it compensates\n(`mixer.levels` `latency_ms`): `latency_ms` is the host's output latency only;\n`record.stop` ends the take, which the host then writes with `record.commit_take`\n(`shift_ms` 0), one history entry. Not undoable itself.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -15557,7 +16092,7 @@
               "type": "boolean"
             },
             "shift_ms": {
-              "description": "How much earlier the engine places the notes: `latency_ms` plus the session's\noffset (`record.set_settings`), in milliseconds. The notes it reports are already\nmoved: they are written with `record.commit_take`'s `shift_ms` 0.",
+              "description": "How much earlier the engine places the notes: `latency_ms` plus the session's\noffset (`record.set_settings`), in milliseconds; the engine adds the latency of its\ndevices on top (`mixer.levels` `latency_ms`, which this figure leaves out: the\ncommand does not know it). The notes it reports are already moved: they are\nwritten with `record.commit_take`'s `shift_ms` 0.",
               "format": "double",
               "type": "number"
             },
@@ -15648,7 +16183,7 @@
         "undo": "none"
       },
       {
-        "description": "Write a take into the project, every track at once, as **one** history entry. Per\ntrack, `notes` are the notes as played: `start` in transport ticks, `length` in\nticks. Every start is first moved `shift_ms` earlier at the project's tempo; when the\ntransport loops and the start is strictly inside the loop, the move wraps round the\nloop (a note that would go before the loop's start comes from its end). The notes the\nengine reported for a `record.start` take are already moved: write them with\n`shift_ms` 0 (the default); `shift_ms` is for notes not moved yet. With a\nscene target, a cell that holds a clip takes the notes on top of its own (overdub):\na note lands where the clip played at that moment, from `anchor` (the transport tick\nof the clip's position 0) or else from the bar of the first note, round its loop;\na clip without a loop grows to the bar after the last note. An empty cell gets a new\nclip from the bar of the first note to the bar after the last one (at least one\nbar), looping over its length. With the arrangement target, a note inside a\nplacement goes into its clip where the placement shows it; the other notes make one\nnew clip per gap between placements, from the bar of its first note to the bar after\nits last, cut at the next placement. A note that starts at most a sixteenth before\ntick 0 starts there with its length; one that starts earlier starts there, cut, when\nit ends after it, and is dropped and counted otherwise, as a note before its clip; a\nnote longer than its clip is cut at the clip's end. With\n`replace` on (`record.set_settings`), a clip that takes notes first loses the notes\nthat start in the range the track recorded (its first note to the end of its last),\ncounted in `replaced`. With `quantize_on_input` on, the starts of the take's notes\nmove toward the grid of their clip by `quantize_strength` (a note stays inside its\nclip, lengths never change). Undo: `record.restore` puts the clips back as they\nwere, replaced notes included. `replace`, `quantize_on_input` and `quantize_strength`\noverride the session's settings (`record.set_settings`) for this write only; left out,\nthe session's apply.",
+        "description": "Write a take into the project, every track at once, as **one** history entry. Per\ntrack, `notes` are the notes as played: `start` in transport ticks, `length` in\nticks. Every start is first moved `shift_ms` earlier at the project's tempo; when the\ntransport loops and the start is strictly inside the loop, the move wraps round the\nloop (a note that would go before the loop's start comes from its end). The notes the\nengine reported for a `record.start` take are already moved: write them with\n`shift_ms` 0 (the default); `shift_ms` is for notes not moved yet. With a\nscene target, a cell that holds a clip takes the notes on top of its own (overdub):\na note lands where the clip played at that moment, from `anchor` (the transport tick\nof the clip's position 0) or else from the bar of the first note, round its loop;\na clip without a loop grows to the bar after the last note. An empty cell gets a new\nclip from the bar of the first note to the bar after the last one (at least one\nbar), looping over its length. With the arrangement target, a note inside a\nplacement goes into its clip where the placement shows it; the other notes make one\nnew clip per gap between placements, from the bar of its first note to the bar after\nits last, cut at the next placement. \"The bar of the first note\" has a sixteenth of\ntolerance for an early downbeat: when the first note starts less than a sixteenth\nbefore a bar and every note of that sixteenth starts less than 30 ms after it, the\nclip starts on that bar and those notes on its first tick, with their lengths; any\nother note in that sixteenth (a pickup) leaves every note where it was played, the\nclip starting on the bar before. A note that starts at most a sixteenth before\ntick 0 starts there with its length; one that starts earlier starts there, cut, when\nit ends after it, and is dropped and counted otherwise, as a note before its clip; a\nnote longer than its clip is cut at the clip's end. With\n`replace` on (`record.set_settings`), a clip that takes notes first loses the notes\nthat start in the range the track recorded (its first note to the end of its last),\ncounted in `replaced`. With `quantize_on_input` on, the starts of the take's notes\nmove toward the grid of their clip by `quantize_strength` (a note stays inside its\nclip, lengths never change). Undo: `record.restore` puts the clips back as they\nwere, replaced notes included. `replace`, `quantize_on_input` and `quantize_strength`\noverride the session's settings (`record.set_settings`) for this write only; left out,\nthe session's apply.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -18358,7 +18893,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Ask the user for audio files to import into an audio track (AU-1): the page opens\nits file dialog, then imports each file chosen (its bytes are kept in the project's\n`blobs/`, its decoded audio checked) and makes a clip of it with `clip.import_audio`.\nA file dialog needs a click by the user, so an agent that is not driven by one gets a\nnotice in the page instead. Formats: WAV, AIFF, CAF, FLAC, MP3, AAC (MP4, M4A, ADTS),\nALAC, Ogg Vorbis, Opus (Ogg, WebM: mono or stereo). The answer only says the request was\naccepted; the clips arrive with `clip.import_audio`, one history entry each. Refused\nwhen the track is not an audio track. Not undoable itself.",
+              "description": "Ask the user for audio files to import into an audio track (AU-1): the page opens\nits file dialog, then imports each file chosen (its bytes are kept in the project's\n`blobs/`, its decoded audio checked) and makes a clip of it with `clip.import_audio`.\nA file dialog needs a click by the user, so an agent that is not driven by one gets a\nnotice in the page instead. In Boost, with the project's folder open in the helper, the\ndialog is the helper's own and the helper imports each file chosen into the folder\n(#778); an agent with a file already in the project's folder imports it with\n`clip.import_audio_file`. Formats: WAV, AIFF, CAF, FLAC, MP3, AAC\n(MP4, M4A, ADTS), ALAC, Ogg Vorbis, Opus (Ogg, WebM: mono or stereo). The answer only\nsays the request was accepted; the clips arrive with `clip.import_audio`, one history\nentry each. Refused when the track is not an audio track. Not undoable itself.",
               "properties": {
                 "track": {
                   "$ref": "#/$defs/TrackId"
@@ -18371,6 +18906,60 @@
               "required": [
                 "type",
                 "track"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "live",
+              "x-undo": "none"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Import the audio file hosted at `url` into an audio track, for an agent (#664): `https`,\nwith no user name or password in it (plain `http` only to `localhost`, `127.0.0.1` or\n`[::1]`, and the page takes it only when Faulk itself runs on this computer). The page\nfirst asks the user, for up to 45 s, showing the link's host and the file's name (the\nlast part of the link's path); nothing is sent to the host before the user allows it, so\nthe size is known only once the download starts. Then it downloads the file without\ncookies, credentials or referrer, as a CORS request (the host must allow any origin with\n`Access-Control-Allow-Origin`), at most 192 MiB, given up after 30 s without data, and\nimports it as `clip.choose_audio` imports a file the user picks: its bytes kept in the\nproject's `blobs/`, its content decoded and checked whatever its extension or type\n(formats: those of `clip.choose_audio`), then a clip in the track's pool made by\n`clip.import_audio`, one history entry the user can undo. The answer, once the file is\nin, gives the `clip` made and the file's SHA-256 (`media`); both are `null` only from a\nhost that imports nothing. Refused at once when the track is not an audio track or the\nlink is not one the page fetches. Otherwise the page answers `command.refused` with the\nerror code `confirmation.declined` or `confirmation.timeout` (the user refused or did\nnot answer), `url.refused` (a link the page does not fetch), `import.busy` (the same\nlink is already being imported), `download.too_big`, `download.unreachable` (network,\nCORS, an answer that is not a success, a redirect to a link the page would not fetch, a\nstall: the message says which), `import.cancelled` (`clip.cancel_audio_import`),\n`import.project_changed` (another project was opened before the file's turn) or\n`import.<reason>` (the file is not audio the page reads: `import.unsupported_format`,\n`import.corrupt`…, or `import.too_large`: it decodes to more than 16 GiB of audio, the\nmost a project keeps of one file, whatever its download size); nothing changed then. A large download can still end in\n`page.timeout` although it ran: the same call again (same link and track, within 10\nminutes, the clip still there) answers the clip already made, without asking or\ndownloading again; `track.get` lists the track's clips too. Not undoable itself.",
+              "properties": {
+                "track": {
+                  "$ref": "#/$defs/TrackId"
+                },
+                "type": {
+                  "const": "clip.import_audio_url",
+                  "type": "string"
+                },
+                "url": {
+                  "maxLength": 2048,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "track",
+                "url"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "live",
+              "x-undo": "none"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Import an audio file of the project's folder into an audio track, for an agent (#778):\nBoost only, once the project's folder is open in the helper (`project.choose_helper_folder`\nshows it to the helper). `path` is the file's path relative to the project's folder (the\nfolder holding `project.json`), `/` separated: a file the agent or the user put there\n(`imports/kick.wav`), or a blob already there (`blobs/<sha256>`). Never a path outside the\nfolder, never `.faulk/` or `.git`. The helper reads and decodes the file on this computer\n(nothing of it crosses to the page), keeps its bytes in the project's `blobs/` and its\ndecoded audio checked, as for a file the user picks; the page then makes a clip in the\ntrack's pool with `clip.import_audio`, one history entry the user can undo. The file in\nthe folder is left as it is. Formats: those of `clip.choose_audio`. The answer gives the\n`clip` made and the file's SHA-256 (`media`); both are `null` only from a host that\nimports nothing. Refused at once when the track is not an audio track or the path is\nabsolute. Otherwise the page answers `command.refused` with the error code\n`import.no_folder` (Web mode, or the helper has no folder open for this project: nothing\nis read), `import.path` (a path that leaves the folder or names its own data: the\nmessage says why, `path.escapes`, `path.reserved`, `path.dot`…), `import.unreadable` (no\nsuch file, or not a file), `import.busy`, `import.cancelled`\n(`clip.cancel_audio_import`), `import.folder_changed` (the folder was closed or replaced\nmeanwhile), `import.write` (the disk refused), `import.project_changed` or\n`import.<reason>` (not audio Faulk reads: `import.unsupported_format`, `import.corrupt`…,\n`import.too_large`: it decodes to more than 16 GiB of audio); nothing changed then. Not\nundoable itself.",
+              "properties": {
+                "path": {
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "track": {
+                  "$ref": "#/$defs/TrackId"
+                },
+                "type": {
+                  "const": "clip.import_audio_file",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type",
+                "track",
+                "path"
               ],
               "type": "object",
               "x-destructive": false,
@@ -18801,7 +19390,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Repeat notes of a MIDI clip end to end up to the tick `until` (#710), in one batch\n(one history entry): an arpeggio, a hi-hat or a bass figure of a beat or two filled\nup to the end of a bar. Each source note is addressed by its whole value and must be\nin the clip. The period of the repetition is the span of the notes, from the first\nstart to the last end, rounded up to a whole number of `grid` steps (ticks, at least\n1; leave it out for the exact span): copy k of every note starts k periods later,\nfor each copy of the figure that starts before `until`. A copied note that would\nstart at or after `until` is left out, and one that would end after it is shortened\nto end there. To fill up to the end of bar N, give the tick where bar N ends. The\ncopies never pass the end of the clip: when `until` is past it, a copied note that\nwould end past the clip's end is shortened to end there and one that would start\nthere or later is left out; `at_clip_end` says whether that happened (a copy shortened\nor left out because the clip ends before `until`). Refused when `grid` is\nbelow 1, when `until` is not after the start of the first copy, when the first copy\nwould start at or after the end of the clip, or when the copies would pass the limit\nof notes. A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
+              "description": "Repeat notes of a MIDI clip end to end up to the tick `until` (#710), in one batch\n(one history entry): an arpeggio, a hi-hat or a bass figure of a beat or two filled\nup to the end of a bar. Each source note is addressed by its whole value and must be\nin the clip. The period of the repetition (#770) is the extent of the notes, from the\n`grid` line at or before the first start to the last end, rounded up to a whole\nnumber of a unit that depends on that extent: the `grid` step (ticks, at least 1) for\na figure of one beat or less, the beat for one of more than a beat up to half a bar,\nthe bar for one of more than half a bar (a unit finer than the grid takes the grid\nstep); beat and bar are the project's time signature's. Leave `grid` out for the\nexact span, first start to last end, with no rounding. Copy k of every note starts k\nperiods later, for each copy of the figure that starts before `until`. A copied note that would\nstart at or after `until` is left out, and one that would end after it is shortened\nto end there. To fill up to the end of bar N, give the tick where bar N ends. The\ncopies never pass the end of the clip: when `until` is past it, a copied note that\nwould end past the clip's end is shortened to end there and one that would start\nthere or later is left out; `at_clip_end` says whether that happened (a copy shortened\nor left out because the clip ends before `until`). Refused when `grid` is\nbelow 1, when `until` is not after the start of the first copy, when the first copy\nwould start at or after the end of the clip, or when the copies would pass the limit\nof notes. A copy equal to a note already in the clip changes nothing. Undo: remove\nthe notes actually added.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
@@ -19238,7 +19827,7 @@
           "oneOf": [
             {
               "additionalProperties": false,
-              "description": "Insert an effect in a track's chain, or in the master's. Name the chain with\n`track` (a track's identifier) or with `master: true` (the master: the effects\nthere process the sum of all the tracks before the master's volume), exactly one\nof the two. `kind` is the type id of a built-in effect (an instrument is refused:\n`track.set_instrument` replaces a track's instrument, and the master has none).\n`index` is the position among the chain's effects, 0 first (right after the\ninstrument on a track); an index past the end means last. The new device starts at\nits default settings, not bypassed. Refused with `invalid` when both or neither of\n`track` and `master` are given, when the effects around that position share an\norder key (a merge made them equal), and with `limit` at the safety limit of\ndevices per chain. Undo: `device.remove`.",
+              "description": "Insert an effect in a track's chain, or in the master's. Name the chain with\n`track` (a track's identifier) or with `master: true` (the master: the effects\nthere process the sum of all the tracks before the master's volume), exactly one\nof the two. `kind` is the type id of a built-in audio effect or MIDI effect (an\ninstrument is refused: `track.set_instrument` replaces a track's instrument, and the\nmaster has none). An audio effect goes after the instrument, `index` counting the\naudio effects, 0 first (right after the instrument on a track). A MIDI effect (it\nturns the notes the track plays into other notes before the instrument hears them)\ngoes before the instrument, `index` counting the MIDI effects, 0 first; it is refused\non the master and on an audio track, which play no notes. An index past the end means\nlast. The new device starts at its default settings, not bypassed. Refused with\n`invalid` when both or neither of `track` and `master` are given, when the devices\naround that position share an order key (a merge made them equal), and with `limit`\nat the safety limit of devices per chain. Undo: `device.remove`.",
               "properties": {
                 "index": {
                   "format": "uint32",
@@ -19280,7 +19869,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Remove an effect from its track or from the master, with its settings. The\nautomation lanes that target the effect are deleted with it. Refused for an\ninstrument (the oscillator, the clip player: replace it with `track.set_instrument`).\nUndo: `device.restore` brings it back with its identifier, position, settings, bypass\nand automation lanes.",
+              "description": "Remove an effect (audio or MIDI) from its track or from the master, with its\nsettings. The automation lanes that target the effect are deleted with it. Refused for an\ninstrument (the oscillator, the clip player: replace it with `track.set_instrument`).\nUndo: `device.restore` brings it back with its identifier, position, settings, bypass\nand automation lanes.",
               "properties": {
                 "device": {
                   "$ref": "#/$defs/DeviceId"
@@ -19301,7 +19890,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Bring a removed effect back with its identifier, as `device.remove` took it out:\nthe inverse of a remove. `track` or `master: true` names the chain, as for\n`device.insert`. `snapshot` is the whole device: its order key, bypass, source,\nsettings and state. Refused when both or neither of `track` and `master` are given,\nwhen the identifier is already in use, at the safety limit of devices, or when the\nsnapshot is not an effect (a built-in device must be one of the registry, with only\nparameters it declares; a module device is taken as it is) or does not fit the\nchain. `lanes` are the automation lanes that targeted the device, as `device.remove`\ntook them out (absent: none); each must target this device and a parameter it has,\nunder an identifier not in use. Undo: `device.remove`.",
+              "description": "Bring a removed effect back with its identifier, as `device.remove` took it out:\nthe inverse of a remove. `track` or `master: true` names the chain, as for\n`device.insert`. `snapshot` is the whole device: its order key, bypass, source,\nsettings and state; a built-in device lacking parameters its type declares (saved\nbefore it gained them) gets them at their defaults. Refused when both or neither of `track` and `master` are given,\nwhen the identifier is already in use, at the safety limit of devices, or when the\nsnapshot is not an audio or MIDI effect (a built-in device must be one of the\nregistry, with only parameters it declares; a module device is taken as it is) or does\nnot fit the chain (a MIDI effect goes before the instrument of a MIDI track only): the\nchain stays valid. `lanes` are the automation lanes that targeted the device, as `device.remove`\ntook them out (absent: none); each must target this device and a parameter it has,\nunder an identifier not in use. Undo: `device.remove`.",
               "properties": {
                 "device": {
                   "$ref": "#/$defs/DeviceId"
@@ -19351,7 +19940,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Move an effect to `index` among the effects of its chain (a track's or the master's),\n0 first (right after the instrument on a track); an index past the end means last. The instrument cannot be moved.\nRefused with `invalid` when the effects around that position share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
+              "description": "Move an effect to `index` among the effects of its kind in its chain (a track's or\nthe master's): an audio effect among the audio effects, 0 first (right after the\ninstrument on a track); a MIDI effect among the MIDI effects, 0 first (the start of the\nchain). An index past the end means last of that kind. The instrument cannot be moved,\nand an effect never crosses it. Refused with `invalid` when the devices around that\nposition share an order key.\nUndo: `device.restore_order` puts the exact previous order key back.",
               "properties": {
                 "device": {
                   "$ref": "#/$defs/DeviceId"
@@ -19378,7 +19967,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Put an effect back under an exact order key: the inverse of `device.move`, which\ntakes an index. Refused when the key would put the effect before the instrument.\nUndo: set the key before this command back.",
+              "description": "Put an effect back under an exact order key: the inverse of `device.move`, which\ntakes an index. Refused when the key would break the chain's order (MIDI effects,\ninstrument, audio effects).\nUndo: set the key before this command back.",
               "properties": {
                 "device": {
                   "$ref": "#/$defs/DeviceId"
@@ -19546,12 +20135,24 @@
           "type": "object"
         },
         "DeviceRole": {
-          "description": "What a device does in the chain.",
-          "enum": [
-            "instrument",
-            "effect"
-          ],
-          "type": "string"
+          "description": "What a device does in the chain. A track's chain is, in order, its MIDI effects, its\ninstrument (at most one), then its audio effects; the master's holds audio effects only.",
+          "oneOf": [
+            {
+              "const": "instrument",
+              "description": "Notes in, sound out: the sound of the track.",
+              "type": "string"
+            },
+            {
+              "const": "effect",
+              "description": "An audio effect: sound in, sound out, after the instrument.",
+              "type": "string"
+            },
+            {
+              "const": "midi_effect",
+              "description": "Notes in, notes out, before the instrument, on a MIDI track only (#219).",
+              "type": "string"
+            }
+          ]
         },
         "DeviceSource": {
           "description": "Where a device comes from. Third-party plugins come after the MVP.",
@@ -20453,7 +21054,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Read how loud the project sounds now, per track and for the master, from the\nmeters of the playing engine: how an agent without ears learns whether a song\nsounds. Call it while the transport plays (`transport.play`): the meters keep the\nlargest peak and the loudest RMS since the previous call (at most the last 10\nseconds), so a call right after a passage covers it. That RMS is the loudest of\nthe engine's short windows (about 30 ms), so it reads higher than the RMS of a\nwhole passage, which is what `project.analyze_render` gives. Levels are in dBFS (0 is\nfull scale; the master is measured before the output protection, so it can read\nabove 0), `null` is silence; a peak is the larger of the two channels, an RMS the\npower mean of both. `playing` says whether the transport ran: when it did not (or\nthe audio is not started, or the engine has stopped reporting), every level is\n`null`. Tracks come in display order, after their fader and mute. To measure a\nstretch without playing it, use `project.analyze_render`. `silenced_frames` above 0\nsays the output protection silenced an invalid (non-finite) signal since the page's\naudio started, which the levels cannot show. A query: changes nothing\nand never enters the history.",
+              "description": "Read how loud the project sounds now, per track and for the master, from the\nmeters of the playing engine: how an agent without ears learns whether a song\nsounds. Call it while the transport plays (`transport.play`): the meters keep the\nlargest peak and the loudest RMS since the previous call (at most the last 10\nseconds), so a call right after a passage covers it. That RMS is the loudest of\nthe engine's short windows (about 30 ms), so it reads higher than the RMS of a\nwhole passage, which is what `project.analyze_render` gives. Levels are in dBFS (0 is\nfull scale; the master is measured before the output protection, so it can read\nabove 0), `null` is silence; a peak is the larger of the two channels, an RMS the\npower mean of both. `playing` says whether the transport ran: when it did not (or\nthe audio is not started, or the engine has stopped reporting), every level is\n`null`. Tracks come in display order, after their fader and mute. To measure a\nstretch without playing it, use `project.analyze_render`. `silenced_frames` above 0\nsays the output protection silenced an invalid (non-finite) signal since the page's\naudio started, which the levels cannot show. `latency_ms` is the delay the devices add\nto what is heard (a look-ahead limiter's): the engine delays what plays beside those\ndevices (the other tracks, the metronome) to match, so everything stays in time, and\nmoves recorded takes back by it.\nA query: changes nothing and never enters the history.",
               "properties": {
                 "type": {
                   "const": "mixer.levels",
@@ -21431,6 +22032,23 @@
             },
             {
               "additionalProperties": false,
+              "description": "In Boost mode, show the project's folder to the helper so that its engine plays the\naudio clips from it: the helper opens its own folder dialog and takes the folder chosen\nwhen it is the one open in the page (same project, and the page's marker in it). Needed\nonce per folder: the helper remembers it. A dialog needs the user's click, so an agent\nthat is not driven by one gets a notice in the page instead. Refused with a notice in\nWeb mode and for a project kept in the browser (save it in a folder first). Changes\nnothing in the project, so it never enters the history.",
+              "properties": {
+                "type": {
+                  "const": "project.choose_helper_folder",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "live",
+              "x-undo": "none"
+            },
+            {
+              "additionalProperties": false,
               "description": "Measure how loud the song is without playing it nor writing a file: the same\noffline render as `project.export_audio` (the engine that plays the song, run\nfaster than real time), but only the levels come back, per track and for the\nmaster, so an agent without ears learns whether its song sounds, whether it is too\nloud, and whether a track is silent. The range is the whole song by default, or\nbars `from_bar` to `to_bar` (both, counted from 1, the last one included); the\ntail after the range is not measured. Levels are in dBFS (0 is full scale), `null`\nis silence; a peak is the larger of the two channels, an RMS the power mean of\nboth, over the whole range (not the loudest short window that `mixer.levels`\ngives). The metronome and the loop are off, the solo and mute state are on. Audio\nclips are measured as they play: the render reads their files from the project's\nfolder, and a file that cannot be read leaves its clip silent. Refused, as an export\nis, when there is nothing to render (empty arrangement, a range that starts after\nthe end of the arrangement or is out of order), and when the range lasts more than\n10 minutes (a `limit` error). The page runs the render in the background (a few\nseconds for a few minutes of music), one at a time; it answers `unavailable` when\nanother analysis runs or the page's engine is not ready. A query: changes nothing\nin the project and never enters the history.",
               "properties": {
                 "from_bar": {
@@ -21644,7 +22262,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Start recording the armed MIDI tracks (`track.arm`); refused when none is armed or\nwhen a take is still waiting to be committed. `target`: `{\"at\": \"scene\", \"scene\":\n<id>}` (the launch grid: overdub into the cell's clip, or a new clip in an empty\ncell) or `{\"at\": \"arrangement\"}` (the default: each note where it is played). From a\nstopped transport it plays from the play position, after the metronome's count-in\nbars (heard, not recorded), and with a scene target it launches that scene's clip\nof each armed track first; on a running transport it records at once. `latency_ms`\nis the output latency the host estimates (0 to 1000, default 0). The notes come\nback from the engine, already moved `shift_ms` earlier (the latency plus the session's\noffset) on the engine's clock, so that a note heard before a loop wrap stays before it;\n`record.stop` ends the take, which the host then writes with `record.commit_take`\n(`shift_ms` 0), one history entry. Not undoable itself.",
+              "description": "Start recording the armed MIDI tracks (`track.arm`); refused when none is armed or\nwhen a take is still waiting to be committed. `target`: `{\"at\": \"scene\", \"scene\":\n<id>}` (the launch grid: overdub into the cell's clip, or a new clip in an empty\ncell) or `{\"at\": \"arrangement\"}` (the default: each note where it is played). From a\nstopped transport it plays from the play position, after the metronome's count-in\nbars (heard, not recorded), and with a scene target it launches that scene's clip\nof each armed track first; on a running transport it records at once. `latency_ms`\nis the output latency the host estimates (0 to 1000, default 0). The notes come\nback from the engine, already moved `shift_ms` earlier (the latency plus the session's\noffset) on the engine's clock, so that a note heard before a loop wrap stays before it;\nthe engine also moves them back by the latency its devices add, which it compensates\n(`mixer.levels` `latency_ms`): `latency_ms` is the host's output latency only;\n`record.stop` ends the take, which the host then writes with `record.commit_take`\n(`shift_ms` 0), one history entry. Not undoable itself.",
               "properties": {
                 "latency_ms": {
                   "format": "double",
@@ -21712,7 +22330,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Write a take into the project, every track at once, as **one** history entry. Per\ntrack, `notes` are the notes as played: `start` in transport ticks, `length` in\nticks. Every start is first moved `shift_ms` earlier at the project's tempo; when the\ntransport loops and the start is strictly inside the loop, the move wraps round the\nloop (a note that would go before the loop's start comes from its end). The notes the\nengine reported for a `record.start` take are already moved: write them with\n`shift_ms` 0 (the default); `shift_ms` is for notes not moved yet. With a\nscene target, a cell that holds a clip takes the notes on top of its own (overdub):\na note lands where the clip played at that moment, from `anchor` (the transport tick\nof the clip's position 0) or else from the bar of the first note, round its loop;\na clip without a loop grows to the bar after the last note. An empty cell gets a new\nclip from the bar of the first note to the bar after the last one (at least one\nbar), looping over its length. With the arrangement target, a note inside a\nplacement goes into its clip where the placement shows it; the other notes make one\nnew clip per gap between placements, from the bar of its first note to the bar after\nits last, cut at the next placement. A note that starts at most a sixteenth before\ntick 0 starts there with its length; one that starts earlier starts there, cut, when\nit ends after it, and is dropped and counted otherwise, as a note before its clip; a\nnote longer than its clip is cut at the clip's end. With\n`replace` on (`record.set_settings`), a clip that takes notes first loses the notes\nthat start in the range the track recorded (its first note to the end of its last),\ncounted in `replaced`. With `quantize_on_input` on, the starts of the take's notes\nmove toward the grid of their clip by `quantize_strength` (a note stays inside its\nclip, lengths never change). Undo: `record.restore` puts the clips back as they\nwere, replaced notes included. `replace`, `quantize_on_input` and `quantize_strength`\noverride the session's settings (`record.set_settings`) for this write only; left out,\nthe session's apply.",
+              "description": "Write a take into the project, every track at once, as **one** history entry. Per\ntrack, `notes` are the notes as played: `start` in transport ticks, `length` in\nticks. Every start is first moved `shift_ms` earlier at the project's tempo; when the\ntransport loops and the start is strictly inside the loop, the move wraps round the\nloop (a note that would go before the loop's start comes from its end). The notes the\nengine reported for a `record.start` take are already moved: write them with\n`shift_ms` 0 (the default); `shift_ms` is for notes not moved yet. With a\nscene target, a cell that holds a clip takes the notes on top of its own (overdub):\na note lands where the clip played at that moment, from `anchor` (the transport tick\nof the clip's position 0) or else from the bar of the first note, round its loop;\na clip without a loop grows to the bar after the last note. An empty cell gets a new\nclip from the bar of the first note to the bar after the last one (at least one\nbar), looping over its length. With the arrangement target, a note inside a\nplacement goes into its clip where the placement shows it; the other notes make one\nnew clip per gap between placements, from the bar of its first note to the bar after\nits last, cut at the next placement. \"The bar of the first note\" has a sixteenth of\ntolerance for an early downbeat: when the first note starts less than a sixteenth\nbefore a bar and every note of that sixteenth starts less than 30 ms after it, the\nclip starts on that bar and those notes on its first tick, with their lengths; any\nother note in that sixteenth (a pickup) leaves every note where it was played, the\nclip starting on the bar before. A note that starts at most a sixteenth before\ntick 0 starts there with its length; one that starts earlier starts there, cut, when\nit ends after it, and is dropped and counted otherwise, as a note before its clip; a\nnote longer than its clip is cut at the clip's end. With\n`replace` on (`record.set_settings`), a clip that takes notes first loses the notes\nthat start in the range the track recorded (its first note to the end of its last),\ncounted in `replaced`. With `quantize_on_input` on, the starts of the take's notes\nmove toward the grid of their clip by `quantize_strength` (a note stays inside its\nclip, lengths never change). Undo: `record.restore` puts the clips back as they\nwere, replaced notes included. `replace`, `quantize_on_input` and `quantize_strength`\noverride the session's settings (`record.set_settings`) for this write only; left out,\nthe session's apply.",
               "properties": {
                 "quantize_on_input": {
                   "anyOf": [
@@ -22481,7 +23099,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Bring a deleted track back with its identifier, as `track.delete` removed it: the\ninverse of a delete. `snapshot` is the whole track: its order key, mixer,\ndevices, clips, placements and automation. Refused when the track's identifier or\nany identifier inside it is already in use, at the safety limit of tracks, or when\nthe snapshot is not a valid track of the project. Undo: `track.delete`.",
+              "description": "Bring a deleted track back with its identifier, as `track.delete` removed it: the\ninverse of a delete. `snapshot` is the whole track: its order key, mixer,\ndevices (a built-in device lacking parameters its type declares gets them at their\ndefaults), clips, placements and automation. Refused when the track's identifier or\nany identifier inside it is already in use, at the safety limit of tracks, or when\nthe snapshot is not a valid track of the project. Undo: `track.delete`.",
               "properties": {
                 "snapshot": {
                   "$ref": "#/$defs/Track"
@@ -22673,7 +23291,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Swap a track's instrument for a device taken out earlier: the inverse of\n`track.set_instrument`. `current` is the instrument in the track now, replaced by\n`snapshot` under the identifier `device`. Refused when `device` is already in use,\nwhen `current` is not the track's instrument, or when the snapshot is not an\ninstrument that fits the track (a built-in device must be one of the registry; a\nmodule device is taken as it is). The lanes that target `current` are removed with\nit; `lanes` (absent: none) are the lanes that targeted the instrument put back, as\n`track.set_instrument` took them out: each must target the restored instrument and\na parameter it has, under an identifier not in use. Undo: the same swap the other\nway, which takes `lanes` out again and brings the lanes of `current` back.",
+              "description": "Swap a track's instrument for a device taken out earlier: the inverse of\n`track.set_instrument`. `current` is the instrument in the track now, replaced by\n`snapshot` under the identifier `device`. Refused when `device` is already in use,\nwhen `current` is not the track's instrument, or when the snapshot is not an\ninstrument that fits the track (a built-in device must be one of the registry; a\nmodule device is taken as it is; one lacking parameters its type declares gets them\nat their defaults). The lanes that target `current` are removed with\nit; `lanes` (absent: none) are the lanes that targeted the instrument put back, as\n`track.set_instrument` took them out: each must target the restored instrument and\na parameter it has, under an identifier not in use. Undo: the same swap the other\nway, which takes `lanes` out again and brings the lanes of `current` back.",
               "properties": {
                 "current": {
                   "$ref": "#/$defs/DeviceId"
@@ -24440,6 +25058,76 @@
             {
               "additionalProperties": false,
               "properties": {
+                "clip": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/ClipId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The clip made of the file (in the track's pool)."
+                },
+                "media": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Hash"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The SHA-256 of the file, the name of its blob."
+                },
+                "type": {
+                  "const": "clip.import_audio_url",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "clip": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/ClipId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The clip made of the file (in the track's pool)."
+                },
+                "media": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Hash"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The SHA-256 of the file, the name of its blob."
+                },
+                "type": {
+                  "const": "clip.import_audio_file",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
                 "type": {
                   "const": "clip.cancel_audio_import",
                   "type": "string"
@@ -24988,7 +25676,7 @@
               "additionalProperties": false,
               "properties": {
                 "previous_index": {
-                  "description": "The effect's index before the command.",
+                  "description": "The effect's index among the effects of its kind before the command.",
                   "format": "uint32",
                   "minimum": 0,
                   "type": "integer"
@@ -25147,12 +25835,24 @@
           "type": "object"
         },
         "DeviceRole": {
-          "description": "What a device does in the chain.",
-          "enum": [
-            "instrument",
-            "effect"
-          ],
-          "type": "string"
+          "description": "What a device does in the chain. A track's chain is, in order, its MIDI effects, its\ninstrument (at most one), then its audio effects; the master's holds audio effects only.",
+          "oneOf": [
+            {
+              "const": "instrument",
+              "description": "Notes in, sound out: the sound of the track.",
+              "type": "string"
+            },
+            {
+              "const": "effect",
+              "description": "An audio effect: sound in, sound out, after the instrument.",
+              "type": "string"
+            },
+            {
+              "const": "midi_effect",
+              "description": "Notes in, notes out, before the instrument, on a MIDI track only (#219).",
+              "type": "string"
+            }
+          ]
         },
         "DeviceSource": {
           "description": "Where a device comes from. Third-party plugins come after the MVP.",
@@ -25958,6 +26658,21 @@
             {
               "additionalProperties": false,
               "properties": {
+                "latency_capped": {
+                  "description": "True when a chain's latency goes beyond what the engine compensates (16 383 samples\nof difference between two tracks): the tracks that would need more are delayed by\nthe limit only and play early; every other track stays aligned.",
+                  "type": "boolean"
+                },
+                "latency_frames": {
+                  "description": "The delay the devices add to what is heard, in samples at the engine's rate: the\nlongest chain of the tracks plus the master's (0 with no such device). The engine\ncompensates it: the tracks and the metronome stay aligned. Counted whether or not the\ntransport runs.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "latency_ms": {
+                  "description": "The same delay in milliseconds (0 when the engine's rate is unknown).",
+                  "format": "double",
+                  "type": "number"
+                },
                 "master": {
                   "$ref": "#/$defs/Level",
                   "description": "The level of the output, after the master and before the output protection."
@@ -25989,7 +26704,10 @@
                 "playing",
                 "tracks",
                 "master",
-                "silenced_frames"
+                "silenced_frames",
+                "latency_frames",
+                "latency_ms",
+                "latency_capped"
               ],
               "type": "object"
             }
@@ -26186,6 +26904,16 @@
             {
               "const": "gain",
               "description": "A linear gain (1 is unity).",
+              "type": "string"
+            },
+            {
+              "const": "degrees",
+              "description": "An angle, in degrees.",
+              "type": "string"
+            },
+            {
+              "const": "octaves",
+              "description": "A frequency ratio, in octaves.",
               "type": "string"
             }
           ]
@@ -26889,6 +27617,19 @@
             {
               "additionalProperties": false,
               "properties": {
+                "type": {
+                  "const": "project.choose_helper_folder",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
                 "duration_secs": {
                   "description": "Seconds of content measured.",
                   "format": "double",
@@ -27222,7 +27963,7 @@
                   "type": "boolean"
                 },
                 "shift_ms": {
-                  "description": "How much earlier the engine places the notes: `latency_ms` plus the session's\noffset (`record.set_settings`), in milliseconds. The notes it reports are already\nmoved: they are written with `record.commit_take`'s `shift_ms` 0.",
+                  "description": "How much earlier the engine places the notes: `latency_ms` plus the session's\noffset (`record.set_settings`), in milliseconds; the engine adds the latency of its\ndevices on top (`mixer.levels` `latency_ms`, which this figure leaves out: the\ncommand does not know it). The notes it reports are already moved: they are\nwritten with `record.commit_take`'s `shift_ms` 0.",
                   "format": "double",
                   "type": "number"
                 },
@@ -28776,6 +29517,16 @@
             "const": "gain",
             "description": "A linear gain (an amplitude factor, 1 = unity): shown in decibels, `20 log10(value)`.",
             "type": "string"
+          },
+          {
+            "const": "degrees",
+            "description": "An angle, in degrees (a phase).",
+            "type": "string"
+          },
+          {
+            "const": "octaves",
+            "description": "A frequency ratio, in octaves (a depth of modulation: 1 octave doubles the frequency).",
+            "type": "string"
           }
         ]
       }
@@ -29379,7 +30130,7 @@
     {
       "kind": "faulk.compressor",
       "kind_id": 5,
-      "memory_bytes": 80,
+      "memory_bytes": 98896,
       "midi_output": null,
       "name": "Compressor",
       "named_keys": [],
@@ -29411,6 +30162,19 @@
           "values": []
         },
         {
+          "default": 6,
+          "description": "Width, in decibels, of the zone around the threshold where the compression comes in gradually, from 0 (hard: the full ratio right at the threshold) to 24 dB (soft).",
+          "id": 5,
+          "key": "knee",
+          "max": 24,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        },
+        {
           "default": 0.01,
           "description": "Time the compressor takes to turn the sound down once it passes the threshold, from 0.1 ms to 200 ms: short catches the first hit, long lets it through.",
           "id": 2,
@@ -29424,8 +30188,24 @@
           "values": []
         },
         {
+          "default": 0,
+          "description": "How the compressor lets the sound back up: manual (the release time) or auto (fast after a short hit, slower after a long compression, so it pumps less).",
+          "id": 7,
+          "key": "release_mode",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "manual",
+            "auto"
+          ]
+        },
+        {
           "default": 0.15,
-          "description": "Time the compressor takes to let the sound back up once it falls under the threshold, from 10 ms to 2 s.",
+          "description": "In manual release, time the compressor takes to let the sound back up once it falls under the threshold, from 10 ms to 2 s.",
           "id": 3,
           "key": "release",
           "max": 2,
@@ -29434,6 +30214,64 @@
           "smoothing_seconds": 0,
           "step": 0,
           "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "What level the compressor reacts to: peak (each sample, it catches the hits) or RMS (the average over 10 ms, it follows the loudness and lets short hits through).",
+          "id": 6,
+          "key": "detection",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "peak",
+            "rms"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "How far ahead the compressor sees the sound, from 0 to 10 ms, so a short attack catches a hit whole. It delays the sound by that time; the other tracks are delayed to match, so everything stays in time. A change fades out and back in.",
+          "id": 10,
+          "key": "lookahead",
+          "max": 0.01,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "When on, the compressor does not react to the lows under the sidechain frequency (a 12 dB per octave high-pass on what it listens to, not on the sound): a kick or a bass no longer pumps everything else.",
+          "id": 8,
+          "key": "sidechain_hpf",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 100,
+          "description": "With the sidechain high-pass on, the frequency under which the compressor stops reacting, from 20 to 500 Hz.",
+          "id": 9,
+          "key": "sidechain_freq",
+          "max": 500,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "hertz",
           "values": []
         },
         {
@@ -29448,6 +30286,19 @@
           "step": 0,
           "unit": "decibels",
           "values": []
+        },
+        {
+          "default": 1,
+          "description": "Balance between the dry sound (0) and the compressed sound (1): in between is parallel compression, the hits keep their attack and the quiet parts come up.",
+          "id": 11,
+          "key": "mix",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
         }
       ],
       "role": "effect",
@@ -29456,17 +30307,17 @@
     {
       "kind": "faulk.filter",
       "kind_id": 6,
-      "memory_bytes": 152,
+      "memory_bytes": 344,
       "midi_output": null,
       "name": "Filter",
       "named_keys": [],
       "params": [
         {
           "default": 0,
-          "description": "What the filter lets through: the sound below the cutoff (low-pass), above it (high-pass) or around it (band-pass). A change fades over 10 ms.",
+          "description": "What the filter lets through: the sound below the cutoff (low-pass), above it (high-pass), around it (band-pass) or all but it (notch). A change fades over 10 ms.",
           "id": 0,
           "key": "mode",
-          "max": 2,
+          "max": 3,
           "min": 0,
           "scale": "linear",
           "smoothing_seconds": 0,
@@ -29475,12 +30326,13 @@
           "values": [
             "lowpass",
             "highpass",
-            "bandpass"
+            "bandpass",
+            "notch"
           ]
         },
         {
           "default": 1000,
-          "description": "Frequency, in hertz, where the filter starts to cut, from 20 Hz to 20 kHz.",
+          "description": "Frequency, in hertz, where the filter starts to cut, from 20 Hz to 20 kHz: the centre the LFO and the envelope move the cutoff around.",
           "id": 1,
           "key": "cutoff",
           "max": 20000,
@@ -29516,6 +30368,1788 @@
           "step": 0,
           "unit": "none",
           "values": []
+        },
+        {
+          "default": 0,
+          "description": "Soft saturation before the filter, from 0 (none) to 1: louder and rounder, so a strong resonance bites instead of whistling.",
+          "id": 4,
+          "key": "drive",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "Shape of the LFO that moves the cutoff: sine, triangle, rising saw, falling saw, square, or random (a new value at each cycle).",
+          "id": 5,
+          "key": "lfo_shape",
+          "max": 5,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "sine",
+            "triangle",
+            "saw_up",
+            "saw_down",
+            "square",
+            "random"
+          ]
+        },
+        {
+          "default": 1,
+          "description": "Whether the LFO runs at its own rate in hertz (free) or follows the tempo (synced), each cycle on the same beat of every bar.",
+          "id": 6,
+          "key": "lfo_sync",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "free",
+            "synced"
+          ]
+        },
+        {
+          "default": 1,
+          "description": "Speed of the LFO in free mode, in cycles per second, from 0.01 to 20 Hz.",
+          "id": 7,
+          "key": "lfo_rate",
+          "max": 20,
+          "min": 0.01,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 6,
+          "description": "Length of one LFO cycle in synced mode, a note value from 1/32 to 8 bars.",
+          "id": 8,
+          "key": "lfo_division",
+          "max": 12,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "thirty_second",
+            "sixteenth",
+            "eighth_triplet",
+            "eighth",
+            "quarter_triplet",
+            "eighth_dotted",
+            "quarter",
+            "quarter_dotted",
+            "half",
+            "whole",
+            "two_bars",
+            "four_bars",
+            "eight_bars"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Where in its cycle the LFO starts, from 0 to 360 degrees: in synced mode, where in the bar the cutoff peaks.",
+          "id": 9,
+          "key": "lfo_phase",
+          "max": 360,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "degrees",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Offset of the right channel's LFO, from 0 to 180 degrees: at 180 the two channels open in opposition.",
+          "id": 10,
+          "key": "lfo_stereo",
+          "max": 180,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "degrees",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "How far the LFO moves the cutoff either side of its centre, in octaves, from 0 (no movement) to 5.",
+          "id": 11,
+          "key": "lfo_depth",
+          "max": 5,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "octaves",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "In free mode, whether the LFO starts again from its phase each time playback starts (on) or runs on freely (off).",
+          "id": 12,
+          "key": "lfo_restart",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "How far the level of the incoming sound moves the cutoff, in octaves at full level, from -5 (louder closes) to +5 (louder opens); 0 for none.",
+          "id": 13,
+          "key": "env_amount",
+          "max": 5,
+          "min": -5,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "octaves",
+          "values": []
+        },
+        {
+          "default": 0.01,
+          "description": "Time the envelope follower takes to rise with the sound, from 1 ms to 500 ms.",
+          "id": 14,
+          "key": "env_attack",
+          "max": 0.5,
+          "min": 0.001,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0.15,
+          "description": "Time the envelope follower takes to fall back when the sound gets quieter, from 10 ms to 2 s.",
+          "id": 15,
+          "key": "env_release",
+          "max": 2,
+          "min": 0.01,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        }
+      ],
+      "role": "effect",
+      "version": 1
+    },
+    {
+      "kind": "faulk.ceiling",
+      "kind_id": 7,
+      "memory_bytes": 70488,
+      "midi_output": null,
+      "name": "Ceiling",
+      "named_keys": [],
+      "params": [
+        {
+          "default": -0.3,
+          "description": "Highest level the output may reach, in decibels of full scale, from -12 to 0 dB: no sample goes above it.",
+          "id": 0,
+          "key": "ceiling",
+          "max": 0,
+          "min": -12,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Gain added before the limiter, from 0 to 24 dB: it pushes the sound against the ceiling, so it gets louder without going over.",
+          "id": 1,
+          "key": "gain",
+          "max": 24,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "When on, the output is turned down by the input gain: the gain changes how hard the sound is limited, not how loud it is, to compare by ear.",
+          "id": 2,
+          "key": "compensate",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 0.0015,
+          "description": "How far ahead the limiter sees the peaks, from 0 to 5 ms: it turns down smoothly before each one. It delays the sound by that time; the other tracks are delayed to match, so everything stays in time. A change fades out and back in.",
+          "id": 3,
+          "key": "lookahead",
+          "max": 0.005,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "How the limiter lets the sound back up after a peak: manual (the release time) or auto (fast after a short peak, slower under sustained limiting).",
+          "id": 4,
+          "key": "release_mode",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "manual",
+            "auto"
+          ]
+        },
+        {
+          "default": 0.1,
+          "description": "In manual release, time the limiter takes to let the sound back up after a peak, from 1 ms to 1 s: short is louder, long is smoother.",
+          "id": 5,
+          "key": "release",
+          "max": 1,
+          "min": 0.001,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "When on, the limiter also catches the peaks between samples (4x oversampled detection), for a converter or an encoder. It adds 12 samples of delay and a look-ahead of at least 16 samples. A change fades out and back in.",
+          "id": 6,
+          "key": "true_peak",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        }
+      ],
+      "role": "effect",
+      "version": 1
+    },
+    {
+      "kind": "faulk.stack",
+      "kind_id": 9,
+      "memory_bytes": 1341680,
+      "midi_output": {
+        "per_block": 896,
+        "per_input": 14
+      },
+      "name": "Stack",
+      "named_keys": [],
+      "params": [
+        {
+          "default": 0,
+          "description": "How the voices' intervals are read: in semitones, or in degrees of the project's scale (a third is two degrees) so the chord stays in key. Without a project scale, in semitones.",
+          "id": 0,
+          "key": "mode",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "semitones",
+            "scale"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Time from the first to the last note of the chord, from 0 (all at once) to 0.4 s: the notes are spread like a strummed guitar.",
+          "id": 1,
+          "key": "strum",
+          "max": 0.4,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0.001,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "How the strum's gaps change, from -100 % (they widen toward the last note) to +100 % (they tighten); 0 spaces the notes evenly.",
+          "id": 2,
+          "key": "tension",
+          "max": 100,
+          "min": -100,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Velocity across the strum: above 0 the notes grow louder toward the last, below 0 softer; at 100 % the first (or last) note is at the lowest velocity.",
+          "id": 3,
+          "key": "crescendo",
+          "max": 100,
+          "min": -100,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Order of the strum: up plays from the lowest note to the highest, down from the highest to the lowest.",
+          "id": 4,
+          "key": "direction",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "up",
+            "down"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Seed of the chance draws, from 0 to 1000: a note draws from the seed, its position in the song and its pitch, so the same seed gives the same chords at the same place on every play, from any start; another seed, another draw.",
+          "id": 5,
+          "key": "seed",
+          "max": 1000,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "Whether added voice 1 plays.",
+          "id": 10,
+          "key": "voice1",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 7,
+          "description": "Interval of voice 1 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+          "id": 11,
+          "key": "voice1_interval",
+          "max": 36,
+          "min": -36,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Velocity of voice 1, from 1 to 200 % of the received note's.",
+          "id": 12,
+          "key": "voice1_velocity",
+          "max": 200,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Chance that voice 1 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.",
+          "id": 13,
+          "key": "voice1_chance",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Whether added voice 2 plays.",
+          "id": 14,
+          "key": "voice2",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 4,
+          "description": "Interval of voice 2 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+          "id": 15,
+          "key": "voice2_interval",
+          "max": 36,
+          "min": -36,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Velocity of voice 2, from 1 to 200 % of the received note's.",
+          "id": 16,
+          "key": "voice2_velocity",
+          "max": 200,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Chance that voice 2 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.",
+          "id": 17,
+          "key": "voice2_chance",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Whether added voice 3 plays.",
+          "id": 18,
+          "key": "voice3",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 12,
+          "description": "Interval of voice 3 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+          "id": 19,
+          "key": "voice3_interval",
+          "max": 36,
+          "min": -36,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Velocity of voice 3, from 1 to 200 % of the received note's.",
+          "id": 20,
+          "key": "voice3_velocity",
+          "max": 200,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Chance that voice 3 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.",
+          "id": 21,
+          "key": "voice3_chance",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Whether added voice 4 plays.",
+          "id": 22,
+          "key": "voice4",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": -12,
+          "description": "Interval of voice 4 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+          "id": 23,
+          "key": "voice4_interval",
+          "max": 36,
+          "min": -36,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Velocity of voice 4, from 1 to 200 % of the received note's.",
+          "id": 24,
+          "key": "voice4_velocity",
+          "max": 200,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Chance that voice 4 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.",
+          "id": 25,
+          "key": "voice4_chance",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Whether added voice 5 plays.",
+          "id": 26,
+          "key": "voice5",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 19,
+          "description": "Interval of voice 5 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+          "id": 27,
+          "key": "voice5_interval",
+          "max": 36,
+          "min": -36,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Velocity of voice 5, from 1 to 200 % of the received note's.",
+          "id": 28,
+          "key": "voice5_velocity",
+          "max": 200,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Chance that voice 5 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.",
+          "id": 29,
+          "key": "voice5_chance",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Whether added voice 6 plays.",
+          "id": 30,
+          "key": "voice6",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 24,
+          "description": "Interval of voice 6 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+          "id": 31,
+          "key": "voice6_interval",
+          "max": 36,
+          "min": -36,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Velocity of voice 6, from 1 to 200 % of the received note's.",
+          "id": 32,
+          "key": "voice6_velocity",
+          "max": 200,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 100,
+          "description": "Chance that voice 6 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.",
+          "id": 33,
+          "key": "voice6_chance",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        }
+      ],
+      "role": "midi_effect",
+      "version": 1
+    },
+    {
+      "kind": "faulk.trim",
+      "kind_id": 10,
+      "memory_bytes": 1316960,
+      "midi_output": {
+        "per_block": 128,
+        "per_input": 2
+      },
+      "name": "Trim",
+      "named_keys": [],
+      "params": [
+        {
+          "default": 1,
+          "description": "How the length is set: a time in seconds (free) or a note value that follows the project tempo (synced).",
+          "id": 0,
+          "key": "mode",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "free",
+            "synced"
+          ]
+        },
+        {
+          "default": 0.1,
+          "description": "Length of every note in free mode, in seconds, from 1 ms to 10 s.",
+          "id": 1,
+          "key": "time",
+          "max": 10,
+          "min": 0.001,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 2,
+          "description": "Length of every note in synced mode, as a note value of the project tempo, from a 64th note to 4 bars of the time signature.",
+          "id": 2,
+          "key": "division",
+          "max": 8,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "sixty_fourth",
+            "thirty_second",
+            "sixteenth",
+            "eighth",
+            "quarter",
+            "half",
+            "bar",
+            "two_bars",
+            "four_bars"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Straight, triplet (two thirds of the note value) or dotted (one and a half times the note value), in synced mode.",
+          "id": 3,
+          "key": "feel",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "straight",
+            "triplet",
+            "dotted"
+          ]
+        },
+        {
+          "default": 100,
+          "description": "Share of the note value a note lasts in synced mode, from 1 % to 200 % (100 %: exactly the note value).",
+          "id": 4,
+          "key": "gate",
+          "max": 200,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "When a note comes out: when the key is pressed (start), or when it is let go (release), at the velocity it was pressed with.",
+          "id": 5,
+          "key": "trigger",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "start",
+            "release"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "How the length follows the pitch, from -100 % to +100 %: at +100 % it doubles one octave below C4 and halves one octave above.",
+          "id": 6,
+          "key": "key_track",
+          "max": 100,
+          "min": -100,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        }
+      ],
+      "role": "midi_effect",
+      "version": 1
+    },
+    {
+      "kind": "faulk.lattice",
+      "kind_id": 12,
+      "memory_bytes": 1313336,
+      "midi_output": {
+        "per_block": 0,
+        "per_input": 2
+      },
+      "name": "Lattice",
+      "named_keys": [],
+      "params": [
+        {
+          "default": 0,
+          "description": "Which notes are allowed: the project's scale (it follows the project's changes; without one, every note), the scale set in the device by root and scale, or the matrix, which says where each of the twelve notes goes.",
+          "id": 0,
+          "key": "source",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "project",
+            "device",
+            "matrix"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Where a note outside the scale goes: to the nearest note of the scale (a tie goes down), always down, always up, or nowhere (it is not played). The matrix ignores it.",
+          "id": 1,
+          "key": "rule",
+          "max": 3,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "nearest",
+            "down",
+            "up",
+            "block"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Semitones added to every note after it is put on the scale, from -24 to +24. A note pushed outside 0 to 127 is not played.",
+          "id": 2,
+          "key": "transpose",
+          "max": 24,
+          "min": -24,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Root of the device's scale, C to B (used when the source is the device).",
+          "id": 3,
+          "key": "root",
+          "max": 11,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "c",
+            "c_sharp",
+            "d",
+            "e_flat",
+            "e",
+            "f",
+            "f_sharp",
+            "g",
+            "a_flat",
+            "a",
+            "b_flat",
+            "b"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "The device's scale, built on its root (used when the source is the device): the project's list of scales.",
+          "id": 4,
+          "key": "scale",
+          "max": 11,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "major",
+            "natural_minor",
+            "harmonic_minor",
+            "melodic_minor",
+            "dorian",
+            "phrygian",
+            "lydian",
+            "mixolydian",
+            "locrian",
+            "major_pentatonic",
+            "minor_pentatonic",
+            "blues"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "In matrix mode, the note a received C becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).",
+          "id": 10,
+          "key": "map_c",
+          "max": 12,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "c",
+            "c_sharp",
+            "d",
+            "e_flat",
+            "e",
+            "f",
+            "f_sharp",
+            "g",
+            "a_flat",
+            "a",
+            "b_flat",
+            "b",
+            "blocked"
+          ]
+        },
+        {
+          "default": 1,
+          "description": "In matrix mode, the note a received C sharp becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).",
+          "id": 11,
+          "key": "map_c_sharp",
+          "max": 12,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "c",
+            "c_sharp",
+            "d",
+            "e_flat",
+            "e",
+            "f",
+            "f_sharp",
+            "g",
+            "a_flat",
+            "a",
+            "b_flat",
+            "b",
+            "blocked"
+          ]
+        },
+        {
+          "default": 2,
+          "description": "In matrix mode, the note a received D becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).",
+          "id": 12,
+          "key": "map_d",
+          "max": 12,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "c",
+            "c_sharp",
+            "d",
+            "e_flat",
+            "e",
+            "f",
+            "f_sharp",
+            "g",
+            "a_flat",
+            "a",
+            "b_flat",
+            "b",
+            "blocked"
+          ]
+        },
+        {
+          "default": 3,
+          "description": "In matrix mode, the note a received E flat becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).",
+          "id": 13,
+          "key": "map_e_flat",
+          "max": 12,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "c",
+            "c_sharp",
+            "d",
+            "e_flat",
+            "e",
+            "f",
+            "f_sharp",
+            "g",
+            "a_flat",
+            "a",
+            "b_flat",
+            "b",
+            "blocked"
+          ]
+        },
+        {
+          "default": 4,
+          "description": "In matrix mode, the note a received E becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).",
+          "id": 14,
+          "key": "map_e",
+          "max": 12,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "c",
+            "c_sharp",
+            "d",
+            "e_flat",
+            "e",
+            "f",
+            "f_sharp",
+            "g",
+            "a_flat",
+            "a",
+            "b_flat",
+            "b",
+            "blocked"
+          ]
+        },
+        {
+          "default": 5,
+          "description": "In matrix mode, the note a received F becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).",
+          "id": 15,
+          "key": "map_f",
+          "max": 12,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "c",
+            "c_sharp",
+            "d",
+            "e_flat",
+            "e",
+            "f",
+            "f_sharp",
+            "g",
+            "a_flat",
+            "a",
+            "b_flat",
+            "b",
+            "blocked"
+          ]
+        },
+        {
+          "default": 6,
+          "description": "In matrix mode, the note a received F sharp becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).",
+          "id": 16,
+          "key": "map_f_sharp",
+          "max": 12,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "c",
+            "c_sharp",
+            "d",
+            "e_flat",
+            "e",
+            "f",
+            "f_sharp",
+            "g",
+            "a_flat",
+            "a",
+            "b_flat",
+            "b",
+            "blocked"
+          ]
+        },
+        {
+          "default": 7,
+          "description": "In matrix mode, the note a received G becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).",
+          "id": 17,
+          "key": "map_g",
+          "max": 12,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "c",
+            "c_sharp",
+            "d",
+            "e_flat",
+            "e",
+            "f",
+            "f_sharp",
+            "g",
+            "a_flat",
+            "a",
+            "b_flat",
+            "b",
+            "blocked"
+          ]
+        },
+        {
+          "default": 8,
+          "description": "In matrix mode, the note a received A flat becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).",
+          "id": 18,
+          "key": "map_a_flat",
+          "max": 12,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "c",
+            "c_sharp",
+            "d",
+            "e_flat",
+            "e",
+            "f",
+            "f_sharp",
+            "g",
+            "a_flat",
+            "a",
+            "b_flat",
+            "b",
+            "blocked"
+          ]
+        },
+        {
+          "default": 9,
+          "description": "In matrix mode, the note a received A becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).",
+          "id": 19,
+          "key": "map_a",
+          "max": 12,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "c",
+            "c_sharp",
+            "d",
+            "e_flat",
+            "e",
+            "f",
+            "f_sharp",
+            "g",
+            "a_flat",
+            "a",
+            "b_flat",
+            "b",
+            "blocked"
+          ]
+        },
+        {
+          "default": 10,
+          "description": "In matrix mode, the note a received B flat becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).",
+          "id": 20,
+          "key": "map_b_flat",
+          "max": 12,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "c",
+            "c_sharp",
+            "d",
+            "e_flat",
+            "e",
+            "f",
+            "f_sharp",
+            "g",
+            "a_flat",
+            "a",
+            "b_flat",
+            "b",
+            "blocked"
+          ]
+        },
+        {
+          "default": 11,
+          "description": "In matrix mode, the note a received B becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).",
+          "id": 21,
+          "key": "map_b",
+          "max": 12,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "c",
+            "c_sharp",
+            "d",
+            "e_flat",
+            "e",
+            "f",
+            "f_sharp",
+            "g",
+            "a_flat",
+            "a",
+            "b_flat",
+            "b",
+            "blocked"
+          ]
+        }
+      ],
+      "role": "midi_effect",
+      "version": 1
+    },
+    {
+      "kind": "faulk.scatter",
+      "kind_id": 11,
+      "memory_bytes": 1312320,
+      "midi_output": {
+        "per_block": 0,
+        "per_input": 2
+      },
+      "name": "Scatter",
+      "named_keys": [],
+      "params": [
+        {
+          "default": 50,
+          "description": "Chance that a received note comes out at another pitch, from 0 (never: the notes go through unchanged) to 100 % (every note): a repeatable draw, set by the seed.",
+          "id": 0,
+          "key": "chance",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 2,
+          "description": "How many pitches a moved note can take, from 1 to 24, each one interval further from the received note.",
+          "id": 1,
+          "key": "choices",
+          "max": 24,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 12,
+          "description": "Distance between two choices, from 1 to 12: semitones, or degrees of the project's scale in scale mode (12 semitones is an octave).",
+          "id": 2,
+          "key": "interval",
+          "max": 12,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 2,
+          "description": "Where the choices lie: above the received note, below it, or around it (alternately above and below).",
+          "id": 3,
+          "key": "direction",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "up",
+            "down",
+            "around"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "How the interval is read: in semitones, or in degrees of the project's scale, so that every moved note is in the scale. Without a project scale, in semitones.",
+          "id": 4,
+          "key": "mode",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "semitones",
+            "scale"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "How a moved note picks its choice: at random (a repeatable draw, set by the seed), or in turn, each moved note taking the next choice.",
+          "id": 5,
+          "key": "order",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "random",
+            "cycle"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Seed of the draws, from 0 to 1000: a note draws from the seed, its position in the song and its pitch, so the same seed gives the same notes at the same place on every play, from any start; another seed, another draw.",
+          "id": 6,
+          "key": "seed",
+          "max": 1000,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        }
+      ],
+      "role": "midi_effect",
+      "version": 1
+    },
+    {
+      "kind": "faulk.hiccup",
+      "kind_id": 13,
+      "memory_bytes": 18438560,
+      "midi_output": null,
+      "name": "Hiccup",
+      "named_keys": [],
+      "params": [
+        {
+          "default": 4,
+          "description": "How often a slice may be captured, on the transport's grid: every 1/16 note to every 4 bars of the time signature. Captures happen only while the transport plays.",
+          "id": 0,
+          "key": "interval",
+          "max": 6,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "sixteenth",
+            "eighth",
+            "quarter",
+            "half",
+            "bar",
+            "two_bars",
+            "four_bars"
+          ]
+        },
+        {
+          "default": 100,
+          "description": "Chance that a capture happens at each grid point, from 0 to 100 %. The draw depends only on the seed and the grid position: playback and export give the same captures.",
+          "id": 1,
+          "key": "chance",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Seed of the chance and random length draws, from 0 to 1000: the same seed gives the same captures, another seed another sequence.",
+          "id": 2,
+          "key": "seed",
+          "max": 1000,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Manual capture: turning it on captures at once and the repeats last while it stays on; off ends them. A capture starts only when the value turns on; a transport stop ends it.",
+          "id": 3,
+          "key": "capture",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 3,
+          "description": "Length of the repeated slice, as a note value of the project tempo: 1/64 to 1 bar, with triplets (T). A slice longer than 12 seconds is shortened to 12 seconds.",
+          "id": 4,
+          "key": "size",
+          "max": 8,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "sixty_fourth",
+            "thirty_second",
+            "sixteenth_triplet",
+            "sixteenth",
+            "eighth_triplet",
+            "eighth",
+            "quarter",
+            "half",
+            "bar"
+          ]
+        },
+        {
+          "default": 25,
+          "description": "How long the repeats last after a capture, as a share of the interval, from 1 to 100 %. The slice plays first, then repeats until the gate ends.",
+          "id": 5,
+          "key": "gate",
+          "max": 100,
+          "min": 1,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Length of each repeat. Fixed: the slice. Shorter: halved every two slices, a roll speeding up (1/8, 1/16, 1/32). Random: the slice, half or a quarter, from the seed. Never under 1/8 of the slice nor 40 ms, unless the slice is shorter.",
+          "id": 6,
+          "key": "variation",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "fixed",
+            "shorter",
+            "random"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Level lost at each repeat, from 0 to 100 %: at 50 %, each repeat is half as loud as the one before. A change applies from the next repeat.",
+          "id": 7,
+          "key": "decay",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "A filter that closes over the repeats. Low-pass: from 20 kHz down to 200 Hz at the end of the gate, darker at each repeat. High-pass: from 20 Hz up to 2 kHz, thinner at each repeat. A change applies from the next capture.",
+          "id": 8,
+          "key": "filter",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "low_pass",
+            "high_pass"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Pitch of the repeats, from -12 to +12 semitones, by playing the slice faster or slower. Raised, a repeat ends when the slice runs out. A change applies from the next repeat.",
+          "id": 9,
+          "key": "pitch",
+          "max": 12,
+          "min": -12,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "semitones",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "How the repeats meet the sound. Layer: on top of it. Insert: the sound is muted while the repeats play. Repeats only: only the captured slices and their repeats are heard.",
+          "id": 10,
+          "key": "mode",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "layer",
+            "insert",
+            "repeats_only"
+          ]
+        },
+        {
+          "default": 100,
+          "description": "Level of the repeats, from 0 to 100 %. In insert mode it also sets how much the sound is muted while they play.",
+          "id": 11,
+          "key": "mix",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        }
+      ],
+      "role": "effect",
+      "version": 1
+    },
+    {
+      "kind": "faulk.bloom",
+      "kind_id": 14,
+      "memory_bytes": 61848,
+      "midi_output": null,
+      "name": "Bloom",
+      "named_keys": [],
+      "params": [
+        {
+          "default": 0,
+          "description": "Chorus: one moving copy mixed with the dry sound. Ensemble: three copies a third of a cycle apart, wider. Vibrato: the moving copy alone, no dry sound, so the pitch wavers (mix does not act).",
+          "id": 0,
+          "key": "mode",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "chorus",
+            "ensemble",
+            "vibrato"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Whether the movement runs at its own rate in hertz (free) or follows the project tempo (synced), cycles counted from the start of the song.",
+          "id": 1,
+          "key": "sync",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "free",
+            "synced"
+          ]
+        },
+        {
+          "default": 0.8,
+          "description": "Speed of the movement in free mode, in cycles per second, from 0.05 to 10 Hz.",
+          "id": 2,
+          "key": "rate",
+          "max": 10,
+          "min": 0.05,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 9,
+          "description": "Length of one cycle in synced mode, as a note value of the project tempo: 1/32 to a whole note, with triplets (T) and dotted values (.).",
+          "id": 3,
+          "key": "division",
+          "max": 9,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "thirty_second",
+            "sixteenth",
+            "eighth_triplet",
+            "eighth",
+            "quarter_triplet",
+            "eighth_dotted",
+            "quarter",
+            "quarter_dotted",
+            "half",
+            "whole"
+          ]
+        },
+        {
+          "default": 40,
+          "description": "How far the delay moves, from 0 to 100 %: at 100 % it sweeps 10 ms above the delay setting and back. More depth, more pitch movement; synced cycles faster than 10 Hz sweep less. A change never bends the pitch.",
+          "id": 4,
+          "key": "depth",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0.012,
+          "description": "Shortest delay of the moving copies, from 1 to 30 ms: 5 to 20 ms for a chorus; below 5 ms, with feedback, a soft flanger. A change moves there slowly, without a pitch bend.",
+          "id": 5,
+          "key": "delay",
+          "max": 0.03,
+          "min": 0.001,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Shape of the movement: sine (smooth) or triangle (the delay moves at a steady speed, so the pitch sits a little sharp, then a little flat).",
+          "id": 6,
+          "key": "shape",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "sine",
+            "triangle"
+          ]
+        },
+        {
+          "default": 90,
+          "description": "Offset of the right channel's movement, from 0 to 180 degrees: 0 keeps both channels alike, 180 moves them in opposition, the widest.",
+          "id": 7,
+          "key": "stereo_phase",
+          "max": 180,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Share of the moving copy fed back into the delay, from -90 % to +90 %: a metallic, resonant edge; negative values hollow the sound.",
+          "id": 8,
+          "key": "feedback",
+          "max": 90,
+          "min": -90,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 20,
+          "description": "High-pass on the moving copies, from 20 Hz to 2 kHz: higher keeps the low end clean and steady.",
+          "id": 9,
+          "key": "tone",
+          "max": 2000,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 0.5,
+          "description": "Balance between the dry sound (0) and the moving copies (1), in chorus and ensemble. Vibrato has no dry sound.",
+          "id": 10,
+          "key": "mix",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
         }
       ],
       "role": "effect",
@@ -29523,7 +32157,7 @@
     },
     {
       "kind": "faulk.contour",
-      "kind_id": 7,
+      "kind_id": 8,
       "memory_bytes": 35664,
       "midi_output": null,
       "name": "Contour",
@@ -29944,6 +32578,53 @@
     "audio_stream": "audio.stream",
     "no_output": "audio.no_output"
   },
+  "export_error_codes": {
+    "busy": "export.busy",
+    "cancelled": "export.cancelled",
+    "folder_changed": "export.folder_changed",
+    "invalid": "export.invalid",
+    "no_folder": "export.no_folder",
+    "render": "export.render",
+    "write": "export.write"
+  },
+  "export_name": {
+    "devices": [
+      "con",
+      "prn",
+      "aux",
+      "nul",
+      "conin$",
+      "conout$",
+      "com1",
+      "com2",
+      "com3",
+      "com4",
+      "com5",
+      "com6",
+      "com7",
+      "com8",
+      "com9",
+      "com0",
+      "lpt1",
+      "lpt2",
+      "lpt3",
+      "lpt4",
+      "lpt5",
+      "lpt6",
+      "lpt7",
+      "lpt8",
+      "lpt9",
+      "lpt0",
+      "com¹",
+      "com²",
+      "com³",
+      "lpt¹",
+      "lpt²",
+      "lpt³"
+    ],
+    "max_bytes": 120
+  },
+  "export_progress_ms": 100,
   "fader_taper": [
     [
       0,
@@ -29970,6 +32651,21 @@
       6
     ]
   ],
+  "import_error_codes": {
+    "busy": "import.busy",
+    "cancelled": "import.cancelled",
+    "decode_prefix": "import.",
+    "dialog_unavailable": "import.dialog_unavailable",
+    "folder_changed": "import.folder_changed",
+    "invalid": "import.invalid",
+    "no_folder": "import.no_folder",
+    "path": "import.path",
+    "unreadable": "import.unreadable",
+    "write": "import.write"
+  },
+  "import_progress_ms": 100,
+  "max_audio_url_bytes": 201326592,
+  "max_export_stream_bytes": 67108864,
   "max_stream_bytes": 1073741824,
   "param_defaults": {
     "attack": 0.005,
@@ -31143,12 +33839,49 @@
           "type": "object"
         },
         "DeviceRole": {
-          "description": "What a device does in the chain.",
-          "enum": [
-            "instrument",
-            "effect"
+          "description": "What a device does in the chain. A track's chain is, in order, its MIDI effects, its\ninstrument (at most one), then its audio effects; the master's holds audio effects only.",
+          "oneOf": [
+            {
+              "const": "instrument",
+              "description": "Notes in, sound out: the sound of the track.",
+              "type": "string"
+            },
+            {
+              "const": "effect",
+              "description": "An audio effect: sound in, sound out, after the instrument.",
+              "type": "string"
+            },
+            {
+              "const": "midi_effect",
+              "description": "Notes in, notes out, before the instrument, on a MIDI track only (#219).",
+              "type": "string"
+            }
+          ]
+        },
+        "DeviceSlotRef": {
+          "additionalProperties": false,
+          "description": "Where a device sits in the engine.",
+          "properties": {
+            "slot": {
+              "description": "Its place in the chain.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "track": {
+              "description": "Its track's slot; `None` for the master's chain.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "slot"
           ],
-          "type": "string"
+          "type": "object"
         },
         "DeviceSource": {
           "description": "Where a device comes from. Third-party plugins come after the MVP.",
@@ -32141,17 +34874,10 @@
           "properties": {
             "devices": {
               "additionalProperties": false,
-              "description": "Where each device sent to the engine sits (#156): its track slot (4294967295,\n`TrackSlot::MASTER`, for the master's chain) and its device slot, the two numbers a\nspectrum of the report names it by. Left out when the engine holds no device.",
+              "description": "The engine slots of the devices, the master's included: the engine reports the live\nvalue of a parameter a device moves by itself (the Filter's cutoff, #686) by its track\nslot and its device slot.",
               "patternProperties": {
                 "^[0-7][0-9A-HJKMNP-TV-Z]{25}$": {
-                  "items": {
-                    "format": "uint32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "maxItems": 2,
-                  "minItems": 2,
-                  "type": "array"
+                  "$ref": "#/$defs/DeviceSlotRef"
                 }
               },
               "type": "object"
@@ -32189,7 +34915,8 @@
           "required": [
             "epoch",
             "tracks",
-            "scenes"
+            "scenes",
+            "devices"
           ],
           "type": "object"
         }
@@ -33319,6 +36046,76 @@
             {
               "additionalProperties": false,
               "properties": {
+                "clip": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/ClipId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The clip made of the file (in the track's pool)."
+                },
+                "media": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Hash"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The SHA-256 of the file, the name of its blob."
+                },
+                "type": {
+                  "const": "clip.import_audio_url",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "clip": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/ClipId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The clip made of the file (in the track's pool)."
+                },
+                "media": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/Hash"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The SHA-256 of the file, the name of its blob."
+                },
+                "type": {
+                  "const": "clip.import_audio_file",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
                 "type": {
                   "const": "clip.cancel_audio_import",
                   "type": "string"
@@ -34056,7 +36853,7 @@
               "additionalProperties": false,
               "properties": {
                 "previous_index": {
-                  "description": "The effect's index before the command.",
+                  "description": "The effect's index among the effects of its kind before the command.",
                   "format": "uint32",
                   "minimum": 0,
                   "type": "integer"
@@ -34215,12 +37012,24 @@
           "type": "object"
         },
         "DeviceRole": {
-          "description": "What a device does in the chain.",
-          "enum": [
-            "instrument",
-            "effect"
-          ],
-          "type": "string"
+          "description": "What a device does in the chain. A track's chain is, in order, its MIDI effects, its\ninstrument (at most one), then its audio effects; the master's holds audio effects only.",
+          "oneOf": [
+            {
+              "const": "instrument",
+              "description": "Notes in, sound out: the sound of the track.",
+              "type": "string"
+            },
+            {
+              "const": "effect",
+              "description": "An audio effect: sound in, sound out, after the instrument.",
+              "type": "string"
+            },
+            {
+              "const": "midi_effect",
+              "description": "Notes in, notes out, before the instrument, on a MIDI track only (#219).",
+              "type": "string"
+            }
+          ]
         },
         "DeviceSource": {
           "description": "Where a device comes from. Third-party plugins come after the MVP.",
@@ -35252,6 +38061,21 @@
             {
               "additionalProperties": false,
               "properties": {
+                "latency_capped": {
+                  "description": "True when a chain's latency goes beyond what the engine compensates (16 383 samples\nof difference between two tracks): the tracks that would need more are delayed by\nthe limit only and play early; every other track stays aligned.",
+                  "type": "boolean"
+                },
+                "latency_frames": {
+                  "description": "The delay the devices add to what is heard, in samples at the engine's rate: the\nlongest chain of the tracks plus the master's (0 with no such device). The engine\ncompensates it: the tracks and the metronome stay aligned. Counted whether or not the\ntransport runs.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "latency_ms": {
+                  "description": "The same delay in milliseconds (0 when the engine's rate is unknown).",
+                  "format": "double",
+                  "type": "number"
+                },
                 "master": {
                   "$ref": "#/$defs/Level",
                   "description": "The level of the output, after the master and before the output protection."
@@ -35283,7 +38107,10 @@
                 "playing",
                 "tracks",
                 "master",
-                "silenced_frames"
+                "silenced_frames",
+                "latency_frames",
+                "latency_ms",
+                "latency_capped"
               ],
               "type": "object"
             }
@@ -35480,6 +38307,16 @@
             {
               "const": "gain",
               "description": "A linear gain (1 is unity).",
+              "type": "string"
+            },
+            {
+              "const": "degrees",
+              "description": "An angle, in degrees.",
+              "type": "string"
+            },
+            {
+              "const": "octaves",
+              "description": "A frequency ratio, in octaves.",
               "type": "string"
             }
           ]
@@ -37085,6 +39922,19 @@
             {
               "additionalProperties": false,
               "properties": {
+                "type": {
+                  "const": "project.choose_helper_folder",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
                 "duration_secs": {
                   "description": "Seconds of content measured.",
                   "format": "double",
@@ -37418,7 +40268,7 @@
                   "type": "boolean"
                 },
                 "shift_ms": {
-                  "description": "How much earlier the engine places the notes: `latency_ms` plus the session's\noffset (`record.set_settings`), in milliseconds. The notes it reports are already\nmoved: they are written with `record.commit_take`'s `shift_ms` 0.",
+                  "description": "How much earlier the engine places the notes: `latency_ms` plus the session's\noffset (`record.set_settings`), in milliseconds; the engine adds the latency of its\ndevices on top (`mixer.levels` `latency_ms`, which this figure leaves out: the\ncommand does not know it). The notes it reports are already moved: they are\nwritten with `record.commit_take`'s `shift_ms` 0.",
                   "format": "double",
                   "type": "number"
                 },
@@ -38922,7 +41772,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 44,
+  "protocol_version": 54,
   "scale_intervals": [
     {
       "intervals": [
@@ -39071,7 +41921,15 @@
         "description": "What the helper can do, announced in `hello` (BO-1).",
         "properties": {
           "disk": {
-            "description": "The helper reads and writes the project's folder for the page. Not yet: always `false`.",
+            "description": "The helper reads the audio files of the project's folder for its engine (AU-7): it takes\n`folder.open`, `folder.choose` and `folder.close`.",
+            "type": "boolean"
+          },
+          "export": {
+            "description": "The helper renders an export and writes it into the project's folder (#319): it takes\n`export.start` and `export.cancel`.",
+            "type": "boolean"
+          },
+          "import": {
+            "description": "The helper imports an audio file into the project's folder (#778): it takes\n`import.choose`, `import.start` and `import.cancel`.",
             "type": "boolean"
           },
           "midi": {
@@ -39081,9 +41939,149 @@
         },
         "required": [
           "midi",
-          "disk"
+          "disk",
+          "export",
+          "import"
         ],
         "type": "object"
+      },
+      "FolderRefusal": {
+        "description": "Why the folder chosen in the helper's dialog was not taken.",
+        "oneOf": [
+          {
+            "const": "cancelled",
+            "description": "The user closed the dialog.",
+            "type": "string"
+          },
+          {
+            "const": "no_project",
+            "description": "The folder holds no project.",
+            "type": "string"
+          },
+          {
+            "const": "other_project",
+            "description": "The folder holds another project.",
+            "type": "string"
+          },
+          {
+            "const": "not_this_folder",
+            "description": "The folder holds this project but not the page's marker: a copy, not the folder open in\nthe page.",
+            "type": "string"
+          },
+          {
+            "const": "unreadable",
+            "description": "The helper could not read the folder.",
+            "type": "string"
+          },
+          {
+            "const": "unavailable",
+            "description": "This system has no folder dialog the helper can show.",
+            "type": "string"
+          }
+        ]
+      },
+      "FolderStatus": {
+        "description": "Where the helper's folder of the page's project stands (`folder.state`, AU-7).",
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "description": "The helper reads the project's audio files from this folder (its name).",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "status": {
+                "const": "open",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "name"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "No folder: after `folder.close`, or a project the helper does not take.",
+            "properties": {
+              "status": {
+                "const": "closed",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The helper knows no folder holding the project and the page's marker: the user shows it\n(`folder.choose`).",
+            "properties": {
+              "status": {
+                "const": "unknown",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "Several folders the helper knows hold them (a copy made since the marker was written):\nthe user shows the right one.",
+            "properties": {
+              "count": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "status": {
+                "const": "ambiguous",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "count"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The helper's folder dialog is open.",
+            "properties": {
+              "status": {
+                "const": "choosing",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "description": "The folder chosen was not taken.",
+            "properties": {
+              "reason": {
+                "$ref": "#/$defs/FolderRefusal"
+              },
+              "status": {
+                "const": "refused",
+                "type": "string"
+              }
+            },
+            "required": [
+              "status",
+              "reason"
+            ],
+            "type": "object"
+          }
+        ]
       },
       "HelperUpdate": {
         "description": "What the helper's updater is doing.",
@@ -39226,6 +42224,25 @@
         },
         "required": [
           "id",
+          "name"
+        ],
+        "type": "object"
+      },
+      "PickedFile": {
+        "additionalProperties": false,
+        "description": "A file the user picked in the helper's dialog (`import.chosen`, #778).",
+        "properties": {
+          "name": {
+            "description": "The file's own name (no folder).",
+            "type": "string"
+          },
+          "token": {
+            "description": "32 lowercase hex digits: what `import.start` names the file by.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token",
           "name"
         ],
         "type": "object"
@@ -39538,6 +42555,302 @@
         "required": [
           "type",
           "agent"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "Where the helper's folder of the page's project stands (AU-7): the answer to `folder.open`,\n`folder.choose` (`choosing` first, then the outcome) and `folder.close`. `project` is the\nproject it is about (`None` after `folder.close`): the page drops a state of another one.",
+        "properties": {
+          "project": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "$ref": "#/$defs/FolderStatus"
+          },
+          "type": {
+            "const": "folder.state",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "state"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "How far the export `id` is (#319), at most every [`EXPORT_PROGRESS_MS`]: frames of the\ncontent rendered, of `body`, and whether the content is done and the effects ring out.",
+        "properties": {
+          "body": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rendered": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tail": {
+            "type": "boolean"
+          },
+          "type": {
+            "const": "export.progress",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "rendered",
+          "body",
+          "tail"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The export `id` is written (#319): `path` is the file's path in the project's folder\n(`/` separated, `exports/<name>.wav` or the free name taken), `bytes` its size, `written`\nits frames; the figures are `engine::offline::Offline`'s, as the page's Worker reports\nthem; `missing` the media (hex SHA-256) whose file could not be read (silent clips).",
+        "properties": {
+          "bytes": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "clipped": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "missing": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "path": {
+            "type": "string"
+          },
+          "peak": {
+            "format": "float",
+            "type": "number"
+          },
+          "reduction": {
+            "format": "float",
+            "type": "number"
+          },
+          "silenced": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "tail_cut": {
+            "type": "boolean"
+          },
+          "type": {
+            "const": "export.done",
+            "type": "string"
+          },
+          "written": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "path",
+          "bytes",
+          "written",
+          "peak",
+          "clipped",
+          "reduction",
+          "silenced",
+          "tail_cut",
+          "missing"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The export `id` ended without a file (#319): `code` is one of [`errors`]' `EXPORT_*`,\n`message` is for developers. Nothing is left in the folder, not even a temporary file.",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "type": {
+            "const": "export.failed",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The files the user picked in the helper's dialog for `import.choose` `id` (#778): none when\nthe dialog was closed.",
+        "properties": {
+          "files": {
+            "items": {
+              "$ref": "#/$defs/PickedFile"
+            },
+            "type": "array"
+          },
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "import.chosen",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "files"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "How far the import `id` is (#778), from 0 to 1, at most every [`IMPORT_PROGRESS_MS`].",
+        "properties": {
+          "fraction": {
+            "format": "double",
+            "type": "number"
+          },
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "import.progress",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "fraction"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The import `id` is in the project's folder (#778): the media as `clip.import_audio` takes it\n(`hash`, the file's SHA-256 and the name of its blob; the decoded `sample_rate`, `channels`,\n`frames`), `name` the source file's own name (the page makes the media's name of it),\n`direct` whether the blob is read directly (no PCM cache), `created` whether this import\nwrote `blobs/<hash>` (the folder may hold it already), `peaks` whether its waveform peaks\nwere written.",
+        "properties": {
+          "channels": {
+            "format": "uint16",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "direct": {
+            "type": "boolean"
+          },
+          "frames": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "hash": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "peaks": {
+            "type": "boolean"
+          },
+          "sample_rate": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": {
+            "const": "import.done",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "hash",
+          "sample_rate",
+          "channels",
+          "frames",
+          "name",
+          "direct",
+          "created",
+          "peaks"
+        ],
+        "type": "object"
+      },
+      {
+        "additionalProperties": false,
+        "description": "The import (or the dialog) `id` ended without a file in the folder (#778): `code` is one of\n[`errors`]' `IMPORT_*`, or `import.<reason>` for a file the decoder refuses\n(`audio_import::ImportError::code`: `import.too_large`, `import.corrupt`...); `message` is\nfor developers. Nothing is left in the folder, not even a temporary file.",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "id": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "type": {
+            "const": "import.failed",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "id",
+          "code",
+          "message"
         ],
         "type": "object"
       },

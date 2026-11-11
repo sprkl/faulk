@@ -126,6 +126,23 @@ pub fn restart_to_update(lang: Lang, version: &str) -> String {
     }
 }
 
+/// The title of the helper's folder dialog (AU-7), for the page's project folder named `name`.
+pub fn folder_dialog_title(lang: Lang, name: &str) -> String {
+    match lang {
+        Lang::En => format!("Faulk: choose the folder “{name}” open in the page"),
+        Lang::Fr => format!("Faulk : choisis le dossier « {name} » ouvert dans la page"),
+    }
+}
+
+/// The title of the helper's file dialog (#778): audio files to import into the project
+/// `name`.
+pub fn import_dialog_title(lang: Lang, name: &str) -> String {
+    match lang {
+        Lang::En => format!("Faulk: choose audio files to import into “{name}”"),
+        Lang::Fr => format!("Faulk : choisis les fichiers audio à importer dans « {name} »"),
+    }
+}
+
 /// What the menu must do with the "restart to update" entry.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EntryChange {
@@ -265,6 +282,24 @@ mod tests {
     use crate::updater::UpdateError;
 
     const LANGS: [Lang; 2] = [Lang::En, Lang::Fr];
+
+    #[test]
+    fn the_folder_dialog_names_the_folder_in_both_languages() {
+        for lang in LANGS {
+            assert!(folder_dialog_title(lang, "Song").contains("Song"));
+        }
+        assert_ne!(
+            folder_dialog_title(Lang::En, "Song"),
+            folder_dialog_title(Lang::Fr, "Song")
+        );
+        for lang in LANGS {
+            assert!(import_dialog_title(lang, "Song").contains("Song"));
+        }
+        assert_ne!(
+            import_dialog_title(Lang::En, "Song"),
+            import_dialog_title(Lang::Fr, "Song")
+        );
+    }
 
     #[test]
     fn a_run_command_starts_its_own_executable_only() {

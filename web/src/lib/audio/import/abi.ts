@@ -11,12 +11,29 @@ export type ImportErrorCode =
   | 'bad_sample_rate'
   | 'bad_channels'
   | 'too_long'
+  /** Decodes to more than a project keeps of one file (`MAX_DECODED_BYTES`, #780). */
+  | 'too_large'
   | 'io'
   /** Not the module's: the user cancelled, or the store could not write. */
   | 'cancelled'
   | 'store'
   /** Not the module's: the page has no Worker to run the import in. */
   | 'unavailable'
+  /**
+   * The helper's import in Boost (#778, `import.failed`, `protocol::errors::IMPORT_*` without `import.`): no folder open
+   * in the helper for the project, a path it refuses, a file it cannot read, a write the folder refused, the folder
+   * changed meanwhile, an import or a dialog of its own already under way, a request it does not take, no file dialog
+   * on its system; and the page's own, the helper gone or silent during the import.
+   */
+  | 'no_folder'
+  | 'path'
+  | 'unreadable'
+  | 'write'
+  | 'folder_changed'
+  | 'busy'
+  | 'invalid'
+  | 'dialog_unavailable'
+  | 'helper_lost'
 
 const CODES: Record<number, ImportErrorCode> = {
   [-1]: 'unsupported_format',
@@ -27,6 +44,7 @@ const CODES: Record<number, ImportErrorCode> = {
   [-6]: 'bad_channels',
   [-7]: 'too_long',
   [-8]: 'io',
+  [-9]: 'too_large',
 }
 
 export class ImportError extends Error {
@@ -66,6 +84,8 @@ interface Exports {
   ai_peaks_valid(headLen: number, fileLen: number, rate: number, channels: number, frames: number): number
   ai_error(): number
   ai_error_len(): number
+  ai_limit(maxBytes: number): void
+  ai_max_decoded_bytes(): number
 }
 
 /** What decoding found (the clip's metadata but the name and the hash). */
@@ -89,6 +109,12 @@ export const PEAKS_HEADER_BYTES = 32
 /** How much of the start of a file `layout` reads (`HEAD_BYTES` of crates/audio-import). */
 export const HEAD_BYTES = 64 * 1024
 
+/**
+ * The most bytes of `f32` samples one file may decode to (`project::limits::MAX_DECODED_BYTES`, #780: 16 GiB),
+ * the most its PCM cache holds; a file past it is refused as `too_large`. The module's own value is checked equal.
+ */
+export const MAX_DECODED_BYTES = 16 * 2 ** 30
+
 const lo = (n: number) => n >>> 0
 const hi = (n: number) => Math.floor(n / 2 ** 32)
 
@@ -98,7 +124,14 @@ export class ImportModule {
   /** Set once the module trapped: its state is lost, use a new instance. */
   broken = false
 
-  constructor(module: WebAssembly.Module) {
+  /**
+   * `maxDecodedBytes` lowers the cap on the decoded size of every job of this instance (tests reach the refusal
+   * without decoding 16 GiB); the module never takes one above `MAX_DECODED_BYTES`.
+   */
+  constructor(
+    module: WebAssembly.Module,
+    private readonly maxDecodedBytes?: number,
+  ) {
     const env = {
       ai_read: (offset: number, length: number, dst: number): number => {
         try {
@@ -161,7 +194,10 @@ export class ImportModule {
   open(reader: ReadSync, size: number, extension: string) {
     this.reader = reader
     this.guard(() => {
-      const code = this.exports.ai_open(lo(size), hi(size), this.inbox(new TextEncoder().encode(extension)))
+      const hint = this.inbox(new TextEncoder().encode(extension))
+      // The cap holds for the next opening only: set again for each job.
+      if (this.maxDecodedBytes !== undefined) this.exports.ai_limit(this.maxDecodedBytes)
+      const code = this.exports.ai_open(lo(size), hi(size), hint)
       if (code !== 0) throw this.failure(code)
     })
   }
@@ -220,6 +256,11 @@ export class ImportModule {
   /** Whether a peaks file starting with `head`, of `size` bytes, is the whole peaks file of such a media for this decoder. */
   peaksValid(head: Uint8Array, size: number, info: MediaInfo): boolean {
     return this.guard(() => this.exports.ai_peaks_valid(this.inbox(head), size, info.sample_rate, info.channels, info.frames) === 1)
+  }
+
+  /** The most bytes of `f32` samples a file may decode to, as the module holds it. */
+  maxDecoded(): number {
+    return this.exports.ai_max_decoded_bytes()
   }
 
   /** Whether a cache file starting with `head`, of `size` bytes, is the whole cache of such a file. */

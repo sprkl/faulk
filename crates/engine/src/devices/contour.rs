@@ -286,7 +286,7 @@ const fn slope(id: u32, key: &'static str, description: &'static str) -> ParamDe
 /// low-pass off, the shelves and the bells on at 0 dB, so the device is transparent.
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
     kind: "faulk.contour",
-    kind_id: DeviceKind(7),
+    kind_id: DeviceKind(8),
     version: 1,
     name: "Contour",
     role: DeviceRole::Effect,

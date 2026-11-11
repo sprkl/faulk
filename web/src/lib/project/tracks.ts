@@ -139,7 +139,14 @@ export function copyName(label: string, taken: readonly string[]): string {
   }
 }
 
-/** What a track is called on screen: its name, or the default name of its position when it has none. */
-export function trackLabel(entry: Pick<TrackEntry, 'track' | 'index'>, t: (key: 'tracks.defaultName', vars: { n: number }) => string): string {
-  return entry.track.name.trim() || t('tracks.defaultName', { n: entry.index + 1 })
+type DefaultName = (key: 'tracks.defaultName', vars: { n: number }) => string
+
+/** What a track is called on screen, from its stored name and its position: the name, or the default name of its position when it has none. */
+export function trackName(name: string, index: number, t: DefaultName): string {
+  return name.trim() || t('tracks.defaultName', { n: index + 1 })
+}
+
+/** What a track is called on screen: its name, or the default name of its position when it has none. The one place a message names a track (#781). */
+export function trackLabel(entry: Pick<TrackEntry, 'track' | 'index'>, t: DefaultName): string {
+  return trackName(entry.track.name, entry.index, t)
 }

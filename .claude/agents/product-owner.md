@@ -30,7 +30,8 @@ You are the product owner of Faulk, an open DAW that runs in the browser (see `C
 6. **Log the run in the journal, issue #362.** Add one comment in French with:
    - the date and the `develop` commit you tested;
    - the brief;
-   - a summary of the production sheet, with the full sheet in a `<details>` block;
+   - a summary of the production sheet, with the full sheet in a `<details>` block, and its `Form:` line and style profile (or "aucun") on a line of their own, so the next run's rotation can read them;
+   - whether the notes built in Faulk match the sheet: compare every melodic clip of the saved project (`notes.tsv`) with the sheet bar by bar before the export, and fix or report each mismatch;
    - how far you got in Faulk, including the WAV export, with the local paths of the WAV and the project;
    - the gaps ranked and linked to their issues;
    - what changed since the previous journal entry (read it first; on a fresh-profile run, after your discovery is written);

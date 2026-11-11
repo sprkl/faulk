@@ -178,3 +178,61 @@ fn a_master_volume_gesture_holds_the_master_lane_until_its_next_point_and_native
     assert!((under + 12.0).abs() < 0.5, "{under}");
     assert!((after + 30.0).abs() < 0.8, "{after}");
 }
+
+/// #769: "Ramp to…" of the arrangement writes one `automation.points.restore`: the playhead's
+/// point (the lane's value there, linear), the typed one, and the points between taken out. A
+/// lane that held 0 dB then a stray -60 dB step at bar 3 becomes a straight fade from 0 dB at
+/// bar 1 to -24 dB at bar 5, heard along the fader's law, the same natively and in WASM.
+#[test]
+fn a_ramp_written_as_one_restore_is_heard_as_written() {
+    const END: i64 = 4 * 3840;
+    let ramped = song(5.0, |s| {
+        master_lane(
+            s,
+            AutomationTarget::Mixer {
+                param: MixerParam::Gain,
+            },
+            vec![
+                point(0, 0.0, Shape::Step),
+                point(2 * 3840, -60.0, Shape::Step),
+            ],
+        );
+        let lane = s
+            .state()
+            .project
+            .lanes(None)
+            .and_then(|lanes| lanes.keys().next().cloned())
+            .expect("the master's lane");
+        s.run(Command::Automation(automation::Command::PointsRestore {
+            lane,
+            points: vec![
+                point(0, 0.0, Shape::Linear),
+                point(END, -24.0, Shape::Linear),
+            ],
+            remove: vec![Tick(2 * 3840)],
+        }));
+    });
+    let reference = render_native(song(5.0, |_| {}).scenario());
+    let ramped = parity(ramped.scenario());
+    ramped.assert_clean();
+    let (from, to) = (
+        engine::fader::position_of_db(0.0),
+        engine::fader::position_of_db(-24.0),
+    );
+    let window = |bar: f32| (0.3 + bar - 0.01)..(0.3 + bar + 0.01);
+    for bar in 1..4 {
+        let want = law_db(from + (to - from) * bar as f64 / 4.0);
+        let got = 20.0
+            * f64::from(ramped.rms_in(window(bar as f32)) / reference.rms_in(window(bar as f32)))
+                .log10();
+        println!("bar {bar}: {got:.2} dB (ramp {want:.2} dB)");
+        assert!(
+            (got - want).abs() < 0.5,
+            "bar {bar}: {got} dB instead of {want} dB"
+        );
+    }
+    // After the ramp the lane holds its last value: -24 dB, not the stray -60 dB step.
+    let after = 20.0 * f64::from(ramped.rms_in(4.5..4.9) / reference.rms_in(4.5..4.9)).log10();
+    println!("after the ramp: {after:.2} dB");
+    assert!((after + 24.0).abs() < 0.5, "{after}");
+}

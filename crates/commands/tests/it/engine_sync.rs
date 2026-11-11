@@ -75,7 +75,7 @@ fn the_snapshot_starts_with_the_settings_then_each_track() {
     let ControlMsg::DeviceInsert { device, state, .. } = &msgs[5] else {
         panic!("{:?}", msgs[5]);
     };
-    assert_eq!(*device, DeviceSlot(0));
+    assert_eq!(*device, DeviceSlot(16));
     assert_eq!(
         engine::msg::state_pairs(state).count(),
         6,
@@ -113,7 +113,7 @@ fn each_edit_compiles_to_its_messages() {
                 },
                 ControlMsg::DeviceInsert {
                     track: TrackSlot(1),
-                    device: DeviceSlot(0),
+                    device: DeviceSlot(16),
                     ..
                 },
             ]
@@ -178,7 +178,7 @@ fn each_edit_compiles_to_its_messages() {
         msgs,
         [ControlMsg::ParamSet {
             track: TrackSlot(1),
-            device: DeviceSlot(0),
+            device: DeviceSlot(16),
             param: ParamId(gain),
             value: 0.5
         }]

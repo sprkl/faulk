@@ -85,7 +85,8 @@ domain! {
 
     /// Bring a deleted track back with its identifier, as `track.delete` removed it: the
     /// inverse of a delete. `snapshot` is the whole track: its order key, mixer,
-    /// devices, clips, placements and automation. Refused when the track's identifier or
+    /// devices (a built-in device lacking parameters its type declares gets them at their
+    /// defaults), clips, placements and automation. Refused when the track's identifier or
     /// any identifier inside it is already in use, at the safety limit of tracks, or when
     /// the snapshot is not a valid track of the project. Undo: `track.delete`.
     "track.restore" (kind = "edit", undo = "inverse", destructive = false)
@@ -175,7 +176,8 @@ domain! {
     /// `snapshot` under the identifier `device`. Refused when `device` is already in use,
     /// when `current` is not the track's instrument, or when the snapshot is not an
     /// instrument that fits the track (a built-in device must be one of the registry; a
-    /// module device is taken as it is). The lanes that target `current` are removed with
+    /// module device is taken as it is; one lacking parameters its type declares gets them
+    /// at their defaults). The lanes that target `current` are removed with
     /// it; `lanes` (absent: none) are the lanes that targeted the instrument put back, as
     /// `track.set_instrument` took them out: each must target the restored instrument and
     /// a parameter it has, under an identifier not in use. Undo: the same swap the other
@@ -588,7 +590,12 @@ fn restore(state: &mut State, track_id: &TrackId, snap: &Track) -> Result<Out, C
     }
     check_room(state)?;
     check_devices(snap)?;
-    state.project.tracks.insert(track_id.clone(), snap.clone());
+    // A snapshot from before a kind gained parameters comes in complete (#754).
+    let mut track = snap.clone();
+    for device in track.devices.values_mut() {
+        crate::device::fill_missing_params(crate::device::registry(), device);
+    }
+    state.project.tracks.insert(track_id.clone(), track);
     // The snapshot is data from outside: the whole project must stay valid with it
     // (identifiers unique across the project, limits, device chain, clip kinds). A
     // refusal takes the track back out, so the state is untouched.
@@ -740,7 +747,11 @@ fn restore_instrument(
     let kept = track.automation.clone();
     let taken = take_lanes(track, current);
     track.devices.remove(current);
-    track.devices.insert(device_id.clone(), snapshot.clone());
+    // A snapshot from before the kind gained parameters comes in complete (#754).
+    let mut incoming = snapshot.clone();
+    crate::device::fill_missing_params(crate::device::registry(), &mut incoming);
+    let incoming_for_lanes = incoming.clone();
+    track.devices.insert(device_id.clone(), incoming);
     let put_back = |state: &mut State| {
         if let Some(track) = state.project.tracks.get_mut(track_id) {
             track.devices.remove(device_id);
@@ -754,7 +765,7 @@ fn restore_instrument(
         state,
         &crate::device::Place::Track(track_id.clone()),
         device_id,
-        snapshot,
+        &incoming_for_lanes,
         lanes,
     ) {
         put_back(state);

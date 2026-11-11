@@ -35,6 +35,7 @@ mod history;
 mod levels;
 mod live_input;
 mod marker;
+mod midi_effect;
 mod mixer;
 mod preset;
 mod project_open;

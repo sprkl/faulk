@@ -172,9 +172,9 @@ test('the notes are named cells: arrows move between them, Alt+arrows move and t
   const focused = page.locator('[data-testid=roll-item]:focus')
   await cells.first().focus()
   await expect(focused).toHaveAccessibleName(/^C4, bar 1 beat 1, 1 beat, velocity 100/)
-  // Right: the next note in time (the chord's top first); Down: the nearest lower note.
+  // Right: the next note in time (the chord's top first), the selection unchanged (#771); Down: the nearest lower note.
   await page.keyboard.press('ArrowRight')
-  await expect(focused).toHaveAccessibleName(/^G4, bar 1 beat 2, 0.5 beats, velocity 80, selected$/)
+  await expect(focused).toHaveAccessibleName(/^G4, bar 1 beat 2, 0.5 beats, velocity 80$/)
   await page.keyboard.press('ArrowDown')
   await expect(focused).toHaveAccessibleName(/^E4, bar 1 beat 2/)
   // Alt+Up transposes it by a semitone, as one command (one history entry); Alt+Right moves it by the snap step.

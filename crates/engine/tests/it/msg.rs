@@ -64,6 +64,9 @@ fn samples() -> Vec<ControlMsg> {
             pan: 0.0,
             mute: false,
         },
+        ControlMsg::SetScale {
+            pitch_classes: 0x0AB5,
+        },
         ControlMsg::TrackCreate {
             track: t,
             kind: TrackKind::Midi,
@@ -378,7 +381,14 @@ fn limits_fit_under_the_wasm32_cap() {
         + 2 * (LIVE_QUEUE_CAPACITY as u64) * size_of::<LiveEvent>() as u64;
     let inbox = u64::from(MAX_CONTROL_MSG_BYTES) * 2;
     let feedback = Feedback::max_size_for(MAX_TRACKS as usize) as u64;
-    let total = 2 * tables + largest + rings + inbox + feedback;
+    // The graph's latency buffers (#749): one compensation ring and one metronome line for
+    // the whole engine, whatever the number of tracks.
+    let compensation = engine::graph::Graph::latency_bytes(MAX_BLOCK_FRAMES);
+    assert!(
+        compensation < 2 << 20,
+        "{compensation} bytes of compensation"
+    );
+    let total = 2 * tables + largest + rings + inbox + feedback + compensation;
     eprintln!("worst case of the tables: {} MiB", total >> 20);
     // The devices are not a count: their declared sizes count against the engine memory
     // budget, which the tables' worst case must leave room for.
@@ -414,7 +424,7 @@ fn an_rt_message_is_small_and_sent_by_move() {
         size_of::<Note>()
     );
     assert_eq!(
-        Feedback::size_for(0, 0, 0, 0),
+        Feedback::size_for(0, 0, 0, 0, 0),
         FEEDBACK_HEADER_BYTES + TRACK_METER_BYTES,
         "the output's meter always follows the track meters"
     );
@@ -423,11 +433,12 @@ fn an_rt_message_is_small_and_sent_by_move() {
     assert_eq!(size_of::<ActiveClip>(), ACTIVE_CLIP_BYTES);
     assert_eq!(size_of::<RecordedNote>(), RECORDED_NOTE_WIRE_BYTES);
     assert_eq!(
-        Feedback::size_for(2, 3, 4, 2),
+        Feedback::size_for(2, 3, 4, 5, 2),
         FEEDBACK_HEADER_BYTES
             + 3 * TRACK_METER_BYTES
             + 3 * ACTIVE_CLIP_BYTES
             + 4 * RECORDED_NOTE_WIRE_BYTES
+            + 5 * engine::msg::DEVICE_READOUT_BYTES
             + 2 * engine::analysis::SPECTRUM_WIRE_BYTES
     );
     // The largest report of the largest session stays small enough for a WebSocket frame.

@@ -27,11 +27,12 @@ export const STALE_MS = 400
 /** How long the spectra of a device whose slots changed are left out, in ms. */
 export const SETTLE_MS = 200
 
-const slotKey = (track: number, device: number) => `${track}:${device}`
+/** A device's engine slots as one key; `null` is the master's chain. */
+const slotKey = (track: number | null | undefined, device: number) => `${track ?? 'm'}:${device}`
 
 export interface SpectrumSlots {
   epoch: number
-  devices?: Readonly<Record<string, readonly number[] | undefined>>
+  devices?: Readonly<Record<string, { readonly track?: number | null; readonly slot: number } | undefined>>
 }
 
 /** Follows the reports' spectra for each device id. Plain state: the caller decides when to read it. */
@@ -47,9 +48,9 @@ export class SpectrumTracker {
   feed(epoch: number, spectra: readonly Spectrum[], slots: SpectrumSlots | undefined, now: number) {
     const byKey = new Map<string, string>()
     const devices = slots?.devices ?? {}
-    for (const [id, pair] of Object.entries(devices)) {
-      if (!pair) continue
-      const key = slotKey(pair[0], pair[1])
+    for (const [id, place] of Object.entries(devices)) {
+      if (!place) continue
+      const key = slotKey(place.track, place.slot)
       byKey.set(key, id)
       const before = this.slotsOf.get(id)
       // A device seen for the first time is new at its slots too: whatever sat there before may still be reported.

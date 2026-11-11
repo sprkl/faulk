@@ -35,7 +35,7 @@
 //! | `ControlMsg` | `RtMsg` |
 //! |---|---|
 //! | `Reset { epoch }` | `Reset`: a fresh engine state, the old one is one garbage item (its tracks first fade out in the graph and come back through the retire ring, MO-3) |
-//! | `SetTransport`, `SetMetronome`, `SetMaster` | the same, copied |
+//! | `SetTransport`, `SetMetronome`, `SetMaster`, `SetScale` | the same, copied |
 //! | `TrackCreate` | `TrackPut`: the new track, and the grown track table when the slot is beyond it (a track it replaces fades out, then comes back through the retire ring, MO-3) |
 //! | `TrackRemove` | `TrackRemove`: the track owns its devices and tables; it fades out in the graph, then comes back through the retire ring (MO-3), not the garbage ring |
 //! | `TrackSetMix/Solo/Arm/Monitor`, `HoldMix`, `SelectTrack`, `DeviceSetEnabled`, `ParamSet` | the same, copied |
@@ -215,7 +215,7 @@ pub use codec::{
 pub const MSG_VERSION: u8 = 1;
 
 /// Version of the [`Feedback`] layout.
-pub const FEEDBACK_VERSION: u8 = 10;
+pub const FEEDBACK_VERSION: u8 = 11;
 
 /// Size of a [`Header`] in bytes.
 pub const HEADER_BYTES: usize = 16;
@@ -274,6 +274,13 @@ pub mod limits {
     pub const MAX_APPLY_PER_BLOCK: usize = 128;
     /// Largest render block, in frames (Web Audio allows up to 2048).
     pub const MAX_BLOCK_FRAMES: usize = 2048;
+    /// The longest delay the graph gives a track to align it with the others, and the
+    /// longest bypass line of a device, in frames (#749, `crate::graph` > Latency): 85 ms at
+    /// 192 kHz, 341 ms at 48 kHz (sixteen Ceilings at their longest look-ahead and 192 kHz). A
+    /// chain whose latency goes beyond is compensated up to it.
+    /// It sizes the graph's compensation ring once ([`crate::latency::Compensation`]), not a
+    /// buffer per track.
+    pub const MAX_COMPENSATION_FRAMES: u32 = 16_383;
     /// Initial size of the web module's linear memory, in 64 KiB pages (16 MiB).
     pub const WASM_INITIAL_PAGES: u32 = 256;
     /// The cap of a wasm32 linear memory: 65 536 pages of 64 KiB.
@@ -461,6 +468,12 @@ pub enum ControlMsg {
         tempo: Tempo,
         signature: TimeSignature,
         launch_quantize: Quantize,
+    },
+    /// The project's scale (#690), as a set of pitch classes (bit `c` for pitch class `c`, 0 =
+    /// C; bits above the twelfth ignored; 0: no scale). The MIDI effects that work "in the
+    /// scale" read it in `device::Transport::scale`. A `Reset` clears it.
+    SetScale {
+        pitch_classes: u16,
     },
     /// Metronome (TR-2): on or off, its level (a linear gain, 1.0 the reference level of the
     /// click, 0 to 4; the project's `gain_db` is converted by the sender), bars of count-in
@@ -688,6 +701,7 @@ pub enum Tag {
     SetTransport = 1,
     SetMetronome = 2,
     SetMaster = 3,
+    SetScale = 4,
     TrackCreate = 10,
     TrackRemove = 11,
     TrackSetMix = 12,
@@ -728,11 +742,12 @@ pub enum Tag {
 
 impl Tag {
     /// Every tag, in declaration order (for exhaustive tests and generated tables).
-    pub const ALL: [Tag; 40] = [
+    pub const ALL: [Tag; 41] = [
         Tag::Reset,
         Tag::SetTransport,
         Tag::SetMetronome,
         Tag::SetMaster,
+        Tag::SetScale,
         Tag::TrackCreate,
         Tag::TrackRemove,
         Tag::TrackSetMix,
@@ -791,6 +806,7 @@ impl ControlMsg {
             ControlMsg::SetTransport { .. } => Tag::SetTransport,
             ControlMsg::SetMetronome { .. } => Tag::SetMetronome,
             ControlMsg::SetMaster { .. } => Tag::SetMaster,
+            ControlMsg::SetScale { .. } => Tag::SetScale,
             ControlMsg::TrackCreate { .. } => Tag::TrackCreate,
             ControlMsg::TrackRemove { .. } => Tag::TrackRemove,
             ControlMsg::TrackSetMix { .. } => Tag::TrackSetMix,
@@ -1007,6 +1023,7 @@ impl ControlMsg {
             | ControlMsg::SetTransport { .. }
             | ControlMsg::SetMetronome { .. }
             | ControlMsg::SetMaster { .. }
+            | ControlMsg::SetScale { .. }
             | ControlMsg::StopAll
             | ControlMsg::AllSoundOff
             | ControlMsg::BackToArrangement
@@ -1466,6 +1483,7 @@ pub enum RtMsg {
         signature: TimeSignature,
         launch_quantize: Quantize,
     },
+    SetScale(crate::device::PitchSet),
     SetMetronome {
         enabled: bool,
         volume: f32,
@@ -1711,7 +1729,28 @@ pub struct RecordedNote {
 }
 
 /// Size of the fixed part of a [`Feedback`] on the wire.
-pub const FEEDBACK_HEADER_BYTES: usize = 104;
+pub const FEEDBACK_HEADER_BYTES: usize = 112;
+
+/// Where the number of device readouts sits in a [`Feedback`] (#686, version 10): one `u32`.
+pub const FEEDBACK_READOUTS_OFFSET: usize = 100;
+
+/// Where the device latency sits in a [`Feedback`] (#749, version 10): one `u32`, the last
+/// word of the header. One constant, so that the field moves in one place.
+pub const FEEDBACK_LATENCY_OFFSET: usize = 104;
+
+/// The bit of the latency word that says the compensation is capped (#749): a track needs a
+/// longer delay than [`limits::MAX_COMPENSATION_FRAMES`]. The other bits are the frames.
+pub const FEEDBACK_LATENCY_CAPPED: u32 = 1 << 31;
+
+/// The latency word of a report: `frames` (saturated under [`FEEDBACK_LATENCY_CAPPED`]) and
+/// the capped bit.
+pub fn latency_word(frames: u32, capped: bool) -> u32 {
+    frames.min(FEEDBACK_LATENCY_CAPPED - 1) | if capped { FEEDBACK_LATENCY_CAPPED } else { 0 }
+}
+
+/// Where the number of spectra sits in a [`Feedback`] (#156, version 11): one `u32`, the last
+/// word of the header.
+pub const FEEDBACK_SPECTRA_OFFSET: usize = 108;
 
 /// What the engine reports to the page, about 30 times per second. Fixed little-endian
 /// layout, written by the audio thread into a region sized by [`Feedback::size_for`]:
@@ -1764,9 +1803,16 @@ pub const FEEDBACK_HEADER_BYTES: usize = 104;
 ///             It keeps counting while the transport is stopped, where `playhead_frame` stops: `host_frame -
 ///             playhead_frame` is the host frame of position 0 only while the transport runs at one tempo,
 ///             with no loop wrap and no sample-rate change since the Play.
-///    100    4 spectra (u32, at most `analysis::MAX_SPECTRA`: the spectra this report carries,
-///             version 10, #156)
-///    104      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
+///    100    4 readouts (u32, the device readouts this report carries, at most
+///             MAX_READOUTS_PER_REPORT; [`FEEDBACK_READOUTS_OFFSET`]; version 10, #686)
+///    104    4 latency (u32: bits 0 to 30, latency_frames, the device latency of what is heard, in frames at
+///             the engine's rate: the largest chain latency of the tracks plus the master's, which the graph
+///             compensates (`crate::graph` > Latency), saturated at 2^31 - 1; bit 31 ([`FEEDBACK_LATENCY_CAPPED`]),
+///             latency_capped: a track needs more than the compensation's limit and is no longer aligned;
+///             [`FEEDBACK_LATENCY_OFFSET`]; version 10, #749)
+///    108    4 spectra (u32, at most `analysis::MAX_SPECTRA`: the spectra this report carries;
+///             [`FEEDBACK_SPECTRA_OFFSET`]; last word of the header; version 11, #156)
+///    112      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
 ///             largest gain reduction in decibels of the strip's devices over the period, version 4):
 ///             one per track slot below `tracks` (zeros for an empty slot; peak and RMS after the
 ///             track's fader), then the output's meter after the master (version 2); the master's
@@ -1775,11 +1821,17 @@ pub const FEEDBACK_HEADER_BYTES: usize = 104;
 ///             16 bytes; version 3)
 ///          then RecordedNote × recorded (track u32, pad u32, start i64, length i64,
 ///               pitch u8, velocity u8, pad ×6: 32 bytes on the wire)
+///          then DeviceReadout × readouts (track u32, u32::MAX for the master's chain; device
+///               slot u16; parameter id u16; value f32: 12 bytes; version 10): the live value
+///               of a parameter a device moves by itself (`Device::readout`) after the last
+///               block of the period, for each enabled device that reports one, in track
+///               slot then device slot order, the master's chain last; past
+///               MAX_READOUTS_PER_REPORT the rest is left out
 ///          then Spectrum × spectra (track slot u32 (`TrackSlot::MASTER` for the master's
 ///               chain), device slot u32, sample rate f32, then `analysis::BANDS` bands f32 in
 ///               dBFS: 396 bytes; the
 ///               spectrum of a device's last window, computed off the audio path one report
-///               earlier, `crate::analysis`; version 10, #156)
+///               earlier, `crate::analysis`; version 11, #156)
 /// ```
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Feedback {
@@ -1790,6 +1842,11 @@ pub struct Feedback {
     pub playhead_frame: Frame,
     /// The host's frame at the playhead (offset 92, version 9, #733).
     pub host_frame: u64,
+    /// The device latency of what is heard, in frames ([`FEEDBACK_LATENCY_OFFSET`], version 10,
+    /// #749).
+    pub latency_frames: u32,
+    /// The compensation is capped: a track is no longer aligned (bit 31 of the latency word).
+    pub latency_capped: bool,
     pub cpu_load: f32,
     /// The largest load of one peak window closed in the period (`crate::host`); with a
     /// coarse clock a period may close none and carry the last window, which can be under
@@ -1819,18 +1876,28 @@ pub struct Feedback {
     pub record_dropped: u32,
     /// The recorder captures: while it does, the take may still grow.
     pub record_capturing: bool,
+    /// The live values of the parameters devices move by themselves (#686).
+    pub readouts: Vec<DeviceReadout>,
     /// The spectra of the analysed devices (#156, [`crate::analysis`]), at most
     /// [`crate::analysis::MAX_SPECTRA`].
     pub spectra: Vec<crate::analysis::Spectrum>,
 }
 
 impl Feedback {
-    /// Bytes of a report for `tracks` tracks, `active_clips` grid slots and `recorded` notes.
-    pub fn size_for(tracks: usize, active_clips: usize, recorded: usize, spectra: usize) -> usize {
+    /// Bytes of a report for `tracks` tracks, `active_clips` grid slots, `recorded` notes,
+    /// `readouts` device readouts and `spectra` spectra.
+    pub fn size_for(
+        tracks: usize,
+        active_clips: usize,
+        recorded: usize,
+        readouts: usize,
+        spectra: usize,
+    ) -> usize {
         FEEDBACK_HEADER_BYTES
             + (tracks + 1) * TRACK_METER_BYTES
             + active_clips * ACTIVE_CLIP_BYTES
             + recorded * RECORDED_NOTE_WIRE_BYTES
+            + readouts * DEVICE_READOUT_BYTES
             + spectra * crate::analysis::SPECTRUM_WIRE_BYTES
     }
 
@@ -1841,10 +1908,29 @@ impl Feedback {
             tracks,
             2 * tracks,
             MAX_RECORDED_PER_REPORT,
+            MAX_READOUTS_PER_REPORT,
             crate::analysis::MAX_SPECTRA,
         )
     }
 }
+
+/// The live value of a parameter a device moves by itself (`Device::readout`, #686): the
+/// Filter's cutoff under its LFO and envelope.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DeviceReadout {
+    /// The device's track, [`TrackSlot::MASTER`] for the master's chain.
+    pub track: TrackSlot,
+    pub device: DeviceSlot,
+    pub param: ParamId,
+    /// In the parameter's unit.
+    pub value: f32,
+}
+
+/// Size of a [`DeviceReadout`] on the wire.
+pub const DEVICE_READOUT_BYTES: usize = 12;
+
+/// Most device readouts one report carries.
+pub const MAX_READOUTS_PER_REPORT: usize = 128;
 
 /// Size of a [`RecordedNote`] on the wire (padded).
 pub const RECORDED_NOTE_WIRE_BYTES: usize = 32;

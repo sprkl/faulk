@@ -7,17 +7,30 @@
 use crate::device::{DeviceDescriptor, Factory};
 use crate::msg::DeviceKind;
 
+pub mod bloom;
+pub mod ceiling;
 /// The audio clip player (AU-4): the instrument stage of an audio track, held by the track
 /// and run by the graph, not a registry device (its module doc says why).
 pub mod clip_player;
 pub mod compressor;
 pub mod contour;
+pub mod draw;
 pub mod drums;
 pub mod echo;
 pub mod filter;
+pub mod held;
+pub mod hiccup;
+/// The switch of a latency while a device sounds (Ceiling, Compressor).
+pub mod latency_switch;
+pub mod lattice;
 pub mod osc_synth;
+pub mod params;
 pub mod reverb;
+pub mod scale;
+pub mod scatter;
+pub mod stack;
 pub mod time_change;
+pub mod trim;
 
 /// A built-in device: its static descriptor and the factory that builds it off the audio
 /// path.
@@ -43,6 +56,13 @@ pub const REGISTRY: &[Builtin] = &[
     reverb::BUILTIN,
     compressor::BUILTIN,
     filter::BUILTIN,
+    ceiling::BUILTIN,
+    stack::BUILTIN,
+    trim::BUILTIN,
+    lattice::BUILTIN,
+    scatter::BUILTIN,
+    hiccup::BUILTIN,
+    bloom::BUILTIN,
     contour::BUILTIN,
 ];
 
