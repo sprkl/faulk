@@ -508,6 +508,9 @@ export type RollTool = (typeof ROLL_TOOLS)[number]
 /** The tool remembered by the page, `draw` when none or an unknown one (a layout written by another version). */
 export const parseTool = (value: unknown): RollTool => ROLL_TOOLS.find((t) => t === value) ?? 'draw'
 
+/** The remembered length of the last note drawn (#835): a positive whole number of ticks, else null (the snap step). */
+export const parseLastLength = (value: unknown): number | null => (typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null)
+
 /** The snap remembered by the page, `auto` when none or an unknown one. */
 export const parseSnap = (value: unknown): SnapSetting => ROLL_SNAP_SETTINGS.find((s) => s === value) ?? 'auto'
 

@@ -93,6 +93,7 @@
     VELOCITY_HOME,
     afterChanges,
     clickGivesFocus,
+    parseLastLength,
     parseSnap,
     parseTool,
     DEFAULT_QUANTIZE_GRID,
@@ -235,8 +236,11 @@
   let stageW = $state(0)
   let stageH = $state(0)
   let laneH = $state(LANE_HEIGHT)
-  /** The length of the last note drawn or resized; null follows the snap step (reset by a change of the snap and by a new clip). */
-  let lastLength = $state<number | null>(null)
+  /** The length of the last note drawn or resized; null follows the snap step (reset by a change of the snap; kept across clips, #835). */
+  let lastLength = $state<number | null>(untrack(() => parseLastLength(ui.recall<number | null>('piano-roll-last-length'))))
+  $effect(() => {
+    ui.remember('piano-roll-last-length', lastLength)
+  })
   /** The velocity of a note drawn (#527): its own setting in the toolbar, never what a touched note had. */
   let drawVelocity = $state(untrack(() => parseDrawVelocity(String(ui.recall<number>('piano-roll-draw-velocity') ?? DEFAULT_VELOCITY), DEFAULT_VELOCITY)))
   /** The length of a written note (#623): "Snap" follows the snap step, a value is kept whatever the snap; remembered as the velocity is. */
@@ -424,12 +428,15 @@
   })
 
   // A change of the snap setting gives the next drawn note the new step.
+  // (Not on the first run: a roll built again keeps the length the previous one left.)
+  let snapSeen = untrack(() => snap)
   $effect(() => {
-    void snap
+    if (snap === snapSeen) return
+    snapSeen = snap
     untrack(() => (lastLength = null))
   })
 
-  // A new clip opens with a clean selection, around its notes, and its drawn length back to the snap step.
+  // A new clip opens with a clean selection, around its notes; its drawn length stays what it was (#835).
   let openedFor: string | null = left?.clip ?? null
   $effect(() => {
     const id = edited?.id ?? null
@@ -440,7 +447,6 @@
       picked = new Set()
       gesture = null
       scrollY = initialScrollY(notes, stageH, { rowHeight: ROW, top: RULER_HEIGHT }, keyNames ? [...keyNames.keys()] : [])
-      lastLength = null
     })
   })
 

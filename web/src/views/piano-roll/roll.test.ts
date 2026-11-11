@@ -8,6 +8,7 @@ import {
   drawnNote,
   parseDrawLength,
   parseDrawVelocity,
+  parseLastLength,
   parseSnap,
   parseTool,
   clickGivesFocus,
@@ -567,6 +568,16 @@ describe('the tool and the snap kept across clips (#835)', () => {
     expect(parseSnap('sixteenth-triplet')).toBe('sixteenth-triplet')
     expect(parseSnap(undefined)).toBe('auto')
     expect(parseSnap('bogus')).toBe('auto')
+  })
+  it('reads the remembered last drawn length, and follows the snap (null) on anything but a positive whole number', () => {
+    expect(parseLastLength(960)).toBe(960)
+    expect(parseLastLength(null)).toBeNull()
+    expect(parseLastLength(undefined)).toBeNull()
+    expect(parseLastLength(0)).toBeNull()
+    expect(parseLastLength(-5)).toBeNull()
+    expect(parseLastLength(1.5)).toBeNull()
+    expect(parseLastLength(Number.NaN)).toBeNull()
+    expect(parseLastLength('960')).toBeNull()
   })
   it('lets a press only give the focus when the keyboard was on another element of the page', () => {
     expect(clickGivesFocus(false, true)).toBe(true)
