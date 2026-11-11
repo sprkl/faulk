@@ -7,6 +7,7 @@
 use crate::device::{DeviceDescriptor, Factory};
 use crate::msg::DeviceKind;
 
+pub mod bloom;
 pub mod ceiling;
 /// The audio clip player (AU-4): the instrument stage of an audio track, held by the track
 /// and run by the graph, not a registry device (its module doc says why).
@@ -61,6 +62,7 @@ pub const REGISTRY: &[Builtin] = &[
     lattice::BUILTIN,
     scatter::BUILTIN,
     hiccup::BUILTIN,
+    bloom::BUILTIN,
     ripple::BUILTIN,
 ];
 

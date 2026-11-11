@@ -18,12 +18,13 @@ use test_support::{
     PARITY_TOLERANCE, QUANTUM, Render, SAMPLE_RATE, Scenario, Session, render_native, render_wasm,
 };
 
-const EFFECTS: [&str; 5] = [
+const EFFECTS: [&str; 6] = [
     "faulk.compressor",
     "faulk.echo",
     "faulk.reverb",
     "faulk.filter",
     "faulk.ceiling",
+    "faulk.bloom",
 ];
 
 /// The demo song opened as a session, then `kind` inserted on its lead by command: the lead

@@ -79,6 +79,7 @@ for (const lang of ['en', 'fr'] as const) {
       'faulk.filter',
       'faulk.ceiling',
       'faulk.hiccup',
+      'faulk.bloom',
       'faulk.ripple',
       'faulk.stack',
       'faulk.trim',
@@ -103,7 +104,7 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(panel.getByTestId('browser-results')).toHaveText(x.none)
     await page.getByRole('button', { name: x.clear }).click()
     await expect(search).toHaveValue('')
-    await expect(panel.getByTestId('browse-device')).toHaveCount(13)
+    await expect(panel.getByTestId('browse-device')).toHaveCount(14)
     // Escape clears the search, the next one closes the panel.
     await search.fill('echo')
     await page.keyboard.press('Escape')

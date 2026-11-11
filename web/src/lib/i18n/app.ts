@@ -19,6 +19,7 @@ import { history } from './history'
 import { controls } from './controls'
 import { devices } from './devices'
 import { drums } from './drums'
+import { bloom } from './bloom'
 import { compressor } from './compressor'
 import { ceiling } from './ceiling'
 import { agentConfirm } from './confirm'
@@ -73,6 +74,7 @@ export const features = {
   ceiling,
   trim,
   hiccup,
+  bloom,
   ripple,
   devices,
   presets,
