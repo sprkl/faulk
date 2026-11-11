@@ -20,7 +20,7 @@ export const pianoRoll = defineFeature(
     'pianoRoll.tools': 'Tool',
     'pianoRoll.draw': 'Draw',
     'pianoRoll.drawHint':
-      'Click to draw a note, drag to set its length. Drag a note to move it, its right edge to resize it. A click from outside the roll only gives it the focus.',
+      'Click to draw a note, drag to set its length. Drag a note to move it, its right edge to resize it. A click made while the keyboard is on another part of the page only gives the roll the focus.',
     'pianoRoll.select': 'Select',
     'pianoRoll.selectHint': 'Click a note, or drag a rectangle to select several. Delete removes them.',
     'pianoRoll.snap': 'Snap',
@@ -183,7 +183,7 @@ export const pianoRoll = defineFeature(
     'pianoRoll.tools': 'Outil',
     'pianoRoll.draw': 'Dessiner',
     'pianoRoll.drawHint':
-      'Clique pour dessiner une note, glisse pour régler sa longueur. Glisse une note pour la déplacer, son bord droit pour la redimensionner. Un clic venu de l’extérieur du piano roll ne fait que lui donner le focus.',
+      'Clique pour dessiner une note, glisse pour régler sa longueur. Glisse une note pour la déplacer, son bord droit pour la redimensionner. Un clic fait alors que le clavier est ailleurs dans la page ne fait que donner le focus au piano roll.',
     'pianoRoll.select': 'Sélectionner',
     'pianoRoll.selectHint': 'Clique une note, ou glisse un rectangle pour en sélectionner plusieurs. Suppr les supprime.',
     'pianoRoll.snap': 'Magnétisme',
