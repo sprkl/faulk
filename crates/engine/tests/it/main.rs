@@ -20,6 +20,7 @@ mod contour;
 mod cycle;
 mod device;
 mod device_fade;
+mod device_move;
 mod drums;
 mod echo;
 mod events;

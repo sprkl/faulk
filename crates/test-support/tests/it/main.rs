@@ -14,6 +14,7 @@ mod compressor;
 mod contour;
 mod device_commands;
 mod device_fade;
+mod device_move;
 mod drums;
 mod echo;
 mod export;

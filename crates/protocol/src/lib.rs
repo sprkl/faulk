@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 53;
+pub const PROTOCOL_VERSION: u32 = 54;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -44,9 +44,14 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
-// Version 53 (#156): the device registry gains Contour (`faulk.contour`, kind id 8, an audio
+// Version 54 (#156): the device registry gains Contour (`faulk.contour`, kind id 8, an audio
 // effect: the seven-band equaliser); a helper of an earlier version would refuse its
 // `DeviceInsert` and its schema bundle would not describe it. No message changes.
+
+// Version 53 (#800): the engine's control stream gains `DeviceMove`
+// (tag 24), which moves an audio effect to a free slot of its chain without building it again
+// (its tail, its state and its latency lines go with it). A helper of an earlier version would
+// skip it as an unknown tag and its chain would drift from the page's.
 
 // Version 52 (#696): the device registry
 // gains Bloom (`faulk.bloom`, kind id 14, an audio effect: chorus, ensemble and vibrato); a
