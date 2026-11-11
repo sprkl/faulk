@@ -229,7 +229,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(CENTRE),
             key: "centre",
-            description: "Phaser: centre frequency of the stages, from 20 Hz to 20 kHz: the middle the LFO and the envelope move the notches around.",
+            description: "Phaser: centre frequency of the stages, from 20 Hz up to 0.45 of the sample rate (about 19.8 kHz at 44.1 kHz): the middle the LFO and the envelope move the notches around.",
             unit: Unit::Hertz,
             min: CENTRE_MIN,
             max: CENTRE_MAX,
@@ -294,7 +294,7 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
         ParamDescriptor {
             id: ParamId(MIX),
             key: "mix",
-            description: "How much of the effect joins the dry sound, from 0 (dry only) to 100 % (dry and effect in equal parts: the deepest notches).",
+            description: "How much of the effect joins the dry sound, from 0 (dry only) to 100 % (the dry sound and the effect in equal parts: that blend is what makes the notches and the comb).",
             unit: Unit::Percent,
             min: 0.0,
             max: 100.0,

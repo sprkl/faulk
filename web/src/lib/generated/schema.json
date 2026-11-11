@@ -32199,7 +32199,7 @@
         },
         {
           "default": 800,
-          "description": "Phaser: centre frequency of the stages, from 20 Hz to 20 kHz: the middle the LFO and the envelope move the notches around.",
+          "description": "Phaser: centre frequency of the stages, from 20 Hz up to 0.45 of the sample rate (about 19.8 kHz at 44.1 kHz): the middle the LFO and the envelope move the notches around.",
           "id": 2,
           "key": "centre",
           "max": 20000,
@@ -32267,7 +32267,7 @@
         },
         {
           "default": 100,
-          "description": "How much of the effect joins the dry sound, from 0 (dry only) to 100 % (dry and effect in equal parts: the deepest notches).",
+          "description": "How much of the effect joins the dry sound, from 0 (dry only) to 100 % (the dry sound and the effect in equal parts: that blend is what makes the notches and the comb).",
           "id": 7,
           "key": "mix",
           "max": 100,

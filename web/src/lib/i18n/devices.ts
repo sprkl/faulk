@@ -246,7 +246,8 @@ export const devices = defineFeature(
     'ripple.mode.hint':
       'Phaser (a chain of all-pass stages: soft, vocal notches) or flanger (a short delay with feedback: a metallic comb). A change fades over 10 ms.',
     'ripple.stages.hint': 'Phaser: number of all-pass stages, 4, 6, 8 or 12; each pair of stages adds one notch. A change fades over 10 ms.',
-    'ripple.centre.hint': 'Phaser: centre frequency of the stages, from 20 Hz to 20 kHz: the middle the LFO and the envelope move the notches around.',
+    'ripple.centre.hint':
+      'Phaser: centre frequency of the stages, from 20 Hz up to 0.45 of the sample rate (about 19.8 kHz at 44.1 kHz): the middle the LFO and the envelope move the notches around.',
     'ripple.spread.hint':
       'Phaser: how far apart the stages sit around the centre, from 0 (all at the centre, evenly spaced notches) to 4 octaves (wider, uneven notches).',
     'ripple.delay.hint':
@@ -255,7 +256,8 @@ export const devices = defineFeature(
       'Share of the effect fed back into its input, from -95 % to +95 %: sharper, ringing notches; negative feedback moves the peaks. Bounded: it never runs away.',
     'ripple.polarity.hint':
       'Sign of the effect in the mix: positive, or negative (the notches move between the former ones; the flanger then cuts the lowest frequencies). A change fades over 10 ms.',
-    'ripple.mix.hint': 'How much of the effect joins the dry sound, from 0 (dry only) to 100 % (dry and effect in equal parts: the deepest notches).',
+    'ripple.mix.hint':
+      'How much of the effect joins the dry sound, from 0 (dry only) to 100 % (the dry sound and the effect in equal parts: that blend is what makes the notches and the comb).',
     'ripple.lfo_shape.hint':
       'Shape of the LFO that sweeps the notches: sine, triangle, rising saw, falling saw, square, or random (a new value at each cycle).',
     'ripple.lfo_sync.hint': 'Whether the LFO runs at its own rate in hertz (free) or follows the tempo (synced), each cycle on the same beat of every bar.',
@@ -518,7 +520,8 @@ export const devices = defineFeature(
     'ripple.mode.hint':
       'Phaser (une chaîne d’étages passe-tout : des creux doux, vocaux) ou flanger (un retard court avec retour : un peigne métallique). Un changement se fond sur 10 ms.',
     'ripple.stages.hint': 'Phaser : nombre d’étages passe-tout, 4, 6, 8 ou 12 ; chaque paire d’étages ajoute un creux. Un changement se fond sur 10 ms.',
-    'ripple.centre.hint': 'Phaser : fréquence centrale des étages, de 20 Hz à 20 kHz : le milieu autour duquel le LFO et l’enveloppe déplacent les creux.',
+    'ripple.centre.hint':
+      'Phaser : fréquence centrale des étages, de 20 Hz jusqu’à 0,45 fois la fréquence d’échantillonnage (environ 19,8 kHz à 44,1 kHz) : le milieu autour duquel le LFO et l’enveloppe déplacent les creux.',
     'ripple.spread.hint':
       'Phaser : écart des étages autour du centre, de 0 (tous au centre, des creux réguliers) à 4 octaves (des creux plus larges et irréguliers).',
     'ripple.delay.hint':
@@ -528,7 +531,7 @@ export const devices = defineFeature(
     'ripple.polarity.hint':
       'Signe de l’effet dans le mélange : positif, ou négatif (les creux passent entre les anciens ; le flanger coupe alors les fréquences les plus graves). Un changement se fond sur 10 ms.',
     'ripple.mix.hint':
-      'Quantité d’effet ajoutée au son direct, de 0 (son direct seul) à 100 % (son direct et effet à parts égales : les creux les plus profonds).',
+      'Quantité d’effet ajoutée au son direct, de 0 (son direct seul) à 100 % (son direct et effet à parts égales : c’est ce mélange qui crée les creux et le peigne).',
     'ripple.lfo_shape.hint':
       'Forme du LFO qui balaie les creux : sinus, triangle, scie montante, scie descendante, carré, ou aléatoire (une nouvelle valeur à chaque cycle).',
     'ripple.lfo_sync.hint': 'Le LFO va à sa propre vitesse en hertz (libre) ou suit le tempo (au tempo), chaque cycle sur le même temps de chaque mesure.',
