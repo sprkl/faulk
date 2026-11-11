@@ -40,6 +40,8 @@ const LOAD_AT: f32 = BEFORE as f32 * STEP;
 enum Setup<'a> {
     /// No device added: the source alone (an effect's material without the effect).
     Source,
+    /// The device at its defaults, no preset loaded.
+    Defaults(&'a str),
     /// The device, then the preset loaded while the sound plays.
     Preset(&'a str, &'a str),
 }
@@ -179,7 +181,7 @@ fn effect_session_for(setup: Setup, after: u32) -> Session {
     }
     let kind = match setup {
         Setup::Source => None,
-        Setup::Preset(kind, _) => Some(kind),
+        Setup::Defaults(kind) | Setup::Preset(kind, _) => Some(kind),
     };
     let target = kind.map(|kind| {
         let out = s.exec(Command::Device(device::Command::Insert {
@@ -405,7 +407,10 @@ fn every_factory_preset_loads_while_playing_and_sounds_unlike_its_source_and_its
     // without it) and the presets heard.
     let mut references: BTreeMap<String, Vec<(String, Vec<f32>)>> = BTreeMap::new();
     let mut heard: BTreeMap<String, Vec<(String, Vec<f32>, Render)>> = BTreeMap::new();
+    // Per kind: the device at its defaults, which every preset must change (#191).
+    let mut defaults: BTreeMap<String, Render> = BTreeMap::new();
     let mut failures = Vec::new();
+    let mut visited = Vec::new();
     for f in factory::all() {
         let kind = f.preset.device.as_str();
         let role = role(kind);
@@ -420,6 +425,25 @@ fn every_factory_preset_loads_while_playing_and_sounds_unlike_its_source_and_its
             render_native(s.scenario())
         };
         checked(&with_preset, f.id);
+        // The preset reached the engine: its sound is not the device's at its defaults, whatever
+        // the device (a MIDI effect included, whose distances below are not judged).
+        let plain = defaults.entry(kind.to_owned()).or_insert_with(|| {
+            render_native(
+                if role == engine::device::DeviceRole::Effect {
+                    effect_session(Setup::Defaults(kind))
+                } else {
+                    note_session(kind, None, true)
+                }
+                .scenario(),
+            )
+        });
+        let (difference, at) = with_preset.max_difference(plain);
+        if difference <= 1e-2 {
+            failures.push(format!(
+                "{} plays like the device at its defaults (largest difference {difference:.4} at frame {at})",
+                f.id
+            ));
+        }
         let refs = references.entry(kind.to_owned()).or_insert_with(|| {
             if role == engine::device::DeviceRole::Instrument {
                 let defaults = note_session(kind, None, true);
@@ -452,6 +476,9 @@ fn every_factory_preset_loads_while_playing_and_sounds_unlike_its_source_and_its
             let d = distance(&grid, other);
             let _ = write!(line, ", {d:.2} dB from {name}");
             let known = KNOWN_ALIKE.contains(&(f.id, name));
+            if known {
+                visited.push((f.id, name.to_owned()));
+            }
             // A MIDI effect moves pitches and timing, which octave-band levels do not tell apart
             // (a major and a minor triad hold the same energy per octave): its distances are
             // printed, not judged.
@@ -475,6 +502,14 @@ fn every_factory_preset_loads_while_playing_and_sounds_unlike_its_source_and_its
         let slug = f.id.replace("faulk.", "").replace('/', "-");
         with_preset.write_wav(&format!("preset-{slug}"));
         siblings.push((f.id.to_owned(), grid, with_preset));
+    }
+    // Every listed exception names a pair the loop compared: a renamed preset leaves no dead entry.
+    for (id, name) in KNOWN_ALIKE {
+        if !visited.iter().any(|(i, n)| i == id && n == name) {
+            failures.push(format!(
+                "KNOWN_ALIKE lists {id} against {name}, which no longer exists"
+            ));
+        }
     }
     assert!(
         failures.is_empty(),
