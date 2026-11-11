@@ -187,6 +187,14 @@
 
   const toggle = (band: Band) => onchange(`${band.key}_on`, isOn(band, valueOf) ? 0 : 1)
 
+  /** A held arrow (its key repeats) is one history group, closed when the key comes up or the point loses focus. */
+  let keyHeld = false
+  function keyUp() {
+    if (!keyHeld) return
+    keyHeld = false
+    onend()
+  }
+
   function key(event: KeyboardEvent, band: Band) {
     const freqKey = `${band.key}_freq`
     const gainKey = `${band.key}_gain`
@@ -208,11 +216,21 @@
       }
       case 'Enter':
         toggle(band)
-        break
+        event.preventDefault()
+        return
       default:
         return
     }
     event.preventDefault()
+  }
+
+  /** The arrows open their group before the first change (the card's gesture opens one only when none is open). */
+  function keyDown(event: KeyboardEvent, band: Band) {
+    if (event.key.startsWith('Arrow') && !keyHeld) {
+      keyHeld = true
+      onbegin()
+    }
+    key(event, band)
   }
 
   const GRID_HZ = [50, 100, 200, 500, 1000, 2000, 5000, 10000]
@@ -255,7 +273,9 @@
         transform="translate({xOf(valueOf(`${band.key}_freq`)).toFixed(1)} {handleY(band).toFixed(1)})"
         onpointerdown={(event) => pointerDown(event, band)}
         ondblclick={() => toggle(band)}
-        onkeydown={(event) => key(event, band)}
+        onkeydown={(event) => keyDown(event, band)}
+        onkeyup={keyUp}
+        onblur={keyUp}
         use:wheelOn={band}
       >
         <circle r="9" />

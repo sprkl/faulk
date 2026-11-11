@@ -19,7 +19,7 @@
 
   let { entry, chain, master = false, track }: { entry: ChainEntry; chain: readonly ChainEntry[]; master?: boolean; track?: string } = $props()
 
-  const { ui, dispatcher, automated, project, meters } = useStores()
+  const { ui, dispatcher, automated, project, meters, engine } = useStores()
   const t = ui.t
 
   const descriptor = $derived(entry.descriptor)
@@ -160,7 +160,7 @@
       {name}
       {valueOf}
       spectrum={bypassed ? null : meters.spectrum(entry.id)}
-      sampleRate={meters.spectrumRate(entry.id) ?? 48000}
+      sampleRate={meters.spectrumRate(entry.id) ?? (engine.status?.sampleRate || 48000)}
       {bypassed}
       onchange={(key, value) => dispatcher.run(setDeviceParam(entry.id, key, value))}
       onbegin={gesture.begin}

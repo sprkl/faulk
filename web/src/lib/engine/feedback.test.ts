@@ -216,20 +216,28 @@ describe('decodeFeedback', () => {
 
   it('reads the spectra after the readouts (version 11, #156) and refuses a count beyond the bytes or the limit', () => {
     const base = new Uint8Array(report(1))
-    const buffer = new ArrayBuffer(base.length + 2 * SPECTRUM_BYTES)
+    // One readout first (#686): the spectra start after it.
+    const spectraAt = base.length + DEVICE_READOUT_BYTES
+    const buffer = new ArrayBuffer(spectraAt + 2 * SPECTRUM_BYTES)
     new Uint8Array(buffer).set(base)
     const view = new DataView(buffer)
+    view.setUint32(READOUTS_OFFSET, 1, true)
+    view.setUint32(base.length, 1, true)
+    view.setUint16(base.length + 4, 2, true)
+    view.setUint16(base.length + 6, 1, true)
+    view.setFloat32(base.length + 8, 812.5, true)
     view.setUint32(SPECTRA_OFFSET, 2, true)
     for (let i = 0; i < 2; i++) {
-      const at = base.length + i * SPECTRUM_BYTES
+      const at = spectraAt + i * SPECTRUM_BYTES
       view.setUint32(at, i === 0 ? 0 : 0xffffffff, true)
       view.setUint32(at + 4, 3 + i, true)
       view.setFloat32(at + 8, 48000, true)
       for (let b = 0; b < SPECTRUM_BANDS; b++) view.setFloat32(at + 12 + 4 * b, -b, true)
     }
     // A corrupt band reads as the floor.
-    view.setFloat32(base.length + 12, NaN, true)
+    view.setFloat32(spectraAt + 12, NaN, true)
     const r = decodeFeedback(buffer)!
+    expect(r.readouts).toEqual([{ track: 1, device: 2, param: 1, value: 812.5 }])
     expect(r.spectra).toHaveLength(2)
     expect(r.spectra[0]).toMatchObject({ track: 0, device: 3, sampleRate: 48000 })
     expect(r.spectra[1].track).toBeNull()

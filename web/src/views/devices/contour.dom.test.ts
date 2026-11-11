@@ -167,7 +167,15 @@ describe('the Contour curve', () => {
     // A cut band's up and down set its Q.
     handle('hp').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
     expect(changes.at(-1)?.[0]).toBe('hp_q')
-    // No key gesture opens a group.
-    expect(groups).toEqual([])
+    // Held arrows are one group: opened by the first, closed when the key comes up (or on blur).
+    expect(groups).toEqual(['begin'])
+    handle('hp').dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown', bubbles: true }))
+    expect(groups).toEqual(['begin', 'end'])
+    key('ArrowLeft')
+    handle('bell3').dispatchEvent(new FocusEvent('blur'))
+    expect(groups).toEqual(['begin', 'end', 'begin', 'end'])
+    // Enter switches a band in one step, no group.
+    handle('lp').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    expect(groups).toHaveLength(4)
   })
 })

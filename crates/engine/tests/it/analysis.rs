@@ -319,6 +319,14 @@ fn a_bypassed_contour_is_not_analysed_and_comes_back_when_switched_on() {
         device: DeviceSlot(1),
         enabled: true,
     }]);
+    // The ring starts empty again: a full window (2048 frames at 48 kHz) must be rendered before
+    // a copy, and its spectrum comes one report after the copy, so the first two reports after
+    // the switch carry none. A ring kept stale would be copied at once and reported in the second.
+    assert!(s.run(1).spectra.is_empty(), "first report after the switch");
+    assert!(
+        s.run(1).spectra.is_empty(),
+        "second report after the switch"
+    );
     let again = s.run(6);
     assert_eq!(again.spectra.len(), 1);
     assert_eq!((again.spectra[0].track, again.spectra[0].device), (0, 1));
@@ -377,6 +385,47 @@ fn without_a_contour_the_report_carries_no_spectrum_and_the_analysis_does_nothin
     // Nothing new to analyse: a second call publishes nothing.
     prepare.analyse();
     assert!(!prepare.analyse());
+}
+
+#[test]
+fn a_report_carries_the_readouts_then_the_spectra_and_reads_back_both() {
+    use engine::devices::filter::{CUTOFF, DESCRIPTOR as FILTER, LFO_DEPTH};
+    // A Filter whose LFO moves its cutoff after the Contour: one readout and one spectrum per
+    // report (version 11: the spectra follow the readouts, #156 with #686).
+    let mut s = session(1);
+    let (track, device) = (TrackSlot(0), DeviceSlot(2));
+    let mut msgs = vec![M::DeviceInsert {
+        track,
+        device,
+        kind: FILTER.kind_id,
+        state: Vec::new(),
+    }];
+    for (param, value) in [(CUTOFF, 2000.0), (LFO_DEPTH, 2.0)] {
+        msgs.push(M::ParamSet {
+            track,
+            device,
+            param: ParamId(param),
+            value,
+        });
+    }
+    s.send(&msgs);
+    let mut seen = false;
+    for _ in 0..8 {
+        let report = s.run(1);
+        if report.spectra.is_empty() {
+            continue;
+        }
+        assert_eq!(report.readouts.len(), 1, "{:?}", report.readouts);
+        assert_eq!(report.readouts[0].track, track);
+        assert_eq!(report.readouts[0].device, device);
+        assert_eq!(report.readouts[0].param, ParamId(CUTOFF));
+        assert_eq!(report.spectra.len(), 1);
+        assert_eq!((report.spectra[0].track, report.spectra[0].device), (0, 1));
+        assert!(report.spectra[0].bands.iter().all(|b| b.is_finite()));
+        seen = true;
+        break;
+    }
+    assert!(seen, "a report with both a readout and a spectrum");
 }
 
 #[test]

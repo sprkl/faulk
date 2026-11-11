@@ -1,4 +1,4 @@
-// Decodes the engine's report (the `Feedback` layout of crates/engine/src/msg.rs, version 10). The
+// Decodes the engine's report (the `Feedback` layout of crates/engine/src/msg.rs, version 11). The
 // same bytes reach the page two ways: the Web engine's render instance writes them under a
 // seqlock into the shared memory (`readFeedback`), the helper sends them as binary WebSocket
 // frames (`decodeFeedback` on the frame). One decoder, so that both modes show the same thing.

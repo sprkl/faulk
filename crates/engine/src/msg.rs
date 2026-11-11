@@ -1734,8 +1734,8 @@ pub const FEEDBACK_HEADER_BYTES: usize = 112;
 /// Where the number of device readouts sits in a [`Feedback`] (#686, version 10): one `u32`.
 pub const FEEDBACK_READOUTS_OFFSET: usize = 100;
 
-/// Where the device latency sits in a [`Feedback`] (#749, version 10): one `u32`, the last
-/// word of the header. One constant, so that the field moves in one place.
+/// Where the device latency sits in a [`Feedback`] (#749, version 10): one `u32`, followed by
+/// the spectra count (version 11). One constant, so that the field moves in one place.
 pub const FEEDBACK_LATENCY_OFFSET: usize = 104;
 
 /// The bit of the latency word that says the compensation is capped (#749): a track needs a

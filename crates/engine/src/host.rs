@@ -958,8 +958,8 @@ impl Host {
     /// then the take's number, count and last notes (RE-2), the disk's underruns, offline
     /// sources, budget flag and PCM in memory (AU-3), and the frames the output protection
     /// silenced because a sample was non-finite (#667), the host's frame at the playhead (#733),
-    /// the device latency the graph compensates (#749), and after the notes the devices'
-    /// readouts (#686). No allocation.
+    /// the device latency the graph compensates (#749), after the notes the devices' readouts
+    /// (#686), then the spectra published since the last report (#156). No allocation.
     pub fn write_feedback(&mut self) {
         let seq = self.feedback_seq.wrapping_add(1) | 1;
         let fb = &self.feedback;
