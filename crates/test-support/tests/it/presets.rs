@@ -374,9 +374,13 @@ fn distance(a: &[f32], b: &[f32]) -> f32 {
 /// above it, see the band table under `.qa/156/`).
 const DISTINCT_DB: f32 = 3.0;
 
+/// How far above [`DISTINCT_DB`] a [`KNOWN_ALIKE`] pair must stand before the test calls it stale.
+const STALE_MARGIN_DB: f32 = 1.0;
+
 /// Presets known to sound like what they are compared with, measured when this test came
-/// (#156) and left to their own devices' owners: each pair must still be alike, so that the
-/// list only shrinks.
+/// (#156) and left to their own devices' owners. A listed pair that now stands clearly apart
+/// ([`STALE_MARGIN_DB`] above the threshold) fails the test, so that the list only shrinks; a
+/// pair near the threshold (small-room) does not flip another change's test.
 const KNOWN_ALIKE: &[(&str, &str)] = &[
     // A gentle bus compressor: 0.85 dB from the source.
     ("faulk.compressor/gentle-glue", "the source"),
@@ -451,7 +455,12 @@ fn every_factory_preset_loads_while_playing_and_sounds_unlike_its_source_and_its
             // A MIDI effect moves pitches and timing, which octave-band levels do not tell apart
             // (a major and a minor triad hold the same energy per octave): its distances are
             // printed, not judged.
-            if role != engine::device::DeviceRole::MidiEffect && (d < DISTINCT_DB) != known {
+            let wrong = if known {
+                d >= DISTINCT_DB + STALE_MARGIN_DB
+            } else {
+                d < DISTINCT_DB
+            };
+            if role != engine::device::DeviceRole::MidiEffect && wrong {
                 failures.push(if known {
                     format!(
                         "{} no longer sounds like {name} ({d:.2} dB): drop it from KNOWN_ALIKE",
