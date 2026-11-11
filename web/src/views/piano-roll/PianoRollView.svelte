@@ -92,6 +92,9 @@
     velocityPosition,
     VELOCITY_HOME,
     afterChanges,
+    clickGivesFocus,
+    parseSnap,
+    parseTool,
     DEFAULT_QUANTIZE_GRID,
     DEFAULT_QUANTIZE_STRENGTH,
     MAX_BARS,
@@ -218,8 +221,13 @@
   }
 
   // View state.
-  let tool = $state<Tool>('draw')
-  let snap = $state<SnapSetting>('auto')
+  // The tool and the snap are kept for the session, across clips (#835): the view is built again for each clip, so they are recalled.
+  let tool = $state<Tool>(untrack(() => parseTool(ui.recall<string>('piano-roll-tool'))))
+  let snap = $state<SnapSetting>(untrack(() => parseSnap(ui.recall<string>('piano-roll-snap'))))
+  $effect(() => {
+    ui.remember('piano-roll-tool', tool)
+    ui.remember('piano-roll-snap', snap)
+  })
   // Zoom and scroll of the clip come back when the panel returns to the roll (it is torn down when another tab is shown).
   const left = ui.recall<{ clip: string | null; view: View; scrollY: number }>('piano-roll')
   let view = $state<View>(left?.view ?? { pxPerTick: DEFAULT_PX_PER_TICK, scrollTick: 0 })
@@ -488,6 +496,8 @@
   function onPointerDown(event: PointerEvent) {
     if (event.button !== 0 || !edited || !track || gesture) return
     const { x, y } = local(event, stage)
+    // A click from outside the roll only gives it the focus (#835): it writes nothing, so no note appears unseen.
+    const givesFocus = clickGivesFocus(rollEl?.contains(document.activeElement) ?? false)
     stage!.setPointerCapture(event.pointerId)
     if (y < RULER_HEIGHT) {
       const tick = snapTick(xToTick(x, shown), step)
@@ -509,6 +519,7 @@
       return
     }
     if (tool === 'draw') {
+      if (givesFocus) return
       const pitch = pitchAt(y, layout)
       const note = drawnNote(xToTick(x, shown), null, pitch, drawVelocity, drawing, nextLength, clipLength)
       if (!note) return
@@ -582,6 +593,10 @@
       if (!g.note || !fits(g.note, clipLength)) return
       run(addNotes(g.clip, [g.note]))
       picked = new Set([noteKey(g.note)])
+      // Every note written is said and brought into sight (#835), as a note written from the keyboard is.
+      const written = g.note
+      announce(t('pianoRoll.saidAdded', { pitch: keyNames?.get(written.pitch) ?? pitchName(written.pitch) }))
+      void focusNote(noteKey(written))
       // A click (no drag) whose length did not fit before the clip's end draws a shorter note: said (#623, #280).
       if (!g.dragged && g.note.length < nextLength) announce(t('pianoRoll.saidLengthCut', { length: gestureLength(t, signature, g.note.length) }))
       lastLength = g.note.length

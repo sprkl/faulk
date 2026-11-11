@@ -8,6 +8,9 @@ import {
   drawnNote,
   parseDrawLength,
   parseDrawVelocity,
+  parseSnap,
+  parseTool,
+  clickGivesFocus,
   stepLengths,
   writeLength,
   fits,
@@ -548,5 +551,25 @@ describe('the keyboard resize (#623)', () => {
   it('takes a NaN step as a sixteenth and a zero step as one tick', () => {
     expect(lengths(stepLengths([note(0, 480)], Number.NaN, 1, 3840))).toEqual([720])
     expect(lengths(stepLengths([note(0, 480)], 0, 1, 3840))).toEqual([481])
+  })
+})
+
+describe('the tool and the snap kept across clips (#835)', () => {
+  it('reads the remembered tool, and falls back to draw on nothing or an unknown value', () => {
+    expect(parseTool('select')).toBe('select')
+    expect(parseTool('draw')).toBe('draw')
+    expect(parseTool(undefined)).toBe('draw')
+    expect(parseTool('erase')).toBe('draw')
+    expect(parseTool(3)).toBe('draw')
+  })
+  it('reads the remembered snap, and falls back to auto on nothing or an unknown value', () => {
+    expect(parseSnap('beat')).toBe('beat')
+    expect(parseSnap('sixteenth-triplet')).toBe('sixteenth-triplet')
+    expect(parseSnap(undefined)).toBe('auto')
+    expect(parseSnap('bogus')).toBe('auto')
+  })
+  it('lets a press only give the focus when the focus was outside the roll', () => {
+    expect(clickGivesFocus(false)).toBe(true)
+    expect(clickGivesFocus(true)).toBe(false)
   })
 })

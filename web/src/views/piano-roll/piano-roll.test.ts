@@ -54,6 +54,27 @@ describe('what the piano roll shows before it has a clip to edit', () => {
   })
 })
 
+describe('the tool and the snap across clips (#835)', () => {
+  const checked = (html: string, testid: string) => new RegExp(`aria-checked="true"[^>]*data-testid="${testid}"|data-testid="${testid}"[^>]*aria-checked="true"`).test(html)
+
+  it('opens on Draw the first time', () => {
+    const html = body(view('midi', { a: midiClip('A') }))
+    expect(checked(html, 'roll-tool-draw')).toBe(true)
+    expect(checked(html, 'roll-tool-select')).toBe(false)
+  })
+
+  it('opens a roll built again with the tool and the snap the previous one left', () => {
+    const stores = createStores('arrangement', 'piano-roll')
+    stores.project.show(view('midi', { a: midiClip('A'), b: midiClip('B') }))
+    stores.ui.remember('piano-roll-tool', 'select')
+    stores.ui.remember('piano-roll-snap', 'beat')
+    const html = render(PianoRollView, { context: storesContext(stores) }).body
+    expect(checked(html, 'roll-tool-select')).toBe(true)
+    expect(checked(html, 'roll-tool-draw')).toBe(false)
+    expect(html).toMatch(/<option value="beat" selected/)
+  })
+})
+
 describe('the selection', () => {
   const a = { start: 0, pitch: 60, length: 480, velocity: 100 }
   const b = { ...a, pitch: 62 }

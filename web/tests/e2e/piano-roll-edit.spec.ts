@@ -1039,3 +1039,41 @@ test('piano roll: a triplet snap steps the cursor, writes, moves and draws on tr
   ])
   expect(seen.errors).toEqual([])
 })
+
+test('piano roll: the tool and the snap stay across clips, and a click that gives the focus writes no note (#835)', async ({ page }) => {
+  test.setTimeout(120_000)
+  const { seen, warnings } = await openRoll(page)
+  const select = page.getByTestId('roll-tool-select')
+  const draw = page.getByTestId('roll-tool-draw')
+  await select.click()
+  await page.getByTestId('roll-snap').selectOption('beat')
+
+  // The roll is built again when the panel comes back (as for another clip): it keeps the tool and the snap.
+  await page.getByTestId('panel-devices').click()
+  await page.getByTestId('panel-piano-roll').click()
+  await expect(roll(page)).toHaveAttribute('data-note-count', '0')
+  await expect(page.getByTestId('roll-tool-select')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByTestId('roll-tool-draw')).toHaveAttribute('aria-checked', 'false')
+  await expect(page.getByTestId('roll-snap')).toHaveValue('beat')
+
+  // With the focus outside the roll, a click in Select writes nothing, and neither does the one in Draw that only gives the focus.
+  const g = await spot(page)
+  await page.mouse.click(g.x(1000), g.y(62))
+  await expect(roll(page)).toHaveAttribute('data-note-count', '0')
+  await page.getByTestId('roll-tool-draw').click()
+  await page.getByTestId('panel-devices').click()
+  await page.getByTestId('panel-piano-roll').click()
+  await expect(page.getByTestId('roll-tool-draw')).toHaveAttribute('aria-checked', 'true')
+  await page.mouse.click(g.x(1000), g.y(62))
+  await expect(roll(page)).toHaveAttribute('data-note-count', '0')
+  await expect(page.getByTestId('timegrid')).toBeFocused()
+
+  // The next click draws, in sight, and says it.
+  await page.mouse.click(g.x(1000), g.y(62))
+  await expect(roll(page)).toHaveAttribute('data-note-count', '1')
+  await expect(page.getByTestId('roll-said')).toHaveText(/^Note added/)
+  const [note] = await notes(page)
+  expect(note!.pitch).toBe(62)
+  expect(warnings).toEqual([])
+  expect(seen.errors).toEqual([])
+})
