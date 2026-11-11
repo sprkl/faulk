@@ -1302,6 +1302,28 @@ impl Replay {
                         "{msg:?}: the slot is empty"
                     );
                 }
+                ControlMsg::DeviceMove { track, from, to } => {
+                    // The device keeps everything it holds. The engine refuses a move from
+                    // an empty slot, to an occupied one, or of a MIDI effect.
+                    assert!(
+                        !self.devices.contains_key(&(track.0, to.0)),
+                        "{msg:?}: the target is taken"
+                    );
+                    let moved = self
+                        .devices
+                        .remove(&(track.0, from.0))
+                        .unwrap_or_else(|| panic!("{msg:?}: the slot is empty"));
+                    let role = commands::device::registry()
+                        .iter()
+                        .find(|b| b.descriptor.kind_id.0 == moved.kind)
+                        .map(|b| b.descriptor.role);
+                    assert_ne!(
+                        role,
+                        Some(engine::device::DeviceRole::MidiEffect),
+                        "{msg:?}: a MIDI effect"
+                    );
+                    self.devices.insert((track.0, to.0), moved);
+                }
                 ControlMsg::DeviceSetEnabled {
                     track,
                     device,
@@ -1385,6 +1407,7 @@ fn kinds(msgs: &[ControlMsg]) -> Vec<&'static str> {
             ControlMsg::DeviceInsert { .. } => "insert",
             ControlMsg::DeviceRemove { .. } => "remove",
             ControlMsg::DeviceSetEnabled { .. } => "enabled",
+            ControlMsg::DeviceMove { .. } => "move",
             ControlMsg::AutomationLaneUpload { .. } => "lane",
             _ => "other",
         })
@@ -1498,22 +1521,54 @@ fn every_chain_command_and_its_undo_leave_the_engine_as_a_snapshot_would() {
     }
 }
 
+/// The slots of the `DeviceMove`s of `msgs`, in order.
+fn moves(msgs: &[ControlMsg]) -> Vec<(u16, u16)> {
+    msgs.iter()
+        .filter_map(|m| match m {
+            ControlMsg::DeviceMove { from, to, .. } => Some((from.0, to.0)),
+            _ => None,
+        })
+        .collect()
+}
+
 #[test]
-fn a_device_that_keeps_its_place_is_not_touched_and_one_that_shifts_is_built_again() {
+fn a_device_that_keeps_its_place_is_not_touched_and_one_that_shifts_is_moved() {
+    // #800: a device that shifts keeps its instance (its tail and state), so the engine gets
+    // a `DeviceMove`, never a new build.
     let c = chain();
     let mut w = World::new(c.state.clone());
     // Appending touches nothing before it.
     let out = w.exec(&ins(&c.track, u32::MAX));
     assert_eq!(kinds(&out.control), ["insert"], "{:?}", out.control);
     // Inserting right after the instrument shifts the three effects behind it: each one
-    // leaves its slot and is built again one slot further, the last into a new slot.
+    // moves one slot further, the last first (into a free slot), then the new one is built
+    // in the slot left free.
     let out = w.exec(&ins(&c.track, 0));
     assert_eq!(
         kinds(&out.control),
-        ["insert", "insert", "insert", "insert"],
+        ["move", "move", "move", "insert"],
         "{:?}",
         out.control
     );
+    assert_eq!(moves(&out.control), [(19, 20), (18, 19), (17, 18)]);
+    let ControlMsg::DeviceInsert { device, .. } = out.control[3] else {
+        panic!()
+    };
+    assert_eq!(device.0, 17);
+    // Removing the first effect empties its slot, then the others move back, head first.
+    let first = w.s.state.project.tracks[&c.track]
+        .devices_in_order()
+        .get(1)
+        .map(|(id, _)| (*id).clone())
+        .unwrap();
+    let out = w.exec(&remove(&first));
+    assert_eq!(
+        kinds(&out.control),
+        ["remove", "move", "move", "move"],
+        "{:?}",
+        out.control
+    );
+    assert_eq!(moves(&out.control), [(18, 17), (19, 18), (20, 19)]);
     // Removing the last effect empties its slot and touches nothing else.
     let last = w.s.state.project.tracks[&c.track]
         .devices_in_order()
@@ -1522,29 +1577,63 @@ fn a_device_that_keeps_its_place_is_not_touched_and_one_that_shifts_is_built_aga
         .unwrap();
     let out = w.exec(&remove(&last));
     assert_eq!(kinds(&out.control), ["remove"], "{:?}", out.control);
-    // Swapping two neighbours builds both again, in each other's slot, with no removal.
+    // A reorder: the device moved is built again at its new place, the other one moves.
+    // Swapping two neighbours: the one moved to the head is removed, the other moves into its
+    // slot, then the first is built in the slot left free.
     let out = w.exec(&mv(&c.b, 0));
-    assert!(
-        !kinds(&out.control).contains(&"remove"),
+    assert_eq!(
+        kinds(&out.control),
+        ["remove", "move", "insert"],
         "{:?}",
         out.control
     );
-    assert!(kinds(&out.control).iter().all(|k| *k == "insert"));
+    assert_eq!(moves(&out.control), [(17, 18)]);
+    // Moving the first of three effects to the end: it leaves, the two others move toward the
+    // head, it is built again last.
+    w.exec(&ins(&c.track, u32::MAX));
+    let head = w.s.state.project.tracks[&c.track]
+        .devices_in_order()
+        .get(1)
+        .map(|(id, _)| (*id).clone())
+        .unwrap();
+    let out = w.exec(&mv(&head, u32::MAX));
+    assert_eq!(
+        kinds(&out.control),
+        ["remove", "move", "move", "insert"],
+        "{:?}",
+        out.control
+    );
+    assert_eq!(moves(&out.control), [(18, 17), (19, 18)]);
+    // And back to the head: it leaves the tail, the others move toward the tail.
+    let out = w.exec(&mv(&head, 0));
+    assert_eq!(
+        kinds(&out.control),
+        ["remove", "move", "move", "insert"],
+        "{:?}",
+        out.control
+    );
+    assert_eq!(moves(&out.control), [(18, 19), (17, 18)]);
+    // Each undo comes back the same way (`exec` checks the engine against a snapshot): an
+    // undo builds at most the one device it brings back.
+    for _ in 0..8 {
+        let out = w.exec(&undo());
+        let built = kinds(&out.control)
+            .iter()
+            .filter(|k| **k == "insert")
+            .count();
+        assert!(built <= 1, "{:?}", out.control);
+    }
 }
 
 #[test]
-fn a_bypassed_device_is_built_again_bypassed_and_a_bypass_reaches_the_engine() {
+fn a_bypassed_device_that_shifts_keeps_its_bypass_and_a_bypass_reaches_the_engine() {
     let c = chain();
     let mut w = World::new(c.state.clone());
     let out = w.exec(&bypass(&c.b, true));
     assert_eq!(kinds(&out.control), ["enabled"]);
     let out = w.exec(&ins(&c.track, 1));
-    // The bypassed effect shifted: it comes back with its `DeviceSetEnabled`.
-    assert!(
-        kinds(&out.control).contains(&"enabled"),
-        "{:?}",
-        out.control
-    );
+    // The bypassed effect shifted: it moved with its enabled flag, so nothing re-sends it.
+    assert_eq!(kinds(&out.control), ["move", "insert"], "{:?}", out.control);
     // The replay holds it disabled, as the snapshot does (checked by `exec`).
     let out = w.exec(&bypass(&c.b, false));
     assert_eq!(kinds(&out.control), ["enabled"]);

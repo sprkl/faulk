@@ -106,6 +106,11 @@ fn samples() -> Vec<ControlMsg> {
             track: t,
             device: DeviceSlot(0),
         },
+        ControlMsg::DeviceMove {
+            track: t,
+            from: DeviceSlot(0),
+            to: DeviceSlot(17),
+        },
         ControlMsg::DeviceSetEnabled {
             track: t,
             device: DeviceSlot(0),
