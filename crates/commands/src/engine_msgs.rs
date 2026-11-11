@@ -868,7 +868,8 @@ fn master_chain_msgs(project: &Project, sync: &mut EngineSlots, out: &mut Vec<Co
 /// lands on their slot (a replacement crossfades); then each device out of place moves into
 /// its slot once it is free (`DeviceMove`: a shift is a run of such moves, from the tail for
 /// an insert, from the head for a removal); a reorder, where no target is free, builds again
-/// the device that goes furthest; then the new devices and those built again take their
+/// the device that goes furthest (in a swap of neighbours, where both go one slot, the one
+/// going toward the head: the chain does not say which one the user moved); then the new devices and those built again take their
 /// slots. The engine fades a removed device out in front of the ones moved into its place
 /// (`engine::graph` > Device fades), so nothing jumps.
 fn sync_devices(
@@ -923,8 +924,9 @@ fn sync_devices(
     }
     // The moves, each into a free slot: each one puts a device in its slot for good. When
     // none is left with a free target, the rest are cycles (a reorder): the device that goes
-    // furthest (the one the user moved) leaves and is built again at its place, which frees a
-    // slot for the others. So this ends.
+    // furthest (the one the user moved, when it went further than one slot; in a swap of
+    // neighbours the one going toward the head) leaves and is built again at its place, which
+    // frees a slot for the others. So this ends.
     loop {
         let misplaced = || {
             wanted.iter().filter_map(|w| {

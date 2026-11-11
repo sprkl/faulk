@@ -1695,6 +1695,9 @@ impl Preparer {
         // Into the slot a device with a line left (#761): the same device built again, for
         // `apply` to put there instead when the leaving one still holds the slot's timing.
         let mut spare = None;
+        // When `apply` takes the spare, the moved instance leaves `from`, and one with a line
+        // then holds `from` in turn: a move into `from` needs its own spare.
+        let mut vacates = false;
         if !track.is_master()
             && shadow.vacated.contains(&to.0)
             && let Some(kept) = shadow.devices.get(from.0 as usize).and_then(Option::as_ref)
@@ -1708,6 +1711,7 @@ impl Preparer {
                 kept.params.iter().copied(),
             )?;
             value.enabled = kept.enabled;
+            vacates = kept.lined;
             spare = Some(value);
         }
         // Commit.
@@ -1720,6 +1724,9 @@ impl Preparer {
             }
             t.devices.swap(from.0 as usize, to.0 as usize);
             t.vacated.retain(|v| *v != to.0);
+            if vacates && !t.vacated.contains(&from.0) && t.vacated.len() < VACATED_ROOM {
+                t.vacated.push(from.0);
+            }
         }
         Ok(Some(RtMsg::DeviceMove {
             track,

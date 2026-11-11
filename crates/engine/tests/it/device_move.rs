@@ -370,6 +370,22 @@ fn a_device_that_moves_takes_the_one_it_replaced_with_it() {
 }
 
 #[test]
+fn two_devices_with_a_line_in_a_row_hand_the_hold_on() {
+    use engine::devices::ceiling::DESCRIPTOR as CEILING;
+    // Ceiling, Ceiling, echo: the first is removed, the second moves into its held slot (built
+    // again there, the old one leaving its own slot, which it then holds), and the echo moves
+    // into that one: it gets a spare too, so neither move is cut.
+    let ceiling = |slot: u16| insert(slot, CEILING.kind_id, &[]);
+    let setup = playing(&[ceiling(1), ceiling(2), echo(3)]);
+    let (out, at, r) = held_with(&setup, &[remove(1), mv(2, 1), mv(3, 2)]);
+    let n = fade_frames(RATE) as usize;
+    let step = max_step(&out[at - BLOCK..at + 8 * n]);
+    assert!(step < 0.005, "a step of {step} (a cut measured 0.031)");
+    assert_eq!(r.outgoing(), 0);
+    assert_eq!(r.e.skipped(), 0);
+}
+
+#[test]
 fn a_replaced_device_with_a_line_that_holds_nothing_follows_its_replacement() {
     use engine::devices::ceiling::DESCRIPTOR as CEILING;
     // A Ceiling replaced by another Ceiling: the new one takes its line (#749), so the old

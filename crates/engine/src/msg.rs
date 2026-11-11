@@ -1572,7 +1572,9 @@ pub enum RtMsg {
         /// The same device built again (#800), when `to` is a slot a device with a latency
         /// line left: if that device still holds the slot's timing (#761), `apply` puts this
         /// one there instead (held, then faded in, as a device put there is) and the moved one
-        /// leaves from `from`; otherwise it goes to the garbage.
+        /// leaves from `from` (the values waiting for `from` in the lines before it are
+        /// forgotten, as for a removal: the project uploads the moved device's lanes again);
+        /// otherwise it goes to the garbage.
         spare: Option<Box<DeviceEntry>>,
     },
     DeviceSetEnabled {
