@@ -31,6 +31,7 @@ fn to_track(moves: &[(&PlacementId, &TrackId)], by: Option<i64>) -> arrangement:
             })
             .collect(),
         by: by.map(Tick),
+        if_occupied: arrangement::IfOccupied::Replace,
     }
 }
 
@@ -251,4 +252,332 @@ fn a_move_to_another_track_is_refused_for_an_audio_source_and_at_the_placement_l
     )
     .unwrap();
     assert!(matches!(err, CommandError::Limit { .. }), "{err}");
+}
+
+// --- #805: a move or a copy never replaces a placement unless it is told to ---------------------
+
+fn with_occupied(
+    mut command: arrangement::Command,
+    how: arrangement::IfOccupied,
+) -> arrangement::Command {
+    match &mut command {
+        arrangement::Command::MoveToTrack { if_occupied, .. }
+        | arrangement::Command::Duplicate { if_occupied, .. } => *if_occupied = how,
+        _ => panic!("not a move or a copy"),
+    }
+    command
+}
+
+/// Three MIDI tracks in display order, the first the fixture's, the other two copies of its
+/// layout (so the same places are taken).
+fn three_tracks(f: &arrangement_examples::ArFx) -> (State, [TrackId; 3]) {
+    let (mut state, _) = with_second_track(f);
+    run(
+        &commands::Command::Track(commands::track::Command::Duplicate {
+            track: f.track.clone(),
+            name: None,
+        }),
+        &mut state,
+        &mut commands::Context::new(
+            commands::Author::User,
+            ::project::IdGenerator::new(1_685_000_000_000, 0x00DC_0000_0000_0000_0000),
+        ),
+    )
+    .unwrap();
+    let midi: Vec<TrackId> = state
+        .project
+        .tracks_in_order()
+        .into_iter()
+        .filter(|(_, t)| t.kind == ::project::TrackKind::Midi)
+        .map(|(id, _)| id.clone())
+        .collect();
+    assert_eq!(midi.len(), 3);
+    let [x, y, z]: [TrackId; 3] = midi.try_into().unwrap();
+    assert_eq!(x, f.track, "the fixture's own track comes first");
+    (state, [x, y, z])
+}
+
+fn invalid_if_occupied(err: &CommandError) -> bool {
+    matches!(err, CommandError::Invalid { field, .. } if field == "if_occupied")
+}
+
+#[test]
+fn a_refused_move_to_an_occupied_place_replaces_nothing_and_changes_nothing() {
+    let f = fx();
+    let (state, second) = with_second_track(&f);
+    let command = with_occupied(
+        to_track(&[(&f.c, &second)], Some(-7680)),
+        arrangement::IfOccupied::Refuse,
+    );
+    let mut after = state.clone();
+    let err = run(&a(command), &mut after, &mut fresh_context()).unwrap_err();
+    assert!(invalid_if_occupied(&err));
+    assert_eq!(after, state);
+    // The default, `replace`, still carves, as a drag does.
+    let mut replaced = state.clone();
+    let (out, _) = ok(&mut replaced, to_track(&[(&f.c, &second)], Some(-7680)));
+    let arrangement::Output::MoveToTrack { overwritten, .. } = out else {
+        panic!()
+    };
+    assert!(overwritten >= 1);
+}
+
+#[test]
+fn a_refusing_move_onto_free_ground_is_a_plain_move_and_undoes_exactly() {
+    let f = fx();
+    let (mut state, second) = with_second_track(&f);
+    let before = state.clone();
+    let mut ctx = fresh_context();
+    let command = with_occupied(
+        to_track(&[(&f.c, &second)], Some(100_000)),
+        arrangement::IfOccupied::Refuse,
+    );
+    let outcome = run(&a(command), &mut state, &mut ctx).unwrap();
+    assert!(overlap_free(&state, &second));
+    let Undo::Inverse(inverse) = outcome.undo else {
+        panic!()
+    };
+    inverse.apply(&mut state, &mut ctx).unwrap();
+    assert_eq!(state.project, before.project);
+}
+
+#[test]
+fn a_skipping_move_lands_on_the_next_free_track_and_undoes_exactly() {
+    let f = fx();
+    let (mut state, [first, second, third]) = three_tracks(&f);
+    state
+        .project
+        .tracks
+        .get_mut(&third)
+        .unwrap()
+        .placements
+        .clear();
+    let before = state.clone();
+    let mut ctx = fresh_context();
+    // The second track holds the same layout: its place is taken, so the move goes on.
+    let command = with_occupied(
+        to_track(&[(&f.a, &second)], None),
+        arrangement::IfOccupied::Skip,
+    );
+    let outcome = run(&a(command), &mut state, &mut ctx).unwrap();
+    state.project.validate().unwrap();
+    let Output::Arrangement(arrangement::Output::MoveToTrack {
+        placements,
+        overwritten,
+    }) = outcome.output
+    else {
+        panic!()
+    };
+    assert_eq!(overwritten, 0);
+    assert!(
+        state.project.tracks[&third]
+            .placements
+            .contains_key(&placements[0])
+    );
+    assert!(!state.project.tracks[&first].placements.contains_key(&f.a));
+    assert_eq!(
+        state.project.tracks[&second].placements, before.project.tracks[&second].placements,
+        "the occupied track is left as it was"
+    );
+    let Undo::Inverse(inverse) = outcome.undo else {
+        panic!()
+    };
+    inverse.apply(&mut state, &mut ctx).unwrap();
+    assert_eq!(state.project, before.project);
+}
+
+#[test]
+fn a_skipping_move_to_a_free_place_does_not_skip() {
+    let f = fx();
+    let (mut state, [_, second, third]) = three_tracks(&f);
+    state
+        .project
+        .tracks
+        .get_mut(&second)
+        .unwrap()
+        .placements
+        .clear();
+    let command = with_occupied(
+        to_track(&[(&f.a, &second)], None),
+        arrangement::IfOccupied::Skip,
+    );
+    let (out, _) = ok(&mut state, command);
+    let arrangement::Output::MoveToTrack { placements, .. } = out else {
+        panic!()
+    };
+    assert!(
+        state.project.tracks[&second]
+            .placements
+            .contains_key(&placements[0])
+    );
+    assert!(
+        !state.project.tracks[&third]
+            .placements
+            .contains_key(&placements[0])
+    );
+}
+
+#[test]
+fn a_skipping_move_with_no_free_track_left_is_refused_and_changes_nothing() {
+    let f = fx();
+    let (state, [_, second, _]) = three_tracks(&f);
+    // Every track below holds the layout: nowhere to go.
+    let command = with_occupied(
+        to_track(&[(&f.a, &second)], None),
+        arrangement::IfOccupied::Skip,
+    );
+    let mut after = state.clone();
+    let err = run(&a(command), &mut after, &mut fresh_context()).unwrap_err();
+    assert!(invalid_if_occupied(&err));
+    assert_eq!(after, state);
+}
+
+#[test]
+fn a_skipping_move_past_the_last_track_is_refused() {
+    let f = fx();
+    let (state, [_, _, third]) = three_tracks(&f);
+    let order: Vec<TrackId> = state
+        .project
+        .tracks_in_order()
+        .into_iter()
+        .map(|(id, _)| id.clone())
+        .collect();
+    let last = order.iter().position(|t| *t == third).unwrap();
+    // Up from the first track there is no track at all: the shift is out of range.
+    let first_up = order.first().unwrap();
+    let _ = (last, first_up);
+    let on_third = state.project.tracks[&third]
+        .placements
+        .keys()
+        .next()
+        .unwrap()
+        .clone();
+    // A move down from the last MIDI track lands past the end or on the audio track (another
+    // kind): either way nowhere free.
+    let Some(below) = order.get(last + 1) else {
+        return;
+    };
+    let command = with_occupied(
+        to_track(&[(&on_third, below)], None),
+        arrangement::IfOccupied::Skip,
+    );
+    let mut after = state.clone();
+    let err = run(&a(command), &mut after, &mut fresh_context()).unwrap_err();
+    assert!(matches!(err, CommandError::Invalid { .. }));
+    assert_eq!(after, state);
+}
+
+#[test]
+fn a_skipping_move_needs_one_shift_of_tracks_for_every_move() {
+    let f = fx();
+    let (state, [_, second, third]) = three_tracks(&f);
+    let on_second = state.project.tracks[&second]
+        .placements
+        .keys()
+        .next()
+        .unwrap()
+        .clone();
+    // One placement one track down, another one track down too is a shift; one down and one
+    // two down is not.
+    let command = with_occupied(
+        to_track(
+            &[(&f.a, &second), (&on_second, &third), (&f.b, &third)],
+            None,
+        ),
+        arrangement::IfOccupied::Skip,
+    );
+    let mut after = state.clone();
+    let err = run(&a(command), &mut after, &mut fresh_context()).unwrap_err();
+    assert!(invalid_if_occupied(&err));
+    assert_eq!(after, state);
+}
+
+#[test]
+fn a_refused_copy_onto_the_next_placement_replaces_nothing() {
+    let f = fx();
+    let copy = |how| {
+        a(with_occupied(
+            arrangement::Command::Duplicate {
+                placements: vec![f.a.clone()],
+                linked: false,
+                by: None,
+                if_occupied: arrangement::IfOccupied::Replace,
+            },
+            how,
+        ))
+    };
+    // `a` lasts 3840 ticks and `b` starts right after it: its copy lands on `b`.
+    let mut refused = f.state.clone();
+    let err = run(
+        &copy(arrangement::IfOccupied::Refuse),
+        &mut refused,
+        &mut fresh_context(),
+    )
+    .unwrap_err();
+    assert!(invalid_if_occupied(&err));
+    assert_eq!(refused, f.state);
+    // Told to replace (the default), the copy carves `b`.
+    let mut replaced = f.state.clone();
+    let outcome = run(
+        &copy(arrangement::IfOccupied::Replace),
+        &mut replaced,
+        &mut fresh_context(),
+    )
+    .unwrap();
+    let Output::Arrangement(arrangement::Output::Duplicate { overwritten, .. }) = outcome.output
+    else {
+        panic!()
+    };
+    assert!(overwritten >= 1);
+}
+
+#[test]
+fn a_refusing_copy_onto_free_ground_is_a_plain_copy_and_undoes_exactly() {
+    let f = fx();
+    let mut state = f.state.clone();
+    let mut ctx = fresh_context();
+    let command = a(arrangement::Command::Duplicate {
+        placements: vec![f.c.clone()],
+        linked: false,
+        by: Some(Tick(40_000)),
+        if_occupied: arrangement::IfOccupied::Refuse,
+    });
+    let outcome = run(&command, &mut state, &mut ctx).unwrap();
+    assert_eq!(
+        state.project.tracks[&f.track].placements.len(),
+        f.state.project.tracks[&f.track].placements.len() + 1
+    );
+    let Undo::Inverse(inverse) = outcome.undo else {
+        panic!()
+    };
+    inverse.apply(&mut state, &mut ctx).unwrap();
+    assert_eq!(state.project, f.state.project);
+}
+
+#[test]
+fn a_copy_cannot_skip() {
+    let f = fx();
+    let command = a(arrangement::Command::Duplicate {
+        placements: vec![f.c.clone()],
+        linked: false,
+        by: Some(Tick(40_000)),
+        if_occupied: arrangement::IfOccupied::Skip,
+    });
+    let mut state = f.state.clone();
+    let err = run(&command, &mut state, &mut fresh_context()).unwrap_err();
+    assert!(invalid_if_occupied(&err));
+    assert_eq!(state, f.state);
+}
+
+#[test]
+fn the_default_is_not_written_and_a_missing_field_means_replace() {
+    let f = fx();
+    let plain = to_track(&[(&f.a, &f.track)], None);
+    let json = serde_json::to_value(&plain).unwrap();
+    assert!(json.get("if_occupied").is_none());
+    let skip = with_occupied(plain, arrangement::IfOccupied::Skip);
+    let json = serde_json::to_value(&skip).unwrap();
+    assert_eq!(json["if_occupied"], "skip");
+    let back: arrangement::Command = serde_json::from_value(json).unwrap();
+    assert_eq!(back, skip);
 }

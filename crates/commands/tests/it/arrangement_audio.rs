@@ -354,6 +354,7 @@ fn an_independent_copy_is_a_new_audio_clip_of_the_same_file_and_redo_brings_it_b
             placements: vec![id.clone()],
             linked: false,
             by: None,
+            if_occupied: arrangement::IfOccupied::Replace,
         }),
         &mut state,
         &mut ctx,
@@ -383,6 +384,7 @@ fn an_independent_copy_is_a_new_audio_clip_of_the_same_file_and_redo_brings_it_b
             placements: vec![id.clone()],
             linked: false,
             by: None,
+            if_occupied: arrangement::IfOccupied::Replace,
         }),
         &mut state,
         &mut ctx,
@@ -415,6 +417,7 @@ fn an_independent_copy_is_a_new_audio_clip_of_the_same_file_and_redo_brings_it_b
             placements: vec![id],
             linked: true,
             by: Some(Tick(3840)),
+            if_occupied: arrangement::IfOccupied::Replace,
         },
     );
     let arrangement::Output::Duplicate {
@@ -456,6 +459,7 @@ fn an_audio_placement_moves_to_another_audio_track_only() {
                 track: other.clone(),
             }],
             by: Some(Tick(960)),
+            if_occupied: arrangement::IfOccupied::Replace,
         },
     );
     let arrangement::Output::MoveToTrack { placements, .. } = out else {
@@ -482,6 +486,7 @@ fn an_audio_placement_moves_to_another_audio_track_only() {
             track: other.clone(),
         }],
         by: None,
+        if_occupied: arrangement::IfOccupied::Replace,
     });
     run(&mv, &mut s, &mut ctx).unwrap();
     let moved = s.project.clone();
@@ -507,6 +512,7 @@ fn an_audio_placement_moves_to_another_audio_track_only() {
                 track: f.track.clone(),
             }],
             by: None,
+            if_occupied: arrangement::IfOccupied::Replace,
         },
         arrangement::Command::MoveToTrack {
             moves: vec![TrackMove {
@@ -514,6 +520,7 @@ fn an_audio_placement_moves_to_another_audio_track_only() {
                 track: f.audio_track.clone(),
             }],
             by: None,
+            if_occupied: arrangement::IfOccupied::Replace,
         },
     ] {
         assert!(matches!(
@@ -703,6 +710,7 @@ fn random_audio_edits_stay_inside_their_clips_overlap_free_and_undo_through_the_
                             track: other.clone(),
                         }],
                         by: Some(Tick(rng.next(4_000) as i64 - 2_000)),
+                        if_occupied: arrangement::IfOccupied::Replace,
                     },
                     0 => arrangement::Command::Place {
                         clip: clips[rng.next(clips.len() as u64) as usize].clone(),
@@ -734,6 +742,7 @@ fn random_audio_edits_stay_inside_their_clips_overlap_free_and_undo_through_the_
                         placements: vec![pick(&mut rng)],
                         linked: rng.next(2) == 0,
                         by: Some(Tick(rng.next(6_000) as i64 - 1_500)),
+                        if_occupied: arrangement::IfOccupied::Replace,
                     },
                     6 => arrangement::Command::Repeat {
                         placement: pick(&mut rng),

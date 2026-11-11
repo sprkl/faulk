@@ -65,7 +65,9 @@
     blocksOf,
     clampScrollY,
     maxScrollY,
+    copyBlocked,
     copyShift,
+    freeRows,
     hitBlock,
     isFree,
     lastEnd,
@@ -1126,8 +1128,25 @@
    * or last track and for a target that is not a MIDI track. The moved clips become the selection (they get new identifiers in
    * their new track). Returns where each landed, by the identifier it had, or `null` when nothing moved.
    */
-  function sendToTracks(chosen: readonly Block[], rows: number, delta: number, follow?: string): Record<string, Block> | null {
-    const targets = trackTargets(chosen, rows, trackList)
+  function sendToTracks(
+    chosen: readonly Block[],
+    rows: number,
+    delta: number,
+    follow?: string,
+    ifOccupied: 'replace' | 'skip' = 'replace',
+  ): Record<string, Block> | null {
+    const asked = trackTargets(chosen, rows, trackList)
+    // From the keyboard and the menu a move never replaces a clip (#805): it goes on to the next free track, or says why not.
+    let landing = rows
+    if (ifOccupied === 'skip' && 'moves' in asked) {
+      const free = freeRows(chosen, rows, delta, trackList, blocks)
+      if (free === null) {
+        announce(t('arrangement.saidNoFreeTrack'))
+        return null
+      }
+      landing = free
+    }
+    const targets = landing === rows ? asked : trackTargets(chosen, landing, trackList)
     if ('refused' in targets) {
       if (targets.refused === 'edge') announce(t('arrangement.saidNoTrack'))
       else {
@@ -1138,10 +1157,16 @@
       }
       return null
     }
-    run(moveToTrack(targets.moves, delta))
+    const before = new Set(blocks.map((b) => b.id))
+    if (!dispatcher.run(moveToTrack(targets.moves, delta, ifOccupied), ifOccupied === 'skip' ? { quiet: true } : {})) {
+      if (ifOccupied === 'skip') announce(t('arrangement.saidNoFreeTrack'))
+      return null
+    }
     const landed: Record<string, Block> = {}
     for (const b of chosen) {
-      const now = blocks.find((n) => n.row === b.row + rows && n.start === b.start + delta && n.end === b.end + delta && n.offset === b.offset)
+      const now = blocks.find(
+        (n) => !before.has(n.id) && n.row === b.row + landing && n.start === b.start + delta && n.end === b.end + delta && n.offset === b.offset,
+      )
       if (now) landed[b.id] = now
     }
     const all = Object.values(landed)
@@ -1151,14 +1176,18 @@
     const entry = entries[lead.row]
     select(lead.track)
     followClip(lead)
-    announce(t('arrangement.saidMovedTrack', { n: all.length, track: entry ? trackLabel(entry, t) : '', bar: barsOf(lead).from }))
+    const track = entry ? trackLabel(entry, t) : ''
+    const from = chosen.find((b) => b.id === follow) ?? chosen[0]
+    const busy = from ? entries[from.row + rows] : undefined
+    if (landing !== rows && busy) announce(t('arrangement.saidSkippedTrack', { busy: trackLabel(busy, t), track, bar: barsOf(lead).from }))
+    else announce(t('arrangement.saidMovedTrack', { n: all.length, track, bar: barsOf(lead).from }))
     return landed
   }
 
   /** Copies, then selects the copies (the placements that were not there before). */
-  function copyAndSelect(ids: string[], linked: boolean, by?: number): boolean {
+  function copyAndSelect(ids: string[], linked: boolean, by?: number, ifOccupied: 'replace' | 'refuse' = 'replace'): boolean {
     const before = new Set(blocks.map((b) => b.id))
-    run(duplicatePlacements(ids, linked, by))
+    run(duplicatePlacements(ids, linked, by, ifOccupied))
     const fresh = blocks.filter((b) => !before.has(b.id)).map((b) => b.id)
     if (fresh.length > 0) picked = new Set(fresh)
     if (fresh.length > 0) announce(t('arrangement.saidCopied', { n: fresh.length }))
@@ -1335,14 +1364,14 @@
           shortcut: chordText(['Alt', '↑']),
           separator: true,
           disabled: !('moves' in trackTargets(selection, -1, trackList)),
-          run: () => sendToTracks(selection, -1, 0, block.id),
+          run: () => sendToTracks(selection, -1, 0, block.id, 'skip'),
         },
         {
           id: 'move-down',
           label: t('arrangement.moveDown'),
           shortcut: chordText(['Alt', '↓']),
           disabled: !('moves' in trackTargets(selection, 1, trackList)),
-          run: () => sendToTracks(selection, 1, 0, block.id),
+          run: () => sendToTracks(selection, 1, 0, block.id, 'skip'),
         },
         { id: 'delete', label: t('arrangement.delete'), shortcut: chordText(['Delete']), separator: true, run: removeSelected },
       )
@@ -1440,11 +1469,14 @@
   function duplicate(linked: boolean, from: readonly Block[] = selection) {
     const by = copyShift(from)
     if (by === null) return
+    // A copy never replaces the clip that follows (#805): it says so and changes nothing.
+    if (copyBlocked(from, by, blocks)) return announce(t('arrangement.saidCopyBlocked'))
     const keyboard = (document.activeElement as HTMLElement | null)?.dataset?.block !== undefined
     const copied = copyAndSelect(
       from.map((b) => b.id),
       linked,
       by,
+      'refuse',
     )
     // From the keyboard the focus follows the copies, which are the selection: a repeated Ctrl+D copies them again and
     // Shift+arrow starts from them, never from the original left behind (#528).
@@ -1889,7 +1921,7 @@
       if (!selectedIds.has(current.id)) picked = new Set([current.id])
       // Up and Down move the clips to the track above or below (`arrangement.move_to_track`).
       if (key.direction === 'up' || key.direction === 'down') {
-        const landed = sendToTracks(chosen, key.direction === 'up' ? -1 : 1, 0, current.id)
+        const landed = sendToTracks(chosen, key.direction === 'up' ? -1 : 1, 0, current.id, 'skip')
         const now = landed?.[current.id]
         if (now) void focusItem(now.id)
         return
