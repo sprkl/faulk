@@ -568,8 +568,10 @@ describe('the tool and the snap kept across clips (#835)', () => {
     expect(parseSnap(undefined)).toBe('auto')
     expect(parseSnap('bogus')).toBe('auto')
   })
-  it('lets a press only give the focus when the focus was outside the roll', () => {
-    expect(clickGivesFocus(false)).toBe(true)
-    expect(clickGivesFocus(true)).toBe(false)
+  it('lets a press only give the focus when the keyboard was on another element of the page', () => {
+    expect(clickGivesFocus(false, true)).toBe(true)
+    // In the roll, or on nothing at all: a plain click.
+    expect(clickGivesFocus(true, true)).toBe(false)
+    expect(clickGivesFocus(false, false)).toBe(false)
   })
 })

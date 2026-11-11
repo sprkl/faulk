@@ -497,7 +497,7 @@
     if (event.button !== 0 || !edited || !track || gesture) return
     const { x, y } = local(event, stage)
     // A click from outside the roll only gives it the focus (#835): it writes nothing, so no note appears unseen.
-    const givesFocus = clickGivesFocus(rollEl?.contains(document.activeElement) ?? false)
+    const givesFocus = clickGivesFocus(rollEl?.contains(document.activeElement) ?? false, !!document.activeElement && document.activeElement !== document.body)
     stage!.setPointerCapture(event.pointerId)
     if (y < RULER_HEIGHT) {
       const tick = snapTick(xToTick(x, shown), step)
@@ -596,7 +596,7 @@
       // Every note written is said and brought into sight (#835), as a note written from the keyboard is.
       const written = g.note
       announce(t('pianoRoll.saidAdded', { pitch: keyNames?.get(written.pitch) ?? pitchName(written.pitch) }))
-      void focusNote(noteKey(written))
+      revealNote({ start: written.start, note: written })
       // A click (no drag) whose length did not fit before the clip's end draws a shorter note: said (#623, #280).
       if (!g.dragged && g.note.length < nextLength) announce(t('pianoRoll.saidLengthCut', { length: gestureLength(t, signature, g.note.length) }))
       lastLength = g.note.length
@@ -747,16 +747,21 @@
       .filter(({ item, rect }) => item.id === tabKey || (rect.x + rect.w >= 0 && rect.x <= stageW && rect.y + rect.h >= RULER_HEIGHT && rect.y <= stageH))
   })
 
-  async function focusNote(key: string) {
-    const item = noteItems.find((i) => i.id === key)
-    if (!item) return
-    focusKey = key
-    onCursor = false
+  /** Scrolls the roll until the note is in sight (#835), without moving the focus. */
+  function revealNote(item: { start: number; note: Note }) {
     const rect = noteRect(item.note, shown, layout)
     if (rect.x < 0 || rect.x > stageW - 8)
       view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: Math.max(0, item.start - (stageW / shown.pxPerTick) * 0.1) }, stageW, totalBars * bar)
     if (rect.y < RULER_HEIGHT || rect.y + rect.h > stageH)
       scrollY = clampScrollY(layout.scrollY + rect.y - (RULER_HEIGHT + stageH) / 2, stageH, { rowHeight: ROW, top: RULER_HEIGHT })
+  }
+
+  async function focusNote(key: string) {
+    const item = noteItems.find((i) => i.id === key)
+    if (!item) return
+    focusKey = key
+    onCursor = false
+    revealNote(item)
     await tick()
     itemsEl?.querySelector<HTMLElement>(`[data-note="${CSS.escape(key)}"]`)?.focus()
   }

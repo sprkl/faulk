@@ -512,7 +512,8 @@ export const parseTool = (value: unknown): RollTool => ROLL_TOOLS.find((t) => t 
 export const parseSnap = (value: unknown): SnapSetting => ROLL_SNAP_SETTINGS.find((s) => s === value) ?? 'auto'
 
 /**
- * Whether a press on the notes' area only gives the roll the focus (#835): when the focus was outside the roll, the
- * press focuses it and writes nothing, so that a click made to reach the keyboard never places a note out of sight.
+ * Whether a press on the notes' area only gives the roll the focus (#835): when the keyboard was on another element of the
+ * page (not in the roll, not nowhere), the press moves it here and writes nothing, so that a click made to reach the
+ * keyboard never places a note out of sight. With nothing focused the press is a plain click and draws.
  */
-export const clickGivesFocus = (focusInsideRoll: boolean): boolean => !focusInsideRoll
+export const clickGivesFocus = (focusInsideRoll: boolean, focusElsewhere: boolean): boolean => focusElsewhere && !focusInsideRoll

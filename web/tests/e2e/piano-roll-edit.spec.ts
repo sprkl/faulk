@@ -650,6 +650,7 @@ test('piano roll: Repeat fills the bar end to end from the keyboard, Repeat unti
     [480, 64],
     [720, 67],
   ] as const
+  await stage(page).getByTestId('timegrid').focus()
   const written = figure.map(([s, p]) => [s, p, 240])
   for (const [tick, pitch] of figure) await page.mouse.click(g.x(tick + 10), g.y(pitch))
   await expect.poll(shape).toEqual(written)
@@ -1044,7 +1045,6 @@ test('piano roll: the tool and the snap stay across clips, and a click that give
   test.setTimeout(120_000)
   const { seen, warnings } = await openRoll(page)
   const select = page.getByTestId('roll-tool-select')
-  const draw = page.getByTestId('roll-tool-draw')
   await select.click()
   await page.getByTestId('roll-snap').selectOption('beat')
 

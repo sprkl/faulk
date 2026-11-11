@@ -55,7 +55,8 @@ describe('what the piano roll shows before it has a clip to edit', () => {
 })
 
 describe('the tool and the snap across clips (#835)', () => {
-  const checked = (html: string, testid: string) => new RegExp(`aria-checked="true"[^>]*data-testid="${testid}"|data-testid="${testid}"[^>]*aria-checked="true"`).test(html)
+  const checked = (html: string, testid: string) =>
+    new RegExp(`aria-checked="true"[^>]*data-testid="${testid}"|data-testid="${testid}"[^>]*aria-checked="true"`).test(html)
 
   it('opens on Draw the first time', () => {
     const html = body(view('midi', { a: midiClip('A') }))
