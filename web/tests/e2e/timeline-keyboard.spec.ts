@@ -251,34 +251,44 @@ test('after Ctrl+D the copies are the selection and the focus; Shift+arrow from 
   expect(await selection()).toEqual([a!.id, b!.id].sort())
   await expect(arr).toHaveAttribute('data-selected-count', '2')
 
-  // With nothing selected (a click on an empty row clears it), Ctrl+D copies the keyboard-focused clip.
+  // With nothing selected (a click on an empty row clears it), Ctrl+D on the keyboard-focused clip is refused when the clip after it
+  // is there (#805): the first track holds six bars of clips.
   const stage = page.getByTestId('arr-stage')
   const box = (await stage.boundingBox())!
   const ppt = Number(await stage.getByTestId('timegrid').getAttribute('data-px-per-tick'))
-  await page.mouse.click(box.x + 100 * ppt, box.y + RULER + 2 * LANE + LANE / 2)
+  const clear = () => page.mouse.click(box.x + 100 * ppt, box.y + RULER + 2 * LANE + LANE / 2)
+  await clear()
   await expect(arr).toHaveAttribute('data-selected-count', '0')
   await cell(a!.id).focus()
   await page.keyboard.press('Control+d')
+  await expect(page.getByTestId('arr-said')).toHaveText(/Not copied/)
+  await expect(arr).toHaveAttribute('data-block-count', '6')
+
+  // On the second track, where the place after is free, it copies the focused clip.
+  await clipAt(page, 1, 0)
+  const c = (await blocks(page)).find((x) => x.row === 1)!
+  await clear()
+  await expect(arr).toHaveAttribute('data-selected-count', '0')
+  await cell(c.id).focus()
+  await page.keyboard.press('Control+d')
   const after = await selection()
   expect(after).toHaveLength(1)
-  expect(after).not.toContain(a!.id)
+  expect(after).not.toContain(c.id)
   // The copy is of the focused clip: it sits one clip length after it (the clip is a bar long).
   const copy = (await blocks(page)).find((x) => x.id === after[0])
-  expect(copy?.row).toBe(a!.row)
-  expect(copy?.start).toBe(a!.start + 3840)
+  expect(copy?.row).toBe(c.row)
+  expect(copy?.start).toBe(c.start + 3840)
   // A pointer click on a clip moves the keyboard focus off the cell that held it: Ctrl+D then copies the clicked clip, not the cell.
-  await cell(a!.id).focus()
-  await page.mouse.click(box.x + (b!.start + 1920) * ppt, box.y + RULER + LANE / 2)
+  await cell(c.id).focus()
+  await page.mouse.click(box.x + (copy!.start + 1920) * ppt, box.y + RULER + LANE + LANE / 2)
   const clicked = await selection()
-  expect(clicked).toHaveLength(1)
-  expect(clicked).not.toContain(a!.id)
-  const target = (await blocks(page)).find((x) => x.id === clicked[0])!
+  expect(clicked).toEqual([copy!.id])
   await page.keyboard.press('Control+d')
   const viaPointer = await selection()
   expect(viaPointer).toHaveLength(1)
-  expect(viaPointer).not.toContain(clicked[0])
+  expect(viaPointer).not.toContain(copy!.id)
   const fromPointer = (await blocks(page)).find((x) => x.id === viaPointer[0])
-  expect(fromPointer?.start).toBe(target.start + 3840)
+  expect(fromPointer?.start).toBe(copy!.start + 3840)
   expect(errors).toEqual([])
 })
 
