@@ -174,11 +174,9 @@ fn effect_session_for(setup: Setup, after: u32) -> Session {
     // The bass: the fixture's saw, quieter.
     set(&mut s, &f.device, "gain", 0.5);
     let band = Band { drums, lead };
-    // Hiccup captures on the transport's grid (#689): with the clock stopped it does nothing, so
-    // its session plays.
-    if matches!(setup, Setup::Preset("faulk.hiccup", _)) {
-        s.run(Command::Transport(commands::transport::Command::Play {}));
-    }
+    // The transport plays in every effect session, the source's and the defaults' included:
+    // Hiccup captures on the transport's grid (#689), and with the clock stopped it does nothing.
+    s.run(Command::Transport(commands::transport::Command::Play {}));
     let kind = match setup {
         Setup::Source => None,
         Setup::Defaults(kind) | Setup::Preset(kind, _) => Some(kind),
@@ -253,6 +251,8 @@ fn note_session(kind: &str, preset: Option<&str>, with_device: bool) -> Session 
             .iter()
             .find(|(_, d)| d.role == DeviceRole::Instrument)
             .map(|(id, _)| id.clone())
+            .expect("the instrument just set")
+            .into()
     };
     let notes: Vec<u8> = if descriptor.named_keys.is_empty() {
         vec![45, 52, 57]
