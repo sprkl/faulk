@@ -149,6 +149,20 @@ describe('the Contour curve', () => {
     expect(qs[2]).toBeCloseTo(Math.pow(2, 0.75), 2)
   })
 
+  it('ends a wheel group before an arrow opens its own, and an arrows group before the wheel, so no timer cuts another', () => {
+    vi.useFakeTimers()
+    mountCurve()
+    handle('bell1').dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true }))
+    handle('bell1').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
+    expect(groups).toEqual(['begin', 'end', 'begin'])
+    // The wheel's rest comes later: it closes nothing more.
+    vi.advanceTimersByTime(500)
+    expect(groups).toEqual(['begin', 'end', 'begin'])
+    // The wheel during held arrows: the arrows' group ends first.
+    handle('bell1').dispatchEvent(new WheelEvent('wheel', { deltaY: -100, bubbles: true, cancelable: true }))
+    expect(groups).toEqual(['begin', 'end', 'begin', 'end', 'begin'])
+  })
+
   it('switches a band on a double click and on Enter, and moves a focused one with the arrows', () => {
     mountCurve()
     handle('lp').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }))

@@ -30,7 +30,7 @@
     valueOf: (key: string) => number
     /** The last spectrum of the device's output, `null` when none is fresh. */
     spectrum: Shown | null
-    /** The engine's sample rate, as the device's spectra last gave it: the curve's bilinear warp follows it. */
+    /** The rate the curve's bilinear warp follows: the engine's, else the device's last spectrum's (`curveRate`). */
     sampleRate: number
     bypassed?: boolean
     onchange: (key: string, value: number) => void
@@ -135,6 +135,9 @@
       gainY: yOfDb(isCut(band.shape) ? 0 : valueOf(`${band.key}_gain`)),
       moved: false,
     }
+    // A wheel or arrows group still open ends first: the drag is a group of its own.
+    endWheel()
+    keyUp()
     onbegin()
   }
   function pointerMove(event: PointerEvent) {
@@ -166,6 +169,8 @@
   }
   function wheel(event: WheelEvent, band: Band) {
     event.preventDefault()
+    // A held arrow's group ends first: the wheel's rest must not close it under the key.
+    keyUp()
     // Every tick: a click elsewhere may have closed the group meanwhile (a release ends every gesture); `onbegin` opens
     // one only when none is open.
     onbegin()
@@ -227,6 +232,8 @@
   /** The arrows open their group before the first change (the card's gesture opens one only when none is open). */
   function keyDown(event: KeyboardEvent, band: Band) {
     if (event.key.startsWith('Arrow') && !keyHeld) {
+      // A wheel group waiting for its rest ends first: its timer must not close the arrows' group.
+      endWheel()
       keyHeld = true
       onbegin()
     }

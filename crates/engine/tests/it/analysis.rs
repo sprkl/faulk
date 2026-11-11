@@ -5,7 +5,7 @@
 //! - the bands above Nyquist read the floor;
 //! - Contour's window is its output, and a bell's lift shows in the bands;
 //! - the whole path through the host (window region, `Prepare::flush`, spectrum region, report
-//!   v10) with the render and the report under the allocation detector;
+//!   v11) with the render and the report under the allocation detector;
 //! - the round robin over more devices than a report carries, also when the count shrinks;
 //! - a reset or a bypass hides the window;
 //! - the seqlocks refuse an odd or unchanged region.
@@ -385,6 +385,26 @@ fn without_a_contour_the_report_carries_no_spectrum_and_the_analysis_does_nothin
     // Nothing new to analyse: a second call publishes nothing.
     prepare.analyse();
     assert!(!prepare.analyse());
+}
+
+#[test]
+fn a_contour_on_the_master_is_analysed_and_named_by_the_master_s_track_slot() {
+    // No Contour on the track; one on the master's chain, after the synth's sum.
+    let mut s = session(0);
+    s.send(&[M::DeviceInsert {
+        track: TrackSlot::MASTER,
+        device: DeviceSlot(0),
+        kind: contour::DESCRIPTOR.kind_id,
+        state: Vec::new(),
+    }]);
+    let report = s.run(5);
+    assert_eq!(report.spectra.len(), 1, "{:?}", report.spectra.len());
+    assert_eq!(
+        (report.spectra[0].track, report.spectra[0].device),
+        (TrackSlot::MASTER.0, 0)
+    );
+    assert_eq!(TrackSlot::MASTER.0, u32::MAX, "the wire's master slot");
+    assert!(report.spectra[0].bands[band_of(1000.0)] > -80.0);
 }
 
 #[test]

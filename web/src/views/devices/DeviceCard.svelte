@@ -11,7 +11,7 @@
   import ContourCurve from './ContourCurve.svelte'
   import { setDeviceParam } from '../../lib/device-commands'
   import { createLane, createMasterLane } from '../../lib/automation-commands'
-  import { createGesture } from '../../lib/gesture'
+  import { cardGestures, curveRate } from '../../lib/contour/card'
   import { cardActions, type ChainEntry } from '../../lib/project/chain'
   import { deviceText, labelKey, shownParams } from '../../lib/devices'
   import { MASTER_METER, useStores } from '../../lib/stores'
@@ -37,15 +37,12 @@
   const valueOf = (key: string): number =>
     automated.device(entry.id, key) ?? entry.device.params[key] ?? descriptor?.params.find((p) => p.key === key)?.default ?? 0
 
-  // A knob drag is one history group: one undo takes it back whole.
-  const gesture = createGesture((command, options) => dispatcher.run(command, options))
-  // The curve's own gesture (#156): its wheel rest, a key coming up or its focus leaving ends only what the curve opened,
-  // never a knob's drag.
-  const curveGesture = createGesture((command, options) => dispatcher.run(command, options))
-  onDestroy(() => {
-    gesture.end()
-    curveGesture.end()
-  })
+  // A knob drag is one history group: one undo takes it back whole. Contour's curve (#156) has its own, and either one
+  // beginning ends the other's: the curve's wheel rest never cuts a knob's drag.
+  const gestures = cardGestures((command, options) => dispatcher.run(command, options))
+  const gesture = gestures.knobs
+  const curveGesture = gestures.curve
+  onDestroy(() => gestures.end())
 
   /** The right click on the card (#524): bypass, and for an effect its place in the chain and its removal. A control inside answers for itself. */
   function onContextMenu(event: MouseEvent) {
@@ -166,7 +163,7 @@
       {name}
       {valueOf}
       spectrum={bypassed ? null : meters.spectrum(entry.id)}
-      sampleRate={engine.status?.sampleRate || meters.spectrumRate(entry.id) || 48000}
+      sampleRate={curveRate(engine.status?.sampleRate, meters.spectrumRate(entry.id))}
       {bypassed}
       onchange={(key, value) => dispatcher.run(setDeviceParam(entry.id, key, value))}
       onbegin={curveGesture.begin}
