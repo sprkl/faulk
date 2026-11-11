@@ -41,6 +41,7 @@
 //! | `TrackSetMix/Solo/Arm/Monitor`, `HoldMix`, `SelectTrack`, `DeviceSetEnabled`, `ParamSet` | the same, copied |
 //! | `DeviceInsert` | `DevicePut`: the device built by `prepare` with its initial state, and the grown device row |
 //! | `DeviceRemove` | `DeviceRemove` |
+//! | `DeviceMove` | `DeviceMove`: the device moved to its free slot, and the grown device row (#800) |
 //! | `ClipNotesUpload` (last chunk), `ClipAudioSet` | `ClipPut`: the whole clip, and the page or the grown directory of the clip table |
 //! | `AutomationLaneUpload` (last chunk) | `LanePut`, paged like the clips |
 //! | `TrackPlacementsUpload` (last chunk) | `PlacementsSet`: the whole arrangement of the track |
@@ -292,7 +293,8 @@ pub mod limits {
 /// Index of a track in the engine, assigned by the project.
 ///
 /// [`TrackSlot::MASTER`] is not a track: it addresses the master's chain of effects (#364) in
-/// the four device messages (`DeviceInsert`, `DeviceRemove`, `DeviceSetEnabled`, `ParamSet`),
+/// the five device messages (`DeviceInsert`, `DeviceRemove`, `DeviceMove`, `DeviceSetEnabled`,
+/// `ParamSet`),
 /// and the master's automation lanes (#378) in `AutomationLaneUpload`, and nowhere else. The project never assigns it (tracks stay below
 /// [`limits::MAX_TRACKS`]), so a message of a track that names it finds no track and is
 /// refused or skipped, as a slot nobody holds.
@@ -548,6 +550,19 @@ pub enum ControlMsg {
         track: TrackSlot,
         device: DeviceSlot,
     },
+    /// Moves the device in `from` to the free slot `to` without building it again (#800).
+    /// The instance keeps its state (tails, envelopes, filter states, its fade and its enabled
+    /// flag), so a device that shifts in its chain when another is inserted or removed in
+    /// front of it goes on sounding. Nothing is built, dropped or faded. `from` must hold a
+    /// device and `to` must be free. Only an audio effect moves: a MIDI effect (its output is
+    /// sized from its place, #219) and an instrument (it plays first after the MIDI effects)
+    /// are refused ([`MsgError::BadPayload`], as an occupied `to` is). The devices removed
+    /// around it keep their place in the chain it left ([`crate::graph`] > Device fades).
+    DeviceMove {
+        track: TrackSlot,
+        from: DeviceSlot,
+        to: DeviceSlot,
+    },
     DeviceSetEnabled {
         track: TrackSlot,
         device: DeviceSlot,
@@ -714,6 +729,7 @@ pub enum Tag {
     DeviceRemove = 21,
     DeviceSetEnabled = 22,
     ParamSet = 23,
+    DeviceMove = 24,
     ClipNotesUpload = 30,
     ClipRemove = 31,
     AudioSourceDeclare = 40,
@@ -742,7 +758,7 @@ pub enum Tag {
 
 impl Tag {
     /// Every tag, in declaration order (for exhaustive tests and generated tables).
-    pub const ALL: [Tag; 41] = [
+    pub const ALL: [Tag; 42] = [
         Tag::Reset,
         Tag::SetTransport,
         Tag::SetMetronome,
@@ -760,6 +776,7 @@ impl Tag {
         Tag::DeviceRemove,
         Tag::DeviceSetEnabled,
         Tag::ParamSet,
+        Tag::DeviceMove,
         Tag::ClipNotesUpload,
         Tag::ClipRemove,
         Tag::AudioSourceDeclare,
@@ -819,6 +836,7 @@ impl ControlMsg {
             ControlMsg::DeviceRemove { .. } => Tag::DeviceRemove,
             ControlMsg::DeviceSetEnabled { .. } => Tag::DeviceSetEnabled,
             ControlMsg::ParamSet { .. } => Tag::ParamSet,
+            ControlMsg::DeviceMove { .. } => Tag::DeviceMove,
             ControlMsg::ClipNotesUpload { .. } => Tag::ClipNotesUpload,
             ControlMsg::ClipRemove { .. } => Tag::ClipRemove,
             ControlMsg::AudioSourceDeclare { .. } => Tag::AudioSourceDeclare,
@@ -932,12 +950,21 @@ impl ControlMsg {
                 ..
             } => {
                 // The master's chain is addressed by `TrackSlot::MASTER`, in these four
-                // messages (and `HoldMix`, above) only: any other message of a track refuses it as a slot past
+                // messages, `DeviceMove` and `HoldMix` only: any other message of a track refuses it as a slot past
                 // the limit.
                 if !t.is_master() {
                     track(t)?;
                 }
                 device(d)
+            }
+            ControlMsg::DeviceMove {
+                track: t, from, to, ..
+            } => {
+                if !t.is_master() {
+                    track(t)?;
+                }
+                device(from)?;
+                device(to)
             }
             ControlMsg::ClipNotesUpload {
                 clip: c,
@@ -1531,6 +1558,24 @@ pub enum RtMsg {
     DeviceRemove {
         track: TrackSlot,
         device: DeviceSlot,
+    },
+    /// The device of `from` moved to the free slot `to` (#800), after the row is grown to
+    /// `grown` when `to` is beyond it: no device is built, dropped or faded, it keeps its
+    /// state. The automation lanes name a slot and stay: the project uploads the moved
+    /// device's lanes again. Anything else kept per slot outside [`DeviceEntry`] (none today)
+    /// must move with it in the same step.
+    DeviceMove {
+        track: TrackSlot,
+        from: DeviceSlot,
+        to: DeviceSlot,
+        grown: Option<Slots<Box<DeviceEntry>>>,
+        /// The same device built again (#800), when `to` is a slot a device with a latency
+        /// line left: if that device still holds the slot's timing (#761), `apply` puts this
+        /// one there instead (held, then faded in, as a device put there is) and the moved one
+        /// leaves from `from` (the values waiting for `from` in the lines before it are
+        /// forgotten, as for a removal: the project uploads the moved device's lanes again);
+        /// otherwise it goes to the garbage.
+        spare: Option<Box<DeviceEntry>>,
     },
     DeviceSetEnabled {
         track: TrackSlot,

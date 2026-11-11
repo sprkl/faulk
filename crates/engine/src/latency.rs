@@ -689,6 +689,18 @@ impl Events {
         }
     }
 
+    /// The values waiting for `from` now wait for `to` (#800): their device moved there.
+    /// Linear in what waits, no allocation.
+    pub fn retarget(&mut self, from: DeviceSlot, to: DeviceSlot) {
+        for i in 0..self.len {
+            let k = self.at(i);
+            let p = &mut self.ring[k];
+            if p.slot == from {
+                p.slot = to;
+            }
+        }
+    }
+
     /// The value waiting at position `i` from the oldest, when it is not forgotten, and how
     /// long ago (in the line's frames) it was dated.
     pub fn get(&self, i: usize) -> Option<(DeviceSlot, ParamId, f32, u64)> {
@@ -1640,6 +1652,20 @@ mod tests {
         assert_eq!(seen(&out), vec![(4, 2, 0, 1.0)]);
         assert!(!line.carry(&values(&[]), delay_all, 12, 8, &mut out, &mut lost));
         assert!(line.is_empty());
+    }
+
+    #[test]
+    fn a_retargeted_value_lands_on_its_new_slot_at_its_time() {
+        // #800: the device a value waits for moved from slot 2 to slot 3.
+        let mut line = Events::try_new(8).unwrap();
+        let mut out = Sink::try_with_capacity(0, 8).unwrap();
+        let mut lost = Lost::default();
+        let src = values(&[(0, 2, 0, 1.0), (1, 4, 0, 2.0)]);
+        assert!(line.carry(&src, delay_all, 12, 8, &mut out, &mut lost));
+        line.retarget(DeviceSlot(2), DeviceSlot(3));
+        assert!(line.carry(&values(&[]), delay_all, 12, 8, &mut out, &mut lost));
+        assert_eq!(seen(&out), vec![(4, 3, 0, 1.0), (5, 4, 0, 2.0)]);
+        assert!(lost.is_empty());
     }
 
     #[test]
