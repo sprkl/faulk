@@ -433,38 +433,54 @@ fn a_skipping_move_with_no_free_track_left_is_refused_and_changes_nothing() {
 }
 
 #[test]
-fn a_skipping_move_past_the_last_track_is_refused() {
+fn a_skipping_move_goes_up_past_taken_tracks_and_is_refused_at_the_first() {
     let f = fx();
-    let (state, [_, _, third]) = three_tracks(&f);
-    let order: Vec<TrackId> = state
-        .project
-        .tracks_in_order()
-        .into_iter()
-        .map(|(id, _)| id.clone())
-        .collect();
-    let last = order.iter().position(|t| *t == third).unwrap();
-    // Up from the first track there is no track at all: the shift is out of range.
-    let first_up = order.first().unwrap();
-    let _ = (last, first_up);
+    let (state, [first, second, third]) = three_tracks(&f);
     let on_third = state.project.tracks[&third]
         .placements
         .keys()
         .next()
         .unwrap()
         .clone();
-    // A move down from the last MIDI track lands past the end or on the audio track (another
-    // kind): either way nowhere free.
-    let Some(below) = order.get(last + 1) else {
-        return;
+    let up = |state: &State, from: &PlacementId, to: &TrackId| {
+        let command = with_occupied(to_track(&[(from, to)], None), arrangement::IfOccupied::Skip);
+        let mut after = state.clone();
+        let result = run(&a(command), &mut after, &mut fresh_context());
+        (result, after)
     };
-    let command = with_occupied(
-        to_track(&[(&on_third, below)], None),
-        arrangement::IfOccupied::Skip,
-    );
-    let mut after = state.clone();
-    let err = run(&a(command), &mut after, &mut fresh_context()).unwrap_err();
-    assert!(matches!(err, CommandError::Invalid { .. }));
+    // The track above is taken and so is the first: nowhere to go, nothing changed.
+    let (result, after) = up(&state, &on_third, &second);
+    assert!(invalid_if_occupied(&result.unwrap_err()));
     assert_eq!(after, state);
+    // With the first track free, the move skips the second and lands there.
+    let mut freed = state.clone();
+    freed
+        .project
+        .tracks
+        .get_mut(&first)
+        .unwrap()
+        .placements
+        .clear();
+    let (result, after) = up(&freed, &on_third, &second);
+    let Output::Arrangement(arrangement::Output::MoveToTrack { placements, .. }) =
+        result.unwrap().output
+    else {
+        panic!()
+    };
+    assert!(
+        after.project.tracks[&first]
+            .placements
+            .contains_key(&placements[0])
+    );
+    assert!(
+        !after.project.tracks[&third]
+            .placements
+            .contains_key(&on_third)
+    );
+    assert_eq!(
+        after.project.tracks[&second].placements,
+        freed.project.tracks[&second].placements
+    );
 }
 
 #[test]

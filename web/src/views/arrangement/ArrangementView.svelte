@@ -1138,13 +1138,14 @@
     const asked = trackTargets(chosen, rows, trackList)
     // From the keyboard and the menu a move never replaces a clip (#805): it goes on to the next free track, or says why not.
     let landing = rows
-    if (ifOccupied === 'skip' && 'moves' in asked) {
+    if (ifOccupied === 'skip' && !('refused' in asked && asked.refused === 'edge')) {
       const free = freeRows(chosen, rows, delta, trackList, blocks)
-      if (free === null) {
+      // Nowhere free: the first refusal (a track of the other kind says so) stands, else the move says there is no free track.
+      if (free === null && !('refused' in asked)) {
         announce(t('arrangement.saidNoFreeTrack'))
         return null
       }
-      landing = free
+      if (free !== null) landing = free
     }
     const targets = landing === rows ? asked : trackTargets(chosen, landing, trackList)
     if ('refused' in targets) {
@@ -1158,10 +1159,8 @@
       return null
     }
     const before = new Set(blocks.map((b) => b.id))
-    if (!dispatcher.run(moveToTrack(targets.moves, delta, ifOccupied), ifOccupied === 'skip' ? { quiet: true } : {})) {
-      if (ifOccupied === 'skip') announce(t('arrangement.saidNoFreeTrack'))
-      return null
-    }
+    // A refusal here is not about a taken place (the page checked): the dispatcher shows its own reason.
+    if (!run(moveToTrack(targets.moves, delta, ifOccupied))) return null
     const landed: Record<string, Block> = {}
     for (const b of chosen) {
       const now = blocks.find(
