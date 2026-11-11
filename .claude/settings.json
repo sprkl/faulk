@@ -39,7 +39,11 @@
 			"Bash(git status:*)",
 			"Bash(git diff:*)",
 			"Bash(git log:*)",
-			"Bash(node --test:*)"
+			"Bash(node --test:*)",
+			"Bash(git fetch)",
+			"Bash(git fetch origin)",
+			"Bash(git fetch -q origin)",
+			"mcp__plugin_playwright_playwright__browser_wait_for"
 		]
 	},
 	"hooks": {
