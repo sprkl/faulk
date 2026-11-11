@@ -370,6 +370,35 @@ fn a_device_that_moves_takes_the_one_it_replaced_with_it() {
 }
 
 #[test]
+fn a_replaced_device_with_a_line_that_holds_nothing_follows_its_replacement() {
+    use engine::devices::ceiling::DESCRIPTOR as CEILING;
+    // A Ceiling replaced by another Ceiling: the new one takes its line (#749), so the old
+    // one holds no timing (#761) and crossfades in parallel. Within the fade the gain in front
+    // is removed and the new Ceiling moves into its slot: the old one goes with it, as a
+    // replaced device without a line does; only a holder stays.
+    let ceiling = |slot: u16| insert(slot, CEILING.kind_id, &[]);
+    let setup = playing(&[gain_fx(1, 1.0), ceiling(2)]);
+    let mut x = Rig::new();
+    x.send(&setup);
+    x.run(4);
+    x.send(&[ceiling(2)]);
+    x.run_frames(BLOCK / 2);
+    assert_eq!(x.places(), [(2, false)], "the old Ceiling crossfades at 2");
+    x.send(&[remove(1), mv(2, 1)]);
+    x.run_frames(BLOCK / 2);
+    let mut places = x.places();
+    places.sort_unstable();
+    assert_eq!(
+        places,
+        [(1, false), (1, true)],
+        "the old Ceiling followed the new one, the gain fades out in front"
+    );
+    x.run(10);
+    assert_eq!(x.outgoing(), 0);
+    assert_eq!(x.e.skipped(), 0);
+}
+
+#[test]
 fn a_moved_device_keeps_its_parameters_its_bypass_and_its_slot_in_the_shadow() {
     let mut r = Rig::new();
     r.send(&playing(&[gain_fx(1, 0.5)]));
