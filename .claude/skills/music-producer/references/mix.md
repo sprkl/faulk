@@ -9,9 +9,9 @@ Where each role sits: left to right (pan), front to back (depth), narrow to wide
 - **Echo** (`mode` free or synced, `division` 1/32 to a whole note with dotted and triplet values, `feedback` 0–0.95, `mix` 0–1). Each side repeats itself: the echoes sit where the dry sound sits.
 - **Filter** (`mode` lowpass, highpass, bandpass, notch; `cutoff` 20 Hz–20 kHz; `resonance`; `mix`). One band per instance; two Filters in a chain cut both ends.
 - **Bloom** (`mode` chorus, ensemble, vibrato; `stereo_phase` 0–180: 0 adds no width, 180 is the widest; `depth` 0–100 %; `tone` 20 Hz–2 kHz, a high-pass on the moving copies; `mix` 0–1). The only width tool.
-- The **Drums** instrument and the **Oscillator** are mono (the same signal on both sides), and one Drums track plays all its pieces at one pan: to offset the hats, give them their own Drums track.
+- The **Drums** instrument and the **Oscillator** are mono (the same signal on both sides), and one Drums track plays all its pieces at one pan: to offset the hats or the percussion, give each its own Drums track.
 
-Not in Faulk yet, so never worked around: sends and returns (an MVP decision; groups and buses are #193), so each Reverb or Echo is inserted on the track that needs it, its `mix` acting as the send amount; Contour, the equaliser (#751, in progress), so frequency slots are made by register and Filter only; Balance, the stereo utility (#162), so there is no mono switch, no width narrowing and no phase flip; signal analysis (#201), so no spectrum, correlation or loudness reading: slots and width are judged by ear.
+Not in Faulk yet, so never worked around: sends and returns (left out of the MVP: decision 5 of `docs/specs/02-decoupage-mvp.md`; groups and buses are #193), so each Reverb or Echo is inserted on the track that needs it, its `mix` acting as the send amount; Contour, the equaliser (#751, in progress), so frequency slots are made by register and Filter only; Balance, the stereo utility (#162), so there is no mono switch, no width narrowing and no phase flip; signal analysis (#201), so no spectrum, correlation or loudness reading: slots and width are judged by ear.
 
 ## Pan
 
@@ -21,7 +21,7 @@ Not in Faulk yet, so never worked around: sends and returns (an MVP decision; gr
 | chords, pad | `C`, widened by Bloom; or a doubled pair |
 | doubled part (two tracks) | mirrored, `L40`/`R40` to `L70`/`R70` |
 | hats, shaker | `L15`–`L35` (own Drums track) |
-| percussion, second hat | the opposite side of the hats, `R20`–`R40` |
+| percussion, second hat | the opposite side of the hats, `R20`–`R40` (own Drums track too) |
 | counter-melody, arpeggio | `L30`–`L60`, on the side away from the busiest percussion |
 | texture, noise bed | wide (Bloom, or a mirrored pair `L80`/`R80`) |
 
