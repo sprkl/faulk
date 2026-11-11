@@ -392,11 +392,13 @@ fn the_arrangement_edits_of_audio_placements_keep_the_engine_in_step_both_ways()
             placements: vec![placement.clone()],
             linked: false,
             by: Some(Tick(7680)),
+            if_occupied: commands::arrangement::IfOccupied::Replace,
         }),
         ar(A::Duplicate {
             placements: vec![placement.clone()],
             linked: true,
             by: Some(Tick(15_360)),
+            if_occupied: commands::arrangement::IfOccupied::Replace,
         }),
         ar(A::Repeat {
             placement: placement.clone(),

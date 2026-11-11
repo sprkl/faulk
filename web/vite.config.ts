@@ -72,6 +72,9 @@ export default defineConfig({
   server: { port: 5173, strictPort: true },
   preview: { port: 4173, strictPort: true },
   test: {
+    // The on-disk module cache keys a module on its own source, so a stale `import.meta.glob` result
+    // outlives a file added to the globbed folder (the Journey entries, #842). The CI starts empty.
+    fsModuleCache: false,
     projects: [
       // The tests of logic and of server-rendered views.
       { extends: true, test: { name: 'unit', include: ['src/**/*.test.ts', 'scripts/**/*.test.ts'], exclude: ['**/*.dom.test.ts', '**/node_modules/**'] } },

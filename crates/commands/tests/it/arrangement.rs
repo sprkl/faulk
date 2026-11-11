@@ -696,6 +696,7 @@ fn an_independent_copy_is_a_new_clip_and_a_linked_copy_is_a_new_placement() {
             placements: vec![f.a.clone(), f.b.clone()],
             linked: false,
             by: None,
+            if_occupied: arrangement::IfOccupied::Replace,
         },
     );
     let arrangement::Output::Duplicate {
@@ -759,6 +760,7 @@ fn an_independent_copy_is_a_new_clip_and_a_linked_copy_is_a_new_placement() {
             placements: vec![f.a.clone()],
             linked: true,
             by: Some(Tick(20_000)),
+            if_occupied: arrangement::IfOccupied::Replace,
         },
     );
     let arrangement::Output::Duplicate {
@@ -915,6 +917,7 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
             placements: vec![f.b.clone()],
             linked: false,
             by: Some(Tick(30_000)),
+            if_occupied: commands::arrangement::IfOccupied::Replace,
         },
     );
     let arrangement::Output::Duplicate { clips, .. } = out else {
@@ -991,11 +994,13 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
         placements: vec![],
         linked: false,
         by: None,
+        if_occupied: commands::arrangement::IfOccupied::Replace,
     });
     invalid(C::Duplicate {
         placements: vec![f.a.clone()],
         linked: false,
         by: Some(Tick(-1)),
+        if_occupied: commands::arrangement::IfOccupied::Replace,
     });
     // Repeat: up to the end of the placement or before it, past the timeline, an audio
     // placement, an unknown one, and so many copies that the track's limit is passed.
@@ -1138,6 +1143,7 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
         placements: vec![f.a.clone(), f.a.clone()],
         linked: true,
         by: None,
+        if_occupied: commands::arrangement::IfOccupied::Replace,
     });
     for command in [
         C::Delete {
@@ -1147,6 +1153,7 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
             placements: vec![unknown.clone()],
             linked: false,
             by: None,
+            if_occupied: commands::arrangement::IfOccupied::Replace,
         },
         C::Resize {
             placement: unknown.clone(),
@@ -1774,6 +1781,7 @@ fn the_placement_limit_of_a_track_is_refused_before_anything_changes() {
             placements: vec![f.a.clone()],
             linked: true,
             by: Some(Tick(1 << 30)),
+            if_occupied: arrangement::IfOccupied::Replace,
         }),
         &state,
         &context(),
@@ -1871,6 +1879,7 @@ fn random_edits_keep_the_project_valid_overlap_free_and_exactly_undoable() {
                 placements: vec![pick(&mut rng)],
                 linked: rng.next(2) == 0,
                 by: Some(Tick(rng.next(12_000) as i64 - 3000)),
+                if_occupied: arrangement::IfOccupied::Replace,
             },
             _ if !ids.is_empty() => {
                 // A group of two.
@@ -1927,6 +1936,7 @@ fn a_project_edited_by_the_commands_survives_the_folder_format() {
             placements: vec![f.b.clone(), f.c.clone()],
             linked: false,
             by: Some(Tick(30_000)),
+            if_occupied: arrangement::IfOccupied::Replace,
         },
     );
     ok(&mut state, place(&f, &f.looped, 3000, 1000));
