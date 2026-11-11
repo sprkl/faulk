@@ -5,7 +5,7 @@
  * identifier (CT-4): a note is addressed by its whole value, and `noteKey` is that value as a string.
  */
 
-import { tickToX, type View } from '../../lib/components/timegrid/grid'
+import { ROLL_SNAP_SETTINGS, tickToX, type SnapSetting, type View } from '../../lib/components/timegrid/grid'
 import type { Note } from '../../lib/generated/protocol'
 import { PPQ } from '../transport/time'
 
@@ -500,3 +500,23 @@ export function stepLengths(selected: readonly Note[], step: number, direction: 
   })
   return { changes, cut }
 }
+
+/** The roll's tools (#835): kept for the session, so a clip opened later takes the tool in use. */
+export const ROLL_TOOLS = ['draw', 'select'] as const
+export type RollTool = (typeof ROLL_TOOLS)[number]
+
+/** The tool remembered by the page, `draw` when none or an unknown one (a layout written by another version). */
+export const parseTool = (value: unknown): RollTool => ROLL_TOOLS.find((t) => t === value) ?? 'draw'
+
+/** The remembered length of the last note drawn (#835): a positive whole number of ticks, else null (the snap step). */
+export const parseLastLength = (value: unknown): number | null => (typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null)
+
+/** The snap remembered by the page, `auto` when none or an unknown one. */
+export const parseSnap = (value: unknown): SnapSetting => ROLL_SNAP_SETTINGS.find((s) => s === value) ?? 'auto'
+
+/**
+ * Whether a press on the notes' area only gives the roll the focus (#835): when the keyboard was on another element of the
+ * page (not in the roll, not nowhere), the press moves it here and writes nothing, so that a click made to reach the
+ * keyboard never places a note out of sight. With nothing focused the press is a plain click and draws.
+ */
+export const clickGivesFocus = (focusInsideRoll: boolean, focusElsewhere: boolean): boolean => focusElsewhere && !focusInsideRoll
