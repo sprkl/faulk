@@ -204,6 +204,14 @@ impl Model {
             ControlMsg::DeviceRemove { track, device } => {
                 self.devices(track.0).remove(&device.0);
             }
+            ControlMsg::DeviceMove { track, from, to } => {
+                let devices = self.devices(track.0);
+                if !devices.contains_key(&to.0)
+                    && let Some(moved) = devices.remove(&from.0)
+                {
+                    devices.insert(to.0, moved);
+                }
+            }
             ControlMsg::DeviceSetEnabled {
                 track,
                 device,
