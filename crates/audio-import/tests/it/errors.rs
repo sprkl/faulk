@@ -175,6 +175,24 @@ fn random_bytes_and_wrong_hints_are_refused() {
             );
         }
     }
+    // What a link may serve under an audio name (#664): a web page, a script, JSON. The content
+    // decides, never the name.
+    for text in [
+        "<!doctype html><html><head><title>404</title></head><body>Not found</body></html>",
+        "<script>alert(1)</script>",
+        "{\"error\":\"forbidden\"}",
+    ] {
+        for hint in [Some("wav"), Some("mp3"), Some("flac"), None] {
+            assert!(
+                outcome(
+                    text.as_bytes().repeat(64),
+                    hint,
+                    &format!("{text} as {hint:?}")
+                )
+                .is_err()
+            );
+        }
+    }
     // A file named for another format still imports by its content.
     assert_eq!(
         outcome(read("sine.flac"), Some("mp3"), "flac named mp3"),

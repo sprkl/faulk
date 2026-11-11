@@ -19,11 +19,16 @@ import { history } from './history'
 import { controls } from './controls'
 import { devices } from './devices'
 import { drums } from './drums'
+import { bloom } from './bloom'
 import { compressor } from './compressor'
+import { ceiling } from './ceiling'
 import { contour } from './contour'
 import { agentConfirm } from './confirm'
 import { echo } from './echo'
 import { filter } from './filter'
+import { stack } from './stack'
+import { lattice } from './lattice'
+import { scatter } from './scatter'
 import { reverb } from './reverb'
 import { keys } from './keys'
 import { layout } from './layout'
@@ -40,6 +45,8 @@ import { shortcuts } from './shortcuts'
 import { synth } from './synth'
 import { tracks } from './tracks'
 import { transport } from './transport'
+import { trim } from './trim'
+import { hiccup } from './hiccup'
 
 export { DEVICE_NAME_KEYS } from './synth'
 
@@ -60,7 +67,14 @@ export const features = {
   echo,
   reverb,
   filter,
+  stack,
+  lattice,
+  scatter,
   compressor,
+  ceiling,
+  trim,
+  hiccup,
+  bloom,
   contour,
   devices,
   presets,

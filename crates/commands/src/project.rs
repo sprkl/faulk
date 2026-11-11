@@ -266,6 +266,16 @@ domain! {
     "project.allow_access" (kind = "live", undo = "none", destructive = false)
     AllowAccess {} => {};
 
+    /// In Boost mode, show the project's folder to the helper so that its engine plays the
+    /// audio clips from it: the helper opens its own folder dialog and takes the folder chosen
+    /// when it is the one open in the page (same project, and the page's marker in it). Needed
+    /// once per folder: the helper remembers it. A dialog needs the user's click, so an agent
+    /// that is not driven by one gets a notice in the page instead. Refused with a notice in
+    /// Web mode and for a project kept in the browser (save it in a folder first). Changes
+    /// nothing in the project, so it never enters the history.
+    "project.choose_helper_folder" (kind = "live", undo = "none", destructive = false)
+    ChooseHelperFolder {} => {};
+
     /// Measure how loud the song is without playing it nor writing a file: the same
     /// offline render as `project.export_audio` (the engine that plays the song, run
     /// faster than real time), but only the levels come back, per track and for the
@@ -467,7 +477,7 @@ pub fn apply(
         // The download and the pack belong to the page (the core checks the pack itself when the
         // page hands it over): the command only checks that the link may be fetched at all.
         Command::OpenUrl { url } => {
-            check_pack_url(url)?;
+            check_link(url, "a .faulkpack")?;
             Ok(nothing(Output::OpenUrl {}))
         }
         // The host stages what it keeps just before (`Context::stored`); with nothing staged the
@@ -481,6 +491,8 @@ pub fn apply(
         Command::KeepMine {} => Ok(nothing(Output::KeepMine {})),
         Command::LoadFolderVersion {} => Ok(nothing(Output::LoadFolderVersion {})),
         Command::AllowAccess {} => Ok(nothing(Output::AllowAccess {})),
+        // The dialog is the helper's, asked for by the page (AU-7): nothing in the project.
+        Command::ChooseHelperFolder {} => Ok(nothing(Output::ChooseHelperFolder {})),
         // Which stored project is named belongs to the page (it knows what it keeps): the
         // command only checks that something is named.
         Command::OpenRecent { id } => {
@@ -644,25 +656,26 @@ fn stored_name(field: &str, value: &str) -> Result<(), CommandError> {
     Ok(())
 }
 
-/// Longest link `project.open_url` takes, in characters.
+/// Longest link `project.open_url` and `clip.import_audio_url` take, in characters.
 pub const MAX_PACK_URL_CHARS: usize = 2048;
 
 /// The hosts plain `http` may reach: the computer itself (a pack served while developing).
 const LOOPBACK_HOSTS: [&str; 3] = ["localhost", "127.0.0.1", "[::1]"];
 
-/// Checks the shape of a link to a `.faulkpack`: `https`, or `http` to the computer itself, a
-/// host, and no user name or password. Stricter than a browser's parser on purpose (a host the
-/// page would rewrite, such as `127.1`, is refused rather than guessed); the page parses the
-/// link again before it downloads anything.
-fn check_pack_url(url: &str) -> Result<(), CommandError> {
+/// Checks the shape of a link the page downloads (`what` it points to: a `.faulkpack` for
+/// `project.open_url`, an audio file for `clip.import_audio_url`): `https`, or `http` to the
+/// computer itself, a host, and no user name or password. Stricter than a browser's parser on
+/// purpose (a host the page would rewrite, such as `127.1`, is refused rather than guessed); the
+/// page parses the link again before it downloads anything.
+pub(crate) fn check_link(url: &str, what: &str) -> Result<(), CommandError> {
     let refuse = |message: String| CommandError::Invalid {
         field: "url".into(),
         message,
     };
     if url.is_empty() {
-        return Err(refuse(
-            "`url` is the link to a .faulkpack, it is not empty".into(),
-        ));
+        return Err(refuse(format!(
+            "`url` is the link to {what}, it is not empty"
+        )));
     }
     if url.chars().count() > MAX_PACK_URL_CHARS {
         return Err(refuse(format!(
@@ -820,7 +833,9 @@ fn open_folder(
     };
     let (blobs, root) = (files_in("blobs"), files_in(""));
     let name = opened.project.name.clone();
-    let mut next = State::new(opened.project);
+    let mut project = opened.project;
+    crate::device::add_missing_params(&mut project);
+    let mut next = State::new(project);
     next.session = session;
     // The user's preset library is every project's.
     next.library = std::mem::take(&mut state.library);

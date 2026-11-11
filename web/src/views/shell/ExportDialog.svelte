@@ -1,8 +1,9 @@
 <script lang="ts">
   /**
    * Exporting the song as a WAV file (issue #297). The project menu (or an agent's
-   * `project.export_audio`) opens it with the settings to check; Export asks where the file goes,
-   * then shows the render's progress with a way to cancel it; the end says what was written, how
+   * `project.export_audio`) opens it with the settings to check; Export asks where the file goes
+   * (in Boost, with the project's folder open in the helper, the helper writes it into that folder's
+   * `exports/`, #319), then shows the render's progress with a way to cancel it; the end says what was written, how
    * loud, and whether the mix was pushed into the output limiter (#402).
    */
   import type { ExportChoices } from '../../lib/export/audio-export.svelte'
@@ -140,7 +141,8 @@
           </div>
         </fieldset>
         <p class="note">{t('export.note')}</p>
-        {#if !exporter.canChoose}<p class="note" data-testid="export-download-note">{t('export.noChoice')}</p>{/if}
+        {#if exporter.inFolder}<p class="note" data-testid="export-folder-note">{t('export.inFolder')}</p>
+        {:else if !exporter.canChoose}<p class="note" data-testid="export-download-note">{t('export.noChoice')}</p>{/if}
         {#if !exporter.hasContent}<p class="warn" role="status" data-testid="export-empty">{t('export.empty')}</p>{/if}
         <div class="actions">
           <button onclick={() => exporter.close()} data-testid="export-cancel">{t('export.cancel')}</button>
@@ -159,7 +161,11 @@
         </div>
       {:else if exporter.phase === 'done' && result}
         <p role="status" data-testid="export-status">
-          {t(result.kind === 'file' ? 'export.done' : 'export.downloaded', { name: result.name, size: megabytes, duration })}
+          {t(result.kind === 'folder' ? 'export.savedInFolder' : result.kind === 'file' ? 'export.done' : 'export.downloaded', {
+            name: result.name,
+            size: megabytes,
+            duration,
+          })}
         </p>
         <p class="note" data-testid="export-peak">
           {result.peakDb === -Infinity ? t('export.silent') : t('export.peak', { db: result.peakDb.toFixed(1) })}

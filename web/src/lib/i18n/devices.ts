@@ -3,7 +3,7 @@
  * `<device kind without "faulk.">.<parameter key>.hint`; its English text is the description in the
  * device's descriptor (`i18n.test.ts` checks they are the same), its French text is a translation.
  * A device name is not here: it comes from the descriptor, one English name never translated.
- * Labels of the parameters and of their values are in `synth.ts`, `drums.ts`, `echo.ts`, `reverb.ts`, `filter.ts` and `compressor.ts`;
+ * Labels of the parameters and of their values are in `synth.ts`, `drums.ts`, `echo.ts`, `reverb.ts`, `filter.ts`, `compressor.ts`, `ceiling.ts`, `trim.ts`, `hiccup.ts` and `bloom.ts`;
  * Contour's labels and tooltips are both in `contour.ts`.
  */
 
@@ -23,6 +23,7 @@ export const devices = defineFeature(
     'devices.browser': 'Instruments and effects',
     'devices.instruments': 'Instruments',
     'devices.effects': 'Effects',
+    'devices.midiEffects': 'MIDI effects',
     'devices.use': 'Use {name} as the instrument',
     'devices.add': 'Add {name} to the track',
     'devices.addMaster': 'Add {name} to the master',
@@ -69,17 +70,180 @@ export const devices = defineFeature(
       'What a new pre-delay does while the reverb rings. Glide: slides like a tape, pitch of the tail bends up to 25%. Fade: 50 ms crossfade, pitch kept, later changes wait. Jump: at once, may click.',
     'reverb.mix.hint': 'Balance between the dry sound (0) and the reverb (1).',
     'filter.mode.hint':
-      'What the filter lets through: the sound below the cutoff (low-pass), above it (high-pass) or around it (band-pass). A change fades over 10 ms.',
-    'filter.cutoff.hint': 'Frequency, in hertz, where the filter starts to cut, from 20 Hz to 20 kHz.',
+      'What the filter lets through: the sound below the cutoff (low-pass), above it (high-pass), around it (band-pass) or all but it (notch). A change fades over 10 ms.',
+    'filter.cutoff.hint':
+      'Frequency, in hertz, where the filter starts to cut, from 20 Hz to 20 kHz: the centre the LFO and the envelope move the cutoff around.',
     'filter.resonance.hint': 'Boost of the sound around the cutoff, from 0 (none) to 1 (a sharp peak that stays stable).',
     'filter.mix.hint': 'Balance between the dry sound (0) and the filtered sound (1).',
+    'stack.mode.hint':
+      "How the voices' intervals are read: in semitones, or in degrees of the project's scale (a third is two degrees) so the chord stays in key. Without a project scale, in semitones.",
+    'stack.strum.hint': 'Time from the first to the last note of the chord, from 0 (all at once) to 0.4 s: the notes are spread like a strummed guitar.',
+    'stack.tension.hint': "How the strum's gaps change, from -100 % (they widen toward the last note) to +100 % (they tighten); 0 spaces the notes evenly.",
+    'stack.crescendo.hint':
+      'Velocity across the strum: above 0 the notes grow louder toward the last, below 0 softer; at 100 % the first (or last) note is at the lowest velocity.',
+    'stack.direction.hint': 'Order of the strum: up plays from the lowest note to the highest, down from the highest to the lowest.',
+    'stack.seed.hint':
+      'Seed of the chance draws, from 0 to 1000: a note draws from the seed, its position in the song and its pitch, so the same seed gives the same chords at the same place on every play, from any start; another seed, another draw.',
+    'stack.voice1.hint': 'Whether added voice 1 plays.',
+    'stack.voice1_interval.hint': "Interval of voice 1 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+    'stack.voice1_velocity.hint': "Velocity of voice 1, from 1 to 200 % of the received note's.",
+    'stack.voice1_chance.hint': 'Chance that voice 1 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.',
+    'stack.voice2.hint': 'Whether added voice 2 plays.',
+    'stack.voice2_interval.hint': "Interval of voice 2 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+    'stack.voice2_velocity.hint': "Velocity of voice 2, from 1 to 200 % of the received note's.",
+    'stack.voice2_chance.hint': 'Chance that voice 2 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.',
+    'stack.voice3.hint': 'Whether added voice 3 plays.',
+    'stack.voice3_interval.hint': "Interval of voice 3 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+    'stack.voice3_velocity.hint': "Velocity of voice 3, from 1 to 200 % of the received note's.",
+    'stack.voice3_chance.hint': 'Chance that voice 3 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.',
+    'stack.voice4.hint': 'Whether added voice 4 plays.',
+    'stack.voice4_interval.hint': "Interval of voice 4 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+    'stack.voice4_velocity.hint': "Velocity of voice 4, from 1 to 200 % of the received note's.",
+    'stack.voice4_chance.hint': 'Chance that voice 4 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.',
+    'stack.voice5.hint': 'Whether added voice 5 plays.',
+    'stack.voice5_interval.hint': "Interval of voice 5 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+    'stack.voice5_velocity.hint': "Velocity of voice 5, from 1 to 200 % of the received note's.",
+    'stack.voice5_chance.hint': 'Chance that voice 5 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.',
+    'stack.voice6.hint': 'Whether added voice 6 plays.',
+    'stack.voice6_interval.hint': "Interval of voice 6 from the received note, from -36 to +36: semitones, or degrees of the project's scale in scale mode.",
+    'stack.voice6_velocity.hint': "Velocity of voice 6, from 1 to 200 % of the received note's.",
+    'stack.voice6_chance.hint': 'Chance that voice 6 plays on each received note, from 0 to 100 %: a repeatable draw, set by the seed.',
+    'lattice.source.hint':
+      "Which notes are allowed: the project's scale (it follows the project's changes; without one, every note), the scale set in the device by root and scale, or the matrix, which says where each of the twelve notes goes.",
+    'lattice.rule.hint':
+      'Where a note outside the scale goes: to the nearest note of the scale (a tie goes down), always down, always up, or nowhere (it is not played). The matrix ignores it.',
+    'lattice.transpose.hint': 'Semitones added to every note after it is put on the scale, from -24 to +24. A note pushed outside 0 to 127 is not played.',
+    'lattice.root.hint': "Root of the device's scale, C to B (used when the source is the device).",
+    'lattice.scale.hint': "The device's scale, built on its root (used when the source is the device): the project's list of scales.",
+    'lattice.map_c.hint':
+      'In matrix mode, the note a received C becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_c_sharp.hint':
+      'In matrix mode, the note a received C sharp becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_d.hint':
+      'In matrix mode, the note a received D becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_e_flat.hint':
+      'In matrix mode, the note a received E flat becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_e.hint':
+      'In matrix mode, the note a received E becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_f.hint':
+      'In matrix mode, the note a received F becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_f_sharp.hint':
+      'In matrix mode, the note a received F sharp becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_g.hint':
+      'In matrix mode, the note a received G becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_a_flat.hint':
+      'In matrix mode, the note a received A flat becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_a.hint':
+      'In matrix mode, the note a received A becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_b_flat.hint':
+      'In matrix mode, the note a received B flat becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'lattice.map_b.hint':
+      'In matrix mode, the note a received B becomes: a pitch class, played at its nearest key (six semitones down to five up), or blocked (not played).',
+    'scatter.chance.hint':
+      'Chance that a received note comes out at another pitch, from 0 (never: the notes go through unchanged) to 100 % (every note): a repeatable draw, set by the seed.',
+    'scatter.choices.hint': 'How many pitches a moved note can take, from 1 to 24, each one interval further from the received note.',
+    'scatter.interval.hint':
+      "Distance between two choices, from 1 to 12: semitones, or degrees of the project's scale in scale mode (12 semitones is an octave).",
+    'scatter.direction.hint': 'Where the choices lie: above the received note, below it, or around it (alternately above and below).',
+    'scatter.mode.hint':
+      "How the interval is read: in semitones, or in degrees of the project's scale, so that every moved note is in the scale. Without a project scale, in semitones.",
+    'scatter.order.hint':
+      'How a moved note picks its choice: at random (a repeatable draw, set by the seed), or in turn, each moved note taking the next choice.',
+    'scatter.seed.hint':
+      'Seed of the draws, from 0 to 1000: a note draws from the seed, its position in the song and its pitch, so the same seed gives the same notes at the same place on every play, from any start; another seed, another draw.',
+    'filter.drive.hint': 'Soft saturation before the filter, from 0 (none) to 1: louder and rounder, so a strong resonance bites instead of whistling.',
+    'filter.lfo_shape.hint': 'Shape of the LFO that moves the cutoff: sine, triangle, rising saw, falling saw, square, or random (a new value at each cycle).',
+    'filter.lfo_sync.hint': 'Whether the LFO runs at its own rate in hertz (free) or follows the tempo (synced), each cycle on the same beat of every bar.',
+    'filter.lfo_rate.hint': 'Speed of the LFO in free mode, in cycles per second, from 0.01 to 20 Hz.',
+    'filter.lfo_division.hint': 'Length of one LFO cycle in synced mode, a note value from 1/32 to 8 bars.',
+    'filter.lfo_phase.hint': 'Where in its cycle the LFO starts, from 0 to 360 degrees: in synced mode, where in the bar the cutoff peaks.',
+    'filter.lfo_stereo.hint': "Offset of the right channel's LFO, from 0 to 180 degrees: at 180 the two channels open in opposition.",
+    'filter.lfo_depth.hint': 'How far the LFO moves the cutoff either side of its centre, in octaves, from 0 (no movement) to 5.',
+    'filter.lfo_restart.hint': 'In free mode, whether the LFO starts again from its phase each time playback starts (on) or runs on freely (off).',
+    'filter.env_amount.hint':
+      'How far the level of the incoming sound moves the cutoff, in octaves at full level, from -5 (louder closes) to +5 (louder opens); 0 for none.',
+    'filter.env_attack.hint': 'Time the envelope follower takes to rise with the sound, from 1 ms to 500 ms.',
+    'filter.env_release.hint': 'Time the envelope follower takes to fall back when the sound gets quieter, from 10 ms to 2 s.',
     'compressor.threshold.hint': 'Level, in decibels, above which the compressor turns the sound down, from -60 to 0 dB.',
     'compressor.ratio.hint':
       'How strongly the sound above the threshold is turned down, from 1 (not at all) to 20: at 4, a signal 8 dB over the threshold comes out 2 dB over it.',
     'compressor.attack.hint':
       'Time the compressor takes to turn the sound down once it passes the threshold, from 0.1 ms to 200 ms: short catches the first hit, long lets it through.',
-    'compressor.release.hint': 'Time the compressor takes to let the sound back up once it falls under the threshold, from 10 ms to 2 s.',
+    'compressor.release.hint': 'In manual release, time the compressor takes to let the sound back up once it falls under the threshold, from 10 ms to 2 s.',
     'compressor.makeup.hint': 'Gain added after the compression to make up for the level it took away, from 0 to 24 dB.',
+    'compressor.knee.hint':
+      'Width, in decibels, of the zone around the threshold where the compression comes in gradually, from 0 (hard: the full ratio right at the threshold) to 24 dB (soft).',
+    'compressor.release_mode.hint':
+      'How the compressor lets the sound back up: manual (the release time) or auto (fast after a short hit, slower after a long compression, so it pumps less).',
+    'compressor.detection.hint':
+      'What level the compressor reacts to: peak (each sample, it catches the hits) or RMS (the average over 10 ms, it follows the loudness and lets short hits through).',
+    'compressor.lookahead.hint':
+      'How far ahead the compressor sees the sound, from 0 to 10 ms, so a short attack catches a hit whole. It delays the sound by that time; the other tracks are delayed to match, so everything stays in time. A change fades out and back in.',
+    'compressor.sidechain_hpf.hint':
+      'When on, the compressor does not react to the lows under the sidechain frequency (a 12 dB per octave high-pass on what it listens to, not on the sound): a kick or a bass no longer pumps everything else.',
+    'compressor.sidechain_freq.hint': 'With the sidechain high-pass on, the frequency under which the compressor stops reacting, from 20 to 500 Hz.',
+    'compressor.mix.hint':
+      'Balance between the dry sound (0) and the compressed sound (1): in between is parallel compression, the hits keep their attack and the quiet parts come up.',
+    'ceiling.ceiling.hint': 'Highest level the output may reach, in decibels of full scale, from -12 to 0 dB: no sample goes above it.',
+    'ceiling.gain.hint': 'Gain added before the limiter, from 0 to 24 dB: it pushes the sound against the ceiling, so it gets louder without going over.',
+    'ceiling.compensate.hint':
+      'When on, the output is turned down by the input gain: the gain changes how hard the sound is limited, not how loud it is, to compare by ear.',
+    'ceiling.lookahead.hint':
+      'How far ahead the limiter sees the peaks, from 0 to 5 ms: it turns down smoothly before each one. It delays the sound by that time; the other tracks are delayed to match, so everything stays in time. A change fades out and back in.',
+    'ceiling.release_mode.hint':
+      'How the limiter lets the sound back up after a peak: manual (the release time) or auto (fast after a short peak, slower under sustained limiting).',
+    'ceiling.release.hint':
+      'In manual release, time the limiter takes to let the sound back up after a peak, from 1 ms to 1 s: short is louder, long is smoother.',
+    'ceiling.true_peak.hint':
+      'When on, the limiter also catches the peaks between samples (4x oversampled detection), for a converter or an encoder. It adds 12 samples of delay and a look-ahead of at least 16 samples. A change fades out and back in.',
+    'trim.mode.hint': 'How the length is set: a time in seconds (free) or a note value that follows the project tempo (synced).',
+    'trim.time.hint': 'Length of every note in free mode, in seconds, from 1 ms to 10 s.',
+    'trim.division.hint': 'Length of every note in synced mode, as a note value of the project tempo, from a 64th note to 4 bars of the time signature.',
+    'trim.feel.hint': 'Straight, triplet (two thirds of the note value) or dotted (one and a half times the note value), in synced mode.',
+    'trim.gate.hint': 'Share of the note value a note lasts in synced mode, from 1 % to 200 % (100 %: exactly the note value).',
+    'trim.trigger.hint': 'When a note comes out: when the key is pressed (start), or when it is let go (release), at the velocity it was pressed with.',
+    'trim.key_track.hint': 'How the length follows the pitch, from -100 % to +100 %: at +100 % it doubles one octave below C4 and halves one octave above.',
+    'hiccup.interval.hint':
+      "How often a slice may be captured, on the transport's grid: every 1/16 note to every 4 bars of the time signature. Captures happen only while the transport plays.",
+    'hiccup.chance.hint':
+      'Chance that a capture happens at each grid point, from 0 to 100 %. The draw depends only on the seed and the grid position: playback and export give the same captures.',
+    'hiccup.seed.hint': 'Seed of the chance and random length draws, from 0 to 1000: the same seed gives the same captures, another seed another sequence.',
+    'hiccup.capture.hint':
+      'Manual capture: turning it on captures at once and the repeats last while it stays on; off ends them. A capture starts only when the value turns on; a transport stop ends it.',
+    'hiccup.size.hint':
+      'Length of the repeated slice, as a note value of the project tempo: 1/64 to 1 bar, with triplets (T). A slice longer than 12 seconds is shortened to 12 seconds.',
+    'hiccup.gate.hint':
+      'How long the repeats last after a capture, as a share of the interval, from 1 to 100 %. The slice plays first, then repeats until the gate ends.',
+    'hiccup.variation.hint':
+      'Length of each repeat. Fixed: the slice. Shorter: halved every two slices, a roll speeding up (1/8, 1/16, 1/32). Random: the slice, half or a quarter, from the seed. Never under 1/8 of the slice nor 40 ms, unless the slice is shorter.',
+    'hiccup.decay.hint':
+      'Level lost at each repeat, from 0 to 100 %: at 50 %, each repeat is half as loud as the one before. A change applies from the next repeat.',
+    'hiccup.filter.hint':
+      'A filter that closes over the repeats. Low-pass: from 20 kHz down to 200 Hz at the end of the gate, darker at each repeat. High-pass: from 20 Hz up to 2 kHz, thinner at each repeat. A change applies from the next capture.',
+    'hiccup.pitch.hint':
+      'Pitch of the repeats, from -12 to +12 semitones, by playing the slice faster or slower. Raised, a repeat ends when the slice runs out. A change applies from the next repeat.',
+    'hiccup.mode.hint':
+      'How the repeats meet the sound. Layer: on top of it. Insert: the sound is muted while the repeats play. Repeats only: only the captured slices and their repeats are heard.',
+    'hiccup.mix.hint': 'Level of the repeats, from 0 to 100 %. In insert mode it also sets how much the sound is muted while they play.',
+    'bloom.mode.hint':
+      'Chorus: one moving copy mixed with the dry sound. Ensemble: three copies a third of a cycle apart, wider. Vibrato: the moving copy alone, no dry sound, so the pitch wavers (mix does not act).',
+    'bloom.sync.hint':
+      'Whether the movement runs at its own rate in hertz (free) or follows the project tempo (synced), cycles counted from the start of the song.',
+    'bloom.rate.hint': 'Speed of the movement in free mode, in cycles per second, from 0.05 to 10 Hz.',
+    'bloom.division.hint':
+      'Length of one cycle in synced mode, as a note value of the project tempo: 1/32 to a whole note, with triplets (T) and dotted values (.).',
+    'bloom.depth.hint':
+      'How far the delay moves, from 0 to 100 %: at 100 % it sweeps 10 ms above the delay setting and back. More depth, more pitch movement; synced cycles faster than 10 Hz sweep less. A change never bends the pitch.',
+    'bloom.delay.hint':
+      'Shortest delay of the moving copies, from 1 to 30 ms: 5 to 20 ms for a chorus; below 5 ms, with feedback, a soft flanger. A change moves there slowly, without a pitch bend.',
+    'bloom.shape.hint':
+      'Shape of the movement: sine (smooth) or triangle (the delay moves at a steady speed, so the pitch sits a little sharp, then a little flat).',
+    'bloom.stereo_phase.hint':
+      "Offset of the right channel's movement, from 0 to 180 degrees: 0 keeps both channels alike, 180 moves them in opposition, the widest.",
+    'bloom.feedback.hint':
+      'Share of the moving copy fed back into the delay, from -90 % to +90 %: a metallic, resonant edge; negative values hollow the sound.',
+    'bloom.tone.hint': 'High-pass on the moving copies, from 20 Hz to 2 kHz: higher keeps the low end clean and steady.',
+    'bloom.mix.hint': 'Balance between the dry sound (0) and the moving copies (1), in chorus and ensemble. Vibrato has no dry sound.',
   },
   {
     'devices.noTrack': 'Sélectionne une piste pour voir son instrument et ses effets.',
@@ -94,6 +258,7 @@ export const devices = defineFeature(
     'devices.browser': 'Instruments et effets',
     'devices.instruments': 'Instruments',
     'devices.effects': 'Effets',
+    'devices.midiEffects': 'Effets MIDI',
     'devices.use': 'Utiliser {name} comme instrument',
     'devices.add': 'Ajouter {name} à la piste',
     'devices.addMaster': 'Ajouter {name} au master',
@@ -140,16 +305,190 @@ export const devices = defineFeature(
       'Ce que fait un nouveau pré-délai pendant que la réverbération sonne. Glissé : glisse comme une bande, la hauteur de la queue se courbe jusqu’à 25 %. Fondu : fondu enchaîné de 50 ms, hauteur conservée, les changements suivants attendent. Saut : immédiat, peut claquer.',
     'reverb.mix.hint': 'Équilibre entre le son direct (0) et la réverbération (1).',
     'filter.mode.hint':
-      'Ce que le filtre laisse passer : le son sous la fréquence de coupure (passe-bas), au-dessus (passe-haut) ou autour (passe-bande). Un changement se fait en fondu de 10 ms.',
-    'filter.cutoff.hint': 'Fréquence, en hertz, à partir de laquelle le filtre coupe, de 20 Hz à 20 kHz.',
+      'Ce que le filtre laisse passer : le son sous la fréquence de coupure (passe-bas), au-dessus (passe-haut), autour (passe-bande) ou tout sauf elle (coupe-bande). Un changement se fait en fondu de 10 ms.',
+    'filter.cutoff.hint':
+      'Fréquence, en hertz, à partir de laquelle le filtre coupe, de 20 Hz à 20 kHz : le centre autour duquel le LFO et l’enveloppe font bouger la coupure.',
     'filter.resonance.hint': 'Renforcement du son autour de la fréquence de coupure, de 0 (aucun) à 1 (un pic net qui reste stable).',
     'filter.mix.hint': 'Équilibre entre le son direct (0) et le son filtré (1).',
+    'stack.mode.hint':
+      'Comment lire les intervalles des voix : en demi-tons, ou en degrés de la gamme du projet (une tierce vaut deux degrés) pour que l’accord reste dans la tonalité. Sans gamme réglée, en demi-tons.',
+    'stack.strum.hint': 'Temps entre la première et la dernière note de l’accord, de 0 (toutes ensemble) à 0,4 s : les notes s’égrènent comme sur une guitare.',
+    'stack.tension.hint':
+      'Comment évoluent les écarts de l’égrenage, de -100 % (ils s’étalent vers la dernière note) à +100 % (ils se resserrent) ; 0 espace les notes également.',
+    'stack.crescendo.hint':
+      'Vélocité le long de l’égrenage : au-dessus de 0 les notes montent vers la dernière, en dessous elles baissent ; à 100 % la première (ou la dernière) est à la vélocité la plus basse.',
+    'stack.direction.hint': 'Ordre de l’égrenage : montant joue de la note la plus grave à la plus aiguë, descendant de la plus aiguë à la plus grave.',
+    'stack.seed.hint':
+      'Graine des tirages de chance, de 0 à 1000 : une note tire selon la graine, sa position dans le morceau et sa hauteur, donc la même graine donne les mêmes accords au même endroit à chaque lecture, depuis n’importe quel point de départ ; une autre graine, un autre tirage.',
+    'stack.voice1.hint': 'Si la voix ajoutée 1 joue.',
+    'stack.voice1_interval.hint':
+      'Intervalle de la voix 1 depuis la note reçue, de -36 à +36 : en demi-tons, ou en degrés de la gamme du projet dans le mode gamme.',
+    'stack.voice1_velocity.hint': 'Vélocité de la voix 1, de 1 à 200 % de celle de la note reçue.',
+    'stack.voice1_chance.hint': 'Chance que la voix 1 joue à chaque note reçue, de 0 à 100 % : un tirage reproductible, fixé par la graine.',
+    'stack.voice2.hint': 'Si la voix ajoutée 2 joue.',
+    'stack.voice2_interval.hint':
+      'Intervalle de la voix 2 depuis la note reçue, de -36 à +36 : en demi-tons, ou en degrés de la gamme du projet dans le mode gamme.',
+    'stack.voice2_velocity.hint': 'Vélocité de la voix 2, de 1 à 200 % de celle de la note reçue.',
+    'stack.voice2_chance.hint': 'Chance que la voix 2 joue à chaque note reçue, de 0 à 100 % : un tirage reproductible, fixé par la graine.',
+    'stack.voice3.hint': 'Si la voix ajoutée 3 joue.',
+    'stack.voice3_interval.hint':
+      'Intervalle de la voix 3 depuis la note reçue, de -36 à +36 : en demi-tons, ou en degrés de la gamme du projet dans le mode gamme.',
+    'stack.voice3_velocity.hint': 'Vélocité de la voix 3, de 1 à 200 % de celle de la note reçue.',
+    'stack.voice3_chance.hint': 'Chance que la voix 3 joue à chaque note reçue, de 0 à 100 % : un tirage reproductible, fixé par la graine.',
+    'stack.voice4.hint': 'Si la voix ajoutée 4 joue.',
+    'stack.voice4_interval.hint':
+      'Intervalle de la voix 4 depuis la note reçue, de -36 à +36 : en demi-tons, ou en degrés de la gamme du projet dans le mode gamme.',
+    'stack.voice4_velocity.hint': 'Vélocité de la voix 4, de 1 à 200 % de celle de la note reçue.',
+    'stack.voice4_chance.hint': 'Chance que la voix 4 joue à chaque note reçue, de 0 à 100 % : un tirage reproductible, fixé par la graine.',
+    'stack.voice5.hint': 'Si la voix ajoutée 5 joue.',
+    'stack.voice5_interval.hint':
+      'Intervalle de la voix 5 depuis la note reçue, de -36 à +36 : en demi-tons, ou en degrés de la gamme du projet dans le mode gamme.',
+    'stack.voice5_velocity.hint': 'Vélocité de la voix 5, de 1 à 200 % de celle de la note reçue.',
+    'stack.voice5_chance.hint': 'Chance que la voix 5 joue à chaque note reçue, de 0 à 100 % : un tirage reproductible, fixé par la graine.',
+    'stack.voice6.hint': 'Si la voix ajoutée 6 joue.',
+    'stack.voice6_interval.hint':
+      'Intervalle de la voix 6 depuis la note reçue, de -36 à +36 : en demi-tons, ou en degrés de la gamme du projet dans le mode gamme.',
+    'stack.voice6_velocity.hint': 'Vélocité de la voix 6, de 1 à 200 % de celle de la note reçue.',
+    'stack.voice6_chance.hint': 'Chance que la voix 6 joue à chaque note reçue, de 0 à 100 % : un tirage reproductible, fixé par la graine.',
+    'lattice.source.hint':
+      'Les notes permises : la gamme du projet (elle suit ses changements ; sans gamme, toutes les notes), la gamme réglée dans le device par sa tonique et sa gamme, ou la matrice, qui dit où va chacune des douze notes.',
+    'lattice.rule.hint':
+      'Où va une note hors de la gamme : sur la note la plus proche de la gamme (à égalité, vers le bas), toujours vers le bas, toujours vers le haut, ou nulle part (elle n’est pas jouée). La matrice l’ignore.',
+    'lattice.transpose.hint': 'Demi-tons ajoutés à chaque note une fois ramenée sur la gamme, de -24 à +24. Une note poussée hors de 0 à 127 n’est pas jouée.',
+    'lattice.root.hint': 'Tonique de la gamme du device, de do à si (quand la source est le device).',
+    'lattice.scale.hint': 'La gamme du device, bâtie sur sa tonique (quand la source est le device) : la liste des gammes du projet.',
+    'lattice.map_c.hint':
+      'En mode matrice, la note que devient un do reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_c_sharp.hint':
+      'En mode matrice, la note que devient un do♯ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_d.hint':
+      'En mode matrice, la note que devient un ré reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_e_flat.hint':
+      'En mode matrice, la note que devient un mi♭ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_e.hint':
+      'En mode matrice, la note que devient un mi reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_f.hint':
+      'En mode matrice, la note que devient un fa reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_f_sharp.hint':
+      'En mode matrice, la note que devient un fa♯ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_g.hint':
+      'En mode matrice, la note que devient un sol reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_a_flat.hint':
+      'En mode matrice, la note que devient un la♭ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_a.hint':
+      'En mode matrice, la note que devient un la reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_b_flat.hint':
+      'En mode matrice, la note que devient un si♭ reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'lattice.map_b.hint':
+      'En mode matrice, la note que devient un si reçu : une note, jouée à sa touche la plus proche (de six demi-tons plus bas à cinq plus haut), ou bloquée (pas jouée).',
+    'scatter.chance.hint':
+      'Chance qu’une note reçue sorte à une autre hauteur, de 0 (jamais : les notes passent telles quelles) à 100 % (chaque note) : un tirage reproductible, fixé par la graine.',
+    'scatter.choices.hint': 'Nombre de hauteurs possibles pour une note changée, de 1 à 24, chacune un intervalle plus loin de la note reçue.',
+    'scatter.interval.hint':
+      'Écart entre deux choix, de 1 à 12 : en demi-tons, ou en degrés de la gamme du projet dans le mode gamme (12 demi-tons font une octave).',
+    'scatter.direction.hint': 'Où sont les choix : au-dessus de la note reçue, au-dessous, ou autour (tour à tour au-dessus et au-dessous).',
+    'scatter.mode.hint':
+      'Comment lire l’intervalle : en demi-tons, ou en degrés de la gamme du projet, pour que chaque note changée soit dans la gamme. Sans gamme réglée, en demi-tons.',
+    'scatter.order.hint':
+      'Comment une note changée prend son choix : au hasard (un tirage reproductible, fixé par la graine), ou tour à tour, chaque note changée prenant le choix suivant.',
+    'scatter.seed.hint':
+      'Graine des tirages, de 0 à 1000 : une note tire selon la graine, sa position dans le morceau et sa hauteur ; la même graine donne donc les mêmes notes à la même place à chaque lecture, quel que soit le point de départ ; une autre graine, un autre tirage.',
+    'filter.drive.hint':
+      'Saturation douce avant le filtre, de 0 (aucune) à 1 : plus fort et plus rond, pour qu’une résonance poussée morde au lieu de siffler.',
+    'filter.lfo_shape.hint':
+      'Forme du LFO qui fait bouger la coupure : sinus, triangle, scie montante, scie descendante, carré, ou aléatoire (une nouvelle valeur à chaque cycle).',
+    'filter.lfo_sync.hint': 'Le LFO va à sa propre vitesse en hertz (libre) ou suit le tempo (au tempo), chaque cycle sur le même temps de chaque mesure.',
+    'filter.lfo_rate.hint': 'Vitesse du LFO en mode libre, en cycles par seconde, de 0,01 à 20 Hz.',
+    'filter.lfo_division.hint': 'Durée d’un cycle du LFO au tempo, une valeur de note de 1/32 à 8 mesures.',
+    'filter.lfo_phase.hint': 'Où le LFO commence dans son cycle, de 0 à 360 degrés : au tempo, l’endroit de la mesure où la coupure culmine.',
+    'filter.lfo_stereo.hint': 'Décalage du LFO du canal droit, de 0 à 180 degrés : à 180, les deux canaux s’ouvrent en opposition.',
+    'filter.lfo_depth.hint': 'De combien le LFO déplace la coupure de part et d’autre de son centre, en octaves, de 0 (aucun mouvement) à 5.',
+    'filter.lfo_restart.hint': 'En mode libre, le LFO repart de sa phase à chaque démarrage de la lecture (oui) ou continue librement (non).',
+    'filter.env_amount.hint':
+      'De combien le niveau du son entrant déplace la coupure, en octaves à pleine échelle, de -5 (plus fort ferme) à +5 (plus fort ouvre) ; 0 pour aucun effet.',
+    'filter.env_attack.hint': 'Temps que le suiveur d’enveloppe met à monter avec le son, de 1 ms à 500 ms.',
+    'filter.env_release.hint': 'Temps que le suiveur d’enveloppe met à redescendre quand le son baisse, de 10 ms à 2 s.',
     'compressor.threshold.hint': 'Niveau, en décibels, au-dessus duquel le compresseur baisse le son, de -60 à 0 dB.',
     'compressor.ratio.hint':
       'Force avec laquelle le son au-dessus du seuil est baissé, de 1 (pas du tout) à 20 : à 4, un signal 8 dB au-dessus du seuil ressort 2 dB au-dessus.',
     'compressor.attack.hint':
       'Temps que le compresseur met à baisser le son une fois le seuil dépassé, de 0,1 ms à 200 ms : court attrape le début du coup, long le laisse passer.',
-    'compressor.release.hint': 'Temps que le compresseur met à relever le son une fois repassé sous le seuil, de 10 ms à 2 s.',
+    'compressor.release.hint': 'En relâchement manuel, temps que le compresseur met à relever le son une fois repassé sous le seuil, de 10 ms à 2 s.',
     'compressor.makeup.hint': 'Gain ajouté après la compression pour rattraper le niveau qu’elle a retiré, de 0 à 24 dB.',
+    'compressor.knee.hint':
+      'Largeur, en décibels, de la zone autour du seuil où la compression arrive progressivement, de 0 (dur : tout le ratio dès le seuil) à 24 dB (doux).',
+    'compressor.release_mode.hint':
+      'Comment le compresseur relève le son : manuel (le temps de relâchement) ou auto (vite après un coup bref, plus lentement après une longue compression, pour moins pomper).',
+    'compressor.detection.hint':
+      'À quel niveau le compresseur réagit : crête (chaque échantillon, il attrape les coups) ou RMS (la moyenne sur 10 ms, il suit le volume et laisse passer les coups brefs).',
+    'compressor.lookahead.hint':
+      'Avance avec laquelle le compresseur voit venir le son, de 0 à 10 ms, pour qu’une attaque courte attrape un coup en entier. Le son est retardé d’autant ; les autres pistes le sont aussi, pour que tout reste en place. Un changement se fait par un fondu de sortie puis d’entrée.',
+    'compressor.sidechain_hpf.hint':
+      'Activé, le compresseur ne réagit plus aux graves sous la fréquence du sidechain (un passe-haut à 12 dB par octave sur ce qu’il écoute, pas sur le son) : un kick ou une basse ne fait plus pomper tout le reste.',
+    'compressor.sidechain_freq.hint': 'Avec le passe-haut du sidechain activé, fréquence sous laquelle le compresseur cesse de réagir, de 20 à 500 Hz.',
+    'compressor.mix.hint':
+      'Équilibre entre le son direct (0) et le son compressé (1) : entre les deux, c’est la compression parallèle, les coups gardent leur attaque et les passages calmes remontent.',
+    'ceiling.ceiling.hint': 'Niveau le plus haut que la sortie peut atteindre, en décibels de pleine échelle, de -12 à 0 dB : aucun échantillon ne le dépasse.',
+    'ceiling.gain.hint': 'Gain ajouté avant le limiteur, de 0 à 24 dB : il pousse le son contre le plafond, qui devient plus fort sans le dépasser.',
+    'ceiling.compensate.hint':
+      'Activée, la sortie est baissée du gain d’entrée : le gain change la force de la limitation, pas le volume, pour comparer à l’oreille.',
+    'ceiling.lookahead.hint':
+      'Avance avec laquelle le limiteur voit venir les crêtes, de 0 à 5 ms : il baisse le son en douceur avant chacune. Le son est retardé d’autant ; les autres pistes le sont aussi, pour que tout reste en place. Un changement se fait par un fondu de sortie puis d’entrée.',
+    'ceiling.release_mode.hint':
+      'Comment le limiteur relève le son après une crête : manuel (le temps de relâchement) ou auto (vite après une crête brève, plus lentement quand la limitation dure).',
+    'ceiling.release.hint':
+      'En relâchement manuel, temps que le limiteur met à relever le son après une crête, de 1 ms à 1 s : court sonne plus fort, long plus doux.',
+    'ceiling.true_peak.hint':
+      'Activée, le limiteur rattrape aussi les crêtes entre les échantillons (détection suréchantillonnée 4 fois), pour un convertisseur ou un encodeur. Ajoute 12 échantillons de retard et au moins 16 échantillons d’anticipation. Un changement se fait par un fondu de sortie puis d’entrée.',
+    'trim.mode.hint': 'Comment la longueur est réglée : une durée en secondes (libre) ou une valeur de note qui suit le tempo du projet (au tempo).',
+    'trim.time.hint': 'Longueur de chaque note en mode libre, en secondes, de 1 ms à 10 s.',
+    'trim.division.hint':
+      'Longueur de chaque note en mode au tempo, en valeur de note du tempo du projet, de la quadruple croche à 4 mesures de la signature rythmique.',
+    'trim.feel.hint': 'Binaire, triolet (les deux tiers de la valeur) ou pointé (une fois et demie la valeur), en mode au tempo.',
+    'trim.gate.hint': 'Part de la valeur de note que dure une note en mode au tempo, de 1 % à 200 % (100 % : exactement la valeur).',
+    'trim.trigger.hint': 'Quand la note sort : à l’appui sur la touche, ou au relâchement, à la vélocité de l’appui.',
+    'trim.key_track.hint':
+      'Comment la longueur suit la hauteur, de -100 % à +100 % : à +100 %, elle double une octave sous le do4 et diminue de moitié une octave au-dessus.',
+    'hiccup.interval.hint':
+      'Fréquence des captures possibles, sur la grille du transport : d’une double croche à 4 mesures de la signature rythmique. Les captures n’ont lieu que pendant la lecture.',
+    'hiccup.chance.hint':
+      'Probabilité qu’une capture ait lieu à chaque point de la grille, de 0 à 100 %. Le tirage ne dépend que de la graine et de la position : la lecture et l’export donnent les mêmes captures.',
+    'hiccup.seed.hint':
+      'Graine des tirages de la probabilité et des longueurs aléatoires, de 0 à 1000 : la même graine donne les mêmes captures, une autre graine une autre suite.',
+    'hiccup.capture.hint':
+      'Capture manuelle : l’activer capture aussitôt, et les répétitions durent tant qu’elle reste active ; la désactiver les arrête. Une capture ne part qu’au passage à Marche ; l’arrêt du transport la termine.',
+    'hiccup.size.hint':
+      'Longueur de la tranche répétée, en valeur de note du tempo du projet : de la quadruple croche à 1 mesure, avec des triolets (T). Une tranche de plus de 12 secondes est ramenée à 12 secondes.',
+    'hiccup.gate.hint':
+      'Durée des répétitions après une capture, en part de l’intervalle, de 1 à 100 %. La tranche passe d’abord, puis se répète jusqu’à la fin de la durée.',
+    'hiccup.variation.hint':
+      'Longueur de chaque répétition. Fixe : la tranche. Plus courte : divisée par deux toutes les deux tranches, un roulement qui accélère (1/8, 1/16, 1/32). Aléatoire : la tranche, sa moitié ou son quart, selon la graine. Jamais moins d’un huitième de la tranche ni de 40 ms, sauf si la tranche est plus courte.',
+    'hiccup.decay.hint':
+      'Niveau perdu à chaque répétition, de 0 à 100 % : à 50 %, chaque répétition est deux fois moins forte que la précédente. Un changement s’applique dès la répétition suivante.',
+    'hiccup.filter.hint':
+      'Un filtre qui se ferme au fil des répétitions. Passe-bas : de 20 kHz à 200 Hz à la fin de la durée, plus sombre à chaque répétition. Passe-haut : de 20 Hz à 2 kHz, plus fin à chaque répétition. Un changement s’applique dès la capture suivante.',
+    'hiccup.pitch.hint':
+      'Hauteur des répétitions, de -12 à +12 demi-tons, en lisant la tranche plus vite ou plus lentement. Plus aiguë, une répétition s’arrête à la fin de la tranche. Un changement s’applique dès la répétition suivante.',
+    'hiccup.mode.hint':
+      'Comment les répétitions rejoignent le son. Superposé : par-dessus. Insertion : le son se tait pendant les répétitions. Répétitions seules : on n’entend que les tranches capturées et leurs répétitions.',
+    'hiccup.mix.hint': 'Niveau des répétitions, de 0 à 100 %. En mode insertion, il règle aussi combien le son se tait pendant qu’elles jouent.',
+    'bloom.mode.hint':
+      'Chorus : une copie qui ondule, mêlée au son direct. Ensemble : trois copies décalées d’un tiers de cycle, plus large. Vibrato : la copie seule, sans son direct, la hauteur ondule (le mélange n’agit pas).',
+    'bloom.sync.hint': 'Si le mouvement suit sa propre vitesse en hertz (libre) ou le tempo du projet (au tempo), cycles comptés depuis le début du morceau.',
+    'bloom.rate.hint': 'Vitesse du mouvement en mode libre, en cycles par seconde, de 0,05 à 10 Hz.',
+    'bloom.division.hint':
+      'Durée d’un cycle en mode au tempo, en valeur de note du tempo du projet : de la triple croche à la ronde, avec triolets (T) et valeurs pointées (.).',
+    'bloom.depth.hint':
+      'Amplitude du mouvement du retard, de 0 à 100 % : à 100 %, il balaie 10 ms au-dessus du réglage de retard, aller et retour. Plus de profondeur, plus la hauteur bouge ; au tempo, un cycle plus rapide que 10 Hz balaie moins. Un changement ne plie jamais la hauteur.',
+    'bloom.delay.hint':
+      'Retard le plus court des copies, de 1 à 30 ms : de 5 à 20 ms pour un chorus ; sous 5 ms, avec du retour, un flanger doux. Un changement y va lentement, sans plier la hauteur.',
+    'bloom.shape.hint':
+      'Forme du mouvement : sinus (doux) ou triangle (le retard bouge à vitesse constante, la hauteur reste un peu au-dessus, puis un peu en dessous).',
+    'bloom.stereo_phase.hint':
+      'Décalage du mouvement du canal droit, de 0 à 180 degrés : à 0 les deux canaux sont pareils, à 180 ils bougent en opposition, le plus large.',
+    'bloom.feedback.hint':
+      'Part de la copie renvoyée dans le retard, de -90 % à +90 % : un grain métallique et résonant ; les valeurs négatives creusent le son.',
+    'bloom.tone.hint': 'Passe-haut sur les copies, de 20 Hz à 2 kHz : plus haut, le grave reste net et stable.',
+    'bloom.mix.hint': 'Équilibre entre le son direct (0) et les copies (1), en chorus et en ensemble. Le vibrato n’a pas de son direct.',
   },
 )

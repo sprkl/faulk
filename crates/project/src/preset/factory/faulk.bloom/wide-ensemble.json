@@ -1,0 +1,20 @@
+{
+  "category": "Modulation",
+  "device": "faulk.bloom",
+  "format": 1,
+  "name": "Wide Ensemble",
+  "params": {
+    "delay": 0.01,
+    "depth": 45.0,
+    "division": 9.0,
+    "feedback": 0.0,
+    "mix": 0.6,
+    "mode": 1.0,
+    "rate": 0.7,
+    "shape": 0.0,
+    "stereo_phase": 180.0,
+    "sync": 0.0,
+    "tone": 200.0
+  },
+  "version": 1
+}

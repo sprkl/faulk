@@ -1,0 +1,2 @@
+2026-11-05
+* **Update** (#755): the offline export drops the device latency the engine compensates from the start of the file: `specs/02-decoupage-mvp.md` (export implementation) gets a "Latence des devices" bullet (a longer pre-roll, `T + M` frames dropped, the body and tail whole, the levels' windows per strip, a capped compensation); `agents/verification.md` names the tests (`offline::`, `export_latency::`).

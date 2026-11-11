@@ -17,6 +17,7 @@
     commit,
     onclose,
     typed = false,
+    fresh = false,
   }: {
     /** The control the field belongs to: it sits under it. */
     anchor: HTMLElement
@@ -33,6 +34,11 @@
      * displayed value, so it is applied even unchanged and the caret goes after it instead of selecting it.
      */
     typed?: boolean
+    /**
+     * The field makes something new from its text (a point at the playhead, #769): Enter applies even the text it opened with,
+     * selected as usual. Losing the focus applies only a changed text, so that a click elsewhere cancels a field left untouched.
+     */
+    fresh?: boolean
   } = $props()
 
   const { ui } = useStores()
@@ -60,9 +66,9 @@
   }
 
   /** Applies the text; false when it is unreadable (the field stays open and says so). */
-  function apply(): boolean {
+  function apply(enter: boolean): boolean {
     // The text the field opened with is no entry: the displayed value is rounded, applying it would overwrite a finer value.
-    if (text === initial && !typed) return true
+    if (text === initial && !typed && !(fresh && enter)) return true
     if (commit(text)) return true
     invalid = true
     // The message goes after about two seconds (or at the next keystroke); the field stays marked invalid.
@@ -81,7 +87,7 @@
     if (event.isComposing) return
     if (event.key === 'Enter') {
       event.preventDefault()
-      if (apply()) finish(true)
+      if (apply(true)) finish(true)
     } else if (event.key === 'Escape') {
       event.preventDefault()
       finish(true)
@@ -89,7 +95,7 @@
   }
 
   function onBlur() {
-    if (!done && apply()) finish(false)
+    if (!done && apply(false)) finish(false)
   }
 
   onMount(() => {

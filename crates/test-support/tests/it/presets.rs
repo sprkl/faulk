@@ -146,6 +146,11 @@ fn set(s: &mut Session, device: &DeviceId, param: &str, value: f64) {
 
 /// An effect on the master over drums, a bass and a voice-like lead.
 fn effect_session(setup: Setup) -> Session {
+    effect_session_for(setup, AFTER)
+}
+
+/// [`effect_session`] playing `after` steps after the load instead of [`AFTER`].
+fn effect_session_for(setup: Setup, after: u32) -> Session {
     let f = fixture();
     let mut s = Session::from_state(f.state.clone(), context());
     let (drums, _) = create_track(&mut s, "faulk.drums");
@@ -167,6 +172,11 @@ fn effect_session(setup: Setup) -> Session {
     // The bass: the fixture's saw, quieter.
     set(&mut s, &f.device, "gain", 0.5);
     let band = Band { drums, lead };
+    // Hiccup captures on the transport's grid (#689): with the clock stopped it does nothing, so
+    // its session plays.
+    if matches!(setup, Setup::Preset("faulk.hiccup", _)) {
+        s.run(Command::Transport(commands::transport::Command::Play {}));
+    }
     let kind = match setup {
         Setup::Source => None,
         Setup::Preset(kind, _) => Some(kind),
@@ -191,21 +201,23 @@ fn effect_session(setup: Setup) -> Session {
     if let (Setup::Preset(_, id), Some(target)) = (setup, &target) {
         load(&mut s, target, id);
     }
-    play_steps(&mut s, &band, BEFORE, AFTER);
+    play_steps(&mut s, &band, BEFORE, after);
     for &n in &bass {
         note_off(&mut s, &f.track, n);
     }
     note_off(
         &mut s,
         &band.lead,
-        LINE[((BEFORE + AFTER - 1) / 2) as usize % LINE.len()],
+        LINE[((BEFORE + after - 1) / 2) as usize % LINE.len()],
     );
     s.render_secs(TAIL);
     s
 }
 
-/// An instrument playing itself: the synth a low chord, a drum kit each sound it names.
-fn instrument_session(kind: &str, preset: Option<&str>) -> Session {
+/// A device that takes notes: an instrument playing itself (the synth a low chord, a drum kit
+/// each sound it names), or a MIDI effect in front of the synth. `with_device: false` plays a MIDI
+/// effect's source: the synth without it.
+fn note_session(kind: &str, preset: Option<&str>, with_device: bool) -> Session {
     let f = fixture();
     let mut s = Session::from_state(f.state.clone(), context());
     let descriptor = REGISTRY
@@ -213,8 +225,22 @@ fn instrument_session(kind: &str, preset: Option<&str>) -> Session {
         .find(|b| b.descriptor.kind == kind)
         .unwrap()
         .descriptor;
-    let target: DeviceId = if kind == "faulk.osc_synth" {
-        f.device.clone()
+    let midi_effect = descriptor.role == engine::device::DeviceRole::MidiEffect;
+    let target: Option<DeviceId> = if midi_effect {
+        with_device.then(|| {
+            let out = s.exec(Command::Device(device::Command::Insert {
+                track: Some(f.track.clone()),
+                master: false,
+                kind: kind.into(),
+                index: 0,
+            }));
+            let Output::Device(device::Output::Insert { device }) = out else {
+                panic!("{out:?}")
+            };
+            device
+        })
+    } else if kind == "faulk.osc_synth" {
+        Some(f.device.clone())
     } else {
         s.run(Command::Track(track::Command::SetInstrument {
             track: f.track.clone(),
@@ -225,7 +251,6 @@ fn instrument_session(kind: &str, preset: Option<&str>) -> Session {
             .iter()
             .find(|(_, d)| d.role == DeviceRole::Instrument)
             .map(|(id, _)| id.clone())
-            .unwrap()
     };
     let notes: Vec<u8> = if descriptor.named_keys.is_empty() {
         vec![45, 52, 57]
@@ -236,11 +261,12 @@ fn instrument_session(kind: &str, preset: Option<&str>) -> Session {
         note_on(&mut s, &f.track, note, 100);
     }
     s.render_secs(LOAD_AT);
-    if let Some(id) = preset {
-        load(&mut s, &target, id);
+    if let (Some(id), Some(target)) = (preset, &target) {
+        load(&mut s, target, id);
     }
-    // A drum kit is hit again after the load, so that its new sounds are heard.
-    if !descriptor.named_keys.is_empty() {
+    // A drum kit is hit again after the load, so that its new sounds are heard, and so are the
+    // notes through a MIDI effect (its settings apply to the notes received after them, #690).
+    if !descriptor.named_keys.is_empty() || midi_effect {
         for &note in &notes {
             note_on(&mut s, &f.track, note, 100);
             s.render_secs(0.2);
@@ -260,11 +286,13 @@ fn instrument_session(kind: &str, preset: Option<&str>) -> Session {
     s
 }
 
-fn is_instrument(kind: &str) -> bool {
+fn role(kind: &str) -> engine::device::DeviceRole {
     REGISTRY
         .iter()
         .find(|b| b.descriptor.kind == kind)
-        .is_some_and(|b| b.descriptor.role == engine::device::DeviceRole::Instrument)
+        .unwrap()
+        .descriptor
+        .role
 }
 
 fn checked(render: &Render, id: &str) {
@@ -307,7 +335,7 @@ const HEARD: usize = HEARD_BANDS.len() - 1;
 /// slices of 0.1 s (time effects, an echo or a reverb, differ in the tail as much as in the
 /// spectrum). Each slice holds `HEARD` levels, lowest band first.
 fn spectrogram(render: &Render) -> Vec<f32> {
-    let end = LOAD_AT + AFTER as f32 * STEP + TAIL - 0.1;
+    let end = (LOAD_AT + AFTER as f32 * STEP + TAIL).min(render.seconds()) - 0.1;
     let mut cells = Vec::new();
     let mut t = LOAD_AT + 0.1;
     while t < end {
@@ -354,6 +382,8 @@ const KNOWN_ALIKE: &[(&str, &str)] = &[
     ("faulk.compressor/gentle-glue", "the source"),
     // A short room: 2.98 dB from the source (just under the threshold).
     ("faulk.reverb/small-room", "the source"),
+    // A vibrato moves the pitch, not the level of a band: 2.20 dB from the source.
+    ("faulk.bloom/vibrato", "the source"),
 ];
 
 fn qa_dir(name: &str) -> PathBuf {
@@ -374,11 +404,11 @@ fn every_factory_preset_loads_while_playing_and_sounds_unlike_its_source_and_its
     let mut failures = Vec::new();
     for f in factory::all() {
         let kind = f.preset.device.as_str();
-        let instrument = is_instrument(kind);
-        let s = if instrument {
-            instrument_session(kind, Some(f.id))
-        } else {
+        let role = role(kind);
+        let s = if role == engine::device::DeviceRole::Effect {
             effect_session(Setup::Preset(kind, f.id))
+        } else {
+            note_session(kind, Some(f.id), true)
         };
         let with_preset = if first_of_kind.insert(kind.to_owned()) {
             parity(s.scenario())
@@ -387,11 +417,17 @@ fn every_factory_preset_loads_while_playing_and_sounds_unlike_its_source_and_its
         };
         checked(&with_preset, f.id);
         let refs = references.entry(kind.to_owned()).or_insert_with(|| {
-            if instrument {
-                let defaults = instrument_session(kind, None);
+            if role == engine::device::DeviceRole::Instrument {
+                let defaults = note_session(kind, None, true);
                 vec![(
                     "the defaults".to_owned(),
                     spectrogram(&render_native(defaults.scenario())),
+                )]
+            } else if role == engine::device::DeviceRole::MidiEffect {
+                let source = note_session(kind, None, false);
+                vec![(
+                    "the source".to_owned(),
+                    spectrogram(&render_native(source.scenario())),
                 )]
             } else {
                 let source = effect_session(Setup::Source);
@@ -412,7 +448,10 @@ fn every_factory_preset_loads_while_playing_and_sounds_unlike_its_source_and_its
             let d = distance(&grid, other);
             let _ = write!(line, ", {d:.2} dB from {name}");
             let known = KNOWN_ALIKE.contains(&(f.id, name));
-            if (d < DISTINCT_DB) != known {
+            // A MIDI effect moves pitches and timing, which octave-band levels do not tell apart
+            // (a major and a minor triad hold the same energy per octave): its distances are
+            // printed, not judged.
+            if role != engine::device::DeviceRole::MidiEffect && (d < DISTINCT_DB) != known {
                 failures.push(if known {
                     format!(
                         "{} no longer sounds like {name} ({d:.2} dB): drop it from KNOWN_ALIKE",
@@ -479,6 +518,20 @@ fn every_factory_preset_loads_while_playing_and_sounds_unlike_its_source_and_its
     }
     std::fs::write(dir.join("contour-presets-bands.md"), &table).unwrap();
     println!("{table}");
+
+    // For the ear: 8 s of the same material, without and with each preset loaded from the start
+    // of its second step (the comparison above stays on the short renders).
+    let listen = |setup: Setup, name: &str| {
+        let render = render_native(effect_session_for(setup, 64).scenario());
+        std::fs::write(dir.join(format!("listen-{name}.wav")), render.wav()).unwrap();
+    };
+    listen(Setup::Source, "source");
+    for id in &names {
+        listen(
+            Setup::Preset("faulk.contour", id),
+            &id.replace("faulk.contour/", ""),
+        );
+    }
 
     // What each one is for, as the founder asked (#156): Low Cut Tidy a steep low cut and
     // nothing above it, Vocal Presence the lows untouched, a presence lift and some air.

@@ -11,7 +11,8 @@ import { noteKey } from './roll'
 /** Why a repeat cannot be done: a grid step below one tick, `until` not after the first copy, or no room in the clip. */
 export type RepeatRefusal = 'grid' | 'until' | 'room'
 
-export type RepeatResult = { ok: true; copies: Note[]; atClipEnd: boolean; firstCopy: number } | { ok: false; refusal: RepeatRefusal; firstCopy: number }
+export type RepeatResult =
+  { ok: true; copies: Note[]; atClipEnd: boolean; firstCopy: number; period: number } | { ok: false; refusal: RepeatRefusal; firstCopy: number }
 
 /** The first start and the last end (a loop: a selection of many thousand notes would overflow a spread). */
 function span(notes: readonly Note[]): { first: number; last: number } {
@@ -24,13 +25,22 @@ function span(notes: readonly Note[]): { first: number; last: number } {
   return { first, last }
 }
 
-/** The period of the repetition: the span of the notes, first start to last end, rounded up to whole `grid` steps (null: exact). */
-export function repeatPeriod(selected: readonly Note[], grid: number | null): number {
+/**
+ * The period of the repetition (#770): the extent of the notes, from the `grid` line at or before the first start to the
+ * last end, rounded up to whole grid steps for a figure of one beat or less, to whole beats up to half a bar, to whole bars
+ * beyond (never a unit finer than the grid); beat and bar are the signature's. Null grid: the exact span, first start to
+ * last end.
+ */
+export function repeatPeriod(selected: readonly Note[], grid: number | null, sig: Signature): number {
   if (selected.length === 0) return 0
-  const step = grid ?? 1
   const { first, last } = span(selected)
-  const width = Math.max(1, last - first)
-  return Math.max(1, Math.ceil(width / step) * step)
+  if (grid === null) return Math.max(1, last - first)
+  const step = Math.max(1, grid)
+  const extent = Math.max(1, last - Math.floor(first / step) * step)
+  const beat = beatTicks(sig)
+  const bar = barTicks(sig)
+  const unit = extent <= beat ? step : extent * 2 <= bar ? Math.max(beat, step) : Math.max(bar, step)
+  return Math.max(1, Math.ceil(extent / unit) * unit)
 }
 
 /**
@@ -38,10 +48,10 @@ export function repeatPeriod(selected: readonly Note[], grid: number | null): nu
  * `until`, a note left out from `until` (or the clip's end, whichever comes first) and shortened to end there. Every copy,
  * new or already in the clip, without duplicates, in time order. Refused as the command refuses.
  */
-export function repeatCopies(selected: readonly Note[], grid: number | null, until: number, clipLength: number): RepeatResult {
+export function repeatCopies(selected: readonly Note[], grid: number | null, until: number, clipLength: number, sig: Signature): RepeatResult {
   if (grid !== null && !(grid >= 1)) return { ok: false, refusal: 'grid', firstCopy: 0 }
-  if (selected.length === 0) return { ok: true, copies: [], atClipEnd: false, firstCopy: 0 }
-  const period = repeatPeriod(selected, grid)
+  if (selected.length === 0) return { ok: true, copies: [], atClipEnd: false, firstCopy: 0, period: 0 }
+  const period = repeatPeriod(selected, grid, sig)
   const { first } = span(selected)
   const firstCopy = first + period
   if (!(until > firstCopy)) return { ok: false, refusal: 'until', firstCopy }
@@ -68,7 +78,7 @@ export function repeatCopies(selected: readonly Note[], grid: number | null, unt
       const before = next - period
       return (before > n.start && before + n.length > clipLength) || (next >= clipLength && next < until)
     })
-  return { ok: true, copies: ordered, atClipEnd, firstCopy }
+  return { ok: true, copies: ordered, atClipEnd, firstCopy, period }
 }
 
 /**
@@ -76,9 +86,10 @@ export function repeatCopies(selected: readonly Note[], grid: number | null, unt
  * the first copy. A figure of a beat at the start of a bar fills that bar; a figure that ends on a bar line (a whole bar,
  * or the last beat of a bar) fills the next bar, so the default always has room for a copy.
  */
-export function defaultRepeatUntil(selected: readonly Note[], grid: number | null, bar: number): number {
+export function defaultRepeatUntil(selected: readonly Note[], grid: number | null, sig: Signature): number {
+  const bar = barTicks(sig)
   if (selected.length === 0) return bar
-  const firstCopy = span(selected).first + repeatPeriod(selected, grid)
+  const firstCopy = span(selected).first + repeatPeriod(selected, grid, sig)
   return (Math.floor(firstCopy / bar) + 1) * bar
 }
 

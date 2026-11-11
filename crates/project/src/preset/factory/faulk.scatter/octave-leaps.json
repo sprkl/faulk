@@ -1,0 +1,16 @@
+{
+  "category": "Variation",
+  "device": "faulk.scatter",
+  "format": 1,
+  "name": "Octave Leaps",
+  "params": {
+    "chance": 40.0,
+    "choices": 2.0,
+    "direction": 0.0,
+    "interval": 12.0,
+    "mode": 0.0,
+    "order": 0.0,
+    "seed": 12.0
+  },
+  "version": 1
+}

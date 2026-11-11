@@ -50,7 +50,7 @@
   import { inGroup } from '../../lib/history-group'
   import { useStores } from '../../lib/stores'
   import { MAX_GOTO_BAR, barTicks, beatTicks, PPQ } from '../transport/time'
-  import { itemAt, moveCursor, rovingKey, step as stepItem, zoomKey, type RovingKey } from '../../lib/roving'
+  import { cursorJumpKey, itemAt, jumpCursor, moveCursor, rovingKey, step as stepItem, zoomKey, type RovingKey } from '../../lib/roving'
   import { sortedScenes } from '../grid/cells'
   import { clipEntries, clipLabel, clipOrigin, editedClip, editedPlacement, ghostNotes, midiClips, type ClipEntry, type MidiClip } from './clips'
   import { drawKeys, drawLane, drawRoll } from './draw'
@@ -876,6 +876,12 @@
     void focusNote(noteKey(note))
   }
 
+  /** Space or Enter on a note (#771): that note becomes the selection, said. */
+  function selectFocused(key: string) {
+    picked = new Set([key])
+    announce(t('pianoRoll.saidSelectedOne'))
+  }
+
   function onNoteKey(event: KeyboardEvent) {
     const key = (event.target as HTMLElement).dataset.note
     const current = key ? noteItems.find((i) => i.id === key) : undefined
@@ -889,13 +895,31 @@
       else if ((event.target as HTMLElement).dataset.cursor !== undefined) void focusCursor()
       return
     }
+    const onCursorCell = (event.target as HTMLElement).dataset.cursor !== undefined
+    // Home, End, Ctrl or Cmd + Left and Right on the cursor (#771): to the clip's start or end, or by a bar, whatever the snap.
+    const jump = onCursorCell ? cursorJumpKey(event) : null
+    if (jump && edited) {
+      event.preventDefault()
+      event.stopPropagation()
+      cursorAt = { pitch: cursorPos.pitch, tick: jumpCursor(cursorPos.tick, jump, { step: cursorStep, bar }, clipLength) }
+      void focusCursor()
+      return
+    }
+    // Space on a note selects it, as Enter does (#771): the transport keeps Space everywhere else.
+    if (current && edited && event.code === 'Space' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) {
+      event.preventDefault()
+      event.stopPropagation()
+      if (!event.repeat) selectFocused(current.id)
+      return
+    }
     const action = rovingKey(event)
     if (!action || !edited) return
-    if ((event.target as HTMLElement).dataset.cursor !== undefined) return onCursorKey(event, action)
+    if (onCursorCell) return onCursorKey(event, action)
     if (!current) return
     event.preventDefault()
     event.stopPropagation()
     if (action.kind === 'open') {
+      selectFocused(current.id)
       sound(current.note.pitch, current.note.velocity)
       release()
       return
@@ -960,7 +984,8 @@
     }
     const target = stepItem(noteItems, current, action.direction, true)
     if (!target) return
-    picked = action.kind === 'extend' ? new Set([...picked, current.id, target.id]) : new Set([target.id])
+    // An arrow moves the focus and leaves the selection as it is (#771); Shift adds both notes to it.
+    if (action.kind === 'extend') picked = new Set([...picked, current.id, target.id])
     void focusNote(target.id)
   }
 
@@ -1278,7 +1303,7 @@
     })
   }
 
-  /** Copies of the chosen notes right after the selection, which they become. */
+  /** Copies of the chosen notes right after the selection, which they become; from a cell, the first copy takes the focus (#771). */
   function duplicateChosen() {
     if (!edited || chosenNotes.length === 0) return
     const source = [...chosenNotes]
@@ -1286,7 +1311,12 @@
     if (offset <= 0) return
     const copies = source.map((n) => ({ ...n, start: n.start + offset }))
     const id = edited.id
-    if (withRoomFor(endOf(copies), () => run(duplicateNotes(id, source, offset)))) picked = new Set(copies.map(noteKey))
+    const inCells = !!itemsEl && document.activeElement instanceof Node && itemsEl.contains(document.activeElement)
+    if (!withRoomFor(endOf(copies), () => run(duplicateNotes(id, source, offset)))) return
+    picked = new Set(copies.map(noteKey))
+    announce(copies.length === 1 ? t('pianoRoll.saidDuplicatedOne') : t('pianoRoll.saidDuplicated', { n: copies.length }))
+    const first = [...copies].sort((a, b) => a.start - b.start || b.pitch - a.pitch)[0]
+    if (inCells && first && notes.some((n) => noteKey(n) === noteKey(first))) void focusNote(noteKey(first))
   }
 
   // --- repeat end to end (#710) -------------------------------------------------------------------------------------
@@ -1306,16 +1336,17 @@
   }
 
   /**
-   * Copies of the chosen notes end to end (#710), their span rounded up to the quantize grid, up to `until` (the end of the
-   * bar where the copies begin by default), cut at the clip's end with a message (#280). One `clip.notes.repeat`, so one
-   * undo. The copies become the selection, and the focus goes to the first one when it was on a note or the cursor.
+   * Copies of the chosen notes end to end (#710), one period apart (#770: their extent rounded up to the quantize grid, the
+   * beat or the bar, `repeatPeriod`), up to `until` (the end of the bar where the copies begin by default), cut at the
+   * clip's end with a message (#280). One `clip.notes.repeat`, so one undo. The message says the period. The copies become
+   * the selection, and the focus goes to the first one when it was on a note or the cursor.
    */
   function repeatChosen(until?: number, source: readonly Note[] = chosenNotes, focusCopies = false) {
     if (!edited || gesture) return
     if (source.length === 0) return announce(t('pianoRoll.saidNoSelection'))
     const sources = [...source]
-    const target = until ?? defaultRepeatUntil(sources, gridTicks, bar)
-    const result = repeatCopies(sources, gridTicks, target, clipLength)
+    const target = until ?? defaultRepeatUntil(sources, gridTicks, signature)
+    const result = repeatCopies(sources, gridTicks, target, clipLength, signature)
     // The page never asks for a grid below a tick nor an end before the first copy (the default and the field see to it):
     // what is left is no room in the clip.
     if (!result.ok) return announce(t('pianoRoll.saidRepeatNoRoom'))
@@ -1325,18 +1356,36 @@
     // Refused by the project after all (a limit, a note gone under an agent): the dispatcher says why; nothing here.
     if (added > 0 && !run(repeatNotes(edited.id, sources, target, gridTicks))) return
     picked = new Set(result.copies.map(noteKey))
-    const n = added
-    announce(added === 0 ? t('pianoRoll.saidRepeatNone') : result.atClipEnd ? t('pianoRoll.saidRepeatedCut', { n }) : t('pianoRoll.saidRepeated', { n }))
+    const one = added === 1
+    const vars = { n: added, period: repeatPeriodText(result.period) }
+    announce(
+      added === 0
+        ? t('pianoRoll.saidRepeatNone')
+        : result.atClipEnd
+          ? t(one ? 'pianoRoll.saidRepeatedCutOne' : 'pianoRoll.saidRepeatedCut', vars)
+          : t(one ? 'pianoRoll.saidRepeatedOne' : 'pianoRoll.saidRepeated', vars),
+    )
     if (focusInCells && result.copies[0]) void focusNote(noteKey(result.copies[0]))
+  }
+
+  /** "every 1 bar", "every 2 beats", "every 0.25 beat": the period of a repeat (#770), in bars when it is whole bars. */
+  function repeatPeriodText(period: number): string {
+    const plain = (n: number) => Number(n.toFixed(3))
+    if (period % bar === 0) {
+      const n = period / bar
+      return t(n === 1 ? 'pianoRoll.everyBar' : 'pianoRoll.everyBars', { n })
+    }
+    const n = plain(period / beatTicks(signature))
+    return t(n === 1 ? 'pianoRoll.everyBeat' : 'pianoRoll.everyBeats', { n })
   }
 
   /** "Repeat until…": the field, filled with the default end; Enter repeats there. */
   function openRepeat() {
     if (!edited || chosenNotes.length === 0) return announce(t('pianoRoll.saidNoSelection'))
     repeatSource = [...chosenNotes]
-    const result = repeatCopies(repeatSource, gridTicks, Number.MAX_SAFE_INTEGER, clipLength)
+    const result = repeatCopies(repeatSource, gridTicks, Number.MAX_SAFE_INTEGER, clipLength, signature)
     if (!result.ok && result.refusal === 'room') return announce(t('pianoRoll.saidRepeatNoRoom'))
-    repeating = { firstCopy: result.firstCopy, initial: untilText(defaultRepeatUntil(repeatSource, gridTicks, bar) - 1) }
+    repeating = { firstCopy: result.firstCopy, initial: untilText(defaultRepeatUntil(repeatSource, gridTicks, signature) - 1) }
   }
 
   /** The field's answer: the notes it was opened for that are still in the clip, repeated there; the copies take the focus. */
@@ -1516,13 +1565,46 @@
     return true
   }
 
-  /** The notes put aside, at the play position of the clip (snapped down to the grid), else at its start. */
+  /**
+   * Where Ctrl+V pastes (#771): at the free cursor or at the start of the note that has the focus, else at the play
+   * position of the clip (snapped down to the grid), else at its start. `cell` when the focus was on a cell.
+   */
+  function pasteAnchor(): { tick: number; cell: boolean } {
+    const active = document.activeElement
+    if (active instanceof HTMLElement && itemsEl?.contains(active)) {
+      if (active.dataset.cursor !== undefined) return { tick: cursorPos.tick, cell: true }
+      const item = active.dataset.note ? noteItems.find((i) => i.id === active.dataset.note) : undefined
+      if (item) return { tick: item.start, cell: true }
+    }
+    return { tick: floorTick(playhead ?? 0, step), cell: false }
+  }
+
+  /**
+   * The notes put aside, their pitches kept, at `pasteAnchor` (#771). The clip grows to hold them (whole bars). What was
+   * pasted and where is said, and so is a paste that writes nothing. From a cell, the focus goes to the first note pasted.
+   */
   function pasteBoard() {
+    if (!edited) return
     const board = boardNotes()
-    if (!edited || board.length === 0) return
-    const pasted = fromBoard(board, floorTick(playhead ?? 0, step))
+    if (board.length === 0) return announce(t('pianoRoll.saidPasteEmpty'))
+    const anchor = pasteAnchor()
+    const pasted = fromBoard(board, anchor.tick)
+    const there = new Set(notes.map(noteKey))
+    const added = pasted.filter((n) => !there.has(noteKey(n))).length
+    if (added === 0) return announce(t('pianoRoll.saidPasteNone'))
     const id = edited.id
-    if (withRoomFor(endOf(pasted), () => run(addNotes(id, pasted)))) picked = new Set(pasted.map(noteKey))
+    if (!withRoomFor(endOf(pasted), () => run(addNotes(id, pasted)))) return announce(t('pianoRoll.saidPasteNoRoom'))
+    // Refused by the project after all (a limit): the dispatcher says why.
+    const now = new Set(notes.map(noteKey))
+    if (!pasted.every((n) => now.has(noteKey(n)))) return
+    picked = new Set(pasted.map(noteKey))
+    const first = [...pasted].sort((a, b) => a.start - b.start || b.pitch - a.pitch)[0]!
+    const beatsPerBar = bar / PPQ
+    const beat = first.start / PPQ
+    const where = { bar: Math.floor(beat / beatsPerBar) + 1, beat: Number(((beat % beatsPerBar) + 1).toFixed(2)) }
+    // The notes pasted, already there or not: they are the selection.
+    announce(pasted.length === 1 ? t('pianoRoll.saidPastedOne', where) : t('pianoRoll.saidPasted', { n: pasted.length, ...where }))
+    if (anchor.cell) void focusNote(noteKey(first))
   }
 </script>
 

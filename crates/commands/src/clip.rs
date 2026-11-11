@@ -322,12 +322,88 @@ domain! {
     /// its file dialog, then imports each file chosen (its bytes are kept in the project's
     /// `blobs/`, its decoded audio checked) and makes a clip of it with `clip.import_audio`.
     /// A file dialog needs a click by the user, so an agent that is not driven by one gets a
-    /// notice in the page instead. Formats: WAV, AIFF, CAF, FLAC, MP3, AAC (MP4, M4A, ADTS),
-    /// ALAC, Ogg Vorbis, Opus (Ogg, WebM: mono or stereo). The answer only says the request was
-    /// accepted; the clips arrive with `clip.import_audio`, one history entry each. Refused
-    /// when the track is not an audio track. Not undoable itself.
+    /// notice in the page instead. In Boost, with the project's folder open in the helper, the
+    /// dialog is the helper's own and the helper imports each file chosen into the folder
+    /// (#778); an agent with a file already in the project's folder imports it with
+    /// `clip.import_audio_file`. Formats: WAV, AIFF, CAF, FLAC, MP3, AAC
+    /// (MP4, M4A, ADTS), ALAC, Ogg Vorbis, Opus (Ogg, WebM: mono or stereo). The answer only
+    /// says the request was accepted; the clips arrive with `clip.import_audio`, one history
+    /// entry each. Refused when the track is not an audio track. Not undoable itself.
     "clip.choose_audio" (kind = "live", undo = "none", destructive = false)
     ChooseAudio { track: TrackId } => {};
+
+    /// Import the audio file hosted at `url` into an audio track, for an agent (#664): `https`,
+    /// with no user name or password in it (plain `http` only to `localhost`, `127.0.0.1` or
+    /// `[::1]`, and the page takes it only when Faulk itself runs on this computer). The page
+    /// first asks the user, for up to 45 s, showing the link's host and the file's name (the
+    /// last part of the link's path); nothing is sent to the host before the user allows it, so
+    /// the size is known only once the download starts. Then it downloads the file without
+    /// cookies, credentials or referrer, as a CORS request (the host must allow any origin with
+    /// `Access-Control-Allow-Origin`), at most 192 MiB, given up after 30 s without data, and
+    /// imports it as `clip.choose_audio` imports a file the user picks: its bytes kept in the
+    /// project's `blobs/`, its content decoded and checked whatever its extension or type
+    /// (formats: those of `clip.choose_audio`), then a clip in the track's pool made by
+    /// `clip.import_audio`, one history entry the user can undo. The answer, once the file is
+    /// in, gives the `clip` made and the file's SHA-256 (`media`); both are `null` only from a
+    /// host that imports nothing. Refused at once when the track is not an audio track or the
+    /// link is not one the page fetches. Otherwise the page answers `command.refused` with the
+    /// error code `confirmation.declined` or `confirmation.timeout` (the user refused or did
+    /// not answer), `url.refused` (a link the page does not fetch), `import.busy` (the same
+    /// link is already being imported), `download.too_big`, `download.unreachable` (network,
+    /// CORS, an answer that is not a success, a redirect to a link the page would not fetch, a
+    /// stall: the message says which), `import.cancelled` (`clip.cancel_audio_import`),
+    /// `import.project_changed` (another project was opened before the file's turn) or
+    /// `import.<reason>` (the file is not audio the page reads: `import.unsupported_format`,
+    /// `import.corrupt`…, or `import.too_large`: it decodes to more than 16 GiB of audio, the
+    /// most a project keeps of one file, whatever its download size); nothing changed then. A large download can still end in
+    /// `page.timeout` although it ran: the same call again (same link and track, within 10
+    /// minutes, the clip still there) answers the clip already made, without asking or
+    /// downloading again; `track.get` lists the track's clips too. Not undoable itself.
+    "clip.import_audio_url" (kind = "live", undo = "none", destructive = false)
+    ImportAudioUrl {
+        track: TrackId,
+        #[schemars(length(min = 1, max = 2048))]
+        url: String,
+    } => {
+        /// The clip made of the file (in the track's pool).
+        clip: Option<ClipId>,
+        /// The SHA-256 of the file, the name of its blob.
+        media: Option<Hash>,
+    };
+
+    /// Import an audio file of the project's folder into an audio track, for an agent (#778):
+    /// Boost only, once the project's folder is open in the helper (`project.choose_helper_folder`
+    /// shows it to the helper). `path` is the file's path relative to the project's folder (the
+    /// folder holding `project.json`), `/` separated: a file the agent or the user put there
+    /// (`imports/kick.wav`), or a blob already there (`blobs/<sha256>`). Never a path outside the
+    /// folder, never `.faulk/` or `.git`. The helper reads and decodes the file on this computer
+    /// (nothing of it crosses to the page), keeps its bytes in the project's `blobs/` and its
+    /// decoded audio checked, as for a file the user picks; the page then makes a clip in the
+    /// track's pool with `clip.import_audio`, one history entry the user can undo. The file in
+    /// the folder is left as it is. Formats: those of `clip.choose_audio`. The answer gives the
+    /// `clip` made and the file's SHA-256 (`media`); both are `null` only from a host that
+    /// imports nothing. Refused at once when the track is not an audio track or the path is
+    /// absolute. Otherwise the page answers `command.refused` with the error code
+    /// `import.no_folder` (Web mode, or the helper has no folder open for this project: nothing
+    /// is read), `import.path` (a path that leaves the folder or names its own data: the
+    /// message says why, `path.escapes`, `path.reserved`, `path.dot`…), `import.unreadable` (no
+    /// such file, or not a file), `import.busy`, `import.cancelled`
+    /// (`clip.cancel_audio_import`), `import.folder_changed` (the folder was closed or replaced
+    /// meanwhile), `import.write` (the disk refused), `import.project_changed` or
+    /// `import.<reason>` (not audio Faulk reads: `import.unsupported_format`, `import.corrupt`…,
+    /// `import.too_large`: it decodes to more than 16 GiB of audio); nothing changed then. Not
+    /// undoable itself.
+    "clip.import_audio_file" (kind = "live", undo = "none", destructive = false)
+    ImportAudioFile {
+        track: TrackId,
+        #[schemars(length(min = 1, max = 1024))]
+        path: String,
+    } => {
+        /// The clip made of the file (in the track's pool).
+        clip: Option<ClipId>,
+        /// The SHA-256 of the file, the name of its blob.
+        media: Option<Hash>,
+    };
 
     /// Stop the audio import under way in the page (the files chosen by `clip.choose_audio`):
     /// the file being imported is dropped (nothing of it is kept) and the files after it are
@@ -549,10 +625,14 @@ domain! {
     /// Repeat notes of a MIDI clip end to end up to the tick `until` (#710), in one batch
     /// (one history entry): an arpeggio, a hi-hat or a bass figure of a beat or two filled
     /// up to the end of a bar. Each source note is addressed by its whole value and must be
-    /// in the clip. The period of the repetition is the span of the notes, from the first
-    /// start to the last end, rounded up to a whole number of `grid` steps (ticks, at least
-    /// 1; leave it out for the exact span): copy k of every note starts k periods later,
-    /// for each copy of the figure that starts before `until`. A copied note that would
+    /// in the clip. The period of the repetition (#770) is the extent of the notes, from the
+    /// `grid` line at or before the first start to the last end, rounded up to a whole
+    /// number of a unit that depends on that extent: the `grid` step (ticks, at least 1) for
+    /// a figure of one beat or less, the beat for one of more than a beat up to half a bar,
+    /// the bar for one of more than half a bar (a unit finer than the grid takes the grid
+    /// step); beat and bar are the project's time signature's. Leave `grid` out for the
+    /// exact span, first start to last end, with no rounding. Copy k of every note starts k
+    /// periods later, for each copy of the figure that starts before `until`. A copied note that would
     /// start at or after `until` is left out, and one that would end after it is shortened
     /// to end there. To fill up to the end of bar N, give the tick where bar N ends. The
     /// copies never pass the end of the clip: when `until` is past it, a copied note that
@@ -1249,6 +1329,28 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             audio_track(&state.project, track)?;
             Ok(unchanged(Output::ChooseAudio {}))
         }
+        // The question, the download and the import belong to the page, which answers an agent with
+        // the clip it made (`runForAgent`): the command only checks the track and the link's shape,
+        // so that a wrong one is refused before the user is asked anything.
+        Command::ImportAudioUrl { track, url } => {
+            audio_track(&state.project, track)?;
+            crate::project::check_link(url, "an audio file")?;
+            Ok(unchanged(Output::ImportAudioUrl {
+                clip: None,
+                media: None,
+            }))
+        }
+        // The helper reads and decodes the file, the page makes the clip (`runForAgent`): the
+        // command checks the track and that the path is one of the folder's by its form (the
+        // helper checks it fully against the folder), so that a wrong call is refused at once.
+        Command::ImportAudioFile { track, path } => {
+            audio_track(&state.project, track)?;
+            check_folder_path(path)?;
+            Ok(unchanged(Output::ImportAudioFile {
+                clip: None,
+                media: None,
+            }))
+        }
         // The import runs in the page: the command only says it is to stop.
         Command::CancelAudioImport {} => Ok(unchanged(Output::CancelAudioImport {})),
         Command::Duplicate { clip, slot, track } => {
@@ -1435,6 +1537,43 @@ fn delete(state: &mut State, clip_id: &ClipId) -> Result<Out, CommandError> {
             placements: ids,
         }],
     ))
+}
+
+/// The largest audio file `clip.import_audio_url` downloads, in bytes (192 MiB): the page holds
+/// it in memory before it imports it, as it holds a `.faulkpack` where the browser keeps no
+/// projects.
+pub const MAX_AUDIO_URL_BYTES: u64 = 192 << 20;
+
+/// The longest path `clip.import_audio_file` takes, in bytes (the helper's own limit).
+pub const MAX_FOLDER_PATH_BYTES: usize = 1024;
+
+/// Checks the form of a path of the project's folder (`clip.import_audio_file`, #778): not empty,
+/// at most [`MAX_FOLDER_PATH_BYTES`], relative and `/` separated (no leading `/`, no `\`, no drive
+/// letter or stream `:`, no `.` or `..` component, no control character). The helper checks it
+/// again, fully, against the folder itself.
+fn check_folder_path(path: &str) -> Result<(), CommandError> {
+    let refuse = |why: &str| {
+        Err(invalid(
+            "path",
+            format!("{why}: give the file's path relative to the project's folder, `/` separated"),
+        ))
+    };
+    if path.is_empty() || path.len() > MAX_FOLDER_PATH_BYTES {
+        return refuse("the path is empty or longer than 1024 bytes");
+    }
+    if path.starts_with('/') || path.contains('\\') || path.contains(':') {
+        return refuse("the path is absolute, or holds `\\` or `:`");
+    }
+    if path.chars().any(char::is_control) {
+        return refuse("the path holds a control character");
+    }
+    if path
+        .split('/')
+        .any(|part| part.is_empty() || part == "." || part == "..")
+    {
+        return refuse("the path has an empty, `.` or `..` part");
+    }
+    Ok(())
 }
 
 pub(crate) fn audio_track<'a>(
@@ -3067,6 +3206,32 @@ fn notes_duplicate(
     ))
 }
 
+/// The period of `clip.notes.repeat` (#770) for a figure from `first` to `last` (ticks): the
+/// extent from the `grid` line at or before `first` to `last`, rounded up to whole grid steps
+/// when it is one `beat` or less, to whole beats up to half a `bar`, to whole bars beyond (never
+/// a unit finer than the grid). Without a grid, the exact span. At least 1, and at least
+/// `last - first`, so every note of the figure starts within one period of `first`.
+fn repeat_period(first: i64, last: i64, grid: Option<i64>, beat: i64, bar: i64) -> i64 {
+    let Some(step) = grid else {
+        return last.saturating_sub(first).max(1);
+    };
+    let step = step.max(1);
+    let origin = first.div_euclid(step).saturating_mul(step);
+    let extent = last.saturating_sub(origin).max(1);
+    let unit = if extent <= beat {
+        step
+    } else if extent.saturating_mul(2) <= bar {
+        beat.max(step)
+    } else {
+        bar.max(step)
+    };
+    extent
+        .saturating_add(unit - 1)
+        .div_euclid(unit)
+        .saturating_mul(unit)
+        .max(1)
+}
+
 /// `clip.notes.repeat` (#710): copies of the notes end to end, one period apart, up to
 /// `until` and never past the end of the clip.
 fn notes_repeat(
@@ -3077,6 +3242,7 @@ fn notes_repeat(
     grid: Option<Tick>,
 ) -> Result<Out, CommandError> {
     let in_project = project_notes(&state.project);
+    let signature = state.project.time_signature();
     let clip = clip_mut(&mut state.project, clip_id)?;
     let (length, _, notes) = midi_mut(clip)?;
     let step = grid.map_or(1, Tick::get);
@@ -3099,14 +3265,15 @@ fn notes_repeat(
             at_clip_end: false,
         }));
     };
-    // The span of the figure, rounded up to whole grid steps: every source starts in
-    // `[first, first + period)`, so the copies of one round never meet those of another.
-    let span = last.saturating_sub(first).max(1);
-    let period = span
-        .saturating_add(step - 1)
-        .div_euclid(step)
-        .saturating_mul(step)
-        .max(1);
+    // Every source starts in `[first, first + period)`, so the copies of one round never
+    // meet those of another.
+    let period = repeat_period(
+        first,
+        last,
+        grid.map(|_| step),
+        signature.ticks_per_beat().get(),
+        signature.ticks_per_bar().get(),
+    );
     let first_copy = first.saturating_add(period);
     let until = until.get();
     if until <= first_copy {
@@ -3207,6 +3374,25 @@ fn notes_repeat(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_repeat_period_follows_the_extent_of_the_figure() {
+        let (beat, bar) = (960, 3840);
+        // One beat or less: whole grid steps, measured from the grid line before the start.
+        assert_eq!(repeat_period(0, 960, Some(240), beat, bar), 960);
+        assert_eq!(repeat_period(100, 340, Some(240), beat, bar), 480);
+        // More than a beat up to half a bar: whole beats; beyond: whole bars.
+        assert_eq!(repeat_period(0, 961, Some(240), beat, bar), 1920);
+        assert_eq!(repeat_period(0, 1920, Some(240), beat, bar), 1920);
+        assert_eq!(repeat_period(0, 1921, Some(240), beat, bar), 3840);
+        assert_eq!(repeat_period(0, 3841, Some(240), beat, bar), 7680);
+        // Without a grid, the exact span; never below a tick; no overflow at the ends of the range.
+        assert_eq!(repeat_period(10, 1210, None, beat, bar), 1200);
+        assert_eq!(repeat_period(5, 5, Some(240), beat, bar), 240);
+        assert_eq!(repeat_period(5, 5, None, beat, bar), 1);
+        assert!(repeat_period(i64::MIN, i64::MAX, Some(240), beat, bar) > 0);
+        assert!(repeat_period(i64::MAX - 1, i64::MAX, Some(i64::MAX), beat, bar) > 0);
+    }
 
     #[test]
     fn quantizing_a_start_moves_a_share_of_the_way_to_the_nearest_line() {

@@ -21,6 +21,9 @@ pub enum ImportError {
     BadChannels(u32),
     /// Longer than a project takes (`project::limits::MAX_FRAME` frames).
     TooLong,
+    /// Decodes to more bytes than a project keeps of one file (#780): the cap in effect, in
+    /// bytes of `f32` samples (`project::limits::MAX_DECODED_BYTES`, or a host's lower one).
+    TooLarge(u64),
     /// The host could not read the file (it changed or went away while it was read).
     Io(String),
 }
@@ -36,6 +39,7 @@ impl ImportError {
             Self::BadSampleRate(_) => "bad_sample_rate",
             Self::BadChannels(_) => "bad_channels",
             Self::TooLong => "too_long",
+            Self::TooLarge(_) => "too_large",
             Self::Io(_) => "io",
         }
     }
@@ -59,9 +63,24 @@ impl fmt::Display for ImportError {
             }
             Self::BadChannels(n) => write!(f, "{n} channels: a file has 1 to 64"),
             Self::TooLong => write!(f, "the file is longer than a project can hold"),
+            Self::TooLarge(max) => write!(
+                f,
+                "the file decodes to more than {} of audio, the most a project keeps of one file",
+                bytes(*max)
+            ),
             Self::Io(what) => write!(f, "the file could not be read: {what}"),
         }
     }
 }
 
 impl std::error::Error for ImportError {}
+
+/// A size in the largest binary unit that keeps it whole (`16 GiB`, `16 MiB`, `1000 bytes`).
+fn bytes(n: u64) -> String {
+    for (shift, unit) in [(30, "GiB"), (20, "MiB"), (10, "KiB")] {
+        if n >= 1 << shift && n.is_multiple_of(1 << shift) {
+            return format!("{} {unit}", n >> shift);
+        }
+    }
+    format!("{n} bytes")
+}

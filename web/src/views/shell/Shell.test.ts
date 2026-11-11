@@ -121,6 +121,33 @@ describe('the shell', () => {
     expect(body).toContain('moins d’1 ms de signal invalide coupé depuis le démarrage de l’audio')
   })
 
+  it('says in the engine dialog how much latency the devices add, which the engine compensates (#749)', () => {
+    const stores = createStores('arrangement', DEFAULT_PANEL)
+    stores.engine.started = true
+    stores.engine.status = { kind: 'web', sampleRate: 48_000, estimatedLatencyMs: null }
+    let body = render(Shell, { props: { stores } }).body
+    expect(body).toMatch(/data-testid="engine-dialog-compensation"[^>]*>No device adds latency</)
+    stores.engine.latencyFrames = 72
+    body = render(Shell, { props: { stores } }).body
+    expect(body).toContain('Devices add 1.5 ms (72 samples), compensated: everything stays in time')
+    // Before the engine's rate is known (a helper session opening): the samples alone, never "none".
+    stores.engine.status = null
+    body = render(Shell, { props: { stores } }).body
+    expect(body).toContain('Devices add 72 samples, compensated: everything stays in time')
+    stores.engine.status = { kind: 'web', sampleRate: 48_000, estimatedLatencyMs: null }
+    stores.ui.lang = 'fr'
+    body = render(Shell, { props: { stores } }).body
+    expect(body).toContain('Les appareils ajoutent 1,5 ms (72 échantillons), compensés : tout reste en place')
+    // Beyond the limit (#749): the row says some tracks are no longer in time.
+    stores.engine.latencyFrames = 20_480
+    stores.engine.latencyCapped = true
+    body = render(Shell, { props: { stores } }).body
+    expect(body).toContain('Les appareils ajoutent 426,67 ms (20480 échantillons), plus que Faulk ne compense : certaines pistes ne sont plus en place')
+    stores.ui.lang = 'en'
+    body = render(Shell, { props: { stores } }).body
+    expect(body).toContain('Devices add 426.67 ms (20480 samples), more than Faulk compensates: some tracks are no longer in time')
+  })
+
   it('folds the bottom panel in the mixer and gives it back on leaving, without touching the stored fold', () => {
     const stores = createStores('arrangement', DEFAULT_PANEL)
     const ui = stores.ui
