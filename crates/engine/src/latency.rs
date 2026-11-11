@@ -873,6 +873,10 @@ impl Device for Latent {
         self.inner.gain_reduction_db()
     }
 
+    fn analysis_window(&self, out: &mut [f32]) -> usize {
+        self.inner.analysis_window(out)
+    }
+
     /// The device's latency, as it says (the graph bounds it to [`Device::max_latency_frames`]
     /// in one place, `graph::chain_latency`, and the line bounds a tap to its size).
     fn latency_frames(&self) -> u32 {
@@ -1772,5 +1776,35 @@ mod tests {
         assert_eq!(got, want);
         assert!(lost.is_empty());
         assert_eq!(line.lost(), 0);
+    }
+
+    /// A device with a latency whose panel draws a spectrum: its window says 3 frames.
+    struct Analysed;
+
+    impl Device for Analysed {
+        fn descriptor(&self) -> &'static DeviceDescriptor {
+            &crate::devices::contour::DESCRIPTOR
+        }
+        fn process(&mut self, _: &BlockCtx, _: &[Event], _: &mut AudioIo<'_>) {}
+        fn set_param(&mut self, _: ParamId, _: f32) {}
+        fn reset(&mut self) {}
+        fn max_latency_frames(&self) -> u32 {
+            8
+        }
+        fn analysis_window(&self, out: &mut [f32]) -> usize {
+            out[..3].fill(0.5);
+            3
+        }
+    }
+
+    #[test]
+    fn the_wrapper_of_a_device_with_a_latency_gives_its_analysis_window() {
+        // #156: the graph wraps a device that declares a latency; its spectrum still reaches the
+        // report.
+        let mut wrapped = Latent::wrap(Box::new(Analysed)).unwrap();
+        assert!(wrapped.bypass().is_some(), "wrapped");
+        let mut out = [0.0; 4];
+        assert_eq!(wrapped.analysis_window(&mut out), 3);
+        assert_eq!(out, [0.5, 0.5, 0.5, 0.0]);
     }
 }

@@ -39,7 +39,13 @@
 
   // A knob drag is one history group: one undo takes it back whole.
   const gesture = createGesture((command, options) => dispatcher.run(command, options))
-  onDestroy(() => gesture.end())
+  // The curve's own gesture (#156): its wheel rest, a key coming up or its focus leaving ends only what the curve opened,
+  // never a knob's drag.
+  const curveGesture = createGesture((command, options) => dispatcher.run(command, options))
+  onDestroy(() => {
+    gesture.end()
+    curveGesture.end()
+  })
 
   /** The right click on the card (#524): bypass, and for an effect its place in the chain and its removal. A control inside answers for itself. */
   function onContextMenu(event: MouseEvent) {
@@ -160,11 +166,11 @@
       {name}
       {valueOf}
       spectrum={bypassed ? null : meters.spectrum(entry.id)}
-      sampleRate={meters.spectrumRate(entry.id) ?? (engine.status?.sampleRate || 48000)}
+      sampleRate={engine.status?.sampleRate || meters.spectrumRate(entry.id) || 48000}
       {bypassed}
       onchange={(key, value) => dispatcher.run(setDeviceParam(entry.id, key, value))}
-      onbegin={gesture.begin}
-      onend={gesture.end}
+      onbegin={curveGesture.begin}
+      onend={curveGesture.end}
     />
   {/if}
   {#if descriptor}
