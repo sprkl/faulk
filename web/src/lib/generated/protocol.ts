@@ -892,6 +892,7 @@ placements: string[]
 type: "arrangement.move"
 } | {
 by?: (Tick | null)
+if_occupied?: IfOccupied
 moves: TrackMove[]
 type: "arrangement.move_to_track"
 } | {
@@ -917,6 +918,7 @@ placements: string[]
 type: "arrangement.delete"
 } | {
 by?: (Tick | null)
+if_occupied?: IfOccupied
 linked?: boolean
 /**
  * Items: Identifier of a placement in a track's arrangement.
@@ -1001,6 +1003,11 @@ type: "arrangement.marker.restore"
 } | {
 type: "arrangement.marker.list"
 })
+/**
+ * What `arrangement.move_to_track` and `arrangement.duplicate` do when the placements they
+ * put down land on others (#805).
+ */
+export type IfOccupied = ("replace" | "refuse" | "skip")
 /**
  * The edge of a placement that `arrangement.resize` moves.
  */

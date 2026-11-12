@@ -91,6 +91,7 @@ fn song() -> Song {
             placements: vec![song.first.clone()],
             linked: false,
             by: None,
+            if_occupied: commands::arrangement::IfOccupied::Replace,
         }),
         "duplicate",
     ) else {
@@ -171,6 +172,7 @@ fn every_arrangement_command_leaves_the_engine_in_the_state_of_the_snapshot() {
             placements: all.clone(),
             linked: true,
             by: Some(Tick(50_000)),
+            if_occupied: commands::arrangement::IfOccupied::Replace,
         }),
         "linked copy of the whole track",
     );
@@ -238,6 +240,7 @@ fn the_native_and_wasm_renders_of_a_song_built_with_the_commands_agree() {
         placements: vec![song.first.clone()],
         linked: false,
         by: Some(Tick(1920)),
+        if_occupied: commands::arrangement::IfOccupied::Replace,
     }));
     s.run(Command::Transport(commands::transport::Command::Play {}));
     s.render_secs(1.6);
