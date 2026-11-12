@@ -10,6 +10,11 @@ import { defineFeature } from './feature'
 
 export const contour = defineFeature(
   {
+    'contour.curve': 'Response curve of {name}',
+    'contour.curveHint':
+      'Drag a point to move its band: left and right for the frequency, up and down for the gain. Wheel over a point: its Q. Double-click: on or off. On a focused point, the arrows move it, Shift with up and down sets the Q, Enter switches it.',
+    'contour.bandOff': 'off',
+    'contour.qValue': 'Q {value}',
     'contour.hp_on': 'Low cut',
     'contour.hp_freq': 'Low cut frequency',
     'contour.hp_q': 'Low cut Q',
@@ -75,6 +80,11 @@ export const contour = defineFeature(
     'contour.output.hint': "Gain of the whole equaliser's output, from -24 to +24 dB.",
   },
   {
+    'contour.curve': 'Courbe de réponse de {name}',
+    'contour.curveHint':
+      'Fais glisser un point pour déplacer sa bande : à gauche et à droite pour la fréquence, en haut et en bas pour le gain. Molette sur un point : son Q. Double-clic : marche ou arrêt. Sur un point sélectionné, les flèches le déplacent, Maj avec haut et bas règle le Q, Entrée le coupe ou le remet.',
+    'contour.bandOff': 'coupée',
+    'contour.qValue': 'Q {value}',
     'contour.hp_on': 'Coupe-bas',
     'contour.hp_freq': 'Fréquence du coupe-bas',
     'contour.hp_q': 'Q du coupe-bas',
