@@ -37,26 +37,68 @@ async function clickToReach(page: Page, link: Locator, url: RegExp) {
   }
 }
 
-/** Every point of a grid over the link's box (corners and edges included, a pixel inside) must belong to the link. */
-async function wholeSurfaceIsTheLinks(link: Locator, scroll = true) {
-  if (scroll) await link.scrollIntoViewIfNeeded()
-  const stolen = await link.evaluate((a) => {
-    // Three pixels in: the language switch's rounded border and padding are the list's, not the link's.
-    const box = a.getBoundingClientRect()
-    const out: string[] = []
-    for (let i = 0; i <= 6; i++) {
-      for (let j = 0; j <= 4; j++) {
-        // The corners of a pill-shaped link are not its surface.
-        if ((i === 0 || i === 6) && (j === 0 || j === 4)) continue
-        const x = box.left + 3 + ((box.width - 6) * i) / 6
-        const y = box.top + 3 + ((box.height - 6) * j) / 4
-        const hit = document.elementFromPoint(x, y)
-        if (hit !== a && !a.contains(hit)) out.push(`${Math.round(x)},${Math.round(y)} -> ${hit?.className || hit?.tagName}`)
+/**
+ * The whole surface of every link of a bar (`header` or `footer`), hit-tested inside the page: one `evaluate` per bar
+ * (#848), where one round trip per link and position took 30 to 50 s a test. Every point of a 7 x 5 grid over the link's
+ * box, three pixels in (the language switch's rounded border and padding are the list's, not the link's), the four corner
+ * points skipped (the corners of a pill-shaped link are not its surface), must be the link or inside it.
+ * The footer is sampled first while it scrolls in (its reveal follows the scroll, `animation-timeline: view()`): at 1000,
+ * 700, 400, 200 and 0 px from the bottom, every link then wholly on screen, so the wordmark is hit-tested while it is still
+ * moving into place. Then, once the page's timed animations have ended, every link of the bar is scrolled into view if
+ * needed and hit-tested once its box holds still (what `scrollIntoViewIfNeeded` waited for), and again after a scroll to
+ * the bottom for the footer. Each scroll waits two frames, for the scroll-driven styles. Gives the number of links and
+ * the points another element caught.
+ */
+function surfaceOfTheLinks(page: Page, bar: 'header' | 'footer') {
+  return page.evaluate(async (which) => {
+    const frames = () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())))
+    const same = (a: DOMRect, b: DOMRect) => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+    // A box that holds still over two frames (at most 60 tries, about 2 s).
+    async function still(a: Element) {
+      for (let i = 0; i < 60; i++) {
+        const before = a.getBoundingClientRect()
+        await frames()
+        if (same(before, a.getBoundingClientRect())) return
       }
     }
-    return out
-  })
-  expect(stolen, 'points of the link that another element catches').toEqual([])
+    const links = [...document.querySelectorAll(`${which} a`)]
+    const stolen: string[] = []
+    const hitTest = (a: Element, n: number, when: string) => {
+      const box = a.getBoundingClientRect()
+      for (let i = 0; i <= 6; i++) {
+        for (let j = 0; j <= 4; j++) {
+          if ((i === 0 || i === 6) && (j === 0 || j === 4)) continue
+          const x = box.left + 3 + ((box.width - 6) * i) / 6
+          const y = box.top + 3 + ((box.height - 6) * j) / 4
+          const hit = document.elementFromPoint(x, y)
+          if (hit !== a && !a.contains(hit))
+            stolen.push(`${when}, link ${n} (${a.getAttribute('href')}): ${Math.round(x)},${Math.round(y)} -> ${hit?.className || hit?.tagName}`)
+        }
+      }
+    }
+    if (which === 'footer') {
+      for (const fromBottom of [1000, 700, 400, 200, 0]) {
+        window.scrollTo(0, Math.max(0, document.body.scrollHeight - innerHeight - fromBottom))
+        await frames()
+        links.forEach((a, n) => {
+          const box = a.getBoundingClientRect()
+          if (box.top >= 0 && box.bottom <= innerHeight) hitTest(a, n, `scrolling in, ${fromBottom} px from the bottom`)
+        })
+      }
+      // The timed animations (the hero's entrance) end; the endless ones (the grain) and the scroll-driven ones never do.
+      const timed = document.getAnimations().filter((a) => a.timeline === document.timeline && Number.isFinite(Number(a.effect?.getComputedTiming().endTime)))
+      await Promise.all(timed.map((a) => a.finished.catch(() => undefined)))
+    }
+    for (const pass of ['revealed', 'at the bottom']) {
+      if (pass === 'at the bottom' && which === 'footer') window.scrollTo(0, document.body.scrollHeight)
+      for (const [n, a] of links.entries()) {
+        ;(a as Element & { scrollIntoViewIfNeeded?: () => void }).scrollIntoViewIfNeeded?.()
+        await still(a)
+        hitTest(a, n, pass)
+      }
+    }
+    return { count: links.length, stolen }
+  }, bar)
 }
 
 for (const lang of LANGS) {
@@ -67,27 +109,9 @@ for (const lang of LANGS) {
       await page.setViewportSize({ width, height })
       await page.goto(`/${lang}`)
       for (const bar of ['header', 'footer'] as const) {
-        const all = links(page, bar)
-        const count = await all.count()
-        expect(count).toBeGreaterThanOrEqual(7)
-        if (bar === 'footer') {
-          // The reveal follows the scroll (`animation-timeline: view()`): sample the links where they are on screen at
-          // several scroll positions on the way down, so the wordmark is hit-tested while it is still moving into place.
-          for (const fromBottom of [1000, 700, 400, 200, 0]) {
-            await page.evaluate((offset) => window.scrollTo(0, Math.max(0, document.body.scrollHeight - innerHeight - offset)), fromBottom)
-            for (let i = 0; i < count; i++) {
-              const onScreen = await all.nth(i).evaluate((a) => {
-                const box = a.getBoundingClientRect()
-                return box.top >= 0 && box.bottom <= innerHeight
-              })
-              if (onScreen) await wholeSurfaceIsTheLinks(all.nth(i), false)
-            }
-          }
-          await page.waitForTimeout(1000)
-        }
-        for (let i = 0; i < count; i++) await wholeSurfaceIsTheLinks(all.nth(i))
-        if (bar === 'footer') await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight))
-        for (let i = 0; i < count; i++) await wholeSurfaceIsTheLinks(all.nth(i))
+        const { count, stolen } = await surfaceOfTheLinks(page, bar)
+        expect(count, `links of the ${bar}`).toBeGreaterThanOrEqual(7)
+        expect(stolen, `points of the ${bar} links that another element catches`).toEqual([])
       }
     })
   }
@@ -130,11 +154,10 @@ for (const lang of LANGS) {
         )
         await expect(page.locator('html')).toHaveAttribute('lang', other, { timeout: 30_000 })
 
-        // Open Faulk: a full page load of the DAW.
+        // Open Faulk: the click reaches the DAW. Its boot is not waited for (#848): every DAW spec boots it and watches its
+        // errors, and its full load here was one more DAW start per test.
         await open()
         await clickToReach(page, links(page, bar).and(page.locator('a[href$="/app"]')), /\/app\/?$/)
-        // The DAW's boot is part of this step: its errors are read once it has loaded.
-        await page.waitForLoadState('load', { timeout: 60_000 })
 
         expect(errors).toEqual([])
       })

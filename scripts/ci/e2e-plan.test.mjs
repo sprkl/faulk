@@ -176,15 +176,18 @@ test('no core test is tagged @full: the core run never loses one to --grep-inver
     }
     for (const t of hits) assert.ok(!t.includes(FULL_TAG), `core test "${t}" is tagged ${FULL_TAG}`)
   }
-  // The renderer sees the tags: the transport variants of the core (en, 1280) and the one left to the release (en, 1920).
+  // The renderer sees the tags: the transport variant of the core (en, 1280) is untagged, the French keyboard run is
+  // left to the release.
   assert.ok(renderedTitles('transport').some((t) => t.startsWith('transport, en, 1280 px') && !t.includes(FULL_TAG)))
-  const wide = new Function('lang', 'width', `return ${/test\((`transport, [^`]*`)/.exec(source('transport'))[1]}`)('en', 1920)
-  assert.ok(wide.endsWith(` ${FULL_TAG}`), wide)
+  const french = new Function('lang', `return ${/test\((`computer keyboard, [^`]*`)/.exec(source('keyboard'))[1]}`)('fr')
+  assert.ok(french.endsWith(` ${FULL_TAG}`), french)
 })
 
 test('the @full tests are the ones the lead chose: performance ceilings, second languages, extra widths', () => {
   const tagged = EXISTING.filter((s) => source(s).includes(FULL_TAG)).sort()
-  assert.deepEqual(tagged, ['all-sound-off', 'arrangement-time', 'audio-import', 'automation', 'browser-storage', 'grid', 'history-cost', 'keyboard', 'layout-4', 'mixer', 'pack-import', 'pack-longtasks', 'pack-stream', 'project-save', 'project-store', 'refused-commands', 'toolbar-overflow', 'tracks', 'transport'])
+  assert.deepEqual(tagged, ['all-sound-off', 'arrangement-time', 'audio-import', 'automation', 'browser-storage', 'grid', 'history-cost', 'keyboard', 'layout-4', 'mixer', 'pack-import', 'pack-longtasks', 'pack-stream', 'project-save', 'project-store', 'refused-commands', 'toolbar-overflow'])
+  // The en 1920 and fr 1280 runs of transport and tracks are gone (#848), not tagged: two pairs are kept, untagged.
+  for (const s of ['transport', 'tracks']) assert.deepEqual(renderedTitles(s).filter((t) => /^(transport|tracks), /.test(t)).length, 1, s)
   // A spec whose only test is tagged still has a run that passes: the area run passes --pass-with-no-tests.
   assert.ok(!['isolation', 'space-bar'].some((s) => source(s).includes(FULL_TAG)), 'isolation and space-bar stay as they are')
 })

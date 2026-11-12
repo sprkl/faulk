@@ -40,6 +40,8 @@ test('an unreadable workspace runs everything', () => {
   assert.equal(outputs.mode, 'full')
   assert.equal(outputs.helper_windows, 'true')
   assert.equal(outputs.rust_wasm_engine, 'true')
+  // A task pull request: the whole dev suite, not the release's two projects (#848).
+  assert.equal(outputs.e2e, 'dev')
 })
 
 test('an unreadable file list runs everything', () => {
