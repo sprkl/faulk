@@ -53,13 +53,14 @@ function surfaceOfTheLinks(page: Page, bar: 'header' | 'footer') {
   return page.evaluate(async (which) => {
     const frames = () => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done())))
     const same = (a: DOMRect, b: DOMRect) => a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
-    // A box that holds still over two frames (at most 60 tries, about 2 s).
+    // A box that holds still over two frames, tried for about 10 s (Playwright's wait failed on a link that never settles).
     async function still(a: Element) {
-      for (let i = 0; i < 60; i++) {
+      for (let i = 0; i < 300; i++) {
         const before = a.getBoundingClientRect()
         await frames()
-        if (same(before, a.getBoundingClientRect())) return
+        if (same(before, a.getBoundingClientRect())) return true
       }
+      return false
     }
     const links = [...document.querySelectorAll(`${which} a`)]
     const stolen: string[] = []
@@ -93,8 +94,8 @@ function surfaceOfTheLinks(page: Page, bar: 'header' | 'footer') {
       if (pass === 'at the bottom' && which === 'footer') window.scrollTo(0, document.body.scrollHeight)
       for (const [n, a] of links.entries()) {
         ;(a as Element & { scrollIntoViewIfNeeded?: () => void }).scrollIntoViewIfNeeded?.()
-        await still(a)
-        hitTest(a, n, pass)
+        if (await still(a)) hitTest(a, n, pass)
+        else stolen.push(`${pass}, link ${n} (${a.getAttribute('href')}): its box never holds still`)
       }
     }
     return { count: links.length, stolen }

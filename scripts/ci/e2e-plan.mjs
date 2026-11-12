@@ -482,7 +482,7 @@ export function planE2e(files, existing, options = {}) {
 // release runs of 2026-11-11 the first machine got all of `dev` (22 to 25 min of tests), the last only `preview`
 // (13 min). `planShards` deals the spec files out by their measured time instead: each machine then runs its own
 // files, one Playwright command per project. The measures are `scripts/ci/e2e-durations.json` (seconds per test, per
-// project), rebuilt from the JSON reports of a CI run by `scripts/ci/e2e-durations.mjs` (`verification.md` > Shards).
+// project), rebuilt from the JSON reports of a CI run by `scripts/ci/e2e-durations.mjs` (`verification.md` > Machines and measured durations).
 
 /** The file the measures live in, relative to the repository. */
 export const DURATIONS_FILE = 'scripts/ci/e2e-durations.json'

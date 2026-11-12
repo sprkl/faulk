@@ -463,10 +463,11 @@ test('the workflow leaves the @full tests to the whole suite, and runs a changed
   assert.match(yml, /e2e-shard\.mjs --listing "\$listing" --shard "\$SHARD" --trimmed "\$E2E_SPECS"/)
   assert.match(yml, /playwright test \$E2E_SPECS \$E2E_SPECS_CHANGED --list --reporter=json/)
   assert.match(yml, /PLAYWRIGHT_JSON_OUTPUT_FILE="\$listing" pnpm exec playwright test --list --reporter=json > \/dev\/null\r?\n\s*node \.\.\/scripts\/ci\/e2e-shard\.mjs --listing "\$listing" --shard "\$SHARD"\r?\n/, 'the whole suite: every listed test, none trimmed')
-  // Only a trimmed list drops the @full tests; every list may be empty of tests, never of files.
-  assert.match(yml, /if \[ "\$kind" = trimmed \]; then invert=\(--grep-invert "\$E2E_FULL_TAG"\); fi/)
+  // Only a trimmed list drops the @full tests, and only it may run no test; no list is ever empty of files.
+  assert.ok(yml.includes('if [ "$kind" = trimmed ]; then invert=(--grep-invert "$E2E_FULL_TAG" --pass-with-no-tests); fi'))
   assert.match(yml, /if \[ "\$#" -eq 0 \]; then return 0; fi/)
-  assert.match(yml, /pnpm exec playwright test --project="\$project" "\$@" "\$\{invert\[@\]\}" --pass-with-no-tests --output="test-results\/\$project-\$kind"/)
+  assert.ok(yml.includes('pnpm exec playwright test --project="$project" "$@" "${invert[@]}" --output="test-results/$project-$kind" || status=1'), 'a whole list never passes with no test')
+  assert.equal(yml.split('--pass-with-no-tests').length - 1, 1, 'one --pass-with-no-tests, the trimmed one')
   for (const list of ['dev trimmed $DEV_TRIMMED', 'dev whole $DEV_WHOLE', 'preview trimmed $PREVIEW_TRIMMED', 'preview whole $PREVIEW_WHOLE']) assert.ok(yml.includes(`run_list ${list}\n`) || yml.includes(`run_list ${list}\r\n`), list)
   assert.match(yml, /playwright test --project=dev \$E2E_CORE --grep "\$E2E_CORE_GREP" --grep-invert "\$E2E_FULL_TAG"/)
   assert.ok(!/--shard=/.test(yml), "Playwright's count-based --shard is gone")

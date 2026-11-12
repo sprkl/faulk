@@ -41,6 +41,8 @@ async function playFast(page: Page) {
   await tempo.fill('480')
   await tempo.press('Enter')
   await expect(tempo).toHaveValue('480')
+  // A refused tempo keeps the typed text too (#474): the range error says whether it was taken.
+  await expect(page.getByTestId('tempo-error')).toHaveCount(0)
 }
 
 /** Where a tick and a lane are on the page. */
