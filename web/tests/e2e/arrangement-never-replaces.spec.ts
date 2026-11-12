@@ -150,15 +150,15 @@ test('Alt+Left, Alt+Right and Repeat until refuse to cut a neighbour and name it
   await expect.poll(async () => (await layout(page)) !== '0@0 0@3840').toBe(true)
   expect(await done(page)).toBe(entries + 1)
 
-  // A clip that starts and ends off the bar lines says its beats: bar 5 beat 2 to bar 5 beat 3, and a one-beat clip from bar 5 beat 1.
+  // A clip that starts and ends off the bar lines says its beats: bar 5 beat 2 to bar 5 beat 3, and one that ends on a bar line while it starts off it.
   await clipAt(page, 2, 4)
   const lone = (await blocks(page)).find((b) => b.row === 2 && b.start === 4 * 3840)!
   await run(page, { type: 'arrangement.move', placements: [lone.id], by: 960 })
   await run(page, { type: 'arrangement.resize', placement: lone.id, edge: 'end', to: 4 * 3840 + 1920 })
   const cell = page.locator(`[data-testid=arr-item][data-block="${lone.id}"]`)
   await expect(cell).toHaveAttribute('aria-label', /bar 5 beat 2 to 5 beat 3/)
-  await run(page, { type: 'arrangement.resize', placement: lone.id, edge: 'start', to: 4 * 3840 })
-  await expect(cell).toHaveAttribute('aria-label', /bar 5 beat 1 to 5 beat 3/)
+  await run(page, { type: 'arrangement.resize', placement: lone.id, edge: 'end', to: 5 * 3840 })
+  await expect(cell).toHaveAttribute('aria-label', /bar 5 beat 2 to 6 beat 1/)
 
   expect(errors).toEqual([])
 })

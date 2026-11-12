@@ -1491,10 +1491,11 @@
   // --- repeat until (#555) ------------------------------------------------------------------------------------------
   /** The clip being repeated, and the first bar the field accepts (the one after the clip's end). */
   let repeating = $state<{ id: string; min: number } | null>(null)
-  /** Opens the field for the one clip selected, or the one the keyboard focus is on when nothing is selected. */
+  /** Opens the field for the clip the keyboard focus is on when it is not selected (#805), else for the one clip selected. */
   function openRepeat() {
     const focusedId = (document.activeElement as HTMLElement | null)?.dataset?.block
-    const block = selection.length === 1 ? selection[0] : selection.length === 0 && focusedId ? blocks.find((b) => b.id === focusedId) : undefined
+    const focused = focusedId && !selectedIds.has(focusedId) ? blocks.find((b) => b.id === focusedId) : undefined
+    const block = focused ?? (selection.length === 1 ? selection[0] : undefined)
     if (!block) return announce(t('arrangement.saidRepeatOne'))
     repeating = { id: block.id, min: Math.floor(block.end / bar) + 1 }
   }

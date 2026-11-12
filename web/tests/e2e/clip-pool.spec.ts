@@ -87,7 +87,10 @@ test('a clip outlives its last placement, comes back from the pool, and repeats 
   await expect(page.getByTestId('repeat-field')).toBeVisible()
   await page.keyboard.press('Escape')
 
-  // The "Place a copy" button (and Alt on Place) copies a used clip instead: a new, independent clip, selected too.
+  // The "Place a copy" button (and Alt on Place) copies a used clip instead: a new, independent clip, selected too. It refuses a
+  // place that is taken (#805), so the playhead goes to free ground first.
+  await run(page, { type: 'transport.seek', tick: 3840 * 20 })
+  await expect(page.getByTestId('feedback')).toHaveAttribute('data-tick', String(3840 * 20))
   await page.getByTestId('panel-clips').click()
   await row.getByTestId('pool-place-copy').click()
   await expect.poll(async () => Object.keys((await view(page)).project.tracks[track]!.clips).length).toBe(2)
