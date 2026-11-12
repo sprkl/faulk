@@ -17,7 +17,8 @@ export function planVerify({ files, full = false, packages, specs, table }) {
     } catch {
       /* the full decision needs no workspace */
     }
-    return { mode: 'full', why, decision: fullDecision(ws, `verify.mjs full: ${why}`) }
+    // verify.mjs runs the `dev` project only (the production build is the release's): plan what it runs.
+    return { mode: 'full', why, decision: fullDecision(ws, `verify.mjs full: ${why}`, 'dev') }
   }
   if (full) return fullPlan('requested')
   if (!Array.isArray(files)) return fullPlan('changed files unknown')

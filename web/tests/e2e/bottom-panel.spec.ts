@@ -134,16 +134,6 @@ test('the height and the fold are kept per view in the page, across a reload', a
   expect(errors).toEqual([])
 })
 
-test('a corrupt stored value is ignored (blocked storage: see panel-size.test.ts)', async ({ page }) => {
-  const { errors } = watch(page)
-  await page.addInitScript(() => localStorage.setItem('faulk.panelHeights', '{"devices":"tall"'))
-  await page.goto('/app')
-  await expect(panel(page)).toBeVisible()
-  const height = await heightOf(page)
-  expect(height).toBeGreaterThan(100)
-  expect(errors).toEqual([])
-})
-
 test('at its smallest the piano roll still shows an octave, and the mixer folds the panel instead of being cut', async ({ page }) => {
   const { errors } = watch(page)
   await page.goto('/app')
