@@ -88,11 +88,11 @@ async function horizontalOverflow(page: Page): Promise<string[]> {
   })
 }
 
+// Two of the four language and width pairs (#848): en at 1280 px, fr at 1920 px. The overflow of a label at a width is
+// the job of navigation, layout-4, top-bar and toolbar-overflow, which keep every pair.
 for (const lang of ['en', 'fr'] as const) {
-  for (const width of [1280, 1920]) {
-    test(`transport, ${lang}, ${width} px: play, stop, tempo, signature, loop, metronome${(lang === 'en' && width === 1920) || (lang === 'fr' && width === 1280) ? ' @full' : ''}`, async ({
-      page,
-    }, info) => {
+  for (const width of [lang === 'en' ? 1280 : 1920]) {
+    test(`transport, ${lang}, ${width} px: play, stop, tempo, signature, loop, metronome`, async ({ page }, info) => {
       const x = TEXTS[lang]
       const { errors } = watch(page)
       await page.setViewportSize({ width, height: 900 })

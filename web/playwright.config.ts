@@ -36,6 +36,38 @@ for (const name of wanted) if (name !== 'dev' && name !== 'preview') throw new E
  */
 const onGrid = (origin: string) => ({ cookies: [], origins: [{ origin, localStorage: [{ name: 'faulk.view', value: 'grid' }] }] })
 
+/**
+ * The specs the `preview` project runs (founder's decision of 2026-11-12, #848): the ones that see what the production
+ * build changes (the minified bundle, the WASM modules with their names stripped, the headers of `vercel.json`): the
+ * engine and its worklet, the Workers, cross-origin isolation, storage, the exports, the landing and Journey pages, and
+ * the other specs of the e2e audit of that day. The interface specs (tracks, grid, transport, mixer, history, piano roll
+ * editing...) run on `dev` only; a new spec runs on `dev` only unless it is added here. Every test of these specs runs,
+ * `@full` ones included, plus one test of `mixer.spec.ts`, the render cost of 32 strips (`PREVIEW_MIXER_TEST`). This
+ * list is the only place the subset is written: CI deals out what `playwright test --list` gives (scripts/ci/e2e-shard.mjs).
+ */
+export const PREVIEW_SPECS = [
+  'arrangement',
+  'audio-clips',
+  'browser-storage',
+  'devices',
+  'engine-mo2',
+  'engine-mo5',
+  'export-audio',
+  'helper',
+  'isolation',
+  'journey',
+  'landing-links',
+  'master-chain',
+  'navigation',
+  'open-url',
+  'pack-import',
+  'piano-roll',
+  'project-store',
+  'storage-commands',
+]
+/** The one test of `mixer.spec.ts` the `preview` project runs: a fragment of its title. */
+export const PREVIEW_MIXER_TEST = '32 strips with every meter moving: render cost'
+
 export default defineConfig({
   testDir: 'tests/e2e',
   // Above the boot ceiling (`BOOT` in tests/e2e/support.ts, 30 s): a default test of 30 s would cut it short (#539).
@@ -45,11 +77,24 @@ export default defineConfig({
   fullyParallel: false,
   forbidOnly: Boolean(process.env.CI),
   retries: 0,
-  reporter: process.env.CI ? [['list'], ['github']] : 'list',
+  // `FAULK_E2E_JSON`: also a JSON report at that path (CI, one per command): the measures `scripts/ci/e2e-durations.mjs`
+  // rebuilds the machines' plan from (#848).
+  reporter: [
+    ['list'],
+    ...(process.env.CI ? [['github'] as const] : []),
+    ...(process.env.FAULK_E2E_JSON ? [['json', { outputFile: process.env.FAULK_E2E_JSON }] as const] : []),
+  ],
   use: { channel, locale: 'en-US', trace: 'retain-on-failure' },
   projects: [
     { name: 'dev', use: { baseURL: `http://localhost:${devPort}`, storageState: onGrid(`http://localhost:${devPort}`) } },
-    { name: 'preview', use: { baseURL: `http://localhost:${previewPort}`, storageState: onGrid(`http://localhost:${previewPort}`) } },
+    {
+      name: 'preview',
+      testMatch: [...PREVIEW_SPECS, 'mixer'].map((s) => `${s}.spec.ts`),
+      // Playwright matches the project name, the file name, the describes and the title, joined by spaces: of
+      // `mixer.spec.ts`, only the render cost test.
+      grepInvert: new RegExp(`(^|[ /])mixer\\.spec\\.ts (?!.*${PREVIEW_MIXER_TEST.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`),
+      use: { baseURL: `http://localhost:${previewPort}`, storageState: onGrid(`http://localhost:${previewPort}`) },
+    },
   ].filter((p) => wanted.includes(p.name)),
   webServer: [
     ...(wanted.includes('dev') ? [{ command: `pnpm exec vite dev --port ${devPort}`, url: `http://localhost:${devPort}/app`, timeout: 300_000 }] : []),
