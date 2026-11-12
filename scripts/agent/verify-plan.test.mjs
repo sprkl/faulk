@@ -65,6 +65,8 @@ test('--full, unknown files, a shared file and an unreadable workspace run every
     assert.equal(p.mode, 'full')
     assert.equal(p.decision.rustTest, '--workspace')
     assert.equal(p.decision.e2eAll, true)
+    // verify.mjs runs the dev project only: its whole-suite plan says so (#848).
+    assert.equal(p.decision.e2e, 'dev')
   }
   const broken = planVerify({
     files: ['crates/engine/src/lib.rs'],
