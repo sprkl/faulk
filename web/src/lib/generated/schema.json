@@ -32230,7 +32230,7 @@
     {
       "kind": "faulk.contour",
       "kind_id": 8,
-      "memory_bytes": 2864,
+      "memory_bytes": 35664,
       "midi_output": null,
       "name": "Contour",
       "named_keys": [],
@@ -41844,7 +41844,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 54,
+  "protocol_version": 55,
   "scale_intervals": [
     {
       "intervals": [

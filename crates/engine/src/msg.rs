@@ -216,7 +216,7 @@ pub use codec::{
 pub const MSG_VERSION: u8 = 1;
 
 /// Version of the [`Feedback`] layout.
-pub const FEEDBACK_VERSION: u8 = 10;
+pub const FEEDBACK_VERSION: u8 = 11;
 
 /// Size of a [`Header`] in bytes.
 pub const HEADER_BYTES: usize = 16;
@@ -1774,13 +1774,13 @@ pub struct RecordedNote {
 }
 
 /// Size of the fixed part of a [`Feedback`] on the wire.
-pub const FEEDBACK_HEADER_BYTES: usize = 108;
+pub const FEEDBACK_HEADER_BYTES: usize = 112;
 
 /// Where the number of device readouts sits in a [`Feedback`] (#686, version 10): one `u32`.
 pub const FEEDBACK_READOUTS_OFFSET: usize = 100;
 
-/// Where the device latency sits in a [`Feedback`] (#749, version 10): one `u32`, the last
-/// word of the header. One constant, so that the field moves in one place.
+/// Where the device latency sits in a [`Feedback`] (#749, version 10): one `u32`, followed by
+/// the spectra count (version 11). One constant, so that the field moves in one place.
 pub const FEEDBACK_LATENCY_OFFSET: usize = 104;
 
 /// The bit of the latency word that says the compensation is capped (#749): a track needs a
@@ -1792,6 +1792,10 @@ pub const FEEDBACK_LATENCY_CAPPED: u32 = 1 << 31;
 pub fn latency_word(frames: u32, capped: bool) -> u32 {
     frames.min(FEEDBACK_LATENCY_CAPPED - 1) | if capped { FEEDBACK_LATENCY_CAPPED } else { 0 }
 }
+
+/// Where the number of spectra sits in a [`Feedback`] (#156, version 11): one `u32`, the last
+/// word of the header.
+pub const FEEDBACK_SPECTRA_OFFSET: usize = 108;
 
 /// What the engine reports to the page, about 30 times per second. Fixed little-endian
 /// layout, written by the audio thread into a region sized by [`Feedback::size_for`]:
@@ -1850,8 +1854,10 @@ pub fn latency_word(frames: u32, capped: bool) -> u32 {
 ///             the engine's rate: the largest chain latency of the tracks plus the master's, which the graph
 ///             compensates (`crate::graph` > Latency), saturated at 2^31 - 1; bit 31 ([`FEEDBACK_LATENCY_CAPPED`]),
 ///             latency_capped: a track needs more than the compensation's limit and is no longer aligned;
-///             [`FEEDBACK_LATENCY_OFFSET`]; last word of the header; version 10, #749)
-///    108      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
+///             [`FEEDBACK_LATENCY_OFFSET`]; version 10, #749)
+///    108    4 spectra (u32, at most `analysis::MAX_SPECTRA`: the spectra this report carries;
+///             [`FEEDBACK_SPECTRA_OFFSET`]; last word of the header; version 11, #156)
+///    112      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
 ///             largest gain reduction in decibels of the strip's devices over the period, version 4):
 ///             one per track slot below `tracks` (zeros for an empty slot; peak and RMS after the
 ///             track's fader), then the output's meter after the master (version 2); the master's
@@ -1866,6 +1872,11 @@ pub fn latency_word(frames: u32, capped: bool) -> u32 {
 ///               block of the period, for each enabled device that reports one, in track
 ///               slot then device slot order, the master's chain last; past
 ///               MAX_READOUTS_PER_REPORT the rest is left out
+///          then Spectrum × spectra (track slot u32 (`TrackSlot::MASTER` for the master's
+///               chain), device slot u32, sample rate f32, then `analysis::BANDS` bands f32 in
+///               dBFS: 396 bytes; the
+///               spectrum of a device's last window, computed off the audio path one report
+///               earlier, `crate::analysis`; version 11, #156)
 /// ```
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Feedback {
@@ -1912,17 +1923,27 @@ pub struct Feedback {
     pub record_capturing: bool,
     /// The live values of the parameters devices move by themselves (#686).
     pub readouts: Vec<DeviceReadout>,
+    /// The spectra of the analysed devices (#156, [`crate::analysis`]), at most
+    /// [`crate::analysis::MAX_SPECTRA`].
+    pub spectra: Vec<crate::analysis::Spectrum>,
 }
 
 impl Feedback {
-    /// Bytes of a report for `tracks` tracks, `active_clips` grid slots, `recorded` notes and
-    /// `readouts` device readouts.
-    pub fn size_for(tracks: usize, active_clips: usize, recorded: usize, readouts: usize) -> usize {
+    /// Bytes of a report for `tracks` tracks, `active_clips` grid slots, `recorded` notes,
+    /// `readouts` device readouts and `spectra` spectra.
+    pub fn size_for(
+        tracks: usize,
+        active_clips: usize,
+        recorded: usize,
+        readouts: usize,
+        spectra: usize,
+    ) -> usize {
         FEEDBACK_HEADER_BYTES
             + (tracks + 1) * TRACK_METER_BYTES
             + active_clips * ACTIVE_CLIP_BYTES
             + recorded * RECORDED_NOTE_WIRE_BYTES
             + readouts * DEVICE_READOUT_BYTES
+            + spectra * crate::analysis::SPECTRUM_WIRE_BYTES
     }
 
     /// The region the audio side writes into: sized for the limits of the moment, resized
@@ -1933,6 +1954,7 @@ impl Feedback {
             2 * tracks,
             MAX_RECORDED_PER_REPORT,
             MAX_READOUTS_PER_REPORT,
+            crate::analysis::MAX_SPECTRA,
         )
     }
 }
