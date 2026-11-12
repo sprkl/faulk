@@ -12,10 +12,12 @@
  * - `button[data-fk-play]` with `data-label-play` and `data-label-pause`;
  * - `input[type=range][data-fk-seek]` with `data-valuetext` (`{elapsed}`, `{total}`);
  * - `[data-fk-elapsed]`, `[data-fk-total]`, `[data-fk-error]` (hidden until the audio fails);
- * - the cover, `[data-fk-stage][data-foci]`, found by the root's `data-fk-stage-id`.
+ * - the cover, `[data-fk-stage][data-foci]`, found by the root's `data-fk-stage-id`;
+ * - the form, `ol[data-fk-form=<stage id>][data-bpm]` whose `li[data-bars]` are the sections: the one
+ *   playing gets `aria-current` and `--p` (its progress, 0 to 1); none while the track is idle.
  */
 
-import { clock, fill, lengthOf, seekByKey } from './time'
+import { clock, fill, lengthOf, sectionAt, seekByKey } from './time'
 import type { Viz } from './viz'
 
 const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -39,6 +41,11 @@ class Player {
   private dragging = false
   private viz: Viz | undefined
   private vizFailed = false
+  private readonly sections: HTMLElement[]
+  private readonly bars: number[]
+  private readonly bpm: number
+  private active = -1
+  private frame = 0
 
   constructor(
     readonly root: HTMLElement,
@@ -51,6 +58,10 @@ class Player {
     this.total = root.querySelector('[data-fk-total]')!
     this.error = root.querySelector('[data-fk-error]')
     this.stage = root.dataset.fkStageId ? document.getElementById(root.dataset.fkStageId) : null
+    const form = root.dataset.fkStageId ? document.querySelector<HTMLElement>(`[data-fk-form="${CSS.escape(root.dataset.fkStageId)}"]`) : null
+    this.sections = form ? [...form.querySelectorAll<HTMLElement>('li[data-bars]')] : []
+    this.bars = this.sections.map((li) => Number(li.dataset.bars))
+    this.bpm = Number(form?.dataset.bpm)
     this.stated = Number(this.seek.max) || 0
     if (!this.audio || !this.button || !this.seek || !this.elapsed || !this.total) throw new Error('incomplete player')
 
@@ -79,7 +90,9 @@ class Player {
     a.addEventListener('ended', () => this.onStop())
     a.addEventListener('timeupdate', () => {
       if (!this.dragging) this.show(a.currentTime)
+      this.follow()
     })
+    a.addEventListener('seeked', () => this.follow())
     a.addEventListener('durationchange', () => this.show(a.currentTime))
     a.addEventListener('error', () => this.fail())
     this.show(0)
@@ -99,6 +112,26 @@ class Player {
     this.elapsed.textContent = clock(now)
     this.total.textContent = clock(total)
     this.seek.setAttribute('aria-valuetext', fill(this.seek.dataset.valuetext ?? '{elapsed}', { elapsed: clock(now), total: clock(total) }))
+  }
+
+  /** Marks the section under the playhead (nothing before the first play or after the end). */
+  private follow(): void {
+    if (this.sections.length === 0) return
+    const hit = this.root.dataset.state === 'idle' ? undefined : sectionAt(this.audio.currentTime, this.bpm, this.bars)
+    const index = hit?.index ?? -1
+    if (index !== this.active) {
+      this.sections[this.active]?.removeAttribute('aria-current')
+      this.sections[this.active]?.style.removeProperty('--p')
+      if (index >= 0) this.sections[index].setAttribute('aria-current', 'true')
+      this.active = index
+    }
+    // Reduced motion: a static active state, no moving fill.
+    if (hit) this.sections[hit.index].style.setProperty('--p', reduced() ? '1' : hit.progress.toFixed(4))
+  }
+
+  private tick = (): void => {
+    this.follow()
+    this.frame = this.audio.paused ? 0 : requestAnimationFrame(this.tick)
   }
 
   private jump(seconds: number): void {
@@ -131,12 +164,17 @@ class Player {
     this.root.dataset.state = 'playing'
     this.label(true)
     this.viz?.start()
+    this.follow()
+    if (!this.frame && !reduced()) this.frame = requestAnimationFrame(this.tick)
   }
 
   private onStop(): void {
     if (this.root.dataset.state !== 'error') this.root.dataset.state = this.audio.ended ? 'idle' : 'paused'
     this.label(false)
     this.viz?.stop()
+    cancelAnimationFrame(this.frame)
+    this.frame = 0
+    this.follow()
   }
 
   private fail(): void {
