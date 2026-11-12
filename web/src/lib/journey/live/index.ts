@@ -117,7 +117,7 @@ class Player {
   /** Marks the section under the playhead (nothing before the first play or after the end). */
   private follow(): void {
     if (this.sections.length === 0) return
-    const hit = this.root.dataset.state === 'idle' ? undefined : sectionAt(this.audio.currentTime, this.bpm, this.bars)
+    const hit = ['idle', 'error'].includes(this.root.dataset.state ?? '') ? undefined : sectionAt(this.audio.currentTime, this.bpm, this.bars)
     const index = hit?.index ?? -1
     if (index !== this.active) {
       this.sections[this.active]?.removeAttribute('aria-current')
@@ -181,6 +181,9 @@ class Player {
     this.root.dataset.state = 'error'
     this.label(false)
     this.viz?.stop()
+    cancelAnimationFrame(this.frame)
+    this.frame = 0
+    this.follow()
     this.button.disabled = true
     this.seek.disabled = true
     if (this.error) this.error.hidden = false

@@ -309,6 +309,8 @@ test('journey: the section playing is marked, follows a seek, stays on pause and
   const bars = await form.locator('li').evaluateAll((lis) => lis.map((li) => Number((li as HTMLElement).dataset.bars)))
   const startOf = (i: number) => (bars.slice(0, i).reduce((a, b) => a + b, 0) * 4 * 60) / bpm
   const audio = first.locator('audio')
+  // The seeks below stay inside the generated track.
+  expect(startOf(bars.length)).toBeLessThan(230)
 
   // Nothing is marked before a play.
   await expect(current).toHaveCount(0)
@@ -337,6 +339,11 @@ test('journey: the section playing is marked, follows a seek, stays on pause and
   await expect(second).toHaveAttribute('data-state', 'playing')
   await expect(page.locator('[data-fk-form] li[aria-current]')).toHaveCount(2)
   await expect(page.locator('[data-fk-player][data-state=playing]')).toHaveCount(1)
+  // The end of the track clears the mark: play the first one again and let it end.
+  await first.locator('button[data-fk-play]').click()
+  await audio.evaluate((a: HTMLAudioElement) => (a.currentTime = a.duration - 0.3))
+  await expect(first).toHaveAttribute('data-state', 'idle')
+  await expect(form.locator('li[aria-current]')).toHaveCount(0)
   expect(errors).toEqual([])
 })
 
