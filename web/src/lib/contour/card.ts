@@ -3,7 +3,9 @@
  */
 
 import { createGesture } from '../gesture'
+import type { ParamDescriptor } from '../devices'
 import type { GroupRun } from '../history-group'
+import { BANDS } from './response'
 
 /** The rate the curve's bilinear warp follows: the engine's when it runs, else the device's last spectrum's, else 48 kHz. */
 export function curveRate(engineRate: number | null | undefined, spectrumRate: number | null | undefined): number {
@@ -40,4 +42,31 @@ export function cardGestures(run: GroupRun) {
       curve.end()
     },
   }
+}
+
+/**
+ * One band's controls on the card: its number on the curve (1 to 7, the handle's), its switch (`<band>_on`, the legend's
+ * partner) and its other parameters in the descriptor's order. The last group, with no band and no switch, holds the
+ * parameters that belong to none (the output gain).
+ */
+export type ControlGroup = {
+  /** The band's key (`hp`, `bell1`, ...), `output` for the group of no band. */
+  key: string
+  /** The handle's number on the curve, `null` for the group of no band. */
+  number: number | null
+  /** The band's switch, `null` for the group of no band. */
+  on: ParamDescriptor | null
+  params: ParamDescriptor[]
+}
+
+/** The 27 controls of Contour's card, grouped by band in the order of the signal, the rest last. A parameter is in exactly one group. */
+export function controlGroups(params: readonly ParamDescriptor[]): ControlGroup[] {
+  const groups: ControlGroup[] = BANDS.map((band, i) => ({ key: band.key, number: i + 1, on: null, params: [] }))
+  const rest: ControlGroup = { key: 'output', number: null, on: null, params: [] }
+  for (const param of params) {
+    const group = groups.find((g) => param.key.startsWith(`${g.key}_`)) ?? rest
+    if (group !== rest && param.key === `${group.key}_on`) group.on = param
+    else group.params.push(param)
+  }
+  return [...groups.filter((g) => g.on || g.params.length), ...(rest.params.length ? [rest] : [])]
 }

@@ -192,4 +192,41 @@ describe('the Contour curve', () => {
     handle('lp').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
     expect(groups).toHaveLength(4)
   })
+
+  it('gives a handle the keyboard focus on a click, so the arrows act at once', () => {
+    if (!('PointerEvent' in globalThis)) globalThis.PointerEvent = MouseEvent as unknown as typeof PointerEvent
+    mountCurve()
+    expect(document.activeElement).not.toBe(handle('bell3'))
+    handle('bell3').dispatchEvent(pointer('pointerdown', 300, 75))
+    svg().dispatchEvent(pointer('pointerup', 300, 75))
+    expect(document.activeElement).toBe(handle('bell3'))
+    // The click alone changed nothing; the arrow then changes the clicked band's gain.
+    expect(changes).toEqual([])
+    handle('bell3').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }))
+    expect(changes).toEqual([['bell3_gain', 0.5]])
+    // A click on another handle moves the focus there.
+    handle('lp').dispatchEvent(pointer('pointerdown', 450, 75))
+    svg().dispatchEvent(pointer('pointerup', 450, 75))
+    expect(document.activeElement).toBe(handle('lp'))
+  })
+
+  it('shows the help on a button, and describes every handle by it, with no need of the SVG title', () => {
+    mountCurve()
+    const toggle = host.querySelector<HTMLButtonElement>('[data-testid="contour-help-toggle"]')!
+    const help = host.querySelector<HTMLElement>('[data-testid="contour-help"]')!
+    expect(toggle.tagName).toBe('BUTTON')
+    expect(toggle.getAttribute('aria-controls')).toBe(help.id)
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    // Closed, the text is for a screen reader only; each handle points to it.
+    expect(help.classList.contains('sr-only')).toBe(true)
+    expect(help.textContent).toContain('the arrows move it')
+    for (const g of host.querySelectorAll('[data-testid="contour-handle"]')) expect(g.getAttribute('aria-describedby')).toBe(help.id)
+    toggle.click()
+    flushSync()
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    expect(help.classList.contains('sr-only')).toBe(false)
+    toggle.click()
+    flushSync()
+    expect(help.classList.contains('sr-only')).toBe(true)
+  })
 })
