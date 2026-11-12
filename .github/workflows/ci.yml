@@ -18,7 +18,7 @@ concurrency:
 # The web check is four jobs (#372):
 #   select   which parts of the suite this pull request needs;
 #   checks   generated files, formatting, typecheck, lint, unit tests, build;
-#   e2e      the Playwright specs, split over up to three machines (--shard): none when the change touches no
+#   e2e      the Playwright specs, dealt out by measured time over up to four machines (#848): none when the change touches no
 #            browser test, one for a short list (#377);
 #   web      a single job that reports the verdict of the others. Its name is the one the check always
 #            had: a branch protection that requires "web" keeps working whatever the number of shards.
@@ -88,8 +88,9 @@ jobs:
 
   # Real browser checks (tests/e2e/): cross-origin isolation, helper sockets, simulated Web MIDI,
   # the landing page. `dev` (the dev server) on a task pull request, `dev,preview` (also the built
-  # site) on the pull request against main. Each shard is one machine with its own Chromium, dev
-  # server and helper port; Playwright deals the spec files out between the shards.
+  # site, its subset of specs: playwright.config.ts) on the pull request against main. Each shard is one
+  # machine with its own Chromium, servers and helper port; scripts/ci/e2e-shard.mjs deals the spec files
+  # out between the shards by their measured time (#848).
   # On a pull request against develop the tier of the change runs (#533; the table shared with
   # scripts/agent/verify.mjs, scripts/ci/e2e-plan.mjs): the specs of the touched areas, dealt out between
   # the shards, plus the core tests of the other specs on the first shard; the core tests alone for a
@@ -116,7 +117,7 @@ jobs:
 
       - uses: ./.github/actions/web-setup
         with:
-          rust-cache-key: e2e # the three shards share one cache
+          rust-cache-key: e2e # the shards share one cache
 
       # Chromium is downloaded once per Playwright version (the one of the lockfile) and kept; on a
       # hit only the system libraries are installed.
@@ -143,59 +144,101 @@ jobs:
         if: steps.browsers.outputs.cache-hit == 'true'
         run: pnpm exec playwright install-deps chromium
 
-      # The dev server serves the WASM it does not build itself.
+      # Which spec files this machine runs (#848): Playwright lists the tests of the run (the configuration's projects
+      # and filters, the preview subset included, decide what exists) and scripts/ci/e2e-shard.mjs deals the files out
+      # between the machines by their measured time (scripts/ci/e2e-durations.json): the same plan on every machine, each
+      # file on exactly one. Playwright's own --shard cut by number of tests (the first machine of a release got all of
+      # `dev`). A failure to list or to plan fails the job: a machine never runs a guess.
+      - name: Plan this machine
+        id: plan
+        if: needs.select.outputs.e2e_all == 'true' || needs.select.outputs.e2e_specs != '' || needs.select.outputs.e2e_specs_changed != ''
+        shell: bash
+        env:
+          FAULK_E2E_PROJECTS: ${{ needs.select.outputs.e2e }}
+          E2E_ALL: ${{ needs.select.outputs.e2e_all }}
+          E2E_SPECS: ${{ needs.select.outputs.e2e_specs }}
+          E2E_SPECS_CHANGED: ${{ needs.select.outputs.e2e_specs_changed }}
+          E2E_CORE: ${{ needs.select.outputs.e2e_core }}
+          SHARD: ${{ matrix.shard }}/${{ needs.select.outputs.e2e_shard_total }}
+        run: |
+          listing="$RUNNER_TEMP/e2e-listing.json"
+          # The values are spec paths (letters, digits, dashes): see scripts/ci/select-core.mjs.
+          if [ "$E2E_ALL" = "true" ]; then
+            PLAYWRIGHT_JSON_OUTPUT_FILE="$listing" pnpm exec playwright test --list --reporter=json > /dev/null
+            node ../scripts/ci/e2e-shard.mjs --listing "$listing" --shard "$SHARD"
+          else
+            # shellcheck disable=SC2086
+            PLAYWRIGHT_JSON_OUTPUT_FILE="$listing" pnpm exec playwright test $E2E_SPECS $E2E_SPECS_CHANGED --list --reporter=json > /dev/null
+            core=()
+            if [ -n "$E2E_CORE" ]; then core=(--core); fi
+            node ../scripts/ci/e2e-shard.mjs --listing "$listing" --shard "$SHARD" --trimmed "$E2E_SPECS" "${core[@]}"
+          fi
+
+      # The dev server serves the WASM it does not build itself. The preview build makes its own with the same cargo
+      # build (only the copies differ), which is then a no-op: built once per machine either way.
       - run: pnpm build:wasm
 
       # The agent scenario (agent-scenario.spec.ts, AG-5) builds and runs the real helper, which links ALSA on Linux.
       - name: ALSA headers for the helper of the agent scenario
-        if: needs.select.outputs.e2e_all == 'true' || contains(needs.select.outputs.e2e_specs, 'agent-scenario') || contains(needs.select.outputs.e2e_specs_changed, 'agent-scenario')
+        if: contains(steps.plan.outputs.dev_trimmed, 'agent-scenario') || contains(steps.plan.outputs.dev_whole, 'agent-scenario') || contains(steps.plan.outputs.preview_trimmed, 'agent-scenario') || contains(steps.plan.outputs.preview_whole, 'agent-scenario')
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
 
       - name: End-to-end tests (shard ${{ matrix.shard }} of ${{ needs.select.outputs.e2e_shard_total }})
         shell: bash
         env:
-          FAULK_E2E_PROJECTS: ${{ needs.select.outputs.e2e }}
           E2E_TIER: ${{ needs.select.outputs.e2e_tier }}
           E2E_WHY: ${{ needs.select.outputs.e2e_why }}
           E2E_ALL: ${{ needs.select.outputs.e2e_all }}
           E2E_SPECS: ${{ needs.select.outputs.e2e_specs }}
-          E2E_SPECS_CHANGED: ${{ needs.select.outputs.e2e_specs_changed }}
           E2E_FULL_TAG: ${{ needs.select.outputs.e2e_full_tag }}
           E2E_CORE: ${{ needs.select.outputs.e2e_core }}
           E2E_CORE_GREP: ${{ needs.select.outputs.e2e_core_grep }}
           SHARD_INDEX: ${{ matrix.shard }}
-          SHARD: ${{ matrix.shard }}/${{ needs.select.outputs.e2e_shard_total }}
+          DEV_TRIMMED: ${{ steps.plan.outputs.dev_trimmed }}
+          DEV_WHOLE: ${{ steps.plan.outputs.dev_whole }}
+          PREVIEW_TRIMMED: ${{ steps.plan.outputs.preview_trimmed }}
+          PREVIEW_WHOLE: ${{ steps.plan.outputs.preview_whole }}
         run: |
           # The values are spec paths (letters, digits, dashes) and a title pattern: see scripts/ci/select-core.mjs.
           echo "e2e tier: $E2E_TIER ($E2E_WHY)"
-          if [ "$E2E_ALL" = "true" ]; then
-            pnpm exec playwright test --shard="$SHARD"
-          else
-            status=0
-            if [ -n "$E2E_SPECS" ]; then
-              # The tests tagged @full (repeated variants, performance ceilings) run with the whole suite only.
-              if [ "$SHARD_INDEX" = "1" ]; then
-                # shellcheck disable=SC2086
-                # No tagged test: Playwright says "No tests found" and exits non-zero, which counts as 0 here (the step runs under -e and pipefail).
-                excluded=$( (pnpm exec playwright test $E2E_SPECS --list --grep "$E2E_FULL_TAG" 2>/dev/null || true) | sed -n 's/^Total: \([0-9]*\) tests\{0,1\}.*/\1/p')
-                echo "$E2E_FULL_TAG tests of the area specs left to the whole suite: ${excluded:-0}" | tee -a "$GITHUB_STEP_SUMMARY"
-              fi
-              # Separate output folders: a run empties its own, and the traces of a failing specs run must survive the core run.
-              # shellcheck disable=SC2086
-              pnpm exec playwright test $E2E_SPECS --grep-invert "$E2E_FULL_TAG" --pass-with-no-tests --output=test-results/specs --shard="$SHARD" || status=1
-            fi
-            if [ -n "$E2E_SPECS_CHANGED" ]; then
-              # A spec whose own file changed runs whole, its @full tests included.
-              # shellcheck disable=SC2086
-              pnpm exec playwright test $E2E_SPECS_CHANGED --pass-with-no-tests --output=test-results/changed --shard="$SHARD" || status=1
-            fi
-            # The core tests run whole on the first machine: dealt out by file, a shard could get none of them.
-            if [ -n "$E2E_CORE" ] && [ "$SHARD_INDEX" = "1" ]; then
-              # shellcheck disable=SC2086
-              pnpm exec playwright test $E2E_CORE --grep "$E2E_CORE_GREP" --grep-invert "$E2E_FULL_TAG" --output=test-results/core || status=1
-            fi
-            exit $status
+          status=0
+          # One Playwright command per project and kind of list. Each starts only its own project's server, writes its
+          # own output folder (a run empties its own: the traces of a failing run must survive the next one) and its own
+          # JSON report. `trimmed`: area specs, run without their @full tests (repeated variants, performance ceilings,
+          # left to the whole suite); `whole`: the specs whose own file changed, or the whole suite.
+          run_list() {
+            local project=$1 kind=$2
+            shift 2
+            # No file, no command: Playwright given no file runs every spec.
+            if [ "$#" -eq 0 ]; then return 0; fi
+            local invert=()
+            # A trimmed list may run no test (a spec whose tests are all @full): it alone may pass with none. A whole
+            # list holds files the listing found tests in: a command of it that runs none fails.
+            if [ "$kind" = trimmed ]; then invert=(--grep-invert "$E2E_FULL_TAG" --pass-with-no-tests); fi
+            FAULK_E2E_PROJECTS="$project" FAULK_E2E_JSON="playwright-report/durations/$SHARD_INDEX-$project-$kind.json" \
+              pnpm exec playwright test --project="$project" "$@" "${invert[@]}" --output="test-results/$project-$kind" || status=1
+          }
+          if [ "$E2E_ALL" != "true" ] && [ -n "$E2E_SPECS" ] && [ "$SHARD_INDEX" = "1" ]; then
+            # shellcheck disable=SC2086
+            # No tagged test: Playwright says "No tests found" and exits non-zero, which counts as 0 here (the step runs under -e and pipefail).
+            excluded=$( (FAULK_E2E_PROJECTS=dev pnpm exec playwright test $E2E_SPECS --list --grep "$E2E_FULL_TAG" 2>/dev/null || true) | sed -n 's/^Total: \([0-9]*\) tests\{0,1\}.*/\1/p')
+            echo "$E2E_FULL_TAG tests of the area specs left to the whole suite: ${excluded:-0}" | tee -a "$GITHUB_STEP_SUMMARY"
           fi
+          # shellcheck disable=SC2086
+          run_list dev trimmed $DEV_TRIMMED
+          # shellcheck disable=SC2086
+          run_list dev whole $DEV_WHOLE
+          # shellcheck disable=SC2086
+          run_list preview trimmed $PREVIEW_TRIMMED
+          # shellcheck disable=SC2086
+          run_list preview whole $PREVIEW_WHOLE
+          # The core tests run whole on the first machine: dealt out by file, a machine could get none of them.
+          if [ "$E2E_ALL" != "true" ] && [ -n "$E2E_CORE" ] && [ "$SHARD_INDEX" = "1" ]; then
+            # shellcheck disable=SC2086
+            FAULK_E2E_PROJECTS=dev FAULK_E2E_JSON="playwright-report/durations/$SHARD_INDEX-dev-core.json" \
+              pnpm exec playwright test --project=dev $E2E_CORE --grep "$E2E_CORE_GREP" --grep-invert "$E2E_FULL_TAG" --output=test-results/core || status=1
+          fi
+          exit $status
 
       - name: Keep the traces of a failure
         if: failure()
@@ -204,6 +247,16 @@ jobs:
           name: e2e-traces-${{ matrix.shard }}
           path: web/test-results
           retention-days: 7
+          if-no-files-found: ignore
+
+      # The measured durations of this machine's tests, to refresh scripts/ci/e2e-durations.json (verification.md > Machines and measured durations).
+      - name: Keep the test durations
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report-${{ matrix.shard }}
+          path: web/playwright-report/durations
+          retention-days: 14
           if-no-files-found: ignore
 
   # The one check named `web`: success when the jobs that had to run succeeded, failure otherwise.

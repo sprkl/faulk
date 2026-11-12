@@ -5,6 +5,7 @@
  * A device name is not here: it comes from the descriptor, one English name never translated.
  * Labels of the parameters and of their values are in `synth.ts`, `drums.ts`, `echo.ts`, `reverb.ts`, `filter.ts`, `compressor.ts`, `ceiling.ts`, `trim.ts`, `hiccup.ts` and `bloom.ts`;
  * Contour's labels and tooltips are both in `contour.ts`.
+ * Labels of the parameters and of their values are in `synth.ts`, `drums.ts`, `echo.ts`, `reverb.ts`, `filter.ts`, `compressor.ts`, `ceiling.ts`, `trim.ts`, `hiccup.ts`, `bloom.ts` and `ripple.ts`.
  */
 
 import { defineFeature } from './feature'
@@ -244,6 +245,34 @@ export const devices = defineFeature(
       'Share of the moving copy fed back into the delay, from -90 % to +90 %: a metallic, resonant edge; negative values hollow the sound.',
     'bloom.tone.hint': 'High-pass on the moving copies, from 20 Hz to 2 kHz: higher keeps the low end clean and steady.',
     'bloom.mix.hint': 'Balance between the dry sound (0) and the moving copies (1), in chorus and ensemble. Vibrato has no dry sound.',
+    'ripple.mode.hint':
+      'Phaser (a chain of all-pass stages: soft, vocal notches) or flanger (a short delay with feedback: a metallic comb). A change fades over 10 ms.',
+    'ripple.stages.hint': 'Phaser: number of all-pass stages, 4, 6, 8 or 12; each pair of stages adds one notch. A change fades over 10 ms.',
+    'ripple.centre.hint':
+      'Phaser: centre frequency of the stages, from 20 Hz up to 0.45 of the sample rate (about 19.8 kHz at 44.1 kHz): the middle the LFO and the envelope move the notches around.',
+    'ripple.spread.hint':
+      'Phaser: how far apart the stages sit around the centre, from 0 (all at the centre, evenly spaced notches) to 4 octaves (wider, uneven notches).',
+    'ripple.delay.hint':
+      'Flanger: delay time, from 0.1 to 20 ms: the peaks of the comb sit every 1/delay hertz (1 kHz at 1 ms). The middle the LFO and the envelope move it around.',
+    'ripple.feedback.hint':
+      'Share of the effect fed back into its input, from -95 % to +95 %: sharper, ringing notches; negative feedback moves the peaks. Bounded: it never runs away.',
+    'ripple.polarity.hint':
+      'Sign of the effect in the mix: positive, or negative (the notches move between the former ones; the flanger then cuts the lowest frequencies). A change fades over 10 ms.',
+    'ripple.mix.hint':
+      'How much of the effect joins the dry sound, from 0 (dry only) to 100 % (the dry sound and the effect in equal parts: that blend is what makes the notches and the comb).',
+    'ripple.lfo_shape.hint':
+      'Shape of the LFO that sweeps the notches: sine, triangle, rising saw, falling saw, square, or random (a new value at each cycle).',
+    'ripple.lfo_sync.hint': 'Whether the LFO runs at its own rate in hertz (free) or follows the tempo (synced), each cycle on the same beat of every bar.',
+    'ripple.lfo_rate.hint': 'Speed of the LFO in free mode, in cycles per second, from 0.01 to 20 Hz.',
+    'ripple.lfo_division.hint': 'Length of one LFO cycle in synced mode, a note value from 1/32 to 8 bars.',
+    'ripple.lfo_phase.hint': 'Where in its cycle the LFO starts, from 0 to 360 degrees: in synced mode, where in the bar the notches are highest.',
+    'ripple.lfo_stereo.hint': "Offset of the right channel's LFO, from 0 to 180 degrees: at 180 the notches of the two channels move in opposition.",
+    'ripple.lfo_depth.hint': 'How far the LFO sweeps the centre (phaser) or the delay (flanger) either side of its value, in octaves, from 0 (no sweep) to 5.',
+    'ripple.lfo_restart.hint': 'In free mode, whether the LFO starts again from its phase each time playback starts (on) or runs on freely (off).',
+    'ripple.env_amount.hint':
+      'How far the level of the incoming sound moves the notches, in octaves at full level, from -5 (louder lowers them) to +5 (louder raises them); 0 for none.',
+    'ripple.env_attack.hint': 'Time the envelope follower takes to rise with the sound, from 1 ms to 500 ms.',
+    'ripple.env_release.hint': 'Time the envelope follower takes to fall back when the sound gets quieter, from 10 ms to 2 s.',
   },
   {
     'devices.noTrack': 'Sélectionne une piste pour voir son instrument et ses effets.',
@@ -490,5 +519,34 @@ export const devices = defineFeature(
       'Part de la copie renvoyée dans le retard, de -90 % à +90 % : un grain métallique et résonant ; les valeurs négatives creusent le son.',
     'bloom.tone.hint': 'Passe-haut sur les copies, de 20 Hz à 2 kHz : plus haut, le grave reste net et stable.',
     'bloom.mix.hint': 'Équilibre entre le son direct (0) et les copies (1), en chorus et en ensemble. Le vibrato n’a pas de son direct.',
+    'ripple.mode.hint':
+      'Phaser (une chaîne d’étages passe-tout : des creux doux, vocaux) ou flanger (un retard court avec retour : un peigne métallique). Un changement se fond sur 10 ms.',
+    'ripple.stages.hint': 'Phaser : nombre d’étages passe-tout, 4, 6, 8 ou 12 ; chaque paire d’étages ajoute un creux. Un changement se fond sur 10 ms.',
+    'ripple.centre.hint':
+      'Phaser : fréquence centrale des étages, de 20 Hz jusqu’à 0,45 fois la fréquence d’échantillonnage (environ 19,8 kHz à 44,1 kHz) : le milieu autour duquel le LFO et l’enveloppe déplacent les creux.',
+    'ripple.spread.hint':
+      'Phaser : écart des étages autour du centre, de 0 (tous au centre, des creux réguliers) à 4 octaves (des creux plus larges et irréguliers).',
+    'ripple.delay.hint':
+      'Flanger : temps de retard, de 0,1 à 20 ms : les pics du peigne tombent tous les 1/retard hertz (1 kHz à 1 ms). Le milieu autour duquel le LFO et l’enveloppe le déplacent.',
+    'ripple.feedback.hint':
+      'Part de l’effet renvoyée à son entrée, de −95 % à +95 % : des creux plus marqués, qui résonnent ; un retour négatif déplace les pics. Borné : il ne s’emballe jamais.',
+    'ripple.polarity.hint':
+      'Signe de l’effet dans le mélange : positif, ou négatif (les creux passent entre les anciens ; le flanger coupe alors les fréquences les plus graves). Un changement se fond sur 10 ms.',
+    'ripple.mix.hint':
+      'Quantité d’effet ajoutée au son direct, de 0 (son direct seul) à 100 % (son direct et effet à parts égales : c’est ce mélange qui crée les creux et le peigne).',
+    'ripple.lfo_shape.hint':
+      'Forme du LFO qui balaie les creux : sinus, triangle, scie montante, scie descendante, carré, ou aléatoire (une nouvelle valeur à chaque cycle).',
+    'ripple.lfo_sync.hint': 'Le LFO va à sa propre vitesse en hertz (libre) ou suit le tempo (au tempo), chaque cycle sur le même temps de chaque mesure.',
+    'ripple.lfo_rate.hint': 'Vitesse du LFO en mode libre, en cycles par seconde, de 0,01 à 20 Hz.',
+    'ripple.lfo_division.hint': 'Durée d’un cycle du LFO au tempo, une valeur de note de 1/32 à 8 mesures.',
+    'ripple.lfo_phase.hint': 'Où le LFO commence dans son cycle, de 0 à 360 degrés : au tempo, l’endroit de la mesure où les creux sont le plus haut.',
+    'ripple.lfo_stereo.hint': 'Décalage du LFO du canal droit, de 0 à 180 degrés : à 180, les creux des deux canaux bougent en opposition.',
+    'ripple.lfo_depth.hint':
+      'De combien le LFO balaie la fréquence centrale (phaser) ou le retard (flanger) de part et d’autre de sa valeur, en octaves, de 0 (aucun balayage) à 5.',
+    'ripple.lfo_restart.hint': 'En mode libre, le LFO repart de sa phase à chaque démarrage de la lecture (oui) ou continue librement (non).',
+    'ripple.env_amount.hint':
+      'De combien le niveau du son entrant déplace les creux, en octaves à plein niveau, de −5 (plus fort les abaisse) à +5 (plus fort les monte) ; 0 pour aucun effet.',
+    'ripple.env_attack.hint': 'Temps que le suiveur d’enveloppe met à monter avec le son, de 1 ms à 500 ms.',
+    'ripple.env_release.hint': 'Temps que le suiveur d’enveloppe met à redescendre quand le son baisse, de 10 ms à 2 s.',
   },
 )

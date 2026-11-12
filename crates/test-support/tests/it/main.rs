@@ -37,6 +37,7 @@ mod output_limiter;
 mod presets;
 mod record_loop;
 mod reverb;
+mod ripple;
 mod scatter;
 mod scenes;
 mod stack;
