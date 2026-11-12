@@ -47,6 +47,7 @@ import { tracks } from './tracks'
 import { transport } from './transport'
 import { trim } from './trim'
 import { hiccup } from './hiccup'
+import { ripple } from './ripple'
 
 export { DEVICE_NAME_KEYS } from './synth'
 
@@ -76,6 +77,7 @@ export const features = {
   hiccup,
   bloom,
   contour,
+  ripple,
   devices,
   presets,
   keys,
