@@ -72,7 +72,7 @@ test('a shared page file writes the core tier: no area spec, the core tests, one
   assert.match(outputs.e2e_why, /shared page file/)
 })
 
-test('a contract, the release and a failure to list the files run every spec on three machines (#377)', () => {
+test('a contract, the release and a failure to list the files run every spec on four machines (#377)', () => {
   for (const args of [
     ['--base', 'develop', '--files', 'web/src/lib/generated/protocol.ts'],
     ['--base', 'main', '--files', 'docs/a.md'],
@@ -81,8 +81,8 @@ test('a contract, the release and a failure to list the files run every spec on 
     const { outputs } = run(['--event', 'pull_request', ...args])
     assert.equal(outputs.e2e_all, 'true', args.join(' '))
     assert.equal(outputs.e2e_specs, '', args.join(' '))
-    assert.equal(outputs.e2e_shards, '[1,2,3]', args.join(' '))
-    assert.equal(outputs.e2e_shard_total, '3', args.join(' '))
+    assert.equal(outputs.e2e_shards, '[1,2,3,4]', args.join(' '))
+    assert.equal(outputs.e2e_shard_total, '4', args.join(' '))
   }
 })
 

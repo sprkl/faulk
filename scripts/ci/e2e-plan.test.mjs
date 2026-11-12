@@ -364,7 +364,7 @@ test('tier core: a shared page file runs the core tests alone, on one machine', 
   assert.match(mixed.why, /shared page file: web\/src\/lib\/stores\/dispatcher\.ts/)
 })
 
-test('tier all: contracts, Playwright and CI configuration, build inputs, unknown paths, stale tables, on three machines', () => {
+test('tier all: contracts, Playwright and CI configuration, build inputs, unknown paths, stale tables, on four machines', () => {
   const whole = ['web/src/lib/generated/protocol.ts', 'web/src/lib/engine/worklet.ts', 'web/src/lib/engine/web-engine.ts', 'web/tests/e2e/support.ts', 'web/tests/e2e/fixtures/measure-rpc.js', 'web/playwright.config.ts', 'web/package.json', 'web/pnpm-lock.yaml', 'web/vite.config.ts', 'web/tsconfig.json', 'web/vercel.json', 'web/scripts/build-wasm.mjs', 'web/src/app.html', '.github/workflows/ci.yml', '.github/actions/web-setup/action.yml', 'scripts/ci/e2e-plan.mjs', 'crates/protocol/src/lib.rs', 'crates/commands/src/track.rs', 'crates/engine/src/msg.rs', 'crates/engine/src/msg/codec.rs', 'crates/engine-wasm/src/lib.rs', 'crates/brand-new/src/lib.rs', 'Cargo.lock', 'modules/x/a.dsp', 'web/some-new-folder/x.ts', 'brand-new-top-folder/x']
   for (const f of whole) {
     const p = plan(['web/src/views/tracks/T.svelte', f])
@@ -396,7 +396,7 @@ test('the tier of a change is the highest of its files', () => {
   assert.equal(plan(['web/src/lib/stores/x.ts', 'web/src/views/grid/G.svelte', 'web/src/lib/generated/x.ts']).tier, 'all')
 })
 
-test('shards: one for a short list, up to three, never zero for a run that happens', () => {
+test('shards: one for a short list, up to four, never zero for a run that happens', () => {
   assert.equal(shardCount(1), 1)
   assert.equal(shardCount(SPECS_PER_SHARD), 1)
   assert.equal(shardCount(SPECS_PER_SHARD + 1), 2)

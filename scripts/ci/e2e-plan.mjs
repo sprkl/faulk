@@ -410,9 +410,11 @@ export function coreGrep(specs) {
 
 /** Specs per shard: a machine costs about 2.5 minutes of set-up, a spec about 15 seconds of tests. */
 export const SPECS_PER_SHARD = 6
-export const MAX_SHARDS = 3
+// Four since #848 (lead's decision of 2026-11-12): the repository is public, its Actions minutes cost nothing, and a fourth machine
+// takes the release under its set-up plus a quarter of the suite.
+export const MAX_SHARDS = 4
 
-/** How many machines a run of `units` spec files deserves: 1 for a short list, up to 3 for the whole suite. */
+/** How many machines a run of `units` spec files deserves: 1 for a short list, up to MAX_SHARDS for the whole suite. */
 export const shardCount = (units) => Math.min(MAX_SHARDS, Math.max(1, Math.ceil(units / SPECS_PER_SHARD)))
 
 /** One line saying why a plan was chosen (for the CI summary and verify.mjs). Lists at most `max` files per kind. */

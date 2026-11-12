@@ -174,7 +174,7 @@ test('each workflow file runs the job it defines, and release-helper.yml runs on
 test('a change to the selection rules runs everything, the dev project only on a task pull request (#848)', () => {
   for (const f of ['scripts/ci/select-core.mjs', 'scripts/ci/e2e-shard.mjs', 'scripts/ci/e2e-durations.mjs', 'scripts/ci/e2e-plan.test.mjs']) {
     const r = pr([f])
-    assert.deepEqual([r.mode, r.e2e, r.e2eTier, r.e2eAll, r.e2eShards], ['full', 'dev', 'all', true, 3], f)
+    assert.deepEqual([r.mode, r.e2e, r.e2eTier, r.e2eAll, r.e2eShards], ['full', 'dev', 'all', true, 4], f)
   }
   assert.equal(pr(['scripts/ci/select-core.mjs'], 'main').e2e, 'dev,preview')
 })
@@ -321,7 +321,7 @@ test('tier core: a shared page file runs the core tests alone, on one machine', 
 test('tier for crates: the contracts run all, the engine and the project an area, helper its own area, test-support nothing', () => {
   for (const f of ['crates/protocol/src/lib.rs', 'crates/commands/src/track.rs', 'crates/engine/src/msg.rs', 'crates/engine/src/msg/codec.rs', 'crates/engine-wasm/src/lib.rs']) {
     const r = pr([f])
-    assert.deepEqual([r.e2e, r.e2eTier, r.e2eAll, r.e2eShards], ['dev', 'all', true, 3], f)
+    assert.deepEqual([r.e2e, r.e2eTier, r.e2eAll, r.e2eShards], ['dev', 'all', true, 4], f)
     assert.match(r.e2eWhy, new RegExp(f.replaceAll('.', '\\.')), f)
   }
   const engine = pr(['crates/engine/src/devices/reverb.rs'])
@@ -345,12 +345,12 @@ test('tier for crates: the contracts run all, the engine and the project an area
   for (const f of ['Cargo.lock', 'modules/x/a.dsp']) assert.equal(pr([f]).e2eTier, 'all', f)
 })
 
-test('a longer list gets more machines, never more than three; the core tests do not add one', () => {
-  assert.equal(pr(['web/src/views/arrangement/A.svelte']).e2eShards, 3) // 22 specs
+test('a longer list gets more machines, never more than four; the core tests do not add one', () => {
+  assert.equal(pr(['web/src/views/arrangement/A.svelte']).e2eShards, 4) // 22 specs
   assert.equal(pr(['web/src/views/mixer/M.svelte']).e2eShards, 2) // 8 specs
   const many = pr(['web/src/views/arrangement/A.svelte', 'web/src/views/grid/G.svelte', 'web/src/views/mixer/M.svelte', 'web/src/views/shell/ProjectMenu.svelte'])
-  assert.equal(many.e2eShards, 3)
-  assert.ok(toOutputs(many).e2e_shards === '[1,2,3]')
+  assert.equal(many.e2eShards, 4)
+  assert.ok(toOutputs(many).e2e_shards === '[1,2,3,4]')
 })
 
 test('no browser test to run: no end-to-end job, no shard', () => {
@@ -368,7 +368,7 @@ test('tier all: contracts, configuration, unknown paths, a stale table and an un
     const r = pr(['web/src/views/tracks/TrackList.svelte', f])
     assert.equal(r.e2eTier, 'all', f)
     assert.equal(r.e2eAll, true, f)
-    assert.equal(r.e2eShards, 3, f)
+    assert.equal(r.e2eShards, 4, f)
     assert.equal(toOutputs(r).e2e_specs, '', f)
   }
   assert.equal(select({ event: 'pull_request', base: 'develop', files: ['web/src/views/tracks/T.svelte'], packages: ws }).e2eAll, true) // no way to list the specs
@@ -378,7 +378,7 @@ test('tier all: contracts, configuration, unknown paths, a stale table and an un
   assert.equal(pr(['web/src/views/tracks/T.svelte', 'web/brand-new-folder/x.ts']).e2eAll, true)
 })
 
-test('the release pull request and the fallbacks keep the full suite on three machines, and say why', () => {
+test('the release pull request and the fallbacks keep the full suite on four machines, and say why', () => {
   const both = [pr(['docs/a.md'], 'main'), pr(['web/src/views/tracks/T.svelte'], 'main'), fullDecision(), select({ event: 'workflow_dispatch', base: '', files: [], packages: ws })]
   // A task pull request that runs everything runs the whole dev suite: the production build is the release's (#848).
   const devOnly = [pr(['scripts/ci/x.mjs']), pr(['something-new/x']), pr(['crates/newcrate/src/lib.rs']), select({ event: 'pull_request', base: 'develop', files: null, packages: ws })]
@@ -386,10 +386,10 @@ test('the release pull request and the fallbacks keep the full suite on three ma
     assert.equal(r.e2e, both.includes(r) ? 'dev,preview' : 'dev')
     assert.equal(r.e2eTier, 'all')
     assert.equal(r.e2eAll, true)
-    assert.equal(r.e2eShards, 3)
+    assert.equal(r.e2eShards, 4)
     assert.ok(r.e2eWhy.length > 0)
     const out = toOutputs(r)
-    assert.deepEqual([out.e2e_specs, out.e2e_core, out.e2e_core_grep, out.e2e_shards], ['', '', '', '[1,2,3]'])
+    assert.deepEqual([out.e2e_specs, out.e2e_core, out.e2e_core_grep, out.e2e_shards], ['', '', '', '[1,2,3,4]'])
   }
   assert.match(pr(['docs/a.md'], 'main').e2eWhy, /pull request against main/)
   assert.match(pr(['something-new/x']).e2eWhy, /unknown path: something-new\/x/)
