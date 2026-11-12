@@ -6,6 +6,8 @@
    * moves the frequency (left and right) and the gain (up and down; a cut band has none), one
    * history group; the wheel over a handle changes its Q, one group per wheel gesture; a double
    * click switches the band; the arrows on a focused handle move it (Shift: the Q), Enter switches it.
+   * A click on a handle focuses it (#855), so the arrows act at once. The help is a text, not only the SVG's
+   * `<title>`: a button under the curve shows it, and each handle is described by it for a screen reader.
    */
   import { onDestroy } from 'svelte'
   import { BANDS, FREQ_MAX, FREQ_MIN, GAIN_MAX, Q_MAX, Q_MIN, curveHz, hzOfX, isCut, isOn, responseDb, xOfHz, type Band } from '../../lib/contour/response'
@@ -40,6 +42,9 @@
 
   const { ui } = useStores()
   const t = ui.t
+  const uid = $props.id()
+  const helpId = `${uid}-help`
+  let helpOpen = $state(false)
 
   const HEIGHT = 150
   /** The curve's scale, in dB from the middle line. */
@@ -125,8 +130,11 @@
   let dragging: { band: Band; x: number; y: number; freqX: number; gainY: number; moved: boolean } | null = null
   function pointerDown(event: PointerEvent, band: Band) {
     if (event.button !== 0) return
+    // The default is prevented (no text selection, no scroll): the handle takes the focus itself, so the arrows act at once.
     event.preventDefault()
-    ;(event.currentTarget as Element).setPointerCapture?.(event.pointerId)
+    const handle = event.currentTarget as SVGElement
+    handle.focus({ preventScroll: true })
+    handle.setPointerCapture?.(event.pointerId)
     dragging = {
       band,
       x: event.clientX,
@@ -244,59 +252,96 @@
   const GRID_LABELS: Record<number, string> = { 100: '100', 1000: '1k', 10000: '10k' }
 </script>
 
-<div class="contour" class:bypassed bind:clientWidth={width} data-testid="contour-curve" data-spectrum={spectrum ? 'on' : 'off'}>
-  <svg
-    bind:this={svg}
-    width={w}
-    height={HEIGHT}
-    viewBox="0 0 {w} {HEIGHT}"
-    role="group"
-    aria-label={t('contour.curve', { name })}
-    onpointermove={pointerMove}
-    onpointerup={pointerUp}
-    onpointercancel={pointerUp}
-  >
-    <title>{t('contour.curveHint')}</title>
-    <g class="grid" aria-hidden="true">
-      {#each GRID_HZ as hz (hz)}
-        <line x1={xOf(hz)} x2={xOf(hz)} y1="0" y2={HEIGHT} />
-        {#if GRID_LABELS[hz]}<text x={xOf(hz) + 3} y={HEIGHT - 4}>{GRID_LABELS[hz]}</text>{/if}
-      {/each}
-      {#each [-12, 12] as db (db)}<line class="minor" x1="0" x2={w} y1={yOfDb(db)} y2={yOfDb(db)} />{/each}
-      <line class="zero" x1="0" x2={w} y1={yOfDb(0)} y2={yOfDb(0)} />
-    </g>
-    {#if spectrumPath}<path class="spectrum" d={spectrumPath} data-testid="contour-spectrum" aria-hidden="true" />{/if}
-    <path class="curve" d={curve} data-testid="contour-response" aria-hidden="true" />
-    {#each BANDS as band, i (band.key)}
-      <g
-        class="handle"
-        class:off={!isOn(band, valueOf)}
-        role="button"
-        tabindex="0"
-        aria-label={handleLabel(band)}
-        aria-pressed={isOn(band, valueOf)}
-        data-testid="contour-handle"
-        data-band={band.key}
-        transform="translate({xOf(valueOf(`${band.key}_freq`)).toFixed(1)} {handleY(band).toFixed(1)})"
-        onpointerdown={(event) => pointerDown(event, band)}
-        ondblclick={() => toggle(band)}
-        onkeydown={(event) => keyDown(event, band)}
-        onkeyup={keyUp}
-        onblur={keyUp}
-        use:wheelOn={band}
-      >
-        <circle r="9" />
-        <text text-anchor="middle" dy="3.5">{i + 1}</text>
+<div class="box">
+  <div class="contour" class:bypassed bind:clientWidth={width} data-testid="contour-curve" data-spectrum={spectrum ? 'on' : 'off'}>
+    <svg
+      bind:this={svg}
+      width={w}
+      height={HEIGHT}
+      viewBox="0 0 {w} {HEIGHT}"
+      role="group"
+      aria-label={t('contour.curve', { name })}
+      onpointermove={pointerMove}
+      onpointerup={pointerUp}
+      onpointercancel={pointerUp}
+    >
+      <title>{t('contour.curveHint')}</title>
+      <g class="grid" aria-hidden="true">
+        {#each GRID_HZ as hz (hz)}
+          <line x1={xOf(hz)} x2={xOf(hz)} y1="0" y2={HEIGHT} />
+          {#if GRID_LABELS[hz]}<text x={xOf(hz) + 3} y={HEIGHT - 4}>{GRID_LABELS[hz]}</text>{/if}
+        {/each}
+        {#each [-12, 12] as db (db)}<line class="minor" x1="0" x2={w} y1={yOfDb(db)} y2={yOfDb(db)} />{/each}
+        <line class="zero" x1="0" x2={w} y1={yOfDb(0)} y2={yOfDb(0)} />
       </g>
-    {/each}
-  </svg>
+      {#if spectrumPath}<path class="spectrum" d={spectrumPath} data-testid="contour-spectrum" aria-hidden="true" />{/if}
+      <path class="curve" d={curve} data-testid="contour-response" aria-hidden="true" />
+      {#each BANDS as band, i (band.key)}
+        <g
+          class="handle"
+          class:off={!isOn(band, valueOf)}
+          role="button"
+          tabindex="0"
+          aria-label={handleLabel(band)}
+          aria-pressed={isOn(band, valueOf)}
+          aria-describedby={helpId}
+          data-testid="contour-handle"
+          data-band={band.key}
+          transform="translate({xOf(valueOf(`${band.key}_freq`)).toFixed(1)} {handleY(band).toFixed(1)})"
+          onpointerdown={(event) => pointerDown(event, band)}
+          ondblclick={() => toggle(band)}
+          onkeydown={(event) => keyDown(event, band)}
+          onkeyup={keyUp}
+          onblur={keyUp}
+          use:wheelOn={band}
+        >
+          <circle r="9" />
+          <text text-anchor="middle" dy="3.5">{i + 1}</text>
+        </g>
+      {/each}
+    </svg>
+  </div>
+  <button class="help" type="button" aria-expanded={helpOpen} aria-controls={helpId} data-testid="contour-help-toggle" onclick={() => (helpOpen = !helpOpen)}>
+    {t('contour.help')}
+  </button>
+  <p class="help-text" class:sr-only={!helpOpen} id={helpId} data-testid="contour-help">{t('contour.curveHint')}</p>
 </div>
 
 <style>
-  .contour {
+  .box {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--fk-space-1);
     width: 100%;
     min-width: 240px;
     max-width: 640px;
+  }
+  .help {
+    padding: 2px var(--fk-space-1);
+    border: 0;
+    border-radius: var(--fk-radius-pill);
+    background: transparent;
+    color: var(--fk-text-muted);
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .help:hover,
+  .help[aria-expanded='true'] {
+    color: var(--fk-text);
+  }
+  .help:focus-visible {
+    outline: 2px solid var(--fk-text);
+    outline-offset: 1px;
+  }
+  .help-text {
+    margin: 0;
+    color: var(--fk-text-muted);
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .contour {
+    width: 100%;
     border-radius: var(--fk-radius-work);
     background: var(--fk-surface);
     overflow: hidden;
