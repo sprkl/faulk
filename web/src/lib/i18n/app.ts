@@ -22,6 +22,7 @@ import { drums } from './drums'
 import { bloom } from './bloom'
 import { compressor } from './compressor'
 import { ceiling } from './ceiling'
+import { contour } from './contour'
 import { agentConfirm } from './confirm'
 import { echo } from './echo'
 import { filter } from './filter'
@@ -46,6 +47,7 @@ import { tracks } from './tracks'
 import { transport } from './transport'
 import { trim } from './trim'
 import { hiccup } from './hiccup'
+import { ripple } from './ripple'
 
 export { DEVICE_NAME_KEYS } from './synth'
 
@@ -74,6 +76,8 @@ export const features = {
   trim,
   hiccup,
   bloom,
+  contour,
+  ripple,
   devices,
   presets,
   keys,

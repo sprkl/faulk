@@ -8,9 +8,10 @@
   import ParamControl from '../../lib/components/ParamControl.svelte'
   import ReductionMeter from '../../lib/components/ReductionMeter.svelte'
   import PresetBar from './PresetBar.svelte'
+  import ContourCurve from './ContourCurve.svelte'
   import { setDeviceParam } from '../../lib/device-commands'
   import { createLane, createMasterLane } from '../../lib/automation-commands'
-  import { createGesture } from '../../lib/gesture'
+  import { cardGestures, curveRate } from '../../lib/contour/card'
   import { cardActions, type ChainEntry } from '../../lib/project/chain'
   import { deviceText, labelKey, shownParams } from '../../lib/devices'
   import { MASTER_METER, useStores } from '../../lib/stores'
@@ -18,7 +19,7 @@
 
   let { entry, chain, master = false, track }: { entry: ChainEntry; chain: readonly ChainEntry[]; master?: boolean; track?: string } = $props()
 
-  const { ui, dispatcher, automated, project, meters } = useStores()
+  const { ui, dispatcher, automated, project, meters, engine } = useStores()
   const t = ui.t
 
   const descriptor = $derived(entry.descriptor)
@@ -30,10 +31,18 @@
   // The Compressor and Ceiling show the gain they take off (the engine reports the largest reduction of the strip's enabled devices).
   const reduces = $derived(entry.kind === 'faulk.compressor' || entry.kind === 'faulk.ceiling')
   const reduction = $derived(bypassed ? 0 : meters.snap(master ? MASTER_METER : (track ?? MASTER_METER)).reductionDb)
+  // Contour draws its response curve and the spectrum of its output above its controls (#156).
+  const curve = $derived(entry.kind === 'faulk.contour')
+  /** A parameter's value as the controls show it: an automation lane's, else the project's, else the default. */
+  const valueOf = (key: string): number =>
+    automated.device(entry.id, key) ?? entry.device.params[key] ?? descriptor?.params.find((p) => p.key === key)?.default ?? 0
 
-  // A knob drag is one history group: one undo takes it back whole.
-  const gesture = createGesture((command, options) => dispatcher.run(command, options))
-  onDestroy(() => gesture.end())
+  // A knob drag is one history group: one undo takes it back whole. Contour's curve (#156) has its own, and either one
+  // beginning ends the other's: the curve's wheel rest never cuts a knob's drag.
+  const gestures = cardGestures((command, options) => dispatcher.run(command, options))
+  const gesture = gestures.knobs
+  const curveGesture = gestures.curve
+  onDestroy(() => gestures.end())
 
   /** The right click on the card (#524): bypass, and for an effect its place in the chain and its removal. A control inside answers for itself. */
   function onContextMenu(event: MouseEvent) {
@@ -147,6 +156,19 @@
   {/if}
   {#if reduces}
     <ReductionMeter reductionDb={reduction} label={t('devices.gainReduction')} />
+  {/if}
+  {#if curve && descriptor}
+    <ContourCurve
+      {descriptor}
+      {name}
+      {valueOf}
+      spectrum={bypassed ? null : meters.spectrum(entry.id)}
+      sampleRate={curveRate(engine.status?.sampleRate, meters.spectrumRate(entry.id))}
+      {bypassed}
+      onchange={(key, value) => dispatcher.run(setDeviceParam(entry.id, key, value))}
+      onbegin={curveGesture.begin}
+      onend={curveGesture.end}
+    />
   {/if}
   {#if descriptor}
     <div class="params">

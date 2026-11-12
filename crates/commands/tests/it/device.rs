@@ -2050,3 +2050,75 @@ fn a_midi_effect_change_leaves_the_instrument_and_the_audio_effects_alone() {
         }
     }
 }
+
+// ---------------------------------------------------------------- Contour (#156)
+
+#[test]
+fn every_parameter_of_contour_is_set_by_its_key_checked_against_its_descriptor_and_undone() {
+    use engine::devices::contour::DESCRIPTOR;
+    let c = chain();
+    let mut s = c.state.clone();
+    let out = go(
+        &mut s,
+        &d(device::Command::Insert {
+            track: Some(c.track.clone()),
+            master: false,
+            kind: "faulk.contour".into(),
+            index: 0,
+        }),
+    );
+    let Output::Device(device::Output::Insert { device: eq }) = out.output else {
+        panic!("{:?}", out.output)
+    };
+    // Inserted at its defaults, one value per parameter of its descriptor.
+    let params = &s.project.tracks[&c.track].devices[&eq].params;
+    assert_eq!(params.len(), DESCRIPTOR.params.len());
+    for p in DESCRIPTOR.params {
+        assert_eq!(params[p.key], p.default, "{}", p.key);
+    }
+    for p in DESCRIPTOR.params {
+        // Each bound and a value between: apply, undo restores the state, redo (the harness).
+        let between = if p.step > 0.0 {
+            p.min + p.step
+        } else {
+            (p.min + p.max) / 2.0 + 0.123
+        };
+        // Each value is checked from the state the previous one left, so that every value of a
+        // choice (a switch's two, a slope's three) is checked once from another one.
+        let values: Vec<f64> = if p.step > 0.0 {
+            let n = ((p.max - p.min) / p.step).round() as u32;
+            (0..=n)
+                .map(|i| p.min + f64::from(i) * p.step)
+                .chain([p.min])
+                .collect()
+        } else {
+            vec![p.min, p.max, between]
+        };
+        for value in values {
+            let current = s.project.tracks[&c.track].devices[&eq].params[p.key];
+            if current != p.sanitize_f64(value).unwrap() {
+                check(&param(&eq, p.key, value), &s, &context())
+                    .unwrap_or_else(|e| panic!("{} = {value}: {e}", p.key));
+            }
+            go(&mut s, &param(&eq, p.key, value));
+        }
+        // Clamped to the range, a choice rounded to its step.
+        let Output::Device(device::Output::SetParam { value, .. }) =
+            go(&mut s, &param(&eq, p.key, p.max * 10.0 + 100.0)).output
+        else {
+            panic!()
+        };
+        assert_eq!(value, p.max, "{}", p.key);
+        if p.step > 0.0 {
+            let Output::Device(device::Output::SetParam { value, .. }) =
+                go(&mut s, &param(&eq, p.key, p.min + 0.4)).output
+            else {
+                panic!()
+            };
+            assert_eq!(value, p.min, "{} rounds to its step", p.key);
+        }
+        assert_eq!(code(&param(&eq, p.key, f64::NAN), &s), "invalid");
+    }
+    assert_eq!(code(&param(&eq, "cutoff", 1.0), &s), "not_found");
+    assert_eq!(code(&param(&eq, "bell4_gain", 1.0), &s), "not_found");
+}

@@ -1,5 +1,6 @@
 import { untrack } from 'svelte'
 import { MeterBank, SILENT, type MeterSnap } from '../meters/ballistics'
+import { SpectrumTracker, type Shown } from '../contour/spectrum'
 import type { EngineStore } from './engine.svelte'
 import type { ProjectStore } from './project.svelte'
 
@@ -21,7 +22,12 @@ export class MeterStore {
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
   snaps = $state.raw<Map<string, MeterSnap>>(new Map())
 
+  /** Counts the reports fed, so that a spectrum's reader (`spectrum`) follows them. */
+  spectrumTick = $state(0)
+
   private readonly bank = new MeterBank()
+  /** The report's spectra by device id (#156). */
+  private readonly spectra = new SpectrumTracker()
   private lastReportAt = 0
   /** The report the strips were last fed from, to feed them again when the tracks change. */
   private lastReport: NonNullable<EngineStore['feedback']> | null = null
@@ -36,6 +42,18 @@ export class MeterStore {
   /** A strip's snapshot; silence for a strip with none. */
   snap(id: string): MeterSnap {
     return this.snaps.get(id) ?? SILENT
+  }
+
+  /** The spectrum of a device (#156, an equaliser's panel), or `null` when it has none fresh. Follows the reports. */
+  spectrum(device: string): Shown | null {
+    void this.spectrumTick
+    return this.spectra.get(device, performance.now())
+  }
+
+  /** The sample rate a device's last spectrum was measured at, kept once the spectrum is gone; `undefined` before any. */
+  spectrumRate(device: string): number | undefined {
+    void this.spectrumTick
+    return this.spectra.rate(device)
   }
 
   /** Clears one strip's peak readout and clip mark. */
@@ -60,7 +78,11 @@ export class MeterStore {
   }
 
   /** Feeds the bank from a report, or silence (`null`). Reads nothing reactive. */
-  feed(report: NonNullable<EngineStore['feedback']> | null, now: number) {
+  /**
+   * Feeds the bank from a report, or silence (`null`). Reads nothing reactive. `fresh`: the report just arrived; a report
+   * fed again (the tracks changed) gives its meters, but not its spectra, which would look new.
+   */
+  feed(report: NonNullable<EngineStore['feedback']> | null, now: number, fresh = true) {
     const slots = this.project.view?.slots
     // A copy that replaces the raw state, never mutated in place.
     // eslint-disable-next-line svelte/prefer-svelte-reactivity
@@ -92,6 +114,9 @@ export class MeterStore {
       },
       now / 1000,
     )
+    if (report) this.spectra.feed(report.epoch, fresh ? (report.spectra ?? []) : [], slots, now)
+    // Every pass, reports or silence: a spectrum's reader sees it go stale when the reports stop.
+    this.spectrumTick++
   }
 
   /** Follows the engine's reports until the returned function is called. Call it from a component. */
@@ -116,13 +141,15 @@ export class MeterStore {
       $effect(() => {
         void this.project.tracks
         untrack(() => {
-          if (this.lastReport && performance.now() - this.lastReportAt <= STALE_MS) this.feed(this.lastReport, performance.now())
+          if (this.lastReport && performance.now() - this.lastReportAt <= STALE_MS) this.feed(this.lastReport, performance.now(), false)
         })
       })
       $effect(() => {
         const timer = setInterval(() => {
           const now = performance.now()
           if (now - this.lastReportAt > STALE_MS) this.feed(null, now)
+          // A spectrum's reader looks again every pass: a spectrum goes stale on time when the reports stop.
+          else this.spectrumTick++
         }, 100)
         return () => clearInterval(timer)
       })
