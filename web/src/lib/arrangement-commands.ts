@@ -1,4 +1,4 @@
-import type { Command, Tick } from './generated/protocol'
+import type { Command, IfOccupied, Tick } from './generated/protocol'
 
 /**
  * The commands of the arrangement view: every gesture of the timeline is one of them, sent once when the
@@ -7,8 +7,12 @@ import type { Command, Tick } from './generated/protocol'
  */
 
 /** Moves placements to other MIDI tracks, each to its own, and optionally in time too (`arrangement.move_to_track`, one history entry). */
-export const moveToTrack = (moves: { placement: string; track: string }[], by?: Tick): Command =>
-  by === undefined || by === 0 ? { type: 'arrangement.move_to_track', moves } : { type: 'arrangement.move_to_track', moves, by }
+export const moveToTrack = (moves: { placement: string; track: string }[], by?: Tick, ifOccupied: IfOccupied = 'replace'): Command => ({
+  type: 'arrangement.move_to_track',
+  moves,
+  ...(by === undefined || by === 0 ? {} : { by }),
+  ...(ifOccupied === 'replace' ? {} : { if_occupied: ifOccupied }),
+})
 
 /** Lays linked copies of a placement end to end up to the tick `until` (`arrangement.repeat`, one history entry). */
 export const repeatPlacement = (placement: string, until: Tick): Command => ({ type: 'arrangement.repeat', placement, until })
@@ -21,8 +25,13 @@ export const resizePlacement = (placement: string, edge: 'start' | 'end', to: Ti
 export const splitPlacement = (placement: string, at: Tick): Command => ({ type: 'arrangement.split', placement, at })
 export const deletePlacements = (placements: string[]): Command => ({ type: 'arrangement.delete', placements })
 /** Copies placements `by` ticks later: independent clips by default, the same clips (linked) with `linked`. */
-export const duplicatePlacements = (placements: string[], linked: boolean, by?: Tick): Command =>
-  by === undefined ? { type: 'arrangement.duplicate', placements, linked } : { type: 'arrangement.duplicate', placements, linked, by }
+export const duplicatePlacements = (placements: string[], linked: boolean, by?: Tick, ifOccupied: IfOccupied = 'replace'): Command => ({
+  type: 'arrangement.duplicate',
+  placements,
+  linked,
+  ...(by === undefined ? {} : { by }),
+  ...(ifOccupied === 'replace' ? {} : { if_occupied: ifOccupied }),
+})
 /** Puts a clip of the launch grid in the arrangement from a tick: an independent copy by default, the grid clip itself (linked) with `linked`. */
 export const placeFromSlot = (clip: string, start: Tick, linked: boolean): Command => ({ type: 'arrangement.place_from_slot', clip, start, linked })
 /** The same for every clip of a scene, each on its own track: one command, one history entry. */

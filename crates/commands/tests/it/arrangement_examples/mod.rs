@@ -192,12 +192,14 @@ pub fn examples() -> Vec<(Command, State)> {
             placements: vec![f.a.clone(), f.b.clone()],
             linked: false,
             by: None,
+            if_occupied: arrangement::IfOccupied::Replace,
         }),
         // Linked, onto the next ones: they are carved.
         on(arrangement::Command::Duplicate {
             placements: vec![f.a.clone()],
             linked: true,
             by: Some(Tick(7000)),
+            if_occupied: arrangement::IfOccupied::Replace,
         }),
         // Repeated end to end: whole copies over free ground, the last one shortened, and over
         // what is there (C is carved, then covered).
@@ -229,6 +231,7 @@ pub fn examples() -> Vec<(Command, State)> {
                     })
                     .collect(),
                 by: by.map(Tick),
+                if_occupied: arrangement::IfOccupied::Replace,
             }),
             two.clone(),
         )
@@ -238,6 +241,28 @@ pub fn examples() -> Vec<(Command, State)> {
     all.push(to_second(
         vec![(&f.c, &second), (&f.b, &f.track)],
         Some(-480),
+    ));
+    // #805: `refuse` and `skip` on free ground, and a copy that refuses to replace.
+    for how in [
+        arrangement::IfOccupied::Refuse,
+        arrangement::IfOccupied::Skip,
+    ] {
+        let (mut command, state) = to_second(vec![(&f.a, &second)], Some(100_000));
+        if let Command::Arrangement(arrangement::Command::MoveToTrack { if_occupied, .. }) =
+            &mut command
+        {
+            *if_occupied = how;
+        }
+        all.push((command, state));
+    }
+    all.push((
+        a(arrangement::Command::Duplicate {
+            placements: vec![f.c.clone()],
+            linked: false,
+            by: Some(Tick(40_000)),
+            if_occupied: arrangement::IfOccupied::Refuse,
+        }),
+        f.state.clone(),
     ));
     {
         let (state, restore) = after(
@@ -254,6 +279,7 @@ pub fn examples() -> Vec<(Command, State)> {
                     },
                 ],
                 by: None,
+                if_occupied: arrangement::IfOccupied::Replace,
             }),
         );
         all.push((restore, state));
@@ -331,6 +357,7 @@ pub fn examples() -> Vec<(Command, State)> {
             placements: vec![f.c.clone()],
             linked: false,
             by: None,
+            if_occupied: arrangement::IfOccupied::Replace,
         },
         arrangement::Command::Delete {
             placements: vec![f.b.clone()],
@@ -379,6 +406,7 @@ pub fn examples() -> Vec<(Command, State)> {
             placements: vec![audio.clone()],
             linked: false,
             by: None,
+            if_occupied: arrangement::IfOccupied::Replace,
         },
         arrangement::Command::Repeat {
             placement: audio.clone(),
