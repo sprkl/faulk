@@ -597,3 +597,218 @@ fn the_default_is_not_written_and_a_missing_field_means_replace() {
     let back: arrangement::Command = serde_json::from_value(json).unwrap();
     assert_eq!(back, skip);
 }
+
+/// Runs `refusing` and checks that it is refused for `if_occupied` and changed nothing, then
+/// that `replacing` (the default, a drag's and the agents' behaviour) carves.
+fn refused_when_it_carves(
+    state: &State,
+    refusing: arrangement::Command,
+    replacing: arrangement::Command,
+) {
+    let mut refused = state.clone();
+    let err = run(&a(refusing), &mut refused, &mut fresh_context()).unwrap_err();
+    assert!(invalid_if_occupied(&err), "{err:?}");
+    assert_eq!(&refused, state, "a refused command changes nothing");
+    let mut replaced = state.clone();
+    run(&a(replacing), &mut replaced, &mut fresh_context()).unwrap();
+    assert_ne!(&replaced, state, "the default still carves");
+}
+
+#[test]
+fn a_placement_from_the_pool_refuses_an_occupied_place_and_carves_by_default() {
+    let f = fx();
+    // `c` plays 7680 to 11520: the clip put down at 7000 for 1000 ticks reaches into it.
+    let place = |how| arrangement::Command::Place {
+        clip: f.looped.clone(),
+        start: Tick(7000),
+        length: Some(Tick(1000)),
+        offset: None,
+        if_occupied: how,
+    };
+    refused_when_it_carves(
+        &f.state,
+        place(arrangement::IfOccupied::Refuse),
+        place(arrangement::IfOccupied::Replace),
+    );
+    // On free ground it is a plain placement, whatever `if_occupied` says.
+    let mut state = f.state.clone();
+    let free = arrangement::Command::Place {
+        clip: f.looped.clone(),
+        start: Tick(40_000),
+        length: None,
+        offset: None,
+        if_occupied: arrangement::IfOccupied::Refuse,
+    };
+    run(&a(free), &mut state, &mut fresh_context()).unwrap();
+    assert_eq!(
+        state.project.tracks[&f.track].placements.len(),
+        f.state.project.tracks[&f.track].placements.len() + 1
+    );
+}
+
+#[test]
+fn an_audio_placement_refuses_an_occupied_place_too() {
+    let f = fx();
+    let mut state = f.state.clone();
+    let place = |how| arrangement::Command::Place {
+        clip: f.audio_clip.clone(),
+        start: Tick(3840),
+        length: None,
+        offset: None,
+        if_occupied: how,
+    };
+    run(
+        &a(place(arrangement::IfOccupied::Replace)),
+        &mut state,
+        &mut fresh_context(),
+    )
+    .unwrap();
+    // Placed again on itself: the first placement would be carved.
+    refused_when_it_carves(
+        &state,
+        place(arrangement::IfOccupied::Refuse),
+        place(arrangement::IfOccupied::Replace),
+    );
+}
+
+#[test]
+fn a_grid_clip_sent_to_the_arrangement_refuses_an_occupied_place() {
+    let f = fx();
+    let state = f.grid_state();
+    let send = |how| arrangement::Command::PlaceFromSlot {
+        clip: f.looped.clone(),
+        start: Tick(1000),
+        linked: false,
+        if_occupied: how,
+    };
+    refused_when_it_carves(
+        &state,
+        send(arrangement::IfOccupied::Refuse),
+        send(arrangement::IfOccupied::Replace),
+    );
+}
+
+#[test]
+fn a_move_in_time_refuses_to_land_on_a_placement_that_stays() {
+    let f = fx();
+    // `a` (0 to 3840) one step later lands on `b` (3840 to 5760).
+    let step = |how| arrangement::Command::Move {
+        placements: vec![f.a.clone()],
+        by: Tick(1920),
+        if_occupied: how,
+    };
+    refused_when_it_carves(
+        &f.state,
+        step(arrangement::IfOccupied::Refuse),
+        step(arrangement::IfOccupied::Replace),
+    );
+    // Moving onto the place of a placement that moves too is not an overlap, and the plain
+    // move undoes exactly.
+    let mut state = f.state.clone();
+    let together = arrangement::Command::Move {
+        placements: vec![f.a.clone(), f.b.clone()],
+        by: Tick(1920),
+        if_occupied: arrangement::IfOccupied::Refuse,
+    };
+    let outcome = run(&a(together), &mut state, &mut fresh_context()).unwrap();
+    let Undo::Inverse(inverse) = outcome.undo else {
+        panic!()
+    };
+    inverse.apply(&mut state, &mut fresh_context()).unwrap();
+    assert_eq!(state.project, f.state.project);
+}
+
+#[test]
+fn a_repeat_refuses_to_cover_the_placements_after_it() {
+    let f = fx();
+    // `a` repeated up to the end of `b` covers `b`.
+    let fill = |how| arrangement::Command::Repeat {
+        placement: f.a.clone(),
+        until: Tick(3840 * 2),
+        if_occupied: how,
+    };
+    refused_when_it_carves(
+        &f.state,
+        fill(arrangement::IfOccupied::Refuse),
+        fill(arrangement::IfOccupied::Replace),
+    );
+    // Over free ground it repeats.
+    let mut state = f.state.clone();
+    let free = arrangement::Command::Repeat {
+        placement: f.c.clone(),
+        until: Tick(3840 * 5),
+        if_occupied: arrangement::IfOccupied::Refuse,
+    };
+    let outcome = run(&a(free), &mut state, &mut fresh_context()).unwrap();
+    assert!(matches!(
+        outcome.output,
+        Output::Arrangement(arrangement::Output::Repeat { overwritten: 0, .. })
+    ));
+}
+
+#[test]
+fn only_a_move_to_another_track_can_skip() {
+    let f = fx();
+    let skip = arrangement::IfOccupied::Skip;
+    let commands = [
+        arrangement::Command::Place {
+            clip: f.looped.clone(),
+            start: Tick(40_000),
+            length: None,
+            offset: None,
+            if_occupied: skip,
+        },
+        arrangement::Command::Move {
+            placements: vec![f.c.clone()],
+            by: Tick(40_000),
+            if_occupied: skip,
+        },
+        arrangement::Command::Repeat {
+            placement: f.c.clone(),
+            until: Tick(3840 * 5),
+            if_occupied: skip,
+        },
+        arrangement::Command::PlaceFromSlot {
+            clip: f.looped.clone(),
+            start: Tick(40_000),
+            linked: false,
+            if_occupied: skip,
+        },
+    ];
+    for command in commands {
+        let mut state = f.grid_state();
+        let before = state.clone();
+        let err = run(&a(command), &mut state, &mut fresh_context()).unwrap_err();
+        assert!(invalid_if_occupied(&err), "{err:?}");
+        assert_eq!(state, before);
+    }
+}
+
+#[test]
+fn the_default_of_the_new_commands_is_not_written() {
+    let f = fx();
+    let place = arrangement::Command::Place {
+        clip: f.looped.clone(),
+        start: Tick(0),
+        length: None,
+        offset: None,
+        if_occupied: Default::default(),
+    };
+    assert!(
+        serde_json::to_value(&place)
+            .unwrap()
+            .get("if_occupied")
+            .is_none()
+    );
+    let json = serde_json::json!({
+        "type": "arrangement.repeat", "placement": f.a, "until": 9000, "if_occupied": "refuse"
+    });
+    let back: arrangement::Command = serde_json::from_value(json).unwrap();
+    assert!(matches!(
+        back,
+        arrangement::Command::Repeat {
+            if_occupied: arrangement::IfOccupied::Refuse,
+            ..
+        }
+    ));
+}

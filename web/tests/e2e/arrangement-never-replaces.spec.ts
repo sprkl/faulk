@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test'
 import { engineUp, watch } from './support'
 
-// #805: a move or a copy from the keyboard never replaces a clip without a word. Alt+Up and Alt+Down skip the tracks whose place
+// #805: a move, a copy or a placement from the keyboard or the buttons never replaces a clip without a word. Alt+Up and Alt+Down skip the tracks whose place
 // is taken and land on the next free one (or refuse, saying so); Ctrl+D refuses a copy that would land on the clip after it. Real
 // worklet, engine and project core: every edit is a command, read back from the project, and the console stays clean.
 
@@ -103,6 +103,84 @@ test('Alt+Down skips the track whose place is taken, refuses when none is free, 
   await focusClip(page, 0, 1)
   await page.keyboard.press('Control+d')
   await expect.poll(() => layout(page)).toBe('0@0 0@3840 0@7680 1@0 2@0')
+  expect(await done(page)).toBe(before + 1)
+
+  expect(errors).toEqual([])
+})
+
+const hooks = (page: Page) => page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)
+const run = (page: Page, command: object) => page.evaluate((c) => (window as unknown as { __faulkRun(c: object): void }).__faulkRun(c), command)
+
+test('Alt+Left, Alt+Right and Repeat until refuse to cut a neighbour and name it, and a clip off the bar lines says its beats', async ({ page }) => {
+  const { errors } = watch(page)
+  await start(page)
+  test.skip((await hooks(page)) !== 'function', 'the dev server only')
+  const said = page.getByTestId('arr-said')
+
+  // Two clips of a bar side by side on the first track.
+  await clipAt(page, 0, 0)
+  await clipAt(page, 0, 1)
+  await expect.poll(() => layout(page)).toBe('0@0 0@3840')
+  const entries = await done(page)
+
+  // Alt+Right on the first would land on the second, Alt+Left on the second on the first: nothing moves, the message names the other.
+  await focusClip(page, 0, 0)
+  await page.keyboard.press('Alt+ArrowRight')
+  await expect(said).toHaveText(/^Not moved: .*, bars 2 to 2, is in the way/)
+  expect(await layout(page)).toBe('0@0 0@3840')
+  await focusClip(page, 0, 1)
+  await page.keyboard.press('Alt+ArrowLeft')
+  await expect(said).toHaveText(/^Not moved: .*, bars 1 to 1, is in the way/)
+  expect(await layout(page)).toBe('0@0 0@3840')
+  expect(await done(page)).toBe(entries)
+
+  // Repeat until bar 4 from the first clip would cover the second: refused, said, nothing changed.
+  await focusClip(page, 0, 0)
+  await page.keyboard.press('Control+Shift+r')
+  await expect(page.getByTestId('repeat-dialog')).toBeVisible()
+  await page.getByTestId('repeat-field').fill('4')
+  await page.keyboard.press('Enter')
+  await expect(said).toHaveText(/^Not repeated: .*, bars 2 to 2, is in the way/)
+  expect(await layout(page)).toBe('0@0 0@3840')
+  expect(await done(page)).toBe(entries)
+
+  // Free ground still works: the second clip moves one step to the right.
+  await focusClip(page, 0, 1)
+  await page.keyboard.press('Alt+ArrowRight')
+  await expect.poll(async () => (await layout(page)) !== '0@0 0@3840').toBe(true)
+  expect(await done(page)).toBe(entries + 1)
+
+  // A clip that starts and ends off the bar lines says its beats: bar 5 beat 2 to bar 5 beat 3, and a one-beat clip from bar 5 beat 1.
+  await clipAt(page, 2, 4)
+  const lone = (await blocks(page)).find((b) => b.row === 2 && b.start === 4 * 3840)!
+  await run(page, { type: 'arrangement.move', placements: [lone.id], by: 960 })
+  await run(page, { type: 'arrangement.resize', placement: lone.id, edge: 'end', to: 4 * 3840 + 1920 })
+  const cell = page.locator(`[data-testid=arr-item][data-block="${lone.id}"]`)
+  await expect(cell).toHaveAttribute('aria-label', /bar 5 beat 2 to 5 beat 3/)
+  await run(page, { type: 'arrangement.resize', placement: lone.id, edge: 'start', to: 4 * 3840 })
+  await expect(cell).toHaveAttribute('aria-label', /bar 5 beat 1 to 5 beat 3/)
+
+  expect(errors).toEqual([])
+})
+
+test('Ctrl+D copies the focused clip on its own track even when a clip of another track is selected', async ({ page }) => {
+  const { errors } = watch(page)
+  await start(page)
+  test.skip((await hooks(page)) !== 'function', 'the dev server only')
+
+  await clipAt(page, 0, 0)
+  await clipAt(page, 1, 0)
+  await expect.poll(() => layout(page)).toBe('0@0 1@0')
+  // Select the clip of the second track, then put the keyboard on the first track's clip.
+  const stage = page.getByTestId('arr-stage')
+  const box = (await stage.boundingBox())!
+  const ppt = Number(await stage.getByTestId('timegrid').getAttribute('data-px-per-tick'))
+  await page.mouse.click(box.x + (3840 / 2) * ppt, box.y + RULER + 1 * LANE + LANE / 2)
+  await expect(page.getByTestId('arrangement')).toHaveAttribute('data-selected-count', '1')
+  await focusClip(page, 0, 0)
+  const before = await done(page)
+  await page.keyboard.press('Control+d')
+  await expect.poll(() => layout(page)).toBe('0@0 0@3840 1@0')
   expect(await done(page)).toBe(before + 1)
 
   expect(errors).toEqual([])

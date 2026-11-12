@@ -146,6 +146,7 @@ pub fn examples() -> Vec<(Command, State)> {
             start: Tick(11520),
             length: None,
             offset: None,
+            if_occupied: Default::default(),
         }),
         // An audio clip of the audio track, whole.
         on(arrangement::Command::Place {
@@ -153,6 +154,7 @@ pub fn examples() -> Vec<(Command, State)> {
             start: Tick(3840),
             length: None,
             offset: None,
+            if_occupied: Default::default(),
         }),
         // Over A (cut on its right) and B (trimmed at the front).
         on(arrangement::Command::Place {
@@ -160,15 +162,18 @@ pub fn examples() -> Vec<(Command, State)> {
             start: Tick(3000),
             length: Some(Tick(1000)),
             offset: Some(Tick(960)),
+            if_occupied: Default::default(),
         }),
         on(arrangement::Command::Move {
             placements: vec![f.a.clone(), f.b.clone()],
             by: Tick(480),
+            if_occupied: Default::default(),
         }),
         // C onto B: B is covered and removed.
         on(arrangement::Command::Move {
             placements: vec![f.c.clone()],
             by: Tick(-3840),
+            if_occupied: Default::default(),
         }),
         on(arrangement::Command::Resize {
             placement: f.a.clone(),
@@ -206,14 +211,17 @@ pub fn examples() -> Vec<(Command, State)> {
         on(arrangement::Command::Repeat {
             placement: f.a.clone(),
             until: Tick(3840 * 2),
+            if_occupied: Default::default(),
         }),
         on(arrangement::Command::Repeat {
             placement: f.b.clone(),
             until: Tick(3840 + 1920 * 3 + 700),
+            if_occupied: Default::default(),
         }),
         on(arrangement::Command::Repeat {
             placement: f.a.clone(),
             until: Tick(3840 * 6),
+            if_occupied: Default::default(),
         }),
     ];
     // To another MIDI track: one placement of a clip another one still uses (the clip
@@ -264,6 +272,28 @@ pub fn examples() -> Vec<(Command, State)> {
         }),
         f.state.clone(),
     ));
+    // The same promise on the other commands (#805): free ground, so a plain edit.
+    for command in [
+        arrangement::Command::Place {
+            clip: f.looped.clone(),
+            start: Tick(11520),
+            length: None,
+            offset: None,
+            if_occupied: arrangement::IfOccupied::Refuse,
+        },
+        arrangement::Command::Move {
+            placements: vec![f.c.clone()],
+            by: Tick(40_000),
+            if_occupied: arrangement::IfOccupied::Refuse,
+        },
+        arrangement::Command::Repeat {
+            placement: f.c.clone(),
+            until: Tick(3840 * 5),
+            if_occupied: arrangement::IfOccupied::Refuse,
+        },
+    ] {
+        all.push((a(command), f.state.clone()));
+    }
     {
         let (state, restore) = after(
             two.clone(),
@@ -288,6 +318,12 @@ pub fn examples() -> Vec<(Command, State)> {
     // there, and a whole scene both ways.
     let grid = f.grid_state();
     let from_grid = |command: arrangement::Command| (a(command), grid.clone());
+    all.push(from_grid(arrangement::Command::PlaceFromSlot {
+        clip: f.looped.clone(),
+        start: Tick(11520),
+        linked: false,
+        if_occupied: arrangement::IfOccupied::Refuse,
+    }));
     for (clip, start, linked) in [
         (&f.looped, 11520, false),
         (&f.looped, 11520, true),
@@ -297,6 +333,7 @@ pub fn examples() -> Vec<(Command, State)> {
             clip: clip.clone(),
             start: Tick(start),
             linked,
+            if_occupied: Default::default(),
         }));
     }
     for (scene, linked) in [(&f.scene_a, false), (&f.scene_b, true)] {
@@ -365,6 +402,7 @@ pub fn examples() -> Vec<(Command, State)> {
         arrangement::Command::Repeat {
             placement: f.a.clone(),
             until: Tick(3840 * 6),
+            if_occupied: Default::default(),
         },
     ] {
         let (state, restore) = after(f.state.clone(), &a(command));
@@ -387,6 +425,7 @@ pub fn examples() -> Vec<(Command, State)> {
         arrangement::Command::Move {
             placements: vec![audio.clone()],
             by: Tick(960),
+            if_occupied: Default::default(),
         },
         arrangement::Command::Resize {
             placement: audio.clone(),
@@ -411,6 +450,7 @@ pub fn examples() -> Vec<(Command, State)> {
         arrangement::Command::Repeat {
             placement: audio.clone(),
             until: Tick(3840 * 3),
+            if_occupied: Default::default(),
         },
     ] {
         let command = a(command);

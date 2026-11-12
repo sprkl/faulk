@@ -6,7 +6,7 @@
  * Who passes which: the Place buttons link by default (#624), while the grid button and the drag copy by default and link
  * with Alt (founder's decision 11). Pure: no DOM, no store.
  */
-import type { Clip, Command, Placement, Project, Tick } from './generated/protocol'
+import type { Clip, Command, IfOccupied, Placement, Project, Tick } from './generated/protocol'
 import { placeFromSlot, duplicatePlacements } from './arrangement-commands'
 import { duplicateClip, moveClip } from './clip-commands'
 import { framesToTicks } from './audio/time'
@@ -77,18 +77,21 @@ export function poolNames(pool: readonly PoolClip[], fallback: string): Record<s
   return out
 }
 
-/** The command that puts a pool clip (MIDI or audio, AU-6) in the arrangement at `start`. */
-export function placeCommand(entry: PoolClip, start: Tick, linked: boolean): Command | null {
+/**
+ * The command that puts a pool clip (MIDI or audio, AU-6) in the arrangement at `start`. `ifOccupied` is what the command does
+ * when the clip lands on a placement (#805): the buttons and keys send `refuse`, a drop keeps `replace`.
+ */
+export function placeCommand(entry: PoolClip, start: Tick, linked: boolean, ifOccupied: IfOccupied = 'replace'): Command | null {
   // A grid clip: the grid's own command, a copy by default.
-  if (entry.slot) return placeFromSlot(entry.id, start, linked)
+  if (entry.slot) return placeFromSlot(entry.id, start, linked, ifOccupied)
   const first = entry.placements[0]
   // Used in the arrangement already: a copy of its first placement by default, the same clip with `linked`.
   // A copy that would land on its own source (the playhead inside it) goes right after it instead of cutting it.
   if (first && !linked) {
     const inside = start >= first.start && start < first.start + first.length
-    return duplicatePlacements([first.id], false, inside ? first.length : start - first.start)
+    return duplicatePlacements([first.id], false, inside ? first.length : start - first.start, ifOccupied)
   }
-  return { type: 'arrangement.place', clip: entry.id, start }
+  return { type: 'arrangement.place', clip: entry.id, start, ...(ifOccupied === 'replace' ? {} : { if_occupied: ifOccupied }) }
 }
 
 /**

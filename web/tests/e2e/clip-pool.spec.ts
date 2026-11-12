@@ -140,3 +140,29 @@ for (const lang of ['en', 'fr'] as const) {
     expect(errors).toEqual([])
   })
 }
+
+test('Place a copy refuses an occupied place, says so, and leaves the neighbour whole (#805)', async ({ page }) => {
+  const { errors } = watch(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await start(page)
+  test.skip((await hooks(page)) !== 'function', 'the command hook exists in the dev server only')
+  const track = Object.keys((await view(page)).project.tracks)[0]!
+  const starts = async () =>
+    Object.values((await view(page)).project.tracks[track]!.placements)
+      .map((p) => p.start)
+      .sort((a, b) => a - b)
+
+  // A clip at bar 1 and another at bar 2; the playhead is at bar 1, so the copy of the first goes right after it, onto the second.
+  await run(page, { type: 'clip.create', track, at: { at: 'arrangement', start: 0 } })
+  await run(page, { type: 'clip.create', track, at: { at: 'arrangement', start: 3840 } })
+  await expect.poll(starts).toEqual([0, 3840])
+  await page.getByTestId('panel-clips').click()
+  const first = Object.values((await view(page)).project.tracks[track]!.placements).find((p) => p.start === 0)!.clip
+  const copy = page.locator(`[data-testid=pool-clip][data-clip="${first}"]`).getByTestId('pool-place-copy')
+  await expect(copy).toBeEnabled()
+  await copy.click()
+  await expect(page.getByTestId('refusal-toast')).toContainText(/taken/)
+  expect(await starts()).toEqual([0, 3840])
+  expect(Object.keys((await view(page)).project.tracks[track]!.clips)).toHaveLength(2)
+  expect(errors).toEqual([])
+})

@@ -102,6 +102,7 @@ fn song() -> Song {
         arr(arrangement::Command::Move {
             placements: placements.clone(),
             by: Tick(3840),
+            if_occupied: Default::default(),
         }),
         "move",
     );
@@ -120,6 +121,7 @@ fn song() -> Song {
             start: Tick(11520),
             length: None,
             offset: None,
+            if_occupied: Default::default(),
         }),
         "place",
     );
@@ -150,6 +152,7 @@ fn every_arrangement_command_leaves_the_engine_in_the_state_of_the_snapshot() {
             start: Tick(500),
             length: Some(Tick(4000)),
             offset: Some(Tick(100)),
+            if_occupied: Default::default(),
         }),
         "place over three placements",
     );
@@ -163,6 +166,7 @@ fn every_arrangement_command_leaves_the_engine_in_the_state_of_the_snapshot() {
         arr(arrangement::Command::Move {
             placements: all.clone(),
             by: Tick(480),
+            if_occupied: Default::default(),
         }),
         "move the whole track",
     );

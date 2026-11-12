@@ -10,6 +10,7 @@ export const refusal = defineFeature(
   {
     'refusal.not_found': 'Not done: what this targets no longer exists.',
     'refusal.invalid': 'Not done: a value was refused.',
+    'refusal.occupied': 'Not done: the place is taken by another clip, which was left as it was.',
     'refusal.limit': 'Not done: the limit of {max} {what} is reached.',
     'refusal.unsupported': 'Not done: this is not available yet.',
     'refusal.folder': 'Not done: this project folder was refused.',
@@ -34,6 +35,7 @@ export const refusal = defineFeature(
   {
     'refusal.not_found': 'Pas fait : la cible n’existe plus.',
     'refusal.invalid': 'Pas fait : une valeur a été refusée.',
+    'refusal.occupied': 'Pas fait : la place est prise par un autre clip, laissé tel quel.',
     'refusal.limit': 'Pas fait : la limite de {max} {what} est atteinte.',
     'refusal.unsupported': 'Pas fait : ce n’est pas encore disponible.',
     'refusal.folder': 'Pas fait : ce dossier de projet a été refusé.',
