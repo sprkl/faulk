@@ -11,6 +11,7 @@ mod ceiling;
 mod clip_edit_playback;
 mod compiler;
 mod compressor;
+mod contour;
 mod device_commands;
 mod device_fade;
 mod device_move;

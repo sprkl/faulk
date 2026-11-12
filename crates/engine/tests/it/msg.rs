@@ -429,7 +429,7 @@ fn an_rt_message_is_small_and_sent_by_move() {
         size_of::<Note>()
     );
     assert_eq!(
-        Feedback::size_for(0, 0, 0, 0),
+        Feedback::size_for(0, 0, 0, 0, 0),
         FEEDBACK_HEADER_BYTES + TRACK_METER_BYTES,
         "the output's meter always follows the track meters"
     );
@@ -438,12 +438,13 @@ fn an_rt_message_is_small_and_sent_by_move() {
     assert_eq!(size_of::<ActiveClip>(), ACTIVE_CLIP_BYTES);
     assert_eq!(size_of::<RecordedNote>(), RECORDED_NOTE_WIRE_BYTES);
     assert_eq!(
-        Feedback::size_for(2, 3, 4, 5),
+        Feedback::size_for(2, 3, 4, 5, 2),
         FEEDBACK_HEADER_BYTES
             + 3 * TRACK_METER_BYTES
             + 3 * ACTIVE_CLIP_BYTES
             + 4 * RECORDED_NOTE_WIRE_BYTES
             + 5 * engine::msg::DEVICE_READOUT_BYTES
+            + 2 * engine::analysis::SPECTRUM_WIRE_BYTES
     );
     // The largest report of the largest session stays small enough for a WebSocket frame.
     assert!(Feedback::max_size_for(limits::MAX_TRACKS as usize) < 256 << 10);

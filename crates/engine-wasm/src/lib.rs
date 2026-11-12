@@ -875,6 +875,36 @@ pub mod nonfinite_exports {
     }
 }
 
+/// The spectrum test scenario (`engine::host::testing::spectrum_scenario`, #156), as
+/// [`nonfinite_exports`]: only in the test build (`--features spectrum-scenario`), never in the
+/// worklet's module.
+#[cfg(feature = "spectrum-scenario")]
+pub mod spectrum_exports {
+    use std::sync::OnceLock;
+
+    fn scenario() -> &'static [u8] {
+        static OUT: OnceLock<Box<[u8]>> = OnceLock::new();
+        OUT.get_or_init(|| engine::host::testing::spectrum_scenario().into_boxed_slice())
+    }
+
+    /// Address of the scenario's bytes, null when it is empty.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fk_spectrum_scenario() -> *const u8 {
+        let out = scenario();
+        if out.is_empty() {
+            core::ptr::null()
+        } else {
+            out.as_ptr()
+        }
+    }
+
+    /// Number of bytes [`fk_spectrum_scenario`] points to.
+    #[unsafe(no_mangle)]
+    pub extern "C" fn fk_spectrum_len() -> u32 {
+        scenario().len() as u32
+    }
+}
+
 // ---------------------------------------------------------------- the offline export
 
 /// The offline render of a project to a WAV file (`engine::offline`, issue #297): its own

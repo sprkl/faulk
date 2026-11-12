@@ -22,6 +22,7 @@ import { drums } from './drums'
 import { bloom } from './bloom'
 import { compressor } from './compressor'
 import { ceiling } from './ceiling'
+import { contour } from './contour'
 import { agentConfirm } from './confirm'
 import { echo } from './echo'
 import { filter } from './filter'
@@ -74,6 +75,7 @@ export const features = {
   trim,
   hiccup,
   bloom,
+  contour,
   devices,
   presets,
   keys,
