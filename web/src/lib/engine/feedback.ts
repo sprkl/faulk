@@ -1,14 +1,16 @@
-// Decodes the engine's report (the `Feedback` layout of crates/engine/src/msg.rs, version 10). The
+// Decodes the engine's report (the `Feedback` layout of crates/engine/src/msg.rs, version 11). The
 // same bytes reach the page two ways: the Web engine's render instance writes them under a
 // seqlock into the shared memory (`readFeedback`), the helper sends them as binary WebSocket
 // frames (`decodeFeedback` on the frame). One decoder, so that both modes show the same thing.
 
 /** Size of the fixed part of a report. */
-export const FEEDBACK_HEADER_BYTES = 108
+export const FEEDBACK_HEADER_BYTES = 112
 /** Where the number of device readouts sits (`FEEDBACK_READOUTS_OFFSET`, #686). */
 export const READOUTS_OFFSET = 100
 /** Where the device latency sits (`FEEDBACK_LATENCY_OFFSET`, #749): one place, so the field moves in one place. */
 export const LATENCY_OFFSET = 104
+/** Where the number of spectra sits (`FEEDBACK_SPECTRA_OFFSET`, #156). */
+export const SPECTRA_OFFSET = 108
 /** Size of one meter. */
 export const TRACK_METER_BYTES = 20
 /** Size of one active clip (track u32, scene u16, state u8, one padding byte, anchor i64). */
@@ -24,7 +26,13 @@ export const MAX_READOUTS_PER_REPORT = 128
 /** The track of a readout of the master's chain (`TrackSlot::MASTER`). */
 export const MASTER_TRACK_SLOT = 0xffffffff
 /** The layout version this page reads. */
-export const FEEDBACK_VERSION = 10
+export const FEEDBACK_VERSION = 11
+/** Bands of a spectrum (`engine::analysis::BANDS`). */
+export const SPECTRUM_BANDS = 96
+/** Size of one spectrum: track, device, sample rate, then the bands (`SPECTRUM_WIRE_BYTES`). */
+export const SPECTRUM_BYTES = 12 + 4 * SPECTRUM_BANDS
+/** Most spectra one report carries (`engine::analysis::MAX_SPECTRA`). */
+export const MAX_SPECTRA = 4
 
 /** Peak and RMS of both channels, linear amplitude, and the gain reduction of the strip's devices. */
 export interface Meter {
@@ -83,6 +91,20 @@ export interface DeviceReadout {
   param: number
   /** In the parameter's unit. */
   value: number
+}
+
+/**
+ * The spectrum of an analysed device's last window (#156, `engine::analysis`): computed off the audio path, one report
+ * after its window. Band `i` spans `20 * 1000^(i/96)` to `20 * 1000^((i+1)/96)` Hz; its value is in dBFS (0 dB: a
+ * full-scale sine), -140 at most down; a band at or above `sampleRate / 2` reads -140.
+ */
+export interface Spectrum {
+  /** Track slot; `null` for the master's chain. */
+  track: number | null
+  /** Device slot in that chain. */
+  device: number
+  sampleRate: number
+  bands: Float32Array
 }
 
 export interface FeedbackReport {
@@ -151,6 +173,8 @@ export interface FeedbackReport {
   recorded: RecordedNote[]
   /** The devices' readouts: enabled devices only, by track slot then device slot, the master's last. */
   readouts: DeviceReadout[]
+  /** The spectra of the analysed devices (at most four per report, #156). */
+  spectra: Spectrum[]
 }
 
 const TRANSPORT: TransportState[] = ['stopped', 'playing', 'recording']
@@ -232,6 +256,25 @@ export function decodeFeedback(bytes: ArrayBufferLike, at = 0, len = bytes.byteL
     const track = view.getUint32(at, true)
     readouts.push({ track: track === MASTER_TRACK_SLOT ? null : track, device: view.getUint16(at + 4, true), param: view.getUint16(at + 6, true), value })
   }
+  // Then the spectra, all inside the bytes.
+  const spectraCount = view.getUint32(SPECTRA_OFFSET, true)
+  const spectraAt = readoutsAt + readoutCount * DEVICE_READOUT_BYTES
+  if (spectraCount > MAX_SPECTRA || spectraAt + spectraCount * SPECTRUM_BYTES > len) return null
+  const spectra: Spectrum[] = []
+  for (let i = 0; i < spectraCount; i++) {
+    const at = spectraAt + i * SPECTRUM_BYTES
+    const bands = new Float32Array(SPECTRUM_BANDS)
+    for (let b = 0; b < SPECTRUM_BANDS; b++) {
+      const v = view.getFloat32(at + 12 + 4 * b, true)
+      bands[b] = Number.isFinite(v) ? v : -140
+    }
+    spectra.push({
+      track: view.getUint32(at, true) === MASTER_TRACK_SLOT ? null : view.getUint32(at, true),
+      device: view.getUint32(at + 4, true),
+      sampleRate: view.getFloat32(at + 8, true),
+      bands,
+    })
+  }
   const meters: Meter[] = []
   for (let i = 0; i < tracks; i++) meters.push(meterAt(view, FEEDBACK_HEADER_BYTES + i * TRACK_METER_BYTES))
   const load = view.getFloat32(24, true)
@@ -265,6 +308,7 @@ export function decodeFeedback(bytes: ArrayBufferLike, at = 0, len = bytes.byteL
     recordCapturing: (view.getUint32(68, true) & 1) === 1,
     recorded,
     readouts,
+    spectra,
   }
 }
 
@@ -286,9 +330,16 @@ export function readFeedback(buffer: ArrayBufferLike, at: number, len: number): 
   // Then the take's last notes and the devices' readouts (a larger count is refused by the decoder).
   const notes = Math.min(header.getUint32(48, true), MAX_RECORDED_PER_REPORT)
   const readouts = Math.min(header.getUint32(READOUTS_OFFSET, true), MAX_READOUTS_PER_REPORT)
+  // Then the spectra (a larger count is refused by the decoder).
+  const spectra = Math.min(header.getUint32(SPECTRA_OFFSET, true), MAX_SPECTRA)
   const used = Math.min(
     len,
-    FEEDBACK_HEADER_BYTES + (tracks + 1) * TRACK_METER_BYTES + clips * ACTIVE_CLIP_BYTES + notes * RECORDED_NOTE_BYTES + readouts * DEVICE_READOUT_BYTES,
+    FEEDBACK_HEADER_BYTES +
+      (tracks + 1) * TRACK_METER_BYTES +
+      clips * ACTIVE_CLIP_BYTES +
+      notes * RECORDED_NOTE_BYTES +
+      readouts * DEVICE_READOUT_BYTES +
+      spectra * SPECTRUM_BYTES,
   )
   const copy = new Uint8Array(used)
   copy.set(new Uint8Array(buffer, at, used))

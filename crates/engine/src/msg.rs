@@ -41,6 +41,7 @@
 //! | `TrackSetMix/Solo/Arm/Monitor`, `HoldMix`, `SelectTrack`, `DeviceSetEnabled`, `ParamSet` | the same, copied |
 //! | `DeviceInsert` | `DevicePut`: the device built by `prepare` with its initial state, and the grown device row |
 //! | `DeviceRemove` | `DeviceRemove` |
+//! | `DeviceMove` | `DeviceMove`: the device moved to its free slot, and the grown device row (#800) |
 //! | `ClipNotesUpload` (last chunk), `ClipAudioSet` | `ClipPut`: the whole clip, and the page or the grown directory of the clip table |
 //! | `AutomationLaneUpload` (last chunk) | `LanePut`, paged like the clips |
 //! | `TrackPlacementsUpload` (last chunk) | `PlacementsSet`: the whole arrangement of the track |
@@ -215,7 +216,7 @@ pub use codec::{
 pub const MSG_VERSION: u8 = 1;
 
 /// Version of the [`Feedback`] layout.
-pub const FEEDBACK_VERSION: u8 = 10;
+pub const FEEDBACK_VERSION: u8 = 11;
 
 /// Size of a [`Header`] in bytes.
 pub const HEADER_BYTES: usize = 16;
@@ -292,7 +293,8 @@ pub mod limits {
 /// Index of a track in the engine, assigned by the project.
 ///
 /// [`TrackSlot::MASTER`] is not a track: it addresses the master's chain of effects (#364) in
-/// the four device messages (`DeviceInsert`, `DeviceRemove`, `DeviceSetEnabled`, `ParamSet`),
+/// the five device messages (`DeviceInsert`, `DeviceRemove`, `DeviceMove`, `DeviceSetEnabled`,
+/// `ParamSet`),
 /// and the master's automation lanes (#378) in `AutomationLaneUpload`, and nowhere else. The project never assigns it (tracks stay below
 /// [`limits::MAX_TRACKS`]), so a message of a track that names it finds no track and is
 /// refused or skipped, as a slot nobody holds.
@@ -548,6 +550,19 @@ pub enum ControlMsg {
         track: TrackSlot,
         device: DeviceSlot,
     },
+    /// Moves the device in `from` to the free slot `to` without building it again (#800).
+    /// The instance keeps its state (tails, envelopes, filter states, its fade and its enabled
+    /// flag), so a device that shifts in its chain when another is inserted or removed in
+    /// front of it goes on sounding. Nothing is built, dropped or faded. `from` must hold a
+    /// device and `to` must be free. Only an audio effect moves: a MIDI effect (its output is
+    /// sized from its place, #219) and an instrument (it plays first after the MIDI effects)
+    /// are refused ([`MsgError::BadPayload`], as an occupied `to` is). The devices removed
+    /// around it keep their place in the chain it left ([`crate::graph`] > Device fades).
+    DeviceMove {
+        track: TrackSlot,
+        from: DeviceSlot,
+        to: DeviceSlot,
+    },
     DeviceSetEnabled {
         track: TrackSlot,
         device: DeviceSlot,
@@ -714,6 +729,7 @@ pub enum Tag {
     DeviceRemove = 21,
     DeviceSetEnabled = 22,
     ParamSet = 23,
+    DeviceMove = 24,
     ClipNotesUpload = 30,
     ClipRemove = 31,
     AudioSourceDeclare = 40,
@@ -742,7 +758,7 @@ pub enum Tag {
 
 impl Tag {
     /// Every tag, in declaration order (for exhaustive tests and generated tables).
-    pub const ALL: [Tag; 41] = [
+    pub const ALL: [Tag; 42] = [
         Tag::Reset,
         Tag::SetTransport,
         Tag::SetMetronome,
@@ -760,6 +776,7 @@ impl Tag {
         Tag::DeviceRemove,
         Tag::DeviceSetEnabled,
         Tag::ParamSet,
+        Tag::DeviceMove,
         Tag::ClipNotesUpload,
         Tag::ClipRemove,
         Tag::AudioSourceDeclare,
@@ -819,6 +836,7 @@ impl ControlMsg {
             ControlMsg::DeviceRemove { .. } => Tag::DeviceRemove,
             ControlMsg::DeviceSetEnabled { .. } => Tag::DeviceSetEnabled,
             ControlMsg::ParamSet { .. } => Tag::ParamSet,
+            ControlMsg::DeviceMove { .. } => Tag::DeviceMove,
             ControlMsg::ClipNotesUpload { .. } => Tag::ClipNotesUpload,
             ControlMsg::ClipRemove { .. } => Tag::ClipRemove,
             ControlMsg::AudioSourceDeclare { .. } => Tag::AudioSourceDeclare,
@@ -932,12 +950,21 @@ impl ControlMsg {
                 ..
             } => {
                 // The master's chain is addressed by `TrackSlot::MASTER`, in these four
-                // messages (and `HoldMix`, above) only: any other message of a track refuses it as a slot past
+                // messages, `DeviceMove` and `HoldMix` only: any other message of a track refuses it as a slot past
                 // the limit.
                 if !t.is_master() {
                     track(t)?;
                 }
                 device(d)
+            }
+            ControlMsg::DeviceMove {
+                track: t, from, to, ..
+            } => {
+                if !t.is_master() {
+                    track(t)?;
+                }
+                device(from)?;
+                device(to)
             }
             ControlMsg::ClipNotesUpload {
                 clip: c,
@@ -1532,6 +1559,24 @@ pub enum RtMsg {
         track: TrackSlot,
         device: DeviceSlot,
     },
+    /// The device of `from` moved to the free slot `to` (#800), after the row is grown to
+    /// `grown` when `to` is beyond it: no device is built, dropped or faded, it keeps its
+    /// state. The automation lanes name a slot and stay: the project uploads the moved
+    /// device's lanes again. Anything else kept per slot outside [`DeviceEntry`] (none today)
+    /// must move with it in the same step.
+    DeviceMove {
+        track: TrackSlot,
+        from: DeviceSlot,
+        to: DeviceSlot,
+        grown: Option<Slots<Box<DeviceEntry>>>,
+        /// The same device built again (#800), when `to` is a slot a device with a latency
+        /// line left: if that device still holds the slot's timing (#761), `apply` puts this
+        /// one there instead (held, then faded in, as a device put there is) and the moved one
+        /// leaves from `from` (the values waiting for `from` in the lines before it are
+        /// forgotten, as for a removal: the project uploads the moved device's lanes again);
+        /// otherwise it goes to the garbage.
+        spare: Option<Box<DeviceEntry>>,
+    },
     DeviceSetEnabled {
         track: TrackSlot,
         device: DeviceSlot,
@@ -1729,13 +1774,13 @@ pub struct RecordedNote {
 }
 
 /// Size of the fixed part of a [`Feedback`] on the wire.
-pub const FEEDBACK_HEADER_BYTES: usize = 108;
+pub const FEEDBACK_HEADER_BYTES: usize = 112;
 
 /// Where the number of device readouts sits in a [`Feedback`] (#686, version 10): one `u32`.
 pub const FEEDBACK_READOUTS_OFFSET: usize = 100;
 
-/// Where the device latency sits in a [`Feedback`] (#749, version 10): one `u32`, the last
-/// word of the header. One constant, so that the field moves in one place.
+/// Where the device latency sits in a [`Feedback`] (#749, version 10): one `u32`, followed by
+/// the spectra count (version 11). One constant, so that the field moves in one place.
 pub const FEEDBACK_LATENCY_OFFSET: usize = 104;
 
 /// The bit of the latency word that says the compensation is capped (#749): a track needs a
@@ -1747,6 +1792,10 @@ pub const FEEDBACK_LATENCY_CAPPED: u32 = 1 << 31;
 pub fn latency_word(frames: u32, capped: bool) -> u32 {
     frames.min(FEEDBACK_LATENCY_CAPPED - 1) | if capped { FEEDBACK_LATENCY_CAPPED } else { 0 }
 }
+
+/// Where the number of spectra sits in a [`Feedback`] (#156, version 11): one `u32`, the last
+/// word of the header.
+pub const FEEDBACK_SPECTRA_OFFSET: usize = 108;
 
 /// What the engine reports to the page, about 30 times per second. Fixed little-endian
 /// layout, written by the audio thread into a region sized by [`Feedback::size_for`]:
@@ -1805,8 +1854,10 @@ pub fn latency_word(frames: u32, capped: bool) -> u32 {
 ///             the engine's rate: the largest chain latency of the tracks plus the master's, which the graph
 ///             compensates (`crate::graph` > Latency), saturated at 2^31 - 1; bit 31 ([`FEEDBACK_LATENCY_CAPPED`]),
 ///             latency_capped: a track needs more than the compensation's limit and is no longer aligned;
-///             [`FEEDBACK_LATENCY_OFFSET`]; last word of the header; version 10, #749)
-///    108      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
+///             [`FEEDBACK_LATENCY_OFFSET`]; version 10, #749)
+///    108    4 spectra (u32, at most `analysis::MAX_SPECTRA`: the spectra this report carries;
+///             [`FEEDBACK_SPECTRA_OFFSET`]; last word of the header; version 11, #156)
+///    112      TrackMeter × (tracks + 1) (20 bytes each: peak L, peak R, RMS L, RMS R, then the
 ///             largest gain reduction in decibels of the strip's devices over the period, version 4):
 ///             one per track slot below `tracks` (zeros for an empty slot; peak and RMS after the
 ///             track's fader), then the output's meter after the master (version 2); the master's
@@ -1821,6 +1872,11 @@ pub fn latency_word(frames: u32, capped: bool) -> u32 {
 ///               block of the period, for each enabled device that reports one, in track
 ///               slot then device slot order, the master's chain last; past
 ///               MAX_READOUTS_PER_REPORT the rest is left out
+///          then Spectrum × spectra (track slot u32 (`TrackSlot::MASTER` for the master's
+///               chain), device slot u32, sample rate f32, then `analysis::BANDS` bands f32 in
+///               dBFS: 396 bytes; the
+///               spectrum of a device's last window, computed off the audio path one report
+///               earlier, `crate::analysis`; version 11, #156)
 /// ```
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Feedback {
@@ -1867,17 +1923,27 @@ pub struct Feedback {
     pub record_capturing: bool,
     /// The live values of the parameters devices move by themselves (#686).
     pub readouts: Vec<DeviceReadout>,
+    /// The spectra of the analysed devices (#156, [`crate::analysis`]), at most
+    /// [`crate::analysis::MAX_SPECTRA`].
+    pub spectra: Vec<crate::analysis::Spectrum>,
 }
 
 impl Feedback {
-    /// Bytes of a report for `tracks` tracks, `active_clips` grid slots, `recorded` notes and
-    /// `readouts` device readouts.
-    pub fn size_for(tracks: usize, active_clips: usize, recorded: usize, readouts: usize) -> usize {
+    /// Bytes of a report for `tracks` tracks, `active_clips` grid slots, `recorded` notes,
+    /// `readouts` device readouts and `spectra` spectra.
+    pub fn size_for(
+        tracks: usize,
+        active_clips: usize,
+        recorded: usize,
+        readouts: usize,
+        spectra: usize,
+    ) -> usize {
         FEEDBACK_HEADER_BYTES
             + (tracks + 1) * TRACK_METER_BYTES
             + active_clips * ACTIVE_CLIP_BYTES
             + recorded * RECORDED_NOTE_WIRE_BYTES
             + readouts * DEVICE_READOUT_BYTES
+            + spectra * crate::analysis::SPECTRUM_WIRE_BYTES
     }
 
     /// The region the audio side writes into: sized for the limits of the moment, resized
@@ -1888,6 +1954,7 @@ impl Feedback {
             2 * tracks,
             MAX_RECORDED_PER_REPORT,
             MAX_READOUTS_PER_REPORT,
+            crate::analysis::MAX_SPECTRA,
         )
     }
 }

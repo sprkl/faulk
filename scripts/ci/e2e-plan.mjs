@@ -29,13 +29,13 @@ export const areas = (...names) => {
 // e2e-table:begin
 /** Named areas: the specs that exercise one part of the page. Rules below are unions of them. */
 export const AREA = {
-  arrangement: ['arrangement', 'audio-clips', 'arrangement-time', 'arrangement-handles', 'arrangement-view', 'arrangement-draw', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard', 'discoverability', 'keyboard-create', 'recording', 'piano-roll-follow', 'clip-pool', 'markers', 'context-menu', 'toolbar-overflow', 'device-browser'],
+  arrangement: ['arrangement', 'audio-clips', 'arrangement-time', 'arrangement-handles', 'arrangement-view', 'arrangement-draw', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard', 'arrangement-never-replaces', 'discoverability', 'keyboard-create', 'recording', 'piano-roll-follow', 'clip-pool', 'markers', 'context-menu', 'toolbar-overflow', 'device-browser'],
   clips: ['clip-pool'],
   grid: ['clip-names', 'clip-pool', 'grid', 'grid-clips', 'grid-to-arrangement', 'recording'],
   history: ['history', 'history-cost', 'history-names', 'keyboard-create'],
   pianoRoll: ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-euclid', 'piano-roll-jump', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard', 'keyboard-create', 'recording', 'piano-roll-follow', 'context-menu', 'scale'],
   mixer: ['automation', 'continuous', 'layout-4', 'mixer', 'mixer-sound', 'master-chain', 'master-pan', 'track-state'],
-  devices: ['automation', 'continuous', 'device-browser', 'devices', 'filter-movement', 'presets', 'ripple-panel', 'layout-4', 'master-chain', 'master-pan', 'track-state', 'context-menu'],
+  devices: ['automation', 'continuous', 'contour', 'device-browser', 'devices', 'filter-movement', 'presets', 'ripple-panel', 'layout-4', 'master-chain', 'master-pan', 'track-state', 'context-menu'],
   transport: ['all-sound-off', 'transport', 'playhead', 'space-bar', 'track-state', 'discoverability', 'recording', 'stop-to-marker', 'tap-tempo', 'scale'],
   tracks: ['tracks', 'track-order', 'lane-rows', 'discoverability', 'device-browser'],
   deviceBrowser: ['device-browser', 'devices', 'tracks', 'lane-rows', 'discoverability', 'keyboard-all-views'],
@@ -117,6 +117,7 @@ export const RULES = [
   [/^web\/src\/views\/piano-roll\//, AREA.pianoRoll],
   [/^web\/src\/views\/mixer\//, AREA.mixer],
   [/^web\/src\/views\/devices\//, AREA.devices],
+  [/^web\/src\/lib\/contour\//, AREA.devices],
   [/^web\/src\/views\/browser\//, AREA.deviceBrowser],
   [/^web\/src\/views\/transport\//, areas('transport', 'topBar')],
   [/^web\/src\/views\/tracks\//, AREA.tracks],
@@ -163,7 +164,7 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/clips\.ts$/, areas('clips', 'audio')],
   [/^web\/src\/lib\/i18n\/audio\.ts$/, areas('arrangement', 'grid', 'clips', 'audio')],
   [/^web\/src\/lib\/i18n\/confirm\.ts$/, areas('helper', 'history')], // shown by the agents' question (lib/agents/, views/confirm/)
-  [/^web\/src\/lib\/i18n\/(devices|presets|synth|drums|echo|reverb|filter|compressor|stack|trim|lattice|scatter|ceiling|hiccup|bloom|ripple)\.ts$/, areas('devices')],
+  [/^web\/src\/lib\/i18n\/(devices|presets|synth|drums|echo|reverb|filter|compressor|stack|trim|lattice|scatter|ceiling|hiccup|bloom|contour|ripple)\.ts$/, areas('devices')],
   [/^web\/src\/lib\/i18n\/controls\.ts$/, areas('mixer', 'tracks', 'devices', 'valueEntry', 'arrangement', 'pianoRoll')],
   [/^web\/src\/lib\/i18n\/engine\.ts$/, areas('arrangement', 'mixer', 'topBar')],
   // The export's texts in Boost are shown through the helper (#319), whose message types share the keys' names.

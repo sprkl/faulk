@@ -170,6 +170,14 @@ const FILES: &[(&str, &str)] = &[
         include_str!("factory/faulk.bloom/vibrato.json"),
     ),
     (
+        "faulk.contour/vocal-presence",
+        include_str!("factory/faulk.contour/vocal-presence.json"),
+    ),
+    (
+        "faulk.contour/low-cut-tidy",
+        include_str!("factory/faulk.contour/low-cut-tidy.json"),
+    ),
+    (
         "faulk.ripple/slow-phaser",
         include_str!("factory/faulk.ripple/slow-phaser.json"),
     ),

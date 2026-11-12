@@ -281,6 +281,43 @@ export function trackTargets(selection: readonly Block[], rows: number, tracks: 
 }
 
 /**
+ * The shift of tracks a keyboard move ends in (#805): `rows` when every block fits there, else the next shift in the same
+ * direction where every block lands on a free place of a track of its kind, `null` when none does (the first track or the
+ * last is passed). The blocks that move do not count as in the way. It is `arrangement.move_to_track`'s `if_occupied: "skip"`
+ * seen from the page, which needs it to say which track was busy.
+ */
+export function freeRows(
+  selection: readonly Block[],
+  rows: number,
+  delta: number,
+  tracks: readonly { id: string; midi: boolean }[],
+  blocks: readonly Block[],
+): number | null {
+  if (rows === 0 || selection.length === 0) return rows
+  const moving = new Set(selection.map((b) => b.id))
+  const step = Math.sign(rows)
+  for (let k = rows; ; k += step) {
+    let fits = true
+    for (const b of selection) {
+      const target = tracks[b.row + k]
+      if (!target) return null
+      const [start, end] = [b.start + delta, b.end + delta]
+      if (target.midi === (b.audio !== null) || blocks.some((o) => o.row === b.row + k && !moving.has(o.id) && o.start < end && start < o.end)) {
+        fits = false
+        break
+      }
+    }
+    if (fits) return k
+  }
+}
+
+/** Whether a copy of each block, `by` ticks later on its own track, would land on a block that is not part of the copy (#805). */
+export function copyBlocked(selection: readonly Block[], by: number, blocks: readonly Block[]): boolean {
+  const copied = new Set(selection.map((b) => b.id))
+  return selection.some((b) => blocks.some((o) => o.row === b.row && !copied.has(o.id) && o.start < b.end + by && b.start + by < o.end))
+}
+
+/**
  * Where an edge goes when the pointer is at `tick`, or `null` when that changes nothing. The end stays after the
  * start; the start stays before the end and, because the content must not slide, not before the first tick of the
  * clip (the offset runs out).

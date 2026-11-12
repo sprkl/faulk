@@ -44,13 +44,28 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
-// Version 56 (#688; 53 and 54 are Contour's, 55 is #802's): the registry gains the audio
-// effect `faulk.ripple` (device kind 15, a phaser and flanger moved by a tempo LFO and an
-// envelope follower). No message
-// changes shape, but a helper of an earlier version does not know kind 15: its engine refuses
-// a stream that inserts it (`UnknownDevice`), so a project holding a Ripple would not play in
-// Boost. The Filter's movement now runs on the shared block `engine::dsp::movement` and renders
-// the same samples.
+// Version 56 (#688): the registry gains the audio effect `faulk.ripple` (device kind 15, a
+// phaser and flanger moved by a tempo LFO and an envelope follower). No message changes shape,
+// but a helper of an earlier version does not know kind 15: its engine refuses a stream that
+// inserts it (`UnknownDevice`), so a project holding a Ripple would not play in Boost. The
+// Filter's movement now runs on the shared block `engine::dsp::movement` and renders the same
+// samples.
+
+// Version 55 (#156): the report is `Feedback` version 11: the header grows from 108 to 112 bytes
+// with `spectra` at offset 108 (`FEEDBACK_SPECTRA_OFFSET`), and the report ends, after the device
+// readouts, with that many spectra (track slot, device slot, the sample rate, 96 bands in dBFS:
+// 396 bytes each), what an equaliser's panel draws, computed off the audio path
+// (`engine::analysis`). Only the bands cross the link, never samples. A page and a helper of
+// different versions refuse each other.
+
+// Version 54 (#156): the device registry gains Contour (`faulk.contour`, kind id 8, an audio
+// effect: the seven-band equaliser); a helper of an earlier version would refuse its
+// `DeviceInsert` and its schema bundle would not describe it. No message changes.
+
+// Version 53 (#800): the engine's control stream gains `DeviceMove`
+// (tag 24), which moves an audio effect to a free slot of its chain without building it again
+// (its tail, its state and its latency lines go with it). A helper of an earlier version would
+// skip it as an unknown tag and its chain would drift from the page's.
 
 // Version 52 (#696): the device registry
 // gains Bloom (`faulk.bloom`, kind id 14, an audio effect: chorus, ensemble and vibrato); a

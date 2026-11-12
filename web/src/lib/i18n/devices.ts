@@ -3,6 +3,8 @@
  * `<device kind without "faulk.">.<parameter key>.hint`; its English text is the description in the
  * device's descriptor (`i18n.test.ts` checks they are the same), its French text is a translation.
  * A device name is not here: it comes from the descriptor, one English name never translated.
+ * Labels of the parameters and of their values are in `synth.ts`, `drums.ts`, `echo.ts`, `reverb.ts`, `filter.ts`, `compressor.ts`, `ceiling.ts`, `trim.ts`, `hiccup.ts` and `bloom.ts`;
+ * Contour's labels and tooltips are both in `contour.ts`.
  * Labels of the parameters and of their values are in `synth.ts`, `drums.ts`, `echo.ts`, `reverb.ts`, `filter.ts`, `compressor.ts`, `ceiling.ts`, `trim.ts`, `hiccup.ts`, `bloom.ts` and `ripple.ts`.
  */
 

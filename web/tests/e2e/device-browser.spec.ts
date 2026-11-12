@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { DEVICES } from '../../src/lib/generated/protocol'
 import { engineUp, watch } from './support'
 
 // #190: the device browser in a real browser. Alt+B opens it with the focus in its search field; the list holds the
@@ -70,6 +71,7 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(groups.first()).toContainText(x.instruments)
     await expect(groups.nth(1)).toContainText(x.effects)
     const kinds = await panel.getByTestId('browse-device').evaluateAll((rows) => rows.map((r) => r.getAttribute('data-kind')))
+    expect(kinds).toHaveLength(DEVICES.length)
     expect(kinds).toEqual([
       'faulk.osc_synth',
       'faulk.drums',
@@ -80,6 +82,7 @@ for (const lang of ['en', 'fr'] as const) {
       'faulk.ceiling',
       'faulk.hiccup',
       'faulk.bloom',
+      'faulk.contour',
       'faulk.ripple',
       'faulk.stack',
       'faulk.trim',
@@ -104,7 +107,8 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(panel.getByTestId('browser-results')).toHaveText(x.none)
     await page.getByRole('button', { name: x.clear }).click()
     await expect(search).toHaveValue('')
-    await expect(panel.getByTestId('browse-device')).toHaveCount(14)
+    // Every device of the registry, counted from it (`DEVICES`), not a number copied by hand.
+    await expect(panel.getByTestId('browse-device')).toHaveCount(DEVICES.length)
     // Escape clears the search, the next one closes the panel.
     await search.fill('echo')
     await page.keyboard.press('Escape')
