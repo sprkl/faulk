@@ -3,6 +3,7 @@ import type { Engine, EngineEvents, EngineStatus } from './engine'
 import { engineMemory } from './engine-abi'
 import { readFeedback } from './feedback'
 import { contextFrameAt, OutputClock } from './clock'
+import { EngineStall } from './engine-stall'
 import { OutputStall } from './output-stall'
 import type { FromPrepare, ToPrepare } from './prepare-worker'
 import type { WorkletMessage } from './worklet'
@@ -52,6 +53,8 @@ export class WebEngine implements Engine {
   private readonly outputClock = new OutputClock()
   /** Whether the output stopped pulling the engine (#810), read from the context's clock at every feedback tick. */
   private readonly outputStall = new OutputStall()
+  /** Whether the engine stopped responding while the output pulls it (#877), read from its report at every feedback tick. */
+  private readonly engineStall = new EngineStall()
   /**
    * Whether the output is expected to pull the engine: from the end of `start` (the context resumed) until a
    * `suspend` the page asked for (Boost plays), and again after `resume`. A context the page did not suspend is
@@ -74,6 +77,12 @@ export class WebEngine implements Engine {
       const stalled = this.outputStall.stalled
       if (this.outputStall.observe({ now: performance.now(), clock: context.currentTime, expected: this.expected }) !== stalled)
         events.onOutputStall?.(!stalled)
+      // The raw `seq`, odd mid-write included, not the last report decoded: an engine that writes reports the page cannot
+      // decode still runs, and a restart would not help it (#877).
+      const written = Atomics.load(new Int32Array(memory.buffer, feedback.at, 2), 1)
+      const engineStalled = this.engineStall.stalled
+      if (this.engineStall.observe({ now: performance.now(), clock: context.currentTime, seq: written, expected: this.expected }) !== engineStalled)
+        events.onEngineStall?.(!engineStalled)
       const report = readFeedback(memory.buffer, feedback.at, feedback.len)
       if (!report || report.seq === last) return
       last = report.seq
@@ -178,6 +187,11 @@ export class WebEngine implements Engine {
     return this.outputStall.stalled
   }
 
+  /** Whether the engine stopped responding now (#877): what `onEngineStall` last said. */
+  get engineStalled(): boolean {
+    return this.engineStall.stalled
+  }
+
   /** The status to show and to start a take with; `frameAt` keeps its latency (#499). */
   status(): EngineStatus {
     const seconds = this.context.baseLatency + (this.context.outputLatency || 0)
@@ -226,7 +240,8 @@ export class WebEngine implements Engine {
 
   async close() {
     clearInterval(this.timer)
-    await this.context.close()
+    // The Worker first: a context whose engine is stuck may never finish closing (#877), and the Worker would stay.
     this.worker.terminate()
+    await this.context.close()
   }
 }
