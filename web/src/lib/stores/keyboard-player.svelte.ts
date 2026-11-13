@@ -50,6 +50,8 @@ export class KeyboardPlayer {
   toggleTyping() {
     this.releaseAll()
     this.ui.typing = this.ui.typing === 'notes' ? 'shortcuts' : 'notes'
+    // Letters left to the shortcuts write nothing either: step entry (#882) ends with typing, not left as a mute mode.
+    if (this.ui.typing === 'shortcuts') this.ui.stepEntry = false
   }
 
   keyDown(event: KeyboardEvent) {
@@ -59,13 +61,16 @@ export class KeyboardPlayer {
       return
     }
     // Musical typing off: the letters are no notes (the MIDI controller and the on-screen keys are not concerned).
-    if (!this.engine.started || this.ui.typing !== 'notes') return
+    // Step entry writes notes with no engine started, so the octave keys must work then too (#882).
+    if ((!this.engine.started && !this.ui.stepEntry) || this.ui.typing !== 'notes') return
     const step = octaveStep(event.code)
     if (step !== 0) {
       this.releaseAll()
       this.octave = clampOctave(this.octave + step)
       return
     }
+    // Step entry (#882): the piano roll writes the letters as notes; none plays live (Z and X above still move the octave).
+    if (this.ui.stepEntry) return
     const note = noteForKey(event.code, this.octave)
     if (note === null || this.held.has(event.code)) return
     // The command layer routes the note: the selected MIDI track and the armed ones (none: nothing plays).

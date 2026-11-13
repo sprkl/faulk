@@ -38,6 +38,27 @@ const key = (code: string, over: Record<string, unknown> = {}) =>
   }) as unknown as KeyboardEvent
 
 describe('the computer keyboard played from the shell (#361)', () => {
+  it('ends step entry when musical typing is switched off (#882)', () => {
+    const { keys, ui } = setup()
+    ui.stepEntry = true
+    keys.toggleTyping()
+    expect(ui.typing).toBe('shortcuts')
+    expect(ui.stepEntry).toBe(false)
+  })
+
+  it('plays no note live while the piano roll writes them (step entry, #882), and Z and X still move the octave', () => {
+    const { keys, sent, ui } = setup()
+    ui.stepEntry = true
+    keys.keyDown(key('KeyA'))
+    keys.keyUp(key('KeyA'))
+    expect(sent).toEqual([])
+    keys.keyDown(key('KeyX'))
+    expect(keys.octave).toBe(5)
+    ui.stepEntry = false
+    keys.keyDown(key('KeyA'))
+    expect(sent).toEqual([{ type: 'live.input_note_on', note: 72, velocity: 100 }])
+  })
+
   it('plays the selected MIDI track whatever the view: the player knows no view', () => {
     const { keys, sent, stamps } = setup()
     keys.keyDown(key('KeyA'))
