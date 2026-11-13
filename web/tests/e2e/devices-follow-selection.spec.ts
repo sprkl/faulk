@@ -14,6 +14,7 @@ test('devices panel follows the track chosen in the arrangement after the Master
   await page.getByTestId('add-track').click()
   await page.getByRole('menuitem', { name: 'Drums', exact: true }).click()
 
+  await page.getByTestId('nav-arrangement').click()
   const devices = page.getByTestId('devices')
   const heads = page.getByTestId('track-header')
   await expect(heads).toHaveCount(2)
@@ -35,7 +36,7 @@ test('devices panel follows the track chosen in the arrangement after the Master
     await page.getByTestId('panel-devices').click()
     await expect(devices).toBeVisible()
     await expect(devices).not.toHaveAttribute('data-target', 'master')
-    await expect(page.getByTestId('device-chain')).toHaveAttribute('aria-label', /Drums/)
+    await expect(page.getByTestId('device-chain')).toHaveAttribute('aria-label', 'Devices of Track 2')
   }
 
   // Choosing the Master explicitly still shows it.
