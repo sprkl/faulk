@@ -152,6 +152,8 @@
   }
 
   function select() {
+    // Picking a track ends the devices panel's master view, even when it is already selected (#806).
+    ui.masterSelection = null
     if (!selected) dispatcher.run(selectTrack(entry.id))
   }
 

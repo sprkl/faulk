@@ -64,6 +64,7 @@ export const PREVIEW_SPECS = [
   'pack-import',
   'piano-roll',
   'project-store',
+  'space-bar',
   'storage-commands',
 ]
 /** The one test of `mixer.spec.ts` the `preview` project runs: a fragment of its title. */

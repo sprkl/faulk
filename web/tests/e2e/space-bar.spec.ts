@@ -61,6 +61,40 @@ test('after a mouse click on an arrangement track header, Space plays and pauses
   expect(errors).toEqual([])
 })
 
+// #809: the first track is selected from the start, so the test above never clicks a row that is not selected yet.
+// Selecting a row, or pressing its M / S button, must not take Space from the transport either, right after the click.
+test('after a mouse click on an unselected track header, or its M / S button, Space plays and pauses', async ({ page }) => {
+  const { errors } = watch(page)
+  await start(page)
+  for (let i = 0; i < 2; i++) {
+    await page.getByTestId('add-track').click()
+    await page.getByTestId('add-track-menu').getByRole('menuitem', { name: 'Drums', exact: true }).click()
+  }
+  await page.getByTestId('nav-arrangement').click()
+  await expect(page.getByTestId('arr-track')).toHaveCount(3)
+  const clicks: Record<string, () => Promise<void>> = {
+    'second header': () => page.getByTestId('arr-track').nth(1).click(),
+    'third header': () => page.getByTestId('arr-track').nth(2).click(),
+    'first header again': () => page.getByTestId('arr-track').first().click(),
+    'mute of the second row': () => page.getByTestId('arr-mute').nth(1).click(),
+    'solo of the third row': () => page.getByTestId('arr-solo').nth(2).click(),
+  }
+  for (const [name, click] of Object.entries(clicks)) {
+    await test.step(name, async () => {
+      await page.getByTestId('transport-rewind').click()
+      await expect.poll(() => tick(page)).toBe(0)
+      await click()
+      // No wait between the click and the key: a press right after the click is the user's case.
+      await page.keyboard.press('Space')
+      await transport(page, 'playing')
+      await expect.poll(() => tick(page)).toBeGreaterThan(0)
+      await page.keyboard.press('Space')
+      await transport(page, 'stopped')
+    })
+  }
+  expect(errors).toEqual([])
+})
+
 test('a control the keyboard focused keeps Space, and so does a text field', async ({ page }) => {
   const { errors } = watch(page)
   await start(page)
