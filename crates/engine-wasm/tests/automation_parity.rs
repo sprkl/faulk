@@ -323,18 +323,29 @@ fn curved_lanes_render_the_same_natively_and_in_wasm() {
             point(6 * bar, 0.9, Shape::Step),
         ],
     );
-    // A parameter on a logarithmic knob (the synth's release, 0.002 to 30 s): its curve warps
-    // the knob's travel (#881), through `ln` and `exp` in both builds.
+    // A parameter on a logarithmic knob (#881): the cutoff of a Filter after the synth (20 Hz
+    // to 20 kHz), slow then fast up, then an S down, over bars 5 to 7: its curve warps the
+    // knob's travel through `ln` and `exp` in both builds.
+    let commands::Output::Device(commands::device::Output::Insert { device: filter }) =
+        s.exec(Command::Device(commands::device::Command::Insert {
+            track: Some(track.clone()),
+            master: false,
+            kind: "faulk.filter".into(),
+            index: 1,
+        }))
+    else {
+        panic!("a filter")
+    };
     lane(
         &mut s,
         AutomationTarget::Device {
-            device: synth.clone(),
-            param: "release".into(),
+            device: filter,
+            param: "cutoff".into(),
         },
         vec![
-            point(4 * bar, 0.01, Shape::EaseIn),
-            point(5 * bar, 2.0, Shape::Smooth),
-            point(6 * bar, 0.05, Shape::Step),
+            point(4 * bar, 200.0, Shape::EaseIn),
+            point(5 * bar, 12_000.0, Shape::Smooth),
+            point(6 * bar, 400.0, Shape::Step),
         ],
     );
     s.note_on(57, 110).note_on(64, 100);

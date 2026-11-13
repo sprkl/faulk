@@ -19,7 +19,9 @@
 //! `EaseIn` (slow, then fast), `t (2 − t)` for `EaseOut` (fast, then slow), `t² (3 − 2t)` for
 //! `Smooth` (slow at both ends). The formulas of the production sheet (the music-producer
 //! skill's `ease-in`, `ease-out`, `smooth`), plain products, so the native and the web builds
-//! compute the same bits. Everything below that speaks of a linear transition holds for a
+//! compute the same bits for them; a logarithmic knob adds `ln` and `exp`, whose last bits may
+//! differ between the two builds' maths libraries (within the parity tolerance of the render
+//! harness, not bit for bit). Everything below that speaks of a linear transition holds for a
 //! curved one: it moves (a slope), it is read at the control instants, a volume lane sends it
 //! as chords of its curve.
 //!
