@@ -171,6 +171,10 @@ export class Dispatcher {
       onStatus: (status) => {
         if (current()) this.state.status = status
       },
+      onOutputStall: (stalled) => {
+        // Only the Web engine that plays: entering Boost clears the word, and a resumed engine counts again from scratch.
+        if (kind === 'web' && current()) this.state.outputStalled = stalled
+      },
       onFeedback: (report) => {
         if (!current()) return
         this.state.feedback = report
@@ -682,6 +686,7 @@ export class Dispatcher {
     this.state.peak = 0
     this.state.voices = 0
     this.state.silencedFrames = 0
+    this.state.outputStalled = false
     this.state.latencyFrames = 0
     this.state.latencyCapped = false
     this.state.activeNotes = []
@@ -1681,6 +1686,7 @@ export class Dispatcher {
       this.boostSince = Date.now()
       this.stopAwaitingOutput()
       this.state.mode = 'native'
+      this.state.outputStalled = false
       this.state.status = session.status
       this.state.helperUpdate = session.update
       this.state.helper = 'connected'

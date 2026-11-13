@@ -145,7 +145,9 @@
   // The output protection silenced a non-finite signal (#667): a red dot in the pill and the words in its tooltip and
   // accessible name, for as long as this engine plays; the dialog says how much.
   const silenced = $derived(engine.silencedFrames > 0 ? t('engine.silenced') : null)
-  const notes = $derived([loadPeak, waiting, silenced].filter((n): n is string => n !== null))
+  // The output stopped pulling the Web engine (#810): the shell's notice says it; the pill's tooltip and label too.
+  const noOutput = $derived(engine.mode === 'web' && engine.outputStalled ? t('engine.noOutput') : null)
+  const notes = $derived([loadPeak, waiting, silenced, noOutput].filter((n): n is string => n !== null))
 </script>
 
 <header class="top" bind:this={bar} data-fit={fit} style:--fk-project-max={fit >= 2 ? '128px' : '160px'}>
@@ -196,6 +198,7 @@
         title={`${t('engine.settings')}: ${[engine.mode === 'native' ? t('engine.boost') : t('engine.web'), latency, loadPeak].filter(Boolean).join(', ')}${[
           waiting,
           silenced,
+          noOutput,
         ]
           .filter(Boolean)
           .map((n) => `. ${n}`)

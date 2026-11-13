@@ -3,6 +3,7 @@ import type { Engine, EngineEvents, EngineStatus } from './engine'
 import { engineMemory } from './engine-abi'
 import { readFeedback } from './feedback'
 import { contextFrameAt, OutputClock } from './clock'
+import { OutputStall } from './output-stall'
 import type { FromPrepare, ToPrepare } from './prepare-worker'
 import type { WorkletMessage } from './worklet'
 import workletUrl from './worklet.ts?worker&url'
@@ -30,6 +31,16 @@ export class WebEngine implements Engine {
   private reportedLatency = 0
   /** The page clock ↔ audio frame correspondence, fed at every feedback tick and at every stamp (#725). */
   private readonly outputClock = new OutputClock()
+  /** Whether the output stopped pulling the engine (#810), read from the context's clock at every feedback tick. */
+  private readonly outputStall = new OutputStall()
+  /**
+   * Whether the output is expected to pull the engine: from the end of `start` (the context resumed) until a
+   * `suspend` the page asked for (Boost plays), and again after `resume`. A context the page did not suspend is
+   * expected to run, whatever its state says: its clock standing still is what the page reports.
+   */
+  private expected = false
+  /** Counts the page's `suspend` and `resume` calls: a `resume` that a later `suspend` overtook does not expect the clock to run. */
+  private pauses = 0
 
   private constructor(
     private readonly context: AudioContext,
@@ -41,6 +52,9 @@ export class WebEngine implements Engine {
     let last = 0
     this.timer = setInterval(() => {
       this.sampleClock()
+      const stalled = this.outputStall.stalled
+      if (this.outputStall.observe({ now: performance.now(), clock: context.currentTime, expected: this.expected }) !== stalled)
+        events.onOutputStall?.(!stalled)
       const report = readFeedback(memory.buffer, feedback.at, feedback.len)
       if (!report || report.seq === last) return
       last = report.seq
@@ -110,6 +124,7 @@ export class WebEngine implements Engine {
     const engine = new WebEngine(context, worker, memory, { at: ready.feedback, len: ready.feedbackLen }, events)
     node.connect(context.destination)
     await context.resume()
+    engine.expected = true
     events.onStatus(engine.status())
     // outputLatency is only known once audio runs: report again shortly after.
     setTimeout(() => events.onStatus(engine.status()), 500)
@@ -168,11 +183,16 @@ export class WebEngine implements Engine {
 
   /** Pauses audio without losing the engine (used while the helper plays). */
   async suspend() {
+    // Before the call: the clock stops while the suspension runs, which is no stall (#810).
+    this.expected = false
+    this.pauses++
     await this.context.suspend()
   }
 
   async resume() {
+    const pause = ++this.pauses
     await this.context.resume()
+    if (pause === this.pauses) this.expected = true
   }
 
   async close() {
