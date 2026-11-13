@@ -1968,6 +1968,60 @@ async fn the_stdio_bridge_says_what_to_do_without_a_token_or_a_helper() {
     assert!(message.contains("not running"), "{message}");
 }
 
+/// #815: a refused MCP request must still be told why when its body is unread. The helper used to
+/// answer 401 and close the connection with the body still in its receive queue; the closing
+/// sent a reset, and on Windows the reset threw the answer away ("connection aborted", os error
+/// 10053), so the bridge told the agent the helper was not running.
+#[tokio::test]
+async fn a_refused_mcp_request_is_answered_even_when_its_body_is_unread() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let h = start().await;
+    let wrong = "ffffffffffffffffffffffffffffffff";
+    // (path, Host, token, status): the refusals of `serve_connection` that a first request meets (the 404 is for a kept-alive connection).
+    let local = format!("127.0.0.1:{}", h.port);
+    let cases = [
+        ("/mcp", local.as_str(), wrong, "401"),
+        ("/mcp", "evil.example", MCP_TOKEN, "403"),
+    ];
+    for (path, host, token, status) in cases {
+        for _ in 0..3 {
+            let mut stream = TcpStream::connect(("127.0.0.1", h.port)).await.unwrap();
+            let body = vec![b' '; 40_000];
+            let head = format!(
+                "POST {path} HTTP/1.1
+Host: {host}
+Authorization: Bearer {token}
+Content-Type: application/json
+Content-Length: {}
+
+",
+                body.len()
+            );
+            stream.write_all(head.as_bytes()).await.unwrap();
+            // The helper answers on the headers alone, and closes.
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            // The body arrives on a connection the helper has already closed: a reset.
+            let _ = stream.write_all(&body).await;
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            // The connection stays open (keep-alive): read the answer's head, not to the end.
+            let mut answer = vec![0u8; 4096];
+            let read = tokio::time::timeout(Duration::from_secs(5), stream.read(&mut answer))
+                .await
+                .expect("the helper must answer");
+            let text = String::from_utf8_lossy(&answer[..read.as_ref().copied().unwrap_or(0)])
+                .into_owned();
+            assert!(
+                read.is_ok(),
+                "{status}: reset before the answer was read: {read:?}"
+            );
+            assert!(
+                text.starts_with(&format!("HTTP/1.1 {status}")),
+                "{status}: {text}"
+            );
+        }
+    }
+}
+
 // --- #608: the control link, for agents in Web mode and without an output --------------------
 
 /// Opens a page's control link (#608).

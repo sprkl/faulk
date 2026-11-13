@@ -374,7 +374,7 @@ fn two_devices_with_a_line_in_a_row_hand_the_hold_on() {
     use engine::devices::ceiling::DESCRIPTOR as CEILING;
     // Ceiling, Ceiling, echo: the first is removed, the second moves into its held slot (built
     // again there, the old one leaving its own slot, which it then holds), and the echo moves
-    // into that one: it gets a spare too, so neither move is cut.
+    // into that one, behind the old one (#838: it has no line): neither move is cut.
     let ceiling = |slot: u16| insert(slot, CEILING.kind_id, &[]);
     let setup = playing(&[ceiling(1), ceiling(2), echo(3)]);
     let (out, at, r) = held_with(&setup, &[remove(1), mv(2, 1), mv(3, 2)]);
@@ -559,13 +559,12 @@ fn a_ceiling_moved_keeps_its_timing() {
 }
 
 #[test]
-fn a_device_moved_into_the_slot_a_ceiling_holds_waits_then_fades_in() {
+fn a_device_moved_into_the_slot_a_ceiling_holds_goes_behind_it_without_a_step() {
     use engine::devices::ceiling::DESCRIPTOR as CEILING;
     // The Ceiling in front of a quarter gain is removed and the gain moves into its slot: the
-    // Ceiling holds the slot's timing (#761), so the gain is built again there (the spare
-    // `prepare` made), held then faded in, while the moved one fades out where it was, on the
-    // Ceiling's line: the behaviour before #800 for this case, with no step. (Its level rises
-    // toward the unattenuated tone during the hold, as it did then.)
+    // Ceiling holds the slot's timing (#761), and the gain, which has no line, goes behind it
+    // (#838): not built again, it hears the Ceiling's line until the slot switches. No step,
+    // no larger than the messages before #800 gave (the gain built again in the held slot).
     let setup = playing(&[insert(1, CEILING.kind_id, &[]), gain_fx(2, 0.25)]);
     let (out, latency) = timed_with(&setup, &[remove(1), mv(2, 1)]);
     assert_eq!(latency[0], 72);
@@ -574,6 +573,15 @@ fn a_device_moved_into_the_slot_a_ceiling_holds_waits_then_fades_in() {
         0,
         "the timing left with the Ceiling"
     );
+    // Alone on its track, the Ceiling holds the longest chain: the tracks' latency stays
+    // while it holds its slot (its own fade into its line), then only goes down, once the
+    // slot switched (#761), as any removal of a device with a latency makes it.
+    let n = fade_frames(RATE) as usize;
+    assert!(
+        latency[40..40 + n / BLOCK].iter().all(|l| *l == 72),
+        "{latency:?}"
+    );
+    assert!(latency.windows(2).all(|w| w[1] <= w[0]), "{latency:?}");
     // Settled on the quarter at the end.
     let end = peak(&out[out.len() - 10 * BLOCK..]);
     assert!((end - 0.25 * 0.125).abs() < 1e-3, "{end}");
@@ -605,4 +613,241 @@ fn a_device_moved_into_the_slot_a_ceiling_holds_waits_then_fades_in() {
         assert_eq!(r.outgoing(), 0);
         assert_eq!(r.e.skipped(), 0);
     }
+}
+
+/// A second track whose chain is longer than track 0's (two Ceilings, 144 frames at 48 kHz),
+/// silent: it holds the tracks' latency `T`, so a change of track 0's chain moves only track
+/// 0's delay (#761).
+fn longer_track() -> Vec<M> {
+    use engine::devices::ceiling::DESCRIPTOR as CEILING;
+    let t = TrackSlot(1);
+    let mut v = vec![M::TrackCreate {
+        track: t,
+        kind: TrackKind::Midi,
+    }];
+    for slot in 0..3 {
+        let kind = if slot == 0 {
+            TONE.kind_id
+        } else {
+            CEILING.kind_id
+        };
+        v.push(M::DeviceInsert {
+            track: t,
+            device: DeviceSlot(slot),
+            kind,
+            state: encode_state(&[]),
+        });
+    }
+    v
+}
+
+fn compressor(slot: u16, lookahead: f32) -> M {
+    use engine::devices::compressor::{DESCRIPTOR as COMPRESSOR, LOOKAHEAD};
+    insert(slot, COMPRESSOR.kind_id, &[(ParamId(LOOKAHEAD), lookahead)])
+}
+
+#[test]
+fn an_echo_moved_into_the_slot_a_ceiling_holds_goes_behind_it_and_keeps_its_timing() {
+    use engine::devices::ceiling::DESCRIPTOR as CEILING;
+    // #838: the Ceiling in front of the echo is removed and the echo moves into its slot. The
+    // Ceiling holds the slot's timing (#761) and the echo, not built again, goes behind it:
+    // it receives the Ceiling's line, then the slot switches and the echo catches up the
+    // frames it skipped. Below its ceiling the Ceiling only delays the tone: the output is the
+    // one without the edit, and the reported latency never moves (the other track holds the
+    // longest chain).
+    let mut setup = longer_track();
+    setup.extend(playing(&[insert(1, CEILING.kind_id, &[]), echo(2)]));
+    let (untouched, steady) = timed_with(&setup, &[]);
+    assert!(steady.iter().skip(2).all(|l| *l == 144), "{steady:?}");
+    let (moved, latency) = timed_with(&setup, &[remove(1), mv(2, 1)]);
+    assert_eq!(latency, steady, "the timing never moved");
+    let diff = max_diff(&untouched, &moved);
+    println!("echo behind a held Ceiling: max difference {diff:e}");
+    assert_eq!(
+        diff, 0.0,
+        "the echo kept its input and its tail, to the bit"
+    );
+    // The control, the behaviour before #838: the echo built again in the held slot.
+    let (rebuilt, _) = timed_with(&setup, &[remove(1), echo(1), remove(2)]);
+    assert!(max_diff(&untouched, &rebuilt) > 1e-3);
+}
+
+#[test]
+fn an_echo_moved_behind_a_removed_compressor_keeps_its_tail_whatever_the_look_ahead() {
+    // A Compressor has a line whatever its look-ahead (#749): at 0 (its default) it holds a
+    // slot of no timing (it held it for ever before #838, the echo silent behind it), at 2 ms
+    // one of 96 frames, at 10 ms one of 480 (its slot then switches over four blocks, each
+    // a catch-up with the holder still there). Either way the echo moved behind it keeps its
+    // tail through the removal and the switch, and nothing is left fading out (`tail_with`).
+    for lookahead in [0.0, 0.002, 0.01] {
+        let setup = playing(&[compressor(1, lookahead), echo(2)]);
+        let untouched = tail_with(&setup, &[]);
+        let moved = tail_with(&setup, &[remove(1), mv(2, 1)]);
+        let window = CHANGE_AT..CHANGE_AT + 100 * BLOCK;
+        let (kept, got) = (
+            peak(&untouched[window.clone()]),
+            peak(&moved[window.clone()]),
+        );
+        let diff = max_diff(&untouched, &moved);
+        println!(
+            "look-ahead {lookahead}: echo tail peak {kept:.5}, moved {got:.5}, max difference \
+             {diff:e}"
+        );
+        assert!(kept > 0.01, "the echo rings: {kept}");
+        assert!((got / kept - 1.0).abs() < 0.02, "{got} against {kept}");
+        // On a held tone, through the Compressor's own fade into its line and the switch.
+        let (out, at, r) = held_with(&setup, &[remove(1), mv(2, 1)]);
+        let (step, bound) = assert_no_jump("compressor removed in front of the echo", &out, at);
+        println!("look-ahead {lookahead}: held tone step {step:.5}, bound {bound:.5}");
+        assert_eq!(r.e.skipped(), 0);
+    }
+}
+
+#[test]
+fn an_echo_moved_behind_a_compressor_removed_from_the_master_keeps_its_tail() {
+    // The master's chain does not switch its slots (#761): a device with a line removed from
+    // it fades its line out, from the delayed signal to the undelayed one. The echo moved
+    // into its slot goes behind it (#838) and so hears that crossfade instead of the
+    // undelayed signal at once: no step on a held tone, and its tail goes on.
+    let master = |m: &M| match m.clone() {
+        M::DeviceInsert {
+            device,
+            kind,
+            state,
+            ..
+        } => M::DeviceInsert {
+            track: TrackSlot::MASTER,
+            device,
+            kind,
+            state,
+        },
+        M::DeviceRemove { device, .. } => M::DeviceRemove {
+            track: TrackSlot::MASTER,
+            device,
+        },
+        M::DeviceMove { from, to, .. } => M::DeviceMove {
+            track: TrackSlot::MASTER,
+            from,
+            to,
+        },
+        other => other,
+    };
+    for lookahead in [0.0, 0.002] {
+        let mut setup = playing(&[]);
+        setup.extend([compressor(0, lookahead), echo(1)].iter().map(master));
+        let change: Vec<M> = [remove(0), mv(1, 0)].iter().map(master).collect();
+        let untouched = tail_with(&setup, &[]);
+        let moved = tail_with(&setup, &change);
+        let window = CHANGE_AT..CHANGE_AT + 100 * BLOCK;
+        let (kept, got) = (
+            peak(&untouched[window.clone()]),
+            peak(&moved[window.clone()]),
+        );
+        println!("master, look-ahead {lookahead}: echo tail peak {kept:.5}, moved {got:.5}");
+        assert!(kept > 0.01, "the echo rings: {kept}");
+        assert!((got / kept - 1.0).abs() < 0.02, "{got} against {kept}");
+        let (out, at, _) = held_with(&setup, &change);
+        let (step, bound) = assert_no_jump("compressor removed from the master", &out, at);
+        println!("master, look-ahead {lookahead}: held tone step {step:.5}, bound {bound:.5}");
+    }
+}
+
+/// Plays the note through `setup` (held), sends `first` at a block near the tone's crest,
+/// `second` one block later, and returns the output and the frame of `first`.
+fn twice_with(setup: &[M], first: &[M], second: &[M]) -> (Vec<f32>, usize, Rig) {
+    let (mut out, at, mut r) = held_with(setup, first);
+    out.truncate(at + BLOCK);
+    // `held_with` ran 40 blocks after `first`: start again, the second edit one block in.
+    let mut x = Rig::new();
+    x.send(setup);
+    let mut again = x.run(at / BLOCK);
+    x.send(first);
+    again.extend(x.run(1));
+    x.send(second);
+    again.extend(x.run(60));
+    assert_eq!(max_diff(&out, &again[..out.len()]), 0.0);
+    r.p.collect();
+    (again, at, x)
+}
+
+#[test]
+fn a_device_removed_behind_a_holder_fades_out_behind_it() {
+    // Compressor (2 ms), quarter gain, echo. The Compressor is removed (it holds slot 1, the
+    // gain moving behind it), then, one block later, the gain (it fades out in series at slot
+    // 1, the echo moving behind it). The chain ran the Compressor, then the gain: the gain
+    // keeps fading out behind the Compressor's line, so the echo never hears the tone without
+    // the gain while the line still delays it.
+    let setup = playing(&[compressor(1, 0.002), gain_fx(2, 0.25), echo(3)]);
+    let (out, at, r) = twice_with(
+        &setup,
+        &[remove(1), mv(2, 1), mv(3, 2)],
+        &[remove(1), mv(2, 1)],
+    );
+    let (step, bound) = assert_no_jump("a gain removed behind a holder", &out, at + BLOCK);
+    println!("gain removed behind a holder: step {step:.5}, bound {bound:.5}");
+    assert_eq!(r.outgoing(), 0);
+    assert_eq!(r.e.skipped(), 0);
+}
+
+#[test]
+fn the_last_device_behind_a_holder_removed_fades_out_behind_it() {
+    use engine::devices::ceiling::DESCRIPTOR as CEILING;
+    // Ceiling, quarter gain: the Ceiling is removed (the gain moves behind it), then, one
+    // block later, the gain, with nothing moving into the slot after it. The gain keeps
+    // fading out behind the Ceiling's line, so its input never jumps back by the Ceiling's
+    // latency, and the slot's switch catches it up.
+    let setup = playing(&[insert(1, CEILING.kind_id, &[]), gain_fx(2, 0.25)]);
+    let (out, at, r) = twice_with(&setup, &[remove(1), mv(2, 1)], &[remove(1)]);
+    let (step, bound) = assert_no_jump("the last device behind a holder removed", &out, at + BLOCK);
+    println!("last device behind a holder removed: step {step:.5}, bound {bound:.5}");
+    assert_eq!(r.outgoing(), 0);
+    assert_eq!(r.e.skipped(), 0);
+}
+
+#[test]
+fn a_device_replaced_behind_a_holder_crossfades_through_the_switch() {
+    // Ceiling, echo: the Ceiling is removed (the echo moves behind it), then, one block later,
+    // the echo is replaced by another echo. The old one fades out in parallel with the new one
+    // behind the holder, and both run the frames the slot's switch catches up (#761): no
+    // step through the switch, nothing left fading out.
+    use engine::devices::ceiling::DESCRIPTOR as CEILING;
+    let setup = playing(&[insert(1, CEILING.kind_id, &[]), echo(2)]);
+    let (out, at, r) = twice_with(&setup, &[remove(1), mv(2, 1)], &[echo(1)]);
+    let (step, bound) = assert_no_jump("an echo replaced behind a holder", &out, at + BLOCK);
+    println!("echo replaced behind a holder: step {step:.5}, bound {bound:.5}");
+    assert_eq!(r.outgoing(), 0);
+    assert_eq!(r.e.skipped(), 0);
+}
+
+#[test]
+fn an_effect_moved_toward_the_tail_into_a_held_slot_is_built_again_there() {
+    use engine::devices::ceiling::DESCRIPTOR as CEILING;
+    // Echo (1), Ceiling (2): the Ceiling moves in front of the echo as the commands send a
+    // swap of neighbours: the Ceiling leaves slot 2 (it holds it), the echo moves toward the
+    // tail into it, and a new Ceiling goes to slot 1. The echo was in front of the Ceiling,
+    // not behind: it does not go behind the holder (its input would jump back by the
+    // Ceiling's latency, #838); the device built again by `prepare` takes the slot, held then
+    // faded in, as before. No step, nothing left fading out.
+    let setup = playing(&[echo(1), insert(2, CEILING.kind_id, &[])]);
+    let (out, at, r) = held_with(
+        &setup,
+        &[remove(2), mv(1, 2), insert(1, CEILING.kind_id, &[])],
+    );
+    let (step, bound) = assert_no_jump("an echo moved toward the tail into a held slot", &out, at);
+    println!("echo moved toward the tail into a held slot: step {step:.5}, bound {bound:.5}");
+    assert_eq!(r.outgoing(), 0);
+    assert_eq!(r.e.skipped(), 0);
+}
+
+#[test]
+fn an_effect_put_in_a_held_slot_waits_for_the_holder() {
+    use engine::devices::ceiling::DESCRIPTOR as CEILING;
+    // A Ceiling removed, then an echo inserted in its slot: the Ceiling holds the slot and the
+    // echo, put there (not moved there from behind it), runs unheard until the holder is gone,
+    // as before #838: the first blocks give the tone through the Ceiling's line alone.
+    let setup = playing(&[insert(1, CEILING.kind_id, &[])]);
+    let (alone, _) = timed_with(&setup, &[remove(1)]);
+    let (put, _) = timed_with(&setup, &[remove(1), echo(1)]);
+    let at = 40 * BLOCK;
+    assert_eq!(max_diff(&alone[at..at + BLOCK], &put[at..at + BLOCK]), 0.0);
 }
