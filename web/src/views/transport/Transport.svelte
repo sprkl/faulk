@@ -41,7 +41,14 @@
    * (the record button's title still says it), and the key and scale button, then the launch quantization, leave for the
    * bar's overflow menu (the scale's panel then opens from that menu).
    */
-  let { hideTarget = false, hideQuantize = false, hideScale = false }: { hideTarget?: boolean; hideQuantize?: boolean; hideScale?: boolean } = $props()
+  let {
+    hideTarget = false,
+    hideQuantize = false,
+    hideScale = false,
+    hideTap = false,
+    hideSignature = false,
+    hideToggles = false,
+  }: { hideTarget?: boolean; hideQuantize?: boolean; hideScale?: boolean; hideTap?: boolean; hideSignature?: boolean; hideToggles?: boolean } = $props()
 
   const { engine, project, ui, dispatcher, recorder } = useStores()
   const t = ui.t
@@ -192,7 +199,8 @@
   function endSeries(event: Event) {
     // The tap key (a held one repeats) and the modifier that goes with it belong to the series.
     if (event instanceof KeyboardEvent && (isTapChord(event) || ['Alt', 'Shift', 'Control', 'Meta'].includes(event.key))) return
-    if ((event.target as Element | null)?.closest?.('[data-tap]')) return
+    // The tap button and the tap entry of the top bar's more menu (#878) belong to the series too.
+    if ((event.target as Element | null)?.closest?.('[data-tap], [data-testid="ctx-more-tap"]')) return
     tapSeries.end()
     wheelSeries.end()
   }
@@ -272,6 +280,16 @@
       run(setLoopRegion(0, DEFAULT_LOOP_BARS * barTicks(signature)))
       run(toggleLoop())
     })
+  }
+
+  /** One tap of the tap button, for the bar's more menu when the button has folded away (#878). */
+  export function tapTempo() {
+    onTap()
+  }
+
+  /** The loop button's action, for the bar's more menu when the button has folded away (#878). */
+  export function toggleLoopRegion() {
+    onLoop()
   }
 
   /**
@@ -400,6 +418,8 @@
   <button
     class="tool"
     class:on={settings?.loop_enabled}
+    hidden={hideToggles}
+    data-folds
     disabled={!ready}
     aria-pressed={settings?.loop_enabled ?? false}
     aria-label={t('transport.loop')}
@@ -414,6 +434,8 @@
   <button
     class="tool"
     class:on={settings?.metronome.enabled}
+    hidden={hideToggles}
+    data-folds
     disabled={!ready}
     aria-pressed={settings?.metronome.enabled ?? false}
     aria-label={t('transport.metronome')}
@@ -467,6 +489,8 @@
   <button
     class="tool tap"
     data-tap
+    hidden={hideTap}
+    data-folds
     disabled={!ready}
     title={withShortcut(t('transport.tapHint'), ['Alt', 'T'])}
     data-testid="transport-tap"
@@ -476,7 +500,7 @@
   </button>
   <span class="sr-only" role="status" data-testid="transport-tapped">{tapped}</span>
 
-  <div class="field" role="group" aria-label={t('transport.signature')}>
+  <div class="field" role="group" aria-label={t('transport.signature')} hidden={hideSignature} data-folds>
     <input
       class="value sig"
       type="text"
@@ -546,6 +570,9 @@
     background: var(--fk-surface-2);
     color: var(--fk-text);
     cursor: pointer;
+  }
+  .tool[hidden] {
+    display: none;
   }
   .tool:hover:not(:disabled) {
     border-color: var(--fk-line);

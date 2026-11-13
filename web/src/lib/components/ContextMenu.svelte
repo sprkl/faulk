@@ -73,6 +73,10 @@
 
   function pick(item: MenuItem) {
     if (item.disabled) return
+    if (item.stayOpen) {
+      item.run()
+      return
+    }
     // The menu goes first: the command may rebuild the very element the focus returns to.
     close(true)
     item.run()
