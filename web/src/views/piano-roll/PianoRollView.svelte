@@ -41,7 +41,8 @@
     type View,
   } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
-  import { generateShortcut, isQuantizeKey, isTextTarget, QUANTIZE_CODE, repeatShortcut } from '../../lib/keyboard'
+  import { generateShortcut, isQuantizeKey, isTextTarget, noteForKey, playsNote, QUANTIZE_CODE, repeatShortcut } from '../../lib/keyboard'
+  import { advanceTo, barBeat, dropLast, isStepEntryToggle, lengthenLast, stepEntryKey, type EntryStep } from './step-entry'
   import BarDialog from '../arrangement/BarDialog.svelte'
   import { defaultRepeatUntil, parseRepeatUntil, repeatCopies } from './repeat'
   import EuclideanPanel from './EuclideanPanel.svelte'
@@ -120,7 +121,7 @@
   import Surface from './Surface.svelte'
   import { boardNotes, setBoard } from './clipboard'
 
-  const { project, engine, ui, dispatcher, recorder } = useStores()
+  const { project, engine, ui, dispatcher, recorder, keys: player } = useStores()
   const t = ui.t
   const run = (command: Command) => dispatcher.run(command)
   const group = <T,>(body: () => T) => inGroup((command, options) => dispatcher.run(command, options), body)
@@ -483,6 +484,8 @@
 
   onDestroy(() => {
     ui.remember('piano-roll', { clip: openedFor, view, scrollY })
+    // The letters play again once the roll is gone (#882).
+    ui.stepEntry = false
     sound(null)
   })
 
@@ -664,7 +667,18 @@
   function onWindowKeyDown(event: KeyboardEvent) {
     if (event.defaultPrevented || !edited || isTextTarget(event.target)) return
     const target = event.target
-    if (target !== document.body && !(target instanceof Node && rollEl?.contains(target))) return
+    const inRoll = target === document.body || (target instanceof Node && !!rollEl?.contains(target))
+    // Step entry (#882): a letter writes wherever it would play; the mode's other keys only in the roll.
+    if (inRoll && isStepEntryToggle(event)) {
+      event.preventDefault()
+      setStepEntry(!ui.stepEntry)
+      return
+    }
+    if (ui.stepEntry && (inRoll || stepEntryKey(event)?.kind === 'note') && playsNote(event) && stepKeyDown(event)) {
+      event.preventDefault()
+      return
+    }
+    if (!inRoll) return
     // The roll's own listener takes Alt+G from inside the roll; from the page itself (nothing focused) it is taken here.
     if (target === document.body && generateShortcut(event)) {
       event.preventDefault()
@@ -806,20 +820,21 @@
     ),
   )
   const cursorText = $derived.by(() => {
-    const beatsPerBar = bar / PPQ
-    const beat = cursorPos.tick / PPQ
-    return t('pianoRoll.cursorItem', {
-      pitch: keyNames?.get(cursorPos.pitch) ?? pitchName(cursorPos.pitch),
-      bar: Math.floor(beat / beatsPerBar) + 1,
-      beat: Number(((beat % beatsPerBar) + 1).toFixed(2)),
-    })
+    return t('pianoRoll.cursorItem', { pitch: keyNames?.get(cursorPos.pitch) ?? pitchName(cursorPos.pitch), ...barBeat(cursorPos.tick, PPQ, bar / PPQ) })
   })
   // Another clip: the cursor starts again where the view looks, and the notes have the tab stop again.
+  // The mode ends with the clip it writes into (no clip, an audio track): the letters play again.
   $effect(() => {
-    void edited?.id
+    if (!edited) untrack(() => (ui.stepEntry = false))
+  })
+  // The id alone: `edited` is a new object at every edit of its notes, and an edit must not take the cursor away (#882).
+  const editedId = $derived(edited?.id ?? null)
+  $effect(() => {
+    void editedId
     untrack(() => {
       cursorAt = null
       onCursor = false
+      resetEntry()
     })
   })
 
@@ -833,6 +848,200 @@
       scrollY = clampScrollY(layout.scrollY + rect.y - (RULER_HEIGHT + stageH) / 2, stageH, { rowHeight: ROW, top: RULER_HEIGHT })
     await tick()
     itemsEl?.querySelector<HTMLElement>('[data-cursor]')?.focus()
+  }
+
+  // --- step entry (#882) ----------------------------------------------------------------------------------------------
+  // A mode (toolbar button, Alt+E) in which the letters of musical typing write a note at the free cursor, of the toolbar's
+  // length, through the same `clip.notes.add` as Enter (one undo per note); the cursor advances when the last letter held
+  // is released (letters held together are a chord on one step). Period is a rest, Comma lengthens the last step by a
+  // drawing step, Backspace removes the last step. The pure part is `step-entry.ts`.
+  /** The steps written since the mode began (or since the cursor was moved by hand), the last one on top. */
+  let entrySteps = $state.raw<EntryStep[]>([])
+  /** The letters held now, by physical key; the step is complete when the last one is released. */
+  // Not reactive on purpose: nothing renders from it.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const heldLetters = new Set<string>()
+  /** The step being written while letters are held. */
+  let chordStep: EntryStep | null = null
+  /** The last step reached the clip's end: no room for another one. */
+  let entryFull = false
+  /** The cursor as step entry left it: any other move of the cursor (a new object) makes the steps stale. */
+  let entryAt: { pitch: number; tick: number } | null = null
+
+  /** Where the next step goes: where step entry left the cursor, else the cursor (whose tick is clamped to the snap, not the length). */
+  const entryHere = () => (entryAt !== null && cursorAt === entryAt ? entryAt.tick : cursorPos.tick)
+
+  /** The steps written, once the cursor is known to be where entry left it and the last step's notes are the clip's current ones (an undo or an edit may have changed them). */
+  function liveSteps(): EntryStep[] {
+    if (entrySteps.length > 0 && (entryAt === null || cursorAt !== entryAt)) resetEntry()
+    const last = entrySteps.at(-1)
+    if (!last || last.notes.length === 0) return entrySteps
+    const now = last.notes.flatMap((n) => notes.filter((m) => m.start === n.start && m.pitch === n.pitch))
+    const length = now.length > 0 ? Math.max(...now.map((n) => n.length)) : last.length
+    entrySteps = [...entrySteps.slice(0, -1), { ...last, notes: now, length }]
+    return entrySteps
+  }
+
+  function resetEntry() {
+    entryAt = null
+    entrySteps = []
+    heldLetters.clear()
+    chordStep = null
+    entryFull = false
+  }
+
+  /** Where a tick is, as the words say it: bar and beat. */
+  const place = (tick: number) => barBeat(tick, PPQ, bar / PPQ)
+  const cursorWords = (tick: number) => {
+    const { bar: cbar, beat: cbeat } = place(tick)
+    return { cbar, cbeat }
+  }
+
+  function setStepEntry(on: boolean) {
+    if (ui.stepEntry === on) return
+    endChord()
+    ui.stepEntry = on
+    resetEntry()
+    if (on) {
+      // The letters must write: typing on, and no live note left sounding.
+      ui.typing = 'notes'
+      player.releaseAll()
+      cursorAt ??= cursorPos
+      void focusCursor()
+    }
+    announce(t(on ? 'pianoRoll.saidStepOn' : 'pianoRoll.saidStepOff'))
+  }
+
+  /** Puts the cursor at `tick` (null: the clip is full, it stays on `fallback`). Callers speak. */
+  function entryCursor(tick: number | null, fallback: number, pitch: number) {
+    entryFull = tick === null
+    cursorAt = { pitch, tick: tick ?? fallback }
+    entryAt = cursorAt
+    void focusCursor()
+  }
+
+  /** A letter went down: its note is written at the cursor (or at the step's start while another letter is held), sounded and said. */
+  function writeStepNote(code: string) {
+    if (!edited || heldLetters.has(code)) return
+    const pitch = noteForKey(code, player.octave)
+    if (pitch === null) return
+    if (entryFull && !chordStep) return announce(t('pianoRoll.saidStepEnd'))
+    const start = chordStep?.start ?? entryHere()
+    const note = drawnNote(start, null, pitch, drawVelocity, null, nextLength, clipLength)
+    if (!note || !fits(note, clipLength) || notes.some((n) => noteKey(n) === noteKey(note))) return announce(t('pianoRoll.saidNoRoom'))
+    run(addNotes(edited.id, [note]))
+    // Nothing to say or sound when the command did not apply (a refusal the dispatcher already shows).
+    if (!notes.some((n) => noteKey(n) === noteKey(note))) return
+    heldLetters.add(code)
+    chordStep = chordStep
+      ? { ...chordStep, length: Math.max(chordStep.length, note.length), notes: [...chordStep.notes, note] }
+      : { start, length: note.length, notes: [note] }
+    sound(note.pitch, note.velocity)
+    revealNote({ start: note.start, note })
+    announce(
+      t('pianoRoll.saidStepNote', {
+        pitch: keyNames?.get(note.pitch) ?? pitchName(note.pitch),
+        ...place(note.start),
+        ...cursorWords(note.start + note.length),
+      }),
+    )
+  }
+
+  /** The last letter held went up (or the roll lost the keyboard): the step is complete and the cursor advances by its length. */
+  function endChord() {
+    heldLetters.clear()
+    const step = chordStep
+    chordStep = null
+    if (!step) return
+    release()
+    entrySteps = [...entrySteps, step]
+    const next = advanceTo(step.start + step.length, clipLength)
+    entryCursor(next, step.start, step.notes.at(-1)?.pitch ?? cursorPos.pitch)
+    if (next === null) announce(t('pianoRoll.saidStepEnd'))
+  }
+
+  function onWindowKeyUp(event: KeyboardEvent) {
+    if (!heldLetters.delete(event.code)) return
+    if (heldLetters.size === 0) endChord()
+    else release()
+  }
+
+  function restStep() {
+    if (!edited) return
+    if (entryFull) return announce(t('pianoRoll.saidStepEnd'))
+    const start = entryHere()
+    const length = Math.max(1, Math.min(nextLength, clipLength - start))
+    entrySteps = [...entrySteps, { start, length, notes: [] }]
+    const next = advanceTo(start + length, clipLength)
+    entryCursor(next, start, cursorPos.pitch)
+    announce(next === null ? t('pianoRoll.saidStepEnd') : t('pianoRoll.saidStepRest', cursorWords(next)))
+  }
+
+  function lengthenStep() {
+    if (!edited) return
+    const steps = liveSteps()
+    const before = steps.at(-1)
+    const result = lengthenLast(steps, drawing ?? SIXTEENTH, clipLength)
+    if (!result || !before) return announce(t('pianoRoll.saidStepNone'))
+    const last = result.steps.at(-1)!
+    // Nothing grows: the clip ends here.
+    if (last.length === before.length) return announce(t('pianoRoll.saidAtClipEnd'))
+    if (result.changes.length > 0) {
+      const ok = acceptable(notes, result.changes)
+      if (!ok || ok.length === 0) return announce(t('pianoRoll.saidCannotResize'))
+      run(updateNotes(edited.id, ok))
+      if (!notes.some((n) => noteKey(n) === noteKey(ok[0]!.to))) return
+    }
+    entrySteps = result.steps
+    const next = advanceTo(result.cursor, clipLength)
+    entryCursor(next, last.start, last.notes.at(-1)?.pitch ?? cursorPos.pitch)
+    const length = gestureLength(t, signature, last.length)
+    announce(t('pianoRoll.saidStepLonger', { length: result.cut ? t('pianoRoll.saidLengthCut', { length }) : length, ...cursorWords(result.cursor) }))
+  }
+
+  /** Backspace: the last step's notes go (one `clip.notes.remove`) and the cursor goes back to where the step began. False when nothing was written. */
+  function backStep(): boolean {
+    if (!edited) return false
+    const dropped = dropLast(liveSteps())
+    if (!dropped) return false
+    if (dropped.notes.length > 0) run(removeNotes(edited.id, dropped.notes))
+    entrySteps = dropped.steps
+    entryCursor(dropped.cursor, dropped.cursor, dropped.notes[0]?.pitch ?? cursorPos.pitch)
+    announce(t('pianoRoll.saidStepBack', cursorWords(dropped.cursor)))
+    return true
+  }
+
+  /** A key while the mode is on: whether it was taken. The caller has checked `playsNote`. */
+  function stepKeyDown(event: KeyboardEvent): boolean {
+    if (!ui.stepEntry || !edited || ui.typing !== 'notes') return false
+    const key = stepEntryKey(event)
+    if (!key) return false
+    if (key.kind === 'note') {
+      writeStepNote(key.code)
+      return true
+    }
+    // Another key while letters are held does nothing: the step is not complete.
+    if (heldLetters.size > 0) return true
+    if (key.kind === 'rest') restStep()
+    else if (key.kind === 'lengthen') lengthenStep()
+    else return backStep()
+    return true
+  }
+
+  /** Backspace ahead of the stage's own (it would remove the selection): in the mode, with a step written, it removes that step. */
+  function onRollKeyCapture(event: KeyboardEvent) {
+    if (event.code !== 'Backspace' || !ui.stepEntry || liveSteps().length === 0 || event.ctrlKey || event.metaKey || event.altKey || isTextTarget(event.target))
+      return
+    // A held key is no new step, but it must not fall through to "remove the selection" either.
+    if (event.repeat) {
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
+    if (playsNote(event) && stepKeyDown(event)) {
+      event.preventDefault()
+      event.stopPropagation()
+    }
   }
 
   /** Page Up and Page Down (#494): the velocity of `chosen` by `delta`, one `clip.notes.update`, the value said. */
@@ -881,6 +1090,7 @@
         clipLength,
       )
       cursorAt = { pitch: MAX_PITCH - next.row, tick: next.tick }
+      resetEntry()
       void focusCursor()
       return
     }
@@ -933,6 +1143,7 @@
       event.preventDefault()
       event.stopPropagation()
       cursorAt = { pitch: cursorPos.pitch, tick: jumpCursor(cursorPos.tick, jump, { step: cursorStep, bar }, clipLength) }
+      resetEntry()
       void focusCursor()
       return
     }
@@ -1022,6 +1233,7 @@
 
   // The window loses the pointer or the tab hides: nothing may keep sounding.
   function silence() {
+    endChord()
     keyHeld = false
     if (gesture) cancel()
     else sound(null)
@@ -1636,7 +1848,7 @@
   }
 </script>
 
-<svelte:window onblur={silence} onkeydown={onWindowKeyDown} />
+<svelte:window onblur={silence} onkeydown={onWindowKeyDown} onkeyup={onWindowKeyUp} />
 <svelte:document onvisibilitychange={silence} />
 
 {#if !track}
@@ -1650,6 +1862,7 @@
   <div
     class="roll"
     bind:this={rollEl}
+    onkeydowncapture={onRollKeyCapture}
     data-testid="piano-roll"
     data-clip={edited.id}
     data-note-count={notes.length}
@@ -1825,6 +2038,13 @@
         title={withShortcut(t('pianoRoll.generateHint'), [chordText(['Alt', 'G'])])}
         data-testid="roll-generate"
         onclick={openGenerate}>{t('pianoRoll.generate')}</button
+      >
+      <button
+        aria-pressed={ui.stepEntry}
+        aria-keyshortcuts="Alt+E"
+        title={withShortcut(t('pianoRoll.stepEntryHint'), ['Alt', 'E'])}
+        data-testid="roll-step-entry"
+        onclick={() => setStepEntry(!ui.stepEntry)}>{t('pianoRoll.stepEntry')}</button
       >
       <span class="count" data-testid="roll-count" title={chosenNotes.length > 0 ? t('pianoRoll.selected', { n: chosenNotes.length }) : undefined}
         >{t('pianoRoll.count', { n: notes.length })}</span

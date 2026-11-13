@@ -76,6 +76,11 @@ export class UiStore {
    * the shortcuts ('shortcuts'). View state of the session, not project data; one key toggles it (`TYPING_TOGGLE_CODE`).
    */
   typing = $state<'notes' | 'shortcuts'>('notes')
+  /**
+   * Step entry (#882): the piano roll is writing the letters as notes at its free cursor, so the keyboard player
+   * (`KeyboardPlayer`) plays none live. Set by the roll, cleared when it goes.
+   */
+  stepEntry = $state(false)
 
   /** Height the user gave the bottom panel, per view (px): a preference of the page, kept in `localStorage`, not in the project. Missing: the layout's default. */
   panelHeights = $state<Partial<Record<PanelViewId, number>>>(parseHeights(read(HEIGHTS_KEY)))

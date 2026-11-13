@@ -487,6 +487,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
         'ArrowUp',
         'ArrowUp',
         'Backspace',
+        'Backspace',
         'Delete',
         'Enter',
         'Enter',
@@ -496,7 +497,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
         'PageDown',
         'PageUp',
         'Space',
-      ], // Page Up and Down: the selection's velocity (#494); Space on a note selects it (#771), no letter
+      ], // Page Up and Down: the selection's velocity (#494); Space on a note selects it (#771); Backspace ahead of the stage in step entry (#882), no letter
       'views/piano-roll/EuclideanPanel.svelte': ['Enter', 'Escape'], // the euclidean generator's fields (#694): Enter places, Escape closes; every other key stays in the field
       'views/shell/BottomPanel.svelte': ['ArrowDown', 'ArrowUp', 'End', 'Enter', 'Home'],
       'views/shell/EngineDialog.svelte': ['Enter'], // the recording offset's field (#470)
