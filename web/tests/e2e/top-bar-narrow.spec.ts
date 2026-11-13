@@ -57,6 +57,10 @@ async function assertInside(page: Page, width: number) {
 for (const [lang, width] of [
   ['en', 800],
   ['fr', 800],
+  ['en', 900],
+  ['fr', 900],
+  ['en', 1000],
+  ['fr', 1000],
   ['en', 1100],
   ['fr', 1100],
   ['en', 1280],
@@ -76,10 +80,11 @@ for (const [lang, width] of [
 test('at 800 px the bar still fits when the pill is at its widest (#878)', async ({ page }) => {
   const { errors } = watch(page)
   await open(page, 800)
-  // 20 px more in the pill: a 100 % load and a three-digit latency are wider than the idle engine's.
+  // 24 px more in the pill (as in top-bar.spec.ts): a 100 % load or a longer latency is wider than the idle engine's 0 %.
+  // The warning dots of a silenced or waiting output (7 px each) are not part of this.
   await page.evaluate(() => {
     const el = document.createElement('span')
-    el.style.cssText = 'display:inline-block;flex:none;height:28px;width:20px'
+    el.style.cssText = 'display:inline-block;flex:none;height:28px;width:24px'
     document.querySelector('[data-testid=engine-mode]')!.append(el)
   })
   await assertInside(page, 800)
@@ -102,6 +107,8 @@ test('at 800 px the more menu holds what the bar folded and works from the keybo
   await expect(menu).toHaveAttribute('role', 'menu')
   await expect(more).toHaveAttribute('aria-expanded', 'true')
   await expect(page.getByTestId('ctx-more-tap')).toContainText('Alt+T')
+  // The tap entry is a real entry (a tap per pick): it is enabled and reaches the tempo's tap button through the menu.
+  await expect(page.getByTestId('ctx-more-tap')).toBeEnabled()
   await expect(page.getByTestId('ctx-more-signature-4-4')).toContainText('✓')
   // The arrows move through the entries, Enter runs one: the time signature is a command.
   await page.keyboard.press('ArrowDown')
@@ -133,5 +140,17 @@ test('at 800 px the more menu holds what the bar folded and works from the keybo
   await expect(page.getByTestId('transport-loop')).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByTestId('transport-metronome')).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByTestId('transport-numerator')).toHaveValue('3')
+  expect(errors).toEqual([])
+})
+
+test('the focus of a control the bar folds at 800 px goes to the more button (#878)', async ({ page }) => {
+  const { errors } = watch(page)
+  await open(page, 1100)
+  const metronome = page.getByTestId('transport-metronome')
+  await metronome.focus()
+  await expect(metronome).toBeFocused()
+  await page.setViewportSize({ width: 800, height: 900 })
+  await expect(metronome).toBeHidden()
+  await expect(page.getByTestId('bar-more')).toBeFocused()
   expect(errors).toEqual([])
 })

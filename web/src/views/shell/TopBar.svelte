@@ -106,8 +106,13 @@
         [3, 4],
         [4, 4],
         [5, 4],
+        [6, 4],
+        [7, 4],
+        [3, 8],
+        [5, 8],
         [6, 8],
         [7, 8],
+        [9, 8],
         [12, 8],
       ]
       if (meter && !usual.some(([n, d]) => n === meter.numerator && d === meter.denominator)) usual.push([meter.numerator, meter.denominator])
@@ -146,8 +151,8 @@
           : []),
         ...(fit >= 6
           ? [
-              // The tap button: its key does the work (a menu that closes after each press cannot tap a tempo).
-              { id: 'more-tap', label: t('transport.tap'), shortcut: 'Alt+T', separator: true, disabled: true, run: () => {} },
+              // The tap button: one tap per pick (the menu closes after each); a series of taps is made with its key.
+              { id: 'more-tap', label: t('transport.tap'), shortcut: 'Alt+T', separator: true, disabled: !ready, run: () => transport?.tapTempo() },
               { id: 'more-signature', label: t('transport.signature'), separator: true, disabled: true, run: () => {} },
               ...signatures().map(([n, d]) => ({
                 id: `more-signature-${n}-${d}`,

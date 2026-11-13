@@ -281,6 +281,11 @@
     })
   }
 
+  /** One tap of the tap button, for the bar's more menu when the button has folded away (#878). */
+  export function tapTempo() {
+    onTap()
+  }
+
   /** The loop button's action, for the bar's more menu when the button has folded away (#878). */
   export function toggleLoopRegion() {
     onLoop()
