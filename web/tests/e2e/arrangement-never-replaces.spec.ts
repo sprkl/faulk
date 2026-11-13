@@ -185,3 +185,39 @@ test('Ctrl+D copies the focused clip on its own track even when a clip of anothe
 
   expect(errors).toEqual([])
 })
+
+test('Alt+Shift+Right refuses to grow a clip over the next one and names it, and grows it on free ground (#863)', async ({ page }) => {
+  const { errors } = watch(page)
+  await start(page)
+  test.skip((await hooks(page)) !== 'function', 'the dev server only')
+  const said = page.getByTestId('arr-said')
+
+  // Two clips of a bar side by side on the first track, a third alone on the second.
+  await clipAt(page, 0, 0)
+  await clipAt(page, 0, 1)
+  await clipAt(page, 1, 0)
+  await expect.poll(() => layout(page)).toBe('0@0 0@3840 1@0')
+  const lengths = async () =>
+    ((await blocks(page)) as unknown as { row: number; start: number; length: number }[])
+      .map((b) => `${b.row}@${b.start}:${b.length}`)
+      .sort()
+      .join(' ')
+  const before = await lengths()
+  const entries = await done(page)
+
+  // The end of the first clip one step later would cut the second: nothing changes and the message names it.
+  await focusClip(page, 0, 0)
+  await page.keyboard.press('Alt+Shift+ArrowRight')
+  await expect(said).toHaveText(/^Not resized: .*, bars 2 to 2, is in the way/)
+  expect(await lengths()).toBe(before)
+  expect(await done(page)).toBe(entries)
+
+  // Free ground still grows: the lone clip of the second track gets longer, one history entry.
+  await focusClip(page, 1, 0)
+  await page.keyboard.press('Alt+Shift+ArrowRight')
+  await expect.poll(async () => (await lengths()) !== before).toBe(true)
+  expect(await layout(page)).toBe('0@0 0@3840 1@0')
+  expect(await done(page)).toBe(entries + 1)
+
+  expect(errors).toEqual([])
+})

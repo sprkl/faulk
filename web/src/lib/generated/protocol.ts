@@ -899,6 +899,7 @@ moves: TrackMove[]
 type: "arrangement.move_to_track"
 } | {
 edge: Edge
+if_occupied?: IfOccupied
 /**
  * Identifier of a placement in a track's arrangement.
  */
@@ -945,6 +946,7 @@ linked?: boolean
 start: Tick
 type: "arrangement.place_from_slot"
 } | {
+if_occupied?: IfOccupied
 linked?: boolean
 /**
  * Identifier of a scene.

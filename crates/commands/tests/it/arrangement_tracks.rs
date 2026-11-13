@@ -747,6 +747,78 @@ fn a_repeat_refuses_to_cover_the_placements_after_it() {
 }
 
 #[test]
+fn a_resize_that_grows_into_a_neighbour_carves_it_by_default_and_refuses_on_request() {
+    let f = fx();
+    // `a` (0 to 3840) grown to 5000 reaches into `b` (3840 to 5760): by default `b` is cut
+    // (this is what `arrangement.resize` has always done, and what an edge drag relies on).
+    let grow = |how| arrangement::Command::Resize {
+        placement: f.a.clone(),
+        edge: arrangement::Edge::End,
+        to: Tick(5000),
+        if_occupied: how,
+    };
+    refused_when_it_carves(
+        &f.state,
+        grow(arrangement::IfOccupied::Refuse),
+        grow(arrangement::IfOccupied::Replace),
+    );
+    let mut state = f.state.clone();
+    let outcome = run(
+        &a(grow(arrangement::IfOccupied::Replace)),
+        &mut state,
+        &mut fresh_context(),
+    )
+    .unwrap();
+    assert!(matches!(
+        outcome.output,
+        Output::Arrangement(arrangement::Output::Resize { overwritten: 1 })
+    ));
+    // The undo brings the carved neighbour back exactly.
+    let Undo::Inverse(inverse) = outcome.undo else {
+        panic!()
+    };
+    inverse.apply(&mut state, &mut fresh_context()).unwrap();
+    assert_eq!(state.project, f.state.project);
+    // Shrinking never carves, whatever `if_occupied` says.
+    let mut shrunk = f.state.clone();
+    let shrink = arrangement::Command::Resize {
+        placement: f.a.clone(),
+        edge: arrangement::Edge::End,
+        to: Tick(1000),
+        if_occupied: arrangement::IfOccupied::Refuse,
+    };
+    run(&a(shrink), &mut shrunk, &mut fresh_context()).unwrap();
+    assert_ne!(shrunk, f.state);
+}
+
+#[test]
+fn a_scene_sent_to_the_arrangement_refuses_an_occupied_place() {
+    let f = fx();
+    let state = f.grid_state();
+    let send = |how| arrangement::Command::PlaceScene {
+        scene: f.scene_a.clone(),
+        start: Tick(1000),
+        linked: false,
+        if_occupied: how,
+    };
+    refused_when_it_carves(
+        &state,
+        send(arrangement::IfOccupied::Refuse),
+        send(arrangement::IfOccupied::Replace),
+    );
+    // On free ground it is a plain send, whatever `if_occupied` says.
+    let mut free = state.clone();
+    let on_free_ground = arrangement::Command::PlaceScene {
+        scene: f.scene_a.clone(),
+        start: Tick(40_000),
+        linked: false,
+        if_occupied: arrangement::IfOccupied::Refuse,
+    };
+    run(&a(on_free_ground), &mut free, &mut fresh_context()).unwrap();
+    assert_ne!(free, state);
+}
+
+#[test]
 fn only_a_move_to_another_track_can_skip() {
     let f = fx();
     let skip = arrangement::IfOccupied::Skip;
@@ -772,6 +844,18 @@ fn only_a_move_to_another_track_can_skip() {
             clip: f.looped.clone(),
             start: Tick(40_000),
             linked: false,
+            if_occupied: skip,
+        },
+        arrangement::Command::PlaceScene {
+            scene: f.scene_a.clone(),
+            start: Tick(40_000),
+            linked: false,
+            if_occupied: skip,
+        },
+        arrangement::Command::Resize {
+            placement: f.a.clone(),
+            edge: arrangement::Edge::End,
+            to: Tick(1000),
             if_occupied: skip,
         },
     ];

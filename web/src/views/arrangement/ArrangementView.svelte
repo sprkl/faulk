@@ -1953,7 +1953,13 @@
           return to === null ? [] : [{ id: b.id, to }]
         })
         if (ends.length === 0) return announce(t('arrangement.saidCannotResize'))
-        inGroup(ends.map((e) => resizePlacement(e.id, 'end', e.to)))
+        // A longer clip never carves the next one (#863): the page names the clip in the way and sends nothing.
+        for (const e of ends) {
+          const from = blocks.find((b) => b.id === e.id)
+          const inTheWay = from ? repeatCovers(from, e.to, blocks) : null
+          if (inTheWay) return announce(t('arrangement.saidResizeBlocked', blockerVars(inTheWay)))
+        }
+        inGroup(ends.map((e) => resizePlacement(e.id, 'end', e.to, 'refuse')))
         // The length of the focused clip when it moved, else of the first that did.
         const said = blocks.find((b) => b.id === (ends.some((e) => e.id === current.id) ? current.id : ends[0]!.id))
         if (said) announce(lengthText(t, signature, said.length))

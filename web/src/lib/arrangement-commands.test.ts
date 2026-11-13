@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { barStart, duplicatePlacements, movePlacements, moveToTrack, placeFromSlot, placeScene, repeatPlacement } from './arrangement-commands'
+import { barStart, duplicatePlacements, movePlacements, moveToTrack, placeFromSlot, placeScene, repeatPlacement, resizePlacement } from './arrangement-commands'
 
 describe('sending the grid to the arrangement', () => {
   it('puts a clip on the bar the play position is in', () => {
@@ -47,5 +47,9 @@ describe('moving to another track', () => {
     expect(movePlacements(['p'], 960, 'refuse')).toEqual({ type: 'arrangement.move', placements: ['p'], by: 960, if_occupied: 'refuse' })
     expect(repeatPlacement('p', 7680, 'refuse')).toEqual({ type: 'arrangement.repeat', placement: 'p', until: 7680, if_occupied: 'refuse' })
     expect(placeFromSlot('c', 0, false, 'refuse')).toEqual({ type: 'arrangement.place_from_slot', clip: 'c', start: 0, linked: false, if_occupied: 'refuse' })
+    expect(placeScene('s', 0, false, 'refuse')).toEqual({ type: 'arrangement.place_scene', scene: 's', start: 0, linked: false, if_occupied: 'refuse' })
+    expect(placeScene('s', 0, false)).toEqual({ type: 'arrangement.place_scene', scene: 's', start: 0, linked: false })
+    expect(resizePlacement('p', 'end', 960)).toEqual({ type: 'arrangement.resize', placement: 'p', edge: 'end', to: 960 })
+    expect(resizePlacement('p', 'end', 960, 'refuse')).toEqual({ type: 'arrangement.resize', placement: 'p', edge: 'end', to: 960, if_occupied: 'refuse' })
   })
 })

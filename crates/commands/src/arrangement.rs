@@ -336,13 +336,16 @@ domain! {
     /// stops at the clip's last frame and its start at the clip's first (offset 0) instead
     /// of being refused; its end is kept when its start moves (at most a tick earlier, the
     /// frames being whole). The resized placement wins on overlap (the others it now covers are carved,
-    /// `overwritten` counts them). Moving the edge where it is changes nothing. Undo:
-    /// `arrangement.restore`.
+    /// `overwritten` counts them); with `if_occupied: "refuse"` (default `replace`) the
+    /// command is refused, and nothing changes, when it would carve another (`skip` is
+    /// refused). Moving the edge where it is changes nothing. Undo: `arrangement.restore`.
     "arrangement.resize" (kind = "edit", undo = "inverse", destructive = false)
     Resize {
         placement: PlacementId,
         edge: Edge,
         to: Tick,
+        #[serde(default, skip_serializing_if = "IfOccupied::is_replace")]
+        if_occupied: IfOccupied,
     } => {
         /// How many other placements were carved.
         overwritten: u32,
@@ -465,13 +468,17 @@ domain! {
     /// and one history entry: every clip of the scene (MIDI and audio) is placed on its own
     /// track at the same tick `start`, as a copy (default) or linked to the grid clip. Empty
     /// slots place nothing. Refused when the scene has no clip.
-    /// The placements win on overlap. Undo: `arrangement.restore`.
+    /// The placements win on overlap. With `if_occupied: "refuse"` (default `replace`) the
+    /// command is refused, and nothing changes, when any placement would land on another
+    /// (`skip` is refused). Undo: `arrangement.restore`.
     "arrangement.place_scene" (kind = "edit", undo = "inverse", destructive = false)
     PlaceScene {
         scene: SceneId,
         start: Tick,
         #[serde(default)]
         linked: bool,
+        #[serde(default, skip_serializing_if = "IfOccupied::is_replace")]
+        if_occupied: IfOccupied,
     } => {
         /// The new placements, in the order of the tracks.
         placements: Vec<PlacementId>,
@@ -1486,10 +1493,13 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             scene,
             start,
             linked,
+            if_occupied,
         } => {
+            no_skip(*if_occupied, "a placement has no other place to go")?;
             let clips = scene_clips(&state.project, scene)?;
             let sent = send_from_grid(state, ctx, &clips, *start, *linked)?;
             let overwritten = sent.overwritten;
+            refuse_if_carved(*if_occupied, overwritten)?;
             let (placements, copies): (Vec<_>, Vec<_>) = sent.placed.into_iter().unzip();
             commit(state, sent.works, || Output::PlaceScene {
                 placements,
@@ -1514,7 +1524,11 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             placement,
             edge,
             to,
-        } => resize(state, ctx, placement, *edge, *to),
+            if_occupied,
+        } => {
+            no_skip(*if_occupied, "a resize has no other place to go")?;
+            resize(state, ctx, placement, *edge, *to, *if_occupied)
+        }
         Command::Split { placement, at } => split(state, ctx, placement, *at),
         Command::Delete { placements } => delete(state, placements),
         Command::Duplicate {
@@ -2122,6 +2136,7 @@ fn resize(
     id: &PlacementId,
     edge: Edge,
     to: Tick,
+    if_occupied: IfOccupied,
 ) -> Result<Out, CommandError> {
     let project = &state.project;
     let track_id = track_of(project, id)?;
@@ -2134,6 +2149,7 @@ fn resize(
         let resized = resize_audio(&work, &p, edge, to.get())?;
         let (s, e) = work.checked_span(&resized, "to")?;
         let overwritten = work.carve(&mut ctx.ids, s, e)?;
+        refuse_if_carved(if_occupied, overwritten)?;
         work.placements.insert(id.clone(), resized);
         return commit(state, BTreeMap::from([(track_id, work)]), || {
             Output::Resize { overwritten }
@@ -2179,6 +2195,7 @@ fn resize(
     };
     check_extent(new_start, new_length, "to")?;
     let overwritten = work.carve(&mut ctx.ids, new_start, new_start + new_length)?;
+    refuse_if_carved(if_occupied, overwritten)?;
     work.put(id.clone(), &p.clip, new_start, new_length, new_offset);
     commit(state, BTreeMap::from([(track_id, work)]), || {
         Output::Resize { overwritten }
