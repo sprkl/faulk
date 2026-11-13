@@ -24,7 +24,10 @@
 //! is a 404 before any `initialize` went through the bridge.
 //!
 //! Without a running helper, or without the token, each request is answered with a JSON-RPC
-//! error that says what to do; notifications are dropped.
+//! error that says what to do; notifications are dropped. A transport error is told apart (#891):
+//! nothing listens (connection refused: "is not running"), a connection made then cut or reset
+//! ("cut the connection": the helper runs), a timeout, and an HTTP error answer (its status and
+//! the reason in its body).
 
 use serde_json::{Value, json};
 use std::io::{BufRead, Write};
@@ -36,6 +39,39 @@ pub const BRIDGE_ERROR: i64 = -32000;
 
 /// The largest answer the bridge reads (the tool list is about 1.4 MB).
 const MAX_ANSWER: u64 = 64 << 20;
+
+/// The most of an error answer's body the bridge repeats to the agent.
+const ERROR_BODY: u64 = 512;
+
+/// What the agent is told when a request did not reach the helper or its answer was lost:
+/// "nothing listens" (the helper is stopped), "the connection was cut" (the helper runs but
+/// closed or reset it) and a timeout are different problems with different fixes.
+fn transport_message(port: u16, error: &ureq::Error) -> String {
+    use std::io::ErrorKind::{
+        BrokenPipe, ConnectionAborted, ConnectionRefused, ConnectionReset, UnexpectedEof,
+    };
+    match error {
+        ureq::Error::Io(e) if e.kind() == ConnectionRefused => format!(
+            "the Faulk helper is not running on 127.0.0.1:{port} (connection refused: {e}): start it, then retry"
+        ),
+        ureq::Error::Io(e)
+            if matches!(
+                e.kind(),
+                ConnectionReset | ConnectionAborted | BrokenPipe | UnexpectedEof
+            ) =>
+        {
+            format!(
+                "the helper on 127.0.0.1:{port} cut the connection ({e}): it is running but dropped this request (message too large, sent too slowly, or the helper restarting); check the helper's log, then retry"
+            )
+        }
+        ureq::Error::Timeout(t) => format!(
+            "the helper on 127.0.0.1:{port} did not answer in time ({t}): it may be busy or waiting for the page; retry"
+        ),
+        other => format!(
+            "the bridge could not talk to the helper on 127.0.0.1:{port} ({other}): check that the helper runs, then retry"
+        ),
+    }
+}
 
 /// What the agent is told when the helper no longer knows its session and the bridge cannot open
 /// it again.
@@ -210,19 +246,30 @@ impl Link {
         }
         let mut response = match request.send(message.to_string()) {
             Ok(response) => response,
-            Err(e) => {
-                return Err(Failure::Text(format!(
-                    "the Faulk helper is not running on 127.0.0.1:{} ({e}): start it, then retry",
-                    self.port
-                )));
-            }
+            Err(e) => return Err(Failure::Text(transport_message(self.port, &e))),
         };
         let status = response.status().as_u16();
         if !(200..300).contains(&status) {
             return Err(match status {
                 401 => Failure::Text("the helper refused the MCP token: run `faulk-helper mcp-token`, then restart the agent".to_owned()),
                 404 => sent_with.map_or(Failure::Unknown, Failure::SessionGone),
-                _ => Failure::Text(format!("the helper answered HTTP {status}")),
+                _ => {
+                    // The reason is in the body (rmcp's 4xx name the problem there).
+                    let detail = response
+                        .body_mut()
+                        .with_config()
+                        .limit(ERROR_BODY)
+                        .read_to_string()
+                        .unwrap_or_default();
+                    let detail = detail.trim();
+                    Failure::Text(if detail.is_empty() {
+                        format!(
+                            "the helper answered HTTP {status} with no reason: it refused the request, it did not drop it; the helper is running"
+                        )
+                    } else {
+                        format!("the helper answered HTTP {status}: {detail}")
+                    })
+                }
             });
         }
         if let Some(session) = response
@@ -695,5 +742,100 @@ mod tests {
             2,
             "the session was opened again once, not once per call"
         );
+    }
+
+    /// Relays `call(2)` and returns the error message the agent gets.
+    fn failure_message(link: &Link) -> String {
+        let answers = link.relay(&call(2));
+        assert_eq!(answers.len(), 1);
+        assert_eq!(answers[0]["error"]["code"], BRIDGE_ERROR);
+        answers[0]["error"]["message"].as_str().unwrap().to_owned()
+    }
+
+    #[test]
+    fn nothing_listening_says_the_helper_is_not_running() {
+        // Bound then dropped: the port is free, nothing listens on it.
+        let port = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let message = failure_message(&Link::new(port, Some("t".into())));
+        assert!(message.contains("is not running"), "{message}");
+        assert!(message.contains("connection refused"), "{message}");
+        assert!(message.contains("start it"), "{message}");
+    }
+
+    #[test]
+    fn a_connection_cut_after_connecting_says_the_helper_dropped_it() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            // Read the whole request, then close without answering.
+            let _ = read_request(&mut stream);
+            drop(stream);
+        });
+        let message = failure_message(&Link::new(port, Some("t".into())));
+        server.join().unwrap();
+        assert!(message.contains("cut the connection"), "{message}");
+        assert!(message.contains("it is running"), "{message}");
+        assert!(!message.contains("is not running"), "{message}");
+    }
+
+    #[test]
+    fn a_reset_with_the_request_unread_says_the_helper_dropped_it() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            // Closing with unread data makes the peer see a reset (or an end of stream).
+            drop(stream);
+        });
+        let message = failure_message(&Link::new(port, Some("t".into())));
+        server.join().unwrap();
+        assert!(message.contains("cut the connection"), "{message}");
+        assert!(!message.contains("is not running"), "{message}");
+    }
+
+    #[test]
+    fn an_http_4xx_gives_its_status_and_reason_not_a_stopped_helper() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _ = read_request(&mut stream);
+            let body = "Unsupported Media Type: expected application/json";
+            let reply = format!(
+                "HTTP/1.1 415 Unsupported Media Type\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            stream.write_all(reply.as_bytes()).unwrap();
+        });
+        let message = failure_message(&Link::new(port, Some("t".into())));
+        server.join().unwrap();
+        assert!(message.contains("HTTP 415"), "{message}");
+        assert!(message.contains("expected application/json"), "{message}");
+        assert!(!message.contains("is not running"), "{message}");
+        assert!(!message.contains("cut the connection"), "{message}");
+    }
+
+    #[test]
+    fn a_4xx_without_a_body_still_says_the_helper_runs() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _ = read_request(&mut stream);
+            stream
+                .write_all(
+                    b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
+        });
+        let message = failure_message(&Link::new(port, Some("t".into())));
+        server.join().unwrap();
+        assert!(message.contains("HTTP 400"), "{message}");
+        assert!(message.contains("the helper is running"), "{message}");
     }
 }
