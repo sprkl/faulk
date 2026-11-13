@@ -58,8 +58,19 @@
   import { seek, setLoopRegion, toggleLoop } from '../../lib/transport-commands'
   import { liveTick, settle } from '../piano-roll/playhead'
   import { MAX_GOTO_BAR, PPQ, barTicks, beatTicks } from '../transport/time'
-  import { itemAt, moveCursor, rovingKey, step as stepItem, timelineCursorStep, zoomKey, type Cursor, type Direction, type RovingKey } from '../../lib/roving'
-  import { CLIP_DRAG_TYPE, clipTrackType, placeCommand, poolOf } from '../../lib/clip-pool'
+  import {
+    cursorJumpKey,
+    itemAt,
+    moveCursor,
+    rovingKey,
+    step as stepItem,
+    timelineCursorStep,
+    zoomKey,
+    type Cursor,
+    type Direction,
+    type RovingKey,
+  } from '../../lib/roving'
+  import { CLIP_DRAG_TYPE, clipTrackType, newClipAt, placeCommand, poolOf } from '../../lib/clip-pool'
   import { addMarker, deleteMarker, moveMarker, renameMarker } from '../../lib/arrangement-commands'
   import {
     blocksOf,
@@ -738,7 +749,8 @@
       const action = arrangementShortcut(event)
       if (!action) return
       event.preventDefault()
-      if (action === 'addMarker') addMarkerHere()
+      if (action === 'newClip') newClipAtHead()
+      else if (action === 'addMarker') addMarkerHere()
       else if (action === 'prevMarker') jumpMarker(-1)
       else if (action === 'nextMarker') jumpMarker(1)
       else fitSong()
@@ -1881,6 +1893,14 @@
       event.stopPropagation()
       return putHeadAtCursor()
     }
+    // Home brings the free cursor back to bar 1 (#852); the playhead stays.
+    if (cursorJumpKey(event) === 'start' && (event.target as HTMLElement).dataset.cursor !== undefined && cursorPos) {
+      event.preventDefault()
+      event.stopPropagation()
+      cursorAt = { row: cursorPos.row, tick: 0 }
+      void focusCursor()
+      return
+    }
     const key = rovingKey(event)
     if (key && (event.target as HTMLElement).dataset.cursor !== undefined) return onCursorKey(event, key)
     // Page Up and Page Down mean a velocity: a clip has none.
@@ -2060,6 +2080,46 @@
     }
     await tick()
     stage?.querySelector<HTMLElement>('[data-testid="arr-cursor"]')?.focus()
+  }
+
+  // "Go to" (Ctrl+G) puts the free cursor on the playhead's new bar too, on the selected track (#852). The focus stays where it is.
+  let seenGoto = untrack(() => ui.gotoTarget?.n ?? 0)
+  $effect(() => {
+    const target = ui.gotoTarget
+    if (!target || target.n === seenGoto) return
+    seenGoto = target.n
+    untrack(() => {
+      if (entries.length === 0) return
+      const row = Math.max(
+        0,
+        entries.findIndex((e) => e.id === project.selected?.id),
+      )
+      cursorAt = { row, tick: Math.min(Math.max(0, target.tick), Math.max(0, totalBars * bar - 1)) }
+    })
+  })
+
+  /**
+   * Alt+N, on the selected track, empty or not (#852): an empty clip of one bar in the playhead's bar. It never replaces a
+   * placement (a taken bar is refused and said), and the new clip takes the focus (Enter opens it).
+   */
+  function newClipAtHead() {
+    // The row is taken before the command: the entries are made again once the project changed.
+    const row = entries.findIndex((e) => e.id === project.selected?.id)
+    const entry = entries[row]
+    const view = project.view
+    if (!entry || !view) return
+    const start = barStart(headTick(), bar)
+    const made = newClipAt(view.project, entry.id, start, bar)
+    if ('refused' in made)
+      return announce(t(made.refused === 'notMidi' ? 'arrangement.saidNotMidi' : 'arrangement.saidNoRoomAt', { bar: Math.floor(start / bar) + 1 }))
+    if (!run(made.command)) return
+    cursorAt = { row, tick: start }
+    const block = blocks.find((b) => b.row === row && b.start === start)
+    announce(t('arrangement.saidClipAtHead', { track: trackLabel(entry, t), bar: Math.floor(start / bar) + 1 }))
+    if (!block) return
+    picked = new Set([block.id])
+    followClip(block)
+    void focusItem(block.id)
   }
 
   /** The playhead goes to the free cursor's tick (`transport.seek`), and the live region says where. */
