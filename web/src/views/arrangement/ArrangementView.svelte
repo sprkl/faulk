@@ -1956,7 +1956,8 @@
         // A longer clip never carves the next one (#863): the page names the clip in the way and sends nothing.
         for (const e of ends) {
           const from = blocks.find((b) => b.id === e.id)
-          const inTheWay = from ? repeatCovers(from, e.to, blocks) : null
+          // An audio end stops at its clip's last frame, so the page cannot tell where it lands: the core decides (refusal toast).
+          const inTheWay = from && !from.audio ? repeatCovers(from, e.to, blocks) : null
           if (inTheWay) return announce(t('arrangement.saidResizeBlocked', blockerVars(inTheWay)))
         }
         inGroup(ends.map((e) => resizePlacement(e.id, 'end', e.to, 'refuse')))

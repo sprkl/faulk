@@ -843,3 +843,42 @@ fn random_audio_edits_stay_inside_their_clips_overlap_free_and_undo_through_the_
         assert_eq!(state.project, end, "{bpm} {rate}");
     }
 }
+
+#[test]
+fn an_audio_resize_refuses_to_carve_a_neighbour_when_asked() {
+    let f = fx();
+    let (mut s, id) = arrangement_examples::with_audio_placement(&f);
+    // A second audio placement starts where the first one ends (tick 4800).
+    ok(
+        &mut s,
+        arrangement::Command::Place {
+            clip: f.audio_clip.clone(),
+            start: Tick(4800),
+            length: None,
+            offset: None,
+            if_occupied: Default::default(),
+        },
+    );
+    let grow = |how| arrangement::Command::Resize {
+        placement: id.clone(),
+        edge: Edge::End,
+        to: Tick(5200),
+        if_occupied: how,
+    };
+    let mut refused = s.clone();
+    let err = run(
+        &a(grow(arrangement::IfOccupied::Refuse)),
+        &mut refused,
+        &mut fresh(),
+    )
+    .unwrap_err();
+    assert!(
+        matches!(&err, CommandError::Invalid { field, .. } if field == "if_occupied"),
+        "{err:?}"
+    );
+    assert_eq!(refused, s, "a refused resize changes nothing");
+    // The default carves (and the undo is checked by `ok`).
+    let mut replaced = s.clone();
+    ok(&mut replaced, grow(arrangement::IfOccupied::Replace));
+    assert_ne!(replaced, s);
+}
