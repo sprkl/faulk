@@ -879,12 +879,14 @@ export type ArrangementCommand = ({
  * Identifier of a clip.
  */
 clip: string
+if_occupied?: IfOccupied
 length?: (Tick | null)
 offset?: (Tick | null)
 start: Tick
 type: "arrangement.place"
 } | {
 by: Tick
+if_occupied?: IfOccupied
 /**
  * Items: Identifier of a placement in a track's arrangement.
  */
@@ -926,6 +928,7 @@ linked?: boolean
 placements: string[]
 type: "arrangement.duplicate"
 } | {
+if_occupied?: IfOccupied
 /**
  * Identifier of a placement in a track's arrangement.
  */
@@ -937,6 +940,7 @@ until: Tick
  * Identifier of a clip.
  */
 clip: string
+if_occupied?: IfOccupied
 linked?: boolean
 start: Tick
 type: "arrangement.place_from_slot"
@@ -1004,8 +1008,9 @@ type: "arrangement.marker.restore"
 type: "arrangement.marker.list"
 })
 /**
- * What `arrangement.move_to_track` and `arrangement.duplicate` do when the placements they
- * put down land on others (#805).
+ * What an arrangement command that puts placements down does when they land on others
+ * (#805): `arrangement.place`, `place_from_slot`, `move`, `move_to_track`, `duplicate` and
+ * `repeat`.
  */
 export type IfOccupied = ("replace" | "refuse" | "skip")
 /**

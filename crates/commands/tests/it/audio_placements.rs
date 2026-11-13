@@ -309,6 +309,7 @@ fn after_any_sequence_of_commands_every_delete_can_be_undone() {
                     start: Tick(rng.next(30_000) as i64),
                     length: None,
                     offset: None,
+                    if_occupied: Default::default(),
                 }),
                 5 if !placements.is_empty() => Command::Arrangement(arrangement::Command::Delete {
                     placements: vec![

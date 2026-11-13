@@ -311,10 +311,39 @@ export function freeRows(
   }
 }
 
+/**
+ * The first block (the earliest) that a copy or a move of the selection `by` ticks would land on, on the track it stays in, or
+ * `null` when it lands on nothing (#805). The blocks of the selection are not in the way: they move or are copied together.
+ * It is what `if_occupied: "refuse"` sees, so that the page can name the block that is in the way.
+ */
+export function landingOn(selection: readonly Block[], by: number, blocks: readonly Block[]): Block | null {
+  const moving = new Set(selection.map((b) => b.id))
+  let found: Block | null = null
+  for (const b of selection) {
+    for (const o of blocks) {
+      if (o.row !== b.row || moving.has(o.id) || o.start >= b.end + by || b.start + by >= o.end) continue
+      if (!found || o.start < found.start) found = o
+    }
+  }
+  return found
+}
+
 /** Whether a copy of each block, `by` ticks later on its own track, would land on a block that is not part of the copy (#805). */
 export function copyBlocked(selection: readonly Block[], by: number, blocks: readonly Block[]): boolean {
-  const copied = new Set(selection.map((b) => b.id))
-  return selection.some((b) => blocks.some((o) => o.row === b.row && !copied.has(o.id) && o.start < b.end + by && b.start + by < o.end))
+  return landingOn(selection, by, blocks) !== null
+}
+
+/**
+ * The first block of the track that `arrangement.repeat` of `block` up to the tick `until` would cover: the copies fill the
+ * time from the end of the block to `until` (#805).
+ */
+export function repeatCovers(block: Block, until: number, blocks: readonly Block[]): Block | null {
+  let found: Block | null = null
+  for (const o of blocks) {
+    if (o.row !== block.row || o.id === block.id || o.start >= until || block.end >= o.end) continue
+    if (!found || o.start < found.start) found = o
+  }
+  return found
 }
 
 /**

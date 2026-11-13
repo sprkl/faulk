@@ -11067,7 +11067,7 @@
         "undo": "none"
       },
       {
-        "description": "Put a clip of the track in the arrangement, as a new placement of the same clip\n(a linked clip: editing the clip changes every placement of it); a clip of the\ntrack's pool, with no placement and no slot, comes back this way (#473). A clip that\nsits in the launch grid is refused: copying or linking it is\n`arrangement.place_from_slot` (founder's decision 11). `start` is in\nticks; `offset` (default 0, before the clip's length) is where in the clip the\nplacement starts; `length` (default: what is left of the clip after `offset`) is\nits length on the timeline, which may exceed the clip (the clip repeats: its loop\nwhen it has one, the whole clip when it has none). The new placement wins on overlap: the\nother placements of the track that it covers are removed, shortened, trimmed at\nthe front or split (`overwritten` counts them). An audio clip of an audio track is\nplaced whole (from its first frame, its end computed from its frames at the project's\ntempo, so `length` and `offset` are refused; `arrangement.resize` shortens it) and\nwins on overlap the same way, the placements it covers cut in whole frames; a span\noutside `[0, 2^40]` ticks is refused. Undo: `arrangement.restore`.",
+        "description": "Put a clip of the track in the arrangement, as a new placement of the same clip\n(a linked clip: editing the clip changes every placement of it); a clip of the\ntrack's pool, with no placement and no slot, comes back this way (#473). A clip that\nsits in the launch grid is refused: copying or linking it is\n`arrangement.place_from_slot` (founder's decision 11). `start` is in\nticks; `offset` (default 0, before the clip's length) is where in the clip the\nplacement starts; `length` (default: what is left of the clip after `offset`) is\nits length on the timeline, which may exceed the clip (the clip repeats: its loop\nwhen it has one, the whole clip when it has none). The new placement wins on overlap: the\nother placements of the track that it covers are removed, shortened, trimmed at\nthe front or split (`overwritten` counts them). An audio clip of an audio track is\nplaced whole (from its first frame, its end computed from its frames at the project's\ntempo, so `length` and `offset` are refused; `arrangement.resize` shortens it) and\nwins on overlap the same way, the placements it covers cut in whole frames; a span\noutside `[0, 2^40]` ticks is refused. With `if_occupied: \"refuse\"` (default\n`replace`) the command is refused, and nothing changes, when the placement would\nland on another (`skip` is refused). Undo: `arrangement.restore`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -11080,6 +11080,26 @@
               "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
               "type": "string"
             },
+            "IfOccupied": {
+              "description": "What an arrangement command that puts placements down does when they land on others\n(#805): `arrangement.place`, `place_from_slot`, `move`, `move_to_track`, `duplicate` and\n`repeat`.",
+              "oneOf": [
+                {
+                  "const": "replace",
+                  "description": "The placements put down win: what they cover is carved (a drag, the default).",
+                  "type": "string"
+                },
+                {
+                  "const": "refuse",
+                  "description": "Nothing is carved: the command is refused when a placement would land on another.",
+                  "type": "string"
+                },
+                {
+                  "const": "skip",
+                  "description": "`arrangement.move_to_track` only (the others refuse it): the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
+                  "type": "string"
+                }
+              ]
+            },
             "Tick": {
               "description": "A musical position or duration, in ticks ([`PPQ`] per quarter note).\n\nArithmetic saturates instead of overflowing. The inner value is public so that the\nproject and the UI read it as a plain integer.",
               "format": "int64",
@@ -11090,6 +11110,9 @@
           "properties": {
             "clip": {
               "$ref": "#/$defs/ClipId"
+            },
+            "if_occupied": {
+              "$ref": "#/$defs/IfOccupied"
             },
             "length": {
               "anyOf": [
@@ -11157,7 +11180,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Move placements in time, all by the same number of ticks (`by`, negative moves\nthem earlier), in one command: a drag of a selection is one history entry. Each\nplacement stays in its own track and keeps its length and offset (an audio one its\nframes, so its length in ticks at the project's tempo). The moved\nplacements win on overlap (the placements of the track that they cover are\ncarved, `overwritten` counts them); they may move onto each other's old place.\nRefused when one would start before tick 0 or end past 2^40, or when the list is\nempty, names a placement twice or an unknown one. A move by 0 changes nothing.\nUndo: `arrangement.restore`.",
+        "description": "Move placements in time, all by the same number of ticks (`by`, negative moves\nthem earlier), in one command: a drag of a selection is one history entry. Each\nplacement stays in its own track and keeps its length and offset (an audio one its\nframes, so its length in ticks at the project's tempo). The moved\nplacements win on overlap (the placements of the track that they cover are\ncarved, `overwritten` counts them); they may move onto each other's old place.\nRefused when one would start before tick 0 or end past 2^40, or when the list is\nempty, names a placement twice or an unknown one. A move by 0 changes nothing.\nWith `if_occupied: \"refuse\"` (default `replace`) it is also refused, and nothing\nchanges, when a moved placement would land on one that does not move (`skip` is\nrefused: a move in time has no other place to go). Undo: `arrangement.restore`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -11165,6 +11188,26 @@
               "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
               "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
               "type": "string"
+            },
+            "IfOccupied": {
+              "description": "What an arrangement command that puts placements down does when they land on others\n(#805): `arrangement.place`, `place_from_slot`, `move`, `move_to_track`, `duplicate` and\n`repeat`.",
+              "oneOf": [
+                {
+                  "const": "replace",
+                  "description": "The placements put down win: what they cover is carved (a drag, the default).",
+                  "type": "string"
+                },
+                {
+                  "const": "refuse",
+                  "description": "Nothing is carved: the command is refused when a placement would land on another.",
+                  "type": "string"
+                },
+                {
+                  "const": "skip",
+                  "description": "`arrangement.move_to_track` only (the others refuse it): the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
+                  "type": "string"
+                }
+              ]
             },
             "PlacementId": {
               "$ref": "#/$defs/Id",
@@ -11180,6 +11223,9 @@
           "properties": {
             "by": {
               "$ref": "#/$defs/Tick"
+            },
+            "if_occupied": {
+              "$ref": "#/$defs/IfOccupied"
             },
             "placements": {
               "items": {
@@ -11224,7 +11270,7 @@
               "type": "string"
             },
             "IfOccupied": {
-              "description": "What `arrangement.move_to_track` and `arrangement.duplicate` do when the placements they\nput down land on others (#805).",
+              "description": "What an arrangement command that puts placements down does when they land on others\n(#805): `arrangement.place`, `place_from_slot`, `move`, `move_to_track`, `duplicate` and\n`repeat`.",
               "oneOf": [
                 {
                   "const": "replace",
@@ -11238,7 +11284,7 @@
                 },
                 {
                   "const": "skip",
-                  "description": "`arrangement.move_to_track` only: the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
+                  "description": "`arrangement.move_to_track` only (the others refuse it): the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
                   "type": "string"
                 }
               ]
@@ -11535,7 +11581,7 @@
               "type": "string"
             },
             "IfOccupied": {
-              "description": "What `arrangement.move_to_track` and `arrangement.duplicate` do when the placements they\nput down land on others (#805).",
+              "description": "What an arrangement command that puts placements down does when they land on others\n(#805): `arrangement.place`, `place_from_slot`, `move`, `move_to_track`, `duplicate` and\n`repeat`.",
               "oneOf": [
                 {
                   "const": "replace",
@@ -11549,7 +11595,7 @@
                 },
                 {
                   "const": "skip",
-                  "description": "`arrangement.move_to_track` only: the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
+                  "description": "`arrangement.move_to_track` only (the others refuse it): the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
                   "type": "string"
                 }
               ]
@@ -11646,7 +11692,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Repeat one placement end to end up to the timeline tick `until` (#555): linked\ncopies, new placements of the same clip, each as long as the placement and with\nits offset, the first starting where the placement ends, the next where the last\nends; the one that would pass `until` is shortened to stop exactly there (an audio\none at the last whole frame before it). To fill\nup to the end of bar N, give the tick where bar N ends. The copies win on overlap\n(`overwritten` counts the placements they carved). Refused when the placement is\nunknown, when `until` is not after the end of the placement or\npasses 2^40, or when the copies would pass the limit of placements. One history\nentry; undo: `arrangement.restore`, which removes the copies and brings back what\nthey carved.",
+        "description": "Repeat one placement end to end up to the timeline tick `until` (#555): linked\ncopies, new placements of the same clip, each as long as the placement and with\nits offset, the first starting where the placement ends, the next where the last\nends; the one that would pass `until` is shortened to stop exactly there (an audio\none at the last whole frame before it). To fill\nup to the end of bar N, give the tick where bar N ends. The copies win on overlap\n(`overwritten` counts the placements they carved). Refused when the placement is\nunknown, when `until` is not after the end of the placement or\npasses 2^40, or when the copies would pass the limit of placements. With\n`if_occupied: \"refuse\"` (default `replace`) it is also refused, and nothing changes,\nwhen the copies would land on another placement (`skip` is refused). One history\nentry; undo: `arrangement.restore`, which removes the copies and brings back what\nthey carved.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -11654,6 +11700,26 @@
               "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
               "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
               "type": "string"
+            },
+            "IfOccupied": {
+              "description": "What an arrangement command that puts placements down does when they land on others\n(#805): `arrangement.place`, `place_from_slot`, `move`, `move_to_track`, `duplicate` and\n`repeat`.",
+              "oneOf": [
+                {
+                  "const": "replace",
+                  "description": "The placements put down win: what they cover is carved (a drag, the default).",
+                  "type": "string"
+                },
+                {
+                  "const": "refuse",
+                  "description": "Nothing is carved: the command is refused when a placement would land on another.",
+                  "type": "string"
+                },
+                {
+                  "const": "skip",
+                  "description": "`arrangement.move_to_track` only (the others refuse it): the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
+                  "type": "string"
+                }
+              ]
             },
             "PlacementId": {
               "$ref": "#/$defs/Id",
@@ -11667,6 +11733,9 @@
           },
           "additionalProperties": false,
           "properties": {
+            "if_occupied": {
+              "$ref": "#/$defs/IfOccupied"
+            },
             "placement": {
               "$ref": "#/$defs/PlacementId"
             },
@@ -11719,7 +11788,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Put a clip of the launch grid in the arrangement, on its own track, as a\nplacement at the timeline tick `start` that plays the whole clip once (offset 0,\nthe clip's length; an audio clip's frames from its first). By default the placement plays an independent copy: a new\nclip, a copy of the grid clip (same name, colour, length, loop and notes, or the same\nfile, range, gain and loop; not in\nthe launch grid), so editing one never changes the other (founder's decision 11).\nWith `linked: true` the placement references the grid clip itself: editing the\nclip in the grid changes what the arrangement plays. The placement wins on overlap\n(`overwritten` counts the placements it carved). Refused for a clip that is not in\nthe launch grid (use `arrangement.place` or `arrangement.duplicate`), or when the\nclip would leave the timeline. Undo: `arrangement.restore`, which removes the\nplacement and the copy.",
+        "description": "Put a clip of the launch grid in the arrangement, on its own track, as a\nplacement at the timeline tick `start` that plays the whole clip once (offset 0,\nthe clip's length; an audio clip's frames from its first). By default the placement plays an independent copy: a new\nclip, a copy of the grid clip (same name, colour, length, loop and notes, or the same\nfile, range, gain and loop; not in\nthe launch grid), so editing one never changes the other (founder's decision 11).\nWith `linked: true` the placement references the grid clip itself: editing the\nclip in the grid changes what the arrangement plays. The placement wins on overlap\n(`overwritten` counts the placements it carved). Refused for a clip that is not in\nthe launch grid (use `arrangement.place` or `arrangement.duplicate`), or when the\nclip would leave the timeline. With `if_occupied: \"refuse\"` (default `replace`) it\nis also refused, and nothing changes, when the placement would land on another\n(`skip` is refused). Undo: `arrangement.restore`, which removes the placement and\nthe copy.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -11732,6 +11801,26 @@
               "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
               "type": "string"
             },
+            "IfOccupied": {
+              "description": "What an arrangement command that puts placements down does when they land on others\n(#805): `arrangement.place`, `place_from_slot`, `move`, `move_to_track`, `duplicate` and\n`repeat`.",
+              "oneOf": [
+                {
+                  "const": "replace",
+                  "description": "The placements put down win: what they cover is carved (a drag, the default).",
+                  "type": "string"
+                },
+                {
+                  "const": "refuse",
+                  "description": "Nothing is carved: the command is refused when a placement would land on another.",
+                  "type": "string"
+                },
+                {
+                  "const": "skip",
+                  "description": "`arrangement.move_to_track` only (the others refuse it): the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
+                  "type": "string"
+                }
+              ]
+            },
             "Tick": {
               "description": "A musical position or duration, in ticks ([`PPQ`] per quarter note).\n\nArithmetic saturates instead of overflowing. The inner value is public so that the\nproject and the UI read it as a plain integer.",
               "format": "int64",
@@ -11742,6 +11831,9 @@
           "properties": {
             "clip": {
               "$ref": "#/$defs/ClipId"
+            },
+            "if_occupied": {
+              "$ref": "#/$defs/IfOccupied"
             },
             "linked": {
               "default": false,
@@ -17442,10 +17534,13 @@
           "oneOf": [
             {
               "additionalProperties": false,
-              "description": "Put a clip of the track in the arrangement, as a new placement of the same clip\n(a linked clip: editing the clip changes every placement of it); a clip of the\ntrack's pool, with no placement and no slot, comes back this way (#473). A clip that\nsits in the launch grid is refused: copying or linking it is\n`arrangement.place_from_slot` (founder's decision 11). `start` is in\nticks; `offset` (default 0, before the clip's length) is where in the clip the\nplacement starts; `length` (default: what is left of the clip after `offset`) is\nits length on the timeline, which may exceed the clip (the clip repeats: its loop\nwhen it has one, the whole clip when it has none). The new placement wins on overlap: the\nother placements of the track that it covers are removed, shortened, trimmed at\nthe front or split (`overwritten` counts them). An audio clip of an audio track is\nplaced whole (from its first frame, its end computed from its frames at the project's\ntempo, so `length` and `offset` are refused; `arrangement.resize` shortens it) and\nwins on overlap the same way, the placements it covers cut in whole frames; a span\noutside `[0, 2^40]` ticks is refused. Undo: `arrangement.restore`.",
+              "description": "Put a clip of the track in the arrangement, as a new placement of the same clip\n(a linked clip: editing the clip changes every placement of it); a clip of the\ntrack's pool, with no placement and no slot, comes back this way (#473). A clip that\nsits in the launch grid is refused: copying or linking it is\n`arrangement.place_from_slot` (founder's decision 11). `start` is in\nticks; `offset` (default 0, before the clip's length) is where in the clip the\nplacement starts; `length` (default: what is left of the clip after `offset`) is\nits length on the timeline, which may exceed the clip (the clip repeats: its loop\nwhen it has one, the whole clip when it has none). The new placement wins on overlap: the\nother placements of the track that it covers are removed, shortened, trimmed at\nthe front or split (`overwritten` counts them). An audio clip of an audio track is\nplaced whole (from its first frame, its end computed from its frames at the project's\ntempo, so `length` and `offset` are refused; `arrangement.resize` shortens it) and\nwins on overlap the same way, the placements it covers cut in whole frames; a span\noutside `[0, 2^40]` ticks is refused. With `if_occupied: \"refuse\"` (default\n`replace`) the command is refused, and nothing changes, when the placement would\nland on another (`skip` is refused). Undo: `arrangement.restore`.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
+                },
+                "if_occupied": {
+                  "$ref": "#/$defs/IfOccupied"
                 },
                 "length": {
                   "anyOf": [
@@ -17487,10 +17582,13 @@
             },
             {
               "additionalProperties": false,
-              "description": "Move placements in time, all by the same number of ticks (`by`, negative moves\nthem earlier), in one command: a drag of a selection is one history entry. Each\nplacement stays in its own track and keeps its length and offset (an audio one its\nframes, so its length in ticks at the project's tempo). The moved\nplacements win on overlap (the placements of the track that they cover are\ncarved, `overwritten` counts them); they may move onto each other's old place.\nRefused when one would start before tick 0 or end past 2^40, or when the list is\nempty, names a placement twice or an unknown one. A move by 0 changes nothing.\nUndo: `arrangement.restore`.",
+              "description": "Move placements in time, all by the same number of ticks (`by`, negative moves\nthem earlier), in one command: a drag of a selection is one history entry. Each\nplacement stays in its own track and keeps its length and offset (an audio one its\nframes, so its length in ticks at the project's tempo). The moved\nplacements win on overlap (the placements of the track that they cover are\ncarved, `overwritten` counts them); they may move onto each other's old place.\nRefused when one would start before tick 0 or end past 2^40, or when the list is\nempty, names a placement twice or an unknown one. A move by 0 changes nothing.\nWith `if_occupied: \"refuse\"` (default `replace`) it is also refused, and nothing\nchanges, when a moved placement would land on one that does not move (`skip` is\nrefused: a move in time has no other place to go). Undo: `arrangement.restore`.",
               "properties": {
                 "by": {
                   "$ref": "#/$defs/Tick"
+                },
+                "if_occupied": {
+                  "$ref": "#/$defs/IfOccupied"
                 },
                 "placements": {
                   "items": {
@@ -17671,8 +17769,11 @@
             },
             {
               "additionalProperties": false,
-              "description": "Repeat one placement end to end up to the timeline tick `until` (#555): linked\ncopies, new placements of the same clip, each as long as the placement and with\nits offset, the first starting where the placement ends, the next where the last\nends; the one that would pass `until` is shortened to stop exactly there (an audio\none at the last whole frame before it). To fill\nup to the end of bar N, give the tick where bar N ends. The copies win on overlap\n(`overwritten` counts the placements they carved). Refused when the placement is\nunknown, when `until` is not after the end of the placement or\npasses 2^40, or when the copies would pass the limit of placements. One history\nentry; undo: `arrangement.restore`, which removes the copies and brings back what\nthey carved.",
+              "description": "Repeat one placement end to end up to the timeline tick `until` (#555): linked\ncopies, new placements of the same clip, each as long as the placement and with\nits offset, the first starting where the placement ends, the next where the last\nends; the one that would pass `until` is shortened to stop exactly there (an audio\none at the last whole frame before it). To fill\nup to the end of bar N, give the tick where bar N ends. The copies win on overlap\n(`overwritten` counts the placements they carved). Refused when the placement is\nunknown, when `until` is not after the end of the placement or\npasses 2^40, or when the copies would pass the limit of placements. With\n`if_occupied: \"refuse\"` (default `replace`) it is also refused, and nothing changes,\nwhen the copies would land on another placement (`skip` is refused). One history\nentry; undo: `arrangement.restore`, which removes the copies and brings back what\nthey carved.",
               "properties": {
+                "if_occupied": {
+                  "$ref": "#/$defs/IfOccupied"
+                },
                 "placement": {
                   "$ref": "#/$defs/PlacementId"
                 },
@@ -17696,10 +17797,13 @@
             },
             {
               "additionalProperties": false,
-              "description": "Put a clip of the launch grid in the arrangement, on its own track, as a\nplacement at the timeline tick `start` that plays the whole clip once (offset 0,\nthe clip's length; an audio clip's frames from its first). By default the placement plays an independent copy: a new\nclip, a copy of the grid clip (same name, colour, length, loop and notes, or the same\nfile, range, gain and loop; not in\nthe launch grid), so editing one never changes the other (founder's decision 11).\nWith `linked: true` the placement references the grid clip itself: editing the\nclip in the grid changes what the arrangement plays. The placement wins on overlap\n(`overwritten` counts the placements it carved). Refused for a clip that is not in\nthe launch grid (use `arrangement.place` or `arrangement.duplicate`), or when the\nclip would leave the timeline. Undo: `arrangement.restore`, which removes the\nplacement and the copy.",
+              "description": "Put a clip of the launch grid in the arrangement, on its own track, as a\nplacement at the timeline tick `start` that plays the whole clip once (offset 0,\nthe clip's length; an audio clip's frames from its first). By default the placement plays an independent copy: a new\nclip, a copy of the grid clip (same name, colour, length, loop and notes, or the same\nfile, range, gain and loop; not in\nthe launch grid), so editing one never changes the other (founder's decision 11).\nWith `linked: true` the placement references the grid clip itself: editing the\nclip in the grid changes what the arrangement plays. The placement wins on overlap\n(`overwritten` counts the placements it carved). Refused for a clip that is not in\nthe launch grid (use `arrangement.place` or `arrangement.duplicate`), or when the\nclip would leave the timeline. With `if_occupied: \"refuse\"` (default `replace`) it\nis also refused, and nothing changes, when the placement would land on another\n(`skip` is refused). Undo: `arrangement.restore`, which removes the placement and\nthe copy.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
+                },
+                "if_occupied": {
+                  "$ref": "#/$defs/IfOccupied"
                 },
                 "linked": {
                   "default": false,
@@ -20448,7 +20552,7 @@
           "type": "string"
         },
         "IfOccupied": {
-          "description": "What `arrangement.move_to_track` and `arrangement.duplicate` do when the placements they\nput down land on others (#805).",
+          "description": "What an arrangement command that puts placements down does when they land on others\n(#805): `arrangement.place`, `place_from_slot`, `move`, `move_to_track`, `duplicate` and\n`repeat`.",
           "oneOf": [
             {
               "const": "replace",
@@ -20462,7 +20566,7 @@
             },
             {
               "const": "skip",
-              "description": "`arrangement.move_to_track` only: the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
+              "description": "`arrangement.move_to_track` only (the others refuse it): the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
               "type": "string"
             }
           ]
