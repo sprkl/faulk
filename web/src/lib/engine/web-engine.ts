@@ -18,6 +18,23 @@ const FEEDBACK_MS = 33
 const RESUME_WAIT_MS = 2000
 
 /**
+ * Resumes `context`, waiting `RESUME_WAIT_MS` at most (#810): a resume that does not settle by then (no output to open)
+ * does not hold the page back, and the clock standing still is what the page then says. A refusal within the wait is
+ * thrown; a later one is only logged.
+ */
+async function resumeWithin(context: AudioContext): Promise<void> {
+  const resumed = context.resume()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<false>((done) => (timer = setTimeout(() => done(false), RESUME_WAIT_MS)))
+  try {
+    const inTime = await Promise.race([resumed.then(() => true as const), late])
+    if (!inTime) resumed.catch((error: unknown) => console.error('audio context: resume failed', error))
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
  * The engine compiled to WebAssembly (MO-2): one module, two instances on one shared memory.
  * A Worker holds the prepare side and takes the ControlMsg streams the page's project core
  * encodes in Rust (`project/core.ts`, owned by the dispatcher); the AudioWorklet holds the render side; the page reads the report
@@ -125,11 +142,8 @@ export class WebEngine implements Engine {
 
     const engine = new WebEngine(context, worker, memory, { at: ready.feedback, len: ready.feedbackLen }, events)
     node.connect(context.destination)
-    // A context that does not resume within RESUME_WAIT_MS (no output to open) does not hold the start back: the engine
-    // comes up, and its clock standing still is what the page then says (#810). A refusal before that fails the start.
-    const resumed = context.resume()
-    const inTime = await Promise.race([resumed.then(() => true), new Promise<boolean>((done) => setTimeout(() => done(false), RESUME_WAIT_MS))])
-    if (!inTime) resumed.catch((error: unknown) => console.error('audio context: resume failed', error))
+    // A refusal fails the start; a resume that does not settle (no output to open) does not hold it back (#810).
+    await resumeWithin(context)
     engine.expected = true
     events.onStatus(engine.status())
     // outputLatency is only known once audio runs: report again shortly after.
@@ -157,6 +171,11 @@ export class WebEngine implements Engine {
 
   private sampleClock() {
     if (this.context.state === 'running' && typeof this.context.getOutputTimestamp === 'function') this.outputClock.observe(this.context.getOutputTimestamp())
+  }
+
+  /** Whether the output stopped pulling the engine now (#810): what `onOutputStall` last said. */
+  get outputStalled(): boolean {
+    return this.outputStall.stalled
   }
 
   /** The status to show and to start a take with; `frameAt` keeps its latency (#499). */
@@ -198,7 +217,7 @@ export class WebEngine implements Engine {
   async resume() {
     const pause = ++this.pauses
     try {
-      await this.context.resume()
+      await resumeWithin(this.context)
     } finally {
       // Even when the context refuses to resume: the page wants it to run, and a clock that stands still is then said.
       if (pause === this.pauses) this.expected = true

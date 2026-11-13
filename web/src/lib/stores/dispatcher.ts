@@ -1776,6 +1776,8 @@ export class Dispatcher {
     await web.resume()
     // Boost was entered again meanwhile: the helper plays, and the Web side stays as it is.
     if (this.native) return
+    // The engine's own word on its output, which Boost cleared from the store (#810): a stall that went on is said again.
+    this.state.outputStalled = this.web === web && web.outputStalled === true
     this.state.status = web.status()
     // Reopen the input that was playing before Boost (the helper had it meanwhile).
     if (ready) this.midi?.select(this.lastWebInput)

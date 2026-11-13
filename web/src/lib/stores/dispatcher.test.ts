@@ -606,8 +606,14 @@ describe('running commands through the project core', () => {
     expect(session.engine.outputStalled).toBe(false)
     web.onOutputStall?.(true)
     expect(session.engine.outputStalled).toBe(false)
-    // Back to Web: the same engine speaks again.
+    // Back to Web while its output is still stalled: the store takes the engine's own word again (its detector saw no
+    // change to tell), and the engine's later words are heard.
+    ;(webs[0] as FakeWeb & { outputStalled?: boolean }).outputStalled = true
     await session.dispatcher.enterWeb()
+    expect(session.engine.outputStalled).toBe(true)
+    web.onOutputStall?.(false)
+    expect(session.engine.outputStalled).toBe(false)
+    ;(webs[0] as FakeWeb & { outputStalled?: boolean }).outputStalled = false
     web.onOutputStall?.(true)
     expect(session.engine.outputStalled).toBe(true)
     // A stopped engine (refused stream) takes its word with it; a new engine starts clear, and the old one is not heard.
