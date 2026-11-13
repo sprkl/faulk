@@ -1444,3 +1444,186 @@ fn a_hold_mix_in_the_batch_of_the_lane_upload_does_not_hold_the_new_lane() {
     assert_eq!(r.e.state().lanes.get(0).unwrap().run.manual(), Manual::Free);
     r.check();
 }
+
+// ---------------------------------------------------------------- curved transitions (#881)
+
+/// The four shapes that move, with the progress they give at a quarter and at the middle of a
+/// segment: written out here, not taken from the engine's `warp`.
+const CURVES: [(Curve, f64, f64); 4] = [
+    (Curve::Linear, 0.25, 0.5),
+    (Curve::EaseIn, 0.0625, 0.25),
+    (Curve::EaseOut, 0.4375, 0.75),
+    (Curve::Smooth, 0.15625, 0.5),
+];
+
+/// The progress of each shape at linear progress `t`, written again from the formulas of the
+/// production sheet (`t²`, `1 − (1 − t)²`, `3t² − 2t³`).
+fn sheet_curve(curve: Curve, t: f64) -> f64 {
+    match curve {
+        Curve::Step => 0.0,
+        Curve::Linear => t,
+        Curve::EaseIn => t.powi(2),
+        Curve::EaseOut => 1.0 - (1.0 - t).powi(2),
+        Curve::Smooth => 3.0 * t.powi(2) - 2.0 * t.powi(3),
+    }
+}
+
+/// A segment from tick 512 to tick 1 536 (frames 12 800 to 38 400 of the clock): its quarter
+/// (tick 768, frame 19 200) and its middle (tick 1 024, frame 25 600) are control frames when
+/// the clock starts on one (frame 8 192).
+const FROM: i64 = 512;
+/// The chords of the steep volume ramps of the curved tests (#881): six times [`CHORD`],
+/// -78 dBFS.
+const CURVED_CHORD: f32 = 6.0 * CHORD;
+const TO: i64 = 1_536;
+
+#[test]
+fn a_curved_device_lane_has_the_value_of_its_shape_at_the_quarter_and_the_middle_of_a_segment() {
+    for (curve, quarter, middle) in CURVES {
+        for block in [97, 128] {
+            let mut r = Rig::new(block, 1);
+            r.lane(
+                0,
+                0,
+                TRIM,
+                &[pt(FROM, 0.0, curve), pt(TO, 1.0, Curve::Step)],
+            );
+            r.run_to(8_192);
+            let start = r.play(0);
+            let len = (TO as usize + 200) * FPT;
+            r.run(len);
+            r.check();
+            let reference = reference(block, r.at);
+            let (a, b) = (FROM as usize * FPT, TO as usize * FPT);
+            // The value of the last control instant (a point's frame or a control frame).
+            let level = |k: usize| -> f32 {
+                let f = k - start;
+                if f < a {
+                    return 0.0;
+                }
+                if f >= b {
+                    return 1.0;
+                }
+                let control = (k - k % CONTROL_FRAMES as usize - start).max(a);
+                sheet_curve(curve, (control - a) as f64 / (b - a) as f64) as f32
+            };
+            assert_levels(&r.left, &reference, start..start + len, level);
+            for (tick, want) in [((FROM + TO) / 2, middle), ((3 * FROM + TO) / 4, quarter)] {
+                let k = start + tick as usize * FPT;
+                assert_eq!(k % CONTROL_FRAMES as usize, 0);
+                assert!(
+                    (r.left[k] - reference[k] * want as f32).abs() <= EXACT,
+                    "{curve:?} block {block} at tick {tick}: {} for {want}",
+                    r.left[k] / reference[k]
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_curved_volume_lane_warps_the_fader_travel_and_renders_the_same_whatever_the_block_size() {
+    for (curve, quarter, middle) in CURVES {
+        let mut renders = Vec::new();
+        for block in [33, 128, 1024] {
+            let mut r = Rig::new(block, 1);
+            r.lane(
+                0,
+                0,
+                AutomationTarget::MixerGain,
+                &[pt(FROM, -96.0, curve), pt(TO, 0.0, Curve::Step)],
+            );
+            r.run_to(8_192);
+            let start = r.play(0);
+            let len = (TO as usize + 200) * FPT;
+            r.run(len);
+            r.check();
+            let reference = reference(block, r.at);
+            let out = &r.left[start..];
+            let reference = &reference[start..];
+            let (a, b) = (FROM as usize * FPT, TO as usize * FPT);
+            // Along the fader's travel, from position 0 (-96 dB) to 0.78 (0 dB), warped. The
+            // strip draws chords of 64 frames of that curve (#389); this ramp is shorter than a
+            // bar, so it bends more per chord than the one-bar fades above: the worst chord
+            // measured is 5.8e-5 (the linear one; 4.6e-5 ease in, 2.3e-5 smooth, 2.0e-5 ease
+            // out), within [`CURVED_CHORD`].
+            assert_levels_within(out, reference, 0..len, CURVED_CHORD, |f| {
+                if f < a {
+                    return 0.0;
+                }
+                let t = ((f - a) as f64 / (b - a) as f64).min(1.0);
+                law_gain(0.78 * sheet_curve(curve, t))
+            });
+            for (tick, want) in [((FROM + TO) / 2, middle), ((3 * FROM + TO) / 4, quarter)] {
+                let k = tick as usize * FPT;
+                let level = law_gain(0.78 * want);
+                assert!(
+                    (out[k] - reference[k] * level).abs() <= EXACT,
+                    "{curve:?} block {block} at tick {tick}: {} for {level}",
+                    out[k] / reference[k]
+                );
+            }
+            renders.push(out[..len].to_vec());
+        }
+        for r in &renders[1..] {
+            let diff = r
+                .iter()
+                .zip(&renders[0])
+                .fold(0f32, |m, (a, b)| m.max((a - b).abs()));
+            assert!(diff <= EXACT, "{curve:?}: block sizes differ by {diff}");
+        }
+    }
+}
+
+/// A level on a logarithmic knob (the test effect `faulk.test_level`, 0.01 to 2), in slot 2
+/// after the test gain.
+const LOG_LEVEL: AutomationTarget = AutomationTarget::DeviceParam {
+    device: DeviceSlot(2),
+    param: engine::device::testing::level::LEVEL,
+};
+
+#[test]
+fn a_lane_on_a_logarithmic_knob_moves_evenly_on_the_knob_and_its_curves_warp_that_travel() {
+    // Founder's decision on #881: from 0.02 to 2 (two decades), every shape follows the knob's
+    // travel: half way along a linear segment is 0.2 (one decade), not 1.01 (the middle in
+    // the unit); a slow start is a quarter of the travel (0.02 · 100^0.25 ≈ 0.063) there.
+    let (lo, hi) = (0.02f64, 2.0f64);
+    let on_knob = |p: f64| (lo.ln() + (hi.ln() - lo.ln()) * p).exp() as f32;
+    for (curve, quarter, middle) in CURVES {
+        for block in [97, 128] {
+            let mut r = Rig::new(block, 1);
+            r.send(&[M::DeviceInsert {
+                track: TrackSlot(0),
+                device: DeviceSlot(2),
+                kind: engine::device::testing::LEVEL.kind_id,
+                state: encode_state(&[]),
+            }]);
+            r.lane(
+                0,
+                0,
+                LOG_LEVEL,
+                &[pt(FROM, lo as f32, curve), pt(TO, hi as f32, Curve::Step)],
+            );
+            r.run_to(8_192);
+            let start = r.play(0);
+            let len = (TO as usize + 200) * FPT;
+            r.run(len);
+            r.check();
+            let reference = reference(block, r.at);
+            for (tick, want) in [((FROM + TO) / 2, middle), ((3 * FROM + TO) / 4, quarter)] {
+                let k = start + tick as usize * FPT;
+                let level = on_knob(want);
+                assert!(
+                    (r.left[k] - reference[k] * level).abs() <= 1e-5,
+                    "{curve:?} block {block} at tick {tick}: {} for {level}",
+                    r.left[k] / reference[k]
+                );
+            }
+            // The ends: the first point's value before and on it, the last one's after.
+            let before = start + (FROM as usize - 10) * FPT;
+            assert!((r.left[before] - reference[before] * lo as f32).abs() <= 1e-6);
+            let after = start + (TO as usize + 100) * FPT;
+            assert!((r.left[after] - reference[after] * hi as f32).abs() <= 1e-5);
+        }
+    }
+}

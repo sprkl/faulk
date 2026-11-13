@@ -154,6 +154,8 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         ],
       },
       { label: 'shortcut.pointRemove', chords: [['Delete'], ['Backspace']] },
+      // A point's curve (#881).
+      { label: 'shortcut.pointCurve', chords: [['KeyC'], ['Shift', 'KeyC']] },
     ],
   },
   {

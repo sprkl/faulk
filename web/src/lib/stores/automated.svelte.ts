@@ -1,7 +1,7 @@
 import { untrack } from 'svelte'
 import type { AutomationLane, Project, ProjectEvent, Track } from '../generated/protocol'
 import { deviceText, labelKey } from '../devices'
-import { lanesOf, pointsOf, targetKey, valueAt, lowerBound, type Labels } from '../../views/arrangement/automation/model'
+import { knobOf, lanesOf, pointsOf, targetKey, valueAt, lowerBound, type Labels } from '../../views/arrangement/automation/model'
 import { PPQ } from '../../views/transport/time'
 import { MIN_GAIN_DB } from '../project/tracks'
 import type { EngineStore } from './engine.svelte'
@@ -70,7 +70,7 @@ export class AutomatedValues {
         const where = whereOf(trackId, lane)
         const hold = this.holds.get(where)
         if (hold && tick >= hold.from && tick < hold.until) continue
-        const value = valueAt(pointsOf(lane), tick, lane.target)
+        const value = valueAt(pointsOf(lane), tick, lane.target, knobOf(track, lane.target))
         if (value !== null) out.set(where, value)
       }
     }

@@ -9,7 +9,8 @@
 import { tickToX, xToTick } from '../../../lib/components/timegrid/grid'
 import { RULER_HEIGHT, trackInk, type BodyFrame } from '../../../lib/components/timegrid/render'
 import { yOfPos } from './gestures'
-import { lowerBound, type Axis, type LanePoint } from './model'
+import { lowerBound, segmentValue, type Axis, type LanePoint } from './model'
+import type { AutomationTarget, Shape } from '../../../lib/generated/protocol'
 
 /** A lane to draw. */
 export interface LaneScene {
@@ -17,6 +18,8 @@ export interface LaneScene {
   top: number
   height: number
   axis: Axis
+  /** What the lane drives: its segments are drawn as the engine plays them (`segmentValue`). */
+  target: AutomationTarget
   /** The points to draw (the preview while a drag is in progress). */
   points: readonly LanePoint[]
   selected: ReadonlySet<number>
@@ -35,6 +38,19 @@ export interface AutomationFrame {
 const GLYPH_MIN_GAP = 6
 const GLYPH_MAX = 3000
 const GLYPH = 3.5
+
+/** A curved segment is drawn with a vertex about every this many CSS pixels (#881), and at most this many per segment. */
+const SAMPLE_PX = 3
+const MAX_SAMPLES = 64
+
+/**
+ * Whether the segment that leaves a point of this shape is a straight line on the lane's axis: a linear one, since the engine
+ * draws its line along the lane's own axis (the fader's travel, a logarithmic knob, a linear one: #389, #881). A curve is
+ * drawn through the values the engine plays (`segmentValue`).
+ */
+function straight(shape: Shape): boolean {
+  return shape === 'linear'
+}
 
 /** How a frame went: the points looked at, for the tests and the measure. */
 export interface LaneStats {
@@ -136,8 +152,22 @@ export function drawLane(ctx: CanvasRenderingContext2D, frame: BodyFrame, lane: 
       for (let i = first; i < last; i++) {
         const x = xOf(i + 1)
         const y = yOf(i + 1)
-        // `step` holds the value to the next point, `linear` goes straight to it.
-        if (points[i]!.shape === 'step') ctx.lineTo(x, yOf(i))
+        const a = points[i]!
+        // `step` holds the value to the next point; every other shape goes to it along the curve the engine plays.
+        if (a.shape === 'step') ctx.lineTo(x, yOf(i))
+        else if (!straight(a.shape)) {
+          const xa = xOf(i)
+          const b = points[i + 1]!
+          // About one vertex every SAMPLE_PX of the part in sight, at most MAX_SAMPLES per segment.
+          const from = Math.max(xa, -6)
+          const to = Math.min(x, width + 6)
+          const steps = Math.min(MAX_SAMPLES, Math.max(1, Math.ceil((to - from) / SAMPLE_PX)))
+          for (let k = 0; k < steps && to > from; k++) {
+            const px = from + ((to - from) * k) / steps
+            const value = segmentValue(a, b, (px - xa) / (x - xa), lane.target, axis.log)
+            ctx.lineTo(px, yOfPos(axis.pos(value), geo))
+          }
+        }
         ctx.lineTo(x, y)
       }
       // After the last point it holds the last value.

@@ -39,7 +39,18 @@ pub const MIGRATIONS: &[Migration] = &[
         from: 5,
         apply: v5_to_v6,
     },
+    Migration {
+        from: 6,
+        apply: v6_to_v7,
+    },
 ];
+
+/// Format 7 (#881): an automation point may have the shape `ease_in`, `ease_out` or `smooth`.
+/// Nothing in the files changes (a project of format 6 has none); the number does, so that a
+/// build of format 6 reports the folder as made by a newer build.
+fn v6_to_v7(mem: &mut MemFs) -> Result<(), String> {
+    set_format(mem, 7)
+}
 
 /// Format 6 (#219): a track's chain may hold MIDI effects (role `midi_effect`). Nothing in the
 /// files changes (a project of format 5 has none); the number does, so that a build of format 5

@@ -222,10 +222,7 @@ pub fn points_tsv(target: &AutomationTarget, points: &BTreeMap<Tick, AutomationP
         serde_json::to_string(target).expect("target")
     );
     for (tick, p) in points {
-        let shape = match p.shape {
-            Shape::Linear => "linear",
-            Shape::Step => "step",
-        };
+        let shape = p.shape.keyword();
         let _ = writeln!(s, "{}\t{}\t{shape}", tick.get(), value_text(p.value));
     }
     s.into_bytes()
@@ -238,7 +235,7 @@ pub fn points_blob(points: &BTreeMap<Tick, AutomationPoint>) -> Vec<u8> {
     for (tick, p) in points {
         v.extend_from_slice(&tick.get().to_le_bytes());
         v.extend_from_slice(&value_text(p.value).to_le_bytes());
-        v.push(u8::from(p.shape == Shape::Step));
+        v.push(p.shape.byte());
     }
     v
 }
@@ -256,11 +253,7 @@ fn unpack_points(bytes: &[u8]) -> Result<BTreeMap<Tick, AutomationPoint>, String
                 Tick(i64::from_le_bytes(r[0..8].try_into().unwrap())),
                 AutomationPoint {
                     value: f64::from_le_bytes(r[8..16].try_into().unwrap()),
-                    shape: if r[16] == 1 {
-                        Shape::Step
-                    } else {
-                        Shape::Linear
-                    },
+                    shape: Shape::from_byte(r[16]).unwrap_or_default(),
                 },
             )
         })
@@ -862,11 +855,7 @@ fn parse_lane(bytes: &[u8]) -> Result<LaneFile, String> {
             .ok_or("short point")?
             .parse()
             .map_err(|_| "bad value")?;
-        let shape = match it.next() {
-            Some("linear") => Shape::Linear,
-            Some("step") => Shape::Step,
-            _ => return Err("bad shape".into()),
-        };
+        let shape = it.next().and_then(Shape::from_keyword).ok_or("bad shape")?;
         v.push((Tick(tick), AutomationPoint { value, shape }));
     }
     Ok(LaneFile::Text(target, v.into_iter().collect()))
