@@ -667,13 +667,20 @@
   function onWindowKeyDown(event: KeyboardEvent) {
     if (event.defaultPrevented || !edited || isTextTarget(event.target)) return
     const target = event.target
-    if (target !== document.body && !(target instanceof Node && rollEl?.contains(target))) return
-    // The roll's own listener takes Alt+G from inside the roll; from the page itself (nothing focused) it is taken here.
-    if (isStepEntryToggle(event)) {
+    const inRoll = target === document.body || (target instanceof Node && !!rollEl?.contains(target))
+    // Step entry (#882): a letter writes wherever it would play; the mode's other keys only in the roll.
+    if (inRoll && isStepEntryToggle(event)) {
       event.preventDefault()
       setStepEntry(!ui.stepEntry)
-    } else if (playsNote(event) && stepKeyDown(event)) event.preventDefault()
-    else if (target === document.body && generateShortcut(event)) {
+      return
+    }
+    if (ui.stepEntry && (inRoll || stepEntryKey(event)?.kind === 'note') && playsNote(event) && stepKeyDown(event)) {
+      event.preventDefault()
+      return
+    }
+    if (!inRoll) return
+    // The roll's own listener takes Alt+G from inside the roll; from the page itself (nothing focused) it is taken here.
+    if (target === document.body && generateShortcut(event)) {
       event.preventDefault()
       void openEuclid()
     } else if (editShortcut(event)) event.preventDefault()
@@ -816,6 +823,10 @@
     return t('pianoRoll.cursorItem', { pitch: keyNames?.get(cursorPos.pitch) ?? pitchName(cursorPos.pitch), ...barBeat(cursorPos.tick, PPQ, bar / PPQ) })
   })
   // Another clip: the cursor starts again where the view looks, and the notes have the tab stop again.
+  // The mode ends with the clip it writes into (no clip, an audio track): the letters play again.
+  $effect(() => {
+    if (!edited) untrack(() => (ui.stepEntry = false))
+  })
   // The id alone: `edited` is a new object at every edit of its notes, and an edit must not take the cursor away (#882).
   const editedId = $derived(edited?.id ?? null)
   $effect(() => {
@@ -854,8 +865,25 @@
   let chordStep: EntryStep | null = null
   /** The last step reached the clip's end: no room for another one. */
   let entryFull = false
+  /** The cursor as step entry left it: any other move of the cursor (a new object) makes the steps stale. */
+  let entryAt: { pitch: number; tick: number } | null = null
+
+  /** Where the next step goes: where step entry left the cursor, else the cursor (whose tick is clamped to the snap, not the length). */
+  const entryHere = () => (entryAt !== null && cursorAt === entryAt ? entryAt.tick : cursorPos.tick)
+
+  /** The steps written, once the cursor is known to be where entry left it and the last step's notes are the clip's current ones (an undo or an edit may have changed them). */
+  function liveSteps(): EntryStep[] {
+    if (entrySteps.length > 0 && (entryAt === null || cursorAt !== entryAt)) resetEntry()
+    const last = entrySteps.at(-1)
+    if (!last || last.notes.length === 0) return entrySteps
+    const now = last.notes.flatMap((n) => notes.filter((m) => m.start === n.start && m.pitch === n.pitch))
+    const length = now.length > 0 ? Math.max(...now.map((n) => n.length)) : last.length
+    entrySteps = [...entrySteps.slice(0, -1), { ...last, notes: now, length }]
+    return entrySteps
+  }
 
   function resetEntry() {
+    entryAt = null
     entrySteps = []
     heldLetters.clear()
     chordStep = null
@@ -888,6 +916,7 @@
   function entryCursor(tick: number | null, fallback: number, pitch: number) {
     entryFull = tick === null
     cursorAt = { pitch, tick: tick ?? fallback }
+    entryAt = cursorAt
     void focusCursor()
   }
 
@@ -897,7 +926,7 @@
     const pitch = noteForKey(code, player.octave)
     if (pitch === null) return
     if (entryFull && !chordStep) return announce(t('pianoRoll.saidStepEnd'))
-    const start = chordStep?.start ?? cursorPos.tick
+    const start = chordStep?.start ?? entryHere()
     const note = drawnNote(start, null, pitch, drawVelocity, null, nextLength, clipLength)
     if (!note || !fits(note, clipLength) || notes.some((n) => noteKey(n) === noteKey(note))) return announce(t('pianoRoll.saidNoRoom'))
     run(addNotes(edited.id, [note]))
@@ -940,7 +969,7 @@
   function restStep() {
     if (!edited) return
     if (entryFull) return announce(t('pianoRoll.saidStepEnd'))
-    const start = cursorPos.tick
+    const start = entryHere()
     const length = Math.max(1, Math.min(nextLength, clipLength - start))
     entrySteps = [...entrySteps, { start, length, notes: [] }]
     const next = advanceTo(start + length, clipLength)
@@ -950,8 +979,9 @@
 
   function lengthenStep() {
     if (!edited) return
-    const before = entrySteps.at(-1)
-    const result = lengthenLast(entrySteps, drawing ?? SIXTEENTH, clipLength)
+    const steps = liveSteps()
+    const before = steps.at(-1)
+    const result = lengthenLast(steps, drawing ?? SIXTEENTH, clipLength)
     if (!result || !before) return announce(t('pianoRoll.saidStepNone'))
     const last = result.steps.at(-1)!
     // Nothing grows: the clip ends here.
@@ -972,7 +1002,7 @@
   /** Backspace: the last step's notes go (one `clip.notes.remove`) and the cursor goes back to where the step began. False when nothing was written. */
   function backStep(): boolean {
     if (!edited) return false
-    const dropped = dropLast(entrySteps, (n) => notes.some((m) => noteKey(m) === noteKey(n)))
+    const dropped = dropLast(liveSteps())
     if (!dropped) return false
     if (dropped.notes.length > 0) run(removeNotes(edited.id, dropped.notes))
     entrySteps = dropped.steps
@@ -1000,7 +1030,7 @@
 
   /** Backspace ahead of the stage's own (it would remove the selection): in the mode, with a step written, it removes that step. */
   function onRollKeyCapture(event: KeyboardEvent) {
-    if (event.code !== 'Backspace' || !ui.stepEntry || entrySteps.length === 0 || !playsNote(event)) return
+    if (event.code !== 'Backspace' || !ui.stepEntry || liveSteps().length === 0 || !playsNote(event)) return
     if (stepKeyDown(event)) {
       event.preventDefault()
       event.stopPropagation()

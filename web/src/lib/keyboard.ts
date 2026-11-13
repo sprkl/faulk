@@ -89,11 +89,9 @@ export function isQuantizeKey(event: Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'm
   return event.code === QUANTIZE_CODE && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && !event.repeat
 }
 
-/**
- * Step entry in the piano roll (#882, `views/piano-roll/step-entry.ts`): while that mode is on the playing keys write notes at the
- * roll's cursor instead of sounding live (`UiStore.stepEntry`; Z and X still move the octave). Its own keys are not in
- * `KEY_OFFSETS` and not letters: Period is a rest, Comma lengthens the last step, Backspace removes it; Alt+E switches the mode.
- */
+// Step entry in the piano roll (#882, `views/piano-roll/step-entry.ts`): while that mode is on the playing keys write notes at the
+// roll's cursor instead of sounding live (`UiStore.stepEntry`; Z and X still move the octave). Its own keys are not in
+// `KEY_OFFSETS` and not letters: Period is a rest, Comma lengthens the last step, Backspace removes it; Alt+E switches the mode.
 
 /** Every physical key that plays a note, for the rule above. */
 export const PLAYING_KEYS: readonly string[] = Object.keys(KEY_OFFSETS)

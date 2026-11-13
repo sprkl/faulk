@@ -79,11 +79,11 @@ export function lengthenLast(steps: readonly EntryStep[], unit: number, clipLeng
   return { changes: grown, steps: [...head, { ...last, notes, length }], cursor: last.start + length, cut }
 }
 
-/** Backspace: the last step goes. `notes` are those of it that `present` still finds in the clip (an undo may have taken them). */
-export function dropLast(steps: readonly EntryStep[], present: (note: Note) => boolean): { steps: EntryStep[]; notes: Note[]; cursor: number } | null {
+/** Backspace: the last step goes, its notes with it (the caller has refreshed them to what the clip holds now), and the cursor goes back to where it began. */
+export function dropLast(steps: readonly EntryStep[]): { steps: EntryStep[]; notes: Note[]; cursor: number } | null {
   const last = steps.at(-1)
   if (!last) return null
-  return { steps: steps.slice(0, -1), notes: last.notes.filter(present), cursor: last.start }
+  return { steps: steps.slice(0, -1), notes: [...last.notes], cursor: last.start }
 }
 
 /** Bar and beat (both from 1, the beat to a hundredth) of a tick, for the words said. */

@@ -59,7 +59,8 @@ export class KeyboardPlayer {
       return
     }
     // Musical typing off: the letters are no notes (the MIDI controller and the on-screen keys are not concerned).
-    if (!this.engine.started || this.ui.typing !== 'notes') return
+    // Step entry writes notes with no engine started, so the octave keys must work then too (#882).
+    if ((!this.engine.started && !this.ui.stepEntry) || this.ui.typing !== 'notes') return
     const step = octaveStep(event.code)
     if (step !== 0) {
       this.releaseAll()

@@ -42,7 +42,7 @@ test('step entry: a phrase, a chord, a rest, a longer step and Backspace, one un
   // The note sounds when written.
   await expect.poll(() => trackPeak(page), { message: 'the note sounds as it is written' }).toBeGreaterThan(0.05)
   await expect(roll(page)).toHaveAttribute('data-note-count', '1')
-  await expect(said(page)).toContainText(/C4, bar 1 beat 1; cursor bar 1 beat 1\.\d+|C4, bar 1 beat 1; cursor bar 1 beat 2|Do4, mesure 1 temps 1/)
+  await expect(said(page)).toHaveText(/^C4, bar 1 beat 1; cursor bar 1 beat 1\.25/)
   // The cursor has not moved while the letter is held.
   expect(await cursorTick(page)).toBe(0)
   await page.keyboard.up('KeyA')
@@ -107,5 +107,26 @@ test('step entry: a phrase, a chord, a rest, a longer step and Backspace, one un
   await page.keyboard.press('Alt+KeyE')
   await expect(button).toHaveAttribute('aria-pressed', 'true')
 
+  expect(seen.errors.filter((e) => !/helper|WebSocket|ERR_CONNECTION/i.test(e))).toEqual([])
+})
+
+test('step entry: Backspace after an undo removes the note the clip holds now', async ({ page }) => {
+  const seen = watch(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/app')
+  await page.getByTestId('engine-state').getByRole('button').click()
+  await engineUp(page)
+  await page.getByTestId('panel-piano-roll').click()
+  await page.getByTestId('roll-create-clip').click()
+  await page.getByTestId('roll-step-entry').click()
+  await page.keyboard.press('KeyA')
+  await page.keyboard.press('Comma')
+  await expect.poll(async () => (await notes(page))[0]!.length).toBeGreaterThan(240)
+  // The lengthening is undone: the written note is the clip's shorter one, and Backspace takes that one away.
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await notes(page))[0]!.length).toBe(240)
+  await page.keyboard.press('Backspace')
+  await expect(roll(page)).toHaveAttribute('data-note-count', '0')
+  await expect(said(page)).toContainText(/Step removed|Pas supprimé/)
   expect(seen.errors.filter((e) => !/helper|WebSocket|ERR_CONNECTION/i.test(e))).toEqual([])
 })

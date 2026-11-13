@@ -141,7 +141,7 @@ describe('lengthenLast', () => {
 describe('dropLast', () => {
   const n = note()
   it('is null before any step', () => {
-    expect(dropLast([], () => true)).toBeNull()
+    expect(dropLast([])).toBeNull()
   })
 
   it('removes the last step and puts the cursor back where it began', () => {
@@ -149,23 +149,22 @@ describe('dropLast', () => {
       { start: 0, length: 240, notes: [note()] },
       { start: 240, length: 240, notes: [{ ...n, start: 240 }] },
     ]
-    const r = dropLast(steps, () => true)!
+    const r = dropLast(steps)!
     expect(r.steps).toEqual([steps[0]])
     expect(r.notes).toEqual([{ ...n, start: 240 }])
     expect(r.cursor).toBe(240)
   })
 
   it('keeps going back through a rest, with no note to remove', () => {
-    const r = dropLast([{ start: 0, length: 240, notes: [] }], () => true)!
+    const r = dropLast([{ start: 0, length: 240, notes: [] }])!
     expect(r.notes).toEqual([])
     expect(r.cursor).toBe(0)
     expect(r.steps).toEqual([])
   })
 
-  it('leaves out notes an undo already took', () => {
-    const r = dropLast([{ start: 0, length: 240, notes: [n] }], () => false)!
-    expect(r.notes).toEqual([])
-    expect(r.cursor).toBe(0)
+  it('hands back the notes the caller refreshed, none when an undo took them', () => {
+    expect(dropLast([{ start: 0, length: 240, notes: [n] }])!.notes).toEqual([n])
+    expect(dropLast([{ start: 0, length: 240, notes: [] }])!.notes).toEqual([])
   })
 })
 
