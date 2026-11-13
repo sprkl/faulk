@@ -82,6 +82,11 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
                     .next()
                     .and_then(|p| p.parse().ok())
                     .ok_or("--port needs a number")?;
+                // Port 0 (the system picks one) is for the tests of debug builds (#895): a
+                // restart from the tray replays the arguments and would land on another port.
+                if port == 0 && !cfg!(debug_assertions) {
+                    return Err("--port needs a number above 0".to_owned());
+                }
             }
             "--allow-origin" => {
                 origins.push(it.next().ok_or("--allow-origin needs an origin")?.clone())
@@ -330,7 +335,7 @@ fn main() {
             eprintln!("cannot open the log file: {e}");
         }
     };
-    let args = parse_args(&raw_args).unwrap_or_else(|e| {
+    let mut args = parse_args(&raw_args).unwrap_or_else(|e| {
         open_log(false);
         fatal(lang, &format!("{e}\n{USAGE}"))
     });
@@ -346,6 +351,13 @@ fn main() {
     let std_listener = match instance::claim(args.port, &probe_origins, instance::PROBE_PATIENCE) {
         Startup::Serve(listener) => {
             open_log(true);
+            // `--port 0` lets the system pick a port that nobody else can take before this bind
+            // (the tests use it, #895): from here on the port is the one really held, and the
+            // journal says which.
+            if let Ok(local) = listener.local_addr() {
+                args.port = local.port();
+            }
+            log!("claimed 127.0.0.1:{}", args.port);
             listener
         }
         Startup::AlreadyRunning => {
@@ -694,6 +706,8 @@ mod tests {
     fn refuses_bad_arguments() {
         assert!(args(&["--port"]).is_err());
         assert!(args(&["--port", "x"]).is_err());
+        // Port 0 only in a debug build (#895).
+        assert_eq!(args(&["--port", "0"]).is_ok(), cfg!(debug_assertions));
         assert!(args(&["--app-url"]).is_err());
         assert!(args(&["--what"]).is_err());
     }
