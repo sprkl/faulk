@@ -30,7 +30,7 @@
 //! the reason in its body).
 
 use serde_json::{Value, json};
-use std::io::{BufRead, Write};
+use std::io::{BufRead, Read, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -255,19 +255,24 @@ impl Link {
                 404 => sent_with.map_or(Failure::Unknown, Failure::SessionGone),
                 _ => {
                     // The reason is in the body (rmcp's 4xx name the problem there).
-                    let detail = response
+                    let mut raw = Vec::new();
+                    let read = response
                         .body_mut()
-                        .with_config()
-                        .limit(ERROR_BODY)
-                        .read_to_string()
-                        .unwrap_or_default();
+                        .as_reader()
+                        .take(ERROR_BODY)
+                        .read_to_end(&mut raw);
+                    let detail = String::from_utf8_lossy(&raw);
                     let detail = detail.trim();
-                    Failure::Text(if detail.is_empty() {
-                        format!(
+                    Failure::Text(match read {
+                        // Cut while the reason was being sent: the helper dropped the connection.
+                        Err(e) if detail.is_empty() => format!(
+                            "the helper on 127.0.0.1:{} answered HTTP {status} then cut the connection ({e}): it is running but dropped this request; check the helper's log, then retry",
+                            self.port
+                        ),
+                        _ if detail.is_empty() => format!(
                             "the helper answered HTTP {status} with no reason: it refused the request, it did not drop it; the helper is running"
-                        )
-                    } else {
-                        format!("the helper answered HTTP {status}: {detail}")
+                        ),
+                        _ => format!("the helper answered HTTP {status}: {detail}"),
                     })
                 }
             });
@@ -292,8 +297,10 @@ impl Link {
         {
             Ok(body) => body,
             Err(e) => {
+                // Cut while the answer was sent: told like a cut at connection time.
                 return Err(Failure::Text(format!(
-                    "the helper's answer could not be read: {e}"
+                    "the helper's answer could not be read: {}",
+                    transport_message(self.port, &e)
                 )));
             }
         };
@@ -784,18 +791,45 @@ mod tests {
     }
 
     #[test]
-    fn a_reset_with_the_request_unread_says_the_helper_dropped_it() {
+    fn an_error_answer_cut_before_its_reason_ends_says_the_helper_dropped_it() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let server = std::thread::spawn(move || {
-            let (stream, _) = listener.accept().unwrap();
-            // Closing with unread data makes the peer see a reset (or an end of stream).
-            drop(stream);
+            let (mut stream, _) = listener.accept().unwrap();
+            let _ = read_request(&mut stream);
+            // Promises 100 bytes, sends none, closes.
+            stream
+                .write_all(
+                    b"HTTP/1.1 400 Bad Request\r\nContent-Length: 100\r\nConnection: close\r\n\r\n",
+                )
+                .unwrap();
         });
         let message = failure_message(&Link::new(port, Some("t".into())));
         server.join().unwrap();
+        assert!(message.contains("HTTP 400"), "{message}");
         assert!(message.contains("cut the connection"), "{message}");
-        assert!(!message.contains("is not running"), "{message}");
+        assert!(!message.contains("no reason"), "{message}");
+    }
+
+    #[test]
+    fn a_long_error_reason_is_cut_to_its_start_not_dropped() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let _ = read_request(&mut stream);
+            let body = format!("reason-start {}", "x".repeat(5000));
+            let reply = format!(
+                "HTTP/1.1 413 Payload Too Large\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(reply.as_bytes());
+        });
+        let message = failure_message(&Link::new(port, Some("t".into())));
+        server.join().unwrap();
+        assert!(message.contains("HTTP 413: reason-start"), "{message}");
+        assert!(!message.contains("no reason"), "{message}");
+        assert!(message.len() < 700, "{} bytes", message.len());
     }
 
     #[test]
