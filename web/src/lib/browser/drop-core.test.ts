@@ -103,3 +103,47 @@ describe('the page host', () => {
     expect(run).toHaveBeenNthCalledWith(2, { type: 'history.end_group' }, undefined)
   })
 })
+
+describe('a drop refused after its first step (#869)', () => {
+  const badPreset: BrowserItem = {
+    kind: 'faulk.reverb',
+    name: 'reverb',
+    category: 'effect',
+    preset: { ref: { location: 'factory', id: 'faulk.reverb/no-such-preset' }, name: 'Nope', category: null },
+  }
+
+  it('on the empty area: the new track is taken back, no history entry, and the person is told nothing changed', () => {
+    const { core, host } = setup()
+    const before = JSON.stringify(core.project().project)
+    const undo = core.history().undo.length
+    const result = applyItem(host, badPreset, { type: 'new-track' })
+    expect(result.ok).toBe(false)
+    expect(result.said.key).toBe('browser.said.refusedNone')
+    expect(result.track).toBeNull()
+    expect(host.tracks()).toHaveLength(0)
+    expect(JSON.stringify(core.project().project)).toBe(before)
+    expect(core.history().undo).toHaveLength(undo)
+  })
+
+  it('on a track: the inserted effect is taken back too', () => {
+    const { core, host } = setup()
+    expect(applyItem(host, reverb, { type: 'new-track' }).ok).toBe(true)
+    const track = host.tracks()[0]!.id
+    const before = JSON.stringify(core.project().project)
+    const undo = core.history().undo.length
+    const result = applyItem(host, badPreset, { type: 'track', track })
+    expect(result.ok).toBe(false)
+    expect(result.said.key).toBe('browser.said.refusedNone')
+    expect(JSON.stringify(core.project().project)).toBe(before)
+    expect(core.history().undo).toHaveLength(undo)
+  })
+
+  it("another author's group open: nothing can be taken back, and the person is told part may be applied", () => {
+    const { host, as } = setup()
+    as('agent:claude', { type: 'history.begin_group' })
+    const result = applyItem(host, badPreset, { type: 'new-track' })
+    expect(result.ok).toBe(false)
+    expect(result.said.key).toBe('browser.said.refusedPartial')
+    expect(as('agent:claude', { type: 'history.end_group' })).toBe('applied')
+  })
+})

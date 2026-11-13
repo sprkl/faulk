@@ -6,7 +6,7 @@
  */
 
 import type { Command, Track } from '../generated/protocol'
-import { inGroup } from '../history-group'
+import { runSteps, type RunAll } from '../history-group'
 import { createTrack } from '../track-commands'
 import { insertEffect, insertMasterEffect, setInstrument } from '../device-commands'
 import { instrumentDescriptors } from '../devices'
@@ -50,6 +50,8 @@ export interface DropSaid {
     | 'browser.said.noInstrumentOnMaster'
     | 'browser.said.noMidiEffectHere'
     | 'browser.said.refused'
+    | 'browser.said.refusedNone'
+    | 'browser.said.refusedPartial'
   /** The device, with its preset when one was loaded ("Reverb, Large Hall"). */
   device: string
   /** The track it went to, by id (the page names it). */
@@ -73,22 +75,25 @@ export const createsTrack = (item: Pick<BrowserItem, 'category'>): boolean => it
 const idsOf = (chain: readonly ChainEntry[]): Set<string> => new Set(chain.map((entry) => entry.id))
 
 /**
- * Runs `steps` as one history group when there are several; a refused step ends the sequence, the group is closed either
- * way. A refused `history.begin_group` (a group is already open, e.g. an agent's turn) is not an error: `end_group` is
- * sent only when this drop opened the group (#643), the group of someone else is never closed here. The steps then run
- * anyway; the history joins them to the open group only when the page (the same author) opened it, otherwise each step
- * is its own undo entry, and undo stays refused until that group ends.
+ * Runs `steps` as one history group when there are several, all or nothing (#869): a refused step stops the sequence and
+ * the steps already applied are taken back with `history.abort_group` (one undo entry or none, never a track with no
+ * device). A refused `history.begin_group` (a group is already open, e.g. an agent's turn) is not an error: the group is
+ * then someone else's, it is never closed or aborted here, the steps run anyway and a refused one leaves the earlier ones
+ * applied (the history joins them to the open group only when the page, the same author, opened it).
  */
-function grouped(host: DropHost, steps: ((host: DropHost) => boolean)[]): boolean {
-  if (steps.length === 1) return steps[0]!(host)
-  return inGroup(
+function grouped(host: DropHost, steps: ((host: DropHost) => boolean)[]): RunAll {
+  return runSteps(
     (command, options) => host.run(command, options),
-    () => {
-      for (const step of steps) if (!step(host)) return false
-      return true
-    },
+    steps.map((step) => () => step(host)),
   )
 }
+
+/** What the person is told when a step was refused: nothing changed, or part of the drop may already be applied. */
+const failed = (item: BrowserItem, done: Extract<RunAll, { ok: false }>, track: string | null): DropResult => ({
+  ok: false,
+  said: { key: done.rolledBack ? 'browser.said.refusedNone' : 'browser.said.refusedPartial', device: label(item) },
+  track: done.rolledBack ? null : track,
+})
 
 /** Puts `item` on `target`. Never throws on a state it did not expect: it says it refused. */
 export function applyItem(host: DropHost, item: BrowserItem, target: DropTarget): DropResult {
@@ -151,9 +156,10 @@ function onNewTrack(host: DropHost, item: BrowserItem): DropResult {
       return !preset || !added ? true : h.run(loadPreset(added.id, preset.ref))
     })
   }
-  const ok = grouped(host, steps)
+  const done = grouped(host, steps)
   if (created === null) return { ok: false, said: { key: 'browser.said.refused', device: label(item) }, track: null }
-  return { ok, said: { key: 'browser.said.created', device: label(item), track: created }, track: created }
+  if (!done.ok) return failed(item, done, created)
+  return { ok: true, said: { key: 'browser.said.created', device: label(item), track: created }, track: created }
 }
 
 function onTrack(host: DropHost, item: BrowserItem, track: string, index: number | undefined): DropResult {
@@ -175,9 +181,10 @@ function onTrack(host: DropHost, item: BrowserItem, track: string, index: number
       })
     }
     if (steps.length === 0) return { ok: true, said: { key: 'browser.said.instrument', device: label(item), track, position: 1 }, track }
-    const ok = grouped(host, steps)
+    const done = grouped(host, steps)
+    if (!done.ok) return failed(item, done, track)
     const key = same ? 'browser.said.presetLoaded' : 'browser.said.instrument'
-    return { ok, said: { key, device: label(item), track, position: 1 }, track }
+    return { ok: true, said: { key, device: label(item), track, position: 1 }, track }
   }
 
   const before = idsOf(chain())
@@ -195,8 +202,9 @@ function onTrack(host: DropHost, item: BrowserItem, track: string, index: number
     })
   }
   if (!entry()) return refused()
-  const ok = grouped(host, steps)
-  return { ok, said: { key: 'browser.said.inserted', device: label(item), track, position }, track }
+  const done = grouped(host, steps)
+  if (!done.ok) return failed(item, done, track)
+  return { ok: true, said: { key: 'browser.said.inserted', device: label(item), track, position }, track }
 }
 
 function onMaster(host: DropHost, item: BrowserItem, index: number | undefined): DropResult {
@@ -211,6 +219,7 @@ function onMaster(host: DropHost, item: BrowserItem, index: number | undefined):
       return added ? h.run(loadPreset(added.id, preset.ref)) : false
     })
   }
-  const ok = grouped(host, steps)
-  return { ok, said: { key: 'browser.said.insertedMaster', device: label(item), position: place + 1 }, track: null }
+  const done = grouped(host, steps)
+  if (!done.ok) return failed(item, done, null)
+  return { ok: true, said: { key: 'browser.said.insertedMaster', device: label(item), position: place + 1 }, track: null }
 }

@@ -26,11 +26,22 @@ export type RunAll = { ok: true } | { ok: false; refused: number; rolledBack: bo
  * the group is then closed with `history.end_group` if the page owns it, and the earlier commands stay applied.
  */
 export function runAll(run: GroupRun, commands: Command[]): RunAll {
-  if (commands.length === 1) return run(commands[0]!) ? { ok: true } : { ok: false, refused: 0, rolledBack: true }
+  return runSteps(
+    run,
+    commands.map((command) => () => run(command)),
+  )
+}
+
+/**
+ * `runAll` for steps that read what the earlier ones did (the id of a track just created): each step sends its own
+ * commands through the same `run` and says whether they were all accepted. The first step that says no stops the batch.
+ */
+export function runSteps(run: GroupRun, steps: (() => boolean)[]): RunAll {
+  if (steps.length === 1) return steps[0]!() ? { ok: true } : { ok: false, refused: 0, rolledBack: true }
   const opened = openGroup(run)
   let refused = -1
-  for (const [i, command] of commands.entries()) {
-    if (!run(command)) {
+  for (const [i, step] of steps.entries()) {
+    if (!step()) {
       refused = i
       break
     }

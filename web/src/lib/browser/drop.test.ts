@@ -246,11 +246,13 @@ describe('the keyboard: Enter or a double-click', () => {
 })
 
 describe('a refused step', () => {
-  it('still closes the history group, and stops the sequence', () => {
+  it('takes the group back (abort, not end), stops the sequence, and says nothing changed (#869)', () => {
     const f = fake((c) => c.type === 'preset.load')
     const result = applyItem(f.host, item('faulk.osc_synth', 'instrument', 'Round Bass'), { type: 'new-track' })
     expect(result.ok).toBe(false)
-    expect(f.types()).toEqual(['history.begin_group', 'track.create', 'preset.load', 'history.end_group'])
+    expect(result.said.key).toBe('browser.said.refusedNone')
+    expect(result.track).toBeNull()
+    expect(f.types()).toEqual(['history.begin_group', 'track.create', 'preset.load', 'history.abort_group'])
   })
 
   it('a refused track.create stops before the preset, and says nothing was created', () => {
@@ -258,7 +260,7 @@ describe('a refused step', () => {
     const result = applyItem(f.host, item('faulk.osc_synth', 'instrument', 'Round Bass'), { type: 'new-track' })
     expect(result.ok).toBe(false)
     expect(result.track).toBeNull()
-    expect(f.types()).toEqual(['history.begin_group', 'track.create', 'history.end_group'])
+    expect(f.types()).toEqual(['history.begin_group', 'track.create', 'history.abort_group'])
   })
 })
 
@@ -274,7 +276,10 @@ describe('a group already open', () => {
     const f = fake((c) => c.type === 'history.begin_group' || c.type === 'preset.load')
     const result = applyItem(f.host, item('faulk.osc_synth', 'instrument', 'Round Bass'), { type: 'new-track' })
     expect(result.ok).toBe(false)
+    // Someone else's group: nothing to close, nothing to abort, and the person is told part of it may be applied.
+    expect(result.said.key).toBe('browser.said.refusedPartial')
     expect(f.types()).not.toContain('history.end_group')
+    expect(f.types()).not.toContain('history.abort_group')
   })
 })
 
