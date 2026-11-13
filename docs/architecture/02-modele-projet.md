@@ -226,7 +226,7 @@ Mon morceau/
 11520	800	ease_in
 ```
 
-La troisième colonne est la forme du segment qui part du point (#881) : `linear` (ligne droite dans l'unité du paramètre, le long de la course du fader pour un couloir de volume, #389), `step` (la valeur tenue jusqu'au point suivant), `ease_in` (lente puis rapide), `ease_out` (rapide puis lente) et `smooth` (en S), ces trois dernières étant la même ligne déformée dans le temps (`t²`, `t (2 − t)`, `t² (3 − 2t)` de l'avancée `t`). Dans un blob, l'octet de forme vaut 0 à 4 dans cet ordre (`linear`, `step`, `ease_in`, `ease_out`, `smooth`).
+La troisième colonne est la forme du segment qui part du point (#881) : `linear` (ligne droite le long du bouton du paramètre : dans son unité, ou dans le logarithme de la valeur pour un paramètre à échelle logarithmique comme une fréquence, décision du fondateur sur #881 ; le long de la course du fader pour un couloir de volume, #389), `step` (la valeur tenue jusqu'au point suivant), `ease_in` (lente puis rapide), `ease_out` (rapide puis lente) et `smooth` (en S), ces trois dernières étant la même ligne déformée dans le temps (`t²`, `t (2 − t)`, `t² (3 − 2t)` de l'avancée `t`). Dans un blob, l'octet de forme vaut 0 à 4 dans cet ordre (`linear`, `step`, `ease_in`, `ease_out`, `smooth`).
 
 `arrangement.tsv` :
 

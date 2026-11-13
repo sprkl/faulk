@@ -66,7 +66,7 @@ fn automation_renders_the_same_natively_and_in_wasm() {
     lane(
         &mut s,
         AutomationTarget::Device {
-            device: synth,
+            device: synth.clone(),
             param: "gain".into(),
         },
         (0..16)
@@ -315,12 +315,26 @@ fn curved_lanes_render_the_same_natively_and_in_wasm() {
     lane(
         &mut s,
         AutomationTarget::Device {
-            device: synth,
+            device: synth.clone(),
             param: "gain".into(),
         },
         vec![
             point(4 * bar, 0.2, Shape::EaseIn),
             point(6 * bar, 0.9, Shape::Step),
+        ],
+    );
+    // A parameter on a logarithmic knob (the synth's release, 0.002 to 30 s): its curve warps
+    // the knob's travel (#881), through `ln` and `exp` in both builds.
+    lane(
+        &mut s,
+        AutomationTarget::Device {
+            device: synth.clone(),
+            param: "release".into(),
+        },
+        vec![
+            point(4 * bar, 0.01, Shape::EaseIn),
+            point(5 * bar, 2.0, Shape::Smooth),
+            point(6 * bar, 0.05, Shape::Step),
         ],
     );
     s.note_on(57, 110).note_on(64, 100);

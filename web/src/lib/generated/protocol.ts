@@ -271,7 +271,8 @@ export type Rgb = string
 export type TrackKind = ("midi" | "audio")
 /**
  * The shape of the transition from a point to the next one (#881). `Linear` is a straight
- * line in the parameter's unit, along the fader's travel for a volume lane (#389); `Step`
+ * line along the parameter's knob (in its unit, in the logarithm of the value for a
+ * logarithmic parameter), along the fader's travel for a volume lane (#389); `Step`
  * holds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then
  * slow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by
  * `t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).
@@ -4114,7 +4115,8 @@ points: Point[]
 export interface Point {
 /**
  * The shape of the transition from a point to the next one (#881). `Linear` is a straight
- * line in the parameter's unit, along the fader's travel for a volume lane (#389); `Step`
+ * line along the parameter's knob (in its unit, in the logarithm of the value for a
+ * logarithmic parameter), along the fader's travel for a volume lane (#389); `Step`
  * holds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then
  * slow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by
  * `t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).

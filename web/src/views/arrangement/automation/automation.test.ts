@@ -5,7 +5,21 @@ import { MAX_TICK } from '../arrangement'
 import { asPoint, dragDelta, hitPoint, moveSelection, newPoint, planMove, pointsInBox, posOfY, previewPoints, yOfPos, POINT_RADIUS } from './gestures'
 import { ADD_ROW, CLIP_ROW, CLIP_ROW_MAX, CLIP_ROW_MIN, LANE_ROW, clampClipRow, layoutOf, rowAtY, rowsBetween } from './layout'
 import { drawLane } from './draw'
-import { SHAPES, axisOf, lanesOf, optionsOf, pointAtTick, pointsOf, segmentValue, shapeWarp, targetKey, valueAt, type Labels, type LanePoint } from './model'
+import {
+  SHAPES,
+  axisOf,
+  knobOf,
+  lanesOf,
+  optionsOf,
+  pointAtTick,
+  pointsOf,
+  segmentValue,
+  shapeWarp,
+  targetKey,
+  valueAt,
+  type Labels,
+  type LanePoint,
+} from './model'
 import { positionOf as faderPosition } from '../../../lib/project/fader'
 
 const labels: Labels = {
@@ -170,6 +184,15 @@ describe('the value of a lane at a tick', () => {
         last = w
       }
     }
+    // A logarithmic knob (#881): the line goes along the knob, so in the logarithm of the value.
+    const log = { min: 10, max: 10_000 }
+    for (const shape of SHAPES.filter((x) => x !== 'step')) {
+      const [quarter, middle] = progress[shape]
+      const sweep = lane(gainTarget, [0, 10, shape], [1000, 1000])
+      expect(valueAt(sweep, 250, gainTarget, log), shape).toBeCloseTo(10 * 100 ** quarter, 9)
+      expect(valueAt(sweep, 500, gainTarget, log), shape).toBeCloseTo(10 * 100 ** middle, 9)
+    }
+    expect(valueAt(lane(gainTarget, [0, 1, 'smooth'], [1000, 1e9]), 500, gainTarget, log)).toBeLessThanOrEqual(10_000)
     // Out of the segment, the progress is kept to it.
     const a = { tick: 0, value: 0, shape: 'ease_in' as const }
     const b = { tick: 10, value: 1, shape: 'linear' as const }
@@ -431,21 +454,28 @@ describe('the lane drawn before its first point (#388, #394)', () => {
     }
   })
 
-  it('draws a linear segment on a logarithmic axis through its values too, since the engine goes straight in the unit', () => {
-    // The synth's release: seconds on a logarithmic scale (0.002 to 30 s).
+  it('on a logarithmic knob, draws a linear segment straight on the knob and a curve through the values played (#881)', () => {
+    // The synth's release: seconds on a logarithmic knob (0.002 to 30 s).
     const release: AutomationTarget = { device: { device: 'D1', param: 'release' } }
     const axis = axisOf(synthTrack(), release, labels)!
-    expect(axis.straight).toBe(false)
-    expect(axisOf(synthTrack(), gainTarget, labels)!.straight).toBe(true)
-    const points = pts([0, 0.01], [2000, 10])
+    expect(axis.log).toEqual({ min: 0.002, max: 30 })
+    expect(axisOf(synthTrack(), gainTarget, labels)!.log).toBeUndefined()
+    expect(knobOf(synthTrack(), release)).toEqual({ min: 0.002, max: 30 })
+    expect(knobOf(synthTrack(), gainTarget)).toBeUndefined()
+    expect(knobOf(synthTrack(), volume)).toBeUndefined()
+    const geo = { top: 0, height: 100 }
+    const linear = recorder()
+    drawLane(linear.ctx, frame(0), { ...scene(pts([0, 0.01], [2000, 10])), axis, target: release })
+    expect(linear.line.filter(([, x]) => x > 0 && x < 200)).toEqual([])
+    const points = pts([0, 0.01, 'ease_in'], [2000, 10])
     const { ctx, line } = recorder()
     drawLane(ctx, frame(0), { ...scene(points), axis, target: release })
     const inside = line.filter(([, x]) => x > 0 && x < 200)
     expect(inside.length).toBeGreaterThan(50)
-    // Each vertex is where the engine's straight line in seconds is, on the log axis: far above the straight line on the axis.
-    for (const [, x, y] of inside)
-      expect(y, `at ${x}`).toBeCloseTo(yOfPos(axis.pos(segmentValue(points[0]!, points[1]!, x / 200, release)), { top: 0, height: 100 }), 6)
+    for (const [, x, y] of inside) expect(y, `at ${x}`).toBeCloseTo(yOfPos(axis.pos(segmentValue(points[0]!, points[1]!, x / 200, release, axis.log)), geo), 6)
+    // Half way, slow then fast is a quarter of the knob's travel between the two values.
     const mid = inside.reduce((m, p) => (Math.abs(p[1] - 100) < Math.abs(m[1] - 100) ? p : m))
-    expect(mid[2]).toBeLessThan((yOfPos(axis.pos(0.01), { top: 0, height: 100 }) + yOfPos(axis.pos(10), { top: 0, height: 100 })) / 2)
+    const travel = axis.pos(0.01) + (axis.pos(10) - axis.pos(0.01)) * shapeWarp('ease_in', mid[1] / 200)
+    expect(mid[2]).toBeCloseTo(yOfPos(travel, geo), 6)
   })
 })

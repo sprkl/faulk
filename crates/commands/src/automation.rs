@@ -24,8 +24,11 @@
 //!   `ease_out` or `smooth` (#881). A tick lies in `[0, 2^40]`. A linear segment of a
 //!   **volume** lane goes in a straight line along the travel of the mixer's fader (#389,
 //!   `engine::fader`: the same law as the fader and as the lane's axis), so a drawn line is the
-//!   fade that is heard; a pan lane and a device parameter go in a straight line in their own
-//!   unit. `step` holds the value until the next point. `ease_in` (slow, then fast),
+//!   fade that is heard; a device parameter goes in a straight line along its knob, the travel
+//!   the interface shows: in its unit, or in the logarithm of the value for a parameter of
+//!   logarithmic scale (a frequency, a time: an even sweep on the knob, founder's decision on
+//!   #881); a pan lane in a straight line in its unit. `step` holds the value until the next
+//!   point. `ease_in` (slow, then fast),
 //!   `ease_out` (fast, then slow) and `smooth` (an S: slow at both ends) follow that same line
 //!   warped in time: at progress `t` of the segment (0 at the point, 1 at the next) they are
 //!   where the line is at `t²`, `t (2 − t)` and `t² (3 − 2t)`.
@@ -82,7 +85,9 @@ pub struct Point {
     pub value: f64,
     /// The transition from this point to the next: `linear` (default), `step`, `ease_in`,
     /// `ease_out` or `smooth`. `linear`
-    /// is a straight line in the parameter's unit, except for a volume (`gain`) lane, where
+    /// is a straight line along the parameter's knob (in its unit, or in the logarithm of the
+    /// value for a parameter of logarithmic scale such as a frequency: an even sweep on the
+    /// knob), except for a volume (`gain`) lane, where
     /// it is a straight line along the travel of the mixer's fader, the same law as the
     /// lane's axis (-96 dB, silence, at the bottom, 0 dB at 78 % of the travel, +6 dB at the
     /// top): a fade from 0 dB to -96 dB goes down like a fader pulled at constant speed, and
@@ -164,7 +169,8 @@ domain! {
     /// a pan outside -1..1 is refused), `shape` `linear` (default), `step`, `ease_in` (slow then
     /// fast), `ease_out` (fast then slow) or `smooth` (an S), the transition from the point to
     /// the next; a linear segment of a volume lane is a straight line along the fader's travel
-    /// (not in amplitude nor in dB), of any other lane a straight line in its unit, and the
+    /// (not in amplitude nor in dB), of a device parameter a straight line along its knob (in
+    /// the logarithm of the value on a logarithmic one), of a pan a straight line, and the
     /// three curves warp that same line in time. A lane has at
     /// most one point per tick: a tick that already holds a different point, or that appears
     /// twice in the batch, is refused (use `automation.points.update` to change a point); a

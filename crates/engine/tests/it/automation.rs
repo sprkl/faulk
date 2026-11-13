@@ -1574,3 +1574,56 @@ fn a_curved_volume_lane_warps_the_fader_travel_and_renders_the_same_whatever_the
         }
     }
 }
+
+/// A level on a logarithmic knob (the test effect `faulk.test_level`, 0.01 to 2), in slot 2
+/// after the test gain.
+const LOG_LEVEL: AutomationTarget = AutomationTarget::DeviceParam {
+    device: DeviceSlot(2),
+    param: engine::device::testing::level::LEVEL,
+};
+
+#[test]
+fn a_lane_on_a_logarithmic_knob_moves_evenly_on_the_knob_and_its_curves_warp_that_travel() {
+    // Founder's decision on #881: from 0.02 to 2 (two decades), every shape follows the knob's
+    // travel: half way along a linear segment is 0.2 (one decade), not 1.01 (the middle in
+    // the unit); a slow start is a quarter of the travel (0.02 · 100^0.25 ≈ 0.063) there.
+    let (lo, hi) = (0.02f64, 2.0f64);
+    let on_knob = |p: f64| (lo.ln() + (hi.ln() - lo.ln()) * p).exp() as f32;
+    for (curve, quarter, middle) in CURVES {
+        for block in [97, 128] {
+            let mut r = Rig::new(block, 1);
+            r.send(&[M::DeviceInsert {
+                track: TrackSlot(0),
+                device: DeviceSlot(2),
+                kind: engine::device::testing::LEVEL.kind_id,
+                state: encode_state(&[]),
+            }]);
+            r.lane(
+                0,
+                0,
+                LOG_LEVEL,
+                &[pt(FROM, lo as f32, curve), pt(TO, hi as f32, Curve::Step)],
+            );
+            r.run_to(8_192);
+            let start = r.play(0);
+            let len = (TO as usize + 200) * FPT;
+            r.run(len);
+            r.check();
+            let reference = reference(block, r.at);
+            for (tick, want) in [((FROM + TO) / 2, middle), ((3 * FROM + TO) / 4, quarter)] {
+                let k = start + tick as usize * FPT;
+                let level = on_knob(want);
+                assert!(
+                    (r.left[k] - reference[k] * level).abs() <= 1e-5,
+                    "{curve:?} block {block} at tick {tick}: {} for {level}",
+                    r.left[k] / reference[k]
+                );
+            }
+            // The ends: the first point's value before and on it, the last one's after.
+            let before = start + (FROM as usize - 10) * FPT;
+            assert!((r.left[before] - reference[before] * lo as f32).abs() <= 1e-6);
+            let after = start + (TO as usize + 100) * FPT;
+            assert!((r.left[after] - reference[after] * hi as f32).abs() <= 1e-5);
+        }
+    }
+}

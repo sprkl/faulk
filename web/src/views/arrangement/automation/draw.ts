@@ -44,13 +44,12 @@ const SAMPLE_PX = 3
 const MAX_SAMPLES = 64
 
 /**
- * Whether the segment that leaves a point of this shape is a straight line on the lane's axis: a linear segment on an axis
- * along which the engine draws its line (`Axis.straight`: the fader's travel of a volume lane, #389, a pan, a parameter on a
- * linear scale). Any other is drawn through the values the engine plays (`segmentValue`): a curve (#881), or a straight line
- * in Hz on a logarithmic axis.
+ * Whether the segment that leaves a point of this shape is a straight line on the lane's axis: a linear one, since the engine
+ * draws its line along the lane's own axis (the fader's travel, a logarithmic knob, a linear one: #389, #881). A curve is
+ * drawn through the values the engine plays (`segmentValue`).
  */
-function straight(shape: Shape, axis: Axis): boolean {
-  return shape === 'linear' && axis.straight === true
+function straight(shape: Shape): boolean {
+  return shape === 'linear'
 }
 
 /** How a frame went: the points looked at, for the tests and the measure. */
@@ -156,7 +155,7 @@ export function drawLane(ctx: CanvasRenderingContext2D, frame: BodyFrame, lane: 
         const a = points[i]!
         // `step` holds the value to the next point; every other shape goes to it along the curve the engine plays.
         if (a.shape === 'step') ctx.lineTo(x, yOf(i))
-        else if (!straight(a.shape, axis)) {
+        else if (!straight(a.shape)) {
           const xa = xOf(i)
           const b = points[i + 1]!
           // About one vertex every SAMPLE_PX of the part in sight, at most MAX_SAMPLES per segment.
@@ -165,7 +164,7 @@ export function drawLane(ctx: CanvasRenderingContext2D, frame: BodyFrame, lane: 
           const steps = Math.min(MAX_SAMPLES, Math.max(1, Math.ceil((to - from) / SAMPLE_PX)))
           for (let k = 0; k < steps && to > from; k++) {
             const px = from + ((to - from) * k) / steps
-            const value = segmentValue(a, b, (px - xa) / (x - xa), lane.target)
+            const value = segmentValue(a, b, (px - xa) / (x - xa), lane.target, axis.log)
             ctx.lineTo(px, yOfPos(axis.pos(value), geo))
           }
         }

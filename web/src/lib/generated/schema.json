@@ -2609,7 +2609,7 @@
               "description": "Identifier of a scene."
             },
             "Shape": {
-              "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline in the parameter's unit, along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
+              "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline along the parameter's knob (in its unit, in the logarithm of the value for a\nlogarithmic parameter), along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
               "enum": [
                 "linear",
                 "step",
@@ -3479,7 +3479,7 @@
               ]
             },
             "Shape": {
-              "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline in the parameter's unit, along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
+              "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline along the parameter's knob (in its unit, in the logarithm of the value for a\nlogarithmic parameter), along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
               "enum": [
                 "linear",
                 "step",
@@ -4819,7 +4819,7 @@
               ]
             },
             "Shape": {
-              "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline in the parameter's unit, along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
+              "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline along the parameter's knob (in its unit, in the logarithm of the value for a\nlogarithmic parameter), along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
               "enum": [
                 "linear",
                 "step",
@@ -12653,7 +12653,7 @@
                 "shape": {
                   "$ref": "#/$defs/Shape",
                   "default": "linear",
-                  "description": "The transition from this point to the next: `linear` (default), `step`, `ease_in`,\n`ease_out` or `smooth`. `linear`\nis a straight line in the parameter's unit, except for a volume (`gain`) lane, where\nit is a straight line along the travel of the mixer's fader, the same law as the\nlane's axis (-96 dB, silence, at the bottom, 0 dB at 78 % of the travel, +6 dB at the\ntop): a fade from 0 dB to -96 dB goes down like a fader pulled at constant speed, and\nhalf way is -21 dB, neither -6 dB (amplitude) nor -48 dB (dB). `step` holds the value.\n`ease_in` (slow, then fast: a filter that opens into a drop), `ease_out` (fast, then\nslow: a fall that settles) and `smooth` (an S, slow at both ends: a crossfade) follow\nthe same line as `linear`, warped in time: at progress `t` of the segment they are\nwhere the line is at `t²`, `t (2 − t)` and `t² (3 − 2t)`; half way, a quarter, three\nquarters and half of the way."
+                  "description": "The transition from this point to the next: `linear` (default), `step`, `ease_in`,\n`ease_out` or `smooth`. `linear`\nis a straight line along the parameter's knob (in its unit, or in the logarithm of the\nvalue for a parameter of logarithmic scale such as a frequency: an even sweep on the\nknob), except for a volume (`gain`) lane, where\nit is a straight line along the travel of the mixer's fader, the same law as the\nlane's axis (-96 dB, silence, at the bottom, 0 dB at 78 % of the travel, +6 dB at the\ntop): a fade from 0 dB to -96 dB goes down like a fader pulled at constant speed, and\nhalf way is -21 dB, neither -6 dB (amplitude) nor -48 dB (dB). `step` holds the value.\n`ease_in` (slow, then fast: a filter that opens into a drop), `ease_out` (fast, then\nslow: a fall that settles) and `smooth` (an S, slow at both ends: a crossfade) follow\nthe same line as `linear`, warped in time: at progress `t` of the segment they are\nwhere the line is at `t²`, `t (2 − t)` and `t² (3 − 2t)`; half way, a quarter, three\nquarters and half of the way."
                 },
                 "tick": {
                   "$ref": "#/$defs/Tick",
@@ -12721,7 +12721,7 @@
               "description": "Identifier of a scene."
             },
             "Shape": {
-              "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline in the parameter's unit, along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
+              "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline along the parameter's knob (in its unit, in the logarithm of the value for a\nlogarithmic parameter), along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
               "enum": [
                 "linear",
                 "step",
@@ -14046,7 +14046,7 @@
               "type": "string"
             },
             "Shape": {
-              "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline in the parameter's unit, along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
+              "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline along the parameter's knob (in its unit, in the logarithm of the value for a\nlogarithmic parameter), along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
               "enum": [
                 "linear",
                 "step",
@@ -14102,7 +14102,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Add points to a lane, in one batch (one history entry, all or nothing). Each point\nis `{tick, value, shape}`: `tick` 0 to 2^40, `value` in the parameter's unit (rounded\nto its step; a device parameter is clamped to its range, a gain outside -96..+6 dB or\na pan outside -1..1 is refused), `shape` `linear` (default), `step`, `ease_in` (slow then\nfast), `ease_out` (fast then slow) or `smooth` (an S), the transition from the point to\nthe next; a linear segment of a volume lane is a straight line along the fader's travel\n(not in amplitude nor in dB), of any other lane a straight line in its unit, and the\nthree curves warp that same line in time. A lane has at\nmost one point per tick: a tick that already holds a different point, or that appears\ntwice in the batch, is refused (use `automation.points.update` to change a point); a\npoint equal to the one already there changes nothing. Refused with `limit` past the\nsafety limit of points per lane or in the project. Before its first point a lane holds\nthe first point's value (from tick 0, bar 1), so the first point sets the value of\neverything before it: to keep a parameter at its current value until a change, add a\npoint at tick 0 with that value. Points are at absolute ticks of the timeline, they do\nnot follow clips. Undo: `automation.points.remove` of the points actually added.",
+        "description": "Add points to a lane, in one batch (one history entry, all or nothing). Each point\nis `{tick, value, shape}`: `tick` 0 to 2^40, `value` in the parameter's unit (rounded\nto its step; a device parameter is clamped to its range, a gain outside -96..+6 dB or\na pan outside -1..1 is refused), `shape` `linear` (default), `step`, `ease_in` (slow then\nfast), `ease_out` (fast then slow) or `smooth` (an S), the transition from the point to\nthe next; a linear segment of a volume lane is a straight line along the fader's travel\n(not in amplitude nor in dB), of a device parameter a straight line along its knob (in\nthe logarithm of the value on a logarithmic one), of a pan a straight line, and the\nthree curves warp that same line in time. A lane has at\nmost one point per tick: a tick that already holds a different point, or that appears\ntwice in the batch, is refused (use `automation.points.update` to change a point); a\npoint equal to the one already there changes nothing. Refused with `limit` past the\nsafety limit of points per lane or in the project. Before its first point a lane holds\nthe first point's value (from tick 0, bar 1), so the first point sets the value of\neverything before it: to keep a parameter at its current value until a change, add a\npoint at tick 0 with that value. Points are at absolute ticks of the timeline, they do\nnot follow clips. Undo: `automation.points.remove` of the points actually added.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -14122,7 +14122,7 @@
                 "shape": {
                   "$ref": "#/$defs/Shape",
                   "default": "linear",
-                  "description": "The transition from this point to the next: `linear` (default), `step`, `ease_in`,\n`ease_out` or `smooth`. `linear`\nis a straight line in the parameter's unit, except for a volume (`gain`) lane, where\nit is a straight line along the travel of the mixer's fader, the same law as the\nlane's axis (-96 dB, silence, at the bottom, 0 dB at 78 % of the travel, +6 dB at the\ntop): a fade from 0 dB to -96 dB goes down like a fader pulled at constant speed, and\nhalf way is -21 dB, neither -6 dB (amplitude) nor -48 dB (dB). `step` holds the value.\n`ease_in` (slow, then fast: a filter that opens into a drop), `ease_out` (fast, then\nslow: a fall that settles) and `smooth` (an S, slow at both ends: a crossfade) follow\nthe same line as `linear`, warped in time: at progress `t` of the segment they are\nwhere the line is at `t²`, `t (2 − t)` and `t² (3 − 2t)`; half way, a quarter, three\nquarters and half of the way."
+                  "description": "The transition from this point to the next: `linear` (default), `step`, `ease_in`,\n`ease_out` or `smooth`. `linear`\nis a straight line along the parameter's knob (in its unit, or in the logarithm of the\nvalue for a parameter of logarithmic scale such as a frequency: an even sweep on the\nknob), except for a volume (`gain`) lane, where\nit is a straight line along the travel of the mixer's fader, the same law as the\nlane's axis (-96 dB, silence, at the bottom, 0 dB at 78 % of the travel, +6 dB at the\ntop): a fade from 0 dB to -96 dB goes down like a fader pulled at constant speed, and\nhalf way is -21 dB, neither -6 dB (amplitude) nor -48 dB (dB). `step` holds the value.\n`ease_in` (slow, then fast: a filter that opens into a drop), `ease_out` (fast, then\nslow: a fall that settles) and `smooth` (an S, slow at both ends: a crossfade) follow\nthe same line as `linear`, warped in time: at progress `t` of the segment they are\nwhere the line is at `t²`, `t (2 − t)` and `t² (3 − 2t)`; half way, a quarter, three\nquarters and half of the way."
                 },
                 "tick": {
                   "$ref": "#/$defs/Tick",
@@ -14141,7 +14141,7 @@
               "type": "object"
             },
             "Shape": {
-              "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline in the parameter's unit, along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
+              "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline along the parameter's knob (in its unit, in the logarithm of the value for a\nlogarithmic parameter), along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
               "enum": [
                 "linear",
                 "step",
@@ -14272,7 +14272,7 @@
                 "shape": {
                   "$ref": "#/$defs/Shape",
                   "default": "linear",
-                  "description": "The transition from this point to the next: `linear` (default), `step`, `ease_in`,\n`ease_out` or `smooth`. `linear`\nis a straight line in the parameter's unit, except for a volume (`gain`) lane, where\nit is a straight line along the travel of the mixer's fader, the same law as the\nlane's axis (-96 dB, silence, at the bottom, 0 dB at 78 % of the travel, +6 dB at the\ntop): a fade from 0 dB to -96 dB goes down like a fader pulled at constant speed, and\nhalf way is -21 dB, neither -6 dB (amplitude) nor -48 dB (dB). `step` holds the value.\n`ease_in` (slow, then fast: a filter that opens into a drop), `ease_out` (fast, then\nslow: a fall that settles) and `smooth` (an S, slow at both ends: a crossfade) follow\nthe same line as `linear`, warped in time: at progress `t` of the segment they are\nwhere the line is at `t²`, `t (2 − t)` and `t² (3 − 2t)`; half way, a quarter, three\nquarters and half of the way."
+                  "description": "The transition from this point to the next: `linear` (default), `step`, `ease_in`,\n`ease_out` or `smooth`. `linear`\nis a straight line along the parameter's knob (in its unit, or in the logarithm of the\nvalue for a parameter of logarithmic scale such as a frequency: an even sweep on the\nknob), except for a volume (`gain`) lane, where\nit is a straight line along the travel of the mixer's fader, the same law as the\nlane's axis (-96 dB, silence, at the bottom, 0 dB at 78 % of the travel, +6 dB at the\ntop): a fade from 0 dB to -96 dB goes down like a fader pulled at constant speed, and\nhalf way is -21 dB, neither -6 dB (amplitude) nor -48 dB (dB). `step` holds the value.\n`ease_in` (slow, then fast: a filter that opens into a drop), `ease_out` (fast, then\nslow: a fall that settles) and `smooth` (an S, slow at both ends: a crossfade) follow\nthe same line as `linear`, warped in time: at progress `t` of the segment they are\nwhere the line is at `t²`, `t (2 − t)` and `t² (3 − 2t)`; half way, a quarter, three\nquarters and half of the way."
                 },
                 "tick": {
                   "$ref": "#/$defs/Tick",
@@ -14291,7 +14291,7 @@
               "type": "object"
             },
             "Shape": {
-              "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline in the parameter's unit, along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
+              "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline along the parameter's knob (in its unit, in the logarithm of the value for a\nlogarithmic parameter), along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
               "enum": [
                 "linear",
                 "step",
@@ -14410,7 +14410,7 @@
                 "shape": {
                   "$ref": "#/$defs/Shape",
                   "default": "linear",
-                  "description": "The transition from this point to the next: `linear` (default), `step`, `ease_in`,\n`ease_out` or `smooth`. `linear`\nis a straight line in the parameter's unit, except for a volume (`gain`) lane, where\nit is a straight line along the travel of the mixer's fader, the same law as the\nlane's axis (-96 dB, silence, at the bottom, 0 dB at 78 % of the travel, +6 dB at the\ntop): a fade from 0 dB to -96 dB goes down like a fader pulled at constant speed, and\nhalf way is -21 dB, neither -6 dB (amplitude) nor -48 dB (dB). `step` holds the value.\n`ease_in` (slow, then fast: a filter that opens into a drop), `ease_out` (fast, then\nslow: a fall that settles) and `smooth` (an S, slow at both ends: a crossfade) follow\nthe same line as `linear`, warped in time: at progress `t` of the segment they are\nwhere the line is at `t²`, `t (2 − t)` and `t² (3 − 2t)`; half way, a quarter, three\nquarters and half of the way."
+                  "description": "The transition from this point to the next: `linear` (default), `step`, `ease_in`,\n`ease_out` or `smooth`. `linear`\nis a straight line along the parameter's knob (in its unit, or in the logarithm of the\nvalue for a parameter of logarithmic scale such as a frequency: an even sweep on the\nknob), except for a volume (`gain`) lane, where\nit is a straight line along the travel of the mixer's fader, the same law as the\nlane's axis (-96 dB, silence, at the bottom, 0 dB at 78 % of the travel, +6 dB at the\ntop): a fade from 0 dB to -96 dB goes down like a fader pulled at constant speed, and\nhalf way is -21 dB, neither -6 dB (amplitude) nor -48 dB (dB). `step` holds the value.\n`ease_in` (slow, then fast: a filter that opens into a drop), `ease_out` (fast, then\nslow: a fall that settles) and `smooth` (an S, slow at both ends: a crossfade) follow\nthe same line as `linear`, warped in time: at progress `t` of the segment they are\nwhere the line is at `t²`, `t (2 − t)` and `t² (3 − 2t)`; half way, a quarter, three\nquarters and half of the way."
                 },
                 "tick": {
                   "$ref": "#/$defs/Tick",
@@ -14429,7 +14429,7 @@
               "type": "object"
             },
             "Shape": {
-              "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline in the parameter's unit, along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
+              "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline along the parameter's knob (in its unit, in the logarithm of the value for a\nlogarithmic parameter), along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
               "enum": [
                 "linear",
                 "step",
@@ -14907,7 +14907,7 @@
                 "shape": {
                   "$ref": "#/$defs/Shape",
                   "default": "linear",
-                  "description": "The transition from this point to the next: `linear` (default), `step`, `ease_in`,\n`ease_out` or `smooth`. `linear`\nis a straight line in the parameter's unit, except for a volume (`gain`) lane, where\nit is a straight line along the travel of the mixer's fader, the same law as the\nlane's axis (-96 dB, silence, at the bottom, 0 dB at 78 % of the travel, +6 dB at the\ntop): a fade from 0 dB to -96 dB goes down like a fader pulled at constant speed, and\nhalf way is -21 dB, neither -6 dB (amplitude) nor -48 dB (dB). `step` holds the value.\n`ease_in` (slow, then fast: a filter that opens into a drop), `ease_out` (fast, then\nslow: a fall that settles) and `smooth` (an S, slow at both ends: a crossfade) follow\nthe same line as `linear`, warped in time: at progress `t` of the segment they are\nwhere the line is at `t²`, `t (2 − t)` and `t² (3 − 2t)`; half way, a quarter, three\nquarters and half of the way."
+                  "description": "The transition from this point to the next: `linear` (default), `step`, `ease_in`,\n`ease_out` or `smooth`. `linear`\nis a straight line along the parameter's knob (in its unit, or in the logarithm of the\nvalue for a parameter of logarithmic scale such as a frequency: an even sweep on the\nknob), except for a volume (`gain`) lane, where\nit is a straight line along the travel of the mixer's fader, the same law as the\nlane's axis (-96 dB, silence, at the bottom, 0 dB at 78 % of the travel, +6 dB at the\ntop): a fade from 0 dB to -96 dB goes down like a fader pulled at constant speed, and\nhalf way is -21 dB, neither -6 dB (amplitude) nor -48 dB (dB). `step` holds the value.\n`ease_in` (slow, then fast: a filter that opens into a drop), `ease_out` (fast, then\nslow: a fall that settles) and `smooth` (an S, slow at both ends: a crossfade) follow\nthe same line as `linear`, warped in time: at progress `t` of the segment they are\nwhere the line is at `t²`, `t (2 − t)` and `t² (3 − 2t)`; half way, a quarter, three\nquarters and half of the way."
                 },
                 "tick": {
                   "$ref": "#/$defs/Tick",
@@ -14926,7 +14926,7 @@
               "type": "object"
             },
             "Shape": {
-              "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline in the parameter's unit, along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
+              "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline along the parameter's knob (in its unit, in the logarithm of the value for a\nlogarithmic parameter), along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
               "enum": [
                 "linear",
                 "step",
@@ -18516,7 +18516,7 @@
             },
             {
               "additionalProperties": false,
-              "description": "Add points to a lane, in one batch (one history entry, all or nothing). Each point\nis `{tick, value, shape}`: `tick` 0 to 2^40, `value` in the parameter's unit (rounded\nto its step; a device parameter is clamped to its range, a gain outside -96..+6 dB or\na pan outside -1..1 is refused), `shape` `linear` (default), `step`, `ease_in` (slow then\nfast), `ease_out` (fast then slow) or `smooth` (an S), the transition from the point to\nthe next; a linear segment of a volume lane is a straight line along the fader's travel\n(not in amplitude nor in dB), of any other lane a straight line in its unit, and the\nthree curves warp that same line in time. A lane has at\nmost one point per tick: a tick that already holds a different point, or that appears\ntwice in the batch, is refused (use `automation.points.update` to change a point); a\npoint equal to the one already there changes nothing. Refused with `limit` past the\nsafety limit of points per lane or in the project. Before its first point a lane holds\nthe first point's value (from tick 0, bar 1), so the first point sets the value of\neverything before it: to keep a parameter at its current value until a change, add a\npoint at tick 0 with that value. Points are at absolute ticks of the timeline, they do\nnot follow clips. Undo: `automation.points.remove` of the points actually added.",
+              "description": "Add points to a lane, in one batch (one history entry, all or nothing). Each point\nis `{tick, value, shape}`: `tick` 0 to 2^40, `value` in the parameter's unit (rounded\nto its step; a device parameter is clamped to its range, a gain outside -96..+6 dB or\na pan outside -1..1 is refused), `shape` `linear` (default), `step`, `ease_in` (slow then\nfast), `ease_out` (fast then slow) or `smooth` (an S), the transition from the point to\nthe next; a linear segment of a volume lane is a straight line along the fader's travel\n(not in amplitude nor in dB), of a device parameter a straight line along its knob (in\nthe logarithm of the value on a logarithmic one), of a pan a straight line, and the\nthree curves warp that same line in time. A lane has at\nmost one point per tick: a tick that already holds a different point, or that appears\ntwice in the batch, is refused (use `automation.points.update` to change a point); a\npoint equal to the one already there changes nothing. Refused with `limit` past the\nsafety limit of points per lane or in the project. Before its first point a lane holds\nthe first point's value (from tick 0, bar 1), so the first point sets the value of\neverything before it: to keep a parameter at its current value until a change, add a\npoint at tick 0 with that value. Points are at absolute ticks of the timeline, they do\nnot follow clips. Undo: `automation.points.remove` of the points actually added.",
               "properties": {
                 "lane": {
                   "$ref": "#/$defs/LaneId"
@@ -21586,7 +21586,7 @@
             "shape": {
               "$ref": "#/$defs/Shape",
               "default": "linear",
-              "description": "The transition from this point to the next: `linear` (default), `step`, `ease_in`,\n`ease_out` or `smooth`. `linear`\nis a straight line in the parameter's unit, except for a volume (`gain`) lane, where\nit is a straight line along the travel of the mixer's fader, the same law as the\nlane's axis (-96 dB, silence, at the bottom, 0 dB at 78 % of the travel, +6 dB at the\ntop): a fade from 0 dB to -96 dB goes down like a fader pulled at constant speed, and\nhalf way is -21 dB, neither -6 dB (amplitude) nor -48 dB (dB). `step` holds the value.\n`ease_in` (slow, then fast: a filter that opens into a drop), `ease_out` (fast, then\nslow: a fall that settles) and `smooth` (an S, slow at both ends: a crossfade) follow\nthe same line as `linear`, warped in time: at progress `t` of the segment they are\nwhere the line is at `t²`, `t (2 − t)` and `t² (3 − 2t)`; half way, a quarter, three\nquarters and half of the way."
+              "description": "The transition from this point to the next: `linear` (default), `step`, `ease_in`,\n`ease_out` or `smooth`. `linear`\nis a straight line along the parameter's knob (in its unit, or in the logarithm of the\nvalue for a parameter of logarithmic scale such as a frequency: an even sweep on the\nknob), except for a volume (`gain`) lane, where\nit is a straight line along the travel of the mixer's fader, the same law as the\nlane's axis (-96 dB, silence, at the bottom, 0 dB at 78 % of the travel, +6 dB at the\ntop): a fade from 0 dB to -96 dB goes down like a fader pulled at constant speed, and\nhalf way is -21 dB, neither -6 dB (amplitude) nor -48 dB (dB). `step` holds the value.\n`ease_in` (slow, then fast: a filter that opens into a drop), `ease_out` (fast, then\nslow: a fall that settles) and `smooth` (an S, slow at both ends: a crossfade) follow\nthe same line as `linear`, warped in time: at progress `t` of the segment they are\nwhere the line is at `t²`, `t (2 − t)` and `t² (3 − 2t)`; half way, a quarter, three\nquarters and half of the way."
             },
             "tick": {
               "$ref": "#/$defs/Tick",
@@ -23080,7 +23080,7 @@
           "type": "object"
         },
         "Shape": {
-          "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline in the parameter's unit, along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
+          "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline along the parameter's knob (in its unit, in the logarithm of the value for a\nlogarithmic parameter), along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
           "enum": [
             "linear",
             "step",
@@ -27310,7 +27310,7 @@
             "shape": {
               "$ref": "#/$defs/Shape",
               "default": "linear",
-              "description": "The transition from this point to the next: `linear` (default), `step`, `ease_in`,\n`ease_out` or `smooth`. `linear`\nis a straight line in the parameter's unit, except for a volume (`gain`) lane, where\nit is a straight line along the travel of the mixer's fader, the same law as the\nlane's axis (-96 dB, silence, at the bottom, 0 dB at 78 % of the travel, +6 dB at the\ntop): a fade from 0 dB to -96 dB goes down like a fader pulled at constant speed, and\nhalf way is -21 dB, neither -6 dB (amplitude) nor -48 dB (dB). `step` holds the value.\n`ease_in` (slow, then fast: a filter that opens into a drop), `ease_out` (fast, then\nslow: a fall that settles) and `smooth` (an S, slow at both ends: a crossfade) follow\nthe same line as `linear`, warped in time: at progress `t` of the segment they are\nwhere the line is at `t²`, `t (2 − t)` and `t² (3 − 2t)`; half way, a quarter, three\nquarters and half of the way."
+              "description": "The transition from this point to the next: `linear` (default), `step`, `ease_in`,\n`ease_out` or `smooth`. `linear`\nis a straight line along the parameter's knob (in its unit, or in the logarithm of the\nvalue for a parameter of logarithmic scale such as a frequency: an even sweep on the\nknob), except for a volume (`gain`) lane, where\nit is a straight line along the travel of the mixer's fader, the same law as the\nlane's axis (-96 dB, silence, at the bottom, 0 dB at 78 % of the travel, +6 dB at the\ntop): a fade from 0 dB to -96 dB goes down like a fader pulled at constant speed, and\nhalf way is -21 dB, neither -6 dB (amplitude) nor -48 dB (dB). `step` holds the value.\n`ease_in` (slow, then fast: a filter that opens into a drop), `ease_out` (fast, then\nslow: a fall that settles) and `smooth` (an S, slow at both ends: a crossfade) follow\nthe same line as `linear`, warped in time: at progress `t` of the segment they are\nwhere the line is at `t²`, `t (2 − t)` and `t² (3 − 2t)`; half way, a quarter, three\nquarters and half of the way."
             },
             "tick": {
               "$ref": "#/$defs/Tick",
@@ -28677,7 +28677,7 @@
           "type": "object"
         },
         "Shape": {
-          "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline in the parameter's unit, along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
+          "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline along the parameter's knob (in its unit, in the logarithm of the value for a\nlogarithmic parameter), along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
           "enum": [
             "linear",
             "step",
@@ -35231,7 +35231,7 @@
           "type": "object"
         },
         "Shape": {
-          "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline in the parameter's unit, along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
+          "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline along the parameter's knob (in its unit, in the logarithm of the value for a\nlogarithmic parameter), along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
           "enum": [
             "linear",
             "step",
@@ -39041,7 +39041,7 @@
             "shape": {
               "$ref": "#/$defs/Shape",
               "default": "linear",
-              "description": "The transition from this point to the next: `linear` (default), `step`, `ease_in`,\n`ease_out` or `smooth`. `linear`\nis a straight line in the parameter's unit, except for a volume (`gain`) lane, where\nit is a straight line along the travel of the mixer's fader, the same law as the\nlane's axis (-96 dB, silence, at the bottom, 0 dB at 78 % of the travel, +6 dB at the\ntop): a fade from 0 dB to -96 dB goes down like a fader pulled at constant speed, and\nhalf way is -21 dB, neither -6 dB (amplitude) nor -48 dB (dB). `step` holds the value.\n`ease_in` (slow, then fast: a filter that opens into a drop), `ease_out` (fast, then\nslow: a fall that settles) and `smooth` (an S, slow at both ends: a crossfade) follow\nthe same line as `linear`, warped in time: at progress `t` of the segment they are\nwhere the line is at `t²`, `t (2 − t)` and `t² (3 − 2t)`; half way, a quarter, three\nquarters and half of the way."
+              "description": "The transition from this point to the next: `linear` (default), `step`, `ease_in`,\n`ease_out` or `smooth`. `linear`\nis a straight line along the parameter's knob (in its unit, or in the logarithm of the\nvalue for a parameter of logarithmic scale such as a frequency: an even sweep on the\nknob), except for a volume (`gain`) lane, where\nit is a straight line along the travel of the mixer's fader, the same law as the\nlane's axis (-96 dB, silence, at the bottom, 0 dB at 78 % of the travel, +6 dB at the\ntop): a fade from 0 dB to -96 dB goes down like a fader pulled at constant speed, and\nhalf way is -21 dB, neither -6 dB (amplitude) nor -48 dB (dB). `step` holds the value.\n`ease_in` (slow, then fast: a filter that opens into a drop), `ease_out` (fast, then\nslow: a fall that settles) and `smooth` (an S, slow at both ends: a crossfade) follow\nthe same line as `linear`, warped in time: at progress `t` of the segment they are\nwhere the line is at `t²`, `t (2 − t)` and `t² (3 − 2t)`; half way, a quarter, three\nquarters and half of the way."
             },
             "tick": {
               "$ref": "#/$defs/Tick",
@@ -41326,7 +41326,7 @@
           "type": "object"
         },
         "Shape": {
-          "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline in the parameter's unit, along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
+          "description": "The shape of the transition from a point to the next one (#881). `Linear` is a straight\nline along the parameter's knob (in its unit, in the logarithm of the value for a\nlogarithmic parameter), along the fader's travel for a volume lane (#389); `Step`\nholds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then\nslow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by\n`t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).",
           "enum": [
             "linear",
             "step",

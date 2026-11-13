@@ -13,8 +13,8 @@
 //!
 //! # Curved transitions (#881)
 //!
-//! `EaseIn`, `EaseOut` and `Smooth` follow the same line as `Linear` (in the parameter's unit,
-//! along the fader's travel for a volume lane), warped in time: the progress `t` of the
+//! `EaseIn`, `EaseOut` and `Smooth` follow the same line as `Linear` (along the parameter's
+//! knob, below; along the fader's travel for a volume lane), warped in time: the progress `t` of the
 //! transition, from 0 at the point to 1 at the next, becomes [`warp`]`(curve, t)`: `t²` for
 //! `EaseIn` (slow, then fast), `t (2 − t)` for `EaseOut` (fast, then slow), `t² (3 − 2t)` for
 //! `Smooth` (slow at both ends). The formulas of the production sheet (the music-producer
@@ -29,6 +29,16 @@
 //! point reached, at the playhead `max(position_at(c), tick of that point)`: a point's
 //! value falls exactly on its sample and a linear transition is linear in frames.
 //!
+//! # The knob of a device parameter (#881)
+//!
+//! A straight line drawn on a device parameter's lane is a line along its **knob**, the travel
+//! the interface shows (founder's decision on #881): straight in the unit for a parameter of
+//! linear scale, straight in the logarithm of the value for one of logarithmic scale (a
+//! frequency, a time), so that a linear sweep of a cutoff moves evenly on its knob and a slow
+//! start is heard as slow. [`link`] finds the knob at every block from the descriptor of the
+//! device in the lane's slot ([`Knob`]); a lane whose device or parameter is not found plays in
+//! its unit. A pan lane plays in its unit, a volume lane along the fader (below).
+//!
 //! # A volume lane (#389)
 //!
 //! A straight line drawn on a volume lane is a line along the **travel of the fader**
@@ -36,8 +46,8 @@
 //! in amplitude and not in dB: a fade from 0 dB to -96 dB over eight bars goes down like a
 //! fader pulled at constant speed. A linear transition goes in a straight line in position
 //! from the position of the point's dB to the position of the next one's. The lane's lowest
-//! value, -96 dB, is silence: an amplitude of exactly 0. A pan lane and a device parameter
-//! stay linear in their own unit.
+//! value, -96 dB, is silence: an amplitude of exactly 0. A pan lane stays linear in its unit,
+//! a device parameter along its knob (above).
 //!
 //! The strip draws straight lines between the values it receives (below), so the curve is
 //! sent as **chords**: the value of a volume lane at a frame is the straight line, in
@@ -121,7 +131,7 @@
 //! Nothing here allocates, locks or panics.
 
 use crate::device::Event;
-use crate::engine::{Lane, Paged, Track};
+use crate::engine::{DeviceEntry, Lane, Paged, Track};
 use crate::events::Sink;
 
 use crate::mixer::{GAIN, GAIN_RAMP, MIXER_SLOT, PAN, PAN_RAMP};
@@ -166,6 +176,8 @@ pub struct LaneRun {
     manual: Manual,
     /// The bits of the last value sent to a device; `None`: the next instant sends.
     sent: Option<u32>,
+    /// The knob of the lane's parameter (set by [`link`] at every block).
+    pub(crate) knob: Knob,
 }
 
 impl Default for LaneRun {
@@ -175,6 +187,7 @@ impl Default for LaneRun {
             index: 0,
             manual: Manual::Free,
             sent: None,
+            knob: Knob::Unit,
         }
     }
 }
@@ -223,6 +236,20 @@ pub fn reached(points: &[AutomationPoint], index: usize, segment: &Segment, c: u
 /// The value of a lane at frame `c` with `r` points reached (module doc); `None` for a
 /// lane with no point.
 pub fn value_at(points: &[AutomationPoint], r: usize, segment: &Segment, c: usize) -> Option<f32> {
+    value_on(Knob::Unit, points, r, segment, c)
+}
+
+/// The value of a lane at frame `c` with `r` points reached, on the knob `knob` (module doc,
+/// "The knob of a device parameter"): the line between two points goes straight in the
+/// parameter's unit ([`Knob::Unit`]) or straight in its logarithm ([`Knob::Log`]), warped by
+/// the curve of the earlier point either way.
+pub fn value_on(
+    knob: Knob,
+    points: &[AutomationPoint],
+    r: usize,
+    segment: &Segment,
+    c: usize,
+) -> Option<f32> {
     let first = points.first()?;
     if r == 0 {
         return Some(first.value);
@@ -238,7 +265,46 @@ pub fn value_at(points: &[AutomationPoint], r: usize, segment: &Segment, c: usiz
     let x = segment.position_at(c).max(a);
     let t = warp(prev.curve, ((x - a) / (b - a)).clamp(0.0, 1.0));
     let (va, vb) = (f64::from(prev.value), f64::from(next.value));
-    Some((va + (vb - va) * t) as f32)
+    match knob {
+        Knob::Unit => Some((va + (vb - va) * t) as f32),
+        Knob::Log { min, max } => {
+            // Both ends kept to the knob's range, which is above 0 (`Scale::Log` requires it).
+            let (lo, hi) = (f64::from(min), f64::from(max));
+            let (la, lb) = (va.clamp(lo, hi).ln(), vb.clamp(lo, hi).ln());
+            Some((la + (lb - la) * t).exp().clamp(lo, hi) as f32)
+        }
+    }
+}
+
+/// The travel of a device parameter's knob (module doc, "The knob of a device parameter"),
+/// found at every block by [`link`] from the descriptor of the device in the lane's slot.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Knob {
+    /// Linear in the unit: a pan, a volume's dB before the fader's law, a linear parameter,
+    /// or a lane whose device or parameter is not found.
+    #[default]
+    Unit,
+    /// Logarithmic between `min` and `max` (both above 0): frequencies, times.
+    Log { min: f32, max: f32 },
+}
+
+// `Log` holds two finite bounds above 0 (`knob_of` checks them), never a NaN: equality is total.
+impl Eq for Knob {}
+
+/// The knob of parameter `param` of `device` (a linear one when the scale is not logarithmic,
+/// or the bounds are not both above 0).
+fn knob_of(device: &dyn crate::device::Device, param: ParamId) -> Knob {
+    let Some(p) = device.descriptor().params.iter().find(|p| p.id == param) else {
+        return Knob::Unit;
+    };
+    if p.scale == crate::device::Scale::Log && p.min > 0.0 && p.max > p.min {
+        Knob::Log {
+            min: p.min as f32,
+            max: p.max as f32,
+        }
+    } else {
+        Knob::Unit
+    }
 }
 
 /// The progress of a transition of shape `curve` at linear progress `t` in `[0, 1]` (module
@@ -258,6 +324,7 @@ pub fn warp(curve: Curve, t: f64) -> f64 {
 /// travel ([`gain_value`]).
 fn lane_value(
     target: AutomationTarget,
+    knob: Knob,
     points: &[AutomationPoint],
     r: usize,
     segment: &Segment,
@@ -267,7 +334,7 @@ fn lane_value(
     if target == AutomationTarget::MixerGain {
         gain_value(points, r, segment, base, c)
     } else {
-        value_at(points, r, segment, c)
+        value_on(knob, points, r, segment, c)
     }
 }
 
@@ -387,6 +454,7 @@ pub(crate) fn link(
     tracks: &mut Slots<Box<Track>>,
     lanes: &mut Paged<Box<Lane>>,
     master: &mut MasterLanes,
+    master_devices: &Slots<Box<DeviceEntry>>,
 ) {
     for track in tracks.as_mut_slice().iter_mut().flatten() {
         track.graph.lanes = NO_LANE;
@@ -396,7 +464,13 @@ pub(crate) fn link(
     master.count = 0;
     lanes.for_each_mut(|slot, lane| {
         lane.run.next = NO_LANE;
+        lane.run.knob = Knob::Unit;
         if lane.track.is_master() {
+            if let AutomationTarget::DeviceParam { device, param } = lane.target
+                && let Some(entry) = device_in(master_devices, device)
+            {
+                lane.run.knob = knob_of(entry.device.as_ref(), param);
+            }
             if (master.count as usize) < LANES_PER_TRACK {
                 lane.run.next = master.head;
                 master.head = slot;
@@ -411,12 +485,25 @@ pub(crate) fn link(
         else {
             return;
         };
+        if let AutomationTarget::DeviceParam { device, param } = lane.target
+            && let Some(entry) = device_in(&track.devices, device)
+        {
+            lane.run.knob = knob_of(entry.device.as_ref(), param);
+        }
         if (track.graph.lane_count as usize) < LANES_PER_TRACK {
             lane.run.next = track.graph.lanes;
             track.graph.lanes = slot;
             track.graph.lane_count += 1;
         }
     });
+}
+
+/// The device in slot `device` of a chain, if any.
+fn device_in(devices: &Slots<Box<DeviceEntry>>, device: DeviceSlot) -> Option<&DeviceEntry> {
+    devices
+        .as_slice()
+        .get(device.0 as usize)
+        .and_then(Option::as_deref)
 }
 
 /// What the graph keeps of the master's lanes (#378), as [`crate::graph::TrackGraph`] does
@@ -496,7 +583,8 @@ impl TrackLanes<'_> {
             let points = lane.points.as_slice();
             let r = reached(points, lane.run.index, &segment, 0);
             lane.run.index = r;
-            let Some(value) = lane_value(lane.target, points, r, &segment, 0, 0) else {
+            let Some(value) = lane_value(lane.target, lane.run.knob, points, r, &segment, 0, 0)
+            else {
                 return;
             };
             let (device, id) = address(lane.target, false);
@@ -592,7 +680,9 @@ impl TrackLanes<'_> {
             if lane.run.manual != Manual::Free {
                 return;
             }
-            let Some(value) = lane_value(lane.target, points, r, segment, base, start) else {
+            let Some(value) =
+                lane_value(lane.target, lane.run.knob, points, r, segment, base, start)
+            else {
                 return;
             };
             if let AutomationTarget::DeviceParam { .. } = lane.target {
@@ -648,7 +738,9 @@ impl TrackLanes<'_> {
             if !on_slope(points, r) {
                 return;
             }
-            let Some(value) = lane_value(lane.target, points, r, segment, base, last) else {
+            let Some(value) =
+                lane_value(lane.target, lane.run.knob, points, r, segment, base, last)
+            else {
                 return;
             };
             let (device, id) = address(lane.target, true);
@@ -760,6 +852,33 @@ mod tests {
             &[point(4, 1.0, Curve::Smooth), point(8, 1.0, Curve::Step)],
             1
         ));
+    }
+
+    #[test]
+    fn a_logarithmic_knob_interpolates_the_logarithm_and_keeps_the_ends_in_range() {
+        let s = segment();
+        let knob = Knob::Log {
+            min: 10.0,
+            max: 10_000.0,
+        };
+        let p = [point(4, 10.0, Curve::Linear), point(8, 1000.0, Curve::Step)];
+        // Half way from 10 to 1 000 on a log knob is 100; a slow start is at 10^1.5 there.
+        let mid = value_on(knob, &p, 1, &s, 150).unwrap();
+        assert!((mid - 100.0).abs() < 1e-3, "{mid}");
+        let p = [point(4, 10.0, Curve::EaseIn), point(8, 1000.0, Curve::Step)];
+        let slow = value_on(knob, &p, 1, &s, 150).unwrap();
+        assert!((slow - 10f32.powf(1.5)).abs() < 1e-3, "{slow}");
+        // The unit knob is the straight line in the unit.
+        assert_eq!(
+            value_on(Knob::Unit, &p, 1, &s, 150),
+            Some(10.0 + 990.0 * 0.25)
+        );
+        // Out of range ends (a file off the range) are kept to it, never a NaN.
+        let p = [point(4, -5.0, Curve::Smooth), point(8, 1e9, Curve::Step)];
+        for c in [100, 125, 150, 199] {
+            let v = value_on(knob, &p, 1, &s, c).unwrap();
+            assert!((10.0..=10_000.0).contains(&v), "{c}: {v}");
+        }
     }
 
     #[test]

@@ -2264,7 +2264,7 @@
   function laneValue(lane: string, at: number): number | null {
     const ref = laneRefs.get(lane)
     if (!ref) return null
-    const value = valueAt(pointsOf(ref.info.lane), at, ref.info.lane.target)
+    const value = valueAt(pointsOf(ref.info.lane), at, ref.info.lane.target, ref.info.axis.log)
     return value === null ? paramValue(ref.trackId, ref.info) : ref.info.axis.clamp(value)
   }
   /** The keys of a point and of a ramp as written on the user's keyboard (they work by position). */
@@ -2779,7 +2779,7 @@
           {:else if row.kind === 'lane'}
             {@const ref = laneRefs.get(row.lane ?? '')}
             {#if ref}
-              {@const live = shownTick === null ? null : valueAt(pointsOf(ref.info.lane), shownTick, ref.info.lane.target)}
+              {@const live = shownTick === null ? null : valueAt(pointsOf(ref.info.lane), shownTick, ref.info.lane.target, ref.info.axis.log)}
               {@const count = pointsOf(ref.info.lane).length}
               <!-- The group relays the keys of its buttons: I (Insert), R and Right (#769). -->
               <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
