@@ -151,8 +151,16 @@
           : []),
         ...(fit >= 6
           ? [
-              // The tap button: one tap per pick (the menu closes after each); a series of taps is made with its key.
-              { id: 'more-tap', label: t('transport.tap'), shortcut: 'Alt+T', separator: true, disabled: !ready, run: () => transport?.tapTempo() },
+              // The tap button: the menu stays open, so Enter taps again and again; Escape closes it.
+              {
+                id: 'more-tap',
+                label: t('transport.tap'),
+                shortcut: 'Alt+T',
+                separator: true,
+                disabled: !ready,
+                stayOpen: true,
+                run: () => transport?.tapTempo(),
+              },
               { id: 'more-signature', label: t('transport.signature'), separator: true, disabled: true, run: () => {} },
               ...signatures().map(([n, d]) => ({
                 id: `more-signature-${n}-${d}`,

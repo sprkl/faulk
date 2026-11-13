@@ -143,6 +143,31 @@ test('at 800 px the more menu holds what the bar folded and works from the keybo
   expect(errors).toEqual([])
 })
 
+test('at 800 px the tap entry of the more menu stays open and taps a tempo from the keyboard (#878)', async ({ page }) => {
+  const { errors } = watch(page)
+  await open(page, 800)
+  const more = page.getByTestId('bar-more')
+  await more.focus()
+  await page.keyboard.press('Enter')
+  const tap = page.getByTestId('ctx-more-tap')
+  await expect(tap).toBeEnabled()
+  await page.getByTestId('ctx-more-tap').focus()
+  // Three taps, 600 ms apart (100 BPM): Enter on the focused entry, the menu stays open between them.
+  for (let i = 0; i < 3; i++) {
+    if (i > 0) await page.waitForTimeout(600)
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('context-menu')).toBeVisible()
+    await expect(tap).toBeFocused()
+  }
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('context-menu')).toHaveCount(0)
+  await expect(more).toBeFocused()
+  const bpm = Number(await page.getByTestId('transport-tempo').inputValue())
+  expect(bpm, 'the tempo the three taps measured').toBeGreaterThan(90)
+  expect(bpm).toBeLessThan(110)
+  expect(errors).toEqual([])
+})
+
 test('the focus of a control the bar folds at 800 px goes to the more button (#878)', async ({ page }) => {
   const { errors } = watch(page)
   await open(page, 1100)
