@@ -915,6 +915,8 @@
   }
 
   function select(trackId: string) {
+    // Picking a track ends the devices panel's master view, even when it is already the selected one (#806).
+    ui.masterSelection = null
     if (project.selected?.id !== trackId) run(selectTrack(trackId))
   }
 
