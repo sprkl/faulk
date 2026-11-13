@@ -60,6 +60,7 @@ export const PREVIEW_SPECS = [
   'master-chain',
   'navigation',
   'open-url',
+  'output-stall',
   'pack-import',
   'piano-roll',
   'project-store',

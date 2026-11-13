@@ -30,6 +30,11 @@ export class EngineStore {
    */
   silencedFrames = $state(0)
   /**
+   * The audio output stopped pulling the Web engine (#810): the context's clock stands still, so nothing plays and
+   * the position and the meters are frozen. The transport says so until the clock runs again.
+   */
+  outputStalled = $state(false)
+  /**
    * The delay the devices add to what is heard, in frames at the engine's rate (#749): the longest chain latency of the
    * tracks plus the master's, which the engine compensates (the other tracks and the metronome are delayed to match).
    */

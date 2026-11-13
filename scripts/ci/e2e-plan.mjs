@@ -65,7 +65,7 @@ export const AREA = {
   // What the engine's sound and timing reach: devices, mixer, master, automation, transport, the
   // shipped worklet's cost (engine-mo2), its reports (engine-mo5), the CT-3 prototype that builds
   // crates/engine itself (engine-channel), the export render.
-  engine: ['all-sound-off', 'automation', 'big-project', 'continuous', 'devices', 'engine-channel', 'engine-mo2', 'engine-mo5', 'export-audio', 'filter-movement', 'keyboard', 'master-chain', 'master-pan', 'mixer-sound', 'recording', 'ripple-panel', 'stop-to-marker'],
+  engine: ['all-sound-off', 'automation', 'big-project', 'continuous', 'devices', 'engine-channel', 'engine-mo2', 'engine-mo5', 'export-audio', 'filter-movement', 'keyboard', 'master-chain', 'master-pan', 'mixer-sound', 'output-stall', 'recording', 'ripple-panel', 'stop-to-marker'],
   // What the project core (project, project-wasm) reaches beyond the core tests: storage, history, refusals.
   project: ['project-store', 'project-save', 'project-rename', 'project-save-as-name', 'open-project', 'browser-storage', 'storage-commands', 'open-url', 'history', 'history-names', 'refused-commands', 'scale'],
 }
