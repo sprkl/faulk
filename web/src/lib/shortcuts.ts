@@ -154,6 +154,8 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         ],
       },
       { label: 'shortcut.pointRemove', chords: [['Delete'], ['Backspace']] },
+      // A point's curve (#881).
+      { label: 'shortcut.pointCurve', chords: [['KeyC'], ['Shift', 'KeyC']] },
     ],
   },
   {
@@ -173,6 +175,10 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       { label: 'shortcut.noteRepeat', chords: [['Mod', 'Shift', 'R']] },
       { label: 'shortcut.noteGenerate', chords: [['Alt', 'G']] },
       { label: 'shortcut.noteQuantize', chords: [['KeyQ']] },
+      { label: 'shortcut.stepEntry', chords: [['Alt', 'KeyE']] },
+      { label: 'shortcut.stepRest', chords: [['Period']] },
+      { label: 'shortcut.stepLengthen', chords: [['Comma']] },
+      { label: 'shortcut.stepBack', chords: [['Backspace']] },
       {
         label: 'shortcut.noteStep',
         chords: [['←'], ['→'], ['↑'], ['↓'], ['Shift', '←'], ['Shift', '→'], ['Shift', '↑'], ['Shift', '↓']],
@@ -296,6 +302,8 @@ export async function readKeyLayout(nav: KeyboardNav | undefined = globalThis.na
 export function positionKey(code: string, layout: KeyLayout | null = null): string {
   const named = layout?.get(code)
   if (named && named.length === 1) return named.toUpperCase()
+  if (code === 'Period') return '.'
+  if (code === 'Comma') return ','
   return code.replace(/^Key/, '')
 }
 
@@ -303,7 +311,7 @@ export function positionKey(code: string, layout: KeyLayout | null = null): stri
 export function keyLabel(token: KeyToken, mac: boolean = isMac(), layout: KeyLayout | null = null): string {
   if (token === 'Mod') return mac ? 'Cmd' : 'Ctrl'
   if (token === 'Alt') return mac ? 'Option' : 'Alt'
-  if (/^Key[A-Z]$/.test(token)) return positionKey(token, layout)
+  if (/^(Key[A-Z]|Period|Comma)$/.test(token)) return positionKey(token, layout)
   return token
 }
 

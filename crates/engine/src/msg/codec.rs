@@ -262,6 +262,9 @@ impl<'a> Reader<'a> {
         match self.u8()? {
             0 => Ok(Curve::Step),
             1 => Ok(Curve::Linear),
+            2 => Ok(Curve::EaseIn),
+            3 => Ok(Curve::EaseOut),
+            4 => Ok(Curve::Smooth),
             _ => Err(Bad::Payload),
         }
     }

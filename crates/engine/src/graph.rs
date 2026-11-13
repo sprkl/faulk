@@ -1273,7 +1273,12 @@ impl Graph {
         // The chains' latencies at the start of the block ([`Graph::measure_latency`]).
         let longest = self.track_latency;
         let (quantize, signature) = (state.transport.launch_quantize, state.transport.signature);
-        crate::automation::link(&mut state.tracks, &mut state.lanes, &mut self.master_lanes);
+        crate::automation::link(
+            &mut state.tracks,
+            &mut state.lanes,
+            &mut self.master_lanes,
+            &state.master_devices,
+        );
         let clips = &mut state.clips;
         let lanes = &mut state.lanes;
         let tempo = state.transport.tempo;

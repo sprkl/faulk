@@ -7,7 +7,7 @@
 
 import type { Point, Shape } from '../../../lib/generated/protocol'
 import { MAX_TICK } from '../arrangement'
-import { lowerBound, type Axis, type LanePoint } from './model'
+import { SHAPES, lowerBound, type Axis, type LanePoint } from './model'
 
 type Keys = Pick<KeyboardEvent, 'key' | 'code' | 'altKey' | 'ctrlKey' | 'metaKey' | 'shiftKey' | 'repeat' | 'isComposing'>
 
@@ -18,6 +18,8 @@ type Keys = Pick<KeyboardEvent, 'key' | 'code' | 'altKey' | 'ctrlKey' | 'metaKey
 export const POINT_CODE = 'KeyI'
 /** R: a ramp from the playhead to a position. It plays nothing. */
 export const RAMP_CODE = 'KeyR'
+/** C on a point: its curve (#881), the next shape of the list, Shift+C the previous one. It plays nothing (`KEY_OFFSETS` has no C). */
+export const CURVE_CODE = 'KeyC'
 
 /** What a key does on a lane's head (any of its buttons focused). */
 export type LaneAction = 'point' | 'ramp' | 'enter'
@@ -45,6 +47,7 @@ export type PointAction =
   | { kind: 'delete' }
   | { kind: 'value'; direction: 1 | -1; big: boolean }
   | { kind: 'move'; direction: 1 | -1 }
+  | { kind: 'curve'; direction: 1 | -1 }
   | { kind: 'point' }
   | { kind: 'ramp' }
   | { kind: 'leave' }
@@ -52,12 +55,14 @@ export type PointAction =
 /**
  * The key on a point: Left and Right go to the previous and the next point, Home and End to the first and the last, Enter types
  * its value, Delete or Backspace removes it, Alt+Up and Down change its value by a step (a big one with Shift), Alt+Left and Right
- * move it by the snap step, I (Insert) and R as on the lane's head, Escape goes back to the head. Ctrl or Cmd belongs to the page.
+ * move it by the snap step, C gives it the next curve and Shift+C the previous one (#881), I (Insert) and R as on the lane's
+ * head, Escape goes back to the head. Ctrl or Cmd belongs to the page.
  */
 export function pointKey(event: Keys): PointAction | null {
   const shared = sharedKey(event)
   if (shared) return { kind: shared }
   if (event.ctrlKey || event.metaKey || event.isComposing) return null
+  if (event.code === CURVE_CODE && !event.altKey && !event.repeat) return { kind: 'curve', direction: event.shiftKey ? -1 : 1 }
   if (event.altKey) {
     if (event.key === 'ArrowUp' || event.key === 'ArrowDown') return { kind: 'value', direction: event.key === 'ArrowUp' ? 1 : -1, big: event.shiftKey }
     if (!event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) return { kind: 'move', direction: event.key === 'ArrowRight' ? 1 : -1 }
@@ -136,9 +141,17 @@ export interface RampPlan {
   remove: number[]
 }
 
+/** The shape after `shape` in the list (`SHAPES`), or before it for -1, round the end (#881). */
+export function nextShape(shape: Shape, direction: 1 | -1): Shape {
+  const i = Math.max(0, SHAPES.indexOf(shape))
+  return SHAPES[(i + direction + SHAPES.length) % SHAPES.length]!
+}
+
 /**
- * The curve a new point on `tick` takes so that the lane after it goes on as it did: the curve of a point already there, else
- * that of the segment it lands in (the point before it: a point inside a held step keeps the hold), else linear.
+ * The curve a new point on `tick` takes: the curve of a point already there, else that of the segment it lands in (the point
+ * before it), else linear. A point put on a straight line or inside a held step at the lane's value there leaves the lane as
+ * it was; one put inside a curve (#881) splits it into two curves of that shape, each from end to end of its half, which
+ * changes the sound around the new point (an S gets a pause there): what a curve split by hand is.
  */
 export function shapeAt(points: readonly LanePoint[], tick: number): Shape {
   const i = lowerBound(points, tick)
@@ -147,12 +160,12 @@ export function shapeAt(points: readonly LanePoint[], tick: number): Shape {
 }
 
 /**
- * A straight ramp between the playhead's point (`from`, the lane's value there) and the typed one (`to`), in either order. The
- * earlier point gets the linear curve (it starts the ramp); the later one keeps the curve the lane had there (`shapeAt`), so that
- * what follows the ramp sounds as before. The points strictly between are taken out, so that the segment is exactly the ramp.
- * Null when both ends are on one tick.
+ * A ramp of shape `shape` (linear by default, #881) between the playhead's point (`from`, the lane's value there) and the typed
+ * one (`to`), in either order. The earlier point gets the shape (it starts the ramp); the later one keeps the curve the lane had
+ * there (`shapeAt`), so that what follows the ramp sounds as before. The points strictly between are taken out, so that the
+ * segment is exactly the ramp. Null when both ends are on one tick.
  */
-export function rampPlan(points: readonly LanePoint[], from: RampEnd, to: RampEnd): RampPlan | null {
+export function rampPlan(points: readonly LanePoint[], from: RampEnd, to: RampEnd, shape: Shape = 'linear'): RampPlan | null {
   if (from.tick === to.tick) return null
   const [early, late] = from.tick < to.tick ? [from, to] : [to, from]
   const lateShape = shapeAt(points, late.tick)
@@ -160,7 +173,7 @@ export function rampPlan(points: readonly LanePoint[], from: RampEnd, to: RampEn
   for (let i = lowerBound(points, early.tick + 1); i < points.length && points[i]!.tick < late.tick; i++) remove.push(points[i]!.tick)
   return {
     points: [
-      { tick: early.tick, value: early.value, shape: 'linear' },
+      { tick: early.tick, value: early.value, shape },
       { tick: late.tick, value: late.value, shape: lateShape },
     ],
     remove,

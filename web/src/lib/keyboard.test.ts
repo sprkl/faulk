@@ -190,9 +190,9 @@ describe('space bar and the transport', () => {
     k.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', bubbles: true }))
     expect(spaceTogglesTransport(k)).toBe(true) // octave step, still pointer-focused
 
-    // Unmapped letters (KeyC, KeyB…) and digits are neither playing keys nor BARE_SHORTCUT_CODES:
+    // Unmapped letters (KeyV, KeyB…) and digits are neither playing keys nor BARE_SHORTCUT_CODES:
     // they must not reassert keyboard origin either.
-    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', code: 'KeyC', bubbles: true }))
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', code: 'KeyV', bubbles: true }))
     expect(spaceTogglesTransport(k)).toBe(true) // still pointer-focused
     k.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1', bubbles: true }))
     expect(spaceTogglesTransport(k)).toBe(true) // still pointer-focused
@@ -287,9 +287,9 @@ describe('space bar and the transport', () => {
     k.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', bubbles: true }))
     expect(playsNote({ ...base, target: k })).toBe(true)
 
-    // Unmapped letters (KeyC) and digits (Digit1) do not change the origin either.
-    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', code: 'KeyC', bubbles: true }))
-    expect(playsNote({ ...base, target: k })).toBe(true) // still pointer-focused: KeyC is not a shortcut
+    // Unmapped letters (KeyV) and digits (Digit1) do not change the origin either.
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', code: 'KeyV', bubbles: true }))
+    expect(playsNote({ ...base, target: k })).toBe(true) // still pointer-focused: KeyV is not a shortcut
     k.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1', bubbles: true }))
     expect(playsNote({ ...base, target: k })).toBe(true) // still pointer-focused: Digit1 is not a shortcut
 
@@ -487,6 +487,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
         'ArrowUp',
         'ArrowUp',
         'Backspace',
+        'Backspace',
         'Delete',
         'Enter',
         'Enter',
@@ -496,7 +497,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
         'PageDown',
         'PageUp',
         'Space',
-      ], // Page Up and Down: the selection's velocity (#494); Space on a note selects it (#771), no letter
+      ], // Page Up and Down: the selection's velocity (#494); Space on a note selects it (#771); Backspace ahead of the stage in step entry (#882), no letter
       'views/piano-roll/EuclideanPanel.svelte': ['Enter', 'Escape'], // the euclidean generator's fields (#694): Enter places, Escape closes; every other key stays in the field
       'views/shell/BottomPanel.svelte': ['ArrowDown', 'ArrowUp', 'End', 'Enter', 'Home'],
       'views/shell/EngineDialog.svelte': ['Enter'], // the recording offset's field (#470)

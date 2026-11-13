@@ -35,7 +35,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use engine::msg::{
-    AutomationPoint as EnginePoint, AutomationTarget as EngineTarget, ClipSlot, ControlMsg, Curve,
+    AutomationPoint as EnginePoint, AutomationTarget as EngineTarget, ClipSlot, ControlMsg,
     DeviceKind, DeviceSlot, LaneSlot, MsgError, Note as EngineNote, ParamId,
     Placement as EnginePlacement, PlacementSlot, SceneSlot, SourceSlot, Span as EngineSpan,
     TrackKind, TrackSlot, encode_state, limits,
@@ -44,7 +44,7 @@ use engine::time::LoopRegion;
 use project::{
     AutomationLane, AutomationTarget, Clip, ClipContent, ClipId, Device, DeviceId, DeviceSource,
     EngineSlots, IdGenerator, LaneId, MixerParam, OrderKey, Placement, PlacementId, Project,
-    ProjectId, SessionState, Shape, Span, Track, TrackId, TrackSlots,
+    ProjectId, SessionState, Span, Track, TrackId, TrackSlots,
 };
 
 use crate::contract::{ClipPart, CommandError, Context, ProjectEvent, State, TakeState};
@@ -1536,10 +1536,7 @@ fn lane_msgs(
         .map(|(tick, p)| EnginePoint {
             tick: *tick,
             value: finite_f32(p.value),
-            curve: match p.shape {
-                Shape::Step => Curve::Step,
-                Shape::Linear => Curve::Linear,
-            },
+            curve: p.shape.curve(),
         })
         .collect();
     out.extend(chunked(&points, |first, total, points| {
