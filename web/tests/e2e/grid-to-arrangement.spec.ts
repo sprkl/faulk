@@ -129,21 +129,20 @@ test('grid to arrangement: a clip copy is independent, a linked one follows the 
   await expect.poll(() => meterDb(page), { timeout: 10_000 }).toBeGreaterThan(SILENCE_DB)
   await page.getByTestId('transport').getByRole('button', { name: 'Stop', exact: true }).click()
   await expect.poll(() => meterDb(page), { timeout: 15_000 }).toBeLessThan(SILENCE_DB)
-  await run(page, { type: 'transport.seek', tick: 2 * BAR + 500 })
+  await run(page, { type: 'transport.seek', tick: 4 * BAR + 500 })
 
-  // A scene: one placement per track at bar 3 (the linked one is carved by the first track's new copy: last wins),
-  // one history entry, so one undo.
+  // A scene: one placement per track at bar 5 (a free place: a taken one is refused, #863), one history entry, so one undo.
   await page.getByTestId('nav-grid').click()
   const head = page.locator('[data-testid=scene-head]').first()
   await head.hover()
   await head.getByTestId('scene-more').click({ force: true })
   await page.getByTestId('scene-send').click()
   await page.getByTestId('nav-arrangement').click()
-  await expect.poll(async () => (await blocks(page)).length).toBe(3)
+  await expect.poll(async () => (await blocks(page)).length).toBe(4)
   const afterScene = await blocks(page)
-  const atBar3 = afterScene.filter((b) => b.start === 2 * BAR)
-  expect(atBar3.map((b) => b.track).sort()).toEqual([...midi].sort())
-  expect(atBar3.every((b) => !gridClips.includes(b.clip))).toBe(true)
+  const atBar5 = afterScene.filter((b) => b.start === 4 * BAR)
+  expect(atBar5.map((b) => b.track).sort()).toEqual([...midi].sort())
+  expect(atBar5.every((b) => !gridClips.includes(b.clip))).toBe(true)
   await page.keyboard.press('Control+z')
   await expect.poll(async () => (await blocks(page)).length).toBe(2)
   expect((await blocks(page))[1]).toMatchObject({ clip: gridClips[0], start: 2 * BAR })
@@ -188,6 +187,43 @@ test('sending a grid clip onto a taken place is refused, says so, and leaves the
   await page.locator('[data-testid=cell][data-ti="0"][data-si="0"]').hover()
   await page.locator(`[data-slot-clip="${gridClip}"]`).getByTestId('clip-more').click({ force: true })
   await page.getByTestId('clip-menu-send').click()
+  await expect(page.getByTestId('refusal-toast')).toContainText(/taken/)
+  await page.getByTestId('nav-arrangement').click()
+  expect(await blocks(page)).toEqual(before)
+
+  expect(seen.errors).toEqual([])
+})
+
+test('sending a scene onto a taken place is refused, says so, and leaves the neighbour whole (#863)', async ({ page }) => {
+  const seen = watch(page)
+  await page.setViewportSize({ width: 1600, height: 900 })
+  await page.goto('/app')
+  await startAudio(page)
+  await engineUp(page)
+  test.skip(
+    (await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function',
+    'the dispatcher hook exists in the dev server only',
+  )
+
+  await run(page, { type: 'track.create', kind: 'midi', instrument: 'faulk.osc_synth' })
+  await run(page, { type: 'scene.create' })
+  const first = await view(page)
+  const track = Object.entries(first.tracks).find(([, t]) => t.kind === 'midi')![0]
+  const scene = Object.keys(first.scenes)[0]
+  await run(page, { type: 'clip.create', track, at: { at: 'slot', scene } })
+  const gridClip = Object.keys((await view(page)).tracks[track]!.clips)[0]!
+  await run(page, { type: 'clip.notes.add', clip: gridClip, notes: [{ start: 0, pitch: 60, length: 480, velocity: 100 }] })
+  // A clip of the arrangement already sits at bar 1, where the playhead is.
+  await run(page, { type: 'clip.create', track, at: { at: 'arrangement', start: 0 } })
+  await page.getByTestId('nav-arrangement').click()
+  await expect.poll(async () => (await blocks(page)).length).toBe(1)
+  const before = await blocks(page)
+
+  await page.getByTestId('nav-grid').click()
+  const head = page.locator('[data-testid=scene-head]').first()
+  await head.hover()
+  await head.getByTestId('scene-more').click({ force: true })
+  await page.getByTestId('scene-send').click()
   await expect(page.getByTestId('refusal-toast')).toContainText(/taken/)
   await page.getByTestId('nav-arrangement').click()
   expect(await blocks(page)).toEqual(before)

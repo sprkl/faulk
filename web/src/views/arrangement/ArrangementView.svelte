@@ -1973,7 +1973,22 @@
           return to === null ? [] : [{ id: b.id, to }]
         })
         if (ends.length === 0) return announce(t('arrangement.saidCannotResize'))
-        inGroup(ends.map((e) => resizePlacement(e.id, 'end', e.to)))
+        // A longer clip never carves the next one (#863): the page names the clip in the way and sends nothing.
+        for (const e of ends) {
+          const from = blocks.find((b) => b.id === e.id)
+          // An audio end stops at its clip's last frame, so the page cannot tell where it lands: the core decides (refusal toast).
+          const inTheWay = from && !from.audio ? repeatCovers(from, e.to, blocks) : null
+          if (inTheWay) return announce(t('arrangement.saidResizeBlocked', blockerVars(inTheWay)))
+        }
+        // The core can still refuse one (an audio end stops at its clip's last frame): then nothing is said as done.
+        let allDone = true
+        const sent = ends.map((e) => resizePlacement(e.id, 'end', e.to, 'refuse'))
+        if (sent.length === 1) allDone = run(sent[0]!)
+        else
+          group(() => {
+            for (const command of sent) allDone = run(command) && allDone
+          })
+        if (!allDone) return announce(t('arrangement.saidCannotResize'))
         // The length of the focused clip when it moved, else of the first that did.
         const said = blocks.find((b) => b.id === (ends.some((e) => e.id === current.id) ? current.id : ends[0]!.id))
         if (said) announce(lengthText(t, signature, said.length))
