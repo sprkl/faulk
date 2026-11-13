@@ -82,6 +82,11 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
                     .next()
                     .and_then(|p| p.parse().ok())
                     .ok_or("--port needs a number")?;
+                // Port 0 (the system picks one) is for the tests of debug builds (#895): a
+                // restart from the tray replays the arguments and would land on another port.
+                if port == 0 && !cfg!(debug_assertions) {
+                    return Err("--port needs a number above 0".to_owned());
+                }
             }
             "--allow-origin" => {
                 origins.push(it.next().ok_or("--allow-origin needs an origin")?.clone())
@@ -701,6 +706,8 @@ mod tests {
     fn refuses_bad_arguments() {
         assert!(args(&["--port"]).is_err());
         assert!(args(&["--port", "x"]).is_err());
+        // Port 0 only in a debug build (#895).
+        assert_eq!(args(&["--port", "0"]).is_ok(), cfg!(debug_assertions));
         assert!(args(&["--app-url"]).is_err());
         assert!(args(&["--what"]).is_err());
     }

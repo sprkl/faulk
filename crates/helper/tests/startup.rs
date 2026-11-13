@@ -36,9 +36,37 @@ fn printed(config: &Path) -> String {
         .join("\n")
 }
 
-fn cleanup_output(config: &Path) {
-    for stream in ["stdout", "stderr"] {
-        let _ = std::fs::remove_file(output_file(config, stream));
+/// The journal and what the helper printed, for a failure's message: read before the folders go.
+fn diagnostics(config: &Path) -> String {
+    let journal = std::fs::read_to_string(config.join("logs").join("helper.log"))
+        .unwrap_or_else(|e| format!("(no journal: {e})"));
+    format!("journal:\n{journal}\n{}", printed(config))
+}
+
+/// The helper a test started: whatever way the test ends (an assert, a panic), the helper is
+/// killed and its folder and output files removed.
+struct Run {
+    child: Child,
+    config: PathBuf,
+}
+
+impl Run {
+    fn start(command: &mut Command, config: &Path) -> Run {
+        Run {
+            child: command.spawn().unwrap(),
+            config: config.to_path_buf(),
+        }
+    }
+}
+
+impl Drop for Run {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        let _ = std::fs::remove_dir_all(&self.config);
+        for stream in ["stdout", "stderr"] {
+            let _ = std::fs::remove_file(output_file(&self.config, stream));
+        }
     }
 }
 
@@ -57,7 +85,6 @@ fn temp_config(name: &str) -> PathBuf {
     let config =
         std::env::temp_dir().join(format!("faulk-startup-test-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&config);
-    cleanup_output(&config);
     config
 }
 
@@ -87,35 +114,38 @@ fn wait_for_line(child: &mut Child, config: &Path, line: &str) -> String {
             return text;
         }
         if let Some(status) = child.try_wait().unwrap() {
-            let text = std::fs::read_to_string(&journal).unwrap_or_default();
             panic!(
-                "the helper stopped ({status}) before writing {line:?}\njournal:\n{text}\n{}",
-                printed(config)
+                "the helper stopped ({status}) before writing {line:?}\n{}",
+                diagnostics(config)
             );
         }
         if start.elapsed() > Duration::from_secs(60) {
             let _ = child.kill();
-            panic!("no {line:?} in the journal\n{}", printed(config));
+            panic!("no {line:?} in the journal\n{}", diagnostics(config));
         }
         std::thread::sleep(Duration::from_millis(20));
     }
 }
 
 /// The first message the helper sends on `path`, as the page would see it.
-async fn first_message(port: u16, path: &str) -> ServerMessage {
+/// An error says what failed; the caller adds what the helper printed.
+async fn first_message(port: u16, path: &str) -> Result<ServerMessage, String> {
     let mut request = format!("ws://127.0.0.1:{port}{path}")
         .into_client_request()
         .unwrap();
     request
         .headers_mut()
         .insert("origin", ORIGIN.parse().unwrap());
-    let (mut ws, _) = tokio_tungstenite::connect_async(request).await.unwrap();
+    let (mut ws, _) = tokio_tungstenite::connect_async(request)
+        .await
+        .map_err(|e| format!("cannot connect to {path}: {e}"))?;
     let message = tokio::time::timeout(Duration::from_secs(10), ws.next())
         .await
-        .expect("an answer within 10 s")
-        .expect("a frame")
-        .unwrap();
-    serde_json::from_str(message.to_text().unwrap()).unwrap()
+        .map_err(|_| format!("no answer within 10 s on {path}"))?
+        .ok_or_else(|| format!("{path} closed without a frame"))?
+        .map_err(|e| format!("{path} failed: {e}"))?;
+    serde_json::from_str(message.to_text().map_err(|e| e.to_string())?)
+        .map_err(|e| format!("unreadable answer on {path}: {e}"))
 }
 
 /// #525: no audio output is no reason to stop. The helper starts its updater first (#531's
@@ -124,22 +154,23 @@ async fn first_message(port: u16, path: &str) -> ServerMessage {
 #[test]
 fn a_helper_without_audio_output_starts_and_serves_the_page() {
     let config = temp_config("no-output");
-    let mut child = helper(&config).spawn().unwrap();
-    let text = wait_for_line(&mut child, &config, "no audio output device");
+    let mut run = Run::start(&mut helper(&config), &config);
+    let text = wait_for_line(&mut run.child, &config, "no audio output device");
     let port = claimed_port(&text);
 
     let runtime = tokio::runtime::Runtime::new().unwrap();
-    let probe = runtime.block_on(first_message(port, "/probe"));
+    let probe = runtime
+        .block_on(first_message(port, "/probe"))
+        .unwrap_or_else(|e| panic!("{e}\n{}", diagnostics(&config)));
     let token = std::fs::read_to_string(config.join("session-token")).unwrap();
-    let session = runtime.block_on(first_message(
-        port,
-        &format!("/session?token={}", token.trim()),
-    ));
-    let still_up = child.try_wait().unwrap().is_none();
-    let _ = child.kill();
-    let _ = child.wait();
-    let _ = std::fs::remove_dir_all(&config);
-    cleanup_output(&config);
+    let session = runtime
+        .block_on(first_message(
+            port,
+            &format!("/session?token={}", token.trim()),
+        ))
+        .unwrap_or_else(|e| panic!("{e}\n{}", diagnostics(&config)));
+    let still_up = run.child.try_wait().unwrap().is_none();
+    let why = diagnostics(&config);
 
     // Run from cargo, the updater is disabled: its line proves it was started.
     let update = text
@@ -158,13 +189,16 @@ fn a_helper_without_audio_output_starts_and_serves_the_page() {
                 ..
             }
         ),
-        "{probe:?}"
+        "{probe:?}\n{why}"
     );
     assert!(
         matches!(&session, ServerMessage::Error { code, .. } if code == helper::server::NO_OUTPUT),
-        "{session:?}"
+        "{session:?}\n{why}"
     );
-    assert!(still_up, "the helper keeps running without an output");
+    assert!(
+        still_up,
+        "the helper keeps running without an output\n{why}"
+    );
 }
 
 /// A failed start frees its port before its error dialog (stood for by a pause in a debug
@@ -176,11 +210,11 @@ fn a_helper_without_audio_output_starts_and_serves_the_page() {
 fn a_failed_start_frees_its_port_while_its_error_is_shown() {
     let config = temp_config("pause");
     std::fs::create_dir_all(config.join("session-token")).unwrap();
-    let mut child = helper(&config)
-        .env("FAULK_HELPER_TEST_FATAL_PAUSE_MS", "20000")
-        .spawn()
-        .unwrap();
-    let text = wait_for_line(&mut child, &config, "cannot store the session token");
+    let mut run = Run::start(
+        helper(&config).env("FAULK_HELPER_TEST_FATAL_PAUSE_MS", "20000"),
+        &config,
+    );
+    let text = wait_for_line(&mut run.child, &config, "cannot store the session token");
     let port = claimed_port(&text);
     let start = Instant::now();
     // The fatal line is written before the port is freed: give the drop a moment.
@@ -203,15 +237,18 @@ fn a_failed_start_frees_its_port_while_its_error_is_shown() {
             std::thread::sleep(Duration::from_millis(20));
         }
     }
-    let still_up = child.try_wait().unwrap().is_none();
-    let _ = child.kill();
-    let _ = child.wait();
-    let _ = std::fs::remove_dir_all(&config);
-    cleanup_output(&config);
-    assert!(bound.is_some(), "the port is free while the error is shown");
-    assert!(alone, "the instance lock is free while the error is shown");
+    let still_up = run.child.try_wait().unwrap().is_none();
+    let why = diagnostics(&config);
+    assert!(
+        bound.is_some(),
+        "the port is free while the error is shown\n{why}"
+    );
+    assert!(
+        alone,
+        "the instance lock is free while the error is shown\n{why}"
+    );
     assert!(
         still_up,
-        "checked while the helper still showed its error (pause of 20 s)"
+        "checked while the helper still showed its error (pause of 20 s)\n{why}"
     );
 }
