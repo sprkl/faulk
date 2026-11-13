@@ -1960,7 +1960,15 @@
           const inTheWay = from && !from.audio ? repeatCovers(from, e.to, blocks) : null
           if (inTheWay) return announce(t('arrangement.saidResizeBlocked', blockerVars(inTheWay)))
         }
-        inGroup(ends.map((e) => resizePlacement(e.id, 'end', e.to, 'refuse')))
+        // The core can still refuse one (an audio end stops at its clip's last frame): then nothing is said as done.
+        let allDone = true
+        const sent = ends.map((e) => resizePlacement(e.id, 'end', e.to, 'refuse'))
+        if (sent.length === 1) allDone = run(sent[0]!)
+        else
+          group(() => {
+            for (const command of sent) allDone = run(command) && allDone
+          })
+        if (!allDone) return announce(t('arrangement.saidCannotResize'))
         // The length of the focused clip when it moved, else of the first that did.
         const said = blocks.find((b) => b.id === (ends.some((e) => e.id === current.id) ? current.id : ends[0]!.id))
         if (said) announce(lengthText(t, signature, said.length))
