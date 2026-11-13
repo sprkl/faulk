@@ -131,6 +131,25 @@ test('automation curves (#881): a ramp of each curve, a point changed with C, ke
   await expect.poll(first).toBe('step')
   await page.keyboard.press('Control+Shift+z')
   await expect.poll(first).toBe('smooth')
+
+  // The point's own menu (a right click on it) offers the five curves: fast then slow on the point of bar 3.
+  const cell = (await point(page, 2 * BAR).boundingBox())!
+  await page.mouse.click(cell.x + cell.width / 2, cell.y + cell.height / 2, { button: 'right' })
+  await expect(page.getByTestId('context-menu')).toBeVisible()
+  for (const shape of curves) await expect(page.getByTestId(`point-menu-${shape}`)).toBeVisible()
+  await page.getByTestId('point-menu-ease_out').click()
+  await expect.poll(async () => (await lanePoints(page)).find((p) => p[0] === 2 * BAR)?.[2]).toBe('ease_out')
+
+  // A click of the Draw tool inside the slow-then-fast segment (bars 4 to 5) adds a point of that curve, as a key would.
+  const a = (await point(page, 3 * BAR).boundingBox())!
+  const b = (await point(page, 4 * BAR).boundingBox())!
+  const row = (await head.boundingBox())!
+  await page.getByTestId('arr-tool-draw').click()
+  await page.mouse.click((a.x + b.x) / 2 + a.width / 2, row.y + row.height / 2)
+  await expect.poll(async () => (await lanePoints(page)).length).toBe(7)
+  const added = (await lanePoints(page)).find((p) => p[0] > 3 * BAR && p[0] < 4 * BAR)
+  expect(added?.[2]).toBe('ease_in')
+  await page.getByTestId('arr-tool-select').click()
   const before = await lanePoints(page)
 
   // Saved with the project (the draft), found again on reopening.

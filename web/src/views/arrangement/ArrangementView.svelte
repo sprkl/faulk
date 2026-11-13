@@ -1301,7 +1301,9 @@
       autoPick = { lane: g.lane, ticks: new Set([fresh.tick]) }
       return
     }
-    if (run(addPoints(g.lane, [asPoint(fresh)]))) announce(t('automation.saidAdded', { value: ref.info.axis.format(fresh.value), at: atText(fresh.tick) }))
+    // The new point takes the curve of the segment it lands in (`shapeAt`), as one added at the keyboard does.
+    if (run(addPoints(g.lane, [asPoint({ ...fresh, shape: shapeAt(points, fresh.tick) })])))
+      announce(t('automation.saidAdded', { value: ref.info.axis.format(fresh.value), at: atText(fresh.tick) }))
     autoPick = { lane: g.lane, ticks: new Set([fresh.tick]) }
   }
 

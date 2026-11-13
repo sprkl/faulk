@@ -432,9 +432,20 @@ describe('the lane drawn before its first point (#388, #394)', () => {
   })
 
   it('draws a linear segment on a logarithmic axis through its values too, since the engine goes straight in the unit', () => {
-    const axis = { ...axisOf(synthTrack(), volume, labels)!, straight: false }
+    // The synth's release: seconds on a logarithmic scale (0.002 to 30 s).
+    const release: AutomationTarget = { device: { device: 'D1', param: 'release' } }
+    const axis = axisOf(synthTrack(), release, labels)!
+    expect(axis.straight).toBe(false)
+    expect(axisOf(synthTrack(), gainTarget, labels)!.straight).toBe(true)
+    const points = pts([0, 0.01], [2000, 10])
     const { ctx, line } = recorder()
-    drawLane(ctx, frame(0), { ...scene(pts([0, -96], [2000, 0])), axis, target: gainTarget })
-    expect(line.filter(([, x]) => x > 0 && x < 200).length).toBeGreaterThan(50)
+    drawLane(ctx, frame(0), { ...scene(points), axis, target: release })
+    const inside = line.filter(([, x]) => x > 0 && x < 200)
+    expect(inside.length).toBeGreaterThan(50)
+    // Each vertex is where the engine's straight line in seconds is, on the log axis: far above the straight line on the axis.
+    for (const [, x, y] of inside)
+      expect(y, `at ${x}`).toBeCloseTo(yOfPos(axis.pos(segmentValue(points[0]!, points[1]!, x / 200, release)), { top: 0, height: 100 }), 6)
+    const mid = inside.reduce((m, p) => (Math.abs(p[1] - 100) < Math.abs(m[1] - 100) ? p : m))
+    expect(mid[2]).toBeLessThan((yOfPos(axis.pos(0.01), { top: 0, height: 100 }) + yOfPos(axis.pos(10), { top: 0, height: 100 })) / 2)
   })
 })

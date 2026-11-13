@@ -273,8 +273,9 @@ fn a_volume_fade_follows_the_fader_law_in_both_targets() {
 
 /// The curved shapes (#881) render the same natively and in WASM: a volume lane rises from
 /// -60 dB to 0 dB over a bar four times, slow then fast, fast then slow, as an S and in a
-/// straight line, while a pan lane and a synth parameter lane curve too. Half way, the slow
-/// start is quieter than the straight line, and the fast start louder.
+/// straight line; then a pan lane and a synth parameter lane curve over bars 5 to 7, after
+/// the bars measured. Half way through a bar, the slow start is quieter than the straight line
+/// and the fast start louder, the S as loud as the line; at a quarter, the S is quieter.
 #[test]
 fn curved_lanes_render_the_same_natively_and_in_wasm() {
     let mut s = Session::single_synth();
@@ -306,9 +307,9 @@ fn curved_lanes_render_the_same_natively_and_in_wasm() {
             param: MixerParam::Pan,
         },
         vec![
-            point(0, -1.0, Shape::Smooth),
-            point(2 * bar, 1.0, Shape::EaseOut),
-            point(4 * bar, -1.0, Shape::Step),
+            point(4 * bar, -1.0, Shape::Smooth),
+            point(5 * bar, 1.0, Shape::EaseOut),
+            point(6 * bar, 0.0, Shape::Step),
         ],
     );
     lane(
@@ -318,20 +319,30 @@ fn curved_lanes_render_the_same_natively_and_in_wasm() {
             param: "gain".into(),
         },
         vec![
-            point(0, 0.2, Shape::EaseIn),
-            point(4 * bar, 0.9, Shape::Step),
+            point(4 * bar, 0.2, Shape::EaseIn),
+            point(6 * bar, 0.9, Shape::Step),
         ],
     );
     s.note_on(57, 110).note_on(64, 100);
     // 120 BPM: a bar is 2 s.
     s.run(Command::Transport(transport::Command::Play {}))
-        .render_secs(8.0);
+        .render_secs(12.5);
     let r = parity(s.scenario());
     r.assert_clean();
-    let mid = |bar: f32| r.rms_in(bar * 2.0 + 0.95..bar * 2.0 + 1.05);
-    let (ease_in, ease_out, linear) = (mid(0.0), mid(1.0), mid(3.0));
+    // The level around a fraction of a bar (its own window of 0.1 s).
+    let at = |bar: f32, part: f32| {
+        r.rms_in(bar * 2.0 + part * 2.0 - 0.05..bar * 2.0 + part * 2.0 + 0.05)
+    };
+    let (ease_in, ease_out, smooth, linear) =
+        (at(0.0, 0.5), at(1.0, 0.5), at(2.0, 0.5), at(3.0, 0.5));
     assert!(
-        ease_in < linear && linear < ease_out,
+        ease_in < 0.8 * linear && 1.2 * linear < ease_out,
         "{ease_in} {linear} {ease_out}"
     );
+    assert!((smooth / linear - 1.0).abs() < 0.2, "{smooth} {linear}");
+    assert!(
+        at(2.0, 0.25) < 0.8 * at(3.0, 0.25),
+        "the S starts slower than the line"
+    );
+    r.assert_audible(8.0..12.0, 0.01);
 }
