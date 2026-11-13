@@ -1,13 +1,15 @@
 <script lang="ts">
   /**
    * "Ramp to…" on an automation lane (#769): a position (a bar, or a bar and a beat, as "Go to" reads it) and a value in the
-   * parameter's unit (the grammar of the point field). The view turns them into one `automation.points.restore`: a straight
-   * ramp from the lane's value at the playhead. A native modal dialog like "Go to": the page behind is inert, the focus stays
+   * parameter's unit (the grammar of the point field), and the ramp's curve (#881, linear by default). The view turns them into
+   * one `automation.points.restore`: a ramp of that curve from the lane's value at the playhead. A native modal dialog like "Go to": the page behind is inert, the focus stays
    * inside, Escape closes it and the view gives the focus back. A text that means nothing is said, not guessed.
    */
   import { tick } from 'svelte'
   import { parseBarBeat, type Signature } from '../../transport/time'
-  import type { Axis, AxisEntry } from './model'
+  import { SHAPES, type Axis, type AxisEntry } from './model'
+  import type { Shape } from '../../../lib/generated/protocol'
+  import { SHAPE_NAMES } from './shapes'
   import { useStores } from '../../../lib/stores'
 
   let {
@@ -33,7 +35,7 @@
     headTick: number
     initialPosition: string
     initialValue: string
-    onsubmit: (tick: number, entry: AxisEntry) => void
+    onsubmit: (tick: number, entry: AxisEntry, shape: Shape) => void
     onclose: () => void
   } = $props()
 
@@ -45,6 +47,7 @@
   let valueField = $state<HTMLInputElement | null>(null)
   let position = $state('')
   let value = $state('')
+  let shape = $state<Shape>('linear')
   let positionError = $state<string | null>(null)
   let valueError = $state<string | null>(null)
 
@@ -53,6 +56,7 @@
     if (open && !dialog.open) {
       position = initialPosition
       value = initialValue
+      shape = 'linear'
       positionError = null
       valueError = null
       dialog.showModal()
@@ -73,7 +77,7 @@
     valueError = entry === null ? t('automation.rampBadValue', { example: axis.format(axis.clamp((axis.min + axis.max) / 2)) }) : null
     if (positionError) return positionField?.focus()
     if (valueError || !entry || tick === null) return valueField?.focus()
-    onsubmit(tick, entry)
+    onsubmit(tick, entry, shape)
   }
 
   /** A click on the backdrop (the dialog element itself, outside its box) closes it. */
@@ -126,6 +130,10 @@
       oninput={() => (valueError = null)}
     />
     {#if valueError}<p id="ramp-value-error" class="error" role="alert" data-testid="ramp-value-error">{valueError}</p>{/if}
+    <label for="ramp-curve">{t('automation.rampCurve')}</label>
+    <select id="ramp-curve" bind:value={shape} data-testid="ramp-curve">
+      {#each SHAPES as s (s)}<option value={s}>{t(SHAPE_NAMES[s].name)}</option>{/each}
+    </select>
     <div class="actions">
       <button type="button" class="ghost" onclick={onclose}>{t('automation.rampCancel')}</button>
       <button type="submit" data-testid="ramp-submit">{t('automation.rampGo')}</button>
@@ -165,6 +173,9 @@
   }
   input {
     font-family: var(--fk-font-mono);
+  }
+  select {
+    font: inherit;
   }
   .error {
     margin: 0;

@@ -91,6 +91,8 @@ export interface Axis {
   home: number
   /** The text of a value, with its unit. */
   format: (value: number) => string
+  /** Whether a linear segment, as the engine plays it, is a straight line on this axis (absent: it is drawn point by point). */
+  straight?: boolean
   /** The value a typed text means, with the bound it was limited to when the text went past the range (#421); null when unreadable. */
   parse: (text: string) => AxisEntry | null
 }
@@ -109,6 +111,7 @@ function deviceAxis(descriptor: DeviceDescriptor, param: ParamDescriptor, labels
     min: param.min,
     max: param.max,
     home: devicePosition(param, param.default),
+    straight: param.scale !== 'log',
     format: (value) => {
       if (isChoice(param)) {
         const key = param.values[Math.round((value - param.min) / (param.step || 1))]
@@ -128,6 +131,7 @@ const gainAxis = (): Axis => ({
   min: MIN_GAIN_DB,
   max: MAX_GAIN_DB,
   home: faderPosition(0),
+  straight: true,
   format: (db) => `${formatGain(db <= MIN_GAIN_DB ? null : db)} dB`,
   parse: (text) => {
     const entry = parseGainEntry(text)
@@ -147,6 +151,7 @@ const panAxis = (): Axis => ({
   min: -1,
   max: 1,
   home: 0.5,
+  straight: true,
   format: formatPan,
   parse: (text) => {
     const entry = parsePanEntry(text)
@@ -244,8 +249,9 @@ export function lanesOf(track: Pick<Track, 'devices' | 'automation'>, labels: La
 
 /**
  * The value a lane has at `tick`: before the first point the first, after the last the last; between two points a
- * straight line (`linear`, which for a volume lane is a line along the fader's travel, the lane's own axis: the engine interpolates the position of the fader, not the amplitude and not the dB, #389) or
- * the earlier value held (`step`). The shape of a point is that of the transition that follows it.
+ * straight line (`linear`, which for a volume lane is a line along the fader's travel, the lane's own axis: the engine interpolates the position of the fader, not the amplitude and not the dB, #389),
+ * the earlier value held (`step`), or that line warped in time (`ease_in`, `ease_out`, `smooth`, #881: `segmentValue`). The
+ * shape of a point is that of the transition that follows it.
  */
 export function valueAt(points: readonly LanePoint[], tick: number, target: AutomationTarget): number | null {
   if (points.length === 0 || !Number.isFinite(tick)) return null
@@ -255,10 +261,42 @@ export function valueAt(points: readonly LanePoint[], tick: number, target: Auto
   const a = points[next - 1]!
   const b = points[next]
   if (!b || a.shape === 'step' || b.tick === a.tick) return a.value
-  const t = (tick - a.tick) / (b.tick - a.tick)
+  return segmentValue(a, b, (tick - a.tick) / (b.tick - a.tick), target)
+}
+
+/**
+ * The shapes of a point, in the order the interface lists and cycles them (#881): the straight line, the held value, then the
+ * three curves of the production sheet (`ease-in`, `ease-out`, `smooth`).
+ */
+export const SHAPES: readonly Shape[] = ['linear', 'step', 'ease_in', 'ease_out', 'smooth']
+
+/**
+ * The progress of a transition of shape `shape` at linear progress `t` in [0, 1] (#881, the engine's `automation::warp`, the
+ * same products so that both give the same numbers): `t²` slow then fast, `t (2 − t)` fast then slow, `t² (3 − 2t)` an S; `t`
+ * for `linear` (and for `step`, which holds before it gets here).
+ */
+export function shapeWarp(shape: Shape, t: number): number {
+  switch (shape) {
+    case 'ease_in':
+      return t * t
+    case 'ease_out':
+      return t * (2 - t)
+    case 'smooth':
+      return t * t * (3 - 2 * t)
+    default:
+      return t
+  }
+}
+
+/**
+ * The value at linear progress `t` (0 at `a`, 1 at `b`) of the transition that leaves `a`, which is not a `step`: the straight
+ * line in the parameter's unit, along the fader's travel for a volume lane (#389), warped by the shape of `a` (#881).
+ */
+export function segmentValue(a: LanePoint, b: LanePoint, t: number, target: AutomationTarget): number {
+  const w = shapeWarp(a.shape, Math.min(1, Math.max(0, t)))
   if ('mixer' in target && target.mixer.param === 'gain') {
     const pa = faderPosition(a.value)
-    return exactDbAt(pa + (faderPosition(b.value) - pa) * t)
+    return exactDbAt(pa + (faderPosition(b.value) - pa) * w)
   }
-  return a.value + (b.value - a.value) * t
+  return a.value + (b.value - a.value) * w
 }

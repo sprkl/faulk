@@ -20,11 +20,15 @@
 //!   A lane belongs to the track and its points are at absolute ticks of the timeline: moving,
 //!   copying, cutting or deleting clips does not touch lanes (#390).
 //! - A lane holds at most one point per tick: `{tick, value, shape}`. `shape` is the
-//!   transition from the point to the next one, `linear` (default) or `step`. A tick lies in
-//!   `[0, 2^40]`. A linear segment of a **volume** lane goes in a straight line along the
-//!   travel of the mixer's fader (#389, `engine::fader`: the same law as the fader and as the
-//!   lane's axis), so a drawn line is the fade that is heard; a pan lane and a device
-//!   parameter go in a straight line in their own unit.
+//!   transition from the point to the next one: `linear` (default), `step`, `ease_in`,
+//!   `ease_out` or `smooth` (#881). A tick lies in `[0, 2^40]`. A linear segment of a
+//!   **volume** lane goes in a straight line along the travel of the mixer's fader (#389,
+//!   `engine::fader`: the same law as the fader and as the lane's axis), so a drawn line is the
+//!   fade that is heard; a pan lane and a device parameter go in a straight line in their own
+//!   unit. `step` holds the value until the next point. `ease_in` (slow, then fast),
+//!   `ease_out` (fast, then slow) and `smooth` (an S: slow at both ends) follow that same line
+//!   warped in time: at progress `t` of the segment (0 at the point, 1 at the next) they are
+//!   where the line is at `t²`, `t (2 − t)` and `t² (3 − 2t)`.
 //! - A value is in the parameter's unit and is rounded to its declared step: a device
 //!   parameter is clamped to its range and rounded to its step (as `device.set_param`
 //!   does); a gain point is in dB, -96 to +6, rounded to 0.01 dB (-96 is the lane's silence:
@@ -76,12 +80,18 @@ pub struct Point {
     pub tick: Tick,
     /// The value, in the parameter's unit; rounded to its step.
     pub value: f64,
-    /// The transition from this point to the next: `linear` (default) or `step`. `linear`
+    /// The transition from this point to the next: `linear` (default), `step`, `ease_in`,
+    /// `ease_out` or `smooth`. `linear`
     /// is a straight line in the parameter's unit, except for a volume (`gain`) lane, where
     /// it is a straight line along the travel of the mixer's fader, the same law as the
     /// lane's axis (-96 dB, silence, at the bottom, 0 dB at 78 % of the travel, +6 dB at the
     /// top): a fade from 0 dB to -96 dB goes down like a fader pulled at constant speed, and
     /// half way is -21 dB, neither -6 dB (amplitude) nor -48 dB (dB). `step` holds the value.
+    /// `ease_in` (slow, then fast: a filter that opens into a drop), `ease_out` (fast, then
+    /// slow: a fall that settles) and `smooth` (an S, slow at both ends: a crossfade) follow
+    /// the same line as `linear`, warped in time: at progress `t` of the segment they are
+    /// where the line is at `t²`, `t (2 − t)` and `t² (3 − 2t)`; half way, a quarter, three
+    /// quarters and half of the way.
     #[serde(default = "linear")]
     pub shape: Shape,
 }
@@ -151,9 +161,11 @@ domain! {
     /// Add points to a lane, in one batch (one history entry, all or nothing). Each point
     /// is `{tick, value, shape}`: `tick` 0 to 2^40, `value` in the parameter's unit (rounded
     /// to its step; a device parameter is clamped to its range, a gain outside -96..+6 dB or
-    /// a pan outside -1..1 is refused), `shape` `linear` (default) or `step`; a linear segment
-    /// of a volume lane is a straight line along the fader's travel (not in amplitude nor in
-    /// dB), of any other lane a straight line in its unit. A lane has at
+    /// a pan outside -1..1 is refused), `shape` `linear` (default), `step`, `ease_in` (slow then
+    /// fast), `ease_out` (fast then slow) or `smooth` (an S), the transition from the point to
+    /// the next; a linear segment of a volume lane is a straight line along the fader's travel
+    /// (not in amplitude nor in dB), of any other lane a straight line in its unit, and the
+    /// three curves warp that same line in time. A lane has at
     /// most one point per tick: a tick that already holds a different point, or that appears
     /// twice in the batch, is refused (use `automation.points.update` to change a point); a
     /// point equal to the one already there changes nothing. Refused with `limit` past the
@@ -179,7 +191,9 @@ domain! {
 
     /// Change the value or the shape of points of a lane, in one batch (one history entry,
     /// all or nothing). Each point names the tick of an existing point and gives its new
-    /// `value` (the same rules as `automation.points.add`) and `shape`; the position does
+    /// `value` (the same rules as `automation.points.add`) and `shape` (`linear`, `step`,
+    /// `ease_in`, `ease_out` or `smooth`: to change only the shape, give the value the point
+    /// has, as `automation.lane.points` reads it); the position does
     /// not change (remove and add to move a point). Refused with `not_found` when a tick
     /// holds no point and with `invalid` when a tick appears twice. A point that ends equal
     /// changes nothing. Undo: `automation.points.restore` puts the previous points back,
@@ -249,8 +263,8 @@ domain! {
 
     /// Read the points of one automation lane in tick order, a page at a time: each point
     /// has its `tick` (0 to 2^40, 960 per quarter note), its `value` in the parameter's unit
-    /// (dB for a gain lane) and its `shape` (`linear` or `step`, the transition to the next
-    /// point). The answer also gives the lane's summary (owner, target, point count). Paged:
+    /// (dB for a gain lane) and its `shape` (`linear`, `step`, `ease_in`, `ease_out` or
+    /// `smooth`, the transition to the next point). The answer also gives the lane's summary (owner, target, point count). Paged:
     /// `offset` (points to skip, 0 by default) and `limit` (points to return, 1 to 1000, 100
     /// by default; any other limit is refused with `invalid`, never clamped); the answer's
     /// `page` gives the `total`, the `offset` used and the `next_offset` of the next page,

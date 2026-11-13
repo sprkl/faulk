@@ -129,12 +129,27 @@
   import { putItem } from '../../lib/browser/put'
   import BarDialog from './BarDialog.svelte'
   import RampDialog from './automation/RampDialog.svelte'
-  import { POINT_CODE, RAMP_CODE, entryIndex, goIndex, laneKey, nudgedTick, pointKey, rampPlan, shapeAt, stepValue } from './automation/keys'
+  import {
+    CURVE_CODE,
+    POINT_CODE,
+    RAMP_CODE,
+    entryIndex,
+    goIndex,
+    laneKey,
+    nextShape,
+    nudgedTick,
+    pointKey,
+    rampPlan,
+    shapeAt,
+    stepValue,
+  } from './automation/keys'
+  import { SHAPE_NAMES } from './automation/shapes'
   import {
     lanesOf,
     lowerBound,
     optionsOf,
     pointAtTick,
+    SHAPES,
     pointsOf,
     targetKey,
     valueAt,
@@ -839,6 +854,7 @@
       lanes.push({
         ...geoOf(row),
         axis: ref.info.axis,
+        target: ref.info.lane.target,
         points,
         selected: preview ? preview.selected : autoPick?.lane === row.lane ? autoPick.ticks : NO_TICKS,
         color: ref.color,
@@ -1340,8 +1356,7 @@
     ui.openMenu(
       event,
       [
-        { id: 'point-linear', label: t('automation.menuLinear'), testid: 'point-menu-linear', run: () => setCurve('linear') },
-        { id: 'point-step', label: t('automation.menuStep'), testid: 'point-menu-step', run: () => setCurve('step') },
+        ...SHAPES.map((shape) => ({ id: `point-${shape}`, label: t(SHAPE_NAMES[shape].menu), testid: `point-menu-${shape}`, run: () => setCurve(shape) })),
         { id: 'point-delete', label: t('automation.menuDelete'), testid: 'point-menu-delete', separator: true, run: removePicked },
       ],
       t('automation.menu'),
@@ -1553,8 +1568,13 @@
         },
         { id: 'more-delete-bars', label: t('arrangement.deleteBars'), disabled: !timeSel, run: deleteSelectedTime },
         { id: 'more-marker', label: t('arrangement.addMarker'), shortcut: chordText(['Alt', 'K']), separator: true, run: addMarkerHere },
-        { id: 'more-curve-linear', label: t('automation.curveLinear'), disabled: !autoSel, separator: true, run: () => setCurve('linear') },
-        { id: 'more-curve-step', label: t('automation.curveStep'), disabled: !autoSel, run: () => setCurve('step') },
+        ...SHAPES.map((shape, i) => ({
+          id: `more-curve-${shape}`,
+          label: t(SHAPE_NAMES[shape].more),
+          disabled: !autoSel,
+          separator: i === 0,
+          run: () => setCurve(shape),
+        })),
       ],
       t('arrangement.more'),
     )
@@ -2248,6 +2268,7 @@
   /** The keys of a point and of a ramp as written on the user's keyboard (they work by position). */
   const pointKeyLabel = $derived(positionKey(POINT_CODE, ui.keyLayout))
   const rampKeyLabel = $derived(positionKey(RAMP_CODE, ui.keyLayout))
+  const curveKeyLabel = $derived(positionKey(CURVE_CODE, ui.keyLayout))
   /** The tick of the playhead, whole and on the timeline. */
   const headAt = () => Math.min(MAX_TICK, Math.round(headTick()))
   const laneRow = (lane: string) => layout.rows.find((r) => r.kind === 'lane' && r.lane === lane)
@@ -2313,14 +2334,14 @@
   }
   const rampRef = $derived(ramping ? laneRefs.get(ramping.lane) : undefined)
   /** The ramp asked: one `automation.points.restore` (the two ends, the points between taken out), one history entry. */
-  function submitRamp(at: number, entry: AxisEntry) {
+  function submitRamp(at: number, entry: AxisEntry, shape: Shape) {
     const r = ramping
     const ref = r ? laneRefs.get(r.lane) : undefined
     ramping = null
     if (!r || !ref) return
     const axis = ref.info.axis
     const value = axis.clamp(entry.value)
-    const plan = rampPlan(pointsOf(ref.info.lane), { tick: r.head, value: r.from }, { tick: at, value })
+    const plan = rampPlan(pointsOf(ref.info.lane), { tick: r.head, value: r.from }, { tick: at, value }, shape)
     if (!plan || !run(restorePoints(r.lane, plan.points, plan.remove))) {
       r.back?.focus()
       return
@@ -2388,6 +2409,12 @@
       else focusLaneHead(lane)
       return
     }
+    if (action.kind === 'curve') {
+      // C and Shift+C: the next or the previous curve of the list (#881), one `points.update`.
+      const shape = nextShape(point.shape, action.direction)
+      if (run(updatePoints(lane, [asPoint({ ...point, shape })]))) announce(t('automation.saidCurve', { shape: t(SHAPE_NAMES[shape].word), at: atText(at) }))
+      return
+    }
     if (action.kind === 'value') {
       const value = stepValue(axis, point.value, action.direction, action.big)
       const said = t('automation.saidSet', { value: axis.format(value), at: atText(at) })
@@ -2434,7 +2461,7 @@
     labels[i] ??= t('automation.pointCell', {
       value: info.axis.format(p.value),
       at: atText(p.tick),
-      curve: t(p.shape === 'step' ? 'automation.shapeStep' : 'automation.shapeLinear'),
+      curve: t(SHAPE_NAMES[p.shape].word),
       i: i + 1,
       n: points.length,
     })
@@ -2760,7 +2787,7 @@
                 style:--swatch={ref.color}
                 role="group"
                 aria-label={t('automation.lane', { title: ref.info.title })}
-                title={t('automation.laneHint', { point: pointKeyLabel, ramp: rampKeyLabel })}
+                title={t('automation.laneHint', { point: pointKeyLabel, ramp: rampKeyLabel, curve: curveKeyLabel })}
                 data-testid="arr-lane"
                 data-lane={row.lane}
                 data-target={ref.info.title}

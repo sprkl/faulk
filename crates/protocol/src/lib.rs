@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 57;
+pub const PROTOCOL_VERSION: u32 = 58;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -44,6 +44,9 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
+// Version 58 (#881): an automation point's shape gains `ease_in`, `ease_out` and `smooth` (the
+// commands' `Shape`, the engine's `Curve` 2, 3 and 4 in a lane upload). A helper of an earlier
+// version refuses a lane upload that carries one, so the two must be of the same version.
 // Version 57 (#867): the commands gain `history.abort_group`, which closes the open group and
 // takes back what it recorded (a batch of edits one of which was refused). A helper of an
 // earlier version does not know the command, so an agent cannot call it there.

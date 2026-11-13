@@ -270,3 +270,68 @@ fn a_volume_fade_follows_the_fader_law_in_both_targets() {
     // The end of the fade is silence.
     assert!(r.rms_in(4.4..4.5) < 1e-6);
 }
+
+/// The curved shapes (#881) render the same natively and in WASM: a volume lane rises from
+/// -60 dB to 0 dB over a bar four times, slow then fast, fast then slow, as an S and in a
+/// straight line, while a pan lane and a synth parameter lane curve too. Half way, the slow
+/// start is quieter than the straight line, and the fast start louder.
+#[test]
+fn curved_lanes_render_the_same_natively_and_in_wasm() {
+    let mut s = Session::single_synth();
+    let track = s.state().project.tracks.keys().next().unwrap().clone();
+    let synth = s.state().project.tracks[&track]
+        .devices
+        .keys()
+        .next()
+        .unwrap()
+        .clone();
+    let bar = 3840;
+    let shapes = [Shape::EaseIn, Shape::EaseOut, Shape::Smooth, Shape::Linear];
+    let mut gain = Vec::new();
+    for (i, shape) in shapes.into_iter().enumerate() {
+        let at = i as i64 * bar;
+        gain.push(point(at, -60.0, shape));
+        gain.push(point(at + bar - 1, 0.0, Shape::Step));
+    }
+    lane(
+        &mut s,
+        AutomationTarget::Mixer {
+            param: MixerParam::Gain,
+        },
+        gain,
+    );
+    lane(
+        &mut s,
+        AutomationTarget::Mixer {
+            param: MixerParam::Pan,
+        },
+        vec![
+            point(0, -1.0, Shape::Smooth),
+            point(2 * bar, 1.0, Shape::EaseOut),
+            point(4 * bar, -1.0, Shape::Step),
+        ],
+    );
+    lane(
+        &mut s,
+        AutomationTarget::Device {
+            device: synth,
+            param: "gain".into(),
+        },
+        vec![
+            point(0, 0.2, Shape::EaseIn),
+            point(4 * bar, 0.9, Shape::Step),
+        ],
+    );
+    s.note_on(57, 110).note_on(64, 100);
+    // 120 BPM: a bar is 2 s.
+    s.run(Command::Transport(transport::Command::Play {}))
+        .render_secs(8.0);
+    let r = parity(s.scenario());
+    r.assert_clean();
+    let mid = |bar: f32| r.rms_in(bar * 2.0 + 0.95..bar * 2.0 + 1.05);
+    let (ease_in, ease_out, linear) = (mid(0.0), mid(1.0), mid(3.0));
+    assert!(
+        ease_in < linear && linear < ease_out,
+        "{ease_in} {linear} {ease_out}"
+    );
+}

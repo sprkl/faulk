@@ -395,13 +395,18 @@ impl Default for Note {
     }
 }
 
-/// Shape of the transition after an automation point.
+/// Shape of the transition after an automation point (`crate::automation`, #881): the value
+/// held, or the straight line to the next point, as is or warped (`EaseIn` starts slowly and
+/// ends fast, `EaseOut` the other way round, `Smooth` is slow at both ends).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Curve {
     #[default]
     Step = 0,
     Linear = 1,
+    EaseIn = 2,
+    EaseOut = 3,
+    Smooth = 4,
 }
 
 /// A point of an automation lane; at most one per tick.

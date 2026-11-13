@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import type { AutomationLane, AutomationTarget, Track } from '../../../lib/generated/protocol'
+import type { AutomationLane, AutomationTarget, Shape, Track } from '../../../lib/generated/protocol'
 import { RULER_HEIGHT } from '../../../lib/components/timegrid/render'
 import { MAX_TICK } from '../arrangement'
 import { asPoint, dragDelta, hitPoint, moveSelection, newPoint, planMove, pointsInBox, posOfY, previewPoints, yOfPos, POINT_RADIUS } from './gestures'
 import { ADD_ROW, CLIP_ROW, CLIP_ROW_MAX, CLIP_ROW_MIN, LANE_ROW, clampClipRow, layoutOf, rowAtY, rowsBetween } from './layout'
 import { drawLane } from './draw'
-import { axisOf, lanesOf, optionsOf, pointAtTick, pointsOf, targetKey, valueAt, type Labels, type LanePoint } from './model'
+import { SHAPES, axisOf, lanesOf, optionsOf, pointAtTick, pointsOf, segmentValue, shapeWarp, targetKey, valueAt, type Labels, type LanePoint } from './model'
+import { positionOf as faderPosition } from '../../../lib/project/fader'
 
 const labels: Labels = {
   mixer: 'Mixer',
@@ -29,7 +30,7 @@ const gainTarget: AutomationTarget = { device: { device: 'D1', param: 'gain' } }
 const volume: AutomationTarget = { mixer: { param: 'gain' } }
 const pan: AutomationTarget = { mixer: { param: 'pan' } }
 
-const pts = (...rows: [number, number, ('linear' | 'step')?][]): LanePoint[] => rows.map(([tick, value, shape]) => ({ tick, value, shape: shape ?? 'linear' }))
+const pts = (...rows: [number, number, Shape?][]): LanePoint[] => rows.map(([tick, value, shape]) => ({ tick, value, shape: shape ?? 'linear' }))
 
 describe('the points of a lane', () => {
   it('are sorted by tick whatever the order of the keys, and cached per lane object', () => {
@@ -111,7 +112,7 @@ describe('the axes', () => {
 })
 
 describe('the value of a lane at a tick', () => {
-  const lane = (_target: AutomationTarget, ...rows: [number, number, ('linear' | 'step')?][]) => pts(...rows)
+  const lane = (_target: AutomationTarget, ...rows: [number, number, Shape?][]) => pts(...rows)
   it('holds the first value before the first point and the last after the last', () => {
     const p = lane(gainTarget, [480, 0.2], [960, 0.8])
     expect(valueAt(p, 0, gainTarget)).toBe(0.2)
@@ -135,6 +136,45 @@ describe('the value of a lane at a tick', () => {
     expect(valueAt(lane(volume, [0, 0], [8000, -96]), 4000, volume)).toBeCloseTo(-21, 9)
     // A pan is interpolated in its own units.
     expect(valueAt(lane(pan, [0, -1], [1000, 1]), 250, pan)).toBeCloseTo(-0.5, 9)
+  })
+  it('warps that same line by the curve of the point, like the engine (#881), at a quarter and at the middle', () => {
+    // The progress of each shape, written out (t², 1 − (1 − t)², 3t² − 2t³): at 1/4 and 1/2.
+    const progress: Record<Shape, [number, number]> = {
+      linear: [0.25, 0.5],
+      step: [0, 0],
+      ease_in: [0.0625, 0.25],
+      ease_out: [0.4375, 0.75],
+      smooth: [0.15625, 0.5],
+    }
+    for (const shape of SHAPES) {
+      const [quarter, middle] = progress[shape]
+      expect(shapeWarp(shape, 0), shape).toBe(0)
+      if (shape !== 'step') expect(shapeWarp(shape, 1), shape).toBe(1)
+      // A device parameter and a pan, in their unit.
+      const device = lane(gainTarget, [0, 0, shape], [1000, 1])
+      expect(valueAt(device, 250, gainTarget), shape).toBeCloseTo(quarter, 12)
+      expect(valueAt(device, 500, gainTarget), shape).toBeCloseTo(middle, 12)
+      expect(valueAt(lane(pan, [0, -1, shape], [1000, 1]), 500, pan), shape).toBeCloseTo(-1 + 2 * middle, 12)
+      // A volume lane, along the fader's travel: the travel of -96 dB is 0, that of 0 dB is the warped part of it.
+      const fade = lane(volume, [0, -96, shape], [1000, 0])
+      expect(faderPosition(valueAt(fade, 250, volume)!), shape).toBeCloseTo(faderPosition(0) * quarter, 9)
+      expect(faderPosition(valueAt(fade, 500, volume)!), shape).toBeCloseTo(faderPosition(0) * middle, 9)
+      expect(valueAt(fade, 1000, volume), shape).toBe(0)
+    }
+    // Monotonic, inside [0, 1].
+    for (const shape of SHAPES.filter((s) => s !== 'step')) {
+      let last = 0
+      for (let k = 1; k <= 100; k++) {
+        const w = shapeWarp(shape, k / 100)
+        expect(w >= last && w <= 1, `${shape} at ${k}`).toBe(true)
+        last = w
+      }
+    }
+    // Out of the segment, the progress is kept to it.
+    const a = { tick: 0, value: 0, shape: 'ease_in' as const }
+    const b = { tick: 10, value: 1, shape: 'linear' as const }
+    expect(segmentValue(a, b, -1, gainTarget)).toBe(0)
+    expect(segmentValue(a, b, 2, gainTarget)).toBe(1)
   })
 })
 
@@ -333,6 +373,7 @@ describe('the lane drawn before its first point (#388, #394)', () => {
     top: 0,
     height: 100,
     axis: axisOf(synthTrack(), volume, labels)!,
+    target: volume,
     points,
     selected: new Set<number>(),
     color: '#fff',
@@ -365,5 +406,35 @@ describe('the lane drawn before its first point (#388, #394)', () => {
       expect(line[0]![1]).toBe(start)
       expect(line.every(([, x]) => x >= start)).toBe(true)
     }
+  })
+
+  it('draws a straight volume segment as one line and a curved one through the values the engine plays (#881)', () => {
+    const axis = axisOf(synthTrack(), volume, labels)!
+    const yOf = (db: number) => yOfPos(axis.pos(db), { top: 0, height: 100 })
+    // Points at 0 and 2000 ticks: x = 0 and 200.
+    const straight = recorder()
+    drawLane(straight.ctx, frame(0), scene(pts([0, -96], [2000, 0])))
+    expect(straight.line.filter(([, x]) => x > 0 && x < 200)).toEqual([])
+    for (const shape of ['ease_in', 'ease_out', 'smooth'] as const) {
+      const { ctx, line } = recorder()
+      const points = pts([0, -96, shape], [2000, 0])
+      drawLane(ctx, frame(0), scene(points))
+      const inside = line.filter(([, x]) => x > 0 && x < 200)
+      // About one vertex every 3 px.
+      expect(inside.length, shape).toBeGreaterThan(50)
+      for (const [, x, y] of inside) expect(y, `${shape} at ${x}`).toBeCloseTo(yOf(segmentValue(points[0]!, points[1]!, x / 200, volume)), 6)
+      // The middle of the segment where the engine has it: below the straight line for slow then fast, above it for fast then slow.
+      const mid = inside.reduce((m, p) => (Math.abs(p[1] - 100) < Math.abs(m[1] - 100) ? p : m))
+      const half = yOf(valueAt(pts([0, -96], [2000, 0]), 1000, volume)!)
+      if (shape === 'ease_in') expect(mid[2]).toBeGreaterThan(half)
+      if (shape === 'ease_out') expect(mid[2]).toBeLessThan(half)
+    }
+  })
+
+  it('draws a linear segment on a logarithmic axis through its values too, since the engine goes straight in the unit', () => {
+    const axis = { ...axisOf(synthTrack(), volume, labels)!, straight: false }
+    const { ctx, line } = recorder()
+    drawLane(ctx, frame(0), { ...scene(pts([0, -96], [2000, 0])), axis, target: gainTarget })
+    expect(line.filter(([, x]) => x > 0 && x < 200).length).toBeGreaterThan(50)
   })
 })

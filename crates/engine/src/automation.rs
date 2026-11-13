@@ -11,6 +11,18 @@
 //! its value until the next point. Before its first point a lane holds the first value,
 //! after its last point the last value.
 //!
+//! # Curved transitions (#881)
+//!
+//! `EaseIn`, `EaseOut` and `Smooth` follow the same line as `Linear` (in the parameter's unit,
+//! along the fader's travel for a volume lane), warped in time: the progress `t` of the
+//! transition, from 0 at the point to 1 at the next, becomes [`warp`]`(curve, t)`: `t²` for
+//! `EaseIn` (slow, then fast), `t (2 − t)` for `EaseOut` (fast, then slow), `t² (3 − 2t)` for
+//! `Smooth` (slow at both ends). The formulas of the production sheet (the music-producer
+//! skill's `ease-in`, `ease-out`, `smooth`), plain products, so the native and the web builds
+//! compute the same bits. Everything below that speaks of a linear transition holds for a
+//! curved one: it moves (a slope), it is read at the control instants, a volume lane sends it
+//! as chords of its curve.
+//!
 //! A point is **reached** at frame `c` of a clock segment when its sample is `c` or
 //! earlier: `floor(sample_of(tick)) <= c`, the floor rule of every timed event (TR-1,
 //! MO-4). The value of a lane at frame `c` is the value of the transition after the last
@@ -224,9 +236,21 @@ pub fn value_at(points: &[AutomationPoint], r: usize, segment: &Segment, c: usiz
     }
     let (a, b) = (prev.tick.0 as f64, next.tick.0 as f64);
     let x = segment.position_at(c).max(a);
-    let t = ((x - a) / (b - a)).clamp(0.0, 1.0);
+    let t = warp(prev.curve, ((x - a) / (b - a)).clamp(0.0, 1.0));
     let (va, vb) = (f64::from(prev.value), f64::from(next.value));
     Some((va + (vb - va) * t) as f32)
+}
+
+/// The progress of a transition of shape `curve` at linear progress `t` in `[0, 1]` (module
+/// doc, "Curved transitions"): 0 at 0, 1 at 1, monotonic; `t` itself for `Linear` (and for
+/// `Step`, which never reaches here).
+pub fn warp(curve: Curve, t: f64) -> f64 {
+    match curve {
+        Curve::Step | Curve::Linear => t,
+        Curve::EaseIn => t * t,
+        Curve::EaseOut => t * (2.0 - t),
+        Curve::Smooth => t * t * (3.0 - 2.0 * t),
+    }
 }
 
 /// What the engine sends for a lane at frame `c` (module doc): the value of the lane in its
@@ -302,8 +326,8 @@ fn position(db: f32) -> f64 {
     crate::fader::position_of_db(f64::from(db))
 }
 
-/// The fader position at fractional frame `frame` of a linear transition from `prev` to
-/// `next` (the lane's straight line in travel, from `pa` to `pb`).
+/// The fader position at fractional frame `frame` of a transition from `prev` to `next` (the
+/// lane's straight line in travel, from `pa` to `pb`, warped by the curve of `prev`).
 fn along(
     prev: &AutomationPoint,
     next: &AutomationPoint,
@@ -314,14 +338,14 @@ fn along(
 ) -> f64 {
     let (ta, tb) = (prev.tick.0 as f64, next.tick.0 as f64);
     let x = segment.position_at_frame(frame).max(ta);
-    let t = ((x - ta) / (tb - ta)).clamp(0.0, 1.0);
+    let t = warp(prev.curve, ((x - ta) / (tb - ta)).clamp(0.0, 1.0));
     pa + (pb - pa) * t
 }
 
 /// Whether the transition after the last of `r` points reached moves.
 fn on_slope(points: &[AutomationPoint], r: usize) -> bool {
     match (r.checked_sub(1).and_then(|i| points.get(i)), points.get(r)) {
-        (Some(prev), Some(next)) => prev.curve == Curve::Linear && prev.value != next.value,
+        (Some(prev), Some(next)) => prev.curve != Curve::Step && prev.value != next.value,
         _ => false,
     }
 }
@@ -699,6 +723,43 @@ mod tests {
         assert_eq!(reached(&p, 0, &dense, 0), 4);
         assert_eq!(reached(&p, 1, &dense, 2), 10);
         assert_eq!(value_at(&p, 10, &dense, 2), Some(9.0));
+    }
+
+    #[test]
+    fn a_curved_transition_warps_the_straight_line_and_keeps_its_ends() {
+        let s = segment();
+        // Tick 4 is frame 100, tick 8 frame 200: frame 150 is the middle, 125 a quarter.
+        for (curve, quarter, middle) in [
+            (Curve::Linear, 0.25, 0.5),
+            (Curve::EaseIn, 0.0625, 0.25),
+            (Curve::EaseOut, 0.4375, 0.75),
+            (Curve::Smooth, 0.15625, 0.5),
+        ] {
+            let p = [point(4, 0.0, curve), point(8, 1.0, Curve::Step)];
+            assert_eq!(value_at(&p, 1, &s, 100), Some(0.0), "{curve:?}");
+            assert_eq!(value_at(&p, 1, &s, 125), Some(quarter), "{curve:?}");
+            assert_eq!(value_at(&p, 1, &s, 150), Some(middle), "{curve:?}");
+            assert_eq!(value_at(&p, 2, &s, 200), Some(1.0), "{curve:?}");
+            assert!(on_slope(&p, 1), "{curve:?}");
+        }
+        for curve in [Curve::Linear, Curve::EaseIn, Curve::EaseOut, Curve::Smooth] {
+            assert_eq!(warp(curve, 0.0), 0.0);
+            assert_eq!(warp(curve, 1.0), 1.0);
+            let mut last = 0.0;
+            for k in 1..=100 {
+                let w = warp(curve, f64::from(k) / 100.0);
+                assert!(w >= last && w <= 1.0, "{curve:?} at {k}");
+                last = w;
+            }
+        }
+        assert!(!on_slope(
+            &[point(4, 0.0, Curve::Step), point(8, 1.0, Curve::Step)],
+            1
+        ));
+        assert!(!on_slope(
+            &[point(4, 1.0, Curve::Smooth), point(8, 1.0, Curve::Step)],
+            1
+        ));
     }
 
     #[test]

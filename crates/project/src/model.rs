@@ -29,7 +29,10 @@ use std::collections::{BTreeMap, BTreeSet};
 /// refuse the field as corrupt.
 /// Format 6 (#219): a track's chain may hold MIDI effects (role `midi_effect`), before its
 /// instrument; a build of format 5 would refuse the role as corrupt.
-pub const FORMAT_VERSION: u32 = 6;
+/// Format 7 (#881): an automation point may have the shape `ease_in`, `ease_out` or `smooth`
+/// (a lane file's word, a lane blob's byte 2, 3 or 4); a build of format 6 would refuse it as
+/// corrupt.
+pub const FORMAT_VERSION: u32 = 7;
 
 /// The built-in instrument of audio tracks: the clip player.
 pub const CLIP_PLAYER: &str = "faulk.clip_player";
@@ -558,12 +561,77 @@ pub struct AutomationPoint {
     pub shape: Shape,
 }
 
-/// The shape of the transition from a point to the next one.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
+/// The shape of the transition from a point to the next one (#881). `Linear` is a straight
+/// line in the parameter's unit, along the fader's travel for a volume lane (#389); `Step`
+/// holds the value until the next point; `EaseIn` (slow, then fast), `EaseOut` (fast, then
+/// slow) and `Smooth` (an S, slow at both ends) follow the same line warped in time, by
+/// `t²`, `t (2 − t)` and `t² (3 − 2t)` of the progress `t` (`engine::automation::warp`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Shape {
+    #[default]
     Linear,
     Step,
+    EaseIn,
+    EaseOut,
+    Smooth,
+}
+
+impl Shape {
+    /// Every shape, in the order the interface lists them.
+    pub const ALL: [Shape; 5] = [
+        Shape::Linear,
+        Shape::Step,
+        Shape::EaseIn,
+        Shape::EaseOut,
+        Shape::Smooth,
+    ];
+
+    /// The curve the engine plays for this shape.
+    pub fn curve(self) -> engine::msg::Curve {
+        use engine::msg::Curve;
+        match self {
+            Shape::Linear => Curve::Linear,
+            Shape::Step => Curve::Step,
+            Shape::EaseIn => Curve::EaseIn,
+            Shape::EaseOut => Curve::EaseOut,
+            Shape::Smooth => Curve::Smooth,
+        }
+    }
+
+    /// The word of the shape in a lane file and in JSON (`linear`, `step`, `ease_in`,
+    /// `ease_out`, `smooth`).
+    pub fn keyword(self) -> &'static str {
+        match self {
+            Shape::Linear => "linear",
+            Shape::Step => "step",
+            Shape::EaseIn => "ease_in",
+            Shape::EaseOut => "ease_out",
+            Shape::Smooth => "smooth",
+        }
+    }
+
+    /// The shape of a keyword ([`keyword`](Self::keyword)), if any.
+    pub fn from_keyword(word: &str) -> Option<Shape> {
+        Shape::ALL.into_iter().find(|s| s.keyword() == word)
+    }
+
+    /// The byte of the shape in a lane's blob: 0 linear, 1 step, 2 ease in, 3 ease out, 4
+    /// smooth.
+    pub fn byte(self) -> u8 {
+        match self {
+            Shape::Linear => 0,
+            Shape::Step => 1,
+            Shape::EaseIn => 2,
+            Shape::EaseOut => 3,
+            Shape::Smooth => 4,
+        }
+    }
+
+    /// The shape of a blob byte ([`byte`](Self::byte)), if any.
+    pub fn from_byte(byte: u8) -> Option<Shape> {
+        Shape::ALL.into_iter().find(|s| s.byte() == byte)
+    }
 }
 
 impl Project {

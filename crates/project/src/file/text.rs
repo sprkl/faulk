@@ -349,10 +349,9 @@ pub fn lane_tsv(
         }
         let _ = write!(s, "{}\t", tick.get());
         super::canon::float(p.value, &mut s);
-        s.push_str(match p.shape {
-            Shape::Linear => "\tlinear\n",
-            Shape::Step => "\tstep\n",
-        });
+        s.push('\t');
+        s.push_str(p.shape.keyword());
+        s.push('\n');
     }
     Ok(s.into_bytes())
 }
@@ -421,10 +420,8 @@ pub fn parse_lane(
         let mut f = line.split('\t');
         let tick = Tick(num(path, n, "tick", f.next())?);
         let value = finite(path, n, f.next())?;
-        let shape = match f.next() {
-            Some("linear") => Shape::Linear,
-            Some("step") => Shape::Step,
-            _ => return Err(FileError::corrupt(path, format!("line {n}: bad shape"))),
+        let Some(shape) = f.next().and_then(Shape::from_keyword) else {
+            return Err(FileError::corrupt(path, format!("line {n}: bad shape")));
         };
         if f.next().is_some() {
             return Err(FileError::corrupt(
@@ -452,7 +449,7 @@ pub fn pack_points(points: &BTreeMap<Tick, AutomationPoint>, out: &mut Vec<u8>) 
         out.extend_from_slice(&tick.get().to_le_bytes());
         let v = if p.value == 0.0 { 0.0 } else { p.value };
         out.extend_from_slice(&v.to_le_bytes());
-        out.push(u8::from(p.shape == Shape::Step));
+        out.push(p.shape.byte());
     }
 }
 
@@ -464,7 +461,7 @@ pub fn lane_blob(points: &BTreeMap<Tick, AutomationPoint>) -> Vec<u8> {
     v
 }
 
-/// Reads packed records: whole records, finite values, a shape byte of 0 or 1, strictly
+/// Reads packed records: whole records, finite values, a shape byte of 0 to 4 (`Shape::byte`), strictly
 /// increasing ticks.
 pub fn unpack_points(bytes: &[u8]) -> Result<BTreeMap<Tick, AutomationPoint>, String> {
     let (records, rest) = bytes.as_chunks::<POINT_BYTES>();
@@ -482,10 +479,8 @@ pub fn unpack_points(bytes: &[u8]) -> Result<BTreeMap<Tick, AutomationPoint>, St
         if !value.is_finite() {
             return Err("a value that is not finite".into());
         }
-        let shape = match r[16] {
-            0 => Shape::Linear,
-            1 => Shape::Step,
-            _ => return Err("a bad shape".into()),
+        let Some(shape) = Shape::from_byte(r[16]) else {
+            return Err("a bad shape".into());
         };
         if last.is_some_and(|l| tick <= l) {
             return Err("ticks are not increasing".into());
@@ -569,14 +564,31 @@ mod tests {
                 param: "cutoff.hz".into(),
             },
         ] {
-            let points = BTreeMap::from([(
-                Tick(0),
-                AutomationPoint {
-                    value: 0.1,
-                    shape: Shape::Step,
-                },
-            )]);
+            let points: BTreeMap<_, _> = Shape::ALL
+                .into_iter()
+                .enumerate()
+                .map(|(i, shape)| {
+                    (
+                        Tick(i as i64 * 10),
+                        AutomationPoint {
+                            value: 0.1 * i as f64,
+                            shape,
+                        },
+                    )
+                })
+                .collect();
             let bytes = lane_tsv(&target, &points).unwrap();
+            let text = std::str::from_utf8(&bytes).unwrap();
+            for word in [
+                "\tlinear\n",
+                "\tstep\n",
+                "\tease_in\n",
+                "\tease_out\n",
+                "\tsmooth\n",
+            ] {
+                assert!(text.contains(word), "{word:?} in {text}");
+            }
+            assert_eq!(parse_lane_blob(&lane_blob(&points)).unwrap(), points);
             let (header, back) = parse_lane("l", std::str::from_utf8(&bytes).unwrap()).unwrap();
             assert_eq!(header.target, target);
             assert_eq!(header.blob, None);
@@ -616,8 +628,16 @@ mod tests {
         nan[8 + 8..8 + 16].copy_from_slice(&f64::NAN.to_le_bytes());
         assert!(parse_lane_blob(&nan).is_err());
         let mut shape = blob.clone();
-        shape[8 + 16] = 9;
+        shape[8 + 16] = 5;
         assert!(parse_lane_blob(&shape).is_err());
+        let h = format!("{LANE_HEADER}\ttarget=mixer:gain\n");
+        for bad in ["ease-in", "Linear", "curve", ""] {
+            let text = format!("{h}0\t0.5\t{bad}\n");
+            assert!(
+                matches!(parse_lane("l", &text), Err(FileError::Corrupt { .. })),
+                "{bad:?}"
+            );
+        }
         let mut order = blob;
         order[8..16].copy_from_slice(&9i64.to_le_bytes());
         assert!(parse_lane_blob(&order).is_err());
