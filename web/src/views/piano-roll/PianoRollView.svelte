@@ -1030,8 +1030,15 @@
 
   /** Backspace ahead of the stage's own (it would remove the selection): in the mode, with a step written, it removes that step. */
   function onRollKeyCapture(event: KeyboardEvent) {
-    if (event.code !== 'Backspace' || !ui.stepEntry || liveSteps().length === 0 || !playsNote(event)) return
-    if (stepKeyDown(event)) {
+    if (event.code !== 'Backspace' || !ui.stepEntry || liveSteps().length === 0 || event.ctrlKey || event.metaKey || event.altKey || isTextTarget(event.target))
+      return
+    // A held key is no new step, but it must not fall through to "remove the selection" either.
+    if (event.repeat) {
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
+    if (playsNote(event) && stepKeyDown(event)) {
       event.preventDefault()
       event.stopPropagation()
     }

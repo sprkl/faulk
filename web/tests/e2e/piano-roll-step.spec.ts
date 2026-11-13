@@ -130,3 +130,26 @@ test('step entry: Backspace after an undo removes the note the clip holds now', 
   await expect(said(page)).toContainText(/Step removed|Pas supprimé/)
   expect(seen.errors.filter((e) => !/helper|WebSocket|ERR_CONNECTION/i.test(e))).toEqual([])
 })
+
+test('step entry: rests reach the end of the clip and say so, and a cursor moved by hand makes Backspace the usual one', async ({ page }) => {
+  const seen = watch(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/app')
+  await page.getByTestId('engine-state').getByRole('button').click()
+  await engineUp(page)
+  await page.getByTestId('panel-piano-roll').click()
+  await page.getByTestId('roll-create-clip').click()
+  await page.getByTestId('roll-step-entry').click()
+  await page.keyboard.press('KeyA')
+  await expect(roll(page)).toHaveAttribute('data-note-count', '1')
+  // The cursor moved by hand: the step written is forgotten, Backspace removes the (empty) selection and no note.
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('Backspace')
+  await expect(roll(page)).toHaveAttribute('data-note-count', '1')
+  // Rests to the end of the one-bar clip: the last one says there is no room.
+  for (let i = 0; i < 40; i++) await page.keyboard.press('Period')
+  await expect(said(page)).toContainText(/End of the clip|Fin du clip/)
+  await page.keyboard.press('KeyA')
+  await expect(roll(page)).toHaveAttribute('data-note-count', '1')
+  expect(seen.errors.filter((e) => !/helper|WebSocket|ERR_CONNECTION/i.test(e))).toEqual([])
+})
