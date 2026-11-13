@@ -33,7 +33,7 @@ export const AREA = {
   clips: ['clip-pool'],
   grid: ['clip-names', 'clip-pool', 'grid', 'grid-clips', 'grid-to-arrangement', 'recording', 'devices-follow-selection'],
   history: ['history', 'history-cost', 'history-names', 'keyboard-create'],
-  pianoRoll: ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-euclid', 'piano-roll-jump', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard', 'keyboard-create', 'recording', 'piano-roll-follow', 'context-menu', 'scale'],
+  pianoRoll: ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-euclid', 'piano-roll-jump', 'piano-roll-step', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard', 'keyboard-create', 'recording', 'piano-roll-follow', 'context-menu', 'scale'],
   mixer: ['automation', 'continuous', 'layout-4', 'mixer', 'mixer-sound', 'master-chain', 'master-pan', 'track-state'],
   devices: ['automation', 'continuous', 'contour', 'device-browser', 'devices', 'filter-movement', 'presets', 'ripple-panel', 'layout-4', 'master-chain', 'devices-follow-selection', 'master-pan', 'track-state', 'context-menu'],
   transport: ['all-sound-off', 'transport', 'playhead', 'space-bar', 'track-state', 'discoverability', 'recording', 'stop-to-marker', 'tap-tempo', 'scale'],
