@@ -108,39 +108,37 @@ describe('the WASI functions the engine module imports', () => {
     expect(imported).toEqual(Object.keys(wasiImports(sharedMemory())).sort())
   })
 
-  it('never read the clock (#846): the render calls none of them, and nothing calls clock_time_get', () => {
-    const memory = sharedMemory()
-    const prepareCalls: Record<string, number> = {}
-    const renderCalls: Record<string, number> = {}
-    const prepare = countingInstance(memory, prepareCalls)
-    const setup = createChannel(prepare, 48_000)
-    const render = countingInstance(memory, renderCalls)
-    becomeRenderInstance(render, setup)
-    const ch = setup.channel
-    let warmed = false
-    let blocks = 0
-    for (const step of steps('session.stream')) {
-      if ('push' in step) expect(push(prepare, memory, ch, step.push)).toBe(0)
-      else {
-        if (!warmed && blocks > 0) {
-          // The warm-up's private channel (#355) may seed its hash maps: the one call allowed.
-          warmed = true
-          const before = { ...renderCalls }
-          expect(warmUp(render, 48_000)).toBe(0)
-          for (const name of Object.keys(renderCalls)) if (name !== 'random_get') expect(renderCalls[name]).toBe(before[name])
-          for (const name of Object.keys(renderCalls)) delete renderCalls[name]
-        }
-        for (let b = 0; b < step.render; b++, blocks++) render.fk_render(ch, QUANTUM)
+  it.each([true, false])(
+    'never read the clock (#846): the render calls none of them from its first block, and nothing calls clock_time_get (warmed up first, as the worklet does: %s)',
+    (warmed) => {
+      const memory = sharedMemory()
+      const prepareCalls: Record<string, number> = {}
+      const renderCalls: Record<string, number> = {}
+      const prepare = countingInstance(memory, prepareCalls)
+      const setup = createChannel(prepare, 48_000)
+      const render = countingInstance(memory, renderCalls)
+      becomeRenderInstance(render, setup)
+      const ch = setup.channel
+      if (warmed) {
+        // The worklet warms up before any block (#355); its private channel may seed its hash
+        // maps: the one WASI function allowed there.
+        expect(warmUp(render, 48_000)).toBe(0)
+        expect(Object.keys(renderCalls).filter((name) => name !== 'random_get')).toEqual([])
+        for (const name of Object.keys(renderCalls)) delete renderCalls[name]
       }
-    }
-    expect(warmed).toBe(true)
-    expect(blocks).toBeGreaterThan(100)
-    expect(renderCalls).toEqual({}) // the audio path: no WASI call at all
-    expect(prepareCalls.clock_time_get).toBeUndefined()
-    // Were it called, it would read no clock and name itself: here, in the growth test's two
-    // threads (contended locks) and in every other test of the module.
-    expect(() => wasiImports(memory).clock_time_get()).toThrow(/clock_time_get/)
-  })
+      let blocks = 0
+      for (const step of steps('session.stream')) {
+        if ('push' in step) expect(push(prepare, memory, ch, step.push)).toBe(0)
+        else for (let b = 0; b < step.render; b++, blocks++) render.fk_render(ch, QUANTUM)
+      }
+      expect(blocks).toBeGreaterThan(100)
+      expect(renderCalls).toEqual({}) // the audio path, first pump included: no WASI call at all
+      expect(prepareCalls.clock_time_get).toBeUndefined()
+    expect(prepareCalls.random_get).toBeGreaterThan(0) // the counting sees the calls that happen
+      // Were it called, it would read no clock and name itself, in every test of the module.
+      expect(() => wasiImports(memory).clock_time_get()).toThrow(/clock_time_get/)
+    },
+  )
 })
 
 describe('the shipped engine module, two instances on one shared memory', () => {
