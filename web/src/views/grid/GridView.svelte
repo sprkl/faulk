@@ -223,6 +223,8 @@
 
   /** Selects a track (the keyboard plays it) when it is not the selected one. */
   function select(track: string) {
+    // Picking a track ends the devices panel's master view, even when it is already selected (#806).
+    ui.masterSelection = null
     if (project.selected?.id !== track) run(selectTrack(track))
   }
 

@@ -29,7 +29,7 @@ test('a view maps to its specs', () => {
 })
 
 test('several files add up, a contract or a configuration widens to the whole suite, a shared page file does not', () => {
-  assert.deepEqual(pick(['web/src/views/grid/GridView.svelte', 'web/src/views/tracks/TrackList.svelte']).specs, ['clip-names', 'clip-pool', 'device-browser', 'discoverability', 'grid', 'grid-clips', 'grid-to-arrangement', 'lane-rows', 'recording', 'track-order', 'tracks'])
+  assert.deepEqual(pick(['web/src/views/grid/GridView.svelte', 'web/src/views/tracks/TrackList.svelte']).specs, ['clip-names', 'clip-pool', 'device-browser', 'discoverability', 'grid', 'grid-clips', 'grid-to-arrangement', 'lane-rows', 'recording', 'track-order', 'tracks'].toSpliced(3, 0, 'devices-follow-selection'))
   for (const whole of ['web/tests/e2e/support.ts', 'web/package.json', 'crates/engine/src/msg.rs', 'Cargo.lock', 'web/src/lib/engine/worklet.ts', 'web/src/lib/generated/protocol.ts']) {
     const r = pick(['web/src/views/mixer/MixerFader.svelte', whole])
     assert.equal(r.all, true, whole)
