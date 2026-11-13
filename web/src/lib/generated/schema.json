@@ -17463,6 +17463,47 @@
         "undo": "none"
       },
       {
+        "description": "Close the open history group and take back everything it recorded, as if it had\nnever been opened: its edits are undone and leave no entry, on neither stack (a\nbatch of edits where one was refused, #867). Refused when no group is open, when\nanother author opened it, or when another author's edit landed inside it (the\ngroup is then no longer on top of the history). A refusal changes nothing and\nleaves the group open. What could be redone when the group began can be redone\nagain. Not undoable itself.",
+        "destructive": false,
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "kind": "live",
+        "name": "history.abort_group",
+        "output_schema": {
+          "$defs": {
+            "GroupId": {
+              "description": "Identifier of a history group: the commands of one mouse drag or one agent turn\nshare a group and are undone together.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "$ref": "#/$defs/GroupId",
+              "description": "The group closed."
+            },
+            "undone": {
+              "description": "How many edits of the group were taken back.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "group",
+            "undone"
+          ],
+          "type": "object"
+        },
+        "undo": "none"
+      },
+      {
         "description": "Select a track, where live MIDI and the keyboard go; `null` deselects. Session\nstate: not undoable, not saved with the project. Refused with `not_found` when the\ntrack does not exist.",
         "destructive": false,
         "input_schema": {
@@ -20585,6 +20626,23 @@
               "properties": {
                 "type": {
                   "const": "history.end_group",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "live",
+              "x-undo": "none"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Close the open history group and take back everything it recorded, as if it had\nnever been opened: its edits are undone and leave no entry, on neither stack (a\nbatch of edits where one was refused, #867). Refused when no group is open, when\nanother author opened it, or when another author's edit landed inside it (the\ngroup is then no longer on top of the history). A refusal changes nothing and\nleaves the group open. What could be redone when the group began can be redone\nagain. Not undoable itself.",
+              "properties": {
+                "type": {
+                  "const": "history.abort_group",
                   "type": "string"
                 }
               },
@@ -26347,6 +26405,31 @@
               "required": [
                 "type",
                 "group"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "group": {
+                  "$ref": "#/$defs/GroupId",
+                  "description": "The group closed."
+                },
+                "type": {
+                  "const": "history.abort_group",
+                  "type": "string"
+                },
+                "undone": {
+                  "description": "How many edits of the group were taken back.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "type",
+                "group",
+                "undone"
               ],
               "type": "object"
             }
@@ -38049,6 +38132,31 @@
                 "group"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "group": {
+                  "$ref": "#/$defs/GroupId",
+                  "description": "The group closed."
+                },
+                "type": {
+                  "const": "history.abort_group",
+                  "type": "string"
+                },
+                "undone": {
+                  "description": "How many edits of the group were taken back.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "type",
+                "group",
+                "undone"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -42297,7 +42405,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 56,
+  "protocol_version": 57,
   "scale_intervals": [
     {
       "intervals": [

@@ -175,7 +175,8 @@ the sound), exactly as if the user did it: it appears in the page's history and 
 there. Your consecutive edits are one entry of that history, your turn, which one undo undoes \
 whole; the turn ends when the user or another agent edits, after an undo or a redo, and after \
 30 s without an edit of yours. A history group you open with `history_begin_group` blocks undo \
-for everyone until you end it with `history_end_group`; the page closes it for you when you \
+for everyone until you end it with `history_end_group` (or take its edits back with \
+`history_abort_group`); the page closes it for you when you \
 leave (your MCP session ends, or 5 minutes pass without a request of yours) and when the page \
 loses its link to this helper. A destructive tool (annotation `destructiveHint`: it cannot be \
 undone) and the tools that replace the open project, delete a project kept in the browser or \
