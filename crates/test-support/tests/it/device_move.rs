@@ -7,8 +7,8 @@
 //! `.qa/renders/device-move-*.wav` for the ear.
 
 use commands::testing::{context, fixture};
-use commands::{Command, Output, device, history, live};
-use project::{DeviceId, TrackId};
+use commands::{Command, Output, device, history, live, track};
+use project::{DeviceId, TrackId, TrackKind};
 use test_support::{Render, Session, parity};
 
 fn insert(s: &mut Session, track: Option<&TrackId>, kind: &str, index: u32) -> DeviceId {
@@ -163,36 +163,139 @@ fn an_effect_removed_in_front_of_a_ringing_reverb_keeps_its_tail() {
     );
 }
 
-/// The limit of #800: a Compressor has a latency line (its look-ahead, #749), and removed
-/// on a track it holds its slot's timing (#761), so the reverb that moves into its slot is
-/// built again there (the spare `prepare` readies): its tail restarts, crossfaded, as before
-/// #800. The render runs natively and in WASM (the spare, the held slot, `duck`).
-#[test]
-fn a_compressor_removed_in_front_of_a_ringing_reverb_rebuilds_it_smoothly() {
-    let ring = 0.3;
-    let (mut s, track) = plucked();
-    let comp = insert(&mut s, Some(&track), "faulk.compressor", 0);
-    let reverb = insert(&mut s, Some(&track), "faulk.reverb", 1);
-    set(&mut s, &reverb, "size", 0.9);
-    tail(&mut s, &track, ring, |s| remove(s, &comp));
-    let r = parity(s.scenario());
-    r.assert_clean();
-    r.write_wav("device-move-compressor-reverb");
-    let at = edit_at(ring);
-    let before = r.rms_in(at - 0.2..at - 0.01);
-    let after = r.rms_in(at + 0.05..at + 1.5);
-    println!("compressor removed: reverb tail rms {before:.5} before, {after:.5} after");
-    // No step: the largest sample-to-sample move around the edit stays small.
+/// The largest sample-to-sample move of the left channel over `window` (seconds).
+fn largest_step(r: &Render, window: std::ops::Range<f32>) -> f32 {
     let (from, to) = (
-        ((at - 0.01) * test_support::SAMPLE_RATE) as usize,
-        ((at + 0.05) * test_support::SAMPLE_RATE) as usize,
+        (window.start * test_support::SAMPLE_RATE) as usize,
+        (window.end * test_support::SAMPLE_RATE) as usize,
     );
-    let step = r.left[from..to]
+    r.left[from..to]
         .windows(2)
-        .fold(0f32, |m, w| m.max((w[1] - w[0]).abs()));
-    println!("largest step around the edit {step:.5}");
-    assert!(before > 0.002, "the reverb rings: {before}");
-    assert!(step < 0.05, "a step of {step}");
+        .fold(0f32, |m, w| m.max((w[1] - w[0]).abs()))
+}
+
+/// #838: a device with a latency line (a Compressor, whatever its look-ahead, or a Ceiling)
+/// removed in front of a ringing reverb, on the synth's track or on the master (`track`
+/// `None`). The reverb moves into its slot behind it (on a track the removed device holds
+/// the slot's timing until the slot switches, #761; on the master its line crossfades to
+/// the undelayed signal) and keeps its tail. With `longer`, a silent second track holds a
+/// longer chain (two Ceilings), so that the tracks' latency never moves. Gives the render
+/// without the edit, the one with it, and the control (the reverb built again at its place:
+/// a removal and its undo).
+fn line_removed_in_front_of_a_reverb(
+    kind: &str,
+    lookahead: Option<f64>,
+    on_master: bool,
+    longer: bool,
+) -> (Render, Render, Render) {
+    let ring = 0.3;
+    let session = |edit: u8| {
+        let (mut s, track) = plucked();
+        if longer {
+            let out = s.exec(Command::Track(track::Command::Create {
+                kind: TrackKind::Midi,
+                instrument: Some("faulk.drums".into()),
+                name: None,
+                color: None,
+            }));
+            let Output::Track(track::Output::Create { track: other, .. }) = out else {
+                panic!("{out:?}")
+            };
+            insert(&mut s, Some(&other), "faulk.ceiling", 0);
+            insert(&mut s, Some(&other), "faulk.ceiling", 1);
+        }
+        let chain = (!on_master).then_some(&track);
+        let lined = insert(&mut s, chain, kind, 0);
+        if let Some(seconds) = lookahead {
+            set(&mut s, &lined, "lookahead", seconds);
+        }
+        let reverb = insert(&mut s, chain, "faulk.reverb", 1);
+        set(&mut s, &reverb, "size", 0.9);
+        tail(&mut s, &track, ring, |s| match edit {
+            1 => remove(s, &lined),
+            2 => {
+                remove(s, &reverb);
+                undo(s);
+            }
+            _ => {}
+        });
+        s
+    };
+    (
+        parity(session(0).scenario()),
+        parity(session(1).scenario()),
+        parity(session(2).scenario()),
+    )
+}
+
+#[test]
+fn a_device_with_a_line_removed_in_front_of_a_ringing_reverb_keeps_its_tail() {
+    let at = edit_at(0.3);
+    for (kind, lookahead, on_master, longer) in [
+        ("faulk.compressor", None, false, false),
+        ("faulk.compressor", Some(0.002), false, false),
+        ("faulk.compressor", Some(0.002), false, true),
+        ("faulk.ceiling", None, false, false),
+        ("faulk.ceiling", None, false, true),
+        ("faulk.compressor", None, true, false),
+        ("faulk.compressor", Some(0.002), true, false),
+        ("faulk.ceiling", None, true, false),
+    ] {
+        let name = format!(
+            "{kind} (look-ahead {lookahead:?}) on the {}{}",
+            if on_master { "master" } else { "track" },
+            if longer {
+                ", a longer track beside"
+            } else {
+                ""
+            }
+        );
+        let (untouched, moved, rebuilt) =
+            line_removed_in_front_of_a_reverb(kind, lookahead, on_master, longer);
+        moved.assert_clean();
+        if lookahead.is_none() && kind == "faulk.compressor" {
+            moved.write_wav(if on_master {
+                "device-move-compressor-reverb-master"
+            } else {
+                "device-move-compressor-reverb"
+            });
+        }
+        let (kept, got, lost) = (
+            rms_after(&untouched, at + 0.05),
+            rms_after(&moved, at + 0.05),
+            rms_after(&rebuilt, at + 0.05),
+        );
+        let (diff, diff_at) = moved.max_difference(&untouched);
+        // Through the edit and the switch (or the master's crossfade) after it.
+        let window = at - 0.01..at + 0.1;
+        let (step, reference) = (
+            largest_step(&moved, window.clone()),
+            largest_step(&untouched, window),
+        );
+        println!(
+            "{name}: reverb tail rms {kept:.5}, moved {got:.5}, rebuilt {lost:.5}, max \
+             difference {diff:e} at {diff_at}, largest step {step:.5} (untouched {reference:.5})"
+        );
+        assert!(kept > 0.002, "{name}: the reverb rings: {kept}");
+        // Where the tracks' latency stays (a longer track beside, a look-ahead of 0, the
+        // master's chain, which no compensation follows), the render is the one without the
+        // edit; elsewhere the track's delay moves with `T` once the slot switched (#761).
+        if longer || on_master || lookahead.is_none() && kind == "faulk.compressor" {
+            assert!(diff < 1e-6, "{name}: a difference of {diff}");
+        }
+        assert!(
+            (got / kept - 1.0).abs() < 0.02,
+            "{name}: the tail moved with the reverb: {got} against {kept}"
+        );
+        assert!(
+            step <= reference * 1.05 + 1e-4,
+            "{name}: a step of {step} against {reference}"
+        );
+        assert!(
+            lost < 0.1 * kept,
+            "{name}: the control: a rebuilt reverb starts silent ({lost})"
+        );
+    }
 }
 
 #[test]
@@ -340,4 +443,72 @@ fn an_effect_inserted_at_the_head_of_the_master_keeps_the_master_echos_tail() {
     println!("master echo tail rms {kept:.5}, diff {diff:e}");
     assert!(kept > 0.002, "the master echo rings: {kept}");
     assert!(diff < 1e-6, "the tail moved with the master echo: {diff}");
+}
+
+/// #838 on a sounding input, natively and in WASM: a held note through a Ceiling (below its
+/// ceiling) and a reverb; the Ceiling is removed while the note sounds. On the track, with a
+/// longer track beside (the tracks' latency stays), the reverb behind the held slot hears
+/// the Ceiling's line, then catches up at the switch: the render is the one without the
+/// edit. On the master, the reverb hears the line's crossfade to the undelayed signal: no
+/// step larger than the untouched render's.
+#[test]
+fn a_ceiling_removed_in_front_of_a_reverb_on_a_held_note_keeps_its_input() {
+    let session = |on_master: bool, edit: bool| {
+        let f = fixture();
+        let mut s = Session::from_state(f.state.clone(), context());
+        let track = f.track.clone();
+        let out = s.exec(Command::Track(track::Command::Create {
+            kind: TrackKind::Midi,
+            instrument: Some("faulk.drums".into()),
+            name: None,
+            color: None,
+        }));
+        let Output::Track(track::Output::Create { track: other, .. }) = out else {
+            panic!("{out:?}")
+        };
+        insert(&mut s, Some(&other), "faulk.ceiling", 0);
+        insert(&mut s, Some(&other), "faulk.ceiling", 1);
+        let chain = (!on_master).then_some(&track);
+        let ceiling = insert(&mut s, chain, "faulk.ceiling", 0);
+        let reverb = insert(&mut s, chain, "faulk.reverb", 1);
+        set(&mut s, &reverb, "size", 0.9);
+        s.run(Command::Live(live::Command::NoteOn {
+            track: track.clone(),
+            note: 60,
+            velocity: 80,
+        }));
+        s.render_secs(0.4);
+        if edit {
+            remove(&mut s, &ceiling);
+        }
+        s.render_secs(0.6);
+        s.run(Command::Live(live::Command::AllNotesOff {}));
+        s.render_secs(0.5);
+        s
+    };
+    for on_master in [false, true] {
+        let untouched = parity(session(on_master, false).scenario());
+        let moved = parity(session(on_master, true).scenario());
+        moved.assert_clean();
+        let (diff, diff_at) = moved.max_difference(&untouched);
+        let window = 0.38..0.6;
+        let (step, reference) = (
+            largest_step(&moved, window.clone()),
+            largest_step(&untouched, window.clone()),
+        );
+        let level = untouched.rms_in(window);
+        println!(
+            "held note, Ceiling removed on the {}: rms {level:.5}, max difference {diff:e} at {diff_at}, largest step {step:.5} (untouched {reference:.5})",
+            if on_master { "master" } else { "track" }
+        );
+        assert!(level > 0.01, "the note sounds: {level}");
+        if on_master {
+            assert!(
+                step <= reference * 1.05 + 1e-4,
+                "a step of {step} against {reference}"
+            );
+        } else {
+            assert!(diff < 1e-6, "a difference of {diff}");
+        }
+    }
 }

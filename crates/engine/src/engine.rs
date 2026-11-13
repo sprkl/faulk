@@ -96,10 +96,27 @@ pub struct DeviceEntry {
     pub(crate) fade: f32,
     /// The slot an outgoing device held: it fades out there.
     pub(crate) slot: u16,
-    /// An outgoing device that was removed (not replaced) fades out in series, before the
-    /// device now in its slot (#800, [`crate::graph`] > Device fades); a replaced one in
-    /// parallel with its replacement.
-    pub(crate) series: bool,
+    /// How an outgoing device fades out at its slot ([`Leave`]).
+    pub(crate) leave: Leave,
+}
+
+/// How an outgoing device fades out at its slot ([`crate::graph`] > Device fades). One byte:
+/// it fits in [`DeviceEntry`]'s padding.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Leave {
+    /// Replaced: in parallel with its replacement (#233).
+    #[default]
+    Parallel,
+    /// Removed, without a line: in series, before the device now in its slot (#800).
+    Series,
+    /// Removed, with a line: through its line, in parallel with the device in its slot, as
+    /// a replaced one (#749), until a device without a line moves into the slot toward the
+    /// head (#838), which makes it [`Leave::Front`].
+    Lined,
+    /// Removed, with a line, a device without a line moved into its slot from behind it: it
+    /// fades out through its line in front of that device, which receives the slot's old
+    /// timing until the slot switches (#838).
+    Front,
 }
 
 impl DeviceEntry {
@@ -111,7 +128,7 @@ impl DeviceEntry {
             events_out,
             fade: 1.0,
             slot: 0,
-            series: false,
+            leave: Leave::Parallel,
         }
     }
 
@@ -1693,7 +1710,10 @@ impl Preparer {
             flags = Some(try_vec(g.capacity(), None)?);
         }
         // Into the slot a device with a line left (#761): the same device built again, for
-        // `apply` to put there instead when the leaving one still holds the slot's timing.
+        // `apply` to put there instead when the leaving one still holds the slot's timing. A
+        // device without a line moving toward the head needs none (#838): it was behind the
+        // one that holds the slot, and moves there behind it, its line giving it the slot's
+        // old timing until the slot switches. One moving toward the tail was in front of it.
         let mut spare = None;
         // When `apply` takes the spare, the moved instance leaves `from`, and one with a line
         // then holds `from` in turn: a move into `from` needs its own spare.
@@ -1701,6 +1721,7 @@ impl Preparer {
         if !track.is_master()
             && shadow.vacated.contains(&to.0)
             && let Some(kept) = shadow.devices.get(from.0 as usize).and_then(Option::as_ref)
+            && (kept.lined || from.0 < to.0)
         {
             let (mut value, _) = self.build_device(
                 &self.setup,
@@ -3116,9 +3137,11 @@ impl Engine {
                 grown,
                 spare: rebuilt,
             } => {
-                // A device with a line that left `to` still holds the slot's timing (#761): the
-                // device built again by `prepare` goes there instead, held then faded in, and
-                // the moved one leaves from `from` (as before #800).
+                // A device with a line that left `to` still holds the slot's timing (#761): when
+                // the moved one has a line too, the device built again by `prepare` goes there
+                // instead, held then faded in, and the moved one leaves from `from` (as before
+                // #800); so does one moving toward the tail. One without a line moving toward
+                // the head has no spare: it moves behind the holder (#838).
                 let held = rebuilt.is_some()
                     && !track.is_master()
                     && state
@@ -3185,6 +3208,11 @@ impl Engine {
                                         list.shift_after(to.0);
                                     }
                                     list.follow(from.0, to.0, tailward);
+                                    // Toward the head, it was behind the devices removed with
+                                    // a line from `to`: it stays behind them (#838).
+                                    if !tailward {
+                                        list.put_in_front(to.0);
+                                    }
                                 }
                                 // Its lines go with it (they live in its `Latent`); the values
                                 // waiting for it in the lines before it follow it (#765).
@@ -3674,7 +3702,11 @@ fn send_off(
     old.slot = slot.0;
     // A device with a line leaves through it, in parallel (#749); one without, removed, in
     // series (#800).
-    old.series = series && latent.is_none();
+    old.leave = match (series, latent.is_some()) {
+        (false, _) => Leave::Parallel,
+        (true, false) => Leave::Series,
+        (true, true) => Leave::Lined,
+    };
     list.push(old).err()
 }
 
