@@ -335,7 +335,7 @@ export function copyBlocked(selection: readonly Block[], by: number, blocks: rea
 
 /**
  * The first block of the track that `arrangement.repeat` of `block` up to the tick `until` would cover: the copies fill the
- * time from the end of the block to `until` (#805).
+ * time from the end of the block to `until` (#805). Growing the end of the block to `until` (`arrangement.resize`) covers the same time (#863).
  */
 export function repeatCovers(block: Block, until: number, blocks: readonly Block[]): Block | null {
   let found: Block | null = null

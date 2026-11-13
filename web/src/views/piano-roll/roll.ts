@@ -6,7 +6,8 @@
  */
 
 import { ROLL_SNAP_SETTINGS, tickToX, type SnapSetting, type View } from '../../lib/components/timegrid/grid'
-import type { Note } from '../../lib/generated/protocol'
+import type { Command, Note } from '../../lib/generated/protocol'
+import { runAll, type GroupRun, type RunAll } from '../../lib/history-group'
 import { PPQ } from '../transport/time'
 
 /** The lowest and the highest MIDI key. */
@@ -424,6 +425,16 @@ export function lengthFor(end: number, clipLength: number, bar: number): number 
   if (end <= clipLength) return clipLength
   const length = Math.ceil(end / bar) * bar
   return length > MAX_BARS * bar ? null : length
+}
+
+/**
+ * Runs the `grow` commands (a longer clip) then `commands` (the notes) as one group, all or nothing (#869). `null` when the
+ * growth itself was refused and taken back (a placement next to the clip): there is no room, the notes were never sent.
+ * Else what `runAll` did; a refusal of the notes shows its own message.
+ */
+export function sendWithRoom(run: GroupRun, grow: Command[], commands: Command[]): RunAll | null {
+  const done = runAll(run, [...grow, ...commands])
+  return !done.ok && done.rolledBack && done.refused < grow.length ? null : done
 }
 
 /**

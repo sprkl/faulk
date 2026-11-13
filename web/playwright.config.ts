@@ -52,6 +52,7 @@ export const PREVIEW_SPECS = [
   'devices',
   'engine-mo2',
   'engine-mo5',
+  'engine-stall',
   'export-audio',
   'helper',
   'isolation',
@@ -60,9 +61,11 @@ export const PREVIEW_SPECS = [
   'master-chain',
   'navigation',
   'open-url',
+  'output-stall',
   'pack-import',
   'piano-roll',
   'project-store',
+  'space-bar',
   'storage-commands',
 ]
 /** The one test of `mixer.spec.ts` the `preview` project runs: a fragment of its title. */

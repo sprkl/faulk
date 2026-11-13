@@ -472,6 +472,7 @@ fn resizing_the_end_and_the_start_keeps_the_content_where_it_is() {
                 placement: placement.clone(),
                 edge,
                 to: Tick(to),
+                if_occupied: Default::default(),
             },
         );
         spans(&s, &f.track)
@@ -504,6 +505,7 @@ fn resizing_the_end_and_the_start_keeps_the_content_where_it_is() {
             placement: f.a.clone(),
             edge: Edge::End,
             to: Tick(3840),
+            if_occupied: Default::default(),
         }),
         &mut state,
         &mut context(),
@@ -1068,22 +1070,26 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
         placement: f.a.clone(),
         edge: Edge::End,
         to: Tick(0),
+        if_occupied: Default::default(),
     });
     invalid(C::Resize {
         placement: f.a.clone(),
         edge: Edge::Start,
         to: Tick(3840),
+        if_occupied: Default::default(),
     });
     invalid(C::Resize {
         placement: f.a.clone(),
         edge: Edge::End,
         to: Tick(1 << 41),
+        if_occupied: Default::default(),
     });
     // B starts 960 into the clip: its start can go left by 960 but not 961.
     invalid(C::Resize {
         placement: f.b.clone(),
         edge: Edge::Start,
         to: Tick(3840 - 961),
+        if_occupied: Default::default(),
     });
     // C's clip has no loop: it repeats (#473), so its start may go past the clip's end and a
     // split there resumes round the clip (both accepted, see the carve tests).
@@ -1186,6 +1192,7 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
             placement: unknown.clone(),
             edge: Edge::End,
             to: Tick(10),
+            if_occupied: Default::default(),
         },
         C::Split {
             placement: unknown.clone(),
@@ -1203,11 +1210,13 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
             placement: f.b.clone(),
             edge: Edge::Start,
             to: Tick(to),
+            if_occupied: Default::default(),
         });
         invalid(C::Resize {
             placement: f.b.clone(),
             edge: Edge::End,
             to: Tick(to),
+            if_occupied: Default::default(),
         });
     }
     // Restore: an identifier in use (a placement of another track would do the same).
@@ -1898,6 +1907,7 @@ fn random_edits_keep_the_project_valid_overlap_free_and_exactly_undoable() {
                     Edge::End
                 },
                 to: tick(&mut rng),
+                if_occupied: Default::default(),
             },
             3 if !ids.is_empty() => arrangement::Command::Split {
                 placement: pick(&mut rng),

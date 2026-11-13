@@ -30,7 +30,13 @@ export const movePlacements = (placements: string[], by: Tick, ifOccupied: IfOcc
   ...(ifOccupied === 'replace' ? {} : { if_occupied: ifOccupied }),
 })
 /** Moves one edge of a placement to a timeline tick. */
-export const resizePlacement = (placement: string, edge: 'start' | 'end', to: Tick): Command => ({ type: 'arrangement.resize', placement, edge, to })
+export const resizePlacement = (placement: string, edge: 'start' | 'end', to: Tick, ifOccupied: IfOccupied = 'replace'): Command => ({
+  type: 'arrangement.resize',
+  placement,
+  edge,
+  to,
+  ...(ifOccupied === 'replace' ? {} : { if_occupied: ifOccupied }),
+})
 /** Splits a placement in two at a timeline tick strictly inside it. */
 export const splitPlacement = (placement: string, at: Tick): Command => ({ type: 'arrangement.split', placement, at })
 export const deletePlacements = (placements: string[]): Command => ({ type: 'arrangement.delete', placements })
@@ -51,7 +57,13 @@ export const placeFromSlot = (clip: string, start: Tick, linked: boolean, ifOccu
   ...(ifOccupied === 'replace' ? {} : { if_occupied: ifOccupied }),
 })
 /** The same for every clip of a scene, each on its own track: one command, one history entry. */
-export const placeScene = (scene: string, start: Tick, linked: boolean): Command => ({ type: 'arrangement.place_scene', scene, start, linked })
+export const placeScene = (scene: string, start: Tick, linked: boolean, ifOccupied: IfOccupied = 'replace'): Command => ({
+  type: 'arrangement.place_scene',
+  scene,
+  start,
+  linked,
+  ...(ifOccupied === 'replace' ? {} : { if_occupied: ifOccupied }),
+})
 /** Opens `length` ticks of empty time at a tick, in every track and the master (#396): one command, one history entry. */
 export const insertTime = (at: Tick, length: Tick): Command => ({ type: 'arrangement.insert_time', at, length })
 /** Deletes the time `[from, to)` from every track and the master and closes the gap (#396). */

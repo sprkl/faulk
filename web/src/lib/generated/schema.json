@@ -11387,7 +11387,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Move one edge of a placement to the timeline tick `to`. `edge: \"end\"` changes the\nlength (the end must stay after the start); `edge: \"start\"` moves the start with\nthe end fixed, and the offset follows so the content does not slide: shortening\nfrom the left cuts the beginning of the clip (through the clip's loop), growing to\nthe left shows earlier content and is refused beyond the clip's start (offset 0).\nAn audio placement is resized in whole frames and stays inside its clip: its end\nstops at the clip's last frame and its start at the clip's first (offset 0) instead\nof being refused; its end is kept when its start moves (at most a tick earlier, the\nframes being whole). The resized placement wins on overlap (the others it now covers are carved,\n`overwritten` counts them). Moving the edge where it is changes nothing. Undo:\n`arrangement.restore`.",
+        "description": "Move one edge of a placement to the timeline tick `to`. `edge: \"end\"` changes the\nlength (the end must stay after the start); `edge: \"start\"` moves the start with\nthe end fixed, and the offset follows so the content does not slide: shortening\nfrom the left cuts the beginning of the clip (through the clip's loop), growing to\nthe left shows earlier content and is refused beyond the clip's start (offset 0).\nAn audio placement is resized in whole frames and stays inside its clip: its end\nstops at the clip's last frame and its start at the clip's first (offset 0) instead\nof being refused; its end is kept when its start moves (at most a tick earlier, the\nframes being whole). The resized placement wins on overlap (the others it now covers are carved,\n`overwritten` counts them); with `if_occupied: \"refuse\"` (default `replace`) the\ncommand is refused, and nothing changes, when it would carve another (`skip` is\nrefused). Moving the edge where it is changes nothing. Undo: `arrangement.restore`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -11411,6 +11411,26 @@
               "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
               "type": "string"
             },
+            "IfOccupied": {
+              "description": "What an arrangement command that puts placements down does when they land on others\n(#805): `arrangement.place`, `place_from_slot`, `move`, `move_to_track`, `duplicate` and\n`repeat`.",
+              "oneOf": [
+                {
+                  "const": "replace",
+                  "description": "The placements put down win: what they cover is carved (a drag, the default).",
+                  "type": "string"
+                },
+                {
+                  "const": "refuse",
+                  "description": "Nothing is carved: the command is refused when a placement would land on another.",
+                  "type": "string"
+                },
+                {
+                  "const": "skip",
+                  "description": "`arrangement.move_to_track` only (the others refuse it): the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
+                  "type": "string"
+                }
+              ]
+            },
             "PlacementId": {
               "$ref": "#/$defs/Id",
               "description": "Identifier of a placement in a track's arrangement."
@@ -11425,6 +11445,9 @@
           "properties": {
             "edge": {
               "$ref": "#/$defs/Edge"
+            },
+            "if_occupied": {
+              "$ref": "#/$defs/IfOccupied"
             },
             "placement": {
               "$ref": "#/$defs/PlacementId"
@@ -11900,7 +11923,7 @@
         "undo": "inverse"
       },
       {
-        "description": "`arrangement.place_from_slot` for a whole scene of the launch grid, in one command\nand one history entry: every clip of the scene (MIDI and audio) is placed on its own\ntrack at the same tick `start`, as a copy (default) or linked to the grid clip. Empty\nslots place nothing. Refused when the scene has no clip.\nThe placements win on overlap. Undo: `arrangement.restore`.",
+        "description": "`arrangement.place_from_slot` for a whole scene of the launch grid, in one command\nand one history entry: every clip of the scene (MIDI and audio) is placed on its own\ntrack at the same tick `start`, as a copy (default) or linked to the grid clip. Empty\nslots place nothing. Refused when the scene has no clip.\nThe placements win on overlap. With `if_occupied: \"refuse\"` (default `replace`) the\ncommand is refused, and nothing changes, when any placement would land on another\n(`skip` is refused). Undo: `arrangement.restore`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -11908,6 +11931,26 @@
               "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
               "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
               "type": "string"
+            },
+            "IfOccupied": {
+              "description": "What an arrangement command that puts placements down does when they land on others\n(#805): `arrangement.place`, `place_from_slot`, `move`, `move_to_track`, `duplicate` and\n`repeat`.",
+              "oneOf": [
+                {
+                  "const": "replace",
+                  "description": "The placements put down win: what they cover is carved (a drag, the default).",
+                  "type": "string"
+                },
+                {
+                  "const": "refuse",
+                  "description": "Nothing is carved: the command is refused when a placement would land on another.",
+                  "type": "string"
+                },
+                {
+                  "const": "skip",
+                  "description": "`arrangement.move_to_track` only (the others refuse it): the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
+                  "type": "string"
+                }
+              ]
             },
             "SceneId": {
               "$ref": "#/$defs/Id",
@@ -11921,6 +11964,9 @@
           },
           "additionalProperties": false,
           "properties": {
+            "if_occupied": {
+              "$ref": "#/$defs/IfOccupied"
+            },
             "linked": {
               "default": false,
               "type": "boolean"
@@ -17417,6 +17463,47 @@
         "undo": "none"
       },
       {
+        "description": "Close the open history group and take back everything it recorded, as if it had\nnever been opened: its edits are undone and leave no entry, on neither stack (a\nbatch of edits where one was refused, #867). Refused when no group is open, when\nanother author opened it, or when another author's edit landed inside it (the\ngroup is then no longer on top of the history). A refusal changes nothing and\nleaves the group open. What could be redone when the group began can be redone\nagain. Not undoable itself.",
+        "destructive": false,
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {},
+          "required": [],
+          "type": "object"
+        },
+        "kind": "live",
+        "name": "history.abort_group",
+        "output_schema": {
+          "$defs": {
+            "GroupId": {
+              "description": "Identifier of a history group: the commands of one mouse drag or one agent turn\nshare a group and are undone together.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "$ref": "#/$defs/GroupId",
+              "description": "The group closed."
+            },
+            "undone": {
+              "description": "How many edits of the group were taken back.",
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "group",
+            "undone"
+          ],
+          "type": "object"
+        },
+        "undo": "none"
+      },
+      {
         "description": "Select a track, where live MIDI and the keyboard go; `null` deselects. Session\nstate: not undoable, not saved with the project. Refused with `not_found` when the\ntrack does not exist.",
         "destructive": false,
         "input_schema": {
@@ -17650,10 +17737,13 @@
             },
             {
               "additionalProperties": false,
-              "description": "Move one edge of a placement to the timeline tick `to`. `edge: \"end\"` changes the\nlength (the end must stay after the start); `edge: \"start\"` moves the start with\nthe end fixed, and the offset follows so the content does not slide: shortening\nfrom the left cuts the beginning of the clip (through the clip's loop), growing to\nthe left shows earlier content and is refused beyond the clip's start (offset 0).\nAn audio placement is resized in whole frames and stays inside its clip: its end\nstops at the clip's last frame and its start at the clip's first (offset 0) instead\nof being refused; its end is kept when its start moves (at most a tick earlier, the\nframes being whole). The resized placement wins on overlap (the others it now covers are carved,\n`overwritten` counts them). Moving the edge where it is changes nothing. Undo:\n`arrangement.restore`.",
+              "description": "Move one edge of a placement to the timeline tick `to`. `edge: \"end\"` changes the\nlength (the end must stay after the start); `edge: \"start\"` moves the start with\nthe end fixed, and the offset follows so the content does not slide: shortening\nfrom the left cuts the beginning of the clip (through the clip's loop), growing to\nthe left shows earlier content and is refused beyond the clip's start (offset 0).\nAn audio placement is resized in whole frames and stays inside its clip: its end\nstops at the clip's last frame and its start at the clip's first (offset 0) instead\nof being refused; its end is kept when its start moves (at most a tick earlier, the\nframes being whole). The resized placement wins on overlap (the others it now covers are carved,\n`overwritten` counts them); with `if_occupied: \"refuse\"` (default `replace`) the\ncommand is refused, and nothing changes, when it would carve another (`skip` is\nrefused). Moving the edge where it is changes nothing. Undo: `arrangement.restore`.",
               "properties": {
                 "edge": {
                   "$ref": "#/$defs/Edge"
+                },
+                "if_occupied": {
+                  "$ref": "#/$defs/IfOccupied"
                 },
                 "placement": {
                   "$ref": "#/$defs/PlacementId"
@@ -17829,8 +17919,11 @@
             },
             {
               "additionalProperties": false,
-              "description": "`arrangement.place_from_slot` for a whole scene of the launch grid, in one command\nand one history entry: every clip of the scene (MIDI and audio) is placed on its own\ntrack at the same tick `start`, as a copy (default) or linked to the grid clip. Empty\nslots place nothing. Refused when the scene has no clip.\nThe placements win on overlap. Undo: `arrangement.restore`.",
+              "description": "`arrangement.place_from_slot` for a whole scene of the launch grid, in one command\nand one history entry: every clip of the scene (MIDI and audio) is placed on its own\ntrack at the same tick `start`, as a copy (default) or linked to the grid clip. Empty\nslots place nothing. Refused when the scene has no clip.\nThe placements win on overlap. With `if_occupied: \"refuse\"` (default `replace`) the\ncommand is refused, and nothing changes, when any placement would land on another\n(`skip` is refused). Undo: `arrangement.restore`.",
               "properties": {
+                "if_occupied": {
+                  "$ref": "#/$defs/IfOccupied"
+                },
                 "linked": {
                   "default": false,
                   "type": "boolean"
@@ -20533,6 +20626,23 @@
               "properties": {
                 "type": {
                   "const": "history.end_group",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "type"
+              ],
+              "type": "object",
+              "x-destructive": false,
+              "x-kind": "live",
+              "x-undo": "none"
+            },
+            {
+              "additionalProperties": false,
+              "description": "Close the open history group and take back everything it recorded, as if it had\nnever been opened: its edits are undone and leave no entry, on neither stack (a\nbatch of edits where one was refused, #867). Refused when no group is open, when\nanother author opened it, or when another author's edit landed inside it (the\ngroup is then no longer on top of the history). A refusal changes nothing and\nleaves the group open. What could be redone when the group began can be redone\nagain. Not undoable itself.",
+              "properties": {
+                "type": {
+                  "const": "history.abort_group",
                   "type": "string"
                 }
               },
@@ -26295,6 +26405,31 @@
               "required": [
                 "type",
                 "group"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "group": {
+                  "$ref": "#/$defs/GroupId",
+                  "description": "The group closed."
+                },
+                "type": {
+                  "const": "history.abort_group",
+                  "type": "string"
+                },
+                "undone": {
+                  "description": "How many edits of the group were taken back.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "type",
+                "group",
+                "undone"
               ],
               "type": "object"
             }
@@ -37997,6 +38132,31 @@
                 "group"
               ],
               "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "group": {
+                  "$ref": "#/$defs/GroupId",
+                  "description": "The group closed."
+                },
+                "type": {
+                  "const": "history.abort_group",
+                  "type": "string"
+                },
+                "undone": {
+                  "description": "How many edits of the group were taken back.",
+                  "format": "uint32",
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "type",
+                "group",
+                "undone"
+              ],
+              "type": "object"
             }
           ]
         },
@@ -42245,7 +42405,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 56,
+  "protocol_version": 57,
   "scale_intervals": [
     {
       "intervals": [

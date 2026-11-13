@@ -9,6 +9,10 @@ const wasi = (memory) => ({
     new Uint8Array(memory.buffer, p, n).set(t)
     return 0
   },
+  // wasi-libc's futex wait links it (Rust 1.100, #846) and never calls it; it reads no clock.
+  clock_time_get: () => {
+    throw new Error('clock_time_get called (#846)')
+  },
   environ_get: () => 0,
   environ_sizes_get: () => 0,
   fd_write: () => 0,

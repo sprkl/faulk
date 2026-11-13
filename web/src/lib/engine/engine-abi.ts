@@ -120,6 +120,14 @@ export function engineMemory(): WebAssembly.Memory {
  * The WASI functions the module imports (`wasm32-wasip1-threads`). Only `random_get` does
  * something (the prepare side's hash maps seed from it); the render instance calls it only
  * for the warm-up's private channel (#355), where `crypto` may be missing.
+ *
+ * `clock_time_get` (since Rust 1.100, #846) comes with wasi-libc's futex wait
+ * (`__wasilibc_futex_wait`, which libc's internal locks link): it reads the clock only to
+ * turn an absolute deadline into the relative timeout of `memory.atomic.wait32`, and no
+ * caller in the module passes one. It reads no clock and throws an error that names it, so a
+ * later clock read from Rust (`Instant::now`, `SystemTime::now`) stops the engine with that
+ * message instead of reaching a clock unseen on the audio thread (the CPU load is timed by the
+ * worklet in JavaScript, #486); channel.test.ts checks that neither instance calls it.
  */
 export function wasiImports(memory: WebAssembly.Memory) {
   return {
@@ -131,6 +139,9 @@ export function wasiImports(memory: WebAssembly.Memory) {
       else for (let i = 0; i < len; i++) bytes[i] = Math.floor(Math.random() * 256)
       new Uint8Array(memory.buffer, ptr, len).set(bytes)
       return 0
+    },
+    clock_time_get(): number {
+      throw new Error('engine: clock_time_get called, the engine reads no clock (#846)')
     },
     environ_get: () => 0,
     environ_sizes_get: (count: number, size: number) => {

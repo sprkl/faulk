@@ -29,13 +29,13 @@ export const areas = (...names) => {
 // e2e-table:begin
 /** Named areas: the specs that exercise one part of the page. Rules below are unions of them. */
 export const AREA = {
-  arrangement: ['arrangement', 'audio-clips', 'arrangement-time', 'arrangement-handles', 'arrangement-view', 'arrangement-draw', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard', 'arrangement-never-replaces', 'discoverability', 'keyboard-create', 'recording', 'piano-roll-follow', 'clip-pool', 'markers', 'context-menu', 'toolbar-overflow', 'device-browser'],
+  arrangement: ['arrangement', 'audio-clips', 'arrangement-time', 'arrangement-handles', 'arrangement-view', 'arrangement-draw', 'automation', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard', 'arrangement-never-replaces', 'arrangement-group-atomic', 'discoverability', 'keyboard-create', 'recording', 'piano-roll-follow', 'clip-pool', 'markers', 'context-menu', 'toolbar-overflow', 'device-browser', 'devices-follow-selection'],
   clips: ['clip-pool'],
-  grid: ['clip-names', 'clip-pool', 'grid', 'grid-clips', 'grid-to-arrangement', 'recording'],
+  grid: ['clip-names', 'clip-pool', 'grid', 'grid-clips', 'grid-to-arrangement', 'recording', 'devices-follow-selection'],
   history: ['history', 'history-cost', 'history-names', 'keyboard-create'],
   pianoRoll: ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-euclid', 'piano-roll-jump', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard', 'keyboard-create', 'recording', 'piano-roll-follow', 'context-menu', 'scale'],
   mixer: ['automation', 'continuous', 'layout-4', 'mixer', 'mixer-sound', 'master-chain', 'master-pan', 'track-state'],
-  devices: ['automation', 'continuous', 'contour', 'device-browser', 'devices', 'filter-movement', 'presets', 'ripple-panel', 'layout-4', 'master-chain', 'master-pan', 'track-state', 'context-menu'],
+  devices: ['automation', 'continuous', 'contour', 'device-browser', 'devices', 'filter-movement', 'presets', 'ripple-panel', 'layout-4', 'master-chain', 'devices-follow-selection', 'master-pan', 'track-state', 'context-menu'],
   transport: ['all-sound-off', 'transport', 'playhead', 'space-bar', 'track-state', 'discoverability', 'recording', 'stop-to-marker', 'tap-tempo', 'scale'],
   tracks: ['tracks', 'track-order', 'lane-rows', 'discoverability', 'device-browser'],
   deviceBrowser: ['device-browser', 'devices', 'tracks', 'lane-rows', 'discoverability', 'keyboard-all-views'],
@@ -47,7 +47,7 @@ export const AREA = {
   shortcuts: ['discoverability', 'keyboard-all-views'],
   shortcutsDialog: ['discoverability', 'keyboard-all-views', 'navigation'],
   bottomPanel: ['bottom-panel', 'layout-4', 'ux-quick-wins'],
-  topBar: ['helper', 'keyboard-all-views', 'layout-4', 'local-access', 'navigation', 'space-bar', 'track-state', 'discoverability', 'top-bar'],
+  topBar: ['helper', 'keyboard-all-views', 'layout-4', 'local-access', 'navigation', 'space-bar', 'track-state', 'discoverability', 'top-bar', 'top-bar-narrow'],
   midi: ['keyboard', 'live-input', 'recording'],
   keyboardPlayer: ['all-sound-off', 'continuous', 'devices', 'keyboard', 'keyboard-all-views', 'mixer-sound', 'page-dispatcher', 'space-bar', 'tracks', 'typing-mode', 'discoverability'],
   // The landing page's bar and footer are the Journey page's too.
@@ -65,7 +65,7 @@ export const AREA = {
   // What the engine's sound and timing reach: devices, mixer, master, automation, transport, the
   // shipped worklet's cost (engine-mo2), its reports (engine-mo5), the CT-3 prototype that builds
   // crates/engine itself (engine-channel), the export render.
-  engine: ['all-sound-off', 'automation', 'big-project', 'continuous', 'devices', 'engine-channel', 'engine-mo2', 'engine-mo5', 'export-audio', 'filter-movement', 'keyboard', 'master-chain', 'master-pan', 'mixer-sound', 'recording', 'ripple-panel', 'stop-to-marker'],
+  engine: ['all-sound-off', 'automation', 'big-project', 'continuous', 'devices', 'engine-channel', 'engine-mo2', 'engine-mo5', 'engine-stall', 'export-audio', 'filter-movement', 'keyboard', 'master-chain', 'master-pan', 'mixer-sound', 'output-stall', 'recording', 'ripple-panel', 'stop-to-marker'],
   // What the project core (project, project-wasm) reaches beyond the core tests: storage, history, refusals.
   project: ['project-store', 'project-save', 'project-rename', 'project-save-as-name', 'open-project', 'browser-storage', 'storage-commands', 'open-url', 'history', 'history-names', 'refused-commands', 'scale'],
 }

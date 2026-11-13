@@ -37,6 +37,12 @@
 
   const current = $derived(viewById(ui.view) ?? viewById(DEFAULT_VIEW)!)
 
+  // The Master view of the devices panel ends as soon as the selection leaves the track it was chosen on, by whatever
+  // path (undo, deletion, keyboard), so that selecting that track again later never brings it back (#806).
+  $effect(() => {
+    if (ui.masterSelection !== null && ui.masterSelection !== (project.selected?.id ?? '')) ui.masterSelection = null
+  })
+
   // Each project comes back with its layout (#473): the view, the zoom and scroll, the open lanes, the lane heights.
   const isMainView = (id: string): id is MainViewId => viewById(id)?.place === 'main'
   $effect(() => ui.useProject(project.view?.project.id ?? null, isMainView))
@@ -290,6 +296,16 @@
   {#if engine.streamError}
     <p class="notice" role="alert" data-testid="stream-error">{ui.t('engine.streamError')}</p>
   {/if}
+  <!-- The output stopped pulling the Web engine (#810): the position and the meters are frozen, the page says why. -->
+  {#if engine.mode === 'web' && engine.outputStalled}
+    <p class="notice" role="status" data-testid="no-output-notice">{ui.t('engine.noOutput')}</p>
+  {:else if engine.mode === 'web' && engine.engineStalled}
+    <!-- The engine stopped responding while the output pulls it (#877); a stalled output says more, so it wins above. -->
+    <p class="notice notice-action" role="status" data-testid="engine-stall-notice">
+      <span>{ui.t('engine.notResponding')}</span>
+      <button disabled={engine.starting} onclick={() => void dispatcher.restartWeb()}>{ui.t('engine.restart')}</button>
+    </p>
+  {/if}
 
   {#if engine.pendingPairCode && !engine.started && !ui.engineOpen}
     <p class="notice" role="status" data-testid="pair-pending-notice">{ui.t('start.pairPending')}</p>
@@ -348,6 +364,12 @@
     padding: var(--fk-space-2) var(--fk-space-4);
     border-bottom: 1px solid var(--fk-line);
     background: var(--fk-surface);
+  }
+  .notice-action {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--fk-space-2) var(--fk-space-3);
   }
   /* A refusal of the core: temporary, over the page, never in the way of a click. */
   .toast {

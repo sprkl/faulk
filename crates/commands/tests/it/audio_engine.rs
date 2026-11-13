@@ -379,11 +379,13 @@ fn the_arrangement_edits_of_audio_placements_keep_the_engine_in_step_both_ways()
             placement: placement.clone(),
             edge: Edge::End,
             to: Tick(4800 + 480),
+            if_occupied: Default::default(),
         }),
         ar(A::Resize {
             placement: placement.clone(),
             edge: Edge::Start,
             to: Tick(4800 - 240),
+            if_occupied: Default::default(),
         }),
         ar(A::Split {
             placement: placement.clone(),

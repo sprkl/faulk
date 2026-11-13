@@ -3,6 +3,8 @@ import type { Engine, EngineEvents, EngineStatus } from './engine'
 import { engineMemory } from './engine-abi'
 import { readFeedback } from './feedback'
 import { contextFrameAt, OutputClock } from './clock'
+import { EngineStall } from './engine-stall'
+import { OutputStall } from './output-stall'
 import type { FromPrepare, ToPrepare } from './prepare-worker'
 import type { WorkletMessage } from './worklet'
 import workletUrl from './worklet.ts?worker&url'
@@ -13,6 +15,25 @@ type FromWorklet = { type: 'ready'; warm?: number } | { type: 'error'; message: 
 
 /** How often the page reads the engine's report, in ms (the engine writes ~30 per second). */
 const FEEDBACK_MS = 33
+/** How long the start waits for the audio context to resume before it brings the engine up anyway, in ms (#810). */
+const RESUME_WAIT_MS = 2000
+
+/**
+ * Resumes `context`, waiting `RESUME_WAIT_MS` at most (#810): a resume that does not settle by then (no output to open)
+ * does not hold the page back, and the clock standing still is what the page then says. A refusal within the wait is
+ * thrown; a later one is only logged.
+ */
+async function resumeWithin(context: AudioContext): Promise<void> {
+  const resumed = context.resume()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<false>((done) => (timer = setTimeout(() => done(false), RESUME_WAIT_MS)))
+  try {
+    const inTime = await Promise.race([resumed.then(() => true as const), late])
+    if (!inTime) resumed.catch((error: unknown) => console.error('audio context: resume failed', error))
+  } finally {
+    clearTimeout(timer)
+  }
+}
 
 /**
  * The engine compiled to WebAssembly (MO-2): one module, two instances on one shared memory.
@@ -30,6 +51,18 @@ export class WebEngine implements Engine {
   private reportedLatency = 0
   /** The page clock ↔ audio frame correspondence, fed at every feedback tick and at every stamp (#725). */
   private readonly outputClock = new OutputClock()
+  /** Whether the output stopped pulling the engine (#810), read from the context's clock at every feedback tick. */
+  private readonly outputStall = new OutputStall()
+  /** Whether the engine stopped responding while the output pulls it (#877), read from its report at every feedback tick. */
+  private readonly engineStall = new EngineStall()
+  /**
+   * Whether the output is expected to pull the engine: from the end of `start` (the context resumed) until a
+   * `suspend` the page asked for (Boost plays), and again after `resume`. A context the page did not suspend is
+   * expected to run, whatever its state says: its clock standing still is what the page reports.
+   */
+  private expected = false
+  /** Counts the page's `suspend` and `resume` calls: a `resume` that a later `suspend` overtook does not expect the clock to run. */
+  private pauses = 0
 
   private constructor(
     private readonly context: AudioContext,
@@ -41,6 +74,15 @@ export class WebEngine implements Engine {
     let last = 0
     this.timer = setInterval(() => {
       this.sampleClock()
+      const stalled = this.outputStall.stalled
+      if (this.outputStall.observe({ now: performance.now(), clock: context.currentTime, expected: this.expected }) !== stalled)
+        events.onOutputStall?.(!stalled)
+      // The raw `seq`, odd mid-write included, not the last report decoded: an engine that writes reports the page cannot
+      // decode still runs, and a restart would not help it (#877).
+      const written = Atomics.load(new Int32Array(memory.buffer, feedback.at, 2), 1)
+      const engineStalled = this.engineStall.stalled
+      if (this.engineStall.observe({ now: performance.now(), clock: context.currentTime, seq: written, expected: this.expected }) !== engineStalled)
+        events.onEngineStall?.(!engineStalled)
       const report = readFeedback(memory.buffer, feedback.at, feedback.len)
       if (!report || report.seq === last) return
       last = report.seq
@@ -109,7 +151,9 @@ export class WebEngine implements Engine {
 
     const engine = new WebEngine(context, worker, memory, { at: ready.feedback, len: ready.feedbackLen }, events)
     node.connect(context.destination)
-    await context.resume()
+    // A refusal fails the start; a resume that does not settle (no output to open) does not hold it back (#810).
+    await resumeWithin(context)
+    engine.expected = true
     events.onStatus(engine.status())
     // outputLatency is only known once audio runs: report again shortly after.
     setTimeout(() => events.onStatus(engine.status()), 500)
@@ -136,6 +180,16 @@ export class WebEngine implements Engine {
 
   private sampleClock() {
     if (this.context.state === 'running' && typeof this.context.getOutputTimestamp === 'function') this.outputClock.observe(this.context.getOutputTimestamp())
+  }
+
+  /** Whether the output stopped pulling the engine now (#810): what `onOutputStall` last said. */
+  get outputStalled(): boolean {
+    return this.outputStall.stalled
+  }
+
+  /** Whether the engine stopped responding now (#877): what `onEngineStall` last said. */
+  get engineStalled(): boolean {
+    return this.engineStall.stalled
   }
 
   /** The status to show and to start a take with; `frameAt` keeps its latency (#499). */
@@ -168,16 +222,26 @@ export class WebEngine implements Engine {
 
   /** Pauses audio without losing the engine (used while the helper plays). */
   async suspend() {
+    // Before the call: the clock stops while the suspension runs, which is no stall (#810).
+    this.expected = false
+    this.pauses++
     await this.context.suspend()
   }
 
   async resume() {
-    await this.context.resume()
+    const pause = ++this.pauses
+    try {
+      await resumeWithin(this.context)
+    } finally {
+      // Even when the context refuses to resume: the page wants it to run, and a clock that stands still is then said.
+      if (pause === this.pauses) this.expected = true
+    }
   }
 
   async close() {
     clearInterval(this.timer)
-    await this.context.close()
+    // The Worker first: a context whose engine is stuck may never finish closing (#877), and the Worker would stay.
     this.worker.terminate()
+    await this.context.close()
   }
 }

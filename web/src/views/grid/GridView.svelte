@@ -223,6 +223,8 @@
 
   /** Selects a track (the keyboard plays it) when it is not the selected one. */
   function select(track: string) {
+    // Picking a track ends the devices panel's master view, even when it is already selected (#806).
+    ui.masterSelection = null
     if (project.selected?.id !== track) run(selectTrack(track))
   }
 
@@ -496,10 +498,9 @@
     void tick().then(() => board?.querySelector<HTMLElement>(`[data-cell][data-clip="${id}"]`)?.focus())
   }
 
-  // A scene still replaces what it lands on (#860: `place_scene` has no `if_occupied`, left as it was on purpose, like drags, #805).
   function sendSceneToArrangement(scene: string, linked: boolean) {
     menuFor = null
-    run(placeScene(scene, sendTick(), linked))
+    run(placeScene(scene, sendTick(), linked, 'refuse'))
   }
 
   async function startClipRename(id: string) {

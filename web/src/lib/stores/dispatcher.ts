@@ -171,6 +171,14 @@ export class Dispatcher {
       onStatus: (status) => {
         if (current()) this.state.status = status
       },
+      onOutputStall: (stalled) => {
+        // Only the Web engine that plays: entering Boost clears the word, and a resumed engine counts again from scratch.
+        if (kind === 'web' && current()) this.state.outputStalled = stalled
+      },
+      onEngineStall: (stalled) => {
+        // Same rule as the output's word (#877): only the Web engine that plays.
+        if (kind === 'web' && current()) this.state.engineStalled = stalled
+      },
       onFeedback: (report) => {
         if (!current()) return
         this.state.feedback = report
@@ -671,21 +679,44 @@ export class Dispatcher {
    * restarts audio, comes back, and the new engine starts from a snapshot.
    */
   private async stopWeb(code: number, at: number) {
-    const web = this.web
+    const web = this.dropWeb()
     if (!web) return
+    this.state.streamError = { code, at }
+    await web.close().catch((error: unknown) => console.error(error))
+  }
+
+  /**
+   * Restarts the Web engine that stopped responding (#877): the restart of a refused stream (`stopWeb`, then `start`), a
+   * new engine from a snapshot of the project, without the stream's error. Call from a click (a new audio context). The
+   * old engine is closed without waiting: a context whose engine is stuck may never finish closing. Nothing in Boost,
+   * nor without a Web engine.
+   */
+  async restartWeb() {
+    if (this.native || this.state.starting) return
+    const web = this.dropWeb()
+    if (!web) return
+    web.close().catch((error: unknown) => console.error(error))
+    await this.start()
+  }
+
+  /** Lets the Web engine go and clears what it said; returns it, still to close (`null`: none). */
+  private dropWeb(): WebEngine | null {
+    const web = this.web
+    if (!web) return null
     this.web = null
     // The engine that captured a take is gone, and no report will settle a take waiting to be written (#513).
     this.recorder?.engineReplaced()
-    this.state.streamError = { code, at }
     this.state.started = false
     this.state.status = null
     this.state.peak = 0
     this.state.voices = 0
     this.state.silencedFrames = 0
+    this.state.outputStalled = false
+    this.state.engineStalled = false
     this.state.latencyFrames = 0
     this.state.latencyCapped = false
     this.state.activeNotes = []
-    await web.close().catch((error: unknown) => console.error(error))
+    return web
   }
 
   /**
@@ -1681,6 +1712,8 @@ export class Dispatcher {
       this.boostSince = Date.now()
       this.stopAwaitingOutput()
       this.state.mode = 'native'
+      this.state.outputStalled = false
+      this.state.engineStalled = false
       this.state.status = session.status
       this.state.helperUpdate = session.update
       this.state.helper = 'connected'
@@ -1770,6 +1803,9 @@ export class Dispatcher {
     await web.resume()
     // Boost was entered again meanwhile: the helper plays, and the Web side stays as it is.
     if (this.native) return
+    // The engine's own word on its output, which Boost cleared from the store (#810): a stall that went on is said again.
+    this.state.outputStalled = this.web === web && web.outputStalled === true
+    this.state.engineStalled = this.web === web && web.engineStalled === true
     this.state.status = web.status()
     // Reopen the input that was playing before Boost (the helper had it meanwhile).
     if (ready) this.midi?.select(this.lastWebInput)

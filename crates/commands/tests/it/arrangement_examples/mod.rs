@@ -179,11 +179,13 @@ pub fn examples() -> Vec<(Command, State)> {
             placement: f.a.clone(),
             edge: Edge::End,
             to: Tick(5000),
+            if_occupied: Default::default(),
         }),
         on(arrangement::Command::Resize {
             placement: f.b.clone(),
             edge: Edge::Start,
             to: Tick(4800),
+            if_occupied: Default::default(),
         }),
         on(arrangement::Command::Split {
             placement: f.c.clone(),
@@ -341,6 +343,7 @@ pub fn examples() -> Vec<(Command, State)> {
             scene: scene.clone(),
             start: Tick(7000),
             linked,
+            if_occupied: Default::default(),
         }));
     }
     // Time inserted and deleted across the tracks, and the restore of a time edit that
@@ -431,11 +434,13 @@ pub fn examples() -> Vec<(Command, State)> {
             placement: audio.clone(),
             edge: Edge::End,
             to: Tick(4320),
+            if_occupied: Default::default(),
         },
         arrangement::Command::Resize {
             placement: audio.clone(),
             edge: Edge::Start,
             to: Tick(3600),
+            if_occupied: Default::default(),
         },
         arrangement::Command::Split {
             placement: audio.clone(),

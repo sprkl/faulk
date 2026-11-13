@@ -21,6 +21,8 @@ export interface MenuItem {
   separator?: boolean
   /** The test id; `ctx-<id>` when missing. */
   testid?: string
+  /** The menu stays open (and keeps the focus on the entry) after the pick: an action meant to be repeated, like a tap (#878). */
+  stayOpen?: boolean
   run: () => void
 }
 
