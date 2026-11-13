@@ -330,7 +330,7 @@ fn main() {
             eprintln!("cannot open the log file: {e}");
         }
     };
-    let args = parse_args(&raw_args).unwrap_or_else(|e| {
+    let mut args = parse_args(&raw_args).unwrap_or_else(|e| {
         open_log(false);
         fatal(lang, &format!("{e}\n{USAGE}"))
     });
@@ -346,6 +346,13 @@ fn main() {
     let std_listener = match instance::claim(args.port, &probe_origins, instance::PROBE_PATIENCE) {
         Startup::Serve(listener) => {
             open_log(true);
+            // `--port 0` lets the system pick a port that nobody else can take before this bind
+            // (the tests use it, #895): from here on the port is the one really held, and the
+            // journal says which.
+            if let Ok(local) = listener.local_addr() {
+                args.port = local.port();
+            }
+            log!("claimed 127.0.0.1:{}", args.port);
             listener
         }
         Startup::AlreadyRunning => {
