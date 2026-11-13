@@ -147,10 +147,10 @@ test('at its smallest the piano roll still shows an octave, and the mixer folds 
   await page.getByTestId('roll-create-clip').click()
   await expect(page.getByTestId('piano-roll')).toBeVisible()
   await expect(stage).toBeVisible()
-  const stageHeight = (await stage.boundingBox())!.height
   const ROW = 16
   const RULER = 28
-  expect(stageHeight - RULER).toBeGreaterThanOrEqual(12 * ROW)
+  // The panel's minimum follows the toolbar's real height one frame after the roll mounts (#887): wait for it, as the toolbar may wrap to more rows with the fonts of the machine.
+  await expect.poll(async () => (await stage.boundingBox())!.height - RULER).toBeGreaterThanOrEqual(12 * ROW)
 
   // The mixer needs the whole height: the panel is folded to its tabs there (#472), so the strips are whole whatever the panel's size.
   await handle(page).focus()

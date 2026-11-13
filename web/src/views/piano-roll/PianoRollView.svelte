@@ -1457,7 +1457,8 @@
   let toolbarH = $state(0)
   $effect(() => {
     // offsetHeight is rounded: a pixel of slack when the toolbar is taller than its room. Applied on the next frame, outside the observers' delivery (a resize caused in it ends in "ResizeObserver loop" errors).
-    const extra = toolbarH > ROLL_TOOLBAR_ROOM ? toolbarH - ROLL_TOOLBAR_ROOM + 1 : 0
+    // No clip, no toolbar: the empty state asks nothing of the panel.
+    const extra = edited && toolbarH > ROLL_TOOLBAR_ROOM ? toolbarH - ROLL_TOOLBAR_ROOM + 1 : 0
     const frame = requestAnimationFrame(() => (ui.rollToolbarExtra = extra))
     return () => cancelAnimationFrame(frame)
   })

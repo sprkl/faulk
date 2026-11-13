@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { UiStore } from '../../lib/stores/ui.svelte'
 import { clampHeight, COLLAPSED_KEY, HEIGHTS_KEY, MAIN_MIN, PANEL_MIN, panelMax, panelMin, parseHeights, ROLL_TOOLBAR_ROOM } from './panel-size'
 
-// One octave of 16 px rows, under the ruler (28), the toolbar (36), the tabs (41) and above the velocity lane (56).
-const OCTAVE_ROOM = 12 * 16 + 28 + 36 + 41 + 56
+// One octave of 16 px rows, under the ruler (28), the toolbar (its two rows, ROLL_TOOLBAR_ROOM), the tabs (41) and above the velocity lane (56).
+const OCTAVE_ROOM = 12 * 16 + 28 + ROLL_TOOLBAR_ROOM + 41 + 56
 
 describe('panel size', () => {
   it('raises the roll minimum by the toolbar height beyond its two rows (#887), and no other view', () => {
