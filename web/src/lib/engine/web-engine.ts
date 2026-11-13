@@ -191,8 +191,12 @@ export class WebEngine implements Engine {
 
   async resume() {
     const pause = ++this.pauses
-    await this.context.resume()
-    if (pause === this.pauses) this.expected = true
+    try {
+      await this.context.resume()
+    } finally {
+      // Even when the context refuses to resume: the page wants it to run, and a clock that stands still is then said.
+      if (pause === this.pauses) this.expected = true
+    }
   }
 
   async close() {
