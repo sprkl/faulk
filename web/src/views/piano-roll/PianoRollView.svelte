@@ -47,7 +47,7 @@
   import EuclideanPanel from './EuclideanPanel.svelte'
   import { DEFAULT_GATE, euclideanFault, euclideanNotes, euclideanPlan, parsePitch, type EuclideanDraft, type EuclideanSettings } from './euclidean'
   import { instrumentNamedKeys, isMidi, trackColor as colorOfTrack } from '../../lib/project/tracks'
-  import { inGroup } from '../../lib/history-group'
+  import { inGroup, type RunAll } from '../../lib/history-group'
   import { useStores } from '../../lib/stores'
   import { MAX_GOTO_BAR, barTicks, beatTicks, PPQ } from '../transport/time'
   import { cursorJumpKey, itemAt, jumpCursor, moveCursor, rovingKey, step as stepItem, zoomKey, type RovingKey } from '../../lib/roving'
@@ -108,6 +108,7 @@
     lengthFor,
     quantizeChanges,
     quantizeSaid,
+    sendWithRoom,
     toBoard,
     transposeChanges,
     type QuantizeGrid,
@@ -1312,25 +1313,16 @@
   }
 
   /**
-   * Sends notes that end at `end` through `send`, growing the clip first to the next whole bar when they do not fit (one
-   * history entry for both). False when the clip cannot hold them.
+   * Sends `commands` (notes that end at `end`), growing the clip first to the next whole bar when they do not fit: all or
+   * nothing and one history entry (#869), so a refused write (a note limit) takes the growth back too. `null` when the
+   * clip cannot hold them; else what `runAll` did (the refusal itself shows its own message).
    */
-  function withRoomFor(end: number, send: () => void): boolean {
-    if (!edited) return false
+  function withRoomFor(end: number, commands: Command[]): RunAll | null {
+    if (!edited) return null
     const length = lengthFor(end, clipLength, bar)
-    if (length === null) return false
-    if (length === clipLength) {
-      send()
-      return true
-    }
-    const clip = edited
-    return group(() => {
-      for (const command of lengthCommands(clip, length)) run(command)
-      // The project may have refused the new length (a placement next to the clip): then there is no room, and nothing is added.
-      const grown = clipLength >= length
-      if (grown) send()
-      return grown
-    })
+    if (length === null) return null
+    const grow = length === clipLength ? [] : lengthCommands(edited, length)
+    return sendWithRoom((command, options) => dispatcher.run(command, options), grow, commands)
   }
 
   /** Copies of the chosen notes right after the selection, which they become; from a cell, the first copy takes the focus (#771). */
@@ -1342,7 +1334,9 @@
     const copies = source.map((n) => ({ ...n, start: n.start + offset }))
     const id = edited.id
     const inCells = !!itemsEl && document.activeElement instanceof Node && itemsEl.contains(document.activeElement)
-    if (!withRoomFor(endOf(copies), () => run(duplicateNotes(id, source, offset)))) return
+    const done = withRoomFor(endOf(copies), [duplicateNotes(id, source, offset)])
+    if (!done) return
+    if (!done.ok) return announce(t(done.rolledBack ? 'pianoRoll.saidNoneDuplicated' : 'pianoRoll.saidDuplicatePartial'))
     picked = new Set(copies.map(noteKey))
     announce(copies.length === 1 ? t('pianoRoll.saidDuplicatedOne') : t('pianoRoll.saidDuplicated', { n: copies.length }))
     const first = [...copies].sort((a, b) => a.start - b.start || b.pitch - a.pitch)[0]
@@ -1626,10 +1620,10 @@
     const added = pasted.filter((n) => !there.has(noteKey(n))).length
     if (added === 0) return announce(t('pianoRoll.saidPasteNone'))
     const id = edited.id
-    if (!withRoomFor(endOf(pasted), () => run(addNotes(id, pasted)))) return announce(t('pianoRoll.saidPasteNoRoom'))
-    // Refused by the project after all (a limit): the dispatcher says why.
-    const now = new Set(notes.map(noteKey))
-    if (!pasted.every((n) => now.has(noteKey(n)))) return
+    const done = withRoomFor(endOf(pasted), [addNotes(id, pasted)])
+    if (!done) return announce(t('pianoRoll.saidPasteNoRoom'))
+    // Refused by the project after all (a limit): the dispatcher says why, and the clip is as it was.
+    if (!done.ok) return announce(t(done.rolledBack ? 'pianoRoll.saidNonePasted' : 'pianoRoll.saidPastePartial'))
     picked = new Set(pasted.map(noteKey))
     const first = [...pasted].sort((a, b) => a.start - b.start || b.pitch - a.pitch)[0]!
     const beatsPerBar = bar / PPQ

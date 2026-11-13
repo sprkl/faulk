@@ -37,6 +37,8 @@ export const browser = defineFeature(
     'browser.said.noInstrumentOnMaster': 'The master takes effects, not instruments.',
     'browser.said.noMidiEffectHere': '{device} changes notes: it goes on a MIDI track.',
     'browser.said.refused': '{device} could not be added.',
+    'browser.said.refusedNone': '{device} could not be added: nothing changed.',
+    'browser.said.refusedPartial': '{device} could not be fully added: part of it may already be applied.',
   },
   {
     'browser.title': 'Navigateur',
@@ -68,5 +70,7 @@ export const browser = defineFeature(
     'browser.said.noInstrumentOnMaster': 'Le master accepte des effets, pas des instruments.',
     'browser.said.noMidiEffectHere': '{device} transforme des notes : il va sur une piste MIDI.',
     'browser.said.refused': "{device} n'a pas pu être ajouté.",
+    'browser.said.refusedNone': '{device} n’a pas pu être ajouté : rien n’a changé.',
+    'browser.said.refusedPartial': '{device} n’a pas pu être entièrement ajouté : une partie est peut-être déjà appliquée.',
   },
 )

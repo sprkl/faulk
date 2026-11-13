@@ -5,7 +5,9 @@ import { createGesture } from './gesture'
 import type { Command } from './generated/protocol'
 import { inGroup, runAll, type GroupRun } from './history-group'
 import { coreModule, ProjectCore } from './project/core'
+import { addNotes, createClipAtStart, setClipLength, setClipLoop } from './clip-commands'
 import { createTrack, setVolume } from './track-commands'
+import { sendWithRoom } from '../views/piano-roll/roll'
 
 let module: WebAssembly.Module
 
@@ -129,5 +131,65 @@ describe('runAll: all or nothing (#867)', () => {
     expect(result).toEqual({ ok: false, refused: 1, rolledBack: false })
     expect(as('agent:claude', { type: 'history.end_group' })).toBe('applied')
     expect(core.history().undo.length).toBeGreaterThan(0)
+  })
+})
+
+describe('the piano roll growing a clip to hold notes (#869)', () => {
+  /** A MIDI clip in the arrangement of the set-up track, with a read of its content. */
+  function withClip() {
+    const s = setup()
+    s.as('user', createClipAtStart(s.track))
+    const clip = Object.keys(s.core.project().project.tracks[s.track]!.clips)[0]!
+    const midi = () => {
+      const content = s.core.project().project.tracks[s.track]!.clips[clip]!.content
+      return 'midi' in content ? content.midi : null
+    }
+    return { ...s, clip, midi }
+  }
+
+  it('a refused write takes the growth back: length, loop and history as they were', () => {
+    const { core, as, run, toasts, clip, midi } = withClip()
+    const length = midi()!.length
+    as('user', setClipLoop(clip, { start: 0, end: length }))
+    const undo = core.history().undo.length
+    // The growth applies, then the notes (one starts past the new end) are refused: the whole is rolled back.
+    const past = { start: length * 2, pitch: 60, length: 480, velocity: 100 }
+    const result = runAll(run, [setClipLength(clip, length * 2), setClipLoop(clip, { start: 0, end: length * 2 }), addNotes(clip, [past])])
+    expect(result).toEqual({ ok: false, refused: 2, rolledBack: true })
+    expect(midi()!.length).toBe(length)
+    expect(midi()!.looping).toEqual({ start: 0, end: length })
+    expect(core.history().undo).toHaveLength(undo)
+    expect(toasts).toEqual(['clip.notes.add'])
+  })
+
+  it('sendWithRoom: a refused growth says there is no room (null) and sends no note; a refused note is reported', () => {
+    const { core, run, clip, midi } = withClip()
+    const length = midi()!.length
+    const note = { start: 0, pitch: 60, length: 480, velocity: 100 }
+    const history = core.history().undo.length
+    // The growth is refused (no such clip): nothing sent after it, nothing changed.
+    expect(sendWithRoom(run, [setClipLength('no-such-clip', length * 2)], [addNotes(clip, [note])])).toBeNull()
+    expect(midi()!.notes).toEqual([])
+    expect(core.history().undo).toHaveLength(history)
+    // The notes are refused after the growth applied: the growth is taken back and the person is told about the notes.
+    const past = { ...note, start: length * 2 }
+    expect(sendWithRoom(run, [setClipLength(clip, length * 2)], [addNotes(clip, [past])])).toEqual({ ok: false, refused: 1, rolledBack: true })
+    expect(midi()!.length).toBe(length)
+    expect(core.history().undo).toHaveLength(history)
+    // No growth needed: the notes alone.
+    expect(sendWithRoom(run, [], [addNotes(clip, [note])])).toEqual({ ok: true })
+    expect(midi()!.notes).toHaveLength(1)
+  })
+
+  it('accepted notes: growth and notes are one undo entry', () => {
+    const { core, as, run, clip, midi } = withClip()
+    const before = midi()!.length
+    const undo = core.history().undo.length
+    const note = { start: before, pitch: 60, length: 480, velocity: 100 }
+    expect(runAll(run, [setClipLength(clip, before * 2), addNotes(clip, [note])])).toEqual({ ok: true })
+    expect(midi()!.length).toBe(before * 2)
+    expect(core.history().undo).toHaveLength(undo + 1)
+    as('user', { type: 'history.undo' })
+    expect(midi()!.length).toBe(before)
   })
 })

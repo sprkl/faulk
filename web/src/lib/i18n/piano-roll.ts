@@ -161,6 +161,10 @@ export const pianoRoll = defineFeature(
     'pianoRoll.saidPasteEmpty': 'Nothing to paste: copy notes first',
     'pianoRoll.saidPasteNone': 'Nothing pasted: these notes are already there',
     'pianoRoll.saidPasteNoRoom': 'Nothing pasted: no room for these notes in the clip',
+    'pianoRoll.saidNonePasted': 'Nothing pasted: the clip refused the notes, nothing changed',
+    'pianoRoll.saidPastePartial': 'Paste refused; the clip may already have changed',
+    'pianoRoll.saidNoneDuplicated': 'Not duplicated: the clip refused the notes, nothing changed',
+    'pianoRoll.saidDuplicatePartial': 'Duplicate refused; the clip may already have changed',
     'pianoRoll.keyboard': 'Keyboard of the piano roll',
     'pianoRoll.velocity': 'Velocity of the notes',
     'pianoRoll.velocityHint':
@@ -324,6 +328,10 @@ export const pianoRoll = defineFeature(
     'pianoRoll.saidPasteEmpty': 'Rien à coller : copiez d’abord des notes',
     'pianoRoll.saidPasteNone': 'Rien n’a été collé : ces notes sont déjà là',
     'pianoRoll.saidPasteNoRoom': 'Rien n’a été collé : pas de place pour ces notes dans le clip',
+    'pianoRoll.saidNonePasted': 'Rien n’a été collé : le clip a refusé les notes, rien n’a changé',
+    'pianoRoll.saidPastePartial': 'Collage refusé ; le clip a peut-être déjà changé',
+    'pianoRoll.saidNoneDuplicated': 'Non dupliqué : le clip a refusé les notes, rien n’a changé',
+    'pianoRoll.saidDuplicatePartial': 'Duplication refusée ; le clip a peut-être déjà changé',
     'pianoRoll.keyboard': 'Clavier du piano roll',
     'pianoRoll.velocity': 'Vélocité des notes',
     'pianoRoll.velocityHint':
