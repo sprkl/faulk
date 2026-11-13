@@ -89,6 +89,31 @@ test('the notice is in French with the page in French', async ({ page }) => {
   expect(errors).toEqual([])
 })
 
+test('a context that never resumes (no output to open) still brings the engine up, and the page says it', async ({ page }) => {
+  const { errors } = watch(page)
+  await page.addInitScript(() => {
+    const Original = window.AudioContext
+    window.AudioContext = class extends Original {
+      constructor(options?: AudioContextOptions) {
+        super(options)
+        void super.suspend()
+      }
+      // The resume the page asks for never settles, as when no output can be opened.
+      resume() {
+        return new Promise<void>(() => {})
+      }
+    }
+  })
+  await page.goto('/app')
+  await page
+    .getByTestId('engine-state')
+    .getByRole('button', { name: /Start audio|Démarrer l’audio/ })
+    .click()
+  await engineUp(page, 'Web')
+  await expect(notice(page)).toHaveText('No audio output: playback cannot advance', { timeout: 5000 })
+  expect(errors).toEqual([])
+})
+
 test('a running context whose clock stands still is said too, and cleared when it moves again', async ({ page }) => {
   // The case the issue most likely met: the context says `running`, but nothing pulls it, so its clock stands still. The
   // clock the page reads is frozen on this context only (its getter shadowed on the instance); the engine keeps playing.

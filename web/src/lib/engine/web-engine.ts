@@ -14,6 +14,8 @@ type FromWorklet = { type: 'ready'; warm?: number } | { type: 'error'; message: 
 
 /** How often the page reads the engine's report, in ms (the engine writes ~30 per second). */
 const FEEDBACK_MS = 33
+/** How long the start waits for the audio context to resume before it brings the engine up anyway, in ms (#810). */
+const RESUME_WAIT_MS = 2000
 
 /**
  * The engine compiled to WebAssembly (MO-2): one module, two instances on one shared memory.
@@ -123,7 +125,11 @@ export class WebEngine implements Engine {
 
     const engine = new WebEngine(context, worker, memory, { at: ready.feedback, len: ready.feedbackLen }, events)
     node.connect(context.destination)
-    await context.resume()
+    // A context that does not resume within RESUME_WAIT_MS (no output to open) does not hold the start back: the engine
+    // comes up, and its clock standing still is what the page then says (#810). A refusal before that fails the start.
+    const resumed = context.resume()
+    const inTime = await Promise.race([resumed.then(() => true), new Promise<boolean>((done) => setTimeout(() => done(false), RESUME_WAIT_MS))])
+    if (!inTime) resumed.catch((error: unknown) => console.error('audio context: resume failed', error))
     engine.expected = true
     events.onStatus(engine.status())
     // outputLatency is only known once audio runs: report again shortly after.
