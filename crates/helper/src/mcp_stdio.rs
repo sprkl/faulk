@@ -791,6 +791,32 @@ mod tests {
     }
 
     #[test]
+    fn a_connection_dropped_without_reading_a_large_request_says_the_helper_dropped_it() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            // Reads the head only, then closes with most of the body unread: the peer is
+            // still writing (3 MiB, more than the socket buffers hold) when it is reset.
+            let mut data = Vec::new();
+            let mut byte = [0u8; 1];
+            while !data.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                data.push(byte[0]);
+            }
+            drop(stream);
+        });
+        let big = json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{
+            "name":"history_undo","arguments":{"pad":"x".repeat(3 << 20)}}});
+        let link = Link::new(port, Some("t".into()));
+        let answers = link.relay(&big);
+        server.join().unwrap();
+        let message = answers[0]["error"]["message"].as_str().unwrap();
+        assert!(message.contains("cut the connection"), "{message}");
+        assert!(!message.contains("is not running"), "{message}");
+    }
+
+    #[test]
     fn an_error_answer_cut_before_its_reason_ends_says_the_helper_dropped_it() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
