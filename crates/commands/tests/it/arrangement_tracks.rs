@@ -806,6 +806,19 @@ fn a_scene_sent_to_the_arrangement_refuses_an_occupied_place() {
         send(arrangement::IfOccupied::Refuse),
         send(arrangement::IfOccupied::Replace),
     );
+    // The default carve of a scene undoes exactly.
+    let mut carved = state.clone();
+    let outcome = run(
+        &a(send(arrangement::IfOccupied::Replace)),
+        &mut carved,
+        &mut fresh_context(),
+    )
+    .unwrap();
+    let Undo::Inverse(inverse) = outcome.undo else {
+        panic!()
+    };
+    inverse.apply(&mut carved, &mut fresh_context()).unwrap();
+    assert_eq!(carved.project, state.project);
     // On free ground it is a plain send, whatever `if_occupied` says.
     let mut free = state.clone();
     let on_free_ground = arrangement::Command::PlaceScene {
