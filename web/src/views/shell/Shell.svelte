@@ -296,6 +296,10 @@
   {#if engine.streamError}
     <p class="notice" role="alert" data-testid="stream-error">{ui.t('engine.streamError')}</p>
   {/if}
+  <!-- The output stopped pulling the Web engine (#810): the position and the meters are frozen, the page says why. -->
+  {#if engine.mode === 'web' && engine.outputStalled}
+    <p class="notice" role="status" data-testid="no-output-notice">{ui.t('engine.noOutput')}</p>
+  {/if}
 
   {#if engine.pendingPairCode && !engine.started && !ui.engineOpen}
     <p class="notice" role="status" data-testid="pair-pending-notice">{ui.t('start.pairPending')}</p>

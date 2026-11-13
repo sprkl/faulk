@@ -582,6 +582,50 @@ describe('running commands through the project core', () => {
     expect(session.engine.silencedFrames).toBe(2)
   })
 
+  it('says the output stalled only for the Web engine that plays: cleared by Boost, by a stopped engine, never set by an old one (#810)', async () => {
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
+      close: vi.fn(() => Promise.resolve()),
+    }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    const web = webEvents!
+    web.onOutputStall?.(true)
+    expect(session.engine.outputStalled).toBe(true)
+    web.onOutputStall?.(false)
+    expect(session.engine.outputStalled).toBe(false)
+    // Stalled, then Boost: the helper plays, the word goes, and the suspended Web engine's late words change nothing.
+    web.onOutputStall?.(true)
+    await session.dispatcher.enterBoost()
+    expect(session.engine.mode).toBe('native')
+    expect(session.engine.outputStalled).toBe(false)
+    web.onOutputStall?.(true)
+    expect(session.engine.outputStalled).toBe(false)
+    // Back to Web while its output is still stalled: the store takes the engine's own word again (its detector saw no
+    // change to tell), and the engine's later words are heard.
+    ;(webs[0] as FakeWeb & { outputStalled?: boolean }).outputStalled = true
+    await session.dispatcher.enterWeb()
+    expect(session.engine.outputStalled).toBe(true)
+    web.onOutputStall?.(false)
+    expect(session.engine.outputStalled).toBe(false)
+    ;(webs[0] as FakeWeb & { outputStalled?: boolean }).outputStalled = false
+    web.onOutputStall?.(true)
+    expect(session.engine.outputStalled).toBe(true)
+    // A stopped engine (refused stream) takes its word with it; a new engine starts clear, and the old one is not heard.
+    web.onStreamRefused?.(-3, 0)
+    expect(session.engine.outputStalled).toBe(false)
+    await session.dispatcher.start()
+    web.onOutputStall?.(true)
+    expect(session.engine.outputStalled).toBe(false)
+    webEvents!.onOutputStall?.(true)
+    expect(session.engine.outputStalled).toBe(true)
+  })
+
   it('shows the frames silenced by the engine that plays: from 0 in Web, from its first report for a helper (#667)', async () => {
     const report = silencedReport
     nativeEngine = {

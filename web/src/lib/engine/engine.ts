@@ -66,6 +66,12 @@ export interface EngineEvents {
    * `epoch`, the one it reported (BO-1).
    */
   onStreamRefused?(code: number, at: number, epoch?: number): void
+  /**
+   * Web engine only: the audio output stopped pulling the engine (`true`), or pulls it again (`false`), told on each
+   * change (#810): the context's clock stood still while the page expects it to run, so nothing plays and the report
+   * stays frozen.
+   */
+  onOutputStall?(stalled: boolean): void
   /** The engine stopped on its own (helper gone, session replaced). */
   onClosed(): void
 }
