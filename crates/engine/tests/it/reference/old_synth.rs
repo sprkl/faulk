@@ -312,8 +312,7 @@ impl Synth {
                 self.gain = self.gain_target;
             }
             let mut sum = 0.0f32;
-            for i in 0..MAX_VOICES {
-                let voice = &mut self.voices[i];
+            for voice in &mut self.voices {
                 if voice.stage == Stage::Idle {
                     continue;
                 }

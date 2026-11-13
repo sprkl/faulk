@@ -5,7 +5,7 @@
 import { readFileSync } from 'node:fs'
 import { Worker } from 'node:worker_threads'
 import { describe, expect, it, vi } from 'vitest'
-import { becomeRenderInstance, createChannel, instantiate, MAX_FRAMES, ROLE_PREPARE, ROLE_RENDER, warmUp, type EngineExports } from './engine-abi'
+import { becomeRenderInstance, createChannel, instantiate, MAX_FRAMES, ROLE_PREPARE, ROLE_RENDER, wasiImports, warmUp, type EngineExports } from './engine-abi'
 import { peakOf, readFeedback } from './feedback'
 import { PushQueue } from './push-queue'
 
@@ -83,6 +83,63 @@ function push(e: EngineExports, memory: WebAssembly.Memory, ch: number, bytes: U
 }
 
 const sharedMemory = (maximum = 65536) => new WebAssembly.Memory({ initial: 256, maximum, shared: true })
+
+/** An instance of the module whose WASI functions count their calls, by name, in `calls`. */
+function countingInstance(memory: WebAssembly.Memory, calls: Record<string, number>): EngineExports {
+  const wasi = wasiImports(memory) as unknown as Record<string, (...args: never[]) => unknown>
+  const counted = Object.fromEntries(
+    Object.entries(wasi).map(([name, f]) => [
+      name,
+      (...args: never[]) => {
+        calls[name] = (calls[name] ?? 0) + 1
+        return f(...args)
+      },
+    ]),
+  )
+  return new WebAssembly.Instance(module, { env: { memory }, wasi_snapshot_preview1: counted }).exports as unknown as EngineExports
+}
+
+describe('the WASI functions the engine module imports', () => {
+  it('are exactly the ones the page provides', () => {
+    const imported = WebAssembly.Module.imports(module)
+      .filter((i) => i.module === 'wasi_snapshot_preview1')
+      .map((i) => i.name)
+      .sort()
+    expect(imported).toEqual(Object.keys(wasiImports(sharedMemory())).sort())
+  })
+
+  it.each([true, false])(
+    'never read the clock (#846): the render calls none of them from its first block, and nothing calls clock_time_get (warmed up first, as the worklet does: %s)',
+    (warmed) => {
+      const memory = sharedMemory()
+      const prepareCalls: Record<string, number> = {}
+      const renderCalls: Record<string, number> = {}
+      const prepare = countingInstance(memory, prepareCalls)
+      const setup = createChannel(prepare, 48_000)
+      const render = countingInstance(memory, renderCalls)
+      becomeRenderInstance(render, setup)
+      const ch = setup.channel
+      if (warmed) {
+        // The worklet warms up before any block (#355); its private channel may seed its hash
+        // maps: the one WASI function allowed there.
+        expect(warmUp(render, 48_000)).toBe(0)
+        expect(Object.keys(renderCalls).filter((name) => name !== 'random_get')).toEqual([])
+        for (const name of Object.keys(renderCalls)) delete renderCalls[name]
+      }
+      let blocks = 0
+      for (const step of steps('session.stream')) {
+        if ('push' in step) expect(push(prepare, memory, ch, step.push)).toBe(0)
+        else for (let b = 0; b < step.render; b++, blocks++) render.fk_render(ch, QUANTUM)
+      }
+      expect(blocks).toBeGreaterThan(100)
+      expect(renderCalls).toEqual({}) // the audio path, first pump included: no WASI call at all
+      expect(prepareCalls.clock_time_get).toBeUndefined()
+      expect(prepareCalls.random_get).toBeGreaterThan(0) // the counting sees the calls that happen
+      // Were it called, it would read no clock and name itself, in every test of the module.
+      expect(() => wasiImports(memory).clock_time_get()).toThrow(/clock_time_get/)
+    },
+  )
+})
 
 describe('the shipped engine module, two instances on one shared memory', () => {
   it('keeps a stack, a thread-local block and a role per instance', () => {
@@ -331,7 +388,7 @@ const { workerData } = require('node:worker_threads')
 const { module, memory, ch, growth, done, thread } = workerData
 const wasi = {
   random_get(p, n) { const t = new Uint8Array(n); crypto.getRandomValues(t); new Uint8Array(memory.buffer, p, n).set(t); return 0 },
-  environ_get: () => 0, environ_sizes_get: () => 0, fd_write: () => 0,
+  clock_time_get() { throw new Error('clock_time_get called (#846)') }, environ_get: () => 0, environ_sizes_get: () => 0, fd_write: () => 0,
   proc_exit(c) { throw new Error('exit ' + c) }, sched_yield: () => 0,
 }
 const e = new WebAssembly.Instance(module, { env: { memory }, wasi_snapshot_preview1: wasi }).exports
