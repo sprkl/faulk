@@ -67,6 +67,8 @@
     maxScrollY,
     copyBlocked,
     copyShift,
+    landingOn,
+    repeatCovers,
     freeRows,
     hitBlock,
     isFree,
@@ -1489,10 +1491,11 @@
   // --- repeat until (#555) ------------------------------------------------------------------------------------------
   /** The clip being repeated, and the first bar the field accepts (the one after the clip's end). */
   let repeating = $state<{ id: string; min: number } | null>(null)
-  /** Opens the field for the one clip selected, or the one the keyboard focus is on when nothing is selected. */
+  /** Opens the field for the clip the keyboard focus is on when it is not selected (#805), else for the one clip selected. */
   function openRepeat() {
     const focusedId = (document.activeElement as HTMLElement | null)?.dataset?.block
-    const block = selection.length === 1 ? selection[0] : selection.length === 0 && focusedId ? blocks.find((b) => b.id === focusedId) : undefined
+    const focused = focusedId && !selectedIds.has(focusedId) ? blocks.find((b) => b.id === focusedId) : undefined
+    const block = focused ?? (selection.length === 1 ? selection[0] : undefined)
     if (!block) return announce(t('arrangement.saidRepeatOne'))
     repeating = { id: block.id, min: Math.floor(block.end / bar) + 1 }
   }
@@ -1556,8 +1559,12 @@
     const target = repeating
     repeating = null
     if (!target) return
+    // The copies never cover a clip (#805): the page names the one in the way and sends nothing.
+    const source = blocks.find((b) => b.id === target.id)
+    const inTheWay = source ? repeatCovers(source, barNumber * bar, blocks) : null
+    if (inTheWay) return announce(t('arrangement.saidRepeatBlocked', blockerVars(inTheWay)))
     // A refusal (an audio clip, the limit, no audio started) shows in the page's own banner; only a success is said here.
-    if (run(repeatPlacement(target.id, barNumber * bar))) announce(t('arrangement.saidRepeated', { bar: barNumber }))
+    if (run(repeatPlacement(target.id, barNumber * bar, 'refuse'))) announce(t('arrangement.saidRepeated', { bar: barNumber }))
   }
 
   function removeSelected() {
@@ -1694,6 +1701,12 @@
     }
   }
 
+  /** The clip a key was pressed on when it is not selected: that clip, not the selection behind it, is what the key acts on (#805). */
+  function focusedOutsideSelection(event: KeyboardEvent): Block | undefined {
+    const id = (event.target as HTMLElement | null)?.dataset?.block
+    return id && !selectedIds.has(id) ? blocks.find((b) => b.id === id) : undefined
+  }
+
   function onKeyDown(event: KeyboardEvent) {
     if (isTextTarget(event.target)) return
     // A point's cell handles its own keys (#769); the ones it leaves (Shift+Delete, Ctrl+D) must not act on the selection behind it.
@@ -1715,16 +1728,15 @@
       if (lane && ref) autoPick = { lane, ticks: new Set(pointsOf(ref.info.lane).map((p) => p.tick)) }
       else picked = new Set(blocks.map((b) => b.id))
     } else if (mod && event.key.toLowerCase() === 'd') {
-      // With nothing selected, Ctrl+D copies the clip the keyboard focus is on (a Tab, Escape). A selection is always copied whole,
-      // as the Duplicate button's count says (#528).
-      const id = (event.target as HTMLElement | null)?.dataset?.block
-      const focused = id && selection.length === 0 ? blocks.find((b) => b.id === id) : undefined
+      // The clip the keyboard focus is on is the one copied, on its own track, unless it is part of the selection: then the
+      // selection is copied whole, as the Duplicate button's count says (#528). A selection left on another track (a clip made
+      // earlier from the free cursor) never takes the copy elsewhere (#805).
+      const focused = focusedOutsideSelection(event)
       if (focused) picked = new Set([focused.id])
       duplicate(event.shiftKey, focused ? [focused] : selection)
     } else if (mod && !event.shiftKey && event.key.toLowerCase() === 'e') {
-      // As Ctrl+D: with nothing selected, the clip the keyboard focus is on is the one cut (#772).
-      const id = (event.target as HTMLElement | null)?.dataset?.block
-      const focused = id && selection.length === 0 ? blocks.find((b) => b.id === id) : undefined
+      // As Ctrl+D: the clip the keyboard focus is on is the one cut, unless it is part of the selection (#772, #805).
+      const focused = focusedOutsideSelection(event)
       if (focused) picked = new Set([focused.id])
       splitSelected(focused ? [focused] : selection)
     } else return
@@ -1805,11 +1817,18 @@
   /** The cell in the tab order: the focused clip when it still exists, else the first selected, else the first clip. */
   const tabId = $derived((focusId && blocks.some((b) => b.id === focusId) ? focusId : null) ?? selection[0]?.id ?? blocks[0]?.id ?? null)
   const barsOf = (b: Block) => ({ from: Math.floor(b.start / bar) + 1, to: Math.max(Math.floor(b.start / bar) + 1, Math.ceil(b.end / bar)) })
+  /** What a message names of a clip in the way: its name and its bars (#805). */
+  const blockerVars = (b: Block) => ({ name: b.name || t('arrangement.clipDefault'), from: barsOf(b).from, to: barsOf(b).to })
+  /** Where a clip starts and ends, said in bars when both fall on a bar line, else with the beats (#805): two clips never read alike. */
+  function whereText(b: Block): string {
+    if (b.start % bar === 0 && b.end % bar === 0) return t('arrangement.clipBars', { from: barsOf(b).from, to: barsOf(b).to })
+    const [from, to] = [barBeat(b.start), barBeat(b.end)]
+    return t('arrangement.clipBeats', { fromBar: from.bar, fromBeat: from.beat, toBar: to.bar, toBeat: to.beat })
+  }
   function clipText(b: Block): string {
     const entry = entries[b.row]
     const name = b.name || t('arrangement.clipDefault')
-    const where = barsOf(b)
-    const parts = [t('arrangement.clipItem', { name, track: entry ? trackLabel(entry, t) : '', from: where.from, to: where.to })]
+    const parts = [t('arrangement.clipItem', { name, track: entry ? trackLabel(entry, t) : '', where: whereText(b) })]
     if (b.audio) parts.push(t('audio.clipAudio'))
     // A linked clip and a repeated content are said (#473), as they are drawn.
     if (b.uses > 1) parts.push(t('arrangement.clipLinked'))
@@ -1943,20 +1962,13 @@
       }
       const delta = moveDelta(chosen, current, current.start + sign * nudge, current.start, null)
       if (delta === 0) return announce(t('arrangement.saidCannotMove'))
-      // A move over other clips carves them (`arrangement.move`): what it did to them is said too.
+      // A move from the keyboard never carves a clip (#805): it says which one is in the way and changes nothing.
       const ids = new Set(chosen.map((b) => b.id))
-      const others = new Map(blocks.filter((b) => !ids.has(b.id)).map((b) => [b.id, `${b.start}:${b.end}`]))
-      run(movePlacements([...ids], delta))
-      const after = blocks.filter((b) => !ids.has(b.id))
-      const carved = [...others].filter(([bid, span]) => {
-        const now = after.find((b) => b.id === bid)
-        return !now || `${now.start}:${now.end}` !== span
-      }).length
+      const inTheWay = landingOn(chosen, delta, blocks)
+      if (inTheWay) return announce(t('arrangement.saidMoveBlocked', blockerVars(inTheWay)))
+      if (!run(movePlacements([...ids], delta, 'refuse'))) return
       const moved = blocks.find((b) => b.id === current.id)
-      if (moved) {
-        const said = t('arrangement.saidMoved', { n: chosen.length, bar: barsOf(moved).from })
-        announce(carved > 0 ? `${said}. ${t('arrangement.saidCarved', { n: carved })}` : said)
-      }
+      if (moved) announce(t('arrangement.saidMoved', { n: chosen.length, bar: barsOf(moved).from }))
       void focusItem(current.id)
       return
     }

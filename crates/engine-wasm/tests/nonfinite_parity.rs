@@ -54,7 +54,7 @@ fn render_wasm() -> Vec<u8> {
 
 /// The three reports of the scenario's bytes, decoded, and the last block's output.
 fn split(bytes: &[u8]) -> (Vec<Feedback>, Vec<f32>) {
-    let report = Feedback::size_for(0, 0, 0, 0);
+    let report = Feedback::size_for(0, 0, 0, 0, 0);
     assert_eq!(
         bytes.len(),
         3 * report + 2 * 128 * 4,

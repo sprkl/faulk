@@ -113,16 +113,15 @@ test('the clips are named cells, reached by the arrows, moved by Alt+arrows, ope
   await page.keyboard.press('Control+z')
   await expect.poll(async () => (await blocks(page)).map((b) => b.start)).toEqual(before.map((b) => b.start))
 
-  // A move onto another clip carves it, and the live region says so: with the snap on bars, the first Synth clip moved twice
-  // lands on the second.
+  // A move onto another clip is refused and the live region names it (#805): with the snap on bars, the first Synth clip moved
+  // twice would land on the second, so the second press changes nothing.
   await page.getByTestId('arr-snap').selectOption('bar')
   await cells.first().focus()
   await page.keyboard.press('ArrowRight')
   await page.keyboard.press('ArrowLeft')
   await page.keyboard.press('Alt+ArrowRight')
   await page.keyboard.press('Alt+ArrowRight')
-  await expect(page.getByTestId('arr-said')).toHaveText(/Clips cut under it: 1/)
-  await page.keyboard.press('Control+z')
+  await expect(page.getByTestId('arr-said')).toHaveText(/^Not moved: .*, bars 3 to 3, is in the way/)
   await page.keyboard.press('Control+z')
   await expect.poll(async () => (await blocks(page)).map((b) => b.start)).toEqual(before.map((b) => b.start))
 
@@ -478,6 +477,9 @@ test('a clip of 8 bars is repeated up to bar 64 as linked placements, from the k
   await field.fill('24')
   await page.keyboard.press('Enter')
   await expect(arr).toHaveAttribute('data-block-count', '3')
+  // The menu's repeat is refused over copies (#805): take them away first, so that it has free ground.
+  await page.keyboard.press('Control+z')
+  await expect(arr).toHaveAttribute('data-block-count', '1')
 
   const stage = page.getByTestId('arr-stage')
   const box = (await stage.boundingBox())!
@@ -517,7 +519,7 @@ test('a lone clip is selected from the keyboard by Shift+arrow, then Ctrl+D copi
   await expect(arr).toHaveAttribute('data-block-count', '2')
 
   // Focused and not selected: Alt+arrow moves it and Delete removes it, without any selection step.
-  const [first] = (await blocks(page)).sort((x, y) => x.start - y.start)
+  const [, first] = (await blocks(page)).sort((x, y) => x.start - y.start)
   await clearSelection(page)
   await expect(arr).toHaveAttribute('data-selected-count', '0')
   await page.locator(`[data-testid=arr-item][data-block="${first!.id}"]`).focus()

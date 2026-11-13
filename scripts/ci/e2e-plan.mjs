@@ -35,7 +35,7 @@ export const AREA = {
   history: ['history', 'history-cost', 'history-names', 'keyboard-create'],
   pianoRoll: ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-euclid', 'piano-roll-jump', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard', 'keyboard-create', 'recording', 'piano-roll-follow', 'context-menu', 'scale'],
   mixer: ['automation', 'continuous', 'layout-4', 'mixer', 'mixer-sound', 'master-chain', 'master-pan', 'track-state'],
-  devices: ['automation', 'continuous', 'device-browser', 'devices', 'filter-movement', 'presets', 'layout-4', 'master-chain', 'master-pan', 'track-state', 'context-menu'],
+  devices: ['automation', 'continuous', 'contour', 'device-browser', 'devices', 'filter-movement', 'presets', 'ripple-panel', 'layout-4', 'master-chain', 'master-pan', 'track-state', 'context-menu'],
   transport: ['all-sound-off', 'transport', 'playhead', 'space-bar', 'track-state', 'discoverability', 'recording', 'stop-to-marker', 'tap-tempo', 'scale'],
   tracks: ['tracks', 'track-order', 'lane-rows', 'discoverability', 'device-browser'],
   deviceBrowser: ['device-browser', 'devices', 'tracks', 'lane-rows', 'discoverability', 'keyboard-all-views'],
@@ -65,7 +65,7 @@ export const AREA = {
   // What the engine's sound and timing reach: devices, mixer, master, automation, transport, the
   // shipped worklet's cost (engine-mo2), its reports (engine-mo5), the CT-3 prototype that builds
   // crates/engine itself (engine-channel), the export render.
-  engine: ['all-sound-off', 'automation', 'big-project', 'continuous', 'devices', 'engine-channel', 'engine-mo2', 'engine-mo5', 'export-audio', 'filter-movement', 'keyboard', 'master-chain', 'master-pan', 'mixer-sound', 'recording', 'stop-to-marker'],
+  engine: ['all-sound-off', 'automation', 'big-project', 'continuous', 'devices', 'engine-channel', 'engine-mo2', 'engine-mo5', 'export-audio', 'filter-movement', 'keyboard', 'master-chain', 'master-pan', 'mixer-sound', 'recording', 'ripple-panel', 'stop-to-marker'],
   // What the project core (project, project-wasm) reaches beyond the core tests: storage, history, refusals.
   project: ['project-store', 'project-save', 'project-rename', 'project-save-as-name', 'open-project', 'browser-storage', 'storage-commands', 'open-url', 'history', 'history-names', 'refused-commands', 'scale'],
 }
@@ -117,6 +117,7 @@ export const RULES = [
   [/^web\/src\/views\/piano-roll\//, AREA.pianoRoll],
   [/^web\/src\/views\/mixer\//, AREA.mixer],
   [/^web\/src\/views\/devices\//, AREA.devices],
+  [/^web\/src\/lib\/contour\//, AREA.devices],
   [/^web\/src\/views\/browser\//, AREA.deviceBrowser],
   [/^web\/src\/views\/transport\//, areas('transport', 'topBar')],
   [/^web\/src\/views\/tracks\//, AREA.tracks],
@@ -163,7 +164,7 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/clips\.ts$/, areas('clips', 'audio')],
   [/^web\/src\/lib\/i18n\/audio\.ts$/, areas('arrangement', 'grid', 'clips', 'audio')],
   [/^web\/src\/lib\/i18n\/confirm\.ts$/, areas('helper', 'history')], // shown by the agents' question (lib/agents/, views/confirm/)
-  [/^web\/src\/lib\/i18n\/(devices|presets|synth|drums|echo|reverb|filter|compressor|stack|trim|lattice|scatter|ceiling|hiccup|bloom)\.ts$/, areas('devices')],
+  [/^web\/src\/lib\/i18n\/(devices|presets|synth|drums|echo|reverb|filter|compressor|stack|trim|lattice|scatter|ceiling|hiccup|bloom|contour|ripple)\.ts$/, areas('devices')],
   [/^web\/src\/lib\/i18n\/controls\.ts$/, areas('mixer', 'tracks', 'devices', 'valueEntry', 'arrangement', 'pianoRoll')],
   [/^web\/src\/lib\/i18n\/engine\.ts$/, areas('arrangement', 'mixer', 'topBar')],
   // The export's texts in Boost are shown through the helper (#319), whose message types share the keys' names.
@@ -410,9 +411,11 @@ export function coreGrep(specs) {
 
 /** Specs per shard: a machine costs about 2.5 minutes of set-up, a spec about 15 seconds of tests. */
 export const SPECS_PER_SHARD = 6
-export const MAX_SHARDS = 3
+// Four since #848 (lead's decision of 2026-11-12): the repository is public, its Actions minutes cost nothing, and a fourth machine
+// takes the release under its set-up plus a quarter of the suite.
+export const MAX_SHARDS = 4
 
-/** How many machines a run of `units` spec files deserves: 1 for a short list, up to 3 for the whole suite. */
+/** How many machines a run of `units` spec files deserves: 1 for a short list, up to MAX_SHARDS for the whole suite. */
 export const shardCount = (units) => Math.min(MAX_SHARDS, Math.max(1, Math.ceil(units / SPECS_PER_SHARD)))
 
 /** One line saying why a plan was chosen (for the CI summary and verify.mjs). Lists at most `max` files per kind. */
@@ -474,6 +477,147 @@ export function planE2e(files, existing, options = {}) {
   // The core run goes on the first machine, whole; the area specs are dealt out between the machines.
   const shards = sel.specs.length ? shardCount(sel.specs.length) : 1
   return done({ run: true, tier: sel.specs.length ? 'area' : 'core', all: false, specs, changed, core, grep: coreGrep(core), shards, reasons: sel.reasons })
+}
+
+// ---- the machines of a run, dealt out by measured time (#848) ----
+//
+// Playwright's own `--shard` cuts the test list into slices of the same NUMBER of tests, in file order: on the
+// release runs of 2026-11-11 the first machine got all of `dev` (22 to 25 min of tests), the last only `preview`
+// (13 min). `planShards` deals the spec files out by their measured time instead: each machine then runs its own
+// files, one Playwright command per project. The measures are `scripts/ci/e2e-durations.json` (seconds per test, per
+// project), rebuilt from the JSON reports of a CI run by `scripts/ci/e2e-durations.mjs` (`verification.md` > Machines and measured durations).
+
+/** The file the measures live in, relative to the repository. */
+export const DURATIONS_FILE = 'scripts/ci/e2e-durations.json'
+
+/**
+ * Seconds a machine pays once for each project it runs: the start of that project's server (`dev`: the protocol
+ * types and Vite; `preview`: the protocol types and the production build). 35 to 45 s on the release runs of
+ * 2026-11-11, where every machine started both.
+ */
+export const SERVER_SECONDS = { dev: 45, preview: 45 }
+
+/**
+ * Seconds a spec costs outside its tests' own durations: `agent-scenario` builds the debug helper in its `beforeAll`
+ * (cold: 1 min 53 to 55 s on the same runs, which no test duration counts).
+ */
+export const SETUP_SECONDS = { 'agent-scenario': 115 }
+
+/** The core run (`CORE_TESTS`, area and core tiers) goes whole on the first machine: about 70 s of tests. */
+export const CORE_SECONDS = 70
+
+/** What a test with no measure costs: the median of the measured tests of its project, else of all, else 2 s. */
+function fallbackSeconds(durations, project) {
+  const median = (list) => {
+    const s = [...list].sort((a, b) => a - b)
+    return s.length ? s[Math.floor(s.length / 2)] : undefined
+  }
+  const own = Object.values(durations?.[project] ?? {})
+  const all = Object.values(durations ?? {}).flatMap((d) => (d && typeof d === 'object' ? Object.values(d) : []))
+  return median(own) ?? median(all) ?? 2
+}
+
+/** The key of a test in the measures: its file name and its describes and title, as the `list` reporter prints them. */
+export const testKey = (file, titles) => [file, ...titles].join(' › ')
+
+/**
+ * The tests of a Playwright JSON report (`playwright test --list --reporter=json`, or a run's report): one entry per
+ * test and project, with its spec name, key and, for a run, its duration in seconds (retries summed).
+ * @returns {{project: string, spec: string, key: string, seconds: number|undefined, status: string|undefined}[]}
+ */
+export function reportTests(report) {
+  const out = []
+  const walk = (suite, titles) => {
+    // A file suite's title is its file name; describes add theirs.
+    for (const spec of suite.specs ?? []) {
+      const file = String(spec.file ?? suite.file ?? '').replaceAll('\\', '/').split('/').pop()
+      const name = /^(.+)\.spec\.ts$/.exec(file)?.[1]
+      if (!name) throw new Error(`a test outside a spec file: ${file}`)
+      for (const t of spec.tests ?? []) {
+        const results = t.results ?? []
+        out.push({
+          project: t.projectName,
+          spec: name,
+          key: testKey(file, [...titles, spec.title]),
+          seconds: results.length ? results.reduce((a, r) => a + (r.duration ?? 0), 0) / 1000 : undefined,
+          status: t.status,
+        })
+      }
+    }
+    for (const child of suite.suites ?? []) walk(child, [...titles, child.title])
+  }
+  for (const file of report.suites ?? []) walk(file, [])
+  return out
+}
+
+/**
+ * Deals units out between `shards` machines, longest first, each onto the machine that ends earliest with it
+ * (a machine pays a project's server the first time it gets one of its units). Pure and deterministic: ties go by
+ * project and spec name, then to the lowest machine. Every unit lands on exactly one machine.
+ * @param {{project: string, spec: string, seconds: number}[]} units one per project and spec file
+ * @param {number} shards
+ * @param {{preload?: number[]}} [options] seconds already on each machine (the core run on the first)
+ * @returns {{seconds: number, units: {project: string, spec: string, seconds: number}[]}[]}
+ */
+export function planShards(units, shards, options = {}) {
+  if (!Number.isInteger(shards) || shards < 1) throw new Error(`planShards: ${shards} machines`)
+  const seen = new Set()
+  for (const u of units) {
+    const id = `${u.project}/${u.spec}`
+    if (seen.has(id)) throw new Error(`planShards: ${id} twice`)
+    seen.add(id)
+    if (!(u.seconds >= 0)) throw new Error(`planShards: ${id} costs ${u.seconds}`)
+  }
+  const machines = Array.from({ length: shards }, (_, i) => ({ seconds: options.preload?.[i] ?? 0, units: [], projects: new Set() }))
+  const order = [...units].sort((a, b) => b.seconds - a.seconds || (a.project < b.project ? -1 : a.project > b.project ? 1 : a.spec < b.spec ? -1 : a.spec > b.spec ? 1 : 0))
+  for (const u of order) {
+    const cost = (m) => m.seconds + u.seconds + (m.projects.has(u.project) ? 0 : (SERVER_SECONDS[u.project] ?? 45))
+    let best = machines[0]
+    for (const m of machines) if (cost(m) < cost(best)) best = m
+    best.seconds = cost(best)
+    best.projects.add(u.project)
+    best.units.push(u)
+  }
+  return machines.map(({ seconds, units: list }) => ({ seconds: Math.round(seconds), units: list.sort((a, b) => (a.project + a.spec < b.project + b.spec ? -1 : 1)) }))
+}
+
+/**
+ * The units of a run from the tests Playwright lists for it, costed with the measures: one per project and spec,
+ * the sum of its listed tests (a test with no measure costs its project's median), minus its `@full` tests when
+ * `trimmed` holds its spec (an area run passes `--grep-invert @full`), plus its `SETUP_SECONDS`.
+ * @param {{project: string, spec: string, key: string}[]} tests what `reportTests` gives for the listing
+ * @param {Record<string, Record<string, number>>} durations the measures (project -> test key -> seconds)
+ * @param {Set<string>} [trimmed] spec names run without their `@full` tests
+ */
+export function costUnits(tests, durations, trimmed = new Set()) {
+  const units = new Map()
+  for (const t of tests) {
+    const id = `${t.project}/${t.spec}`
+    if (!units.has(id)) units.set(id, { project: t.project, spec: t.spec, seconds: SETUP_SECONDS[t.spec] ?? 0, tests: 0 })
+    const u = units.get(id)
+    u.tests++
+    if (trimmed.has(t.spec) && t.key.includes(FULL_TAG)) continue
+    const measured = durations?.[t.project]?.[t.key]
+    u.seconds += typeof measured === 'number' && measured >= 0 ? measured : fallbackSeconds(durations, t.project)
+  }
+  return [...units.values()]
+}
+
+/**
+ * Checks a measures file: `{"//": comment, "<project>": {"<test key>": seconds}}`, keys of the form `testKey` gives,
+ * seconds finite and not negative. Throws on the first fault.
+ */
+export function checkDurations(durations) {
+  if (!durations || typeof durations !== 'object' || Array.isArray(durations)) throw new Error('the measures are not an object')
+  for (const [project, tests] of Object.entries(durations)) {
+    if (project.startsWith('//')) continue
+    if (!tests || typeof tests !== 'object' || Array.isArray(tests)) throw new Error(`${project}: not an object`)
+    for (const [key, seconds] of Object.entries(tests)) {
+      if (!/^[a-z0-9-]+\.spec\.ts › ./.test(key)) throw new Error(`${project}: not a test key: ${key}`)
+      if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds < 0) throw new Error(`${project}: ${key}: ${seconds} s`)
+    }
+  }
+  return durations
 }
 
 export const TABLE_FILE = 'scripts/ci/e2e-plan.mjs'

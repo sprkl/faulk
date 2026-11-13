@@ -11067,7 +11067,7 @@
         "undo": "none"
       },
       {
-        "description": "Put a clip of the track in the arrangement, as a new placement of the same clip\n(a linked clip: editing the clip changes every placement of it); a clip of the\ntrack's pool, with no placement and no slot, comes back this way (#473). A clip that\nsits in the launch grid is refused: copying or linking it is\n`arrangement.place_from_slot` (founder's decision 11). `start` is in\nticks; `offset` (default 0, before the clip's length) is where in the clip the\nplacement starts; `length` (default: what is left of the clip after `offset`) is\nits length on the timeline, which may exceed the clip (the clip repeats: its loop\nwhen it has one, the whole clip when it has none). The new placement wins on overlap: the\nother placements of the track that it covers are removed, shortened, trimmed at\nthe front or split (`overwritten` counts them). An audio clip of an audio track is\nplaced whole (from its first frame, its end computed from its frames at the project's\ntempo, so `length` and `offset` are refused; `arrangement.resize` shortens it) and\nwins on overlap the same way, the placements it covers cut in whole frames; a span\noutside `[0, 2^40]` ticks is refused. Undo: `arrangement.restore`.",
+        "description": "Put a clip of the track in the arrangement, as a new placement of the same clip\n(a linked clip: editing the clip changes every placement of it); a clip of the\ntrack's pool, with no placement and no slot, comes back this way (#473). A clip that\nsits in the launch grid is refused: copying or linking it is\n`arrangement.place_from_slot` (founder's decision 11). `start` is in\nticks; `offset` (default 0, before the clip's length) is where in the clip the\nplacement starts; `length` (default: what is left of the clip after `offset`) is\nits length on the timeline, which may exceed the clip (the clip repeats: its loop\nwhen it has one, the whole clip when it has none). The new placement wins on overlap: the\nother placements of the track that it covers are removed, shortened, trimmed at\nthe front or split (`overwritten` counts them). An audio clip of an audio track is\nplaced whole (from its first frame, its end computed from its frames at the project's\ntempo, so `length` and `offset` are refused; `arrangement.resize` shortens it) and\nwins on overlap the same way, the placements it covers cut in whole frames; a span\noutside `[0, 2^40]` ticks is refused. With `if_occupied: \"refuse\"` (default\n`replace`) the command is refused, and nothing changes, when the placement would\nland on another (`skip` is refused). Undo: `arrangement.restore`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -11080,6 +11080,26 @@
               "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
               "type": "string"
             },
+            "IfOccupied": {
+              "description": "What an arrangement command that puts placements down does when they land on others\n(#805): `arrangement.place`, `place_from_slot`, `move`, `move_to_track`, `duplicate` and\n`repeat`.",
+              "oneOf": [
+                {
+                  "const": "replace",
+                  "description": "The placements put down win: what they cover is carved (a drag, the default).",
+                  "type": "string"
+                },
+                {
+                  "const": "refuse",
+                  "description": "Nothing is carved: the command is refused when a placement would land on another.",
+                  "type": "string"
+                },
+                {
+                  "const": "skip",
+                  "description": "`arrangement.move_to_track` only (the others refuse it): the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
+                  "type": "string"
+                }
+              ]
+            },
             "Tick": {
               "description": "A musical position or duration, in ticks ([`PPQ`] per quarter note).\n\nArithmetic saturates instead of overflowing. The inner value is public so that the\nproject and the UI read it as a plain integer.",
               "format": "int64",
@@ -11090,6 +11110,9 @@
           "properties": {
             "clip": {
               "$ref": "#/$defs/ClipId"
+            },
+            "if_occupied": {
+              "$ref": "#/$defs/IfOccupied"
             },
             "length": {
               "anyOf": [
@@ -11157,7 +11180,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Move placements in time, all by the same number of ticks (`by`, negative moves\nthem earlier), in one command: a drag of a selection is one history entry. Each\nplacement stays in its own track and keeps its length and offset (an audio one its\nframes, so its length in ticks at the project's tempo). The moved\nplacements win on overlap (the placements of the track that they cover are\ncarved, `overwritten` counts them); they may move onto each other's old place.\nRefused when one would start before tick 0 or end past 2^40, or when the list is\nempty, names a placement twice or an unknown one. A move by 0 changes nothing.\nUndo: `arrangement.restore`.",
+        "description": "Move placements in time, all by the same number of ticks (`by`, negative moves\nthem earlier), in one command: a drag of a selection is one history entry. Each\nplacement stays in its own track and keeps its length and offset (an audio one its\nframes, so its length in ticks at the project's tempo). The moved\nplacements win on overlap (the placements of the track that they cover are\ncarved, `overwritten` counts them); they may move onto each other's old place.\nRefused when one would start before tick 0 or end past 2^40, or when the list is\nempty, names a placement twice or an unknown one. A move by 0 changes nothing.\nWith `if_occupied: \"refuse\"` (default `replace`) it is also refused, and nothing\nchanges, when a moved placement would land on one that does not move (`skip` is\nrefused: a move in time has no other place to go). Undo: `arrangement.restore`.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -11165,6 +11188,26 @@
               "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
               "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
               "type": "string"
+            },
+            "IfOccupied": {
+              "description": "What an arrangement command that puts placements down does when they land on others\n(#805): `arrangement.place`, `place_from_slot`, `move`, `move_to_track`, `duplicate` and\n`repeat`.",
+              "oneOf": [
+                {
+                  "const": "replace",
+                  "description": "The placements put down win: what they cover is carved (a drag, the default).",
+                  "type": "string"
+                },
+                {
+                  "const": "refuse",
+                  "description": "Nothing is carved: the command is refused when a placement would land on another.",
+                  "type": "string"
+                },
+                {
+                  "const": "skip",
+                  "description": "`arrangement.move_to_track` only (the others refuse it): the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
+                  "type": "string"
+                }
+              ]
             },
             "PlacementId": {
               "$ref": "#/$defs/Id",
@@ -11180,6 +11223,9 @@
           "properties": {
             "by": {
               "$ref": "#/$defs/Tick"
+            },
+            "if_occupied": {
+              "$ref": "#/$defs/IfOccupied"
             },
             "placements": {
               "items": {
@@ -11224,7 +11270,7 @@
               "type": "string"
             },
             "IfOccupied": {
-              "description": "What `arrangement.move_to_track` and `arrangement.duplicate` do when the placements they\nput down land on others (#805).",
+              "description": "What an arrangement command that puts placements down does when they land on others\n(#805): `arrangement.place`, `place_from_slot`, `move`, `move_to_track`, `duplicate` and\n`repeat`.",
               "oneOf": [
                 {
                   "const": "replace",
@@ -11238,7 +11284,7 @@
                 },
                 {
                   "const": "skip",
-                  "description": "`arrangement.move_to_track` only: the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
+                  "description": "`arrangement.move_to_track` only (the others refuse it): the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
                   "type": "string"
                 }
               ]
@@ -11535,7 +11581,7 @@
               "type": "string"
             },
             "IfOccupied": {
-              "description": "What `arrangement.move_to_track` and `arrangement.duplicate` do when the placements they\nput down land on others (#805).",
+              "description": "What an arrangement command that puts placements down does when they land on others\n(#805): `arrangement.place`, `place_from_slot`, `move`, `move_to_track`, `duplicate` and\n`repeat`.",
               "oneOf": [
                 {
                   "const": "replace",
@@ -11549,7 +11595,7 @@
                 },
                 {
                   "const": "skip",
-                  "description": "`arrangement.move_to_track` only: the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
+                  "description": "`arrangement.move_to_track` only (the others refuse it): the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
                   "type": "string"
                 }
               ]
@@ -11646,7 +11692,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Repeat one placement end to end up to the timeline tick `until` (#555): linked\ncopies, new placements of the same clip, each as long as the placement and with\nits offset, the first starting where the placement ends, the next where the last\nends; the one that would pass `until` is shortened to stop exactly there (an audio\none at the last whole frame before it). To fill\nup to the end of bar N, give the tick where bar N ends. The copies win on overlap\n(`overwritten` counts the placements they carved). Refused when the placement is\nunknown, when `until` is not after the end of the placement or\npasses 2^40, or when the copies would pass the limit of placements. One history\nentry; undo: `arrangement.restore`, which removes the copies and brings back what\nthey carved.",
+        "description": "Repeat one placement end to end up to the timeline tick `until` (#555): linked\ncopies, new placements of the same clip, each as long as the placement and with\nits offset, the first starting where the placement ends, the next where the last\nends; the one that would pass `until` is shortened to stop exactly there (an audio\none at the last whole frame before it). To fill\nup to the end of bar N, give the tick where bar N ends. The copies win on overlap\n(`overwritten` counts the placements they carved). Refused when the placement is\nunknown, when `until` is not after the end of the placement or\npasses 2^40, or when the copies would pass the limit of placements. With\n`if_occupied: \"refuse\"` (default `replace`) it is also refused, and nothing changes,\nwhen the copies would land on another placement (`skip` is refused). One history\nentry; undo: `arrangement.restore`, which removes the copies and brings back what\nthey carved.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -11654,6 +11700,26 @@
               "description": "A stable identifier: 26 characters of Crockford base32 (a ULID), generated by the project.",
               "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
               "type": "string"
+            },
+            "IfOccupied": {
+              "description": "What an arrangement command that puts placements down does when they land on others\n(#805): `arrangement.place`, `place_from_slot`, `move`, `move_to_track`, `duplicate` and\n`repeat`.",
+              "oneOf": [
+                {
+                  "const": "replace",
+                  "description": "The placements put down win: what they cover is carved (a drag, the default).",
+                  "type": "string"
+                },
+                {
+                  "const": "refuse",
+                  "description": "Nothing is carved: the command is refused when a placement would land on another.",
+                  "type": "string"
+                },
+                {
+                  "const": "skip",
+                  "description": "`arrangement.move_to_track` only (the others refuse it): the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
+                  "type": "string"
+                }
+              ]
             },
             "PlacementId": {
               "$ref": "#/$defs/Id",
@@ -11667,6 +11733,9 @@
           },
           "additionalProperties": false,
           "properties": {
+            "if_occupied": {
+              "$ref": "#/$defs/IfOccupied"
+            },
             "placement": {
               "$ref": "#/$defs/PlacementId"
             },
@@ -11719,7 +11788,7 @@
         "undo": "inverse"
       },
       {
-        "description": "Put a clip of the launch grid in the arrangement, on its own track, as a\nplacement at the timeline tick `start` that plays the whole clip once (offset 0,\nthe clip's length; an audio clip's frames from its first). By default the placement plays an independent copy: a new\nclip, a copy of the grid clip (same name, colour, length, loop and notes, or the same\nfile, range, gain and loop; not in\nthe launch grid), so editing one never changes the other (founder's decision 11).\nWith `linked: true` the placement references the grid clip itself: editing the\nclip in the grid changes what the arrangement plays. The placement wins on overlap\n(`overwritten` counts the placements it carved). Refused for a clip that is not in\nthe launch grid (use `arrangement.place` or `arrangement.duplicate`), or when the\nclip would leave the timeline. Undo: `arrangement.restore`, which removes the\nplacement and the copy.",
+        "description": "Put a clip of the launch grid in the arrangement, on its own track, as a\nplacement at the timeline tick `start` that plays the whole clip once (offset 0,\nthe clip's length; an audio clip's frames from its first). By default the placement plays an independent copy: a new\nclip, a copy of the grid clip (same name, colour, length, loop and notes, or the same\nfile, range, gain and loop; not in\nthe launch grid), so editing one never changes the other (founder's decision 11).\nWith `linked: true` the placement references the grid clip itself: editing the\nclip in the grid changes what the arrangement plays. The placement wins on overlap\n(`overwritten` counts the placements it carved). Refused for a clip that is not in\nthe launch grid (use `arrangement.place` or `arrangement.duplicate`), or when the\nclip would leave the timeline. With `if_occupied: \"refuse\"` (default `replace`) it\nis also refused, and nothing changes, when the placement would land on another\n(`skip` is refused). Undo: `arrangement.restore`, which removes the placement and\nthe copy.",
         "destructive": false,
         "input_schema": {
           "$defs": {
@@ -11732,6 +11801,26 @@
               "pattern": "^[0-7][0-9A-HJKMNP-TV-Z]{25}$",
               "type": "string"
             },
+            "IfOccupied": {
+              "description": "What an arrangement command that puts placements down does when they land on others\n(#805): `arrangement.place`, `place_from_slot`, `move`, `move_to_track`, `duplicate` and\n`repeat`.",
+              "oneOf": [
+                {
+                  "const": "replace",
+                  "description": "The placements put down win: what they cover is carved (a drag, the default).",
+                  "type": "string"
+                },
+                {
+                  "const": "refuse",
+                  "description": "Nothing is carved: the command is refused when a placement would land on another.",
+                  "type": "string"
+                },
+                {
+                  "const": "skip",
+                  "description": "`arrangement.move_to_track` only (the others refuse it): the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
+                  "type": "string"
+                }
+              ]
+            },
             "Tick": {
               "description": "A musical position or duration, in ticks ([`PPQ`] per quarter note).\n\nArithmetic saturates instead of overflowing. The inner value is public so that the\nproject and the UI read it as a plain integer.",
               "format": "int64",
@@ -11742,6 +11831,9 @@
           "properties": {
             "clip": {
               "$ref": "#/$defs/ClipId"
+            },
+            "if_occupied": {
+              "$ref": "#/$defs/IfOccupied"
             },
             "linked": {
               "default": false,
@@ -17442,10 +17534,13 @@
           "oneOf": [
             {
               "additionalProperties": false,
-              "description": "Put a clip of the track in the arrangement, as a new placement of the same clip\n(a linked clip: editing the clip changes every placement of it); a clip of the\ntrack's pool, with no placement and no slot, comes back this way (#473). A clip that\nsits in the launch grid is refused: copying or linking it is\n`arrangement.place_from_slot` (founder's decision 11). `start` is in\nticks; `offset` (default 0, before the clip's length) is where in the clip the\nplacement starts; `length` (default: what is left of the clip after `offset`) is\nits length on the timeline, which may exceed the clip (the clip repeats: its loop\nwhen it has one, the whole clip when it has none). The new placement wins on overlap: the\nother placements of the track that it covers are removed, shortened, trimmed at\nthe front or split (`overwritten` counts them). An audio clip of an audio track is\nplaced whole (from its first frame, its end computed from its frames at the project's\ntempo, so `length` and `offset` are refused; `arrangement.resize` shortens it) and\nwins on overlap the same way, the placements it covers cut in whole frames; a span\noutside `[0, 2^40]` ticks is refused. Undo: `arrangement.restore`.",
+              "description": "Put a clip of the track in the arrangement, as a new placement of the same clip\n(a linked clip: editing the clip changes every placement of it); a clip of the\ntrack's pool, with no placement and no slot, comes back this way (#473). A clip that\nsits in the launch grid is refused: copying or linking it is\n`arrangement.place_from_slot` (founder's decision 11). `start` is in\nticks; `offset` (default 0, before the clip's length) is where in the clip the\nplacement starts; `length` (default: what is left of the clip after `offset`) is\nits length on the timeline, which may exceed the clip (the clip repeats: its loop\nwhen it has one, the whole clip when it has none). The new placement wins on overlap: the\nother placements of the track that it covers are removed, shortened, trimmed at\nthe front or split (`overwritten` counts them). An audio clip of an audio track is\nplaced whole (from its first frame, its end computed from its frames at the project's\ntempo, so `length` and `offset` are refused; `arrangement.resize` shortens it) and\nwins on overlap the same way, the placements it covers cut in whole frames; a span\noutside `[0, 2^40]` ticks is refused. With `if_occupied: \"refuse\"` (default\n`replace`) the command is refused, and nothing changes, when the placement would\nland on another (`skip` is refused). Undo: `arrangement.restore`.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
+                },
+                "if_occupied": {
+                  "$ref": "#/$defs/IfOccupied"
                 },
                 "length": {
                   "anyOf": [
@@ -17487,10 +17582,13 @@
             },
             {
               "additionalProperties": false,
-              "description": "Move placements in time, all by the same number of ticks (`by`, negative moves\nthem earlier), in one command: a drag of a selection is one history entry. Each\nplacement stays in its own track and keeps its length and offset (an audio one its\nframes, so its length in ticks at the project's tempo). The moved\nplacements win on overlap (the placements of the track that they cover are\ncarved, `overwritten` counts them); they may move onto each other's old place.\nRefused when one would start before tick 0 or end past 2^40, or when the list is\nempty, names a placement twice or an unknown one. A move by 0 changes nothing.\nUndo: `arrangement.restore`.",
+              "description": "Move placements in time, all by the same number of ticks (`by`, negative moves\nthem earlier), in one command: a drag of a selection is one history entry. Each\nplacement stays in its own track and keeps its length and offset (an audio one its\nframes, so its length in ticks at the project's tempo). The moved\nplacements win on overlap (the placements of the track that they cover are\ncarved, `overwritten` counts them); they may move onto each other's old place.\nRefused when one would start before tick 0 or end past 2^40, or when the list is\nempty, names a placement twice or an unknown one. A move by 0 changes nothing.\nWith `if_occupied: \"refuse\"` (default `replace`) it is also refused, and nothing\nchanges, when a moved placement would land on one that does not move (`skip` is\nrefused: a move in time has no other place to go). Undo: `arrangement.restore`.",
               "properties": {
                 "by": {
                   "$ref": "#/$defs/Tick"
+                },
+                "if_occupied": {
+                  "$ref": "#/$defs/IfOccupied"
                 },
                 "placements": {
                   "items": {
@@ -17671,8 +17769,11 @@
             },
             {
               "additionalProperties": false,
-              "description": "Repeat one placement end to end up to the timeline tick `until` (#555): linked\ncopies, new placements of the same clip, each as long as the placement and with\nits offset, the first starting where the placement ends, the next where the last\nends; the one that would pass `until` is shortened to stop exactly there (an audio\none at the last whole frame before it). To fill\nup to the end of bar N, give the tick where bar N ends. The copies win on overlap\n(`overwritten` counts the placements they carved). Refused when the placement is\nunknown, when `until` is not after the end of the placement or\npasses 2^40, or when the copies would pass the limit of placements. One history\nentry; undo: `arrangement.restore`, which removes the copies and brings back what\nthey carved.",
+              "description": "Repeat one placement end to end up to the timeline tick `until` (#555): linked\ncopies, new placements of the same clip, each as long as the placement and with\nits offset, the first starting where the placement ends, the next where the last\nends; the one that would pass `until` is shortened to stop exactly there (an audio\none at the last whole frame before it). To fill\nup to the end of bar N, give the tick where bar N ends. The copies win on overlap\n(`overwritten` counts the placements they carved). Refused when the placement is\nunknown, when `until` is not after the end of the placement or\npasses 2^40, or when the copies would pass the limit of placements. With\n`if_occupied: \"refuse\"` (default `replace`) it is also refused, and nothing changes,\nwhen the copies would land on another placement (`skip` is refused). One history\nentry; undo: `arrangement.restore`, which removes the copies and brings back what\nthey carved.",
               "properties": {
+                "if_occupied": {
+                  "$ref": "#/$defs/IfOccupied"
+                },
                 "placement": {
                   "$ref": "#/$defs/PlacementId"
                 },
@@ -17696,10 +17797,13 @@
             },
             {
               "additionalProperties": false,
-              "description": "Put a clip of the launch grid in the arrangement, on its own track, as a\nplacement at the timeline tick `start` that plays the whole clip once (offset 0,\nthe clip's length; an audio clip's frames from its first). By default the placement plays an independent copy: a new\nclip, a copy of the grid clip (same name, colour, length, loop and notes, or the same\nfile, range, gain and loop; not in\nthe launch grid), so editing one never changes the other (founder's decision 11).\nWith `linked: true` the placement references the grid clip itself: editing the\nclip in the grid changes what the arrangement plays. The placement wins on overlap\n(`overwritten` counts the placements it carved). Refused for a clip that is not in\nthe launch grid (use `arrangement.place` or `arrangement.duplicate`), or when the\nclip would leave the timeline. Undo: `arrangement.restore`, which removes the\nplacement and the copy.",
+              "description": "Put a clip of the launch grid in the arrangement, on its own track, as a\nplacement at the timeline tick `start` that plays the whole clip once (offset 0,\nthe clip's length; an audio clip's frames from its first). By default the placement plays an independent copy: a new\nclip, a copy of the grid clip (same name, colour, length, loop and notes, or the same\nfile, range, gain and loop; not in\nthe launch grid), so editing one never changes the other (founder's decision 11).\nWith `linked: true` the placement references the grid clip itself: editing the\nclip in the grid changes what the arrangement plays. The placement wins on overlap\n(`overwritten` counts the placements it carved). Refused for a clip that is not in\nthe launch grid (use `arrangement.place` or `arrangement.duplicate`), or when the\nclip would leave the timeline. With `if_occupied: \"refuse\"` (default `replace`) it\nis also refused, and nothing changes, when the placement would land on another\n(`skip` is refused). Undo: `arrangement.restore`, which removes the placement and\nthe copy.",
               "properties": {
                 "clip": {
                   "$ref": "#/$defs/ClipId"
+                },
+                "if_occupied": {
+                  "$ref": "#/$defs/IfOccupied"
                 },
                 "linked": {
                   "default": false,
@@ -20448,7 +20552,7 @@
           "type": "string"
         },
         "IfOccupied": {
-          "description": "What `arrangement.move_to_track` and `arrangement.duplicate` do when the placements they\nput down land on others (#805).",
+          "description": "What an arrangement command that puts placements down does when they land on others\n(#805): `arrangement.place`, `place_from_slot`, `move`, `move_to_track`, `duplicate` and\n`repeat`.",
           "oneOf": [
             {
               "const": "replace",
@@ -20462,7 +20566,7 @@
             },
             {
               "const": "skip",
-              "description": "`arrangement.move_to_track` only: the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
+              "description": "`arrangement.move_to_track` only (the others refuse it): the move goes on to the next track, in the direction\nof the move, where every placement fits; refused when none does. Nothing is carved.",
               "type": "string"
             }
           ]
@@ -32226,6 +32330,721 @@
       ],
       "role": "effect",
       "version": 1
+    },
+    {
+      "kind": "faulk.contour",
+      "kind_id": 8,
+      "memory_bytes": 35664,
+      "midi_output": null,
+      "name": "Contour",
+      "named_keys": [],
+      "params": [
+        {
+          "default": 0,
+          "description": "Switches the low cut (high-pass) on or off. A switch fades over 10 ms.",
+          "id": 0,
+          "key": "hp_on",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 30,
+          "description": "Frequency, in hertz, below which the low cut takes the sound away, from 20 Hz to 20 kHz.",
+          "id": 1,
+          "key": "hp_freq",
+          "max": 20000,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 0.707,
+          "description": "Resonance of the low cut at its frequency, from 0.1 to 18: 0.707 is flat, higher values add a peak just above the cut.",
+          "id": 2,
+          "key": "hp_q",
+          "max": 18,
+          "min": 0.1,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "How steeply the low cut falls below its frequency: 12, 24 or 48 dB per octave. A change fades over 10 ms.",
+          "id": 3,
+          "key": "hp_slope",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "db12",
+            "db24",
+            "db48"
+          ]
+        },
+        {
+          "default": 1,
+          "description": "Switches the low shelf on or off. A switch fades over 10 ms.",
+          "id": 4,
+          "key": "low_on",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 100,
+          "description": "Frequency, in hertz, of the low shelf's corner, from 20 Hz to 20 kHz: the shelf's gain applies below it.",
+          "id": 5,
+          "key": "low_freq",
+          "max": 20000,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Gain of the low shelf, from -24 to +24 dB: what the sound below its frequency gains or loses.",
+          "id": 6,
+          "key": "low_gain",
+          "max": 24,
+          "min": -24,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        },
+        {
+          "default": 0.707,
+          "description": "Steepness of the low shelf's corner, from 0.1 to 18: 0.707 is smooth, higher values add a bump at the corner.",
+          "id": 7,
+          "key": "low_q",
+          "max": 18,
+          "min": 0.1,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "Switches bell 1 on or off. A switch fades over 10 ms.",
+          "id": 8,
+          "key": "bell1_on",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 250,
+          "description": "Centre frequency of bell 1, in hertz, from 20 Hz to 20 kHz.",
+          "id": 9,
+          "key": "bell1_freq",
+          "max": 20000,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Gain of bell 1 at its centre frequency, from -24 to +24 dB.",
+          "id": 10,
+          "key": "bell1_gain",
+          "max": 24,
+          "min": -24,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "Width of bell 1, from 0.1 (wide) to 18 (narrow): its centre frequency over the bandwidth at half its gain.",
+          "id": 11,
+          "key": "bell1_q",
+          "max": 18,
+          "min": 0.1,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "Switches bell 2 on or off. A switch fades over 10 ms.",
+          "id": 12,
+          "key": "bell2_on",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 1000,
+          "description": "Centre frequency of bell 2, in hertz, from 20 Hz to 20 kHz.",
+          "id": 13,
+          "key": "bell2_freq",
+          "max": 20000,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Gain of bell 2 at its centre frequency, from -24 to +24 dB.",
+          "id": 14,
+          "key": "bell2_gain",
+          "max": 24,
+          "min": -24,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "Width of bell 2, from 0.1 (wide) to 18 (narrow): its centre frequency over the bandwidth at half its gain.",
+          "id": 15,
+          "key": "bell2_q",
+          "max": 18,
+          "min": 0.1,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "Switches bell 3 on or off. A switch fades over 10 ms.",
+          "id": 16,
+          "key": "bell3_on",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 4000,
+          "description": "Centre frequency of bell 3, in hertz, from 20 Hz to 20 kHz.",
+          "id": 17,
+          "key": "bell3_freq",
+          "max": 20000,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Gain of bell 3 at its centre frequency, from -24 to +24 dB.",
+          "id": 18,
+          "key": "bell3_gain",
+          "max": 24,
+          "min": -24,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "Width of bell 3, from 0.1 (wide) to 18 (narrow): its centre frequency over the bandwidth at half its gain.",
+          "id": 19,
+          "key": "bell3_q",
+          "max": 18,
+          "min": 0.1,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "Switches the high shelf on or off. A switch fades over 10 ms.",
+          "id": 20,
+          "key": "high_on",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 8000,
+          "description": "Frequency, in hertz, of the high shelf's corner, from 20 Hz to 20 kHz: the shelf's gain applies above it.",
+          "id": 21,
+          "key": "high_freq",
+          "max": 20000,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Gain of the high shelf, from -24 to +24 dB: what the sound above its frequency gains or loses.",
+          "id": 22,
+          "key": "high_gain",
+          "max": 24,
+          "min": -24,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        },
+        {
+          "default": 0.707,
+          "description": "Steepness of the high shelf's corner, from 0.1 to 18: 0.707 is smooth, higher values add a bump at the corner.",
+          "id": 23,
+          "key": "high_q",
+          "max": 18,
+          "min": 0.1,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Switches the high cut (low-pass) on or off. A switch fades over 10 ms.",
+          "id": 24,
+          "key": "lp_on",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 18000,
+          "description": "Frequency, in hertz, above which the high cut takes the sound away, from 20 Hz to 20 kHz.",
+          "id": 25,
+          "key": "lp_freq",
+          "max": 20000,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 0.707,
+          "description": "Resonance of the high cut at its frequency, from 0.1 to 18: 0.707 is flat, higher values add a peak just below the cut.",
+          "id": 26,
+          "key": "lp_q",
+          "max": 18,
+          "min": 0.1,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "How steeply the high cut falls above its frequency: 12, 24 or 48 dB per octave. A change fades over 10 ms.",
+          "id": 27,
+          "key": "lp_slope",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "db12",
+            "db24",
+            "db48"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Gain of the whole equaliser's output, from -24 to +24 dB.",
+          "id": 28,
+          "key": "output",
+          "max": 24,
+          "min": -24,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "decibels",
+          "values": []
+        }
+      ],
+      "role": "effect",
+      "version": 1
+    },
+    {
+      "kind": "faulk.ripple",
+      "kind_id": 15,
+      "memory_bytes": 33632,
+      "midi_output": null,
+      "name": "Ripple",
+      "named_keys": [],
+      "params": [
+        {
+          "default": 0,
+          "description": "Phaser (a chain of all-pass stages: soft, vocal notches) or flanger (a short delay with feedback: a metallic comb). A change fades over 10 ms.",
+          "id": 0,
+          "key": "mode",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "phaser",
+            "flanger"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Phaser: number of all-pass stages, 4, 6, 8 or 12; each pair of stages adds one notch. A change fades over 10 ms.",
+          "id": 1,
+          "key": "stages",
+          "max": 3,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "four",
+            "six",
+            "eight",
+            "twelve"
+          ]
+        },
+        {
+          "default": 800,
+          "description": "Phaser: centre frequency of the stages, from 20 Hz up to 0.45 of the sample rate (about 19.8 kHz at 44.1 kHz): the middle the LFO and the envelope move the notches around.",
+          "id": 2,
+          "key": "centre",
+          "max": 20000,
+          "min": 20,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Phaser: how far apart the stages sit around the centre, from 0 (all at the centre, evenly spaced notches) to 4 octaves (wider, uneven notches).",
+          "id": 3,
+          "key": "spread",
+          "max": 4,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "octaves",
+          "values": []
+        },
+        {
+          "default": 0.002,
+          "description": "Flanger: delay time, from 0.1 to 20 ms: the peaks of the comb sit every 1/delay hertz (1 kHz at 1 ms). The middle the LFO and the envelope move it around.",
+          "id": 4,
+          "key": "delay",
+          "max": 0.02,
+          "min": 0.0001,
+          "scale": "log",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 30,
+          "description": "Share of the effect fed back into its input, from -95 % to +95 %: sharper, ringing notches; negative feedback moves the peaks. Bounded: it never runs away.",
+          "id": 5,
+          "key": "feedback",
+          "max": 95,
+          "min": -95,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Sign of the effect in the mix: positive, or negative (the notches move between the former ones; the flanger then cuts the lowest frequencies). A change fades over 10 ms.",
+          "id": 6,
+          "key": "polarity",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "positive",
+            "negative"
+          ]
+        },
+        {
+          "default": 100,
+          "description": "How much of the effect joins the dry sound, from 0 (dry only) to 100 % (the dry sound and the effect in equal parts: that blend is what makes the notches and the comb).",
+          "id": 7,
+          "key": "mix",
+          "max": 100,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Shape of the LFO that sweeps the notches: sine, triangle, rising saw, falling saw, square, or random (a new value at each cycle).",
+          "id": 8,
+          "key": "lfo_shape",
+          "max": 5,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "sine",
+            "triangle",
+            "saw_up",
+            "saw_down",
+            "square",
+            "random"
+          ]
+        },
+        {
+          "default": 1,
+          "description": "Whether the LFO runs at its own rate in hertz (free) or follows the tempo (synced), each cycle on the same beat of every bar.",
+          "id": 9,
+          "key": "lfo_sync",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "free",
+            "synced"
+          ]
+        },
+        {
+          "default": 0.5,
+          "description": "Speed of the LFO in free mode, in cycles per second, from 0.01 to 20 Hz.",
+          "id": 10,
+          "key": "lfo_rate",
+          "max": 20,
+          "min": 0.01,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "hertz",
+          "values": []
+        },
+        {
+          "default": 9,
+          "description": "Length of one LFO cycle in synced mode, a note value from 1/32 to 8 bars.",
+          "id": 11,
+          "key": "lfo_division",
+          "max": 12,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "thirty_second",
+            "sixteenth",
+            "eighth_triplet",
+            "eighth",
+            "quarter_triplet",
+            "eighth_dotted",
+            "quarter",
+            "quarter_dotted",
+            "half",
+            "whole",
+            "two_bars",
+            "four_bars",
+            "eight_bars"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "Where in its cycle the LFO starts, from 0 to 360 degrees: in synced mode, where in the bar the notches are highest.",
+          "id": 12,
+          "key": "lfo_phase",
+          "max": 360,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "degrees",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Offset of the right channel's LFO, from 0 to 180 degrees: at 180 the notches of the two channels move in opposition.",
+          "id": 13,
+          "key": "lfo_stereo",
+          "max": 180,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "degrees",
+          "values": []
+        },
+        {
+          "default": 2,
+          "description": "How far the LFO sweeps the centre (phaser) or the delay (flanger) either side of its value, in octaves, from 0 (no sweep) to 5.",
+          "id": 14,
+          "key": "lfo_depth",
+          "max": 5,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "octaves",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "In free mode, whether the LFO starts again from its phase each time playback starts (on) or runs on freely (off).",
+          "id": 15,
+          "key": "lfo_restart",
+          "max": 1,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "off",
+            "on"
+          ]
+        },
+        {
+          "default": 0,
+          "description": "How far the level of the incoming sound moves the notches, in octaves at full level, from -5 (louder lowers them) to +5 (louder raises them); 0 for none.",
+          "id": 16,
+          "key": "env_amount",
+          "max": 5,
+          "min": -5,
+          "scale": "linear",
+          "smoothing_seconds": 0.02,
+          "step": 0,
+          "unit": "octaves",
+          "values": []
+        },
+        {
+          "default": 0.01,
+          "description": "Time the envelope follower takes to rise with the sound, from 1 ms to 500 ms.",
+          "id": 17,
+          "key": "env_attack",
+          "max": 0.5,
+          "min": 0.001,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0.15,
+          "description": "Time the envelope follower takes to fall back when the sound gets quieter, from 10 ms to 2 s.",
+          "id": 18,
+          "key": "env_release",
+          "max": 2,
+          "min": 0.01,
+          "scale": "log",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        }
+      ],
+      "role": "effect",
+      "version": 1
     }
   ],
   "error_codes": {
@@ -41426,7 +42245,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 53,
+  "protocol_version": 56,
   "scale_intervals": [
     {
       "intervals": [

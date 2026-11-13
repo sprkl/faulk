@@ -19,6 +19,8 @@ import {
   trackTargets,
   freeRows,
   copyBlocked,
+  landingOn,
+  repeatCovers,
   playsAt,
   resizeTo,
   resized,
@@ -557,5 +559,27 @@ describe('moves and copies that never replace a clip (#805)', () => {
     expect(copyBlocked([hook], 100, [hook, box('n', 0, 200, 300)])).toBe(false)
     // A clip of the selection itself is not in the way.
     expect(copyBlocked([hook, next], 200, [hook, next])).toBe(false)
+  })
+
+  it('names the earliest clip a move or a copy would land on, on the track it stays in (#805)', () => {
+    const [a, b, c] = [box('a', 0, 0, 100), box('b', 0, 100, 200), box('c', 0, 200, 300)]
+    expect(landingOn([a], 150, [a, b, c])?.id).toBe('b')
+    expect(landingOn([a], -50, [a, b, c])).toBeNull()
+    expect(landingOn([a], 100, [a, b, box('o', 1, 100, 200)])?.id).toBe('b')
+    expect(landingOn([a], 100, [a, box('o', 1, 100, 200)])).toBeNull()
+    // The clips that move together do not stand in each other's way, but the one after them does.
+    expect(landingOn([a, b], 100, [a, b, c])?.id).toBe('c')
+    expect(landingOn([a, b], 100, [a, b])).toBeNull()
+    // Touching is not landing on.
+    expect(landingOn([a], 0, [a, b])).toBeNull()
+  })
+
+  it('names the first clip a repeat up to a tick would cover (#805)', () => {
+    const [a, b, c] = [box('a', 0, 0, 100), box('b', 0, 300, 400), box('c', 0, 500, 600)]
+    expect(repeatCovers(a, 300, [a, b, c])).toBeNull()
+    expect(repeatCovers(a, 301, [a, b, c])?.id).toBe('b')
+    expect(repeatCovers(a, 900, [a, b, c])?.id).toBe('b')
+    expect(repeatCovers(b, 900, [a, b, c])?.id).toBe('c')
+    expect(repeatCovers(a, 300, [a, box('o', 1, 100, 200)])).toBeNull()
   })
 })

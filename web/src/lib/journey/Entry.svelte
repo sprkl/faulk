@@ -68,9 +68,9 @@
     <div class="side">
       <section>
         <svelte:element this={sub} class="label" id="{id}-form">{j('entry.form')}</svelte:element>
-        <ol class="form" aria-labelledby="{id}-form">
+        <ol class="form" aria-labelledby="{id}-form" data-fk-form={stage} data-bpm={entry.bpm}>
           {#each entry.sections as s, i (i)}
-            <li style="flex-grow: {s.bars}; --h: {(s.parts / maxParts).toFixed(3)}">
+            <li style="flex-grow: {s.bars}; --h: {(s.parts / maxParts).toFixed(3)}" data-bars={s.bars}>
               <span class="bar" aria-hidden="true"></span>
               <span class="name">{s.name[lang]}</span>
               <span class="count">{fill(j('entry.bars'), { bars: s.bars })}</span>
@@ -366,6 +366,48 @@
   }
   .form li:nth-child(even) .bar {
     background: var(--fk-text-soft);
+  }
+  /*
+   * The section playing (set by live/index.ts: aria-current, and --p, its progress). Its bar swaps
+   * ink for the accent's tint and an accent fill grows across it; the name takes the accent.
+   * Without the script, or at rest, none of this applies.
+   */
+  .bar {
+    position: relative;
+    overflow: hidden;
+    transition:
+      background-color 280ms,
+      min-height 280ms cubic-bezier(0.2, 0.7, 0, 1);
+  }
+  .bar::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--fk-accent);
+    transform: scaleX(0);
+    transform-origin: left;
+  }
+  .form li:global([aria-current]) .bar {
+    min-height: 12px;
+    background: var(--fk-accent-tint);
+  }
+  .form li:global([aria-current]) .bar::after {
+    transform: scaleX(var(--p, 1));
+  }
+  .form li:global([aria-current]) .name {
+    color: var(--fk-accent-strong);
+  }
+  .name {
+    transition: color 280ms;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .bar,
+    .name {
+      transition: none;
+    }
+    .form li:global([aria-current]) .bar {
+      background: var(--fk-accent);
+    }
   }
   .name,
   .count {

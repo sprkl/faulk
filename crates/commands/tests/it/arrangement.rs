@@ -63,6 +63,7 @@ fn place(fx: &ArFx, clip: &ClipId, start: i64, length: i64) -> arrangement::Comm
         start: Tick(start),
         length: Some(Tick(length)),
         offset: None,
+        if_occupied: Default::default(),
     }
 }
 
@@ -304,6 +305,7 @@ fn a_front_trim_of_a_clip_without_a_loop_resumes_round_the_clip() {
             start: Tick(20_000),
             length: Some(Tick(8000)),
             offset: Some(Tick(0)),
+            if_occupied: Default::default(),
         },
     );
     let arrangement::Output::Place { placement, .. } = out else {
@@ -332,6 +334,7 @@ fn moving_a_group_lifts_it_first_and_may_land_on_its_own_old_place() {
         arrangement::Command::Move {
             placements: vec![f.a.clone(), f.b.clone()],
             by: Tick(3840),
+            if_occupied: Default::default(),
         },
     );
     assert_eq!(out, arrangement::Output::Move { overwritten: 1 });
@@ -360,6 +363,7 @@ fn moving_a_group_lifts_it_first_and_may_land_on_its_own_old_place() {
         &a(arrangement::Command::Move {
             placements: vec![f.a.clone(), f.b.clone()],
             by: Tick(3840),
+            if_occupied: Default::default(),
         }),
         &mut state,
         &mut ctx,
@@ -391,6 +395,7 @@ fn a_move_of_nothing_changes_nothing_and_leaves_no_history() {
         &a(arrangement::Command::Move {
             placements: vec![f.a.clone()],
             by: Tick(0),
+            if_occupied: Default::default(),
         }),
         &mut state,
         &mut ctx,
@@ -434,6 +439,7 @@ fn moves_cross_tracks_in_one_command_and_one_undo() {
         &a(arrangement::Command::Move {
             placements: ids,
             by: Tick(100_000),
+            if_occupied: Default::default(),
         }),
         &mut state,
         &mut ctx,
@@ -548,6 +554,7 @@ fn a_repeat_lays_linked_copies_end_to_end_and_shortens_the_last_one() {
         arrangement::Command::Repeat {
             placement: f.b.clone(),
             until: Tick(13000),
+            if_occupied: Default::default(),
         },
     );
     let arrangement::Output::Repeat {
@@ -608,6 +615,7 @@ fn an_audio_placement_is_repeated_whole_then_cut_at_the_last_frame_that_fits() {
         arrangement::Command::Repeat {
             placement: audio.clone(),
             until: Tick(3840 * 4),
+            if_occupied: Default::default(),
         },
     );
     let arrangement::Output::Repeat { placements, .. } = out else {
@@ -646,6 +654,7 @@ fn an_audio_placement_is_repeated_whole_then_cut_at_the_last_frame_that_fits() {
         arrangement::Command::Repeat {
             placement: last,
             until: Tick(15_360 + 480),
+            if_occupied: Default::default(),
         },
     );
     let arrangement::Output::Repeat { placements, .. } = out else {
@@ -672,6 +681,7 @@ fn a_repeat_is_one_history_entry_and_undo_brings_back_what_it_covered() {
         &a(arrangement::Command::Repeat {
             placement: f.a.clone(),
             until: Tick(3840 * 6),
+            if_occupied: Default::default(),
         }),
         &mut s,
         &mut ctx,
@@ -847,6 +857,7 @@ fn a_clip_left_without_placement_stays_in_the_track_pool() {
             start: Tick(40_000),
             length: None,
             offset: None,
+            if_occupied: Default::default(),
         },
     );
     assert!(
@@ -898,6 +909,7 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
                 start: Tick(20_000),
                 length: None,
                 offset: None,
+                if_occupied: Default::default(),
             }
         ),
         CommandError::Invalid { .. }
@@ -937,24 +949,28 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
             start: Tick(0),
             length: None,
             offset: Some(Tick(3840)),
+            if_occupied: Default::default(),
         },
         C::Place {
             clip: free.clone(),
             start: Tick(-1),
             length: None,
             offset: None,
+            if_occupied: Default::default(),
         },
         C::Place {
             clip: free.clone(),
             start: Tick(0),
             length: Some(Tick(0)),
             offset: None,
+            if_occupied: Default::default(),
         },
         C::Place {
             clip: free.clone(),
             start: Tick(1 << 40),
             length: None,
             offset: None,
+            if_occupied: Default::default(),
         },
     ] {
         check_g(command);
@@ -962,29 +978,35 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
     invalid(C::Move {
         placements: vec![],
         by: Tick(1),
+        if_occupied: Default::default(),
     });
     invalid(C::Move {
         placements: vec![f.a.clone(), f.a.clone()],
         by: Tick(1),
+        if_occupied: Default::default(),
     });
     invalid(C::Move {
         placements: vec![f.a.clone()],
         by: Tick(-1),
+        if_occupied: Default::default(),
     });
     invalid(C::Move {
         placements: vec![f.c.clone()],
         by: Tick(1 << 40),
+        if_occupied: Default::default(),
     });
     invalid(C::Move {
         placements: vec![f.a.clone()],
         by: Tick(i64::MAX),
+        if_occupied: Default::default(),
     });
     assert!(matches!(
         refused(
             &f,
             C::Move {
                 placements: vec![unknown.clone()],
-                by: Tick(1)
+                by: Tick(1),
+                if_occupied: Default::default(),
             }
         ),
         CommandError::NotFound { .. }
@@ -1007,21 +1029,25 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
     invalid(C::Repeat {
         placement: f.a.clone(),
         until: Tick(3840),
+        if_occupied: Default::default(),
     });
     invalid(C::Repeat {
         placement: f.a.clone(),
         until: Tick(100),
+        if_occupied: Default::default(),
     });
     invalid(C::Repeat {
         placement: f.a.clone(),
         until: Tick(::project::limits::MAX_TICK + 1),
+        if_occupied: Default::default(),
     });
     assert!(matches!(
         refused(
             &f,
             C::Repeat {
                 placement: unknown.clone(),
-                until: Tick(99999)
+                until: Tick(99999),
+                if_occupied: Default::default(),
             }
         ),
         CommandError::NotFound { .. }
@@ -1031,7 +1057,8 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
             &f,
             C::Repeat {
                 placement: f.a.clone(),
-                until: Tick(::project::limits::MAX_TICK)
+                until: Tick(::project::limits::MAX_TICK),
+                if_occupied: Default::default(),
             }
         ),
         CommandError::Limit { .. }
@@ -1384,6 +1411,7 @@ fn place_audio(f: &ArFx, start: i64) -> arrangement::Command {
         start: Tick(start),
         length: None,
         offset: None,
+        if_occupied: Default::default(),
     }
 }
 
@@ -1495,6 +1523,7 @@ fn placing_an_audio_clip_is_refused_outside_the_timeline_and_with_tick_arguments
                 start: Tick(0),
                 length,
                 offset,
+                if_occupied: Default::default(),
             },
         );
         let CommandError::Invalid {
@@ -1853,11 +1882,13 @@ fn random_edits_keep_the_project_valid_overlap_free_and_exactly_undoable() {
                     start: tick(&mut rng),
                     length: Some(Tick(1 + rng.next(6000) as i64)),
                     offset: None,
+                    if_occupied: Default::default(),
                 }
             }
             1 if !ids.is_empty() => arrangement::Command::Move {
                 placements: vec![pick(&mut rng)],
                 by: Tick(rng.next(8000) as i64 - 2000),
+                if_occupied: Default::default(),
             },
             2 if !ids.is_empty() => arrangement::Command::Resize {
                 placement: pick(&mut rng),
@@ -1890,6 +1921,7 @@ fn random_edits_keep_the_project_valid_overlap_free_and_exactly_undoable() {
                 arrangement::Command::Move {
                     placements: vec![p, q],
                     by: Tick(rng.next(6000) as i64 - 1000),
+                    if_occupied: Default::default(),
                 }
             }
             _ => continue,

@@ -32,14 +32,19 @@ use core::sync::atomic::{AtomicU32, Ordering, fence};
 use std::collections::VecDeque;
 use std::sync::Arc;
 
+use crate::analysis::{
+    Analysis, MAX_SPECTRA, MAX_WINDOW, SPECTRUM_REGION_WORDS, SPECTRUM_WIRE_BYTES, Source,
+    Spectrum, WINDOW_REGION_WORDS, WindowWriter, read_spectra, try_region,
+};
 use crate::device::{DeviceSetup, Factory};
 use crate::engine::{Engine, Preparer, channel as engine_channel};
+use crate::msg::try_box;
 use crate::msg::{
     ACTIVE_CLIP_BYTES, ActiveClip, ClipState, DEVICE_READOUT_BYTES, DeviceKind, DeviceReadout,
     DeviceSlot, FEEDBACK_HEADER_BYTES, FEEDBACK_LATENCY_OFFSET, FEEDBACK_READOUTS_OFFSET,
-    FEEDBACK_VERSION, Feedback, HEADER_BYTES, MAX_READOUTS_PER_REPORT, MAX_RECORDED_PER_REPORT,
-    MSG_VERSION, MsgError, Note, ParamId, RECORDED_NOTE_WIRE_BYTES, RecordedNote,
-    TRACK_METER_BYTES, Tag, TrackMeter, TrackSlot, TransportState, limits,
+    FEEDBACK_SPECTRA_OFFSET, FEEDBACK_VERSION, Feedback, HEADER_BYTES, MAX_READOUTS_PER_REPORT,
+    MAX_RECORDED_PER_REPORT, MSG_VERSION, MsgError, Note, ParamId, RECORDED_NOTE_WIRE_BYTES,
+    RecordedNote, TRACK_METER_BYTES, Tag, TrackMeter, TrackSlot, TransportState, limits,
 };
 use crate::time::SampleRate;
 
@@ -64,6 +69,11 @@ struct Status {
 pub struct Prepare {
     preparer: Preparer,
     status: Arc<Status>,
+    /// The spectrum analysis (#156, [`crate::analysis`]): the windows the audio side copies,
+    /// the spectra this side computes from them, and the analyser.
+    windows: Arc<[AtomicU32]>,
+    spectra: Arc<[AtomicU32]>,
+    analysis: Box<Analysis>,
 }
 
 impl Prepare {
@@ -73,6 +83,7 @@ impl Prepare {
         let result = self.preparer.submit(stream);
         self.preparer.flush();
         self.publish();
+        self.analyse();
         result
     }
 
@@ -81,6 +92,14 @@ impl Prepare {
     pub fn flush(&mut self) {
         self.preparer.flush();
         self.publish();
+        self.analyse();
+    }
+
+    /// Computes the spectra of the windows the audio side copied since the last call, if any,
+    /// and publishes them for its next report ([`crate::analysis`]); `true` when it did. The
+    /// host calls it through [`Prepare::flush`], every few milliseconds.
+    pub fn analyse(&mut self) -> bool {
+        self.analysis.run(&self.windows, &self.spectra)
     }
 
     /// Changes the sample rate, keeping the playhead: every device is built again for
@@ -560,6 +579,16 @@ pub struct Host {
     report_frames: u32,
     feedback: Arc<[AtomicU32]>,
     feedback_seq: u32,
+    /// The spectrum analysis (#156, [`crate::analysis`]): the window region this side writes,
+    /// the spectrum region it reads, the spectra read from it and the seq they were published
+    /// under, the next device of the round robin, and a window's scratch.
+    windows: Arc<[AtomicU32]>,
+    spectrum_region: Arc<[AtomicU32]>,
+    window_writer: WindowWriter,
+    spectra: Box<[Spectrum; MAX_SPECTRA]>,
+    spectra_seq: u32,
+    robin: usize,
+    window: Box<[f32]>,
     /// The clock's rate the host last saw (#236): a change makes the report period and the
     /// load follow it.
     clock_rate: u32,
@@ -608,6 +637,9 @@ pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
         .map_err(|_| MsgError::OutOfMemory { bytes: words * 4 })?;
     feedback.resize_with(words, || AtomicU32::new(0));
     let frames = limits::MAX_BLOCK_FRAMES;
+    let windows = try_region(WINDOW_REGION_WORDS)?;
+    let spectrum_region = try_region(SPECTRUM_REGION_WORDS)?;
+    let analysis = try_box(Analysis::try_new()?)?;
     let host = Host {
         engine,
         status: Arc::clone(&status),
@@ -625,6 +657,13 @@ pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
         report_frames: report_frames(sample_rate),
         feedback: Arc::from(feedback.into_boxed_slice()),
         feedback_seq: 0,
+        windows: Arc::clone(&windows),
+        spectrum_region: Arc::clone(&spectrum_region),
+        window_writer: WindowWriter::default(),
+        spectra: try_box([Spectrum::default(); MAX_SPECTRA])?,
+        spectra_seq: 0,
+        robin: 0,
+        window: try_slice(MAX_WINDOW, 0.0)?,
         clock_rate: 0,
         #[cfg(feature = "testing")]
         probe: crate::audio_source::Voice::default(),
@@ -633,7 +672,13 @@ pub fn channel(sample_rate: f32) -> Result<(Prepare, Host), MsgError> {
         #[cfg(feature = "testing")]
         probe_out: try_slice(frames * crate::audio_source::MAX_CHANNELS, 0.0)?,
     };
-    let prepare = Prepare { preparer, status };
+    let prepare = Prepare {
+        preparer,
+        status,
+        windows,
+        spectra: spectrum_region,
+        analysis,
+    };
     prepare.publish();
     Ok((prepare, host))
 }
@@ -913,8 +958,8 @@ impl Host {
     /// then the take's number, count and last notes (RE-2), the disk's underruns, offline
     /// sources, budget flag and PCM in memory (AU-3), and the frames the output protection
     /// silenced because a sample was non-finite (#667), the host's frame at the playhead (#733),
-    /// the device latency the graph compensates (#749), and after the notes the devices'
-    /// readouts (#686). No allocation.
+    /// the device latency the graph compensates (#749), after the notes the devices' readouts
+    /// (#686), then the spectra published since the last report (#156). No allocation.
     pub fn write_feedback(&mut self) {
         let seq = self.feedback_seq.wrapping_add(1) | 1;
         let fb = &self.feedback;
@@ -1034,6 +1079,27 @@ impl Host {
             }
         });
         put(FEEDBACK_READOUTS_OFFSET, readouts);
+        // The spectra the prepare side computed from the last windows (#156), after the readouts,
+        // once each: a report carries only spectra published since the last one, so that a
+        // stalled prepare side lets the page's spectra go stale rather than repeat. A write of
+        // theirs under way leaves `self.spectra` partly written and this report without spectra.
+        let fresh = match read_spectra(&self.spectrum_region, &mut self.spectra) {
+            Some((seq, count)) if seq != self.spectra_seq => {
+                self.spectra_seq = seq;
+                count
+            }
+            _ => 0,
+        };
+        for s in &self.spectra[..fresh] {
+            put(at, s.track);
+            put(at + 4, s.device);
+            put(at + 8, s.sample_rate.to_bits());
+            for (i, b) in s.bands.iter().enumerate() {
+                put(at + 12 + 4 * i, b.to_bits());
+            }
+            at += SPECTRUM_WIRE_BYTES;
+        }
+        put(FEEDBACK_SPECTRA_OFFSET, fresh as u32);
         put(56, recorder.take());
         put(60, recorder.total());
         put(64, recorder.dropped());
@@ -1047,6 +1113,63 @@ impl Host {
             w.store(word(done.to_le_bytes()), Ordering::Release);
         }
         self.feedback_seq = done;
+        self.copy_windows();
+    }
+
+    /// The spectrum region this side reads (test builds only: a test makes a publication look
+    /// torn).
+    #[cfg(feature = "testing")]
+    pub fn spectrum_region(&self) -> Arc<[AtomicU32]> {
+        Arc::clone(&self.spectrum_region)
+    }
+
+    /// Copies the windows of at most [`MAX_SPECTRA`] analysing devices into the window region
+    /// for the prepare side (#156, [`crate::analysis`]): the enabled devices of every chain in
+    /// slot order, from the next one of the round robin, so that with more devices each one
+    /// gets its turn. No allocation.
+    fn copy_windows(&mut self) {
+        let mut devices = 0usize;
+        self.engine.enabled_devices(|_, _, _| devices += 1);
+        let start = if devices == 0 {
+            0
+        } else {
+            self.robin % devices
+        };
+        let region = &*self.windows;
+        let writer = &mut self.window_writer;
+        let window = &mut *self.window;
+        let rate = self.sample_rate;
+        writer.begin(region);
+        // Two turns: from `start` to the end, then from the start to `start`.
+        let mut taken = 0usize;
+        let mut last = start;
+        for pass in 0..2 {
+            let mut i = 0usize;
+            self.engine.enabled_devices(|track, device, entry| {
+                let mine = if pass == 0 { i >= start } else { i < start };
+                if mine && taken < MAX_SPECTRA {
+                    // A device that answers more than it was given is cut to the scratch.
+                    let n = entry.device.analysis_window(window).min(window.len());
+                    if n > 0
+                        && writer.push(
+                            region,
+                            Source {
+                                track: track.0,
+                                device: u32::from(device.0),
+                            },
+                            rate,
+                            &window[..n],
+                        )
+                    {
+                        taken += 1;
+                        last = i;
+                    }
+                }
+                i += 1;
+            });
+        }
+        writer.end(region);
+        self.robin = if taken == MAX_SPECTRA { last + 1 } else { 0 };
     }
 }
 
@@ -1064,14 +1187,15 @@ pub fn feedback_voices(region: &[AtomicU32]) -> u32 {
 }
 
 /// Bytes of a report of `tracks` tracks, `clips` active clips (at most two per track),
-/// `recorded` notes and `readouts` device readouts: the fixed part, the track meters and the
-/// output's, the clips, the notes, then the readouts.
-fn report_len(tracks: u32, clips: u32, recorded: u32, readouts: u32) -> usize {
+/// `recorded` notes, `readouts` device readouts and `spectra` spectra: the fixed part, the
+/// track meters and the output's, the clips, the notes, the readouts, then the spectra.
+fn report_len(tracks: u32, clips: u32, recorded: u32, readouts: u32, spectra: u32) -> usize {
     let tracks = (tracks as usize).min(limits::MAX_TRACKS as usize);
     let clips = (clips as usize).min(2 * tracks);
     let recorded = (recorded as usize).min(MAX_RECORDED_PER_REPORT);
     let readouts = (readouts as usize).min(MAX_READOUTS_PER_REPORT);
-    Feedback::size_for(tracks, clips, recorded, readouts)
+    let spectra = (spectra as usize).min(MAX_SPECTRA);
+    Feedback::size_for(tracks, clips, recorded, readouts, spectra)
 }
 
 /// Copies the report of a region into `out` as the little-endian bytes of the `Feedback`
@@ -1098,6 +1222,7 @@ pub fn copy_feedback(region: &[AtomicU32], out: &mut Vec<u8>) -> bool {
         load(11),
         load(12),
         load(FEEDBACK_READOUTS_OFFSET / 4),
+        load(FEEDBACK_SPECTRA_OFFSET / 4),
     )
     .min(region.len() * 4);
     out.clear();
@@ -1142,11 +1267,13 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
     let clips = u32_at(44)?;
     let recorded = u32_at(48)?;
     let readouts = u32_at(FEEDBACK_READOUTS_OFFSET)?;
+    let spectra = u32_at(FEEDBACK_SPECTRA_OFFSET)?;
     if tracks > limits::MAX_TRACKS
         || clips > 2 * tracks
         || recorded as usize > MAX_RECORDED_PER_REPORT
         || readouts as usize > MAX_READOUTS_PER_REPORT
-        || bytes.len() < report_len(tracks, clips, recorded, readouts)
+        || spectra as usize > MAX_SPECTRA
+        || bytes.len() < report_len(tracks, clips, recorded, readouts, spectra)
     {
         return None;
     }
@@ -1206,6 +1333,22 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
             })
         })
         .collect::<Option<Vec<_>>>()?;
+    let spectra_at = readouts_at + readouts.len() * DEVICE_READOUT_BYTES;
+    let spectra = (0..spectra as usize)
+        .map(|i| {
+            let at = spectra_at + i * SPECTRUM_WIRE_BYTES;
+            let mut s = Spectrum {
+                track: u32_at(at)?,
+                device: u32_at(at + 4)?,
+                sample_rate: f32::from_bits(u32_at(at + 8)?),
+                ..Spectrum::default()
+            };
+            for (k, b) in s.bands.iter_mut().enumerate() {
+                *b = f32::from_bits(u32_at(at + 12 + 4 * k)?);
+            }
+            Some(s)
+        })
+        .collect::<Option<Vec<_>>>()?;
     Some(Feedback {
         transport: match bytes[1] {
             1 => TransportState::Playing,
@@ -1238,6 +1381,7 @@ pub fn decode_feedback(bytes: &[u8]) -> Option<Feedback> {
         record_dropped: u32_at(64)?,
         record_capturing: u32_at(68)? & 1 == 1,
         readouts,
+        spectra,
     })
 }
 
@@ -1276,6 +1420,79 @@ pub mod testing {
             out.extend_from_slice(&s.to_le_bytes());
         }
         out
+    }
+
+    /// The spectrum scenario (#156): a host at 48 kHz with a track playing the synth through
+    /// two Contours (the first lifting 2 kHz by 12 dB), rendered for half a second in blocks of
+    /// 128 with the prepare side flushed between blocks, as the hosts do. Returns the bytes of
+    /// the last report, its spectra included. Empty if the channel could not be built.
+    pub fn spectrum_scenario() -> Vec<u8> {
+        use crate::devices::contour::{self, BandParam};
+        use crate::msg::{ControlMsg as M, DeviceSlot, ParamId, TrackKind, TrackSlot};
+        let Ok((mut prepare, mut host)) = channel(48_000.0) else {
+            return Vec::new();
+        };
+        let (Some(gain), Some(freq)) = (
+            contour::band_param(contour::BELL_2, BandParam::Gain),
+            contour::band_param(contour::BELL_2, BandParam::Freq),
+        ) else {
+            return Vec::new();
+        };
+        let t = TrackSlot(0);
+        let stream = crate::msg::encode_stream(
+            1,
+            0,
+            &[
+                M::Reset { epoch: 1 },
+                M::TrackCreate {
+                    track: t,
+                    kind: TrackKind::Midi,
+                },
+                M::DeviceInsert {
+                    track: t,
+                    device: DeviceSlot(0),
+                    kind: crate::OSC_SYNTH.kind_id,
+                    state: Vec::new(),
+                },
+                M::DeviceInsert {
+                    track: t,
+                    device: DeviceSlot(1),
+                    kind: contour::DESCRIPTOR.kind_id,
+                    state: crate::msg::encode_state(&[
+                        (ParamId(gain), 12.0),
+                        (ParamId(freq), 2000.0),
+                    ]),
+                },
+                M::DeviceInsert {
+                    track: t,
+                    device: DeviceSlot(2),
+                    kind: contour::DESCRIPTOR.kind_id,
+                    state: Vec::new(),
+                },
+                M::NoteOn {
+                    track: t,
+                    pitch: 45,
+                    velocity: 110,
+                    at: None,
+                },
+            ],
+        );
+        let Ok(stream) = stream else {
+            return Vec::new();
+        };
+        if prepare.submit(&stream).is_err() {
+            return Vec::new();
+        }
+        for _ in 0..190 {
+            host.render(128);
+            prepare.flush();
+        }
+        let mut report = Vec::new();
+        if copy_feedback(host.feedback(), &mut report) {
+            report
+        } else {
+            Vec::new()
+        }
     }
 }
 

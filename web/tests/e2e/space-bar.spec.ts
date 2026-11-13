@@ -35,16 +35,21 @@ async function playPauseResume(page: Page) {
   await transport(page, 'stopped')
 }
 
-for (const view of ['arrangement', 'grid', 'mixer']) {
-  test(`after a mouse click on the ${view} tab, Space plays and pauses`, async ({ page }) => {
-    const { errors } = watch(page)
-    await start(page)
-    await page.getByTestId(`nav-${view}`).click()
-    await expect(page.getByTestId('view')).toHaveAttribute('data-view', view)
-    await playPauseResume(page)
-    expect(errors).toEqual([])
-  })
-}
+// One boot for the three tabs (#848): back to the start between them, so each view's run starts from 0 as on a fresh page.
+test('after a mouse click on the arrangement, grid or mixer tab, Space plays and pauses', async ({ page }) => {
+  const { errors } = watch(page)
+  await start(page)
+  for (const view of ['arrangement', 'grid', 'mixer']) {
+    await test.step(view, async () => {
+      await page.getByTestId('transport-rewind').click()
+      await expect.poll(() => tick(page)).toBe(0)
+      await page.getByTestId(`nav-${view}`).click()
+      await expect(page.getByTestId('view')).toHaveAttribute('data-view', view)
+      await playPauseResume(page)
+    })
+  }
+  expect(errors).toEqual([])
+})
 
 test('after a mouse click on an arrangement track header, Space plays and pauses', async ({ page }) => {
   const { errors } = watch(page)

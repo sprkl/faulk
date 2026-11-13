@@ -178,6 +178,7 @@ fn audio_placements_that_follow_in_time_but_not_in_the_file_crossfade() {
     s.run(Command::Arrangement(arrangement::Command::Move {
         placements: vec![right],
         by: project::Tick(-480),
+        if_occupied: Default::default(),
     }));
     let jumped = play(&mut s);
     // The play starts on a quantum of the render, the cut half a second later: where the
@@ -216,6 +217,7 @@ fn a_moved_audio_placement_plays_the_same_frames_later() {
     later.exec(Command::Arrangement(arrangement::Command::Move {
         placements: vec![placement],
         by: project::Tick(960),
+        if_occupied: Default::default(),
     }));
     let moved = play(&mut later);
     // Silent for the first half second of the play, then the tone from its first frame.
