@@ -7,7 +7,7 @@
  * with Alt (founder's decision 11). Pure: no DOM, no store.
  */
 import type { Clip, Command, IfOccupied, Placement, Project, Tick } from './generated/protocol'
-import { placeFromSlot, duplicatePlacements } from './arrangement-commands'
+import { placeFromSlot, duplicatePlacements, createClipAt } from './arrangement-commands'
 import { duplicateClip, moveClip } from './clip-commands'
 import { framesToTicks } from './audio/time'
 
@@ -92,6 +92,19 @@ export function placeCommand(entry: PoolClip, start: Tick, linked: boolean, ifOc
     return duplicatePlacements([first.id], false, inside ? first.length : start - first.start, ifOccupied)
   }
   return { type: 'arrangement.place', clip: entry.id, start, ...(ifOccupied === 'replace' ? {} : { if_occupied: ifOccupied }) }
+}
+
+/**
+ * The empty clip of one `length` that a keyboard action or a button creates at `start` on a track (#852): the `clip.create`
+ * command, or why not. It never overwrites a placement: a span that touches one is refused here (the command refuses it too).
+ * Works on an empty track, where the pool has nothing to place.
+ */
+export type NewClip = { command: Command } | { refused: 'notMidi' | 'noRoom' }
+export function newClipAt(project: Pick<Project, 'tracks'> & Partial<Pick<Project, 'tempo'>>, track: string, start: Tick, length: Tick): NewClip {
+  const t = project.tracks[track]
+  if (!t || t.kind !== 'midi') return { refused: 'notMidi' }
+  const taken = poolOf(project, track).some((c) => c.placements.some((p) => p.start < start + length && start < p.start + p.length))
+  return taken ? { refused: 'noRoom' } : { command: createClipAt(track, start, length) }
 }
 
 /**

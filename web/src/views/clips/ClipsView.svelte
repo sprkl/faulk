@@ -9,12 +9,13 @@
   import LinkMark from '../../lib/components/LinkMark.svelte'
   import Waveform from '../../lib/components/Waveform.svelte'
   import { barStart } from '../../lib/arrangement-commands'
-  import { CLIP_DRAG_TYPE, clipTrackType, freeScene, gridCommand, placeCommand, poolNames, poolOf, type PoolClip } from '../../lib/clip-pool'
+  import { CLIP_DRAG_TYPE, clipTrackType, freeScene, gridCommand, newClipAt, placeCommand, poolNames, poolOf, type PoolClip } from '../../lib/clip-pool'
   import { cancelAudioImport, chooseAudio, deleteClip } from '../../lib/clip-commands'
   import { boostFolderNotice, chooseHelperFolder } from '../../lib/audio/boost-folder'
   import type { DownloadProgress, ImportFailure } from '../../lib/audio/import/audio-import.svelte'
   import { MAX_DECODED_BYTES } from '../../lib/audio/import/abi'
   import { MAX_AUDIO_URL_MB } from '../../lib/agents/confirm-text'
+  import type { Command } from '../../lib/generated/protocol'
   import type { MessageKey } from '../../lib/i18n'
   import { useStores } from '../../lib/stores'
   import { barTicks } from '../transport/time'
@@ -94,7 +95,11 @@
    */
   function place(entry: PoolClip, copy: boolean) {
     const command = placeCommand(entry, playheadBar(), !copy, 'refuse')
-    if (!command) return
+    if (command) runPlacing(command)
+  }
+
+  /** Runs a command that makes a placement, and hands the new one to the arrangement as its selection. */
+  function runPlacing(command: Command) {
     const placements = () => (trackId ? (project.view?.project.tracks[trackId]?.placements ?? {}) : {})
     const before = new Set(Object.keys(placements()))
     dispatcher.run(command)
@@ -106,6 +111,31 @@
       .sort(([, a], [, b]) => a!.start - b!.start)[0]
     if (fresh && ui.view === 'arrangement') ui.showPlaced([fresh[0]])
   }
+
+  /** What the last "New clip at the playhead" said, where the clip went or why none was made (a bar taken, an audio track), until the next try. */
+  let said = $state('')
+
+  /**
+   * An empty one-bar clip in the playhead's bar of the selected track (#852), here too when the pool is empty. It never
+   * replaces a placement: a bar that holds one is refused and said.
+   */
+  function newAtHead() {
+    if (!project.view || !trackId) return
+    const bar = barTicks(project.view.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 })
+    const start = playheadBar()
+    const made = newClipAt(project.view.project, trackId, start, bar)
+    if ('refused' in made) {
+      said = made.refused === 'notMidi' ? t('clips.newNotMidi') : t('clips.newNoRoom', { bar: Math.floor(start / bar) + 1 })
+      return
+    }
+    runPlacing(made.command)
+    said = t('clips.newDone', { track: trackTitle, bar: Math.floor(start / bar) + 1 })
+  }
+  // A refusal or a success said for a track does not stay on screen once another one is selected.
+  $effect(() => {
+    void trackId
+    said = ''
+  })
 
   /** The name a row shows: two clips of one name get a number, so that they tell apart (#624). */
   const names = $derived(poolNames(pool, t('clips.audio')))
@@ -199,6 +229,12 @@
           >
         {/if}
       {/if}
+    </div>
+  {/if}
+  {#if track && trackId}
+    <div class="import" data-testid="clip-new">
+      <button class="ghost" type="button" title={t('clips.newAtHeadHint')} data-testid="clip-new-at-head" onclick={newAtHead}>{t('clips.newAtHead')}</button>
+      {#if said}<span class="note" role="status" data-testid="clip-new-said">{said}</span>{/if}
     </div>
   {/if}
   {#if !track}
