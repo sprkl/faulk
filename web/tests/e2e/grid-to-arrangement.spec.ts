@@ -129,21 +129,20 @@ test('grid to arrangement: a clip copy is independent, a linked one follows the 
   await expect.poll(() => meterDb(page), { timeout: 10_000 }).toBeGreaterThan(SILENCE_DB)
   await page.getByTestId('transport').getByRole('button', { name: 'Stop', exact: true }).click()
   await expect.poll(() => meterDb(page), { timeout: 15_000 }).toBeLessThan(SILENCE_DB)
-  await run(page, { type: 'transport.seek', tick: 2 * BAR + 500 })
+  await run(page, { type: 'transport.seek', tick: 4 * BAR + 500 })
 
-  // A scene: one placement per track at bar 3 (the linked one is carved by the first track's new copy: last wins),
-  // one history entry, so one undo.
+  // A scene: one placement per track at bar 5 (a free place: a taken one is refused, #863), one history entry, so one undo.
   await page.getByTestId('nav-grid').click()
   const head = page.locator('[data-testid=scene-head]').first()
   await head.hover()
   await head.getByTestId('scene-more').click({ force: true })
   await page.getByTestId('scene-send').click()
   await page.getByTestId('nav-arrangement').click()
-  await expect.poll(async () => (await blocks(page)).length).toBe(3)
+  await expect.poll(async () => (await blocks(page)).length).toBe(4)
   const afterScene = await blocks(page)
-  const atBar3 = afterScene.filter((b) => b.start === 2 * BAR)
-  expect(atBar3.map((b) => b.track).sort()).toEqual([...midi].sort())
-  expect(atBar3.every((b) => !gridClips.includes(b.clip))).toBe(true)
+  const atBar5 = afterScene.filter((b) => b.start === 4 * BAR)
+  expect(atBar5.map((b) => b.track).sort()).toEqual([...midi].sort())
+  expect(atBar5.every((b) => !gridClips.includes(b.clip))).toBe(true)
   await page.keyboard.press('Control+z')
   await expect.poll(async () => (await blocks(page)).length).toBe(2)
   expect((await blocks(page))[1]).toMatchObject({ clip: gridClips[0], start: 2 * BAR })
