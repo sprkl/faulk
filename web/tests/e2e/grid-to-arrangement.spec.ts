@@ -158,3 +158,39 @@ test('grid to arrangement: a clip copy is independent, a linked one follows the 
 
   expect(seen.errors).toEqual([])
 })
+
+test('sending a grid clip onto a taken place is refused, says so, and leaves the neighbour whole (#860)', async ({ page }) => {
+  const seen = watch(page)
+  await page.setViewportSize({ width: 1600, height: 900 })
+  await page.goto('/app')
+  await startAudio(page)
+  await engineUp(page)
+  test.skip(
+    (await page.evaluate(() => typeof (window as unknown as { __faulkRun?: unknown }).__faulkRun)) !== 'function',
+    'the dispatcher hook exists in the dev server only',
+  )
+
+  await run(page, { type: 'track.create', kind: 'midi', instrument: 'faulk.osc_synth' })
+  await run(page, { type: 'scene.create' })
+  const first = await view(page)
+  const track = Object.entries(first.tracks).find(([, t]) => t.kind === 'midi')![0]
+  const scene = Object.keys(first.scenes)[0]
+  await run(page, { type: 'clip.create', track, at: { at: 'slot', scene } })
+  const gridClip = Object.keys((await view(page)).tracks[track]!.clips)[0]!
+  await run(page, { type: 'clip.notes.add', clip: gridClip, notes: [{ start: 0, pitch: 60, length: 480, velocity: 100 }] })
+  // A clip of the arrangement already sits at bar 1, where the playhead is.
+  await run(page, { type: 'clip.create', track, at: { at: 'arrangement', start: 0 } })
+  await page.getByTestId('nav-arrangement').click()
+  await expect.poll(async () => (await blocks(page)).length).toBe(1)
+  const before = await blocks(page)
+
+  await page.getByTestId('nav-grid').click()
+  await page.locator('[data-testid=cell][data-ti="0"][data-si="0"]').hover()
+  await page.locator(`[data-slot-clip="${gridClip}"]`).getByTestId('clip-more').click({ force: true })
+  await page.getByTestId('clip-menu-send').click()
+  await expect(page.getByTestId('refusal-toast')).toContainText(/taken/)
+  await page.getByTestId('nav-arrangement').click()
+  expect(await blocks(page)).toEqual(before)
+
+  expect(seen.errors).toEqual([])
+})

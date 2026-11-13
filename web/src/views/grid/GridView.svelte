@@ -492,7 +492,7 @@
   function sendToArrangement(id: string, linked: boolean) {
     cellMenu = null
     if (!homes.has(id)) return
-    run(placeFromSlot(id, sendTick(), linked))
+    run(placeFromSlot(id, sendTick(), linked, 'refuse'))
     void tick().then(() => board?.querySelector<HTMLElement>(`[data-cell][data-clip="${id}"]`)?.focus())
   }
 
