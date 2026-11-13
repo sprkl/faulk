@@ -88,3 +88,24 @@ test('the notice is in French with the page in French', async ({ page }) => {
   await expect(notice(page)).toHaveCount(0, { timeout: 2000 })
   expect(errors).toEqual([])
 })
+
+test('a running context whose clock stands still is said too, and cleared when it moves again', async ({ page }) => {
+  // The case the issue most likely met: the context says `running`, but nothing pulls it, so its clock stands still. The
+  // clock the page reads is frozen on this context only (its getter shadowed on the instance); the engine keeps playing.
+  const { errors } = watch(page)
+  await start(page)
+  await transport(page, 'Play').click()
+  await expect(page.getByTestId('feedback')).toHaveAttribute('data-transport', 'playing')
+  await page.evaluate(() => {
+    const ctx = (window as unknown as Ctx).__ctx810
+    const frozen = ctx.currentTime
+    Object.defineProperty(ctx, 'currentTime', { configurable: true, get: () => frozen })
+  })
+  expect(await page.evaluate(() => (window as unknown as Ctx).__ctx810.state)).toBe('running')
+  await expect(notice(page)).toHaveText('No audio output: playback cannot advance', { timeout: 5000 })
+  await page.evaluate(() => delete (window as unknown as { __ctx810: { currentTime?: number } }).__ctx810.currentTime)
+  await expect(notice(page)).toHaveCount(0, { timeout: 2000 })
+  await page.waitForTimeout(1500)
+  await expect(notice(page)).toHaveCount(0)
+  expect(errors).toEqual([])
+})

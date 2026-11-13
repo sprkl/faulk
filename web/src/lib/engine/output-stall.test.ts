@@ -65,7 +65,9 @@ describe('OutputStall (#810)', () => {
     tick(true)
     const seen: boolean[] = []
     for (let i = 0; i < STALL_TICKS + 1; i++) seen.push(tick(false))
+    // The first unchanged reading starts the count: the STALL_TICKS-th one is a second after it, and says it.
     expect(seen.slice(0, STALL_TICKS - 1).some(Boolean)).toBe(false)
+    expect(seen[STALL_TICKS - 1]).toBe(true)
     expect(seen[STALL_TICKS]).toBe(true)
   })
 
