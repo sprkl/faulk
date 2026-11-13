@@ -677,7 +677,8 @@ describe('running commands through the project core', () => {
     old.onEngineStall?.(true)
     expect(session.engine.engineStalled).toBe(true)
     // A close that never settles (a stuck context) does not hold the restart back.
-    webs[0]!.close.mockImplementation(() => new Promise(() => {}))
+    const never = new Promise<void>(() => {})
+    webs[0]!.close.mockReturnValue(never)
     await session.dispatcher.restartWeb()
     expect(webs).toHaveLength(2)
     expect(webs[0]!.close).toHaveBeenCalledTimes(1)

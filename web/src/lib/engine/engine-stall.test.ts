@@ -117,14 +117,35 @@ describe('EngineStall (#877)', () => {
     expect(seen.some(Boolean)).toBe(true)
   })
 
-  it('a page clock or an audio clock that went back, or a non-finite reading, starts again', () => {
+  /** An EngineStall stalled on `seq` 4, from page time 0 and audio clock `from`. */
+  function stalledFrom(from = 0) {
     const stall = new EngineStall()
-    for (let i = 0; i < 100; i++) stall.observe({ now: i * 33, clock: i * 0.033, seq: 4, expected: true })
+    for (let i = 0; i < 100; i++) stall.observe({ now: i * 33, clock: from + i * 0.033, seq: 4, expected: true })
     expect(stall.stalled).toBe(true)
-    expect(stall.observe({ now: 0, clock: 4, seq: 4, expected: true })).toBe(false)
-    for (let i = 1; i < 100; i++) stall.observe({ now: i * 33, clock: 4 + i * 0.033, seq: 4, expected: true })
-    expect(stall.stalled).toBe(true)
+    return stall
+  }
+  /** Feeds unchanged readings from (`now`, `clock`) on and returns the first index that says stalled (-1: none). */
+  const firstStall = (stall: EngineStall, now: number, clock: number) =>
+    Array.from({ length: 60 }, (_, i) => stall.observe({ now: now + i * 33, clock: clock + i * 0.033, seq: 4, expected: true })).indexOf(true)
+
+  it('a page clock that went back starts a new baseline: a new stall needs its own STALL_CLOCK_S', () => {
+    const stall = stalledFrom()
+    expect(stall.observe({ now: 0, clock: 3.3, seq: 4, expected: true })).toBe(false)
+    expect(firstStall(stall, 33, 3.333)).toBe(Math.ceil(STALL_CLOCK_S / 0.033) - 1)
+  })
+
+  it('an audio clock that went back (a new context) starts a new baseline', () => {
+    const stall = stalledFrom(4)
     expect(stall.observe({ now: 4000, clock: 0.5, seq: 4, expected: true })).toBe(false)
-    expect(stall.observe({ now: 4050, clock: Number.NaN, seq: 4, expected: true })).toBe(false)
+    expect(firstStall(stall, 4033, 0.533)).toBe(Math.ceil(STALL_CLOCK_S / 0.033) - 1)
+  })
+
+  it('a non-finite reading forgets everything: the next reading is a baseline, not a still one', () => {
+    const stall = stalledFrom()
+    expect(stall.observe({ now: 3400, clock: Number.NaN, seq: 4, expected: true })).toBe(false)
+    expect(stall.observe({ now: 3433, clock: Number.POSITIVE_INFINITY, seq: 4, expected: true })).toBe(false)
+    expect(stall.observe({ now: 3466, clock: 3.4, seq: 4, expected: true })).toBe(false)
+    // Same seq as before the NaN, the clock far ahead of the old baseline: still a fresh count.
+    expect(firstStall(stall, 3499, 3.433)).toBe(Math.ceil(STALL_CLOCK_S / 0.033) - 1)
   })
 })

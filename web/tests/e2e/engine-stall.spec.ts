@@ -27,7 +27,10 @@ async function start(page: Page, lang?: 'fr') {
             this.stuck877 = flag ? new Int32Array(flag) : null
           }
           process(inputs, outputs, parameters) {
-            return this.stuck877 && Atomics.load(this.stuck877, 0) === 1 ? true : super.process(inputs, outputs, parameters)
+            const mode = this.stuck877 ? Atomics.load(this.stuck877, 0) : 0
+            // 2: throws, as a trap of the engine would; the browser then stops calling this processor.
+            if (mode === 2) throw new Error('stuck877')
+            return mode === 1 ? true : super.process(inputs, outputs, parameters)
           }
         })
     `
@@ -65,7 +68,8 @@ async function start(page: Page, lang?: 'fr') {
   await engineUp(page, 'Web')
 }
 
-const stick = (page: Page, stuck: boolean) => page.evaluate((s) => Atomics.store((window as unknown as Win).__stuck877, 0, s ? 1 : 0), stuck)
+const stick = (page: Page, stuck: boolean | 'throw') =>
+  page.evaluate((s) => Atomics.store((window as unknown as Win).__stuck877, 0, s === 'throw' ? 2 : s ? 1 : 0), stuck)
 const tick = async (page: Page) => Number(await page.getByTestId('feedback').getAttribute('data-tick'))
 const notice = (page: Page) => page.getByTestId('engine-stall-notice')
 const transport = (page: Page, name: string) => page.getByTestId('transport').getByRole('button', { name, exact: true })
@@ -155,4 +159,24 @@ test('an output that stalls too wins: only "No audio output" is said, and the en
   await stick(page, false)
   await expect(notice(page)).toHaveCount(0, { timeout: 2000 })
   expect(errors).toEqual([])
+})
+
+test('a processor that throws (an engine trap) is said too: the clock runs on, and Restart brings the engine back', async ({ page }) => {
+  test.setTimeout(90_000)
+  const { errors } = watch(page)
+  await start(page)
+  await play(page)
+  await stick(page, 'throw')
+  await expect(notice(page)).toContainText('The engine stopped responding', { timeout: 5000 })
+  await expect(page.getByTestId('no-output-notice')).toHaveCount(0)
+  // The browser no longer calls the processor, but the context's clock still advances.
+  const clock = await page.evaluate(() => (window as unknown as Win).__ctx877.currentTime)
+  await page.waitForTimeout(500)
+  expect(await page.evaluate(() => (window as unknown as Win).__ctx877.currentTime)).toBeGreaterThan(clock)
+  await notice(page).getByRole('button', { name: 'Restart' }).click()
+  await engineUp(page, 'Web')
+  await expect(notice(page)).toHaveCount(0, { timeout: 5000 })
+  await play(page)
+  // Only the thrown test error may reach the console (the worklet reports it), nothing from the page.
+  expect(errors.filter((e) => !/stuck877/.test(e))).toEqual([])
 })
