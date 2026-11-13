@@ -52,6 +52,7 @@ export const PREVIEW_SPECS = [
   'devices',
   'engine-mo2',
   'engine-mo5',
+  'engine-stall',
   'export-audio',
   'helper',
   'isolation',

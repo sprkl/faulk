@@ -62,6 +62,8 @@ export const engine = defineFeature(
     'audio.error': 'The helper’s audio output stopped: Faulk plays in the browser until it comes back.',
     'engine.boostWaiting': 'Boost waits for an audio output',
     'engine.noOutput': 'No audio output: playback cannot advance',
+    'engine.notResponding': 'The engine stopped responding',
+    'engine.restart': 'Restart',
     'engine.streamError': 'The audio engine stopped taking changes. Click "Start audio" to continue.',
   },
   {
@@ -124,6 +126,8 @@ export const engine = defineFeature(
     'audio.error': 'La sortie audio du helper s’est arrêtée : Faulk joue dans le navigateur jusqu’à son retour.',
     'engine.boostWaiting': 'Boost attend une sortie audio',
     'engine.noOutput': 'Aucune sortie audio : la lecture ne peut pas avancer',
+    'engine.notResponding': 'Le moteur ne répond plus',
+    'engine.restart': 'Relancer',
     'engine.streamError': 'Le moteur audio n’accepte plus les changements. Clique sur « Démarrer l’audio » pour continuer.',
   },
 )
