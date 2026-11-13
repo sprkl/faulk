@@ -39,6 +39,18 @@ test('devices panel follows the track chosen in the arrangement after the Master
     await expect(page.getByTestId('device-chain')).toHaveAttribute('aria-label', 'Devices of Track 2')
   }
 
+  // Another track chosen after the Master: the panel follows it, and the Master does not come back with the old selection.
+  await page.getByTestId('nav-mixer').click()
+  await page.getByTestId('mixer-master').getByTestId('mixer-master-devices').click()
+  await expect(devices).toHaveAttribute('data-target', 'master')
+  await page.getByTestId('nav-arrangement').click()
+  await heads.nth(0).getByTestId('arr-track').click()
+  await expect(devices).not.toHaveAttribute('data-target', 'master')
+  await expect(page.getByTestId('device-chain')).toHaveAttribute('aria-label', 'Devices of Synth')
+  await drums.getByTestId('arr-track').click()
+  await expect(devices).not.toHaveAttribute('data-target', 'master')
+  await expect(page.getByTestId('device-chain')).toHaveAttribute('aria-label', 'Devices of Track 2')
+
   // Choosing the Master explicitly still shows it.
   await page.getByTestId('nav-mixer').click()
   await page.getByTestId('mixer-master').getByTestId('mixer-master-devices').click()

@@ -37,6 +37,12 @@
 
   const current = $derived(viewById(ui.view) ?? viewById(DEFAULT_VIEW)!)
 
+  // The Master view of the devices panel ends as soon as the selection leaves the track it was chosen on, by whatever
+  // path (undo, deletion, keyboard), so that selecting that track again later never brings it back (#806).
+  $effect(() => {
+    if (ui.masterSelection !== null && ui.masterSelection !== (project.selected?.id ?? '')) ui.masterSelection = null
+  })
+
   // Each project comes back with its layout (#473): the view, the zoom and scroll, the open lanes, the lane heights.
   const isMainView = (id: string): id is MainViewId => viewById(id)?.place === 'main'
   $effect(() => ui.useProject(project.view?.project.id ?? null, isMainView))
