@@ -7,7 +7,7 @@
   import { useStores } from '../../lib/stores'
   import { viewById, viewsIn, type PanelViewId } from '../registry'
   import DevicesView from '../devices/DevicesView.svelte'
-  import { BIG_STEP, PANEL_MIN, SPLIT_MIN_WIDTH, STEP } from './panel-size'
+  import { BIG_STEP, panelMin, SPLIT_MIN_WIDTH, STEP } from './panel-size'
 
   let { max }: { /** The tallest the panel may be in the room there is (px). */ max: number } = $props()
 
@@ -15,7 +15,7 @@
   const tabs = viewsIn('panel')
   const current = $derived(viewById(ui.panel) ?? tabs[0])
   const id = $derived(current.id as PanelViewId)
-  const min = $derived(PANEL_MIN[id])
+  const min = $derived(panelMin(id, ui.rollToolbarExtra))
   const collapsed = $derived(ui.panelFolded)
   const maximized = $derived(ui.panelMaximized && !collapsed)
 

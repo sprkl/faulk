@@ -147,10 +147,10 @@ test('at its smallest the piano roll still shows an octave, and the mixer folds 
   await page.getByTestId('roll-create-clip').click()
   await expect(page.getByTestId('piano-roll')).toBeVisible()
   await expect(stage).toBeVisible()
-  const stageHeight = (await stage.boundingBox())!.height
   const ROW = 16
   const RULER = 28
-  expect(stageHeight - RULER).toBeGreaterThanOrEqual(12 * ROW)
+  // The panel's minimum follows the toolbar's real height one frame after the roll mounts (#887): wait for it, as the toolbar may wrap to more rows with the fonts of the machine.
+  await expect.poll(async () => (await stage.boundingBox())!.height - RULER).toBeGreaterThanOrEqual(12 * ROW)
 
   // The mixer needs the whole height: the panel is folded to its tabs there (#472), so the strips are whole whatever the panel's size.
   await handle(page).focus()
@@ -168,6 +168,51 @@ test('at its smallest the piano roll still shows an octave, and the mixer folds 
   // Leaving the mixer gives the panel back at the size it had.
   await page.getByTestId('nav-arrangement').click()
   await expect(panel(page)).toHaveAttribute('data-collapsed', 'false')
+  expect(errors).toEqual([])
+})
+
+test('a wider font wraps the roll toolbar further and the panel minimum grows with it, so an octave still shows (#887)', async ({ page }) => {
+  const { errors } = watch(page)
+  await page.goto('/app')
+  await page.getByTestId('engine-state').getByRole('button').click()
+  await engineUp(page)
+  await page.getByTestId('panel-piano-roll').click()
+  await handle(page).focus()
+  await page.keyboard.press('Home')
+  await page.getByTestId('roll-create-clip').click()
+  await expect(page.getByTestId('piano-roll')).toBeVisible()
+  const toolbar = page.locator('[data-testid="piano-roll"] .toolbar')
+  const stage = page.getByTestId('roll-stage')
+  const before = (await toolbar.boundingBox())!.height
+  const min = Number(await handle(page).getAttribute('aria-valuemin'))
+  // What Linux fonts do to the toolbar: wider text, so more rows.
+  await page.addStyleTag({
+    content: '[data-testid="piano-roll"] .toolbar * { font-family: monospace !important; font-size: 17px !important; letter-spacing: 1px !important }',
+  })
+  await expect.poll(async () => (await toolbar.boundingBox())!.height).toBeGreaterThan(before)
+  await expect.poll(async () => Number(await handle(page).getAttribute('aria-valuemin'))).toBeGreaterThan(min)
+  await handle(page).focus()
+  await page.keyboard.press('Home')
+  await expect.poll(async () => (await stage.boundingBox())!.height - 28).toBeGreaterThanOrEqual(12 * 16)
+  expect(errors).toEqual([])
+})
+
+test('the roll panel as first opened (no height chosen yet) also follows a taller toolbar (#887)', async ({ page }) => {
+  const { errors } = watch(page)
+  await page.goto('/app')
+  await page.getByTestId('engine-state').getByRole('button').click()
+  await engineUp(page)
+  await page.getByTestId('panel-piano-roll').click()
+  await page.getByTestId('roll-create-clip').click()
+  await expect(page.getByTestId('piano-roll')).toBeVisible()
+  const toolbar = page.locator('[data-testid="piano-roll"] .toolbar')
+  const before = (await toolbar.boundingBox())!.height
+  await page.addStyleTag({
+    content: '[data-testid="piano-roll"] .toolbar * { font-family: monospace !important; font-size: 17px !important; letter-spacing: 1px !important }',
+  })
+  await expect.poll(async () => (await toolbar.boundingBox())!.height).toBeGreaterThan(before)
+  const stage = page.getByTestId('roll-stage')
+  await expect.poll(async () => (await stage.boundingBox())!.height - 28).toBeGreaterThanOrEqual(12 * 16)
   expect(errors).toEqual([])
 })
 

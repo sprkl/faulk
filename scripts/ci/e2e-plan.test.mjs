@@ -340,6 +340,10 @@ test('tier area: a shared component runs the specs of the views that mount it', 
   for (const n of ['timegrid', 'arrangement-view', 'piano-roll', 'piano-roll-edit', 'piano-roll-jump']) assert.ok(tg.includes(n), n)
 })
 
+test('tier area: a piano roll change runs bottom-panel, which measures the roll at the panel minimum (#887)', () => {
+  assert.ok(plan(['web/src/views/piano-roll/PianoRollView.svelte']).specs.includes('bottom-panel'))
+})
+
 test('tier area: a crate the page is built from, outside its contracts', () => {
   const engine = plan(['crates/engine/src/devices/reverb.rs'])
   assert.equal(engine.tier, 'area')
