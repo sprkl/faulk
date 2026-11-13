@@ -285,3 +285,79 @@ test('journey: an unprefixed day page moves a French reader to /fr', async ({ pa
   await page.goto(`/journey/${day}`)
   await expect(page).toHaveURL(new RegExp(`/fr/journey/${day}$`))
 })
+
+test('journey: the section playing is marked, follows a seek, stays on pause and one track at a time (#851)', async ({ page }) => {
+  const { errors } = watch(page)
+  await fakeCdn(page)
+  // A track long enough to cross sections (any entry's form lasts well under 240 s).
+  const long = tone(240, 8000)
+  await page.route('https://cdn.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/**/track.mp3', (route) => {
+    // Byte ranges, like the CDN, so that the browser can seek far into the file.
+    const range = /bytes=(\d+)-(\d*)/.exec(route.request().headers()['range'] ?? '')
+    const headers = { 'content-type': 'audio/wav', 'access-control-allow-origin': '*', 'accept-ranges': 'bytes' }
+    if (!range) return route.fulfill({ status: 200, body: long, headers })
+    const from = Number(range[1])
+    const to = range[2] ? Math.min(Number(range[2]), long.length - 1) : long.length - 1
+    return route.fulfill({ status: 206, body: long.subarray(from, to + 1), headers: { ...headers, 'content-range': `bytes ${from}-${to}/${long.length}` } })
+  })
+  await page.goto('/en/journey')
+  const first = players(page).nth(0)
+  const second = players(page).nth(1)
+  const form = page.locator(`[data-fk-form="${await first.getAttribute('data-fk-stage-id')}"]`)
+  const current = form.locator('li[aria-current]')
+  const bpm = Number(await form.getAttribute('data-bpm'))
+  const bars = await form.locator('li').evaluateAll((lis) => lis.map((li) => Number((li as HTMLElement).dataset.bars)))
+  const startOf = (i: number) => (bars.slice(0, i).reduce((a, b) => a + b, 0) * 4 * 60) / bpm
+  const audio = first.locator('audio')
+  // The seeks below stay inside the generated track.
+  expect(startOf(bars.length)).toBeLessThan(230)
+
+  // Nothing is marked before a play.
+  await expect(current).toHaveCount(0)
+  await first.locator('button[data-fk-play]').click()
+  await expect(first).toHaveAttribute('data-state', 'playing')
+  await expect(current).toHaveCount(1)
+  await expect(form.locator('li').nth(0)).toHaveAttribute('aria-current', 'true')
+
+  // A seek into the second section moves the mark, and into the last one too.
+  await audio.evaluate((a: HTMLAudioElement, t) => (a.currentTime = t), startOf(1) + 0.5)
+  await expect(form.locator('li').nth(1)).toHaveAttribute('aria-current', 'true')
+  await expect(current).toHaveCount(1)
+  await audio.evaluate((a: HTMLAudioElement, t) => (a.currentTime = t), startOf(bars.length - 1) + 0.5)
+  await expect(form.locator('li').nth(bars.length - 1)).toHaveAttribute('aria-current', 'true')
+
+  // Pause: the mark stays; a seek while paused still moves it.
+  await first.locator('button[data-fk-play]').click()
+  await expect(first).toHaveAttribute('data-state', 'paused')
+  await expect(current).toHaveCount(1)
+  await audio.evaluate((a: HTMLAudioElement) => (a.currentTime = 0.5))
+  await expect(form.locator('li').nth(0)).toHaveAttribute('aria-current', 'true')
+
+  // Another track starts: the first form keeps its place (paused) and the second one gets its own mark.
+  await first.locator('button[data-fk-play]').click()
+  await second.locator('button[data-fk-play]').click()
+  await expect(second).toHaveAttribute('data-state', 'playing')
+  await expect(page.locator('[data-fk-form] li[aria-current]')).toHaveCount(2)
+  await expect(page.locator('[data-fk-player][data-state=playing]')).toHaveCount(1)
+  // The end of the track clears the mark: play the first one again and let it end.
+  await first.locator('button[data-fk-play]').click()
+  await audio.evaluate((a: HTMLAudioElement) => (a.currentTime = a.duration - 0.3))
+  await expect(first).toHaveAttribute('data-state', 'idle')
+  await expect(form.locator('li[aria-current]')).toHaveCount(0)
+  expect(errors).toEqual([])
+})
+
+test('journey: under reduced motion the playing section is marked, without moving fill (#851)', async ({ browser, baseURL }) => {
+  const context = await browser.newContext({ reducedMotion: 'reduce', baseURL })
+  const page = await context.newPage()
+  const { errors } = watch(page)
+  await fakeCdn(page)
+  await page.goto('/en/journey')
+  const first = players(page).nth(0)
+  await first.locator('button[data-fk-play]').click()
+  const form = page.locator(`[data-fk-form="${await first.getAttribute('data-fk-stage-id')}"]`)
+  await expect(form.locator('li[aria-current]')).toHaveCount(1)
+  await expect(form.locator('li[aria-current]')).toHaveAttribute('style', /--p: 1/)
+  expect(errors).toEqual([])
+  await context.close()
+})

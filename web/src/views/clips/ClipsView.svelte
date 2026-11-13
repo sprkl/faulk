@@ -94,7 +94,7 @@
    * clip already used. The placements it made become the arrangement's selection and take the keyboard focus.
    */
   function place(entry: PoolClip, copy: boolean) {
-    const command = placeCommand(entry, playheadBar(), !copy)
+    const command = placeCommand(entry, playheadBar(), !copy, 'refuse')
     if (command) runPlacing(command)
   }
 
@@ -103,8 +103,9 @@
     const placements = () => (trackId ? (project.view?.project.tracks[trackId]?.placements ?? {}) : {})
     const before = new Set(Object.keys(placements()))
     dispatcher.run(command)
-    // A placement that lands inside another carves it: the right-hand piece is new too but starts later, so the one placed is
-    // the new placement that starts first.
+    // The buttons never carve a clip (#805): a placement that would land on another is refused (the dispatcher says so) and
+    // nothing is new. A drop on a lane keeps the drag's rule, the last placed wins; the one placed is then the new placement
+    // that starts first (the right-hand piece of a carved one is new too but starts later).
     const fresh = Object.entries(placements() as Record<string, { start: number } | undefined>)
       .filter(([id, p]) => !before.has(id) && p)
       .sort(([, a], [, b]) => a!.start - b!.start)[0]

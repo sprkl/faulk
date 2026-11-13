@@ -176,15 +176,18 @@ test('no core test is tagged @full: the core run never loses one to --grep-inver
     }
     for (const t of hits) assert.ok(!t.includes(FULL_TAG), `core test "${t}" is tagged ${FULL_TAG}`)
   }
-  // The renderer sees the tags: the transport variants of the core (en, 1280) and the one left to the release (en, 1920).
+  // The renderer sees the tags: the transport variant of the core (en, 1280) is untagged, the French keyboard run is
+  // left to the release.
   assert.ok(renderedTitles('transport').some((t) => t.startsWith('transport, en, 1280 px') && !t.includes(FULL_TAG)))
-  const wide = new Function('lang', 'width', `return ${/test\((`transport, [^`]*`)/.exec(source('transport'))[1]}`)('en', 1920)
-  assert.ok(wide.endsWith(` ${FULL_TAG}`), wide)
+  const french = new Function('lang', `return ${/test\((`computer keyboard, [^`]*`)/.exec(source('keyboard'))[1]}`)('fr')
+  assert.ok(french.endsWith(` ${FULL_TAG}`), french)
 })
 
 test('the @full tests are the ones the lead chose: performance ceilings, second languages, extra widths', () => {
   const tagged = EXISTING.filter((s) => source(s).includes(FULL_TAG)).sort()
-  assert.deepEqual(tagged, ['all-sound-off', 'arrangement-time', 'audio-import', 'automation', 'browser-storage', 'grid', 'history-cost', 'keyboard', 'layout-4', 'mixer', 'pack-import', 'pack-longtasks', 'pack-stream', 'project-save', 'project-store', 'refused-commands', 'toolbar-overflow', 'tracks', 'transport'])
+  assert.deepEqual(tagged, ['all-sound-off', 'arrangement-time', 'audio-import', 'automation', 'browser-storage', 'grid', 'history-cost', 'keyboard', 'layout-4', 'mixer', 'pack-import', 'pack-longtasks', 'pack-stream', 'project-save', 'project-store', 'refused-commands', 'toolbar-overflow'])
+  // The en 1920 and fr 1280 runs of transport and tracks are gone (#848), not tagged: two pairs are kept, untagged.
+  for (const s of ['transport', 'tracks']) assert.deepEqual(renderedTitles(s).filter((t) => /^(transport|tracks), /.test(t)).length, 1, s)
   // A spec whose only test is tagged still has a run that passes: the area run passes --pass-with-no-tests.
   assert.ok(!['isolation', 'space-bar'].some((s) => source(s).includes(FULL_TAG)), 'isolation and space-bar stay as they are')
 })
@@ -361,7 +364,7 @@ test('tier core: a shared page file runs the core tests alone, on one machine', 
   assert.match(mixed.why, /shared page file: web\/src\/lib\/stores\/dispatcher\.ts/)
 })
 
-test('tier all: contracts, Playwright and CI configuration, build inputs, unknown paths, stale tables, on three machines', () => {
+test('tier all: contracts, Playwright and CI configuration, build inputs, unknown paths, stale tables, on four machines', () => {
   const whole = ['web/src/lib/generated/protocol.ts', 'web/src/lib/engine/worklet.ts', 'web/src/lib/engine/web-engine.ts', 'web/tests/e2e/support.ts', 'web/tests/e2e/fixtures/measure-rpc.js', 'web/playwright.config.ts', 'web/package.json', 'web/pnpm-lock.yaml', 'web/vite.config.ts', 'web/tsconfig.json', 'web/vercel.json', 'web/scripts/build-wasm.mjs', 'web/src/app.html', '.github/workflows/ci.yml', '.github/actions/web-setup/action.yml', 'scripts/ci/e2e-plan.mjs', 'crates/protocol/src/lib.rs', 'crates/commands/src/track.rs', 'crates/engine/src/msg.rs', 'crates/engine/src/msg/codec.rs', 'crates/engine-wasm/src/lib.rs', 'crates/brand-new/src/lib.rs', 'Cargo.lock', 'modules/x/a.dsp', 'web/some-new-folder/x.ts', 'brand-new-top-folder/x']
   for (const f of whole) {
     const p = plan(['web/src/views/tracks/T.svelte', f])
@@ -393,7 +396,7 @@ test('the tier of a change is the highest of its files', () => {
   assert.equal(plan(['web/src/lib/stores/x.ts', 'web/src/views/grid/G.svelte', 'web/src/lib/generated/x.ts']).tier, 'all')
 })
 
-test('shards: one for a short list, up to three, never zero for a run that happens', () => {
+test('shards: one for a short list, up to four, never zero for a run that happens', () => {
   assert.equal(shardCount(1), 1)
   assert.equal(shardCount(SPECS_PER_SHARD), 1)
   assert.equal(shardCount(SPECS_PER_SHARD + 1), 2)

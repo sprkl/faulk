@@ -46,6 +46,21 @@ describe('the clip pool (#473)', () => {
     expect(placeCommand(both!, 960, true)).toEqual({ type: 'arrangement.place_from_slot', clip: 'both', start: 960, linked: true })
   })
 
+  it('sends the refusal to carve nothing when the buttons ask for it, for every command it picks (#805)', () => {
+    const [arr, loose, both, grid] = poolOf(project, 't')
+    expect(placeCommand(loose!, 960, false, 'refuse')).toEqual({ type: 'arrangement.place', clip: 'loose', start: 960, if_occupied: 'refuse' })
+    expect(placeCommand(arr!, 19200, false, 'refuse')).toEqual({
+      type: 'arrangement.duplicate',
+      placements: ['p0'],
+      linked: false,
+      by: 19200,
+      if_occupied: 'refuse',
+    })
+    expect(placeCommand(arr!, 960, true, 'refuse')).toEqual({ type: 'arrangement.place', clip: 'arr', start: 960, if_occupied: 'refuse' })
+    expect(placeCommand(grid!, 960, false, 'refuse')).toMatchObject({ type: 'arrangement.place_from_slot', if_occupied: 'refuse' })
+    expect(placeCommand(both!, 960, true, 'refuse')).toMatchObject({ type: 'arrangement.place_from_slot', if_occupied: 'refuse' })
+  })
+
   it('puts a clip used nowhere in a slot itself, and copies a used one unless linked', () => {
     const [arr, loose, , grid] = poolOf(project, 't')
     expect(gridCommand(loose!, 's9', false)).toEqual({ type: 'clip.move', clip: 'loose', slot: 's9', track: null })

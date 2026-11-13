@@ -82,6 +82,7 @@ fn a_clip_sent_from_the_grid_is_an_independent_copy_and_a_linked_one_follows_the
             clip: f.looped.clone(),
             start: Tick(11520),
             linked: false,
+            if_occupied: Default::default(),
         },
     );
     let arrangement::Output::PlaceFromSlot {
@@ -125,6 +126,7 @@ fn a_clip_sent_from_the_grid_is_an_independent_copy_and_a_linked_one_follows_the
             clip: f.looped.clone(),
             start: Tick(11520),
             linked: true,
+            if_occupied: Default::default(),
         },
     );
     let arrangement::Output::PlaceFromSlot {
@@ -169,6 +171,7 @@ fn a_clip_sent_over_placements_carves_them_and_the_undo_gives_everything_back() 
             clip: f.straight.clone(),
             start: Tick(1000),
             linked: false,
+            if_occupied: Default::default(),
         }),
         &mut s,
         &mut ctx,
@@ -314,6 +317,7 @@ fn sending_from_the_grid_refuses_what_is_not_in_the_grid_and_what_leaves_the_tim
             clip: f.looped.clone(),
             start: Tick(0),
             linked: false,
+            if_occupied: Default::default(),
         },
     );
     for start in [-1, 1 << 41] {
@@ -323,6 +327,7 @@ fn sending_from_the_grid_refuses_what_is_not_in_the_grid_and_what_leaves_the_tim
                 clip: f.looped.clone(),
                 start: Tick(start),
                 linked: true,
+                if_occupied: Default::default(),
             },
         );
     }
@@ -333,6 +338,7 @@ fn sending_from_the_grid_refuses_what_is_not_in_the_grid_and_what_leaves_the_tim
             clip: f.audio_clip.clone(),
             start: Tick(0),
             linked: false,
+            if_occupied: Default::default(),
         },
     );
     refuse(
@@ -398,6 +404,7 @@ fn sending_from_the_grid_refuses_what_is_not_in_the_grid_and_what_leaves_the_tim
             clip: ClipId::generate(&mut ids),
             start: Tick(0),
             linked: false,
+            if_occupied: Default::default(),
         },
     );
 }

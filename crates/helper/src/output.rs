@@ -262,6 +262,11 @@ fn supervise<B: Backend>(mut backend: B, links: &Links, stop: &mpsc::Receiver<()
             expire(&mut kept, links, &mut report);
         }
         let failed = Arc::new(AtomicBool::new(false));
+        // The devices as they are before the attempt: a change after this read is worth a new
+        // attempt, whenever it lands relative to the attempt's failure (read after the failure,
+        // a change in between would be taken for the state the attempt saw and lost until the
+        // slow timer, #850).
+        let devices = backend.devices();
         let attempt = Instant::now();
         let until = kept.as_ref().map(|k| k.until);
         let mut reuse = kept.take();
@@ -389,8 +394,6 @@ fn supervise<B: Backend>(mut backend: B, links: &Links, stop: &mpsc::Receiver<()
                     links.meter.reset();
                     report(false);
                 }
-                // The devices as they are now: a change from here on is worth a new attempt.
-                let devices = backend.devices();
                 if last_reason.as_deref() != Some(reason.as_str()) {
                     crate::log!("no audio output ({reason}): waiting for one");
                     last_reason = Some(reason);
@@ -616,6 +619,9 @@ mod tests {
         rate: f32,
         /// `open` takes the core, then fails (a stream that cannot be built).
         fail_after_core: bool,
+        /// A failing `open` makes the devices change to this and the output available, as the
+        /// user plugging one in at the moment the attempt fails.
+        plugged_during_open: Option<String>,
     }
 
     /// Locks for what runs on the supervisor's threads: a test that panics while holding a
@@ -657,6 +663,10 @@ mod tests {
                 world.opens += 1;
                 world.opened_at.push(Instant::now());
                 if !world.available {
+                    if let Some(devices) = world.plugged_during_open.take() {
+                        world.devices = devices;
+                        world.available = true;
+                    }
                     return Err("no audio output device".into());
                 }
                 let rate = if world.rate == 0.0 {
@@ -856,6 +866,21 @@ mod tests {
         });
         assert!(r.engine.is_open());
         assert_eq!(r.world.lock().unwrap().opens, 2);
+        r.supervisor.stop();
+    }
+
+    #[test]
+    fn a_device_plugged_while_an_attempt_fails_is_not_lost_until_the_slow_timer() {
+        // The devices change after the attempt read its state and before it reports its
+        // failure: the change must still start a new attempt (#850), not wait for `retry`.
+        let r = rig(
+            World {
+                plugged_during_open: Some("speakers".into()),
+                ..World::default()
+            },
+            FAST,
+        );
+        eventually("installed", || r.engine.is_open());
         r.supervisor.stop();
     }
 

@@ -492,10 +492,11 @@
   function sendToArrangement(id: string, linked: boolean) {
     cellMenu = null
     if (!homes.has(id)) return
-    run(placeFromSlot(id, sendTick(), linked))
+    run(placeFromSlot(id, sendTick(), linked, 'refuse'))
     void tick().then(() => board?.querySelector<HTMLElement>(`[data-cell][data-clip="${id}"]`)?.focus())
   }
 
+  // A scene still replaces what it lands on (#860: `place_scene` has no `if_occupied`, left as it was on purpose, like drags, #805).
   function sendSceneToArrangement(scene: string, linked: boolean) {
     menuFor = null
     run(placeScene(scene, sendTick(), linked))

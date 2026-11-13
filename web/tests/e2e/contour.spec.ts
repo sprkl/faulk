@@ -5,7 +5,7 @@ import { chooseMidiInput, engineUp, fakeWebMidi, watch } from './support'
 // #156: Contour's panel in a real browser. Real worklet, engine and project core: the spectrum of
 // its output comes from the engine's report (computed off the audio path), the curve follows its
 // settings, and a drag of a handle is one history group of `device.set_param`. With
-// FAULK_E2E_SHOTS set, screenshots of the panel in the dark and the light theme go to `.qa/156/`.
+// FAULK_E2E_SHOTS set, screenshots of the panel in the dark and the light theme go to `.qa/156/` (or to `.qa/<value>/` when the value is not 1).
 
 test.describe.configure({ mode: 'serial', timeout: 120_000 })
 
@@ -84,6 +84,68 @@ for (const lang of ['en', 'fr'] as const) {
   })
 }
 
+for (const lang of ['en', 'fr'] as const) {
+  test(`contour, ${lang}: a click on a point focuses it and the arrows set it, the controls are grouped by band, the help is on a button`, async ({ page }) => {
+    const { errors } = watch(page)
+    const card = await contourWithANote(page, lang)
+    const curve = card.getByTestId('contour-curve')
+    await expect(curve.getByTestId('contour-handle')).toHaveCount(7)
+
+    // The controls: seven bands, each with a visible legend and its own switch, then the output.
+    const bands = card.getByTestId('contour-band')
+    await expect(bands).toHaveCount(8)
+    const legends = card.getByTestId('contour-band-legend')
+    for (let i = 0; i < 7; i++) await expect(legends.nth(i)).toBeVisible()
+    const expected =
+      lang === 'en'
+        ? ['Low cut', 'Low shelf', 'Bell 1', 'Bell 2', 'Bell 3', 'High shelf', 'High cut']
+        : ['Coupe-bas', 'Plateau grave', 'Cloche 1', 'Cloche 2', 'Cloche 3', 'Plateau aigu', 'Coupe-haut']
+    await expect(legends).toHaveText(expected.map((text, i) => new RegExp(`${i + 1}\\s*${text}`)))
+    await expect(bands.nth(3).getByTestId('param-bell2_on')).toBeVisible()
+    await expect(bands.nth(3).getByTestId('param-bell2_gain')).toBeVisible()
+    await expect(bands.nth(3).getByTestId('param-bell3_gain')).toHaveCount(0)
+    await expect(bands.nth(3)).toHaveAccessibleName(new RegExp(expected[3]))
+
+    // A click on a point (no move) gives it the focus; the arrows then set its value at once.
+    const handle = curve.locator('[data-testid="contour-handle"][data-band="bell2"]')
+    await handle.scrollIntoViewIfNeeded()
+    await handle.click()
+    await expect(handle).toBeFocused()
+    const gain = card.getByTestId('param-bell2_gain').getByRole('slider')
+    await expect(gain).toHaveAttribute('aria-valuetext', '0.0 dB')
+    await page.keyboard.press('ArrowUp')
+    await page.keyboard.press('ArrowUp')
+    await expect(gain).toHaveAttribute('aria-valuetext', '1.0 dB')
+    await page.keyboard.press('ArrowDown')
+    await expect(gain).toHaveAttribute('aria-valuetext', '0.5 dB')
+    // Shift with the arrows sets the Q.
+    const qBefore = await card.getByTestId('param-bell2_q').getByRole('slider').getAttribute('aria-valuetext')
+    await page.keyboard.press('Shift+ArrowUp')
+    await expect(card.getByTestId('param-bell2_q').getByRole('slider')).not.toHaveAttribute('aria-valuetext', qBefore!)
+    // A click on another point moves the focus there.
+    const other = curve.locator('[data-testid="contour-handle"][data-band="high"]')
+    await other.click()
+    await expect(other).toBeFocused()
+
+    // The help: a button, by the keyboard, shows the text; a screen reader gets it as each point's description.
+    const toggle = card.getByTestId('contour-help-toggle')
+    const help = card.getByTestId('contour-help')
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    await expect(help).toHaveClass(/sr-only/)
+    await toggle.focus()
+    await page.keyboard.press('Enter')
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    await expect(help).not.toHaveClass(/sr-only/)
+    await expect(help).toContainText(lang === 'en' ? 'Drag a point' : 'Fais glisser un point')
+    await expect(handle).toHaveAccessibleDescription(await help.innerText())
+    await page.keyboard.press('Enter')
+    await expect(help).toHaveClass(/sr-only/)
+
+    for (const key of [45, 57, 64]) await send(page, [0x80, key, 0])
+    expect(errors).toEqual([])
+  })
+}
+
 test('contour: screenshots of the panel in the dark and the light theme', async ({ page }) => {
   test.skip(!SHOTS, 'FAULK_E2E_SHOTS is not set')
   const card = await contourWithANote(page, 'en')
@@ -101,9 +163,11 @@ test('contour: screenshots of the panel in the dark and the light theme', async 
   await press('bell3', 'ArrowLeft', 2)
   await press('bell3', 'ArrowUp', 12)
   await press('high', 'ArrowUp', 6)
-  const dir = fileURLToPath(new URL('../../../.qa/156/', import.meta.url))
+  const dir = fileURLToPath(new URL(`../../../.qa/${SHOTS === '1' ? '156' : SHOTS}/`, import.meta.url))
   // The bottom panel maximised: the whole card in view.
   await page.getByTestId('bottom-panel-maximize').click()
+  // Tall enough for the whole card, whichever way its controls are laid out.
+  await page.setViewportSize({ width: 1440, height: 1500 })
   const shoot = async (theme: string) => {
     await page.waitForTimeout(800)
     await card.scrollIntoViewIfNeeded()

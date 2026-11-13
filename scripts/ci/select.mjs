@@ -6,7 +6,7 @@
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, readFileSync, readdirSync } from 'node:fs'
 import { TABLE_FILE, specNames } from './e2e-plan.mjs'
-import { e2eSummary, fullDecision, packagesFromMetadata, select, toOutputs } from './select-core.mjs'
+import { e2eSummary, fullDecision, fullProjects, packagesFromMetadata, select, toOutputs } from './select-core.mjs'
 
 const args = process.argv.slice(2)
 const opt = (name) => {
@@ -60,7 +60,7 @@ try {
 } catch (e) {
   // An unreadable workspace must never skip a test.
   console.error(`cannot read the cargo workspace (${e.message}): running everything`)
-  result = fullDecision([], `cargo workspace unreadable: ${e.message}`)
+  result = fullDecision([], `cargo workspace unreadable: ${e.message}`, fullProjects(event, base))
 }
 const outputs = toOutputs(result)
 console.log(args.includes('--json') ? JSON.stringify(result, null, 2) : outputs)
