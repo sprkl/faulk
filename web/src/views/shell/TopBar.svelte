@@ -9,7 +9,7 @@
   import Monogram from '../../lib/components/Monogram.svelte'
   import { MASTER_METER, useStores } from '../../lib/stores'
   import { viewsIn } from '../registry'
-  import { setLaunchQuantize } from '../../lib/transport-commands'
+  import { setLaunchQuantize, setMetronome, setTimeSignature } from '../../lib/transport-commands'
   import Transport from '../transport/Transport.svelte'
   import { QUANTIZE_ORDER } from '../transport/time'
   import { scaleName } from '../../lib/scale'
@@ -30,13 +30,19 @@
    *   5  the idle take target text hides (the record button's title and a status line for screen readers keep it; the live
    *      count-in and a lost-note notice never hide), and the master meter shrinks again to 40 px. The target goes last: it
    *      says where the next take lands (spec § 4.1).
+   *   6  (#878, down to 800 px) the tap button and the time signature move to the menu too (the tap keeps its Alt+T key, the
+   *      signature becomes a short list of the usual ones) and the bar's gaps tighten,
+   *   7  the loop and metronome buttons move to the menu (toggles, same commands), the master meter hides (the mixer has it)
+   *      and the project name's minimum room goes from 124 to 64 px.
    * The project name keeps its minimum room at every step (`ProjectMenu.svelte`). Never hidden: the project, the views, the
-   * transport's main controls, the engine pill with its latency and load, the help.
+   * transport's main controls (rewind, play, stop, record, the position, the tempo), the engine pill with its latency and
+   * load, the help. The narrowest width supported is 800 px (#878): at it, every step is folded and the bar still fits.
    */
-  const LAST_FIT = 5
+  const LAST_FIT = 7
   let fit = $state(0)
   let bar = $state<HTMLElement | null>(null)
   let moreButton = $state<HTMLElement | null>(null)
+  let transport = $state<Transport | undefined>()
 
   /** Raises `fit` from 0 to the first step at which the bar's contents fit, reading the layout between the steps. */
   function measure() {
@@ -89,8 +95,24 @@
   /** The menu of what the bar folded: the launch quantization (a radio group), the keyboard octave and the key and scale. */
   function openMore(event: MouseEvent) {
     const box = (event.currentTarget as HTMLElement).getBoundingClientRect()
-    const current = project.view?.project.transport.launch_quantize ?? 'bar'
+    const settings = project.view?.project.transport
+    const current = settings?.launch_quantize ?? 'bar'
+    const meter = project.view?.project.meter[0]?.signature
     const ready = engine.started && project.view !== null
+    /** The usual signatures, and the project's own when it is another one (so the menu always shows what is set). */
+    const signatures = (): [number, number][] => {
+      const usual: [number, number][] = [
+        [2, 4],
+        [3, 4],
+        [4, 4],
+        [5, 4],
+        [6, 8],
+        [7, 8],
+        [12, 8],
+      ]
+      if (meter && !usual.some(([n, d]) => n === meter.numerator && d === meter.denominator)) usual.push([meter.numerator, meter.denominator])
+      return usual
+    }
     ui.openMenuAt(
       box.left,
       box.bottom + 2,
@@ -122,6 +144,41 @@
               },
             ]
           : []),
+        ...(fit >= 6
+          ? [
+              // The tap button: its key does the work (a menu that closes after each press cannot tap a tempo).
+              { id: 'more-tap', label: t('transport.tap'), shortcut: 'Alt+T', separator: true, disabled: true, run: () => {} },
+              { id: 'more-signature', label: t('transport.signature'), separator: true, disabled: true, run: () => {} },
+              ...signatures().map(([n, d]) => ({
+                id: `more-signature-${n}-${d}`,
+                label: `${n}/${d}`,
+                detail: n === meter?.numerator && d === meter?.denominator ? '✓' : undefined,
+                disabled: !ready,
+                run: () => {
+                  if (n !== meter?.numerator || d !== meter?.denominator) void dispatcher.run(setTimeSignature(n, d))
+                },
+              })),
+            ]
+          : []),
+        ...(fit >= 7
+          ? [
+              {
+                id: 'more-loop',
+                label: t('transport.loop'),
+                detail: settings?.loop_enabled ? '✓' : undefined,
+                separator: true,
+                disabled: !ready,
+                run: () => transport?.toggleLoopRegion(),
+              },
+              {
+                id: 'more-metronome',
+                label: t('transport.metronome'),
+                detail: settings?.metronome.enabled ? '✓' : undefined,
+                disabled: !ready,
+                run: () => void dispatcher.run(setMetronome(!settings?.metronome.enabled)),
+              },
+            ]
+          : []),
       ],
       t('transport.more'),
     )
@@ -148,7 +205,7 @@
   const notes = $derived([loadPeak, waiting, silenced].filter((n): n is string => n !== null))
 </script>
 
-<header class="top" bind:this={bar} data-fit={fit} style:--fk-project-max={fit >= 2 ? '128px' : '160px'}>
+<header class="top" bind:this={bar} data-fit={fit} style:--fk-project-max={fit >= 2 ? '128px' : '160px'} style:--fk-project-min={fit >= 7 ? '64px' : '124px'}>
   <h1 class="sr-only">Faulk</h1>
   <!-- Full page load: the landing page has its own theme and no client-side router. -->
   <a class="home" href={resolve('/')} data-sveltekit-reload aria-label={t('app.home')}><Monogram size={20} /></a>
@@ -169,7 +226,15 @@
 
   <div class="spacer"></div>
 
-  <Transport hideTarget={fit >= 5} hideQuantize={fit >= 4} hideScale={fit >= 3} />
+  <Transport
+    bind:this={transport}
+    hideTarget={fit >= 5}
+    hideQuantize={fit >= 4}
+    hideScale={fit >= 3}
+    hideTap={fit >= 6}
+    hideSignature={fit >= 6}
+    hideToggles={fit >= 7}
+  />
   <button
     class="more"
     bind:this={moreButton}
@@ -218,7 +283,7 @@
         {#if silenced}<span class="silenced" aria-hidden="true" data-testid="engine-silenced"></span>{/if}
       </button>
       <!-- The master's level, in every view: the output is what the listener hears, whatever the view shows. -->
-      <div class="master-meter" class:short={fit >= 1} class:shortest={fit >= 5}>
+      <div class="master-meter" class:short={fit >= 1} class:shortest={fit >= 5} hidden={fit >= 7} data-folds>
         <LevelMeter
           snap={meters.snap(MASTER_METER)}
           orientation="horizontal"
@@ -441,14 +506,36 @@
     cursor: pointer;
   }
   .more[hidden],
-  .muted[hidden] {
+  .muted[hidden],
+  .master-meter[hidden] {
     display: none;
+  }
+  /* Steps 6 and 7 (#878): the bar is as tight as it gets, down to 800 px. */
+  .top:is([data-fit='6'], [data-fit='7']) {
+    gap: var(--fk-space-1);
+    padding-inline: var(--fk-space-2);
+  }
+  .top:is([data-fit='6'], [data-fit='7']) .engine {
+    gap: var(--fk-space-1);
   }
   .more:hover,
   .more[aria-expanded='true'] {
     border-color: var(--fk-line);
   }
-  .top:is([data-fit='2'], [data-fit='3'], [data-fit='4'], [data-fit='5']) .views button {
+  .top:is([data-fit='2'], [data-fit='3'], [data-fit='4'], [data-fit='5'], [data-fit='6'], [data-fit='7']) .views button {
+    padding: 0 var(--fk-space-2);
+  }
+  .top[data-fit='7'] .views button {
+    padding: 0 4px;
+  }
+  /* Last step: the transport's gaps and the pill's padding give back what a longer latency or a 100 % load will need. */
+  .top[data-fit='7'] :global(.transport) {
+    gap: 2px;
+  }
+  .top[data-fit='7'] :global(.transport .readouts) {
+    margin-inline: 2px;
+  }
+  .top[data-fit='7'] .mode {
     padding: 0 var(--fk-space-2);
   }
   button.primary {

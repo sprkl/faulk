@@ -262,7 +262,7 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 2px;
-    min-width: 124px;
+    min-width: var(--fk-project-min, 124px);
     max-width: var(--fk-project-max, 160px);
   }
   .trigger {
