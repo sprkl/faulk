@@ -199,7 +199,8 @@
   function endSeries(event: Event) {
     // The tap key (a held one repeats) and the modifier that goes with it belong to the series.
     if (event instanceof KeyboardEvent && (isTapChord(event) || ['Alt', 'Shift', 'Control', 'Meta'].includes(event.key))) return
-    if ((event.target as Element | null)?.closest?.('[data-tap]')) return
+    // The tap button and the tap entry of the top bar's more menu (#878) belong to the series too.
+    if ((event.target as Element | null)?.closest?.('[data-tap], [data-testid="ctx-more-tap"]')) return
     tapSeries.end()
     wheelSeries.end()
   }

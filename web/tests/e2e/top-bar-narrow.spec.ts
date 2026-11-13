@@ -165,6 +165,9 @@ test('at 800 px the tap entry of the more menu stays open and taps a tempo from 
   const bpm = Number(await page.getByTestId('transport-tempo').inputValue())
   expect(bpm, 'the tempo the three taps measured').toBeGreaterThan(90)
   expect(bpm).toBeLessThan(110)
+  // The taps of the menu are one history entry, like the button's: one undo gives the tempo back.
+  await page.keyboard.press('Control+z')
+  await expect(page.getByTestId('transport-tempo')).toHaveValue('120')
   expect(errors).toEqual([])
 })
 
