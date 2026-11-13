@@ -76,6 +76,21 @@ domain! {
         /// The group closed.
         group: GroupId,
     };
+
+    /// Close the open history group and take back everything it recorded, as if it had
+    /// never been opened: its edits are undone and leave no entry, on neither stack (a
+    /// batch of edits where one was refused, #867). Refused when no group is open, when
+    /// another author opened it, or when another author's edit landed inside it (the
+    /// group is then no longer on top of the history). A refusal changes nothing and
+    /// leaves the group open. What could be redone when the group began can be redone
+    /// again. Not undoable itself.
+    "history.abort_group" (kind = "live", undo = "none", destructive = false)
+    AbortGroup {} => {
+        /// The group closed.
+        group: GroupId,
+        /// How many edits of the group were taken back.
+        undone: u32,
+    };
 }
 
 /// One entry of the history: the inverses of one command or of one group.
@@ -147,6 +162,12 @@ pub struct History {
     /// The group opened by `history.begin_group`, if any, and who opened it: only that
     /// author's edits join it, and only that author ends it.
     pub open_group: Option<(GroupId, Author)>,
+    /// What could be redone when the open group began: the group's first edit empties
+    /// the redo stack, and `history.abort_group` puts it back (the group never happened).
+    pub group_redo: Vec<Entry>,
+    /// Whether an irreversible edit emptied the stacks since the open group began: an abort is
+    /// then refused, since it could not take everything back.
+    pub group_emptied: bool,
     /// The number of the next group this history gives out.
     pub next_group: u64,
     /// The agent's turn going on, if any (the rule: the module's doc). Ended by an undo or
@@ -197,6 +218,7 @@ impl History {
         match &self.open_group {
             Some((_, opener)) if opener == author => {
                 self.open_group = None;
+                self.group_redo.clear();
                 true
             }
             _ => false,
@@ -363,6 +385,7 @@ impl History {
             }
             (Kind::Edit, Undo::None) if meta.destructive => {
                 let changed = self.can_undo() || self.can_redo();
+                self.group_emptied |= self.open_group.is_some();
                 self.undo.clear();
                 self.redo.clear();
                 changed
@@ -453,12 +476,16 @@ pub fn apply(
             }
             let group = state.history.new_group();
             state.history.open_group = Some((group, ctx.author.clone()));
+            state.history.group_redo = state.history.redo.clone();
+            state.history.group_emptied = false;
             Ok(live(Output::BeginGroup { group }))
         }
+        Command::AbortGroup {} => abort_group(state, ctx),
         Command::EndGroup {} => match &state.history.open_group {
             Some((group, opener)) if *opener == ctx.author => {
                 let group = *group;
                 state.history.open_group = None;
+                state.history.group_redo.clear();
                 Ok(live(Output::EndGroup { group }))
             }
             Some((group, opener)) => Err(CommandError::Invalid {
@@ -475,6 +502,97 @@ pub fn apply(
             }),
         },
     }
+}
+
+/// `history.abort_group`: undoes the open group's entries and drops them, atomically.
+fn abort_group(
+    state: &mut State,
+    ctx: &mut Context,
+) -> Result<Outcome<Command, Output>, CommandError> {
+    let invalid = |message: String| CommandError::Invalid {
+        field: "group".into(),
+        message,
+    };
+    let (group, opener) = match &state.history.open_group {
+        Some(open) => open.clone(),
+        None => return Err(invalid("no history group is open".into())),
+    };
+    if opener != ctx.author {
+        return Err(invalid(format!(
+            "group {} was opened by {}; only its author aborts it",
+            group.0,
+            String::from(opener)
+        )));
+    }
+    // The group's entries must be the top of the undo stack: an entry of another author
+    // under or between them would be undone out of order.
+    let total = state
+        .history
+        .undo
+        .iter()
+        .filter(|entry| entry.group == Some(group))
+        .count();
+    let on_top = state
+        .history
+        .undo
+        .iter()
+        .rev()
+        .take_while(|entry| entry.group == Some(group))
+        .count();
+    if on_top != total {
+        return Err(invalid(format!(
+            "another edit landed inside group {}; it cannot be taken back",
+            group.0
+        )));
+    }
+    if state.history.group_emptied {
+        return Err(invalid(format!(
+            "an irreversible edit emptied the history inside group {}; it cannot be taken back",
+            group.0
+        )));
+    }
+    let saved = (
+        state.project.clone(),
+        state.session.clone(),
+        ctx.engine.clone(),
+    );
+    let mut taken = Vec::with_capacity(on_top);
+    let mut events = Vec::new();
+    let mut control = Vec::new();
+    let mut undone = 0u32;
+    for _ in 0..on_top {
+        let entry = state.history.undo.pop().expect("counted above");
+        match apply_entry(&entry, state, ctx) {
+            Ok((_, e, c)) => {
+                events.extend(e);
+                control.extend(c);
+                undone = undone.saturating_add(entry.edits);
+                taken.push(entry);
+            }
+            Err(error) => {
+                // As it was: the project, the session, the engine's slot table and the stack.
+                (state.project, state.session, ctx.engine) = saved;
+                state.history.undo.push(entry);
+                while let Some(entry) = taken.pop() {
+                    state.history.undo.push(entry);
+                }
+                return Err(error);
+            }
+        }
+    }
+    state.history.open_group = None;
+    state.history.redo = std::mem::take(&mut state.history.group_redo);
+    // An agent's turn never continues over entries that are gone.
+    state.history.turn = None;
+    if on_top > 0 {
+        events.push(state.history.changed_event());
+    }
+    Ok(Outcome {
+        output: Output::AbortGroup { group, undone },
+        undo: Undo::None,
+        events,
+        control,
+    })
 }
 
 fn live(output: Output) -> Outcome<Command, Output> {

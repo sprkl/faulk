@@ -32,6 +32,7 @@ mod device;
 mod engine_sync;
 mod gesture;
 mod history;
+mod history_abort;
 mod levels;
 mod live_input;
 mod marker;

@@ -52,7 +52,7 @@
   import { useStores } from '../../lib/stores'
   import { MASTER } from '../../lib/stores/automated.svelte'
   import { MASTER_METER } from '../../lib/stores'
-  import { inGroup as inHistoryGroup } from '../../lib/history-group'
+  import { inGroup as inHistoryGroup, runAll } from '../../lib/history-group'
   import { moveTrack, selectTrack } from '../../lib/track-commands'
   import LevelMeter from '../../lib/components/LevelMeter.svelte'
   import { seek, setLoopRegion, toggleLoop } from '../../lib/transport-commands'
@@ -893,12 +893,12 @@
   /** The step of this event: Ctrl (Cmd on a Mac) puts the snap aside while it is held. */
   const stepOf = (event: Pick<MouseEvent, 'ctrlKey' | 'metaKey'>) => (fineKey(event) ? null : step)
 
-  /** Runs several commands as one history entry. */
+  /**
+   * Runs several commands as one history entry, all or nothing (#867): the first one the core refuses (its own message
+   * shows) stops the batch and takes back what was applied, so a multi-clip action never changes only part of the selection.
+   */
   function inGroup(commands: Command[]) {
-    if (commands.length === 1) return run(commands[0]!)
-    group(() => {
-      for (const command of commands) run(command)
-    })
+    return runAll((command, options) => dispatcher.run(command, options), commands)
   }
 
   const cancel = () => {
@@ -1597,8 +1597,8 @@
     if (targets.length === 0) return
     // The count is taken before the cut: it is the placements the cut acts on, not what the selection holds afterwards (#772).
     const n = targets.length
-    inGroup(targets.map((b) => splitPlacement(b.id, position)))
-    announce(t('arrangement.saidSplit', { n }))
+    const done = inGroup(targets.map((b) => splitPlacement(b.id, position)))
+    announce(done.ok ? t('arrangement.saidSplit', { n }) : t(done.rolledBack ? 'arrangement.saidNoneSplit' : 'arrangement.saidCannotSplit'))
   }
 
   function onDoubleClick(event: MouseEvent) {
@@ -1980,15 +1980,9 @@
           const inTheWay = from && !from.audio ? repeatCovers(from, e.to, blocks) : null
           if (inTheWay) return announce(t('arrangement.saidResizeBlocked', blockerVars(inTheWay)))
         }
-        // The core can still refuse one (an audio end stops at its clip's last frame): then nothing is said as done.
-        let allDone = true
-        const sent = ends.map((e) => resizePlacement(e.id, 'end', e.to, 'refuse'))
-        if (sent.length === 1) allDone = run(sent[0]!)
-        else
-          group(() => {
-            for (const command of sent) allDone = run(command) && allDone
-          })
-        if (!allDone) return announce(t('arrangement.saidCannotResize'))
+        // The core can still refuse one (an audio end stops at its clip's last frame): then all of them stay as they were (#867).
+        const done = inGroup(ends.map((e) => resizePlacement(e.id, 'end', e.to, 'refuse')))
+        if (!done.ok) return announce(t(done.rolledBack ? 'arrangement.saidNoneResized' : 'arrangement.saidResizePartial'))
         // The length of the focused clip when it moved, else of the first that did.
         const said = blocks.find((b) => b.id === (ends.some((e) => e.id === current.id) ? current.id : ends[0]!.id))
         if (said) announce(lengthText(t, signature, said.length))
