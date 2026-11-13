@@ -134,7 +134,7 @@ describe('the WASI functions the engine module imports', () => {
       expect(blocks).toBeGreaterThan(100)
       expect(renderCalls).toEqual({}) // the audio path, first pump included: no WASI call at all
       expect(prepareCalls.clock_time_get).toBeUndefined()
-    expect(prepareCalls.random_get).toBeGreaterThan(0) // the counting sees the calls that happen
+      expect(prepareCalls.random_get).toBeGreaterThan(0) // the counting sees the calls that happen
       // Were it called, it would read no clock and name itself, in every test of the module.
       expect(() => wasiImports(memory).clock_time_get()).toThrow(/clock_time_get/)
     },
