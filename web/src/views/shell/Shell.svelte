@@ -54,10 +54,10 @@
     ui.panelFolded
       ? 'auto'
       : ui.panelMaximized && bodyHeight > 0
-        ? `${panelMax(ui.panel, bodyHeight)}px`
+        ? `${panelMax(ui.panel, bodyHeight, ui.rollToolbarExtra)}px`
         : stored === undefined
           ? undefined
-          : `${bodyHeight > 0 ? clampHeight(ui.panel, stored, bodyHeight) : stored}px`,
+          : `${bodyHeight > 0 ? clampHeight(ui.panel, stored, bodyHeight, ui.rollToolbarExtra) : stored}px`,
   )
 
   onMount(() => {
@@ -323,7 +323,7 @@
     <main class="main" id="fk-main" tabindex="-1" bind:this={mainArea} aria-label={ui.t(current.label)} data-testid="view" data-view={current.id}>
       {#key ui.layoutRev}<current.component />{/key}
     </main>
-    <BottomPanel max={panelMax(ui.panel, bodyHeight)} />
+    <BottomPanel max={panelMax(ui.panel, bodyHeight, ui.rollToolbarExtra)} />
   </div>
 </div>
 

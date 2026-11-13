@@ -1,12 +1,22 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { UiStore } from '../../lib/stores/ui.svelte'
-import { clampHeight, COLLAPSED_KEY, HEIGHTS_KEY, MAIN_MIN, PANEL_MIN, panelMax, parseHeights } from './panel-size'
+import { clampHeight, COLLAPSED_KEY, HEIGHTS_KEY, MAIN_MIN, PANEL_MIN, panelMax, panelMin, parseHeights, ROLL_TOOLBAR_ROOM } from './panel-size'
 
 // One octave of 16 px rows, under the ruler (28), the toolbar (36), the tabs (41) and above the velocity lane (56).
 const OCTAVE_ROOM = 12 * 16 + 28 + 36 + 41 + 56
 
 describe('panel size', () => {
+  it('raises the roll minimum by the toolbar height beyond its two rows (#887), and no other view', () => {
+    expect(panelMin('piano-roll', 0)).toBe(PANEL_MIN['piano-roll'])
+    expect(panelMin('piano-roll', 18.2)).toBe(PANEL_MIN['piano-roll'] + 19)
+    expect(panelMin('piano-roll', -5)).toBe(PANEL_MIN['piano-roll'])
+    expect(panelMin('devices', 40)).toBe(PANEL_MIN.devices)
+    expect(clampHeight('piano-roll', 0, 2000, 32)).toBe(PANEL_MIN['piano-roll'] + 32)
+    expect(panelMax('piano-roll', 100, 32)).toBe(PANEL_MIN['piano-roll'] + 32)
+    expect(ROLL_TOOLBAR_ROOM).toBeLessThan(PANEL_MIN['piano-roll'])
+  })
+
   it('keeps one readable octave of the piano roll at its minimum', () => {
     expect(PANEL_MIN['piano-roll']).toBeGreaterThanOrEqual(OCTAVE_ROOM)
   })

@@ -171,6 +171,32 @@ test('at its smallest the piano roll still shows an octave, and the mixer folds 
   expect(errors).toEqual([])
 })
 
+test('a wider font wraps the roll toolbar further and the panel minimum grows with it, so an octave still shows (#887)', async ({ page }) => {
+  const { errors } = watch(page)
+  await page.goto('/app')
+  await page.getByTestId('engine-state').getByRole('button').click()
+  await engineUp(page)
+  await page.getByTestId('panel-piano-roll').click()
+  await handle(page).focus()
+  await page.keyboard.press('Home')
+  await page.getByTestId('roll-create-clip').click()
+  await expect(page.getByTestId('piano-roll')).toBeVisible()
+  const toolbar = page.locator('[data-testid="piano-roll"] .toolbar')
+  const stage = page.getByTestId('roll-stage')
+  const before = (await toolbar.boundingBox())!.height
+  const min = Number(await handle(page).getAttribute('aria-valuemin'))
+  // What Linux fonts do to the toolbar: wider text, so more rows.
+  await page.addStyleTag({
+    content: '[data-testid="piano-roll"] .toolbar * { font-family: monospace !important; font-size: 17px !important; letter-spacing: 1px !important }',
+  })
+  await expect.poll(async () => (await toolbar.boundingBox())!.height).toBeGreaterThan(before)
+  await expect.poll(async () => Number(await handle(page).getAttribute('aria-valuemin'))).toBeGreaterThan(min)
+  await handle(page).focus()
+  await page.keyboard.press('Home')
+  await expect.poll(async () => (await stage.boundingBox())!.height - 28).toBeGreaterThanOrEqual(12 * 16)
+  expect(errors).toEqual([])
+})
+
 test('a mixer strip is whole at 770 px', async ({ page }) => {
   const { errors } = watch(page)
   await page.goto('/app')

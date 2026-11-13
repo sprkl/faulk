@@ -7,6 +7,7 @@
    * edited, the tool and the zoom are the page's view state, not project data.
    */
   import { onDestroy, tick, untrack } from 'svelte'
+  import { ROLL_TOOLBAR_ROOM } from '../shell/panel-size'
   import type { Command, Note } from '../../lib/generated/protocol'
   import {
     addNotes,
@@ -1451,6 +1452,16 @@
   let quantizeNote = $state<string | null>(null)
   let quantizeTimer: ReturnType<typeof setTimeout> | undefined
   onDestroy(() => clearTimeout(quantizeTimer))
+
+  // The toolbar wraps by width and by font (#887): the panel's minimum grows by what it takes beyond its two rows, so an octave of rows always shows.
+  let toolbarH = $state(0)
+  $effect(() => {
+    // offsetHeight is rounded: a pixel of slack when the toolbar is taller than its room. Applied on the next frame, outside the observers' delivery (a resize caused in it ends in "ResizeObserver loop" errors).
+    const extra = toolbarH > ROLL_TOOLBAR_ROOM ? toolbarH - ROLL_TOOLBAR_ROOM + 1 : 0
+    const frame = requestAnimationFrame(() => (ui.rollToolbarExtra = extra))
+    return () => cancelAnimationFrame(frame)
+  })
+  onDestroy(() => (ui.rollToolbarExtra = 0))
   function onDrawLengthChange(event: Event & { currentTarget: HTMLSelectElement }) {
     drawLength = parseDrawLength(event.currentTarget.value)
     ui.remember('piano-roll-draw-length', drawLength)
@@ -1876,7 +1887,7 @@
     data-first-note={notes[0] ? JSON.stringify(notes[0]) : undefined}
     data-selection={chosenNotes.length <= 32 ? JSON.stringify(chosenNotes) : undefined}
   >
-    <div class="toolbar">
+    <div class="toolbar" bind:offsetHeight={toolbarH}>
       {#if entries.length > 1}
         <select
           aria-label={t('pianoRoll.clip')}
