@@ -38,7 +38,7 @@
       field?.focus()
       return
     }
-    dispatcher.run(seek(tick))
+    if (dispatcher.run(seek(tick))) ui.gotoTarget = { tick, n: (ui.gotoTarget?.n ?? 0) + 1 }
     ui.gotoOpen = false
   }
 

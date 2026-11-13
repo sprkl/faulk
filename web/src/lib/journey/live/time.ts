@@ -50,3 +50,29 @@ export function seekByKey(key: string, current: number, duration: number): numbe
 export function lengthOf(mediaDuration: number, stated: number): number {
   return Number.isFinite(mediaDuration) && mediaDuration > 0 ? mediaDuration : stated
 }
+
+/** Seconds in a section of `bars` bars of four beats at `bpm`. */
+export function sectionSeconds(bars: number, bpm: number): number {
+  return (bars * 4 * 60) / bpm
+}
+
+/**
+ * The form section playing at `time` and how far through it the playhead is (0 to 1). The sections
+ * follow each other from 0 s, their lengths cumulated from `bars × 4 × 60 / bpm`. Before 0 s it is
+ * the first section; past the last one's end (the audio's tail) it stays on the last, full. No
+ * answer for a time that is not a number, or a form that has no length.
+ */
+export function sectionAt(time: number, bpm: number, bars: readonly number[]): { index: number; progress: number } | undefined {
+  if (!Number.isFinite(time) || !(bpm > 0) || bars.length === 0) return undefined
+  let start = 0
+  for (let i = 0; i < bars.length; i++) {
+    const length = sectionSeconds(bars[i], bpm)
+    const end = start + length
+    if (time < end || i === bars.length - 1) {
+      const progress = length > 0 ? (time - start) / length : 1
+      return { index: i, progress: Math.min(1, Math.max(0, progress)) }
+    }
+    start = end
+  }
+  return undefined
+}

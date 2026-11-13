@@ -666,6 +666,7 @@ describe('arrangementShortcut (#473)', () => {
     expect(arrangementShortcut(key('PageUp'))).toBe('prevMarker')
     expect(arrangementShortcut(key('PageDown'))).toBe('nextMarker')
     expect(arrangementShortcut(key('KeyZ'))).toBe('fitSong')
+    expect(arrangementShortcut(key('KeyN'))).toBe('newClip')
     expect(arrangementShortcut(key('KeyZ', { altKey: false }))).toBeNull()
     expect(arrangementShortcut(key('KeyZ', { ctrlKey: true }))).toBeNull()
     expect(arrangementShortcut(key('KeyZ', { shiftKey: true }))).toBeNull()

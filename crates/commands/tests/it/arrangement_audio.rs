@@ -158,6 +158,7 @@ fn a_move_keeps_the_frames_and_carves_the_neighbour_it_lands_on() {
         arrangement::Command::Move {
             placements: vec![second.clone()],
             by: Tick(-2880),
+            if_occupied: Default::default(),
         },
     );
     assert!(matches!(out, arrangement::Output::Move { overwritten: 1 }));
@@ -551,6 +552,7 @@ fn a_grid_audio_clip_is_placed_whole_as_a_copy_or_linked() {
                 clip: f.audio_clip.clone(),
                 start: Tick(3840),
                 linked,
+                if_occupied: Default::default(),
             },
         );
         let arrangement::Output::PlaceFromSlot {
@@ -717,10 +719,12 @@ fn random_audio_edits_stay_inside_their_clips_overlap_free_and_undo_through_the_
                         start: tick(&mut rng),
                         length: None,
                         offset: None,
+                        if_occupied: Default::default(),
                     },
                     1 => arrangement::Command::Move {
                         placements: vec![pick(&mut rng)],
                         by: Tick(rng.next(4_000) as i64 - 2_000),
+                        if_occupied: Default::default(),
                     },
                     2 => arrangement::Command::Resize {
                         placement: pick(&mut rng),
@@ -747,6 +751,7 @@ fn random_audio_edits_stay_inside_their_clips_overlap_free_and_undo_through_the_
                     6 => arrangement::Command::Repeat {
                         placement: pick(&mut rng),
                         until: Tick(rng.next(12_000) as i64 + 1),
+                        if_occupied: Default::default(),
                     },
                     7 => arrangement::Command::InsertTime {
                         at: tick(&mut rng),

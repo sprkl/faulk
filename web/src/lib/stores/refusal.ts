@@ -40,6 +40,8 @@ const CODE_KEYS = {
 
 /** The notice for a refusal of the core. The developer message of the error stays in the console. */
 export function refusalOf(error: CommandError): Omit<Refusal, 'count'> {
+  // A placement that would land on another, refused on purpose by the caller (`if_occupied`, #805): it says what stayed as it was.
+  if (error.code === 'invalid' && error.field === 'if_occupied') return { key: 'refusal.occupied', vars: {} }
   // A code a newer core added: the generic text, never a blank toast.
   const key = (CODE_KEYS as Record<string, MessageKey>)[error.code] ?? CODE_KEYS.invalid
   if (error.code !== 'limit') return { key, vars: {} }

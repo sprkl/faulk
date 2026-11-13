@@ -240,6 +240,7 @@ fn every_audio_edit_and_its_undo_leave_the_engine_as_a_snapshot_would() {
             start: Tick(3840),
             length: None,
             offset: None,
+            if_occupied: Default::default(),
         }),
         c(clip::Command::AudioSetGain {
             clip: f.audio_clip.clone(),
@@ -372,6 +373,7 @@ fn the_arrangement_edits_of_audio_placements_keep_the_engine_in_step_both_ways()
         ar(A::Move {
             placements: vec![placement.clone()],
             by: Tick(960),
+            if_occupied: Default::default(),
         }),
         ar(A::Resize {
             placement: placement.clone(),
@@ -403,6 +405,7 @@ fn the_arrangement_edits_of_audio_placements_keep_the_engine_in_step_both_ways()
         ar(A::Repeat {
             placement: placement.clone(),
             until: Tick(30_000),
+            if_occupied: Default::default(),
         }),
         ar(A::InsertTime {
             at: Tick(4700),

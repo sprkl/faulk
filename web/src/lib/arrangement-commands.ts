@@ -15,10 +15,20 @@ export const moveToTrack = (moves: { placement: string; track: string }[], by?: 
 })
 
 /** Lays linked copies of a placement end to end up to the tick `until` (`arrangement.repeat`, one history entry). */
-export const repeatPlacement = (placement: string, until: Tick): Command => ({ type: 'arrangement.repeat', placement, until })
+export const repeatPlacement = (placement: string, until: Tick, ifOccupied: IfOccupied = 'replace'): Command => ({
+  type: 'arrangement.repeat',
+  placement,
+  until,
+  ...(ifOccupied === 'replace' ? {} : { if_occupied: ifOccupied }),
+})
 
 /** Moves placements in time, all by the same number of ticks (negative is earlier). */
-export const movePlacements = (placements: string[], by: Tick): Command => ({ type: 'arrangement.move', placements, by })
+export const movePlacements = (placements: string[], by: Tick, ifOccupied: IfOccupied = 'replace'): Command => ({
+  type: 'arrangement.move',
+  placements,
+  by,
+  ...(ifOccupied === 'replace' ? {} : { if_occupied: ifOccupied }),
+})
 /** Moves one edge of a placement to a timeline tick. */
 export const resizePlacement = (placement: string, edge: 'start' | 'end', to: Tick): Command => ({ type: 'arrangement.resize', placement, edge, to })
 /** Splits a placement in two at a timeline tick strictly inside it. */
@@ -33,7 +43,13 @@ export const duplicatePlacements = (placements: string[], linked: boolean, by?: 
   ...(ifOccupied === 'replace' ? {} : { if_occupied: ifOccupied }),
 })
 /** Puts a clip of the launch grid in the arrangement from a tick: an independent copy by default, the grid clip itself (linked) with `linked`. */
-export const placeFromSlot = (clip: string, start: Tick, linked: boolean): Command => ({ type: 'arrangement.place_from_slot', clip, start, linked })
+export const placeFromSlot = (clip: string, start: Tick, linked: boolean, ifOccupied: IfOccupied = 'replace'): Command => ({
+  type: 'arrangement.place_from_slot',
+  clip,
+  start,
+  linked,
+  ...(ifOccupied === 'replace' ? {} : { if_occupied: ifOccupied }),
+})
 /** The same for every clip of a scene, each on its own track: one command, one history entry. */
 export const placeScene = (scene: string, start: Tick, linked: boolean): Command => ({ type: 'arrangement.place_scene', scene, start, linked })
 /** Opens `length` ticks of empty time at a tick, in every track and the master (#396): one command, one history entry. */
