@@ -72,6 +72,11 @@ export interface EngineEvents {
    * stays frozen.
    */
   onOutputStall?(stalled: boolean): void
+  /**
+   * Web engine only: the engine stopped responding (`true`) while the output pulls it, or responds again (`false`), told
+   * on each change (#877): the context's clock runs but the engine's report no longer advances, so nothing new plays.
+   */
+  onEngineStall?(stalled: boolean): void
   /** The engine stopped on its own (helper gone, session replaced). */
   onClosed(): void
 }

@@ -147,7 +147,9 @@
   const silenced = $derived(engine.silencedFrames > 0 ? t('engine.silenced') : null)
   // The output stopped pulling the Web engine (#810): the shell's notice says it; the pill's tooltip and label too.
   const noOutput = $derived(engine.mode === 'web' && engine.outputStalled ? t('engine.noOutput') : null)
-  const notes = $derived([loadPeak, waiting, silenced, noOutput].filter((n): n is string => n !== null))
+  // The engine stopped responding (#877): said only when the output did not stall, which says more.
+  const notResponding = $derived(engine.mode === 'web' && engine.engineStalled && !engine.outputStalled ? t('engine.notResponding') : null)
+  const notes = $derived([loadPeak, waiting, silenced, noOutput, notResponding].filter((n): n is string => n !== null))
 </script>
 
 <header class="top" bind:this={bar} data-fit={fit} style:--fk-project-max={fit >= 2 ? '128px' : '160px'}>
@@ -199,6 +201,7 @@
           waiting,
           silenced,
           noOutput,
+          notResponding,
         ]
           .filter(Boolean)
           .map((n) => `. ${n}`)

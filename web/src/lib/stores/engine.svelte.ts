@@ -35,6 +35,11 @@ export class EngineStore {
    */
   outputStalled = $state(false)
   /**
+   * The Web engine stopped responding while the output pulls it (#877): the context's clock runs but the engine's report
+   * no longer advances. The shell says so (unless the output stalled too, which says more) and offers a restart.
+   */
+  engineStalled = $state(false)
+  /**
    * The delay the devices add to what is heard, in frames at the engine's rate (#749): the longest chain latency of the
    * tracks plus the master's, which the engine compensates (the other tracks and the metronome are delayed to match).
    */

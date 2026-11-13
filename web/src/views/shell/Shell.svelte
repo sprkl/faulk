@@ -299,6 +299,12 @@
   <!-- The output stopped pulling the Web engine (#810): the position and the meters are frozen, the page says why. -->
   {#if engine.mode === 'web' && engine.outputStalled}
     <p class="notice" role="status" data-testid="no-output-notice">{ui.t('engine.noOutput')}</p>
+  {:else if engine.mode === 'web' && engine.engineStalled}
+    <!-- The engine stopped responding while the output pulls it (#877); a stalled output says more, so it wins above. -->
+    <p class="notice notice-action" role="status" data-testid="engine-stall-notice">
+      <span>{ui.t('engine.notResponding')}</span>
+      <button disabled={engine.starting} onclick={() => void dispatcher.restartWeb()}>{ui.t('engine.restart')}</button>
+    </p>
   {/if}
 
   {#if engine.pendingPairCode && !engine.started && !ui.engineOpen}
@@ -358,6 +364,12 @@
     padding: var(--fk-space-2) var(--fk-space-4);
     border-bottom: 1px solid var(--fk-line);
     background: var(--fk-surface);
+  }
+  .notice-action {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--fk-space-2) var(--fk-space-3);
   }
   /* A refusal of the core: temporary, over the page, never in the way of a click. */
   .toast {

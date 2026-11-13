@@ -626,6 +626,90 @@ describe('running commands through the project core', () => {
     expect(session.engine.outputStalled).toBe(true)
   })
 
+  it('says the engine stopped responding only for the Web engine that plays: cleared by Boost, by a stopped engine, never set by an old one (#877)', async () => {
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
+      close: vi.fn(() => Promise.resolve()),
+    }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    const web = webEvents!
+    web.onEngineStall?.(true)
+    expect(session.engine.engineStalled).toBe(true)
+    web.onEngineStall?.(false)
+    expect(session.engine.engineStalled).toBe(false)
+    // Stalled, then Boost: the word goes, and the suspended engine's late words change nothing.
+    web.onEngineStall?.(true)
+    await session.dispatcher.enterBoost()
+    expect(session.engine.engineStalled).toBe(false)
+    web.onEngineStall?.(true)
+    expect(session.engine.engineStalled).toBe(false)
+    // Back to Web: the store takes the engine's own word again.
+    ;(webs[0] as FakeWeb & { engineStalled?: boolean }).engineStalled = true
+    await session.dispatcher.enterWeb()
+    expect(session.engine.engineStalled).toBe(true)
+    web.onEngineStall?.(false)
+    expect(session.engine.engineStalled).toBe(false)
+    ;(webs[0] as FakeWeb & { engineStalled?: boolean }).engineStalled = false
+    // A stopped engine (refused stream) takes its word with it; the old one is not heard by the new one.
+    web.onEngineStall?.(true)
+    web.onStreamRefused?.(-3, 0)
+    expect(session.engine.engineStalled).toBe(false)
+    await session.dispatcher.start()
+    web.onEngineStall?.(true)
+    expect(session.engine.engineStalled).toBe(false)
+    webEvents!.onEngineStall?.(true)
+    expect(session.engine.engineStalled).toBe(true)
+  })
+
+  it('restarts a Web engine that stopped responding: a new engine from a snapshot, the word cleared, the old one not heard (#877)', async () => {
+    const session = newSession()
+    // Nothing to restart before audio starts.
+    await session.dispatcher.restartWeb()
+    expect(webs).toHaveLength(0)
+    await session.dispatcher.start()
+    const old = webEvents!
+    old.onEngineStall?.(true)
+    expect(session.engine.engineStalled).toBe(true)
+    // A close that never settles (a stuck context) does not hold the restart back.
+    webs[0]!.close.mockImplementation(() => new Promise(() => {}))
+    await session.dispatcher.restartWeb()
+    expect(webs).toHaveLength(2)
+    expect(webs[0]!.close).toHaveBeenCalledTimes(1)
+    expect(session.engine.started).toBe(true)
+    expect(session.engine.engineStalled).toBe(false)
+    expect(session.engine.streamError).toBeNull()
+    // The new engine starts from the project's snapshot.
+    expect(webs[1]!.push).toHaveBeenCalled()
+    old.onEngineStall?.(true)
+    expect(session.engine.engineStalled).toBe(false)
+    webEvents!.onEngineStall?.(true)
+    expect(session.engine.engineStalled).toBe(true)
+  })
+
+  it('does not restart the Web engine while the helper plays (#877)', async () => {
+    nativeEngine = {
+      kind: 'native',
+      status: { kind: 'native', sampleRate: 48000, estimatedLatencyMs: 5 },
+      send: vi.fn(),
+      push: vi.fn(),
+      epoch: 0,
+      close: vi.fn(() => Promise.resolve()),
+    }
+    localStorage.setItem(TOKEN_KEY, 'x')
+    const session = newSession()
+    await session.dispatcher.start()
+    await session.dispatcher.enterBoost()
+    await session.dispatcher.restartWeb()
+    expect(webs).toHaveLength(1)
+    expect(webs[0]!.close).not.toHaveBeenCalled()
+  })
+
   it('shows the frames silenced by the engine that plays: from 0 in Web, from its first report for a helper (#667)', async () => {
     const report = silencedReport
     nativeEngine = {
