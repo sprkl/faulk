@@ -50,6 +50,8 @@ export class KeyboardPlayer {
   toggleTyping() {
     this.releaseAll()
     this.ui.typing = this.ui.typing === 'notes' ? 'shortcuts' : 'notes'
+    // Letters left to the shortcuts write nothing either: step entry (#882) ends with typing, not left as a mute mode.
+    if (this.ui.typing === 'shortcuts') this.ui.stepEntry = false
   }
 
   keyDown(event: KeyboardEvent) {
