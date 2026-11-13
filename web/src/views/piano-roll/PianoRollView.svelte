@@ -1462,7 +1462,7 @@
     const frame = requestAnimationFrame(() => (ui.rollToolbarExtra = extra))
     return () => cancelAnimationFrame(frame)
   })
-  onDestroy(() => (ui.rollToolbarExtra = 0))
+  // Not reset when the roll goes: only the roll's tab reads it, and the next roll measures it again, so a remount never drops the minimum for a frame.
   function onDrawLengthChange(event: Event & { currentTarget: HTMLSelectElement }) {
     drawLength = parseDrawLength(event.currentTarget.value)
     ui.remember('piano-roll-draw-length', drawLength)

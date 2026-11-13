@@ -197,6 +197,25 @@ test('a wider font wraps the roll toolbar further and the panel minimum grows wi
   expect(errors).toEqual([])
 })
 
+test('the roll panel as first opened (no height chosen yet) also follows a taller toolbar (#887)', async ({ page }) => {
+  const { errors } = watch(page)
+  await page.goto('/app')
+  await page.getByTestId('engine-state').getByRole('button').click()
+  await engineUp(page)
+  await page.getByTestId('panel-piano-roll').click()
+  await page.getByTestId('roll-create-clip').click()
+  await expect(page.getByTestId('piano-roll')).toBeVisible()
+  const toolbar = page.locator('[data-testid="piano-roll"] .toolbar')
+  const before = (await toolbar.boundingBox())!.height
+  await page.addStyleTag({
+    content: '[data-testid="piano-roll"] .toolbar * { font-family: monospace !important; font-size: 17px !important; letter-spacing: 1px !important }',
+  })
+  await expect.poll(async () => (await toolbar.boundingBox())!.height).toBeGreaterThan(before)
+  const stage = page.getByTestId('roll-stage')
+  await expect.poll(async () => (await stage.boundingBox())!.height - 28).toBeGreaterThanOrEqual(12 * 16)
+  expect(errors).toEqual([])
+})
+
 test('a mixer strip is whole at 770 px', async ({ page }) => {
   const { errors } = watch(page)
   await page.goto('/app')

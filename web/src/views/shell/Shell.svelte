@@ -19,7 +19,7 @@
   import ContextMenu from '../../lib/components/ContextMenu.svelte'
   import BottomPanel from './BottomPanel.svelte'
   import BrowserPanel from '../browser/BrowserPanel.svelte'
-  import { clampHeight, panelMax } from './panel-size'
+  import { clampHeight, panelMax, panelMin } from './panel-size'
   import EngineDialog from './EngineDialog.svelte'
   import ExportDialog from './ExportDialog.svelte'
   import GoToDialog from './GoToDialog.svelte'
@@ -317,7 +317,14 @@
     {@const text = ui.t(engine.refusal.key, { ...engine.refusal.vars, what: engine.refusal.whatKey ? ui.t(engine.refusal.whatKey) : '' })}
     <p class="toast" role="status" data-testid="refusal-toast">{engine.refusal.count > 1 ? ui.t('refusal.count', { text, n: engine.refusal.count }) : text}</p>
   {/if}
-  <div class="body" data-panel={ui.panel} data-browser={ui.browserOpen ? '' : undefined} bind:clientHeight={bodyHeight} style:--panel-row={panelRow}>
+  <div
+    class="body"
+    data-panel={ui.panel}
+    data-browser={ui.browserOpen ? '' : undefined}
+    bind:clientHeight={bodyHeight}
+    style:--panel-row={panelRow}
+    style:--roll-min="{panelMin('piano-roll', ui.rollToolbarExtra)}px"
+  >
     <TrackList />
     {#if ui.browserOpen}<BrowserPanel onclose={closeBrowser} />{/if}
     <main class="main" id="fk-main" tabindex="-1" bind:this={mainArea} aria-label={ui.t(current.label)} data-testid="view" data-view={current.id}>
@@ -400,7 +407,7 @@
   /* The piano roll needs rows to draw in: its panel takes more of the height than the device panel. */
   .body[data-panel='piano-roll'] {
     /* In fr, not %: a percentage track resolves to its content height here and pushes the roll's lane off the screen. */
-    grid-template-rows: minmax(0, 1fr) var(--panel-row, minmax(392px, 1.2fr));
+    grid-template-rows: minmax(0, 1fr) var(--panel-row, minmax(var(--roll-min, 392px), 1.2fr));
   }
   /* The device browser (#190) is a column of its own between the track list and the views, over both rows. */
   .body[data-browser] {
