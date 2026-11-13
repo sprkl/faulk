@@ -106,6 +106,8 @@ export const arrangement = defineFeature(
     'arrangement.saidCreated': 'Clip created, bar {bar}',
     'arrangement.saidNoRoom': 'No room for a one-bar clip here',
     'arrangement.saidNotMidi': 'Clips are created on MIDI tracks',
+    'arrangement.saidNoRoomAt': 'No room for a clip at bar {bar}: a clip is there already',
+    'arrangement.saidClipAtHead': 'Clip created, {track}, bar {bar}',
   },
   {
     'arrangement.empty': 'Ajoute une piste pour commencer à arranger.',
@@ -210,5 +212,7 @@ export const arrangement = defineFeature(
     'arrangement.saidCreated': 'Clip créé, mesure {bar}',
     'arrangement.saidNoRoom': 'Pas de place pour un clip d’une mesure ici',
     'arrangement.saidNotMidi': 'Les clips se créent sur les pistes MIDI',
+    'arrangement.saidNoRoomAt': 'Pas de place pour un clip à la mesure {bar} : il y a déjà un clip',
+    'arrangement.saidClipAtHead': 'Clip créé, {track}, mesure {bar}',
   },
 )

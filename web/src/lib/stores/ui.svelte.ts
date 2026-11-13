@@ -97,6 +97,8 @@ export class UiStore {
   scaleOpen = $state(false)
   /** The "Go to" field (#554) is open: a bar, or a bar and a beat, to put the playhead on. Page state, not project state. */
   gotoOpen = $state(false)
+  /** Where the last "Go to" put the playhead (#852): the arrangement's free cursor follows it. `n` tells two jumps to one tick apart. */
+  gotoTarget = $state.raw<{ tick: number; n: number } | null>(null)
   /** The device browser (#190) is open: a column beside the track list. Page state, not project state, not kept. */
   browserOpen = $state(false)
   /** Bumped when the browser is asked for (its key): it takes the focus on its search field. */
