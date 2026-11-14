@@ -23,8 +23,8 @@ export default {
   },
   tested: [
     {
-      en: 'Step entry in the piano roll (#886): all 391 notes, about 745 keystrokes for 321 melodic notes, against about 1,090 actions for 328 the day before',
-      fr: 'La saisie pas à pas dans le piano roll (#886) : les 391 notes, environ 745 frappes pour 321 notes mélodiques, contre environ 1 090 actions pour 328 la veille',
+      en: 'Step entry in the piano roll (#886): all 391 notes, about 745 keystrokes for 331 melodic notes, against about 1,090 actions for 328 the day before',
+      fr: 'La saisie pas à pas dans le piano roll (#886) : les 391 notes, environ 745 frappes pour 331 notes mélodiques, contre environ 1 090 actions pour 328 la veille',
     },
     {
       en: 'Automation curve shapes (#885): the four shapes set from the ramp dialog; on the logarithmic cutoff the lane read 699 Hz where 698 were expected',
