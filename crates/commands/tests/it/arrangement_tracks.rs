@@ -756,6 +756,7 @@ fn a_resize_that_grows_into_a_neighbour_carves_it_by_default_and_refuses_on_requ
         edge: arrangement::Edge::End,
         to: Tick(5000),
         if_occupied: how,
+        clip_length: None,
     };
     refused_when_it_carves(
         &f.state,
@@ -786,6 +787,7 @@ fn a_resize_that_grows_into_a_neighbour_carves_it_by_default_and_refuses_on_requ
         edge: arrangement::Edge::End,
         to: Tick(1000),
         if_occupied: arrangement::IfOccupied::Refuse,
+        clip_length: None,
     };
     run(&a(shrink), &mut shrunk, &mut fresh_context()).unwrap();
     assert_ne!(shrunk, f.state);
@@ -870,6 +872,7 @@ fn only_a_move_to_another_track_can_skip() {
             edge: arrangement::Edge::End,
             to: Tick(1000),
             if_occupied: skip,
+            clip_length: None,
         },
     ];
     for command in commands {

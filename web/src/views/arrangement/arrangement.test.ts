@@ -27,6 +27,7 @@ import {
   rowAt,
   passesOf,
   passCount,
+  followsPlacement,
   markerJump,
   openingView,
   wholeSongView,
@@ -390,6 +391,16 @@ describe('split', () => {
     const late = { ...looped, offset: 2400, end: 2880, length: 2880 }
     expect(passesOf(late)[0]).toEqual({ at: 0, from: 480 + ((2400 - 1920) % 1440) })
     expect(passCount(late)).toBe(3)
+  })
+
+  it('knows which clips follow the length of their placement (#898)', () => {
+    const empty = { ...short, notes: [], looping: null, offset: 0, uses: 1, audio: null }
+    expect(followsPlacement(empty)).toBe(true)
+    expect(followsPlacement({ ...empty, notes: [{ start: 0, length: 480, pitch: 60, velocity: 100 } as Block['notes'][number]] })).toBe(false)
+    expect(followsPlacement({ ...empty, audio: {} as NonNullable<Block['audio']> })).toBe(false)
+    expect(followsPlacement({ ...empty, uses: 2 })).toBe(false)
+    expect(followsPlacement({ ...empty, offset: 480 })).toBe(false)
+    expect(followsPlacement({ ...empty, looping: { start: 0, end: 480 } })).toBe(false)
   })
 
   it('finds the clip position round the clip or its loop', () => {
