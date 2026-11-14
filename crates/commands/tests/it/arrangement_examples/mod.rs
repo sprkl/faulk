@@ -180,12 +180,14 @@ pub fn examples() -> Vec<(Command, State)> {
             edge: Edge::End,
             to: Tick(5000),
             if_occupied: Default::default(),
+            clip_length: None,
         }),
         on(arrangement::Command::Resize {
             placement: f.b.clone(),
             edge: Edge::Start,
             to: Tick(4800),
             if_occupied: Default::default(),
+            clip_length: None,
         }),
         on(arrangement::Command::Split {
             placement: f.c.clone(),
@@ -435,12 +437,14 @@ pub fn examples() -> Vec<(Command, State)> {
             edge: Edge::End,
             to: Tick(4320),
             if_occupied: Default::default(),
+            clip_length: None,
         },
         arrangement::Command::Resize {
             placement: audio.clone(),
             edge: Edge::Start,
             to: Tick(3600),
             if_occupied: Default::default(),
+            clip_length: None,
         },
         arrangement::Command::Split {
             placement: audio.clone(),

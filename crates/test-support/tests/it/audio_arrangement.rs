@@ -175,6 +175,7 @@ fn audio_placements_that_follow_in_time_but_not_in_the_file_crossfade() {
         edge: arrangement::Edge::Start,
         to: project::Tick(1_440),
         if_occupied: Default::default(),
+        clip_length: None,
     }));
     s.run(Command::Arrangement(arrangement::Command::Move {
         placements: vec![right],
@@ -242,6 +243,7 @@ fn an_audio_placement_trimmed_at_the_start_plays_from_where_the_cut_fell() {
         edge: arrangement::Edge::Start,
         to: project::Tick(960),
         if_occupied: Default::default(),
+        clip_length: None,
     }));
     let resized = play(&mut trimmed);
     resized.assert_silent(0.52..0.98);

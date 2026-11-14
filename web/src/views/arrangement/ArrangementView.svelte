@@ -89,6 +89,7 @@
     clampRows,
     trackTargets,
     passCount,
+    followsPlacement,
     markerJump,
     openingView,
     wholeSongView,
@@ -1869,7 +1870,8 @@
     // A linked clip and a repeated content are said (#473), as they are drawn.
     if (b.uses > 1) parts.push(t('arrangement.clipLinked'))
     const passes = b.audio ? 1 : passCount(b)
-    if (passes > 1) parts.push(t('arrangement.clipPasses', { n: passes }))
+    // An empty clip has no content to play again (#898): its placement is its length.
+    if (passes > 1 && b.notes.length > 0) parts.push(t('arrangement.clipPasses', { n: passes }))
     if (selectedIds.has(b.id)) parts.push(t('arrangement.clipSelected'))
     return parts.join(', ')
   }
@@ -2005,11 +2007,20 @@
           if (inTheWay) return announce(t('arrangement.saidResizeBlocked', blockerVars(inTheWay)))
         }
         // The core can still refuse one (an audio end stops at its clip's last frame): then all of them stay as they were (#867).
+        // Whether the focused clip (or the first) takes its placement's length with it, decided before the resize (#898).
+        const wasEmpty = (() => {
+          const e = ends.find((x) => x.id === current.id) ?? ends[0]!
+          const b = blocks.find((x) => x.id === e.id)
+          return !!b && followsPlacement(b)
+        })()
         const done = inGroup(ends.map((e) => resizePlacement(e.id, 'end', e.to, 'refuse')))
         if (!done.ok) return announce(t(done.rolledBack ? 'arrangement.saidNoneResized' : 'arrangement.saidResizePartial'))
         // The length of the focused clip when it moved, else of the first that did.
         const said = blocks.find((b) => b.id === (ends.some((e) => e.id === current.id) ? current.id : ends[0]!.id))
-        if (said) announce(lengthText(t, signature, said.length))
+        if (said) {
+          const length = lengthText(t, signature, said.length)
+          announce(wasEmpty ? t('arrangement.saidLengthWithClip', { length }) : length)
+        }
         void focusItem(current.id)
         return
       }

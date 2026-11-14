@@ -426,6 +426,14 @@ export function passesOf(block: Block, max = 256, after = block.start): { at: nu
   return out
 }
 
+/**
+ * Whether the clip follows the length of its placement (#898): a MIDI clip with no note and no loop, played from its
+ * start by this placement alone (no other placement, no launch slot). The core decides the same way in `arrangement.resize`.
+ */
+export function followsPlacement(block: Block): boolean {
+  return !block.audio && block.notes.length === 0 && block.looping === null && block.uses === 1 && block.offset === 0
+}
+
 /** How many passes a block plays (the first one counted even when partial), without walking them. */
 export function passCount(block: Block): number {
   const { start, end } = cycleOf(block)
