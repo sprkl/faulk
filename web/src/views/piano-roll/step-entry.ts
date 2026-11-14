@@ -7,7 +7,7 @@
  * - the letters of musical typing write a note at the cursor, of the toolbar's length; the cursor advances by that
  *   length when the last letter held is released, so letters held together are a chord on one step;
  * - Period (".") is a rest: the cursor advances, nothing is written;
- * - Comma (",") lengthens the last step by one drawing step (a rest included) and puts the cursor at its end;
+ * - Comma (",") lengthens the last step by the toolbar's note length, whatever the snap (a rest included) and puts the cursor at its end;
  * - Backspace removes the last step's note(s) and puts the cursor back where the step began.
  */
 import type { Note } from '../../lib/generated/protocol'
@@ -51,7 +51,7 @@ export function advanceTo(end: number, clipLength: number): number | null {
   return end < clipLength ? end : null
 }
 
-/** The lengthen key's result: the last step grown by one unit. */
+/** The lengthen key's result: the last step grown by one unit (the note length the toolbar chose, so the cursor stays on that grid). */
 export interface Lengthened {
   /** The notes to update (none for a rest, or when the clip's end leaves no room). */
   changes: Change[]
