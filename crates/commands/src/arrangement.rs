@@ -338,7 +338,13 @@ domain! {
     /// frames being whole). The resized placement wins on overlap (the others it now covers are carved,
     /// `overwritten` counts them); with `if_occupied: "refuse"` (default `replace`) the
     /// command is refused, and nothing changes, when it would carve another (`skip` is
-    /// refused). Moving the edge where it is changes nothing. Undo: `arrangement.restore`.
+    /// refused). Moving the edge where it is changes nothing, except that an empty clip
+    /// that is not as long as its placement is brought to it (see below). A MIDI clip with no note and no
+    /// loop, in no launch slot and played by this placement alone takes the new length with the
+    /// placement when the end moves (the placement and the clip change together, #898); a clip
+    /// with notes or several placements is left alone: the placement loops or cuts its content.
+    /// Undo: `arrangement.restore`; for a clip that followed, a resize that gives the placement
+    /// and the clip their lengths back.
     "arrangement.resize" (kind = "edit", undo = "inverse", destructive = false)
     Resize {
         placement: PlacementId,
@@ -346,6 +352,11 @@ domain! {
         to: Tick,
         #[serde(default, skip_serializing_if = "IfOccupied::is_replace")]
         if_occupied: IfOccupied,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        // Internal: the length an undo gives back to the clip that followed its placement, not in
+        // the schema (agents never see it).
+        #[schemars(skip)]
+        clip_length: Option<Tick>,
     } => {
         /// How many other placements were carved.
         overwritten: u32,
@@ -1525,9 +1536,18 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             edge,
             to,
             if_occupied,
+            clip_length,
         } => {
             no_skip(*if_occupied, "a resize has no other place to go")?;
-            resize(state, ctx, placement, *edge, *to, *if_occupied)
+            resize(
+                state,
+                ctx,
+                placement,
+                *edge,
+                *to,
+                *if_occupied,
+                *clip_length,
+            )
         }
         Command::Split { placement, at } => split(state, ctx, placement, *at),
         Command::Delete { placements } => delete(state, placements),
@@ -2130,6 +2150,30 @@ fn skip_occupied(
     }
 }
 
+/// Whether the clip follows the length of its placement: a MIDI clip with no note and no loop, in no
+/// launch slot, that this placement alone plays from its start (offset 0, #898).
+fn follows_placement(
+    project: &Project,
+    track: &TrackId,
+    placement: &PlacementId,
+    clip: &ClipId,
+) -> bool {
+    let Some(track) = project.tracks.get(track) else {
+        return false;
+    };
+    let Some(c) = track.clips.get(clip) else {
+        return false;
+    };
+    let empty = midi_ref(c).is_ok_and(|(_, looping, notes)| looping.is_none() && notes.is_empty());
+    empty
+        && c.slot.is_none()
+        && track.placements.iter().all(|(id, p)| {
+            p.clip != *clip
+                || (id == placement
+                    && matches!(p.span, Span::Ticks { offset, .. } if offset.get() == 0))
+        })
+}
+
 fn resize(
     state: &mut State,
     ctx: &mut Context,
@@ -2137,6 +2181,7 @@ fn resize(
     edge: Edge,
     to: Tick,
     if_occupied: IfOccupied,
+    clip_length: Option<Tick>,
 ) -> Result<Out, CommandError> {
     let project = &state.project;
     let track_id = track_of(project, id)?;
@@ -2146,6 +2191,12 @@ fn resize(
         .remove(id)
         .ok_or_else(|| not_found("placement", id))?;
     if let Span::Frames { .. } = p.span {
+        if clip_length.is_some() {
+            return Err(invalid(
+                "clip_length",
+                "an audio clip has no length in ticks",
+            ));
+        }
         let resized = resize_audio(&work, &p, edge, to.get())?;
         let (s, e) = work.checked_span(&resized, "to")?;
         let overwritten = work.carve(&mut ctx.ids, s, e)?;
@@ -2196,6 +2247,69 @@ fn resize(
     check_extent(new_start, new_length, "to")?;
     let overwritten = work.carve(&mut ctx.ids, new_start, new_start + new_length)?;
     refuse_if_carved(if_occupied, overwritten)?;
+    if clip_length.is_some() && (edge != Edge::End || overwritten != 0) {
+        return Err(invalid(
+            "clip_length",
+            "a clip length goes with the end of a placement that carves no other",
+        ));
+    }
+    let clip_target = match clip_length {
+        Some(given) => Some(given),
+        None => (edge == Edge::End && follows_placement(project, &track_id, id, &p.clip))
+            .then_some(Tick(new_length)),
+    };
+    if let (Some(target), 0) = (clip_target, overwritten) {
+        // An empty clip placed once takes the length of its placement (#898): the clip and the
+        // placement change together, and the inverse is one resize that gives both back.
+        crate::clip::check_length(target, "clip_length")?;
+        let track = state
+            .project
+            .tracks
+            .get_mut(&track_id)
+            .ok_or_else(|| not_found("track", &track_id))?;
+        let clip = track
+            .clips
+            .get_mut(&p.clip)
+            .ok_or_else(|| not_found("clip", &p.clip))?;
+        // Only an empty clip takes a length without trimming: a given length is refused on any other.
+        if clip_length.is_some()
+            && !midi_ref(clip)
+                .is_ok_and(|(_, looping, notes)| looping.is_none() && notes.is_empty())
+        {
+            return Err(invalid("clip_length", "the clip has notes or a loop"));
+        }
+        let ClipContent::Midi { length: held, .. } = &mut clip.content else {
+            return Err(invalid(
+                "clip_length",
+                "an audio clip has no length in ticks",
+            ));
+        };
+        let previous = *held;
+        *held = target;
+        if let Some(Span::Ticks { length: l, .. }) =
+            track.placements.get_mut(id).map(|q| &mut q.span)
+        {
+            *l = Tick(new_length);
+        }
+        return Ok(Outcome {
+            output: Output::Resize { overwritten: 0 },
+            undo: Undo::Inverse(Box::new(Command::Resize {
+                placement: id.clone(),
+                edge: Edge::End,
+                to: Tick(start + length),
+                if_occupied: IfOccupied::Refuse,
+                clip_length: Some(previous),
+            })),
+            events: vec![
+                ProjectEvent::ClipChanged {
+                    clip: p.clip.clone(),
+                    part: crate::contract::ClipPart::Length,
+                },
+                ProjectEvent::ArrangementChanged { track: track_id },
+            ],
+            control: vec![],
+        });
+    }
     work.put(id.clone(), &p.clip, new_start, new_length, new_offset);
     commit(state, BTreeMap::from([(track_id, work)]), || {
         Output::Resize { overwritten }

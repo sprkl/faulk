@@ -473,6 +473,7 @@ fn resizing_the_end_and_the_start_keeps_the_content_where_it_is() {
                 edge,
                 to: Tick(to),
                 if_occupied: Default::default(),
+                clip_length: None,
             },
         );
         spans(&s, &f.track)
@@ -506,6 +507,7 @@ fn resizing_the_end_and_the_start_keeps_the_content_where_it_is() {
             edge: Edge::End,
             to: Tick(3840),
             if_occupied: Default::default(),
+            clip_length: None,
         }),
         &mut state,
         &mut context(),
@@ -1071,18 +1073,21 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
         edge: Edge::End,
         to: Tick(0),
         if_occupied: Default::default(),
+        clip_length: None,
     });
     invalid(C::Resize {
         placement: f.a.clone(),
         edge: Edge::Start,
         to: Tick(3840),
         if_occupied: Default::default(),
+        clip_length: None,
     });
     invalid(C::Resize {
         placement: f.a.clone(),
         edge: Edge::End,
         to: Tick(1 << 41),
         if_occupied: Default::default(),
+        clip_length: None,
     });
     // B starts 960 into the clip: its start can go left by 960 but not 961.
     invalid(C::Resize {
@@ -1090,6 +1095,7 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
         edge: Edge::Start,
         to: Tick(3840 - 961),
         if_occupied: Default::default(),
+        clip_length: None,
     });
     // C's clip has no loop: it repeats (#473), so its start may go past the clip's end and a
     // split there resumes round the clip (both accepted, see the carve tests).
@@ -1193,6 +1199,7 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
             edge: Edge::End,
             to: Tick(10),
             if_occupied: Default::default(),
+            clip_length: None,
         },
         C::Split {
             placement: unknown.clone(),
@@ -1211,12 +1218,14 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
             edge: Edge::Start,
             to: Tick(to),
             if_occupied: Default::default(),
+            clip_length: None,
         });
         invalid(C::Resize {
             placement: f.b.clone(),
             edge: Edge::End,
             to: Tick(to),
             if_occupied: Default::default(),
+            clip_length: None,
         });
     }
     // Restore: an identifier in use (a placement of another track would do the same).
@@ -1908,6 +1917,7 @@ fn random_edits_keep_the_project_valid_overlap_free_and_exactly_undoable() {
                 },
                 to: tick(&mut rng),
                 if_occupied: Default::default(),
+                clip_length: None,
             },
             3 if !ids.is_empty() => arrangement::Command::Split {
                 placement: pick(&mut rng),
@@ -2140,4 +2150,241 @@ fn an_audio_restore_never_overlaps_audio_placements() {
         &mut fresh_context(),
     )
     .unwrap();
+}
+
+/// The length of a MIDI clip.
+fn clip_length(state: &State, track: &TrackId, clip: &ClipId) -> i64 {
+    match &state.project.tracks[track].clips[clip].content {
+        ::project::ClipContent::Midi { length, .. } => length.get(),
+        ::project::ClipContent::Audio { .. } => panic!("audio"),
+    }
+}
+
+/// Makes a MIDI clip empty: no note, no loop.
+fn empty_clip(state: &mut State, track: &TrackId, clip: &ClipId) {
+    let content = &mut state
+        .project
+        .tracks
+        .get_mut(track)
+        .unwrap()
+        .clips
+        .get_mut(clip)
+        .unwrap()
+        .content;
+    if let ::project::ClipContent::Midi { looping, notes, .. } = content {
+        *looping = None;
+        notes.clear();
+    }
+}
+
+/// The fixture with `straight` empty and placed once (by `c`).
+fn emptied() -> ArFx {
+    let mut f = fx();
+    let (track, clip) = (f.track.clone(), f.straight.clone());
+    empty_clip(&mut f.state, &track, &clip);
+    // An empty clip is placed from its start.
+    if let Some(Span::Ticks { offset, .. }) = f
+        .state
+        .project
+        .tracks
+        .get_mut(&track)
+        .unwrap()
+        .placements
+        .get_mut(&f.c)
+        .map(|p| &mut p.span)
+    {
+        *offset = Tick(0);
+    }
+    f.state.project.validate().unwrap();
+    f
+}
+
+fn resize_end(placement: &PlacementId, to: i64) -> arrangement::Command {
+    arrangement::Command::Resize {
+        placement: placement.clone(),
+        edge: Edge::End,
+        to: Tick(to),
+        if_occupied: Default::default(),
+        clip_length: None,
+    }
+}
+
+#[test]
+fn an_empty_clip_placed_once_follows_its_placement_and_one_undo_gives_both_back() {
+    let f = emptied();
+    for to in [9000, 8000, 7681] {
+        let mut state = f.state.clone();
+        let before = state.project.clone();
+        let mut ctx = fresh_context();
+        let outcome = run(&a(resize_end(&f.c, to)), &mut state, &mut ctx).unwrap();
+        state.project.validate().unwrap();
+        let length = to - 7680;
+        assert_eq!(clip_length(&state, &f.track, &f.straight), length);
+        assert!(spans(&state, &f.track).contains(&(7680, length, 0)));
+        assert!(
+            outcome
+                .events
+                .iter()
+                .any(|e| matches!(e, ProjectEvent::ClipChanged { .. }))
+        );
+        let Undo::Inverse(inverse) = outcome.undo else {
+            panic!("undoable")
+        };
+        let redo = inverse.apply(&mut state, &mut ctx).unwrap();
+        assert_eq!(
+            state.project, before,
+            "one undo gives the clip and the placement back"
+        );
+        let Undo::Inverse(again) = redo.undo else {
+            panic!("redoable")
+        };
+        again.apply(&mut state, &mut ctx).unwrap();
+        assert_eq!(clip_length(&state, &f.track, &f.straight), length);
+        assert!(spans(&state, &f.track).contains(&(7680, length, 0)));
+    }
+}
+
+#[test]
+fn a_clip_with_notes_or_several_placements_or_a_loop_keeps_the_old_behaviour() {
+    // Notes: the placement grows, the clip does not.
+    let f = fx();
+    let mut state = f.state.clone();
+    ok(&mut state, resize_end(&f.c, 9000));
+    assert_eq!(clip_length(&state, &f.track, &f.straight), 3840);
+    // Two placements (`a` and `b` play `looped`), the clip emptied: still not followed.
+    let mut state = f.state.clone();
+    empty_clip(&mut state, &f.track, &f.looped);
+    ok(&mut state, resize_end(&f.a, 3000));
+    assert_eq!(clip_length(&state, &f.track, &f.looped), 3840);
+    // A loop on an empty clip: not followed.
+    let mut state = emptied().state;
+    if let ::project::ClipContent::Midi { looping, .. } = &mut state
+        .project
+        .tracks
+        .get_mut(&f.track)
+        .unwrap()
+        .clips
+        .get_mut(&f.straight)
+        .unwrap()
+        .content
+    {
+        *looping = Some(::project::TickLoop {
+            start: Tick(0),
+            end: Tick(480),
+        });
+    }
+    ok(&mut state, resize_end(&f.c, 9000));
+    assert_eq!(clip_length(&state, &f.track, &f.straight), 3840);
+}
+
+#[test]
+fn an_empty_clip_that_would_carve_another_placement_does_not_follow() {
+    let f = emptied();
+    let mut state = f.state.clone();
+    let other = PlacementId::generate(&mut ::project::IdGenerator::new(1_671_000_000_000, 7));
+    state
+        .project
+        .tracks
+        .get_mut(&f.track)
+        .unwrap()
+        .placements
+        .insert(
+            other,
+            Placement {
+                clip: f.looped.clone(),
+                start: Tick(12000),
+                span: Span::Ticks {
+                    length: Tick(960),
+                    offset: Tick(0),
+                },
+            },
+        );
+    ok(&mut state, resize_end(&f.c, 12500));
+    assert_eq!(clip_length(&state, &f.track, &f.straight), 3840);
+}
+
+#[test]
+fn a_given_clip_length_is_refused_on_a_clip_with_notes() {
+    let f = fx();
+    let mut command = resize_end(&f.c, 9000);
+    if let arrangement::Command::Resize { clip_length, .. } = &mut command {
+        *clip_length = Some(Tick(1));
+    }
+    refused(&f, command);
+}
+
+#[test]
+fn a_given_clip_length_goes_only_with_an_end_that_carves_nothing() {
+    let f = emptied();
+    let with = |edge, to| {
+        let mut command = resize_end(&f.c, to);
+        if let arrangement::Command::Resize {
+            clip_length,
+            edge: e,
+            ..
+        } = &mut command
+        {
+            *clip_length = Some(Tick(480));
+            *e = edge;
+        }
+        command
+    };
+    refused(&f, with(Edge::Start, 8000));
+    // The end over a placement after it would carve it: refused, nothing changes.
+    let mut carving = f.state.clone();
+    let other = PlacementId::generate(&mut ::project::IdGenerator::new(1_672_000_000_000, 9));
+    carving
+        .project
+        .tracks
+        .get_mut(&f.track)
+        .unwrap()
+        .placements
+        .insert(
+            other,
+            Placement {
+                clip: f.looped.clone(),
+                start: Tick(12000),
+                span: Span::Ticks {
+                    length: Tick(960),
+                    offset: Tick(0),
+                },
+            },
+        );
+    let err = check_refusal(&a(with(Edge::End, 12500)), &carving, &context());
+    assert!(err.is_ok());
+    // A clip with a loop is refused too.
+    let mut looping = f.state.clone();
+    if let ::project::ClipContent::Midi { looping: l, .. } = &mut looping
+        .project
+        .tracks
+        .get_mut(&f.track)
+        .unwrap()
+        .clips
+        .get_mut(&f.straight)
+        .unwrap()
+        .content
+    {
+        *l = Some(::project::TickLoop {
+            start: Tick(0),
+            end: Tick(480),
+        });
+    }
+    assert!(check_refusal(&a(with(Edge::End, 9000)), &looping, &context()).is_ok());
+}
+
+#[test]
+fn the_start_edge_of_an_empty_clip_leaves_the_clip_alone() {
+    let f = emptied();
+    let mut state = f.state.clone();
+    ok(
+        &mut state,
+        arrangement::Command::Resize {
+            placement: f.c.clone(),
+            edge: Edge::Start,
+            to: Tick(8000),
+            if_occupied: Default::default(),
+            clip_length: None,
+        },
+    );
+    assert_eq!(clip_length(&state, &f.track, &f.straight), 3840);
 }

@@ -149,6 +149,7 @@ fn a_stretched_one_shot_of_a_format_1_song_still_plays_once() {
         edge: arrangement::Edge::End,
         to: Tick(15360),
         if_occupied: Default::default(),
+        clip_length: None,
     }));
     let mut fs = project::file::MemFs::new();
     project::file::save(
