@@ -24,6 +24,30 @@ function body(project: ProjectView | null, lang: 'en' | 'fr' = 'en') {
   return render(PianoRollView, { context: storesContext(stores) }).body
 }
 
+describe('the mode indicator beside the note counter (#899)', () => {
+  const withClip = (mutate: (ui: ReturnType<typeof createStores>['ui']) => void, lang: 'en' | 'fr' = 'en', started = true) => {
+    const stores = createStores('arrangement', 'piano-roll')
+    stores.ui.lang = lang
+    stores.engine.started = started
+    mutate(stores.ui)
+    stores.project.show(view('midi', { c1: midiClip('A') }))
+    return render(PianoRollView, { context: storesContext(stores) }).body
+  }
+
+  it('says the letters play, write or do nothing', () => {
+    expect(withClip(() => {})).toMatch(/data-testid="roll-letters" data-mode="play"[^>]*>Letters play</)
+    expect(withClip((ui) => (ui.stepEntry = true))).toMatch(/data-mode="write"[^>]*>Letters write</)
+    expect(withClip((ui) => (ui.typing = 'shortcuts'))).toMatch(/data-mode="off"[^>]*>Letters off</)
+    // Audio not started: the letters play nothing, and the roll does not say they play; step entry writes without it.
+    expect(withClip(() => {}, 'en', false)).toMatch(/data-mode="mute"[^>]*>Audio off</)
+    expect(withClip((ui) => (ui.stepEntry = true), 'en', false)).toMatch(/data-mode="write"/)
+  })
+
+  it('is translated', () => {
+    expect(withClip((ui) => (ui.stepEntry = true), 'fr')).toContain('Les lettres écrivent')
+  })
+})
+
 describe('what the piano roll shows before it has a clip to edit', () => {
   it('asks for a MIDI track when none is selected, in the page language', () => {
     expect(body(null)).toContain('Select a MIDI track to edit its notes.')

@@ -485,8 +485,11 @@
 
   onDestroy(() => {
     ui.remember('piano-roll', { clip: openedFor, view, scrollY })
-    // The letters play again once the roll is gone (#882).
-    ui.stepEntry = false
+    // The letters play again once the roll is gone (#882): said where the page listens, as this roll no longer does (#899).
+    if (ui.stepEntry) {
+      ui.stepEntry = false
+      ui.announceHistory(t('pianoRoll.saidStepStopped'))
+    }
     sound(null)
   })
 
@@ -721,6 +724,8 @@
   let focusKey = $state<string | null>(null)
   let itemsEl: HTMLDivElement | undefined = $state()
   let said = $state({ text: '', n: 0 })
+  /** The stop of step entry for lack of a clip (#899): said outside the roll's own region, which goes with the clip. */
+  let stopSaid = $state({ text: '', n: 0, track: null as string | null })
   function announce(text: string) {
     // The same words twice are still a new message: an invisible space every other time changes the text.
     said = { text: said.n % 2 === 0 ? `${text}\u200b` : text, n: said.n + 1 }
@@ -820,19 +825,42 @@
       layout,
     ),
   )
+  /** What the letters do now, shown beside the note counter (#899): write notes (step entry), play them, or nothing (musical typing off). */
+  const lettersMode = $derived<'write' | 'play' | 'mute' | 'off'>(ui.typing !== 'notes' ? 'off' : ui.stepEntry ? 'write' : engine.started ? 'play' : 'mute')
   const cursorText = $derived.by(() => {
     return t('pianoRoll.cursorItem', { pitch: keyNames?.get(cursorPos.pitch) ?? pitchName(cursorPos.pitch), ...barBeat(cursorPos.tick, PPQ, bar / PPQ) })
   })
   // Another clip: the cursor starts again where the view looks, and the notes have the tab stop again.
-  // The mode ends with the clip it writes into (no clip, an audio track): the letters play again.
+  // The mode is global like musical typing (#899): it goes on from clip to clip, on any track. It ends only with the clip it
+  // writes into (no clip, an audio track): the letters play again, and that is said.
   $effect(() => {
-    if (!edited) untrack(() => (ui.stepEntry = false))
+    if (!edited)
+      untrack(() => {
+        if (!ui.stepEntry) return
+        // No clip to write into: nothing to finish (`resetEntry` drops the letters held), no cursor to move.
+        ui.stepEntry = false
+        resetEntry()
+        release()
+        // Said in the empty state's status line, as the roll's own live region goes with its clip.
+        const words = t('pianoRoll.saidStepStopped')
+        stopSaid = { text: stopSaid.n % 2 === 0 ? `${words}${String.fromCharCode(0x200b)}` : words, n: stopSaid.n + 1, track: project.selected?.id ?? null }
+      })
+  })
+  // The stop said in the empty state belongs to the track it was said on: another track makes it old news.
+  const selectedId = $derived(project.selected?.id ?? null)
+  $effect(() => {
+    const id = selectedId
+    untrack(() => {
+      if (stopSaid.text && stopSaid.track !== id) stopSaid = { text: '', n: stopSaid.n, track: null }
+    })
   })
   // The id alone: `edited` is a new object at every edit of its notes, and an edit must not take the cursor away (#882).
   const editedId = $derived(edited?.id ?? null)
   $effect(() => {
     void editedId
     untrack(() => {
+      // A clip is there again: the stop said in the empty state is old news.
+      if (editedId !== null && stopSaid.text) stopSaid = { text: '', n: stopSaid.n, track: null }
       cursorAt = null
       onCursor = false
       resetEntry()
@@ -855,7 +883,7 @@
   // A mode (toolbar button, Alt+E) in which the letters of musical typing write a note at the free cursor, of the toolbar's
   // length, through the same `clip.notes.add` as Enter (one undo per note); the cursor advances when the last letter held
   // is released (letters held together are a chord on one step). Period is a rest, Comma lengthens the last step by a
-  // drawing step, Backspace removes the last step. The pure part is `step-entry.ts`.
+  // the toolbar's note length (#899), Backspace removes the last step. The pure part is `step-entry.ts`.
   /** The steps written since the mode began (or since the cursor was moved by hand), the last one on top. */
   let entrySteps = $state.raw<EntryStep[]>([])
   /** The letters held now, by physical key; the step is complete when the last one is released. */
@@ -982,7 +1010,8 @@
     if (!edited) return
     const steps = liveSteps()
     const before = steps.at(-1)
-    const result = lengthenLast(steps, drawing ?? SIXTEENTH, clipLength)
+    // By the length the toolbar chose (what the cursor advances by), whatever the snap: the cursor stays on that grid (#899).
+    const result = lengthenLast(steps, nextLength, clipLength)
     if (!result || !before) return announce(t('pianoRoll.saidStepNone'))
     const last = result.steps.at(-1)!
     // Nothing grows: the clip ends here.
@@ -1864,10 +1893,14 @@
 <svelte:document onvisibilitychange={silence} />
 
 {#if !track}
-  <p class="empty" data-testid="roll-empty">{t(project.selected ? 'pianoRoll.audioTrack' : 'pianoRoll.noTrack')}</p>
+  <div class="empty" data-testid="roll-empty">
+    <p>{t(project.selected ? 'pianoRoll.audioTrack' : 'pianoRoll.noTrack')}</p>
+    {#if stopSaid.text && stopSaid.track === (project.selected?.id ?? null)}<p role="status" data-testid="roll-stop-said">{stopSaid.text}</p>{/if}
+  </div>
 {:else if !edited}
   <div class="empty" data-testid="roll-empty">
     <p>{t('pianoRoll.noClip')}</p>
+    {#if stopSaid.text && stopSaid.track === (project.selected?.id ?? null)}<p role="status" data-testid="roll-stop-said">{stopSaid.text}</p>{/if}
     <button class="primary" data-testid="roll-create-clip" onclick={() => run(createClipAtStart(track.id))}>{t('pianoRoll.createClip')}</button>
   </div>
 {:else}
@@ -2057,6 +2090,9 @@
         title={withShortcut(t('pianoRoll.stepEntryHint'), ['Alt', 'E'])}
         data-testid="roll-step-entry"
         onclick={() => setStepEntry(!ui.stepEntry)}>{t('pianoRoll.stepEntry')}</button
+      >
+      <span class="mode" data-testid="roll-letters" data-mode={lettersMode} title={t(`pianoRoll.lettersHint.${lettersMode}`)}
+        >{t(`pianoRoll.letters.${lettersMode}`)}</span
       >
       <span class="count" data-testid="roll-count" title={chosenNotes.length > 0 ? t('pianoRoll.selected', { n: chosenNotes.length }) : undefined}
         >{t('pianoRoll.count', { n: notes.length })}</span
@@ -2344,8 +2380,17 @@
     white-space: nowrap;
     pointer-events: none;
   }
-  .count {
+  .mode {
     margin-left: auto;
+    white-space: nowrap;
+    color: var(--fk-text-muted);
+    font-size: 0.85em;
+  }
+  .mode[data-mode='write'] {
+    color: var(--fk-accent, var(--fk-text));
+    font-weight: 600;
+  }
+  .count {
     /* Notes only: the selection is in the title, so that a selection never widens the last line and wraps the toolbar (the grid would move). */
     white-space: nowrap;
     color: var(--fk-text-muted);

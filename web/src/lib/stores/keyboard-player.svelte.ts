@@ -51,7 +51,10 @@ export class KeyboardPlayer {
     this.releaseAll()
     this.ui.typing = this.ui.typing === 'notes' ? 'shortcuts' : 'notes'
     // Letters left to the shortcuts write nothing either: step entry (#882) ends with typing, not left as a mute mode.
-    if (this.ui.typing === 'shortcuts') this.ui.stepEntry = false
+    if (this.ui.typing === 'shortcuts' && this.ui.stepEntry) {
+      this.ui.stepEntry = false
+      this.ui.announceHistory(this.ui.t('keys.stepStopped'))
+    }
   }
 
   keyDown(event: KeyboardEvent) {

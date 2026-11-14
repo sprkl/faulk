@@ -181,6 +181,7 @@ fn resizing_an_audio_edge_works_in_frames_and_stops_at_the_clip() {
         edge,
         to: Tick(to),
         if_occupied: Default::default(),
+        clip_length: None,
     };
     let at = |state: &State| frames_of(state, &f.audio_track, &id);
     // The end: shorter, then longer up to the clip's last frame (and no further).
@@ -736,6 +737,7 @@ fn random_audio_edits_stay_inside_their_clips_overlap_free_and_undo_through_the_
                         },
                         to: tick(&mut rng),
                         if_occupied: Default::default(),
+                        clip_length: None,
                     },
                     3 => arrangement::Command::Split {
                         placement: pick(&mut rng),
@@ -864,6 +866,7 @@ fn an_audio_resize_refuses_to_carve_a_neighbour_when_asked() {
         edge: Edge::End,
         to: Tick(5200),
         if_occupied: how,
+        clip_length: None,
     };
     let mut refused = s.clone();
     let err = run(

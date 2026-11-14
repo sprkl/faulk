@@ -132,6 +132,7 @@ fn song() -> Song {
             edge: arrangement::Edge::End,
             to: Tick(2400),
             if_occupied: Default::default(),
+            clip_length: None,
         }),
         "resize",
     );
@@ -270,6 +271,7 @@ fn a_trimmed_placement_plays_the_clip_from_the_offset_the_command_computed() {
         edge: arrangement::Edge::Start,
         to: Tick(960),
         if_occupied: Default::default(),
+        clip_length: None,
     }));
     assert_in_sync(s, "resize of the start");
     s.run(Command::Transport(commands::transport::Command::Play {}));
@@ -291,6 +293,7 @@ fn a_stretched_clip_without_a_loop_repeats_its_content_in_both_builds() {
         edge: arrangement::Edge::End,
         to: Tick(7680),
         if_occupied: Default::default(),
+        clip_length: None,
     }));
     assert_in_sync(s, "stretch");
     s.run(Command::Transport(commands::transport::Command::Play {}));

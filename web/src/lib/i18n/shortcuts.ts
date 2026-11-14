@@ -83,9 +83,10 @@ export const shortcuts = defineFeature(
     'shortcut.noteCursorEnds': 'Move the free cursor to the start or the end of the clip',
     'shortcut.noteCursorBar': 'Move the free cursor by a bar, whatever the snap',
     'shortcut.noteVelocity': 'Change the velocity of the selection by 10 (Shift: by 1)',
-    'shortcut.stepEntry': 'Step entry on or off: the letters of musical typing then write notes at the free cursor instead of playing',
+    'shortcut.stepEntry':
+      'Step entry on or off: the letters of musical typing then write notes at the free cursor instead of playing, from clip to clip until it is switched off',
     'shortcut.stepRest': 'In step entry: a rest, the cursor moves on without writing (Period)',
-    'shortcut.stepLengthen': 'In step entry: lengthen the last step by the drawing step (Comma)',
+    'shortcut.stepLengthen': 'In step entry: lengthen the last step by the note length chosen in the toolbar, whatever the snap (Comma)',
     'shortcut.stepBack': 'In step entry: remove the last step written and put the cursor back (instead of removing the selection)',
     'shortcut.gridMove': 'Move between cells',
     'shortcut.gridCopy': 'Copy a clip, then paste it into an empty cell',
@@ -187,9 +188,11 @@ export const shortcuts = defineFeature(
     'shortcut.noteCursorEnds': 'Amener le curseur libre au début ou à la fin du clip',
     'shortcut.noteCursorBar': 'Déplacer le curseur libre d’une mesure, quel que soit le magnétisme',
     'shortcut.noteVelocity': 'Changer la vélocité de la sélection de 10 (Maj : de 1)',
-    'shortcut.stepEntry': 'Saisie pas à pas activée ou non : les lettres de la saisie musicale écrivent alors des notes au curseur libre au lieu de jouer',
+    'shortcut.stepEntry':
+      'Saisie pas à pas activée ou non : les lettres de la saisie musicale écrivent alors des notes au curseur libre au lieu de jouer, d’un clip à l’autre jusqu’à ce qu’on l’arrête',
     'shortcut.stepRest': 'En saisie pas à pas : un silence, le curseur avance sans rien écrire (point)',
-    'shortcut.stepLengthen': 'En saisie pas à pas : allonger le dernier pas du pas de dessin (virgule)',
+    'shortcut.stepLengthen':
+      'En saisie pas à pas : allonger le dernier pas de la longueur de note choisie dans la barre d’outils, quel que soit le magnétisme (virgule)',
     'shortcut.stepBack': 'En saisie pas à pas : supprimer le dernier pas écrit et ramener le curseur (au lieu de supprimer la sélection)',
     'shortcut.gridMove': 'Passer d’une cellule à l’autre',
     'shortcut.gridCopy': 'Copier un clip, puis le coller dans une cellule vide',

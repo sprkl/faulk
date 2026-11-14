@@ -77,7 +77,7 @@ test('step entry: a phrase, a chord, a rest, a longer step and Backspace, one un
   const after = (await sorted(page)).find((n) => n.start === 6 * unit)!
   expect(after.pitch).toBe(72)
 
-  // Lengthen: the last note grows by one drawing step and the cursor goes to its end.
+  // Lengthen: the last note grows by the toolbar's note length and the cursor goes to its end.
   await page.keyboard.press('Comma')
   await expect.poll(async () => (await sorted(page)).find((n) => n.start === 6 * unit)!.length).toBeGreaterThan(unit)
   const longer = (await sorted(page)).find((n) => n.start === 6 * unit)!
@@ -151,5 +151,88 @@ test('step entry: rests reach the end of the clip and say so, and a cursor moved
   await expect(said(page)).toContainText(/End of the clip|Fin du clip/)
   await page.keyboard.press('KeyA')
   await expect(roll(page)).toHaveAttribute('data-note-count', '1')
+  expect(seen.errors.filter((e) => !/helper|WebSocket|ERR_CONNECTION/i.test(e))).toEqual([])
+})
+
+// #899: the mode is global like musical typing, shown beside the note counter, and Comma lengthens by the toolbar's length.
+test('step entry: stays on from clip to clip and says when it stops, and the indicator shows whether letters write or play', async ({ page }) => {
+  const seen = watch(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/app')
+  await page.getByTestId('engine-state').getByRole('button', { name: 'Start audio' }).click()
+  await engineUp(page, 'Web')
+  await page.getByTestId('nav-arrangement').click()
+  await page.getByTestId('add-track').click()
+  await page.getByTestId('add-track-menu').getByRole('menuitem', { name: 'Drums', exact: true }).click()
+  await expect(page.getByTestId('arr-track')).toHaveCount(2)
+  await page.getByTestId('arr-track').first().click()
+  await page.getByTestId('panel-piano-roll').click()
+  await page.getByTestId('roll-create-clip').click()
+  const button = page.getByTestId('roll-step-entry')
+  const letters = page.getByTestId('roll-letters')
+  await expect(letters).toHaveAttribute('data-mode', 'play')
+  await expect(letters).toHaveText(/Letters play|Les lettres jouent/)
+  await button.click()
+  await expect(letters).toHaveAttribute('data-mode', 'write')
+  await expect(letters).toHaveText(/Letters write|Les lettres écrivent/)
+
+  // A track with no clip: the roll has none to write into, the mode stops, and the page says so.
+  await page.getByTestId('arr-track').nth(1).click()
+  await expect(page.getByTestId('roll-stop-said')).toContainText(/Step entry off|Saisie pas à pas désactivée/)
+  // Back on the first track the mode is off and the indicator says the letters play.
+  await page.getByTestId('arr-track').first().click()
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  await expect(letters).toHaveAttribute('data-mode', 'play')
+
+  // An audio track has no notes either: the mode stops there too, and it is said there. The indicator does not move the toolbar.
+  const before = await page.getByTestId('roll-count').boundingBox()
+  await button.click()
+  const during = await page.getByTestId('roll-count').boundingBox()
+  expect(during!.y).toBe(before!.y)
+  await page.getByTestId('add-track').click()
+  await page.getByTestId('add-track-menu').getByRole('menuitem', { name: 'Audio track' }).click()
+  await expect(page.getByTestId('roll-stop-said')).toContainText(/Step entry off|Saisie pas à pas désactivée/)
+  await page.getByTestId('arr-track').first().click()
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+
+  // A clip on the second track, the mode on: going back to the first track's clip keeps it on, and the letters write there.
+  await page.getByTestId('arr-track').nth(1).click()
+  await page.getByTestId('roll-create-clip').click()
+  await button.click()
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
+  await page.getByTestId('arr-track').first().click()
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
+  await expect(letters).toHaveAttribute('data-mode', 'write')
+  await page.keyboard.press('KeyA')
+  await expect(roll(page)).toHaveAttribute('data-note-count', '1')
+
+  // Musical typing off ends the mode, said, and the indicator follows.
+  await page.keyboard.press('Backquote')
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  await expect(said(page)).toContainText(/Step entry off|Saisie pas à pas désactivée/)
+  await expect(letters).toHaveAttribute('data-mode', 'off')
+  expect(seen.errors.filter((e) => !/helper|WebSocket|ERR_CONNECTION/i.test(e))).toEqual([])
+})
+
+test('step entry: Comma lengthens by the toolbar length, whatever the snap, and the cursor stays on that grid', async ({ page }) => {
+  const seen = watch(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/app')
+  await page.getByTestId('engine-state').getByRole('button').click()
+  await engineUp(page)
+  await page.getByTestId('panel-piano-roll').click()
+  await page.getByTestId('roll-create-clip').click()
+  await page.getByTestId('roll-draw-length').selectOption('eighth')
+  await expect(page.getByTestId('roll-snap')).toHaveValue('auto')
+  await page.getByTestId('roll-step-entry').click()
+  await page.keyboard.press('KeyS')
+  await expect(roll(page)).toHaveAttribute('data-note-count', '1')
+  const eighth = (await notes(page))[0]!.length
+  await page.keyboard.press('Comma')
+  await page.keyboard.press('Comma')
+  await page.keyboard.press('Comma')
+  await expect.poll(async () => (await notes(page))[0]!.length).toBe(4 * eighth)
+  expect(await cursorTick(page)).toBe(4 * eighth)
+  await expect(said(page)).toContainText(/cursor bar 1 beat 3|curseur mesure 1 temps 3/)
   expect(seen.errors.filter((e) => !/helper|WebSocket|ERR_CONNECTION/i.test(e))).toEqual([])
 })
