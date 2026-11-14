@@ -80,6 +80,23 @@ describe('advanceTo', () => {
   })
 })
 
+describe('lengthenLast by a note length (#899)', () => {
+  // The view passes the toolbar's note length as the unit (the Playwright spec drives that call site); here, the grid it keeps.
+  it('keeps the cursor on the grid of the unit, seven lengthenings of an eighth make a bar', () => {
+    const eighth = 480
+    let steps: EntryStep[] = [{ start: 0, length: eighth, notes: [note({ length: eighth })] }]
+    let cursor = eighth
+    for (let i = 0; i < 7; i++) {
+      const r = lengthenLast(steps, eighth, 7680)!
+      steps = r.steps
+      cursor = r.cursor
+    }
+    expect(steps[0]!.length).toBe(8 * eighth)
+    expect(cursor).toBe(8 * eighth)
+    expect(cursor % eighth).toBe(0)
+  })
+})
+
 describe('lengthenLast', () => {
   it('is null before any step', () => {
     expect(lengthenLast([], 240, 1920)).toBeNull()

@@ -1,0 +1,2 @@
+2026-11-14
+* **Update** (#899): step entry (#882) is global like musical typing: it stays on when another clip opens in the piano roll, on any track, and stops only through Alt+E, its button, musical typing switched off, a roll with no clip, or the roll leaving the panel; each stop is said ("Step entry off."). A mode indicator beside the note counter says whether the letters write, play or do nothing. Comma now lengthens the last step by the toolbar's note length, whatever the snap, so the cursor stays on that grid; the shortcut list says the same.

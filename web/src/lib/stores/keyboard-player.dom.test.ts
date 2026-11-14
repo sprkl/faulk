@@ -44,6 +44,19 @@ describe('the computer keyboard played from the shell (#361)', () => {
     keys.toggleTyping()
     expect(ui.typing).toBe('shortcuts')
     expect(ui.stepEntry).toBe(false)
+    // The stop is said (#899), in both languages.
+    expect(ui.historySaid.text).toBe('Step entry off.')
+    ui.lang = 'fr'
+    ui.stepEntry = true
+    keys.toggleTyping()
+    keys.toggleTyping()
+    expect(ui.historySaid.text).toBe('Saisie pas à pas désactivée.')
+  })
+
+  it('says nothing when musical typing is switched off with step entry already off (#899)', () => {
+    const { keys, ui } = setup()
+    keys.toggleTyping()
+    expect(ui.historySaid.n).toBe(0)
   })
 
   it('plays no note live while the piano roll writes them (step entry, #882), and Z and X still move the octave', () => {
