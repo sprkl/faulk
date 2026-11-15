@@ -1453,6 +1453,16 @@
     input.value = lengthShown
   }
 
+  /** The whole number of bars one step up or down from the real length: 1 bar 1 beat goes to 2 bars up and to 1 bar down (#907). */
+  const barsUp = $derived(Math.floor(clipLength / bar) + 1)
+  const barsDown = $derived(Math.ceil(clipLength / bar) - 1)
+
+  function onLengthKey(event: KeyboardEvent) {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+    event.preventDefault()
+    setBars(event.key === 'ArrowUp' ? barsUp : barsDown)
+  }
+
   const toggleLoop = () => edited && run(setClipLoop(edited.id, edited.looping ? null : { start: 0, end: clipLength }))
 
   // --- quantize, transpose, duplicate, copy and paste (PN-2) -----------------------------------------------------
@@ -1979,24 +1989,23 @@
       </label>
       <div class="field" role="group" aria-label={t('pianoRoll.length')}>
         <span>{t('pianoRoll.length')}</span>
-        <button class="step" aria-label={t('pianoRoll.shorter')} data-testid="roll-shorter" disabled={totalBars <= 1} onclick={() => setBars(totalBars - 1)}
-          >−</button
-        >
+        <button class="step" aria-label={t('pianoRoll.shorter')} data-testid="roll-shorter" disabled={barsDown < 1} onclick={() => setBars(barsDown)}>−</button>
         <input
           type="text"
           inputmode="numeric"
           class="bars"
           value={lengthShown}
+          role="spinbutton"
+          aria-valuemin={1}
+          aria-valuemax={MAX_BARS}
+          aria-valuenow={clipLength / bar}
+          aria-valuetext={lengthShown}
           aria-label={t('pianoRoll.length')}
           data-testid="roll-length"
+          onkeydown={onLengthKey}
           onchange={onLengthChange}
         />
-        <button
-          class="step"
-          aria-label={t('pianoRoll.longer')}
-          data-testid="roll-longer"
-          disabled={totalBars >= MAX_BARS}
-          onclick={() => setBars(totalBars + 1)}>+</button
+        <button class="step" aria-label={t('pianoRoll.longer')} data-testid="roll-longer" disabled={barsUp > MAX_BARS} onclick={() => setBars(barsUp)}>+</button
         >
       </div>
       <button aria-pressed={edited.looping !== null} title={t('pianoRoll.loopHint')} data-testid="roll-loop" onclick={toggleLoop}>{t('pianoRoll.loop')}</button>
