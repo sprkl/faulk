@@ -27,7 +27,7 @@
   import { createDrag, DRAG_SLOP_PX, fineKey, type Drag } from '../../lib/continuous'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
   import GestureLabel from '../../lib/components/GestureLabel.svelte'
-  import { lengthText as gestureLength, positionText, snapText } from '../../lib/gesture-label'
+  import { clipLengthText, lengthText as gestureLength, positionText, snapText } from '../../lib/gesture-label'
   import type { MenuItem } from '../../lib/context-menu'
   import { chordText, positionKey, withShortcut } from '../../lib/shortcuts'
   import {
@@ -170,6 +170,8 @@
   const bar = $derived(barTicks(signature))
   const clipLength = $derived(edited?.length ?? bar)
   const totalBars = $derived(Math.max(1, Math.ceil(clipLength / bar)))
+  /** What the length field shows: the bars, or the real length in bars and beats when it is not a whole number of bars (#907). */
+  const lengthShown = $derived(clipLengthText(t, signature, clipLength))
   const clipName = $derived(edited ? clipLabel(edited, t('pianoRoll.clipPlain')) : '')
   const scenes = $derived(project.view ? sortedScenes(project.view.project) : [])
   /** "Scene n" or the scene's own name: the grid's label for it. */
@@ -1448,7 +1450,7 @@
     // An empty field is not a length: Number('') is 0, which would shorten the clip to one bar.
     const value = input.value.trim() === '' ? Number.NaN : Number(input.value)
     if (Number.isFinite(value)) setBars(value)
-    input.value = String(totalBars)
+    input.value = lengthShown
   }
 
   const toggleLoop = () => edited && run(setClipLoop(edited.id, edited.looping ? null : { start: 0, end: clipLength }))
@@ -1981,11 +1983,10 @@
           >−</button
         >
         <input
-          type="number"
-          min="1"
-          max={MAX_BARS}
-          step="1"
-          value={totalBars}
+          type="text"
+          inputmode="numeric"
+          class="bars"
+          value={lengthShown}
           aria-label={t('pianoRoll.length')}
           data-testid="roll-length"
           onchange={onLengthChange}
@@ -2358,8 +2359,10 @@
     width: 24px;
     padding: 0;
   }
-  input[type='number'] {
+  input.bars {
     width: 52px;
+    min-width: 52px;
+    field-sizing: content;
     padding: 0 var(--fk-space-1);
     text-align: center;
   }
