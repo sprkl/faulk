@@ -29,7 +29,7 @@
   import GestureLabel from '../../lib/components/GestureLabel.svelte'
   import { lengthText as gestureLength, positionText, snapText } from '../../lib/gesture-label'
   import type { MenuItem } from '../../lib/context-menu'
-  import { chordText, positionKey, withShortcut } from '../../lib/shortcuts'
+  import { chordText, positionKey, stepKeyParams, withShortcut } from '../../lib/shortcuts'
   import {
     DEFAULT_PX_PER_TICK,
     ROLL_SNAP_SETTINGS,
@@ -2087,7 +2087,7 @@
       <button
         aria-pressed={ui.stepEntry}
         aria-keyshortcuts="Alt+E"
-        title={withShortcut(t('pianoRoll.stepEntryHint'), ['Alt', 'E'])}
+        title={withShortcut(t('pianoRoll.stepEntryHint', stepKeyParams(ui.keyLayout)), ['Alt', 'E'])}
         data-testid="roll-step-entry"
         onclick={() => setStepEntry(!ui.stepEntry)}>{t('pianoRoll.stepEntry')}</button
       >
