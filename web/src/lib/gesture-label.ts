@@ -30,6 +30,21 @@ export function positionText(t: GestureT, sig: Signature, tick: number): string 
 
 /** "Length 2 bars, 1.5 beats" for a span of `ticks` (a part at zero is left out, except when both are). */
 export function lengthText(t: GestureT, sig: Signature, ticks: number): string {
+  return t('gesture.length', { length: lengthParts(t, sig, ticks, ', ') })
+}
+
+/**
+ * The clip-length field's text (#907): the bare number of bars when the length is a whole number of them (what the field
+ * has always shown), else the real length in words ("1 bar 1 beat", "2 beats"), so a clip is never shown rounded.
+ */
+export function clipLengthText(t: GestureT, sig: Signature, ticks: number): string {
+  const bar = barTicks(sig)
+  if (ticks >= bar && ticks % bar === 0) return String(ticks / bar)
+  return lengthParts(t, sig, ticks, ' ')
+}
+
+/** The bars and beats of a span, each part left out at zero (except when both are), joined by `separator`. */
+function lengthParts(t: GestureT, sig: Signature, ticks: number, separator: string): string {
   const bar = barTicks(sig)
   const span = Math.max(0, ticks)
   const whole = Math.floor(span / bar)
@@ -38,7 +53,7 @@ export function lengthText(t: GestureT, sig: Signature, ticks: number): string {
   const parts: string[] = []
   if (whole > 0) parts.push(t(whole === 1 ? 'gesture.bar' : 'gesture.bars', { n: whole }))
   if (beats > 0 || whole === 0) parts.push(t(beats === 1 ? 'gesture.beat' : 'gesture.beats', { n: beats }))
-  return t('gesture.length', { length: parts.join(', ') })
+  return parts.join(separator)
 }
 
 /**

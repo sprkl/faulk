@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { lengthText, positionText, snapText } from './gesture-label'
+import { clipLengthText, lengthText, positionText, snapText } from './gesture-label'
 import { PPQ } from '../views/transport/time'
 import { translate } from './i18n/app'
 import type { Lang } from './i18n/lang'
@@ -24,6 +24,17 @@ describe('gesture label text (#612)', () => {
     expect(lengthText(en, sig, 0)).toBe('Length 0 beats')
     expect(lengthText(en, sig, 1)).toBe('Length 0.001 beats')
     expect(lengthText(tIn('fr'), sig, 3 * bar)).toBe('Longueur 3 mesures')
+  })
+
+  it('writes the clip-length field as bars when whole, else as the real bars and beats (#907)', () => {
+    expect(clipLengthText(en, sig, bar)).toBe('1')
+    expect(clipLengthText(en, sig, 3 * bar)).toBe('3')
+    expect(clipLengthText(en, sig, bar + PPQ)).toBe('1 bar 1 beat')
+    expect(clipLengthText(en, sig, 2 * bar + 2 * PPQ)).toBe('2 bars 2 beats')
+    expect(clipLengthText(en, sig, 3 * PPQ)).toBe('3 beats')
+    expect(clipLengthText(en, sig, PPQ)).toBe('1 beat')
+    expect(clipLengthText(tIn('fr'), sig, bar + PPQ)).toBe('1 mesure 1 temps')
+    expect(clipLengthText(tIn('fr'), sig, 2 * bar + 2 * PPQ)).toBe('2 mesures 2 temps')
   })
 
   it('names the snap in force, or Free with no step', () => {
