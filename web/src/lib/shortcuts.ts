@@ -5,7 +5,7 @@
  * covered by an entry here, so a key added to `keyboard.ts` without a line in this list fails the tests.
  */
 import type { MessageKey } from './i18n'
-import { BARE_SHORTCUT_CODES, isTextTarget, TYPING_TOGGLE_CODE } from './keyboard'
+import { BARE_SHORTCUT_CODES, isTextTarget, NOTE_KEY_CODES, OCTAVE_DOWN_CODE, OCTAVE_UP_CODE, TYPING_TOGGLE_CODE } from './keyboard'
 
 /** A key as shown: `Mod` is Ctrl (Cmd on macOS), `Alt` is Option on macOS, the rest is shown as written. */
 export type KeyToken = string
@@ -17,6 +17,10 @@ export interface Shortcut {
   chords: readonly (readonly KeyToken[])[]
   /** The `BARE_SHORTCUT_CODES` entries (and the typing key) this line explains. */
   covers?: readonly string[]
+  /** The keys the label names, by position, as the layout writes them (the label has `{notes}`, `{rest}`... holes). */
+  params?: (layout: KeyLayout | null) => Record<string, string>
+  /** Says, after the label, that the keys are a QWERTY keyboard's when the browser does not tell the layout. */
+  layoutNote?: boolean
 }
 
 export interface ShortcutGroup {
@@ -64,8 +68,8 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
     title: 'shortcut.group.notes',
     shortcuts: [
       { label: 'shortcut.typing', chords: [['`'], ['²']], covers: [TYPING_TOGGLE_CODE] },
-      { label: 'shortcut.notes', chords: [] },
-      { label: 'shortcut.octave', chords: [['Z'], ['X']] },
+      { label: 'shortcut.notes', chords: [], params: (layout) => ({ notes: noteKeysText(layout) }), layoutNote: true },
+      { label: 'shortcut.octave', chords: [[OCTAVE_DOWN_CODE], [OCTAVE_UP_CODE]] },
     ],
   },
   {
@@ -176,8 +180,8 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       { label: 'shortcut.noteGenerate', chords: [['Alt', 'G']] },
       { label: 'shortcut.noteQuantize', chords: [['KeyQ']] },
       { label: 'shortcut.stepEntry', chords: [['Alt', 'KeyE']] },
-      { label: 'shortcut.stepRest', chords: [['Period']] },
-      { label: 'shortcut.stepLengthen', chords: [['Comma']] },
+      { label: 'shortcut.stepRest', chords: [['Period']], params: (layout) => stepKeyParams(layout) },
+      { label: 'shortcut.stepLengthen', chords: [['Comma']], params: (layout) => stepKeyParams(layout) },
       { label: 'shortcut.stepBack', chords: [['Backspace']] },
       {
         label: 'shortcut.noteStep',
@@ -305,6 +309,25 @@ export function positionKey(code: string, layout: KeyLayout | null = null): stri
   if (code === 'Period') return '.'
   if (code === 'Comma') return ','
   return code.replace(/^Key/, '')
+}
+
+/** The keys of the first octave of musical typing as the layout writes them: "A W S E D F T G Y H U J K" on QWERTY, "Q Z S E D F T G Y H U J K" on AZERTY. */
+export function noteKeysText(layout: KeyLayout | null): string {
+  return NOTE_KEY_CODES.map((code) => positionKey(code, layout)).join(' ')
+}
+
+/** What the texts that name the step entry's keys fill their holes with (the "?" list and the step entry's tooltip). */
+export function stepKeyParams(layout: KeyLayout | null): Record<string, string> {
+  return { rest: positionKey('Period', layout), lengthen: positionKey('Comma', layout) }
+}
+
+/** What the Keyboard tab's help fills its holes with: the same keys as the "?" list, from the same functions. */
+export function keyHelpParams(layout: KeyLayout | null): Record<string, string> {
+  return {
+    notes: noteKeysText(layout),
+    down: positionKey(OCTAVE_DOWN_CODE, layout),
+    up: positionKey(OCTAVE_UP_CODE, layout),
+  }
 }
 
 /** A key token as the platform writes it. A token `Key<X>` is a key by position, written as the layout names it. */

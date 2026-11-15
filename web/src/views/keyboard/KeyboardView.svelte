@@ -5,6 +5,7 @@
    * (the `synth.all_notes_off` command). Display and one command: the keys themselves are played by the shell.
    */
   import PianoStrip from '../../lib/components/PianoStrip.svelte'
+  import { keyHelpParams } from '../../lib/shortcuts'
   import { useStores } from '../../lib/stores'
   import { allNotesOff } from '../../lib/synth-commands'
 
@@ -19,7 +20,10 @@
     <button class="ghost" data-testid="panic" onclick={() => dispatcher.run(allNotesOff())}>{t('panic')}</button>
   </div>
   <PianoStrip low={(keys.octave + 1) * 12} active={engine.activeNotes} />
-  <p class="muted help">{t('keys.help')}</p>
+  <p class="muted help" data-testid="keys-help">
+    {t('keys.help', keyHelpParams(ui.keyLayout))}{#if !ui.keyLayout}
+      {t('shortcut.layoutUnknown')}{/if}
+  </p>
 </div>
 
 <style>

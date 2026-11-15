@@ -104,10 +104,20 @@ export function noteForKey(code: string, octave: number): number | null {
   return note >= 0 && note <= 127 ? note : null
 }
 
-/** Octave change for Z (down) and X (up), by physical position. */
+/** The keys of the first octave of musical typing (C to the next C), in pitch order: what the help names. */
+export const NOTE_KEY_CODES: readonly string[] = Object.entries(KEY_OFFSETS)
+  .filter(([, offset]) => offset <= 12)
+  .sort((a, b) => a[1] - b[1])
+  .map(([code]) => code)
+
+/** The octave keys (down, up), by physical position. */
+export const OCTAVE_DOWN_CODE = 'KeyZ'
+export const OCTAVE_UP_CODE = 'KeyX'
+
+/** Octave change for the octave keys, by physical position. */
 export function octaveStep(code: string): -1 | 1 | 0 {
-  if (code === 'KeyZ') return -1
-  if (code === 'KeyX') return 1
+  if (code === OCTAVE_DOWN_CODE) return -1
+  if (code === OCTAVE_UP_CODE) return 1
   return 0
 }
 
