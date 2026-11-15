@@ -48,6 +48,24 @@ describe('the mode indicator beside the note counter (#899)', () => {
   })
 })
 
+describe('the clip-length field (#907)', () => {
+  const lengthField = (length: number, lang: 'en' | 'fr' = 'en') => {
+    const clip: Clip = { name: 'A', content: { midi: { length, notes: [] } } }
+    const html = body(view('midi', { c1: clip }), lang)
+    return /data-testid="roll-length"[^>]*value="([^"]*)"|value="([^"]*)"[^>]*data-testid="roll-length"/.exec(html)?.slice(1).find(Boolean)
+  }
+
+  it('shows a whole number of bars as that number', () => {
+    expect(lengthField(7680)).toBe('2')
+  })
+
+  it('shows the real length when it is not a whole number of bars, in the page language', () => {
+    expect(lengthField(3840 + 960)).toBe('1 bar 1 beat')
+    expect(lengthField(3840 + 960, 'fr')).toBe('1 mesure 1 temps')
+    expect(lengthField(960 * 3)).toBe('3 beats')
+  })
+})
+
 describe('what the piano roll shows before it has a clip to edit', () => {
   it('asks for a MIDI track when none is selected, in the page language', () => {
     expect(body(null)).toContain('Select a MIDI track to edit its notes.')
