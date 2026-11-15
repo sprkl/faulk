@@ -27,9 +27,9 @@
   import { createDrag, DRAG_SLOP_PX, fineKey, type Drag } from '../../lib/continuous'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
   import GestureLabel from '../../lib/components/GestureLabel.svelte'
-  import { lengthText as gestureLength, positionText, snapText } from '../../lib/gesture-label'
+  import { clipLengthText, lengthText as gestureLength, positionText, snapText } from '../../lib/gesture-label'
   import type { MenuItem } from '../../lib/context-menu'
-  import { chordText, positionKey, withShortcut } from '../../lib/shortcuts'
+  import { chordText, positionKey, stepKeyParams, withShortcut } from '../../lib/shortcuts'
   import {
     DEFAULT_PX_PER_TICK,
     ROLL_SNAP_SETTINGS,
@@ -170,6 +170,8 @@
   const bar = $derived(barTicks(signature))
   const clipLength = $derived(edited?.length ?? bar)
   const totalBars = $derived(Math.max(1, Math.ceil(clipLength / bar)))
+  /** What the length field shows: the bars, or the real length in bars and beats when it is not a whole number of bars (#907). */
+  const lengthShown = $derived(clipLengthText(t, signature, clipLength))
   const clipName = $derived(edited ? clipLabel(edited, t('pianoRoll.clipPlain')) : '')
   const scenes = $derived(project.view ? sortedScenes(project.view.project) : [])
   /** "Scene n" or the scene's own name: the grid's label for it. */
@@ -1448,7 +1450,17 @@
     // An empty field is not a length: Number('') is 0, which would shorten the clip to one bar.
     const value = input.value.trim() === '' ? Number.NaN : Number(input.value)
     if (Number.isFinite(value)) setBars(value)
-    input.value = String(totalBars)
+    input.value = lengthShown
+  }
+
+  /** The whole number of bars one step up or down from the real length: 1 bar 1 beat goes to 2 bars up and to 1 bar down (#907). */
+  const barsUp = $derived(Math.floor(clipLength / bar) + 1)
+  const barsDown = $derived(Math.ceil(clipLength / bar) - 1)
+
+  function onLengthKey(event: KeyboardEvent) {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+    event.preventDefault()
+    setBars(event.key === 'ArrowUp' ? barsUp : barsDown)
   }
 
   const toggleLoop = () => edited && run(setClipLoop(edited.id, edited.looping ? null : { start: 0, end: clipLength }))
@@ -1977,25 +1989,23 @@
       </label>
       <div class="field" role="group" aria-label={t('pianoRoll.length')}>
         <span>{t('pianoRoll.length')}</span>
-        <button class="step" aria-label={t('pianoRoll.shorter')} data-testid="roll-shorter" disabled={totalBars <= 1} onclick={() => setBars(totalBars - 1)}
-          >−</button
-        >
+        <button class="step" aria-label={t('pianoRoll.shorter')} data-testid="roll-shorter" disabled={barsDown < 1} onclick={() => setBars(barsDown)}>−</button>
         <input
-          type="number"
-          min="1"
-          max={MAX_BARS}
-          step="1"
-          value={totalBars}
+          type="text"
+          inputmode="numeric"
+          class="bars"
+          value={lengthShown}
+          role="spinbutton"
+          aria-valuemin={1}
+          aria-valuemax={MAX_BARS}
+          aria-valuenow={clipLength / bar}
+          aria-valuetext={lengthShown}
           aria-label={t('pianoRoll.length')}
           data-testid="roll-length"
+          onkeydown={onLengthKey}
           onchange={onLengthChange}
         />
-        <button
-          class="step"
-          aria-label={t('pianoRoll.longer')}
-          data-testid="roll-longer"
-          disabled={totalBars >= MAX_BARS}
-          onclick={() => setBars(totalBars + 1)}>+</button
+        <button class="step" aria-label={t('pianoRoll.longer')} data-testid="roll-longer" disabled={barsUp > MAX_BARS} onclick={() => setBars(barsUp)}>+</button
         >
       </div>
       <button aria-pressed={edited.looping !== null} title={t('pianoRoll.loopHint')} data-testid="roll-loop" onclick={toggleLoop}>{t('pianoRoll.loop')}</button>
@@ -2087,7 +2097,7 @@
       <button
         aria-pressed={ui.stepEntry}
         aria-keyshortcuts="Alt+E"
-        title={withShortcut(t('pianoRoll.stepEntryHint'), ['Alt', 'E'])}
+        title={withShortcut(t('pianoRoll.stepEntryHint', stepKeyParams(ui.keyLayout)), ['Alt', 'E'])}
         data-testid="roll-step-entry"
         onclick={() => setStepEntry(!ui.stepEntry)}>{t('pianoRoll.stepEntry')}</button
       >
@@ -2358,8 +2368,10 @@
     width: 24px;
     padding: 0;
   }
-  input[type='number'] {
+  input.bars {
     width: 52px;
+    min-width: 52px;
+    field-sizing: content;
     padding: 0 var(--fk-space-1);
     text-align: center;
   }

@@ -2,7 +2,19 @@
 import { describe, expect, it } from 'vitest'
 import { translate } from './i18n'
 import { BARE_SHORTCUT_CODES, PLAYING_KEYS, TYPING_TOGGLE_CODE } from './keyboard'
-import { chordText, helpShortcut, keyLabel, positionKey, readKeyLayout, SHORTCUT_GROUPS, uncoveredShortcuts, withShortcut } from './shortcuts'
+import {
+  chordText,
+  helpShortcut,
+  keyHelpParams,
+  keyLabel,
+  noteKeysText,
+  positionKey,
+  readKeyLayout,
+  SHORTCUT_GROUPS,
+  stepKeyParams,
+  uncoveredShortcuts,
+  withShortcut,
+} from './shortcuts'
 
 const key = (init: Partial<Parameters<typeof helpShortcut>[0]> & { key: string }) =>
   helpShortcut({ ctrlKey: false, metaKey: false, altKey: false, repeat: false, target: null, ...init })
@@ -69,6 +81,58 @@ describe('the ? key', () => {
     const field = document.createElement('input')
     field.type = 'text'
     expect(key({ key: '?', target: field })).toBe(false)
+  })
+})
+
+describe('the keys of musical typing are named by position, from one source (#906)', () => {
+  // The positions that differ on an AZERTY keyboard, as `navigator.keyboard.getLayoutMap()` reports them.
+  const azertyMap = new Map([
+    ['KeyQ', 'a'],
+    ['KeyA', 'q'],
+    ['KeyW', 'z'],
+    ['KeyZ', 'w'],
+    ['Period', ':'],
+    ['Comma', ';'],
+  ])
+  const find = (label: string) => SHORTCUT_GROUPS.flatMap((g) => g.shortcuts).find((s) => s.label === label)!
+
+  it('declares the octave keys by code, so the list writes them as the layout does', () => {
+    const octave = find('shortcut.octave')
+    expect(octave.chords).toEqual([['KeyZ'], ['KeyX']])
+    expect(octave.chords.map(([k]) => keyLabel(k!, false, azertyMap))).toEqual(['W', 'X'])
+    expect(octave.chords.map(([k]) => keyLabel(k!, false, null))).toEqual(['Z', 'X'])
+  })
+
+  it('builds the notes line from the layout map: Q Z S E D F T G Y H U J K on AZERTY, A W S E D F T G Y H U J K on QWERTY', () => {
+    expect(noteKeysText(azertyMap)).toBe('Q Z S E D F T G Y H U J K')
+    expect(noteKeysText(null)).toBe('A W S E D F T G Y H U J K')
+    const notes = find('shortcut.notes')
+    expect(translate('fr', notes.label, notes.params!(azertyMap))).toContain('Q Z S E D F T G Y H U J K jouent')
+    expect(translate('en', notes.label, notes.params!(null))).toContain('A W S E D F T G Y H U J K play')
+    expect(notes.layoutNote).toBe(true)
+    expect(translate('en', 'shortcut.layoutUnknown')).toContain('QWERTY')
+    expect(translate('fr', 'shortcut.layoutUnknown')).toContain('QWERTY')
+  })
+
+  it('shows the layout character for the rest and lengthen keys of the step entry, never a word', () => {
+    expect(stepKeyParams(azertyMap)).toEqual({ rest: ':', lengthen: ';' })
+    expect(stepKeyParams(null)).toEqual({ rest: '.', lengthen: ',' })
+    for (const lang of ['en', 'fr'] as const) {
+      for (const label of ['shortcut.stepRest', 'shortcut.stepLengthen'] as const) {
+        expect(translate(lang, label, find(label).params!(azertyMap))).toMatch(/\([:;]\)$/)
+      }
+      const hint = translate(lang, 'pianoRoll.stepEntryHint', stepKeyParams(azertyMap))
+      expect(hint).toContain(':')
+      expect(hint).not.toMatch(/\{|point|virgule|Period|Comma/)
+    }
+  })
+
+  it('gives the Keyboard tab the same keys as the list', () => {
+    expect(keyHelpParams(azertyMap)).toEqual({ notes: 'Q Z S E D F T G Y H U J K', down: 'W', up: 'X' })
+    expect(keyHelpParams(null)).toEqual({ notes: 'A W S E D F T G Y H U J K', down: 'Z', up: 'X' })
+    expect(translate('fr', 'keys.help', keyHelpParams(azertyMap))).toBe(
+      'Les touches de la rangée du milieu jouent les notes (par position : Q Z S E D F T G Y H U J K). W / X changent d’octave.',
+    )
   })
 })
 
