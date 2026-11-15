@@ -151,7 +151,7 @@ export const pianoRoll = defineFeature(
     'pianoRoll.saidNoRoom': 'No room for a note here',
     'pianoRoll.stepEntry': 'Step entry',
     'pianoRoll.stepEntryHint':
-      'Step entry: the letters of musical typing write a note at the free cursor, of the length chosen here, and the cursor moves on (letters held together make a chord). the “{rest}” key is a rest, the “{lengthen}” key lengthens the last step by that length, Backspace removes it. It stays on from clip to clip until you switch it off',
+      'Step entry: the letters of musical typing write a note at the free cursor, of the length chosen here, and the cursor moves on (letters held together make a chord). The “{rest}” key is a rest, the “{lengthen}” key lengthens the last step by that length, Backspace removes it. It stays on from clip to clip until you switch it off',
     'pianoRoll.saidStepOn': 'Step entry on. Letters write notes at the cursor.',
     'pianoRoll.saidStepOff': 'Step entry off. Letters play notes.',
     'pianoRoll.saidStepStopped': 'Step entry off.',
@@ -338,7 +338,7 @@ export const pianoRoll = defineFeature(
     'pianoRoll.saidNoRoom': 'Pas de place pour une note ici',
     'pianoRoll.stepEntry': 'Saisie pas à pas',
     'pianoRoll.stepEntryHint':
-      'Saisie pas à pas : les lettres de la saisie musicale écrivent une note au curseur libre, de la longueur choisie ici, et le curseur avance (des lettres tenues ensemble font un accord). la touche « {rest} » = silence, la touche « {lengthen} » = allonge le dernier pas de cette longueur, Retour arrière = le supprime. Le mode reste actif d’un clip à l’autre jusqu’à ce que tu l’arrêtes',
+      'Saisie pas à pas : les lettres de la saisie musicale écrivent une note au curseur libre, de la longueur choisie ici, et le curseur avance (des lettres tenues ensemble font un accord). La touche « {rest} » = silence, la touche « {lengthen} » = allonge le dernier pas de cette longueur, Retour arrière = le supprime. Le mode reste actif d’un clip à l’autre jusqu’à ce que tu l’arrêtes',
     'pianoRoll.saidStepOn': 'Saisie pas à pas activée. Les lettres écrivent des notes au curseur.',
     'pianoRoll.saidStepOff': 'Saisie pas à pas désactivée. Les lettres jouent des notes.',
     'pianoRoll.saidStepStopped': 'Saisie pas à pas désactivée.',

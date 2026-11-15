@@ -159,7 +159,7 @@ test.describe('the shortcut list', () => {
     await page.keyboard.press('Escape')
     await page.getByTestId('panel-piano-roll').click()
     await page.getByTestId('roll-create-clip').click()
-    await expect(page.getByTestId('roll-step-entry')).toHaveAttribute('title', /the “:” key is a rest, the “;” key lengthens/)
+    await expect(page.getByTestId('roll-step-entry')).toHaveAttribute('title', /The “:” key is a rest, the “;” key lengthens/)
     await page.keyboard.press('Shift+Slash')
     await expect(dialog(page).locator('li', { hasText: 'a rest' })).toContainText('(:)')
     await expect(dialog(page).locator('li', { hasText: 'lengthen the last step' })).toContainText('(;)')
