@@ -194,8 +194,11 @@ describe('the registry has no two shortcuts on one chord in one scope (#109)', (
         ],
       },
     ]
-    expect(shortcutConflicts(groups)).toEqual([{ scope: 'global', chord: 'Mod+Shift+Z', labels: ['shortcut.undo', 'shortcut.redo'] }])
+    expect(shortcutConflicts(groups)).toEqual([{ scope: 'global', chord: 'Mod+Shift+z', labels: ['shortcut.undo', 'shortcut.redo'] }])
     expect(chordId(['Shift', 'Alt', '←'])).toBe('Alt+Shift+←')
+    expect(chordId(['Esc'])).toBe(chordId(['Escape']))
+    expect(chordId(['Alt', 'Page Up'])).toBe(chordId(['Alt', 'PageUp']))
+    expect(chordId(['KeyQ'])).toBe(chordId(['Q']))
   })
 
   it('reports a chord given twice by one shortcut, and each chord once however many shortcuts share it', () => {
@@ -210,7 +213,7 @@ describe('the registry has no two shortcuts on one chord in one scope (#109)', (
       { label: 'shortcut.redo' as const, chords: [['Mod', 'Z']] },
     ]
     expect(shortcutConflicts([{ id: 'a', title: 'shortcut.group.general', scope: 'global' as const, shortcuts }])).toEqual([
-      { scope: 'global', chord: 'Mod+Z', labels: ['shortcut.undo', 'shortcut.undo', 'shortcut.redo'] },
+      { scope: 'global', chord: 'Mod+z', labels: ['shortcut.undo', 'shortcut.undo', 'shortcut.redo'] },
     ])
   })
 
@@ -224,7 +227,7 @@ describe('the registry has no two shortcuts on one chord in one scope (#109)', (
     }
   })
 
-  it('only shows keys that work wherever the palette opens: each command’s line is global', () => {
+  it('only shows the keys the page handles in every view: each command’s line is global', () => {
     for (const [command, label] of Object.entries(SHORTCUT_COMMANDS)) {
       const line = SHORTCUT_GROUPS.flatMap((g) => g.shortcuts.map((s) => ({ s, scope: s.scope ?? g.scope }))).filter((x) => x.s.label === label)
       expect(line.length, command).toBe(1)
@@ -254,7 +257,7 @@ describe('the registry has no two shortcuts on one chord in one scope (#109)', (
     })
     const group = (shortcuts: ReturnType<typeof line>[]) => [{ id: 'a', title: 'shortcut.group.general' as const, scope: 'global' as const, shortcuts }]
     expect(shortcutConflicts(group([line('shortcut.play', 'global'), line('shortcut.noteSelect', 'pianoRoll.note')]))).toEqual([
-      { scope: 'global/pianoRoll.note', chord: 'Space', labels: ['shortcut.play', 'shortcut.noteSelect'] },
+      { scope: 'global/pianoRoll.note', chord: 'space', labels: ['shortcut.play', 'shortcut.noteSelect'] },
     ])
     expect(shortcutConflicts(group([line('shortcut.play', 'global'), line('shortcut.noteSelect', 'pianoRoll.note', true)]))).toEqual([])
     expect(shortcutConflicts(group([line('shortcut.noteSelect', 'pianoRoll.note'), line('shortcut.cursorMove', 'timeline.cursor')]))).toEqual([])

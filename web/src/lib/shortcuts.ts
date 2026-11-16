@@ -390,11 +390,20 @@ export function withShortcut(text: string, chord: readonly KeyToken[], mac: bool
   return `${text} (${chordText(chord, mac, layout)})`
 }
 
-/** A chord as one comparable string: the modifiers in a fixed order, then the key. `Alt+Shift+←` and `Shift+Alt+←` are one chord. */
+/** One key's spelling made comparable: `Esc` is `Escape`, `Page Up` is `PageUp`, `KeyQ` is `Q`, case aside. */
+function keyId(token: KeyToken): string {
+  const key = token
+    .replace(/\s/g, '')
+    .replace(/^Key(?=[A-Z]$)/, '')
+    .toLowerCase()
+  return key === 'esc' ? 'escape' : key
+}
+
+/** A chord as one comparable string: the modifiers in a fixed order, then the key. `Alt+Shift+←` and `Shift+Alt+←` are one chord, as are `Esc` and `Escape`. */
 export function chordId(chord: readonly KeyToken[]): string {
   const order = ['Mod', 'Alt', 'Shift']
   const mods = order.filter((m) => chord.includes(m))
-  const keys = chord.filter((token) => !order.includes(token))
+  const keys = chord.filter((token) => !order.includes(token)).map(keyId)
   return [...mods, ...keys].join('+')
 }
 
