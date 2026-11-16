@@ -27,6 +27,7 @@ export const SHORTCUT_SCOPES = [
   'pianoRoll.note',
   'pianoRoll.cursor',
   'pianoRoll.step',
+  'topbar.name',
   'grid',
   'control.slider',
   'control.tempo',
@@ -75,7 +76,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       },
       { label: 'shortcut.save', chords: [['Mod', 'S']] },
       { label: 'shortcut.saveAs', chords: [['Mod', 'Shift', 'S']] },
-      { label: 'shortcut.renameProject', chords: [['F2']] },
+      { label: 'shortcut.renameProject', scope: 'topbar.name', chords: [['F2']] },
       {
         label: 'shortcut.views',
         chords: [
@@ -172,7 +173,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         ],
       },
       { label: 'shortcut.remove', scope: 'timeline.marker', chords: [['Delete'], ['Backspace']], covers: ['Delete', 'Backspace'] },
-      { label: 'shortcut.rename', shadows: true, scope: 'timeline.marker', chords: [['F2']], covers: ['F2'] },
+      { label: 'shortcut.rename', scope: 'timeline.marker', chords: [['F2']], covers: ['F2'] },
       { label: 'shortcut.laneVolume', scope: 'timeline.lane', chords: [['Enter'], ['0-9']] },
       { label: 'shortcut.laneHeight', scope: 'timeline.lane', chords: [['↑'], ['↓'], ['Home'], ['End']], covers: ['End'] },
       // The automation lanes at the keyboard (#769): their head, then their points as cells of the timeline's grid.
@@ -434,7 +435,8 @@ export function shortcutConflicts(groups: readonly ShortcutGroup[] = SHORTCUT_GR
     for (const chord of shortcut.chords) {
       const id = chordId(chord)
       const global = globals.get(id)
-      if (global !== undefined) conflicts.set(`shadow\u0000${scope}\u0000${id}`, { scope: `global/${scope}`, chord: id, labels: [global, shortcut.label] })
+      if (global !== undefined)
+        conflicts.set(`shadow\u0000${scope}\u0000${id}\u0000${shortcut.label}`, { scope: `global/${scope}`, chord: id, labels: [global, shortcut.label] })
     }
   }
   return [...conflicts.values()]

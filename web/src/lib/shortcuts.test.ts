@@ -258,6 +258,11 @@ describe('the registry has no two shortcuts on one chord in one scope (#109)', (
     ])
     expect(shortcutConflicts(group([line('shortcut.play', 'global'), line('shortcut.noteSelect', 'pianoRoll.note', true)]))).toEqual([])
     expect(shortcutConflicts(group([line('shortcut.noteSelect', 'pianoRoll.note'), line('shortcut.cursorMove', 'timeline.cursor')]))).toEqual([])
+    // Two focus lines of one scope on one global chord are both reported.
+    const both = shortcutConflicts(
+      group([line('shortcut.play', 'global'), line('shortcut.noteSelect', 'pianoRoll.note'), line('shortcut.cursorMove', 'pianoRoll.note')]),
+    )
+    expect(both.filter((c) => c.scope.startsWith('global/'))).toHaveLength(2)
   })
 
   it('gives a line of the registry to at most one command, so a key is shown beside one command only', () => {
