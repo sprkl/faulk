@@ -487,11 +487,10 @@
 
   onDestroy(() => {
     ui.remember('piano-roll', { clip: openedFor, view, scrollY })
-    // The letters play again once the roll is gone (#882): said where the page listens, as this roll no longer does (#899).
-    if (ui.stepEntry) {
-      ui.stepEntry = false
-      ui.announceHistory(t('pianoRoll.saidStepStopped'))
-    }
+    // The roll is gone: step entry stays armed (#916) but writes nothing, so the letters play until a roll with a clip is back.
+    // Said where the page listens, as this roll no longer does.
+    ui.stepWriting = false
+    if (ui.stepEntry) ui.announceHistory(t('pianoRoll.saidStepIdle'))
     sound(null)
   })
 
@@ -726,8 +725,6 @@
   let focusKey = $state<string | null>(null)
   let itemsEl: HTMLDivElement | undefined = $state()
   let said = $state({ text: '', n: 0 })
-  /** The stop of step entry for lack of a clip (#899): said outside the roll's own region, which goes with the clip. */
-  let stopSaid = $state({ text: '', n: 0, track: null as string | null })
   function announce(text: string) {
     // The same words twice are still a new message: an invisible space every other time changes the text.
     said = { text: said.n % 2 === 0 ? `${text}\u200b` : text, n: said.n + 1 }
@@ -833,36 +830,39 @@
     return t('pianoRoll.cursorItem', { pitch: keyNames?.get(cursorPos.pitch) ?? pitchName(cursorPos.pitch), ...barBeat(cursorPos.tick, PPQ, bar / PPQ) })
   })
   // Another clip: the cursor starts again where the view looks, and the notes have the tab stop again.
-  // The mode is global like musical typing (#899): it goes on from clip to clip, on any track. It ends only with the clip it
-  // writes into (no clip, an audio track): the letters play again, and that is said.
+  // The mode is global like musical typing (#899) and stays armed whatever the track (#916): with no clip to write into (no clip,
+  // an audio track) the letters play, and that is said; a clip that opens makes them write again, and that is said too.
+  // `ui.stepWriting` tells the keyboard player whether this roll writes.
+  let idleSaid = false
   $effect(() => {
-    if (!edited)
-      untrack(() => {
-        if (!ui.stepEntry) return
-        // No clip to write into: nothing to finish (`resetEntry` drops the letters held), no cursor to move.
-        ui.stepEntry = false
+    const writes = !!edited
+    untrack(() => {
+      ui.stepWriting = writes
+      if (!ui.stepEntry) {
+        idleSaid = false
+        return
+      }
+      if (!writes) {
+        // Nothing to finish (`resetEntry` drops the letters held), no cursor to move.
         resetEntry()
         release()
-        // Said in the empty state's status line, as the roll's own live region goes with its clip.
-        const words = t('pianoRoll.saidStepStopped')
-        stopSaid = { text: stopSaid.n % 2 === 0 ? `${words}${String.fromCharCode(0x200b)}` : words, n: stopSaid.n + 1, track: project.selected?.id ?? null }
-      })
-  })
-  // The stop said in the empty state belongs to the track it was said on: another track makes it old news.
-  const selectedId = $derived(project.selected?.id ?? null)
-  $effect(() => {
-    const id = selectedId
-    untrack(() => {
-      if (stopSaid.text && stopSaid.track !== id) stopSaid = { text: '', n: stopSaid.n, track: null }
+        idleSaid = true
+        ui.announceHistory(t('pianoRoll.saidStepIdle'))
+      } else if (idleSaid) {
+        idleSaid = false
+        ui.announceHistory(t('pianoRoll.saidStepResumed'))
+      }
     })
+  })
+  // Step entry ended from outside the roll (Escape, musical typing off): its bookkeeping goes with it.
+  $effect(() => {
+    if (!ui.stepEntry) untrack(resetEntry)
   })
   // The id alone: `edited` is a new object at every edit of its notes, and an edit must not take the cursor away (#882).
   const editedId = $derived(edited?.id ?? null)
   $effect(() => {
     void editedId
     untrack(() => {
-      // A clip is there again: the stop said in the empty state is old news.
-      if (editedId !== null && stopSaid.text) stopSaid = { text: '', n: stopSaid.n, track: null }
       cursorAt = null
       onCursor = false
       resetEntry()
@@ -1907,12 +1907,12 @@
 {#if !track}
   <div class="empty" data-testid="roll-empty">
     <p>{t(project.selected ? 'pianoRoll.audioTrack' : 'pianoRoll.noTrack')}</p>
-    {#if stopSaid.text && stopSaid.track === (project.selected?.id ?? null)}<p role="status" data-testid="roll-stop-said">{stopSaid.text}</p>{/if}
+    {#if ui.stepEntry}<p class="armed" data-testid="roll-armed">{t('pianoRoll.armedIdle')}</p>{/if}
   </div>
 {:else if !edited}
   <div class="empty" data-testid="roll-empty">
     <p>{t('pianoRoll.noClip')}</p>
-    {#if stopSaid.text && stopSaid.track === (project.selected?.id ?? null)}<p role="status" data-testid="roll-stop-said">{stopSaid.text}</p>{/if}
+    {#if ui.stepEntry}<p class="armed" data-testid="roll-armed">{t('pianoRoll.armedIdle')}</p>{/if}
     <button class="primary" data-testid="roll-create-clip" onclick={() => run(createClipAtStart(track.id))}>{t('pianoRoll.createClip')}</button>
   </div>
 {:else}
