@@ -48,6 +48,29 @@ describe('the mode indicator beside the note counter (#899)', () => {
   })
 })
 
+describe('step entry armed with no clip to write into (#916)', () => {
+  const armed = (lang: 'en' | 'fr', kind: 'midi' | 'audio' = 'midi', started = true) => {
+    const stores = createStores('arrangement', 'piano-roll')
+    stores.ui.lang = lang
+    stores.ui.stepEntry = true
+    stores.engine.started = started
+    stores.project.show(view(kind))
+    return render(PianoRollView, { context: storesContext(stores) }).body
+  }
+
+  it('says in the empty state that the letters play until a clip opens, in both languages', () => {
+    expect(armed('en')).toMatch(/data-testid="roll-armed"[^>]*>Step entry is on\. The letters play notes until a clip opens/)
+    expect(armed('fr')).toContain('Saisie pas à pas activée. Les lettres jouent des notes jusqu’à l’ouverture d’un clip')
+    expect(armed('en', 'audio')).toContain('data-testid="roll-armed"')
+    // The audio is not started: the letters play nothing, and the text does not say they play.
+    expect(armed('en', 'midi', false)).toContain('the audio is not started: the letters play nothing')
+  })
+
+  it('says nothing when step entry is off', () => {
+    expect(body(view('midi'))).not.toContain('roll-armed')
+  })
+})
+
 describe('the clip-length field (#907)', () => {
   const lengthField = (length: number, lang: 'en' | 'fr' = 'en') => {
     const clip: Clip = { name: 'A', content: { midi: { length, notes: [] } } }

@@ -62,6 +62,7 @@ describe('the computer keyboard played from the shell (#361)', () => {
   it('plays no note live while the piano roll writes them (step entry, #882), and Z and X still move the octave', () => {
     const { keys, sent, ui } = setup()
     ui.stepEntry = true
+    ui.stepWriting = true
     keys.keyDown(key('KeyA'))
     keys.keyUp(key('KeyA'))
     expect(sent).toEqual([])
@@ -70,6 +71,55 @@ describe('the computer keyboard played from the shell (#361)', () => {
     ui.stepEntry = false
     keys.keyDown(key('KeyA'))
     expect(sent).toEqual([{ type: 'live.input_note_on', note: 72, velocity: 100 }])
+  })
+
+  it('plays the letters while step entry is armed with no clip to write into, and writes again when one opens (#916)', () => {
+    const { keys, sent, ui } = setup()
+    ui.stepEntry = true
+    keys.keyDown(key('KeyA'))
+    keys.keyUp(key('KeyA'))
+    expect(sent).toEqual([
+      { type: 'live.input_note_on', note: 60, velocity: 100 },
+      { type: 'live.input_note_off', note: 60 },
+    ])
+    expect(ui.stepEntry).toBe(true)
+    sent.length = 0
+    ui.stepWriting = true
+    keys.keyDown(key('KeyS'))
+    keys.keyUp(key('KeyS'))
+    expect(sent).toEqual([])
+  })
+
+  it('does not need the audio to write, but needs it to play while armed with no clip (#916)', () => {
+    const { keys, sent, ui } = setup({ started: false })
+    ui.stepEntry = true
+    keys.keyDown(key('KeyA'))
+    expect(sent).toEqual([])
+    keys.keyDown(key('KeyX'))
+    expect(keys.octave).toBe(4)
+    ui.stepWriting = true
+    keys.keyDown(key('KeyX'))
+    expect(keys.octave).toBe(5)
+  })
+
+  it('ends step entry with Escape or Alt+E when no clip is written into, said, and leaves them alone otherwise (#916)', () => {
+    const { keys, ui } = setup()
+    ui.stepEntry = true
+    keys.keyDown(key('Escape'))
+    expect(ui.stepEntry).toBe(false)
+    expect(ui.historySaid.text).toBe('Step entry off.')
+    ui.stepEntry = true
+    const alt = key('KeyE', { altKey: true, shiftKey: false, preventDefault: () => {} })
+    keys.keyDown(alt)
+    expect(ui.stepEntry).toBe(false)
+    // Off already: Escape says nothing more.
+    const n = ui.historySaid.n
+    keys.keyDown(key('Escape'))
+    expect(ui.historySaid.n).toBe(n)
+    // A text field keeps its keys.
+    ui.stepEntry = true
+    keys.keyDown(key('Escape', { target: Object.assign(document.createElement('input'), { type: 'text' }) }))
+    expect(ui.stepEntry).toBe(true)
   })
 
   it('plays the selected MIDI track whatever the view: the player knows no view', () => {
