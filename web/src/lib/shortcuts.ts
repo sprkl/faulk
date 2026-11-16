@@ -5,6 +5,7 @@
  * covered by an entry here, so a key added to `keyboard.ts` without a line in this list fails the tests.
  */
 import type { MessageKey } from './i18n'
+import { SHORTCUT_COMMANDS } from './shortcut-commands'
 import { BARE_SHORTCUT_CODES, isTextTarget, NOTE_KEY_CODES, OCTAVE_DOWN_CODE, OCTAVE_UP_CODE, TYPING_TOGGLE_CODE } from './keyboard'
 
 /** A key as shown: `Mod` is Ctrl (Cmd on macOS), `Alt` is Option on macOS, the rest is shown as written. */
@@ -13,6 +14,8 @@ export type KeyToken = string
 export interface Shortcut {
   /** What it does, in the catalogue. */
   label: MessageKey
+  /** Where it works, when not the group's scope: two shortcuts with the same chord in one scope are a conflict (`shortcutConflicts`). */
+  scope?: string
   /** The ways to press it: each is a chord (keys held together), alternatives are separate chords. May be empty when the label says the keys itself. */
   chords: readonly (readonly KeyToken[])[]
   /** The `BARE_SHORTCUT_CODES` entries (and the typing key) this line explains. */
@@ -26,18 +29,22 @@ export interface Shortcut {
 export interface ShortcutGroup {
   id: string
   title: MessageKey
+  /** Where the group's shortcuts work: `global` is the whole page, any other is the focus it needs (a clip, a lane, a note...). */
+  scope: string
   shortcuts: readonly Shortcut[]
 }
 
 export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
   {
     id: 'general',
+    scope: 'global',
     title: 'shortcut.group.general',
     shortcuts: [
       { label: 'shortcut.play', chords: [['Space']], covers: ['Space'] },
       { label: 'shortcut.undo', chords: [['Mod', 'Z']] },
       {
         label: 'shortcut.redo',
+
         chords: [
           ['Mod', 'Shift', 'Z'],
           ['Mod', 'Y'],
@@ -66,6 +73,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
   },
   {
     id: 'notes',
+    scope: 'global',
     title: 'shortcut.group.notes',
     shortcuts: [
       { label: 'shortcut.typing', chords: [['`'], ['²']], covers: [TYPING_TOGGLE_CODE] },
@@ -75,11 +83,12 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
   },
   {
     id: 'timeline',
+    scope: 'timeline.clip',
     title: 'shortcut.group.timeline',
     shortcuts: [
-      { label: 'shortcut.tlScroll', chords: [['←'], ['→']], covers: ['ArrowLeft', 'ArrowRight'] },
-      { label: 'shortcut.tlStart', chords: [['Home']], covers: ['Home'] },
-      { label: 'shortcut.tlZoom', chords: [['+'], ['-']], covers: ['+', '=', '-', '_'] },
+      { label: 'shortcut.tlScroll', scope: 'timeline.view', chords: [['←'], ['→']], covers: ['ArrowLeft', 'ArrowRight'] },
+      { label: 'shortcut.tlStart', scope: 'timeline.view', chords: [['Home']], covers: ['Home'] },
+      { label: 'shortcut.tlZoom', scope: 'timeline.view', chords: [['+'], ['-']], covers: ['+', '=', '-', '_'] },
       { label: 'shortcut.fitSong', chords: [['Alt', 'Z']] },
       { label: 'shortcut.clipNew', chords: [['Alt', 'N']] },
       { label: 'shortcut.markerAdd', chords: [['Alt', 'K']] },
@@ -119,36 +128,39 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       { label: 'shortcut.clipDuplicateLinked', chords: [['Mod', 'Shift', 'D']] },
       { label: 'shortcut.clipRepeat', chords: [['Mod', 'Shift', 'R']] },
       // The free cursor (#494): the timeline's and the piano roll's.
-      { label: 'shortcut.cursorFree', chords: [['Esc']] },
-      { label: 'shortcut.cursorMove', chords: [['←'], ['→'], ['↑'], ['↓']] },
+      { label: 'shortcut.cursorFree', scope: 'timeline.cursor', chords: [['Esc']] },
+      { label: 'shortcut.cursorMove', scope: 'timeline.cursor', chords: [['←'], ['→'], ['↑'], ['↓']] },
       {
         label: 'shortcut.cursorBar',
+        scope: 'timeline.cursor',
         chords: [
           ['Shift', '←'],
           ['Shift', '→'],
         ],
       },
-      { label: 'shortcut.clipCreate', chords: [['Enter']] },
-      { label: 'shortcut.playheadCursor', chords: [['Enter'], ['Shift', 'Enter']] },
+      { label: 'shortcut.clipCreate', scope: 'timeline.cursor', chords: [['Enter']] },
+      { label: 'shortcut.playheadCursor', scope: 'timeline.ruler', chords: [['Enter'], ['Shift', 'Enter']] },
       {
         label: 'shortcut.markerMove',
+        scope: 'timeline.marker',
         chords: [
           ['Alt', '←'],
           ['Alt', '→'],
         ],
       },
-      { label: 'shortcut.remove', chords: [['Delete'], ['Backspace']], covers: ['Delete', 'Backspace'] },
-      { label: 'shortcut.rename', chords: [['F2']], covers: ['F2'] },
-      { label: 'shortcut.laneVolume', chords: [['Enter'], ['0-9']] },
-      { label: 'shortcut.laneHeight', chords: [['↑'], ['↓'], ['Home'], ['End']], covers: ['End'] },
+      { label: 'shortcut.remove', scope: 'timeline.marker', chords: [['Delete'], ['Backspace']], covers: ['Delete', 'Backspace'] },
+      { label: 'shortcut.rename', scope: 'timeline.marker', chords: [['F2']], covers: ['F2'] },
+      { label: 'shortcut.laneVolume', scope: 'timeline.lane', chords: [['Enter'], ['0-9']] },
+      { label: 'shortcut.laneHeight', scope: 'timeline.lane', chords: [['↑'], ['↓'], ['Home'], ['End']], covers: ['End'] },
       // The automation lanes at the keyboard (#769): their head, then their points as cells of the timeline's grid.
-      { label: 'shortcut.lanePoint', chords: [['KeyI'], ['Insert']] },
-      { label: 'shortcut.laneRamp', chords: [['KeyR']] },
-      { label: 'shortcut.lanePoints', chords: [['→']] },
-      { label: 'shortcut.pointStep', chords: [['←'], ['→'], ['Home'], ['End']] },
-      { label: 'shortcut.pointEdit', chords: [['Enter']] },
+      { label: 'shortcut.lanePoint', scope: 'timeline.lane', chords: [['KeyI'], ['Insert']] },
+      { label: 'shortcut.laneRamp', scope: 'timeline.lane', chords: [['KeyR']] },
+      { label: 'shortcut.lanePoints', scope: 'timeline.lane', chords: [['→']] },
+      { label: 'shortcut.pointStep', scope: 'timeline.point', chords: [['←'], ['→'], ['Home'], ['End']] },
+      { label: 'shortcut.pointEdit', scope: 'timeline.point', chords: [['Enter']] },
       {
         label: 'shortcut.pointNudge',
+        scope: 'timeline.point',
         chords: [
           ['Alt', '↑'],
           ['Alt', '↓'],
@@ -158,13 +170,14 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
           ['Alt', '→'],
         ],
       },
-      { label: 'shortcut.pointRemove', chords: [['Delete'], ['Backspace']] },
+      { label: 'shortcut.pointRemove', scope: 'timeline.point', chords: [['Delete'], ['Backspace']] },
       // A point's curve (#881).
-      { label: 'shortcut.pointCurve', chords: [['KeyC'], ['Shift', 'KeyC']] },
+      { label: 'shortcut.pointCurve', scope: 'timeline.point', chords: [['KeyC'], ['Shift', 'KeyC']] },
     ],
   },
   {
     id: 'pianoRoll',
+    scope: 'pianoRoll.note',
     title: 'shortcut.group.pianoRoll',
     shortcuts: [
       { label: 'shortcut.noteAll', chords: [['Mod', 'A']] },
@@ -180,10 +193,10 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       { label: 'shortcut.noteRepeat', chords: [['Mod', 'Shift', 'R']] },
       { label: 'shortcut.noteGenerate', chords: [['Alt', 'G']] },
       { label: 'shortcut.noteQuantize', chords: [['KeyQ']] },
-      { label: 'shortcut.stepEntry', chords: [['Alt', 'KeyE']] },
-      { label: 'shortcut.stepRest', chords: [['Period']], params: (layout) => stepKeyParams(layout) },
-      { label: 'shortcut.stepLengthen', chords: [['Comma']], params: (layout) => stepKeyParams(layout) },
-      { label: 'shortcut.stepBack', chords: [['Backspace']] },
+      { label: 'shortcut.stepEntry', scope: 'pianoRoll.cursor', chords: [['Alt', 'KeyE']] },
+      { label: 'shortcut.stepRest', scope: 'pianoRoll.step', chords: [['Period']], params: (layout) => stepKeyParams(layout) },
+      { label: 'shortcut.stepLengthen', scope: 'pianoRoll.step', chords: [['Comma']], params: (layout) => stepKeyParams(layout) },
+      { label: 'shortcut.stepBack', scope: 'pianoRoll.step', chords: [['Backspace']] },
       {
         label: 'shortcut.noteStep',
         chords: [['←'], ['→'], ['↑'], ['↓'], ['Shift', '←'], ['Shift', '→'], ['Shift', '↑'], ['Shift', '↓']],
@@ -212,11 +225,12 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
           ['Alt', 'Shift', '↓'],
         ],
       },
-      { label: 'shortcut.noteCursor', chords: [['←'], ['→'], ['↑'], ['↓'], ['Shift', '↑'], ['Shift', '↓']] },
-      { label: 'shortcut.noteCreate', chords: [['Enter']] },
-      { label: 'shortcut.noteCursorEnds', chords: [['Home'], ['End']] },
+      { label: 'shortcut.noteCursor', scope: 'pianoRoll.cursor', chords: [['←'], ['→'], ['↑'], ['↓'], ['Shift', '↑'], ['Shift', '↓']] },
+      { label: 'shortcut.noteCreate', scope: 'pianoRoll.cursor', chords: [['Enter']] },
+      { label: 'shortcut.noteCursorEnds', scope: 'pianoRoll.cursor', chords: [['Home'], ['End']] },
       {
         label: 'shortcut.noteCursorBar',
+        scope: 'pianoRoll.cursor',
         chords: [
           ['Mod', '←'],
           ['Mod', '→'],
@@ -231,6 +245,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
   },
   {
     id: 'grid',
+    scope: 'grid',
     title: 'shortcut.group.grid',
     shortcuts: [
       { label: 'shortcut.gridMove', chords: [['←'], ['→'], ['↑'], ['↓']] },
@@ -245,6 +260,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
   },
   {
     id: 'controls',
+    scope: 'control.slider',
     title: 'shortcut.group.controls',
     shortcuts: [
       { label: 'shortcut.sliderStep', chords: [['←'], ['→'], ['↑'], ['↓']] },
@@ -257,9 +273,10 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       },
       { label: 'shortcut.sliderBig', chords: [['Page Up'], ['Page Down'], ['Home'], ['End']], covers: ['PageUp', 'PageDown'] },
       { label: 'shortcut.sliderDefault', chords: [['Delete']] },
-      { label: 'shortcut.sliderType', chords: [['Enter']] },
+      { label: 'shortcut.sliderType', scope: 'control.slider', chords: [['Enter']] },
       {
         label: 'shortcut.tempo',
+        scope: 'control.tempo',
         chords: [['↑'], ['↓'], ['Shift', '↑'], ['Shift', '↓'], ['Enter']],
       },
     ],
@@ -347,4 +364,64 @@ export function chordText(chord: readonly KeyToken[], mac: boolean = isMac(), la
 /** A tooltip or label with its shortcut: "Play (Space)". */
 export function withShortcut(text: string, chord: readonly KeyToken[], mac: boolean = isMac(), layout: KeyLayout | null = null): string {
   return `${text} (${chordText(chord, mac, layout)})`
+}
+
+/** A chord as one comparable string: the modifiers in a fixed order, then the key. `Alt+Shift+←` and `Shift+Alt+←` are one chord. */
+export function chordId(chord: readonly KeyToken[]): string {
+  const order = ['Mod', 'Alt', 'Shift']
+  const mods = order.filter((m) => chord.includes(m))
+  const keys = chord.filter((token) => !order.includes(token))
+  return [...mods, ...keys].join('+')
+}
+
+/** Two shortcuts that press the same chord in the same scope: one key cannot do two things there. */
+export interface ShortcutConflict {
+  scope: string
+  chord: string
+  labels: MessageKey[]
+}
+
+/** Every chord that two shortcuts of the same scope share (the same chord listed twice by one shortcut counts too). Empty when the registry is consistent (#109). */
+export function shortcutConflicts(groups: readonly ShortcutGroup[] = SHORTCUT_GROUPS): ShortcutConflict[] {
+  const seen = new Map<string, ShortcutConflict>()
+  const conflicts = new Map<string, ShortcutConflict>()
+  for (const group of groups) {
+    for (const shortcut of group.shortcuts) {
+      const scope = shortcut.scope ?? group.scope
+      for (const chord of shortcut.chords) {
+        const id = chordId(chord)
+        const key = `${scope}\u0000${id}`
+        const first = seen.get(key)
+        if (!first) {
+          seen.set(key, { scope, chord: id, labels: [shortcut.label] })
+          continue
+        }
+        first.labels.push(shortcut.label)
+        conflicts.set(key, first)
+      }
+    }
+  }
+  return [...conflicts.values()]
+}
+
+/** The chords the command palette shows for a catalogue command: those of the shortcut `SHORTCUT_COMMANDS` names for it. */
+export function commandChords(
+  name: string,
+  groups: readonly ShortcutGroup[] = SHORTCUT_GROUPS,
+  commands: Readonly<Record<string, MessageKey>> = SHORTCUT_COMMANDS,
+): (readonly KeyToken[])[] {
+  const label = commands[name]
+  return label === undefined ? [] : groups.flatMap((g) => g.shortcuts.filter((s) => s.label === label).flatMap((s) => s.chords))
+}
+
+/** The keys of a catalogue command as the palette writes them ("Ctrl+Z", chords joined by " / "), or an empty text when no shortcut runs it. */
+export function commandShortcutText(
+  name: string,
+  mac: boolean = isMac(),
+  layout: KeyLayout | null = null,
+  groups: readonly ShortcutGroup[] = SHORTCUT_GROUPS,
+): string {
+  return commandChords(name, groups)
+    .map((chord) => chordText(chord, mac, layout))
+    .join(' / ')
 }
