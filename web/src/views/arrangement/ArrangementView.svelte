@@ -2345,6 +2345,8 @@
     if (from === null) return
     ramping = { lane, back, head: at, from }
   }
+  /** The curve of the last ramp drawn, offered again by the dialog (#918). */
+  let rampShape = $state<Shape>('linear')
   const rampRef = $derived(ramping ? laneRefs.get(ramping.lane) : undefined)
   /** The ramp asked: one `automation.points.restore` (the two ends, the points between taken out), one history entry. */
   function submitRamp(at: number, entry: AxisEntry, shape: Shape) {
@@ -2359,7 +2361,18 @@
       r.back?.focus()
       return
     }
-    const said = [t('automation.saidRamp', { from: axis.format(r.from), fromAt: atText(r.head), to: axis.format(value), toAt: atText(at) })]
+    // The curve is kept for the next ramp, and the playhead goes to the end point: the next segment starts from there (#918).
+    rampShape = shape
+    placeHead(at)
+    const said = [
+      t('automation.saidRamp', {
+        from: axis.format(r.from),
+        fromAt: atText(r.head),
+        to: axis.format(value),
+        toAt: atText(at),
+        curve: t(SHAPE_NAMES[shape].word),
+      }),
+    ]
     if (entry.limit !== undefined) said.push(t('controls.limited', { value: axis.format(axis.clamp(entry.limit)) }))
     if (plan.remove.length > 0) said.push(t('automation.saidReplaced', { n: plan.remove.length }))
     announce(said.join('. '))
@@ -3153,7 +3166,7 @@
   {signature}
   headTick={ramping?.head ?? 0}
   initialPosition={ramping ? String(Math.floor(ramping.head / bar) + 2) : ''}
-  initialValue={ramping && rampRef ? rampRef.info.axis.format(ramping.from) : ''}
+  initialShape={rampShape}
   onsubmit={submitRamp}
   onclose={closeRamp}
 />

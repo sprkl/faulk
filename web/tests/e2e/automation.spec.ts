@@ -413,13 +413,13 @@ test('automation: a limited or unreadable typed value says so in French (#421)',
 const KEYS_TEXT = {
   en: {
     added: 'Point added: −6.0 dB at bar 2',
-    ramp: 'Ramp: −6.0 dB at bar 2 to −24.0 dB at bar 4',
+    ramp: 'Ramp: −6.0 dB at bar 2 to −24.0 dB at bar 4, curve linear',
     none: 'No point in this lane yet',
     addButton: /Add a point at the playhead/,
   },
   fr: {
     added: 'Point posé : −6.0 dB à la mesure 2',
-    ramp: 'Rampe : −6.0 dB à la mesure 2 jusqu’à −24.0 dB à la mesure 4',
+    ramp: 'Rampe : −6.0 dB à la mesure 2 jusqu’à −24.0 dB à la mesure 4, courbe linéaire',
     none: 'Aucun point dans ce couloir',
     addButton: /Ajouter un point à la tête de lecture/,
   },
@@ -479,12 +479,18 @@ for (const lang of ['en', 'fr'] as const) {
     // The playhead's own position is no ramp: said in the dialog, which stays open.
     await expect(page.getByTestId('ramp-position-error')).toBeVisible()
     await page.keyboard.press('Control+a')
-    await page.keyboard.type('4')
+    // A position down to the sixteenth reads as in "Go to" (4.1.1 is bar 4); an empty end value is refused and said (#918).
+    await page.keyboard.type('4.1.1')
     await page.keyboard.press('Tab')
-    await page.keyboard.press('Control+a')
+    await expect(page.getByTestId('ramp-value')).toHaveValue('')
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('ramp-value-error')).toBeVisible()
+    await expect(page.getByTestId('ramp-value')).toBeFocused()
     await page.keyboard.type('-24')
     await page.keyboard.press('Enter')
     await expect(page.getByTestId('ramp-dialog')).not.toBeVisible()
+    // The playhead is at the end point, ready for the next segment.
+    await expect(page.getByTestId('transport-position')).toContainText('4.1')
     expect(await lanePoints()).toEqual([
       [BAR, -6, 'linear'],
       [3 * BAR, -24, 'linear'],

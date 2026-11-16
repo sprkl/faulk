@@ -90,14 +90,19 @@ export function parseNumerator(text: string): number | null {
 export const MAX_GOTO_BAR = 99_999
 
 /**
- * The tick a "Go to" field's text means, or `null` when it is no position: a bar ("12") or a bar and a beat ("12.3", a dot,
- * a comma or a colon between them), both counted from 1, the beat within the bar's beats. Bars past `MAX_GOTO_BAR` are refused.
+ * The tick a "Go to" field's text means, or `null` when it is no position: a bar ("12"), a bar and a beat ("12.3", a dot,
+ * a comma or a colon between them), or a bar, a beat and a sixteenth note of that beat ("24.4.3"), all counted from 1, the beat
+ * within the bar's beats and the sixteenth within the beat. Bars past `MAX_GOTO_BAR` are refused.
  */
 export function parseBarBeat(text: string, sig: Signature): number | null {
-  const found = /^(\d{1,6})(?:[.,:](\d{1,3}))?$/.exec(text.trim())
+  const found = /^(\d{1,6})(?:[.,:](\d{1,3})(?:[.,:](\d{1,3}))?)?$/.exec(text.trim())
   if (!found) return null
   const bar = Number(found[1])
   const beat = found[2] === undefined ? 1 : Number(found[2])
+  const sixteenth = found[3] === undefined ? 1 : Number(found[3])
+  const sixteenthTicks = PPQ / 4
   if (bar < 1 || bar > MAX_GOTO_BAR || beat < 1 || beat > sig.numerator) return null
-  return (bar - 1) * barTicks(sig) + (beat - 1) * beatTicks(sig)
+  // The sixteenth must start inside the beat (a 32nd-note beat holds only the first).
+  if (sixteenth < 1 || (sixteenth - 1) * sixteenthTicks >= beatTicks(sig)) return null
+  return (bar - 1) * barTicks(sig) + (beat - 1) * beatTicks(sig) + (sixteenth - 1) * sixteenthTicks
 }
