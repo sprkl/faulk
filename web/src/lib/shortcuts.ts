@@ -11,11 +11,35 @@ import { BARE_SHORTCUT_CODES, isTextTarget, NOTE_KEY_CODES, OCTAVE_DOWN_CODE, OC
 /** A key as shown: `Mod` is Ctrl (Cmd on macOS), `Alt` is Option on macOS, the rest is shown as written. */
 export type KeyToken = string
 
+/**
+ * Where a shortcut works: `global` is the whole page, the others are the focus it needs (a clip, a free cursor, a lane, a
+ * point, a note...). The list is closed, so a mistyped scope does not compile instead of hiding a conflict.
+ */
+export const SHORTCUT_SCOPES = [
+  'global',
+  'timeline.clip',
+  'timeline.cursor',
+  'timeline.ruler',
+  'timeline.view',
+  'timeline.marker',
+  'timeline.lane',
+  'timeline.point',
+  'pianoRoll.note',
+  'pianoRoll.cursor',
+  'pianoRoll.step',
+  'grid',
+  'control.slider',
+  'control.tempo',
+] as const
+export type ShortcutScope = (typeof SHORTCUT_SCOPES)[number]
+
 export interface Shortcut {
   /** What it does, in the catalogue. */
   label: MessageKey
   /** Where it works, when not the group's scope: two shortcuts with the same chord in one scope are a conflict (`shortcutConflicts`). */
-  scope?: string
+  scope?: ShortcutScope
+  /** This line takes over a key a `global` line also has, in its own focus only (Space plays, but on a note of the piano roll it selects it). Without it, the same chord as a global line is a conflict. */
+  shadows?: boolean
   /** The ways to press it: each is a chord (keys held together), alternatives are separate chords. May be empty when the label says the keys itself. */
   chords: readonly (readonly KeyToken[])[]
   /** The `BARE_SHORTCUT_CODES` entries (and the typing key) this line explains. */
@@ -30,7 +54,7 @@ export interface ShortcutGroup {
   id: string
   title: MessageKey
   /** Where the group's shortcuts work: `global` is the whole page, any other is the focus it needs (a clip, a lane, a note...). */
-  scope: string
+  scope: ShortcutScope
   shortcuts: readonly Shortcut[]
 }
 
@@ -44,7 +68,6 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       { label: 'shortcut.undo', chords: [['Mod', 'Z']] },
       {
         label: 'shortcut.redo',
-
         chords: [
           ['Mod', 'Shift', 'Z'],
           ['Mod', 'Y'],
@@ -128,7 +151,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       { label: 'shortcut.clipDuplicateLinked', chords: [['Mod', 'Shift', 'D']] },
       { label: 'shortcut.clipRepeat', chords: [['Mod', 'Shift', 'R']] },
       // The free cursor (#494): the timeline's and the piano roll's.
-      { label: 'shortcut.cursorFree', scope: 'timeline.cursor', chords: [['Esc']] },
+      { label: 'shortcut.cursorFree', shadows: true, scope: 'timeline.cursor', chords: [['Esc']] },
       { label: 'shortcut.cursorMove', scope: 'timeline.cursor', chords: [['←'], ['→'], ['↑'], ['↓']] },
       {
         label: 'shortcut.cursorBar',
@@ -149,7 +172,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         ],
       },
       { label: 'shortcut.remove', scope: 'timeline.marker', chords: [['Delete'], ['Backspace']], covers: ['Delete', 'Backspace'] },
-      { label: 'shortcut.rename', scope: 'timeline.marker', chords: [['F2']], covers: ['F2'] },
+      { label: 'shortcut.rename', shadows: true, scope: 'timeline.marker', chords: [['F2']], covers: ['F2'] },
       { label: 'shortcut.laneVolume', scope: 'timeline.lane', chords: [['Enter'], ['0-9']] },
       { label: 'shortcut.laneHeight', scope: 'timeline.lane', chords: [['↑'], ['↓'], ['Home'], ['End']], covers: ['End'] },
       // The automation lanes at the keyboard (#769): their head, then their points as cells of the timeline's grid.
@@ -201,7 +224,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
         label: 'shortcut.noteStep',
         chords: [['←'], ['→'], ['↑'], ['↓'], ['Shift', '←'], ['Shift', '→'], ['Shift', '↑'], ['Shift', '↓']],
       },
-      { label: 'shortcut.noteSelect', chords: [['Space'], ['Enter']] },
+      { label: 'shortcut.noteSelect', shadows: true, chords: [['Space'], ['Enter']] },
       {
         label: 'shortcut.noteShift',
         chords: [
@@ -381,24 +404,37 @@ export interface ShortcutConflict {
   labels: MessageKey[]
 }
 
-/** Every chord that two shortcuts of the same scope share (the same chord listed twice by one shortcut counts too). Empty when the registry is consistent (#109). */
+/**
+ * Every chord that two shortcuts press in the same place (#109): two lines of one scope with the same chord (the same chord
+ * listed twice by one line counts too), or a line of a focus scope with the chord of a `global` line without saying it
+ * `shadows` it (a global key quietly taken over). Lines of two different focus scopes (a clip and the free cursor, both
+ * moved by the arrows) are never in the same place at once: they do not conflict. Empty when the registry is consistent.
+ */
 export function shortcutConflicts(groups: readonly ShortcutGroup[] = SHORTCUT_GROUPS): ShortcutConflict[] {
   const seen = new Map<string, ShortcutConflict>()
   const conflicts = new Map<string, ShortcutConflict>()
-  for (const group of groups) {
-    for (const shortcut of group.shortcuts) {
-      const scope = shortcut.scope ?? group.scope
-      for (const chord of shortcut.chords) {
-        const id = chordId(chord)
-        const key = `${scope}\u0000${id}`
-        const first = seen.get(key)
-        if (!first) {
-          seen.set(key, { scope, chord: id, labels: [shortcut.label] })
-          continue
-        }
-        first.labels.push(shortcut.label)
-        conflicts.set(key, first)
+  const globals = new Map<string, MessageKey>()
+  const lines = groups.flatMap((g) => g.shortcuts.map((shortcut) => ({ shortcut, scope: shortcut.scope ?? g.scope })))
+  for (const { shortcut, scope } of lines) {
+    for (const chord of shortcut.chords) {
+      const id = chordId(chord)
+      const key = `${scope}\u0000${id}`
+      const first = seen.get(key)
+      if (!first) {
+        seen.set(key, { scope, chord: id, labels: [shortcut.label] })
+        if (scope === 'global') globals.set(id, shortcut.label)
+        continue
       }
+      first.labels.push(shortcut.label)
+      conflicts.set(key, first)
+    }
+  }
+  for (const { shortcut, scope } of lines) {
+    if (scope === 'global' || shortcut.shadows) continue
+    for (const chord of shortcut.chords) {
+      const id = chordId(chord)
+      const global = globals.get(id)
+      if (global !== undefined) conflicts.set(`shadow\u0000${scope}\u0000${id}`, { scope: `global/${scope}`, chord: id, labels: [global, shortcut.label] })
     }
   }
   return [...conflicts.values()]
@@ -420,8 +456,9 @@ export function commandShortcutText(
   mac: boolean = isMac(),
   layout: KeyLayout | null = null,
   groups: readonly ShortcutGroup[] = SHORTCUT_GROUPS,
+  commands: Readonly<Record<string, MessageKey>> = SHORTCUT_COMMANDS,
 ): string {
-  return commandChords(name, groups)
+  return commandChords(name, groups, commands)
     .map((chord) => chordText(chord, mac, layout))
     .join(' / ')
 }
