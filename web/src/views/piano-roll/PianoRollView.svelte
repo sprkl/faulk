@@ -670,11 +670,25 @@
    * the roll or on the page itself (nothing focused): another screen keeps its own keys, and a text field its own.
    */
   function onWindowKeyDown(event: KeyboardEvent) {
+    // Escape ends step entry (#916) even where the roll took it first (selection cleared, cursor freed): it does what it did, and the mode
+    // ends too, unless a gesture was being cancelled or a dialog or menu is open.
+    if (
+      event.code === 'Escape' &&
+      ui.stepEntry &&
+      edited &&
+      !gesture &&
+      !event.repeat &&
+      !isTextTarget(event.target) &&
+      !document.querySelector('[aria-modal="true"], [role="menu"]')
+    ) {
+      setStepEntry(false)
+      return
+    }
     if (event.defaultPrevented || !edited || isTextTarget(event.target)) return
     const target = event.target
     const inRoll = target === document.body || (target instanceof Node && !!rollEl?.contains(target))
     // Step entry (#882): a letter writes wherever it would play; the mode's other keys only in the roll.
-    if (inRoll && isStepEntryToggle(event)) {
+    if ((inRoll || ui.stepEntry) && isStepEntryToggle(event)) {
       event.preventDefault()
       setStepEntry(!ui.stepEntry)
       return
@@ -833,25 +847,19 @@
   // The mode is global like musical typing (#899) and stays armed whatever the track (#916): with no clip to write into (no clip,
   // an audio track) the letters play, and that is said; a clip that opens makes them write again, and that is said too.
   // `ui.stepWriting` tells the keyboard player whether this roll writes.
-  let idleSaid = false
   $effect(() => {
     const writes = !!edited
     untrack(() => {
+      // A roll that mounts with a clip while armed is a resume as well: the flag was left false when the last roll went.
+      const was = ui.stepWriting
       ui.stepWriting = writes
-      if (!ui.stepEntry) {
-        idleSaid = false
-        return
-      }
+      if (!ui.stepEntry) return
       if (!writes) {
         // Nothing to finish (`resetEntry` drops the letters held), no cursor to move.
         resetEntry()
         release()
-        idleSaid = true
         ui.announceHistory(t('pianoRoll.saidStepIdle'))
-      } else if (idleSaid) {
-        idleSaid = false
-        ui.announceHistory(t('pianoRoll.saidStepResumed'))
-      }
+      } else if (!was) ui.announceHistory(t('pianoRoll.saidStepResumed'))
     })
   })
   // Step entry ended from outside the roll (Escape, musical typing off): its bookkeeping goes with it.
@@ -1907,12 +1915,12 @@
 {#if !track}
   <div class="empty" data-testid="roll-empty">
     <p>{t(project.selected ? 'pianoRoll.audioTrack' : 'pianoRoll.noTrack')}</p>
-    {#if ui.stepEntry}<p class="armed" data-testid="roll-armed">{t('pianoRoll.armedIdle')}</p>{/if}
+    {#if ui.stepEntry}<p class="armed" data-testid="roll-armed">{t(engine.started ? 'pianoRoll.armedIdle' : 'pianoRoll.armedIdleMute')}</p>{/if}
   </div>
 {:else if !edited}
   <div class="empty" data-testid="roll-empty">
     <p>{t('pianoRoll.noClip')}</p>
-    {#if ui.stepEntry}<p class="armed" data-testid="roll-armed">{t('pianoRoll.armedIdle')}</p>{/if}
+    {#if ui.stepEntry}<p class="armed" data-testid="roll-armed">{t(engine.started ? 'pianoRoll.armedIdle' : 'pianoRoll.armedIdleMute')}</p>{/if}
     <button class="primary" data-testid="roll-create-clip" onclick={() => run(createClipAtStart(track.id))}>{t('pianoRoll.createClip')}</button>
   </div>
 {:else}

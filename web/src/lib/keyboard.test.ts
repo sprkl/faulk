@@ -496,6 +496,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
         'Enter',
         'Escape',
         'Escape',
+        'Escape',
         'F2',
         'PageDown',
         'PageUp',

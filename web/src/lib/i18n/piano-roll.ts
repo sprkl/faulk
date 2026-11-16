@@ -157,6 +157,8 @@ export const pianoRoll = defineFeature(
     'pianoRoll.saidStepIdle': 'Step entry stays on. No clip is open: the letters play notes until one opens.',
     'pianoRoll.saidStepResumed': 'A clip is open: the letters write notes again.',
     'pianoRoll.armedIdle': 'Step entry is on. The letters play notes until a clip opens (Alt+E or Escape to stop).',
+    'pianoRoll.armedIdleMute':
+      'Step entry is on, but the audio is not started: the letters play nothing until it is, and write once a clip opens (Alt+E or Escape to stop).',
     'pianoRoll.letters.write': 'Letters write',
     'pianoRoll.letters.play': 'Letters play',
     'pianoRoll.letters.mute': 'Audio off',
@@ -346,6 +348,8 @@ export const pianoRoll = defineFeature(
     'pianoRoll.saidStepIdle': 'La saisie pas à pas reste activée. Aucun clip n’est ouvert : les lettres jouent des notes jusqu’à l’ouverture d’un clip.',
     'pianoRoll.saidStepResumed': 'Un clip est ouvert : les lettres écrivent de nouveau des notes.',
     'pianoRoll.armedIdle': 'Saisie pas à pas activée. Les lettres jouent des notes jusqu’à l’ouverture d’un clip (Alt+E ou Échap pour l’arrêter).',
+    'pianoRoll.armedIdleMute':
+      'Saisie pas à pas activée, mais l’audio n’est pas démarré : les lettres ne jouent rien tant qu’il ne l’est pas, et écrivent dès qu’un clip s’ouvre (Alt+E ou Échap pour l’arrêter).',
     'pianoRoll.letters.write': 'Les lettres écrivent',
     'pianoRoll.letters.play': 'Les lettres jouent',
     'pianoRoll.letters.mute': 'Audio coupé',

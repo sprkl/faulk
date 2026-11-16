@@ -17,6 +17,8 @@ const notes = async (page: Page): Promise<Note[]> => JSON.parse((await roll(page
 const sorted = async (page: Page) => (await notes(page)).sort((a, b) => a.start - b.start || a.pitch - b.pitch)
 const cursorTick = async (page: Page) => Number(await page.getByTestId('roll-cursor').getAttribute('data-tick'))
 const said = (page: Page) => page.getByTestId('roll-said')
+const anyPeak = async (page: Page) =>
+  Math.max(0, ...((await page.getByTestId('feedback').getAttribute('data-track-peaks')) ?? '').split(',').map(Number).filter(Number.isFinite))
 const trackPeak = async (page: Page) => Number(((await page.getByTestId('feedback').getAttribute('data-track-peaks')) ?? '').split(',')[0])
 
 test('step entry: a phrase, a chord, a rest, a longer step and Backspace, one undo per note', async ({ page }) => {
@@ -181,9 +183,10 @@ test('step entry: stays on from clip to clip and says when it stops, and the ind
   await page.getByTestId('arr-track').nth(1).click()
   await expect(armed).toContainText(/Step entry is on|Saisie pas à pas activée/)
   await expect(page.getByTestId('arr-said')).toContainText(/Step entry stays on|reste activée/)
-  // The letters play there: no note is written anywhere, and the track sounds.
-  await page.keyboard.press('KeyA')
-  await expect(roll(page)).toHaveCount(0)
+  // The letters play there: the track sounds while the key is held (no roll is there to write anything).
+  await page.keyboard.down('KeyA')
+  await expect.poll(() => anyPeak(page), { message: 'the letter plays live with no clip open' }).toBeGreaterThan(0.02)
+  await page.keyboard.up('KeyA')
   // Back on the first track, still armed, and the letters write again.
   await page.getByTestId('arr-track').first().click()
   await expect(button).toHaveAttribute('aria-pressed', 'true')
@@ -202,17 +205,32 @@ test('step entry: stays on from clip to clip and says when it stops, and the ind
   const during = await page.getByTestId('roll-count').boundingBox()
   expect(during!.y).toBe(before!.y)
 
-  // Another tab than the roll's: still armed, and Escape ends it from there (#916).
+  // Escape ends it from the roll, where the roll also takes the key for its own selection (#916); Alt+E arms it again.
+  await page.getByTestId('roll-cursor').focus()
+  await page.keyboard.press('Escape')
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  await expect(letters).toHaveAttribute('data-mode', 'play')
+  await page.keyboard.press('Alt+KeyE')
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
+
+  // Another tab than the roll's: still armed, the panel says so, and Escape ends it from there.
   await page.getByTestId('panel-clips').click()
   await expect(page.getByTestId('arr-said')).toContainText(/Step entry stays on|reste activée/)
+  await expect(page.getByTestId('panel-step-armed')).toContainText(/Step entry on|Saisie pas à pas/)
   await page.keyboard.press('Escape')
+  await expect(page.getByTestId('panel-step-armed')).toHaveCount(0)
   await expect(page.getByTestId('arr-said')).toContainText(/Step entry off|Saisie pas à pas désactivée/)
   await page.getByTestId('panel-piano-roll').click()
   await expect(button).toHaveAttribute('aria-pressed', 'false')
   await expect(letters).toHaveAttribute('data-mode', 'play')
 
   // Armed again on the first track: Alt+E from the roll ends it as well, and musical typing off does too.
-  await button.click()
+  await page.getByTestId('roll-cursor').focus()
+  await page.keyboard.press('Alt+KeyE')
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
+  await page.keyboard.press('Alt+KeyE')
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  await page.keyboard.press('Alt+KeyE')
   await expect(button).toHaveAttribute('aria-pressed', 'true')
   // Musical typing off ends the mode, said, and the indicator follows.
   await page.keyboard.press('Backquote')
