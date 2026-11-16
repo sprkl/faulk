@@ -29,7 +29,7 @@ export const areas = (...names) => {
 // e2e-table:begin
 /** Named areas: the specs that exercise one part of the page. Rules below are unions of them. */
 export const AREA = {
-  arrangement: ['arrangement', 'audio-clips', 'arrangement-time', 'arrangement-handles', 'arrangement-view', 'arrangement-draw', 'automation', 'automation-shapes', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard', 'arrangement-never-replaces', 'arrangement-group-atomic', 'discoverability', 'keyboard-create', 'recording', 'piano-roll-follow', 'clip-pool', 'markers', 'context-menu', 'toolbar-overflow', 'device-browser', 'devices-follow-selection'],
+  arrangement: ['arrangement', 'audio-clips', 'arrangement-time', 'arrangement-handles', 'arrangement-view', 'arrangement-draw', 'automation', 'automation-shapes', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard', 'arrangement-never-replaces', 'arrangement-lengthen', 'arrangement-group-atomic', 'discoverability', 'keyboard-create', 'recording', 'piano-roll-follow', 'clip-pool', 'markers', 'context-menu', 'toolbar-overflow', 'device-browser', 'devices-follow-selection'],
   clips: ['clip-pool'],
   grid: ['clip-names', 'clip-pool', 'grid', 'grid-clips', 'grid-to-arrangement', 'recording', 'devices-follow-selection'],
   history: ['history', 'history-cost', 'history-names', 'keyboard-create'],
@@ -46,6 +46,8 @@ export const AREA = {
   audio: ['audio-clips', 'audio-import', 'audio-play', 'clip-pool', 'browser-storage', 'project-store', 'waveform'],
   shortcuts: ['discoverability', 'keyboard-all-views'],
   shortcutsDialog: ['discoverability', 'keyboard-all-views', 'navigation'],
+  // The command palette (#108): its spec, and the shortcut list that carries its key.
+  palette: ['command-palette', 'discoverability'],
   bottomPanel: ['bottom-panel', 'layout-4', 'ux-quick-wins'],
   topBar: ['helper', 'keyboard-all-views', 'layout-4', 'local-access', 'navigation', 'space-bar', 'track-state', 'discoverability', 'top-bar', 'top-bar-narrow'],
   midi: ['keyboard', 'live-input', 'recording'],
@@ -125,6 +127,9 @@ export const RULES = [
   [/^web\/src\/views\/shell\/ExportDialog\./, AREA.export],
   [/^web\/src\/views\/shell\/(ProjectMenu|StorageBanners)\./, AREA.storage],
   [/^web\/src\/views\/shell\/ShortcutsDialog\./, AREA.shortcutsDialog],
+  [/^web\/src\/views\/shell\/CommandPalette\./, AREA.palette],
+  [/^web\/src\/lib\/command-palette\./, AREA.palette],
+  [/^web\/src\/lib\/shortcut-commands\.ts$/, AREA.palette],
   [/^web\/src\/views\/shell\/(BottomPanel\.|panel-size\.)/, AREA.bottomPanel],
   [/^web\/src\/views\/shell\/(TopBar|EngineDialog)\./, AREA.topBar],
   // The app shell and the view registry: every view hangs from them.
@@ -158,7 +163,8 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/(app|index|lang|feature)\.ts$/, CORE], // the catalogue, the language and its helpers
   [/^web\/src\/lib\/i18n\/(landing)\.ts$/, AREA.landing],
   [/^web\/src\/lib\/i18n\/journey\.ts$/, AREA.landing],
-  [/^web\/src\/lib\/i18n\/arrangement\.ts$/, areas('arrangement', 'grid', 'shortcutsDialog')],
+  [/^web\/src\/lib\/i18n\/palette\.ts$/, AREA.palette],
+  [/^web\/src\/lib\/i18n\/arrangement\.ts$/, areas('arrangement', 'grid', 'palette', 'shortcutsDialog')],
   [/^web\/src\/lib\/i18n\/automation\.ts$/, areas('arrangement', 'devices', 'mixer')],
   [/^web\/src\/lib\/i18n\/browser\.ts$/, areas('deviceBrowser', 'tracks')],
   [/^web\/src\/lib\/i18n\/clips\.ts$/, areas('clips', 'audio')],
@@ -172,7 +178,7 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/gesture\.ts$/, areas('arrangement', 'pianoRoll')],
   [/^web\/src\/lib\/i18n\/grid\.ts$/, areas('grid', 'transport', 'topBar')],
   [/^web\/src\/lib\/i18n\/helper\.ts$/, areas('helper', 'topBar')],
-  [/^web\/src\/lib\/i18n\/history\.ts$/, areas('history')],
+  [/^web\/src\/lib\/i18n\/history\.ts$/, areas('history', 'palette')],
   [/^web\/src\/lib\/i18n\/keys\.ts$/, areas('keyboard', 'keyboardPlayer', 'topBar', 'tracks')],
   [/^web\/src\/lib\/i18n\/layout\.ts$/, areas('bottomPanel', 'topBar')],
   [/^web\/src\/lib\/i18n\/midi\.ts$/, areas('midi', 'topBar')],
@@ -181,13 +187,13 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/project\.ts$/, areas('storage')],
   [/^web\/src\/lib\/i18n\/refusal\.ts$/, areas('refusal')],
   [/^web\/src\/lib\/i18n\/shell\.ts$/, areas('landing', 'storage', 'topBar')],
-  [/^web\/src\/lib\/i18n\/shortcuts\.ts$/, areas('arrangement', 'keyboard', 'pianoRoll', 'shortcuts', 'shortcutsDialog', 'topBar')],
+  [/^web\/src\/lib\/i18n\/shortcuts\.ts$/, areas('arrangement', 'keyboard', 'palette', 'pianoRoll', 'shortcuts', 'shortcutsDialog', 'topBar')],
   // The default track name also names a track in an agent's question (#664, lib/agents/confirm-text.ts).
   [/^web\/src\/lib\/i18n\/tracks\.ts$/, areas('arrangement', 'grid', 'mixer', 'tracks', 'helper', 'history')],
   [/^web\/src\/lib\/i18n\/transport\.ts$/, areas('transport', 'topBar')],
   [/^web\/src\/lib\/i18n\/scale\.ts$/, areas('transport', 'topBar')], // the key and scale picker of the transport bar (#695)
   // Libraries with one clear audience.
-  [/^web\/src\/lib\/shortcuts\.ts$/, areas('shortcuts', 'keyboard', 'pianoRoll')],
+  [/^web\/src\/lib\/shortcuts\.ts$/, areas('shortcuts', 'keyboard', 'pianoRoll', 'palette')],
   [/^web\/src\/lib\/export\//, AREA.export],
   [/^web\/src\/lib\/browser\//, AREA.deviceBrowser],
   [/^web\/src\/lib\/storage\//, AREA.storage],
