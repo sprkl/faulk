@@ -46,6 +46,8 @@ export const AREA = {
   audio: ['audio-clips', 'audio-import', 'audio-play', 'clip-pool', 'browser-storage', 'project-store', 'waveform'],
   shortcuts: ['discoverability', 'keyboard-all-views'],
   shortcutsDialog: ['discoverability', 'keyboard-all-views', 'navigation'],
+  // The command palette (#108): its spec, and the shortcut list that carries its key.
+  palette: ['command-palette', 'discoverability'],
   bottomPanel: ['bottom-panel', 'layout-4', 'ux-quick-wins'],
   topBar: ['helper', 'keyboard-all-views', 'layout-4', 'local-access', 'navigation', 'space-bar', 'track-state', 'discoverability', 'top-bar', 'top-bar-narrow'],
   midi: ['keyboard', 'live-input', 'recording'],
@@ -125,6 +127,8 @@ export const RULES = [
   [/^web\/src\/views\/shell\/ExportDialog\./, AREA.export],
   [/^web\/src\/views\/shell\/(ProjectMenu|StorageBanners)\./, AREA.storage],
   [/^web\/src\/views\/shell\/ShortcutsDialog\./, AREA.shortcutsDialog],
+  [/^web\/src\/views\/shell\/CommandPalette\./, AREA.palette],
+  [/^web\/src\/lib\/command-palette\./, AREA.palette],
   [/^web\/src\/views\/shell\/(BottomPanel\.|panel-size\.)/, AREA.bottomPanel],
   [/^web\/src\/views\/shell\/(TopBar|EngineDialog)\./, AREA.topBar],
   // The app shell and the view registry: every view hangs from them.
@@ -158,6 +162,7 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/(app|index|lang|feature)\.ts$/, CORE], // the catalogue, the language and its helpers
   [/^web\/src\/lib\/i18n\/(landing)\.ts$/, AREA.landing],
   [/^web\/src\/lib\/i18n\/journey\.ts$/, AREA.landing],
+  [/^web\/src\/lib\/i18n\/palette\.ts$/, AREA.palette],
   [/^web\/src\/lib\/i18n\/arrangement\.ts$/, areas('arrangement', 'grid', 'shortcutsDialog')],
   [/^web\/src\/lib\/i18n\/automation\.ts$/, areas('arrangement', 'devices', 'mixer')],
   [/^web\/src\/lib\/i18n\/browser\.ts$/, areas('deviceBrowser', 'tracks')],

@@ -77,10 +77,16 @@ export class UiStore {
    */
   typing = $state<'notes' | 'shortcuts'>('notes')
   /**
-   * Step entry (#882): the piano roll is writing the letters as notes at its free cursor, so the keyboard player
-   * (`KeyboardPlayer`) plays none live. Set by the roll, cleared when it goes.
+   * Step entry (#882) is armed: a mode of the session like musical typing, on from clip to clip and from track to track (#916); only
+   * Alt+E, its button, Escape or musical typing switched off end it. Whether the letters then write or play is `stepWriting`.
    */
   stepEntry = $state(false)
+  /**
+   * The piano roll has a clip open and writes the letters as notes at its free cursor (#916): the keyboard player (`KeyboardPlayer`)
+   * plays none live then. Set by the roll, cleared when its clip or the roll goes: step entry armed with no clip to write into
+   * (`stepEntry` and not `stepWriting`) lets the letters play.
+   */
+  stepWriting = $state(false)
 
   /** Height the user gave the bottom panel, per view (px): a preference of the page, kept in `localStorage`, not in the project. Missing: the layout's default. */
   panelHeights = $state<Partial<Record<PanelViewId, number>>>(parseHeights(read(HEIGHTS_KEY)))
@@ -105,6 +111,8 @@ export class UiStore {
   helpOpen = $state(false)
   /** The key and scale panel of the transport bar (#695) is open: from its button, or from the bar's "more" menu when the bar folded the button. */
   scaleOpen = $state(false)
+  /** The command palette (#108) is open: every command, found by typing. Page state, not project state. */
+  paletteOpen = $state(false)
   /** The "Go to" field (#554) is open: a bar, or a bar and a beat, to put the playhead on. Page state, not project state. */
   gotoOpen = $state(false)
   /** Where the last "Go to" put the playhead (#852): the arrangement's free cursor follows it. `n` tells two jumps to one tick apart. */
