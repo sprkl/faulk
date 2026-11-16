@@ -1,7 +1,7 @@
 <script lang="ts">
   /**
-   * "Ramp to…" on an automation lane (#769): a position (a bar, or a bar and a beat, as "Go to" reads it) and a value in the
-   * parameter's unit (the grammar of the point field), and the ramp's curve (#881, linear by default). The view turns them into
+   * "Ramp to…" on an automation lane (#769): a position (as "Go to" reads it: a bar, a bar and a beat, or down to the sixteenth) and a value in the
+   * parameter's unit (the grammar of the point field), which is required (#918), and the ramp's curve (#881, linear by default). The view turns them into
    * one `automation.points.restore`: a ramp of that curve from the lane's value at the playhead. A native modal dialog like "Go to": the page behind is inert, the focus stays
    * inside, Escape closes it and the view gives the focus back. A text that means nothing is said, not guessed.
    */
@@ -20,7 +20,7 @@
     signature,
     headTick,
     initialPosition,
-    initialValue,
+    initialShape,
     onsubmit,
     onclose,
   }: {
@@ -34,7 +34,8 @@
     /** The playhead's tick: a ramp ends elsewhere. */
     headTick: number
     initialPosition: string
-    initialValue: string
+    /** The curve the last ramp used (linear before any). */
+    initialShape: Shape
     onsubmit: (tick: number, entry: AxisEntry, shape: Shape) => void
     onclose: () => void
   } = $props()
@@ -55,8 +56,8 @@
     if (!dialog) return
     if (open && !dialog.open) {
       position = initialPosition
-      value = initialValue
-      shape = 'linear'
+      value = ''
+      shape = initialShape
       positionError = null
       valueError = null
       dialog.showModal()
@@ -73,8 +74,13 @@
     if (!axis) return onclose()
     const tick = parseBarBeat(position, signature)
     positionError = tick === null ? t('automation.rampBadPosition', { beats: signature.numerator }) : tick === headTick ? t('automation.rampSame') : null
-    const entry = axis.parse(value)
-    valueError = entry === null ? t('automation.rampBadValue', { example: axis.format(axis.clamp((axis.min + axis.max) / 2)) }) : null
+    const entry = value.trim() === '' ? null : axis.parse(value)
+    valueError =
+      value.trim() === ''
+        ? t('automation.rampEmptyValue')
+        : entry === null
+          ? t('automation.rampBadValue', { example: axis.format(axis.clamp((axis.min + axis.max) / 2)) })
+          : null
     if (positionError) return positionField?.focus()
     if (valueError || !entry || tick === null) return valueField?.focus()
     onsubmit(tick, entry, shape)
@@ -109,7 +115,7 @@
       type="text"
       inputmode="decimal"
       autocomplete="off"
-      placeholder="12.3"
+      placeholder="12.3.2"
       aria-invalid={positionError ? 'true' : undefined}
       aria-describedby={positionError ? 'ramp-position-error' : undefined}
       data-testid="ramp-position"

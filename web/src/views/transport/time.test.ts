@@ -105,9 +105,15 @@ describe('parseBarBeat', () => {
     expect(parseBarBeat('99999', four)).toBe(99998 * 3840)
     expect(parseBarBeat('1.04', four)).toBe(3 * 960)
     expect(parseBarBeat('1.3', { numerator: 3, denominator: 8 })).toBe(2 * 480)
+    // The sixteenth of the beat, from 1: 24.4.3 is bar 24, beat 4, third sixteenth.
+    expect(parseBarBeat('24.4.3', four)).toBe(23 * 3840 + 3 * 960 + 2 * 240)
+    expect(parseBarBeat('1.1.1', four)).toBe(0)
+    expect(parseBarBeat('2.2.2', { numerator: 3, denominator: 8 })).toBe(3 * 480 + 480 + 240)
   })
   it('refuses what is no position', () => {
-    for (const text of ['', 'a', '0', '1.0', '1.5', '2.', '.5', '-1', '1.2.3', '100000', '1e3']) expect(parseBarBeat(text, four), text).toBeNull()
+    for (const text of ['', 'a', '0', '1.0', '1.5', '2.', '.5', '-1', '1.2.5', '1.2.0', '1.2.3.4', '100000', '1e3'])
+      expect(parseBarBeat(text, four), text).toBeNull()
     expect(parseBarBeat('1.4', { numerator: 3, denominator: 8 })).toBeNull()
+    expect(parseBarBeat('1.1.3', { numerator: 3, denominator: 8 })).toBeNull()
   })
 })

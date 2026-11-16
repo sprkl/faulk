@@ -87,9 +87,9 @@ test('automation curves (#881): a ramp of each curve, a point changed with C, ke
     const dialog = page.getByTestId('ramp-dialog')
     await expect(dialog).toBeVisible()
     await expect(page.getByTestId('ramp-position')).toBeFocused()
-    // The curve is chosen in the dialog, linear unless changed; the five are offered by name.
+    // The curve is chosen in the dialog, linear at first then the last one drawn (#918); the five are offered by name.
     const select = page.getByTestId('ramp-curve')
-    await expect(select).toHaveValue('linear')
+    await expect(select).toHaveValue(k === 0 ? 'linear' : curves[k - 1]!)
     await expect(select.locator('option')).toHaveText(names)
     await page.keyboard.type(String(k + 3))
     await page.keyboard.press('Tab')

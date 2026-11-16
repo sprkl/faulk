@@ -45,7 +45,7 @@
     type View,
   } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
-  import { arrangementShortcut, isTextTarget, repeatShortcut } from '../../lib/keyboard'
+  import { arrangementShortcut, isTextTarget, lengthenShortcut, repeatShortcut } from '../../lib/keyboard'
   import { MASTER_COLOR, MIN_GAIN_DB, isMidi, trackColor, trackLabel, type DragHooks } from '../../lib/project/tracks'
   import { offTimeline } from '../../lib/off-timeline'
   import { backTrackToArrangement } from '../../lib/scene-commands'
@@ -763,6 +763,12 @@
         if (!modal && !event.repeat && !isTextTarget(event.target)) openRepeat()
         return
       }
+      // Ctrl+Shift+L (#915): the same, for "Lengthen to".
+      if (lengthenShortcut(event)) {
+        event.preventDefault()
+        if (!modal && !event.repeat && !isTextTarget(event.target)) openLengthen()
+        return
+      }
       if (modal) return
       const action = arrangementShortcut(event)
       if (!action) return
@@ -1390,6 +1396,7 @@
         { id: 'duplicate', label: t('arrangement.duplicate'), shortcut: mod(['D']), separator: true, run: () => duplicate(false) },
         { id: 'duplicate-linked', label: t('arrangement.duplicateLinked'), shortcut: mod(['Shift', 'D']), run: () => duplicate(true) },
         { id: 'repeat', label: t('arrangement.repeatUntil'), shortcut: mod(['Shift', 'R']), disabled: picked.size !== 1, run: openRepeat },
+        { id: 'lengthen', label: t('arrangement.lengthenUntil'), shortcut: mod(['Shift', 'L']), disabled: picked.size !== 1, run: openLengthen },
         { id: 'split', label: t('arrangement.split'), shortcut: mod(['E']), disabled: cuts.length === 0, run: () => splitSelected() },
         {
           id: 'move-up',
@@ -1531,6 +1538,37 @@
     if (!block) return announce(t('arrangement.saidRepeatOne'))
     repeating = { id: block.id, min: Math.floor(block.end / bar) + 1 }
   }
+  // --- lengthen to (#915) -----------------------------------------------------------------------------------------
+  /** The clip being lengthened, and the first bar the field accepts (the one after the clip's end): the rule of "Repeat until". */
+  let lengthening = $state<{ id: string; min: number } | null>(null)
+  function openLengthen() {
+    const focusedId = (document.activeElement as HTMLElement | null)?.dataset?.block
+    const focused = focusedId && !selectedIds.has(focusedId) ? blocks.find((b) => b.id === focusedId) : undefined
+    const block = focused ?? (selection.length === 1 ? selection[0] : undefined)
+    if (!block) return announce(t('arrangement.saidLengthenOne'))
+    lengthening = { id: block.id, min: Math.floor(block.end / bar) + 1 }
+  }
+  /** The end of the clip goes to the end of the bar, in one `arrangement.resize`: its content repeats, no other clip is carved. */
+  function lengthenTo(barNumber: number) {
+    const target = lengthening
+    lengthening = null
+    if (!target) return
+    // The clip may have gone while the field was open.
+    const source = blocks.find((b) => b.id === target.id)
+    if (!source) return
+    const to = barNumber * bar
+    // Never over another clip (#863): the page names the one in the way and sends nothing. An audio end stops at its clip's
+    // last frame, so the page cannot tell where it lands: the core decides (refusal toast).
+    const inTheWay = source.audio ? null : repeatCovers(source, to, blocks)
+    if (inTheWay) return announce(t('arrangement.saidLengthenBlocked', blockerVars(inTheWay)))
+    // Whether an empty clip takes the length with its placement, decided before the resize (#898).
+    const withClip = followsPlacement(source)
+    if (!run(resizePlacement(source.id, 'end', to, 'refuse'))) return
+    const now = blocks.find((b) => b.id === source.id)
+    if (!now || now.end === source.end) return announce(t('arrangement.saidCannotResize'))
+    // The bar actually reached: an audio clip stops at its file's last frame.
+    announce(t(withClip ? 'arrangement.saidLengthenedWithClip' : 'arrangement.saidLengthened', { bar: barsOf(now).to }))
+  }
   /**
    * The "More" menu of the toolbar (#575): the actions that are not needed at every step of making a track, with their
    * shortcuts. It opens under its button (also from the keyboard, where the click has no position) in the shared menu.
@@ -1558,6 +1596,16 @@
           run: () => {
             returnFocus = button
             openRepeat()
+          },
+        },
+        {
+          id: 'more-lengthen',
+          label: t('arrangement.lengthenUntil'),
+          shortcut: mod(['Shift', 'L']),
+          disabled: selection.length !== 1,
+          run: () => {
+            returnFocus = button
+            openLengthen()
           },
         },
         {
@@ -2345,6 +2393,8 @@
     if (from === null) return
     ramping = { lane, back, head: at, from }
   }
+  /** The curve of the last ramp drawn, offered again by the dialog (#918). */
+  let rampShape = $state<Shape>('linear')
   const rampRef = $derived(ramping ? laneRefs.get(ramping.lane) : undefined)
   /** The ramp asked: one `automation.points.restore` (the two ends, the points between taken out), one history entry. */
   function submitRamp(at: number, entry: AxisEntry, shape: Shape) {
@@ -2359,7 +2409,19 @@
       r.back?.focus()
       return
     }
-    const said = [t('automation.saidRamp', { from: axis.format(r.from), fromAt: atText(r.head), to: axis.format(value), toAt: atText(at) })]
+    // The curve is kept for the next ramp, and the playhead goes to the end point: the next segment starts from there (#918).
+    rampShape = shape
+    // Not while it plays: playback would jump away from what is heard.
+    if (!running) placeHead(at)
+    const said = [
+      t('automation.saidRamp', {
+        from: axis.format(r.from),
+        fromAt: atText(r.head),
+        to: axis.format(value),
+        toAt: atText(at),
+        curve: t(SHAPE_NAMES[shape].word),
+      }),
+    ]
     if (entry.limit !== undefined) said.push(t('controls.limited', { value: axis.format(axis.clamp(entry.limit)) }))
     if (plan.remove.length > 0) said.push(t('automation.saidReplaced', { n: plan.remove.length }))
     announce(said.join('. '))
@@ -3153,7 +3215,7 @@
   {signature}
   headTick={ramping?.head ?? 0}
   initialPosition={ramping ? String(Math.floor(ramping.head / bar) + 2) : ''}
-  initialValue={ramping && rampRef ? rampRef.info.axis.format(ramping.from) : ''}
+  initialShape={rampShape}
   onsubmit={submitRamp}
   onclose={closeRamp}
 />
@@ -3171,6 +3233,23 @@
   onsubmit={repeatUpTo}
   onclose={() => {
     repeating = null
+    giveFocusBack()
+  }}
+/>
+<BarDialog
+  open={lengthening !== null}
+  name="lengthen"
+  title={t('arrangement.lengthenTitle')}
+  label={t('arrangement.lengthenLabel', { min: lengthening?.min ?? 1 })}
+  invalid={t('arrangement.lengthenInvalid', { min: lengthening?.min ?? 1, max: MAX_GOTO_BAR })}
+  go={t('arrangement.lengthenGo')}
+  cancel={t('arrangement.repeatCancel')}
+  initial={lengthening?.min ?? 1}
+  min={lengthening?.min ?? 1}
+  max={MAX_GOTO_BAR}
+  onsubmit={lengthenTo}
+  onclose={() => {
+    lengthening = null
     giveFocusBack()
   }}
 />
