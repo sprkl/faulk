@@ -17,6 +17,8 @@ const notes = async (page: Page): Promise<Note[]> => JSON.parse((await roll(page
 const sorted = async (page: Page) => (await notes(page)).sort((a, b) => a.start - b.start || a.pitch - b.pitch)
 const cursorTick = async (page: Page) => Number(await page.getByTestId('roll-cursor').getAttribute('data-tick'))
 const said = (page: Page) => page.getByTestId('roll-said')
+const anyPeak = async (page: Page) =>
+  Math.max(0, ...((await page.getByTestId('feedback').getAttribute('data-track-peaks')) ?? '').split(',').map(Number).filter(Number.isFinite))
 const trackPeak = async (page: Page) => Number(((await page.getByTestId('feedback').getAttribute('data-track-peaks')) ?? '').split(',')[0])
 
 test('step entry: a phrase, a chord, a rest, a longer step and Backspace, one undo per note', async ({ page }) => {
@@ -176,36 +178,60 @@ test('step entry: stays on from clip to clip and says when it stops, and the ind
   await expect(letters).toHaveAttribute('data-mode', 'write')
   await expect(letters).toHaveText(/Letters write|Les lettres écrivent/)
 
-  // A track with no clip: the roll has none to write into, the mode stops, and the page says so.
+  // A track with no clip: the mode stays armed, the roll says the letters play until a clip opens, and the page says so (#916).
+  const armed = page.getByTestId('roll-armed')
   await page.getByTestId('arr-track').nth(1).click()
-  await expect(page.getByTestId('roll-stop-said')).toContainText(/Step entry off|Saisie pas à pas désactivée/)
-  // Back on the first track the mode is off and the indicator says the letters play.
-  await page.getByTestId('arr-track').first().click()
-  await expect(button).toHaveAttribute('aria-pressed', 'false')
-  await expect(letters).toHaveAttribute('data-mode', 'play')
-
-  // An audio track has no notes either: the mode stops there too, and it is said there. The indicator does not move the toolbar.
-  const before = await page.getByTestId('roll-count').boundingBox()
-  await button.click()
-  const during = await page.getByTestId('roll-count').boundingBox()
-  expect(during!.y).toBe(before!.y)
-  await page.getByTestId('add-track').click()
-  await page.getByTestId('add-track-menu').getByRole('menuitem', { name: 'Audio track' }).click()
-  await expect(page.getByTestId('roll-stop-said')).toContainText(/Step entry off|Saisie pas à pas désactivée/)
-  await page.getByTestId('arr-track').first().click()
-  await expect(button).toHaveAttribute('aria-pressed', 'false')
-
-  // A clip on the second track, the mode on: going back to the first track's clip keeps it on, and the letters write there.
-  await page.getByTestId('arr-track').nth(1).click()
-  await page.getByTestId('roll-create-clip').click()
-  await button.click()
-  await expect(button).toHaveAttribute('aria-pressed', 'true')
+  await expect(armed).toContainText(/Step entry is on|Saisie pas à pas activée/)
+  await expect(page.getByTestId('arr-said')).toContainText(/Step entry stays on|reste activée/)
+  // The letters play there: the track sounds while the key is held (no roll is there to write anything).
+  await page.keyboard.down('KeyA')
+  await expect.poll(() => anyPeak(page), { message: 'the letter plays live with no clip open' }).toBeGreaterThan(0.02)
+  await page.keyboard.up('KeyA')
+  // Back on the first track, still armed, and the letters write again.
   await page.getByTestId('arr-track').first().click()
   await expect(button).toHaveAttribute('aria-pressed', 'true')
   await expect(letters).toHaveAttribute('data-mode', 'write')
+  await expect(page.getByTestId('arr-said')).toContainText(/letters write notes again|écrivent de nouveau/)
   await page.keyboard.press('KeyA')
   await expect(roll(page)).toHaveAttribute('data-note-count', '1')
 
+  // An audio track has no notes either: still armed, said. The indicator does not move the toolbar.
+  const before = await page.getByTestId('roll-count').boundingBox()
+  await page.getByTestId('add-track').click()
+  await page.getByTestId('add-track-menu').getByRole('menuitem', { name: 'Audio track' }).click()
+  await expect(armed).toBeVisible()
+  await page.getByTestId('arr-track').first().click()
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
+  const during = await page.getByTestId('roll-count').boundingBox()
+  expect(during!.y).toBe(before!.y)
+
+  // Escape ends it from the roll, where the roll also takes the key for its own selection (#916); Alt+E arms it again.
+  await page.getByTestId('roll-cursor').focus()
+  await page.keyboard.press('Escape')
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  await expect(letters).toHaveAttribute('data-mode', 'play')
+  await page.keyboard.press('Alt+KeyE')
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
+
+  // Another tab than the roll's: still armed, the panel says so, and Escape ends it from there.
+  await page.getByTestId('panel-clips').click()
+  await expect(page.getByTestId('arr-said')).toContainText(/Step entry stays on|reste activée/)
+  await expect(page.getByTestId('panel-step-armed')).toContainText(/Step entry on|Saisie pas à pas/)
+  await page.keyboard.press('Escape')
+  await expect(page.getByTestId('panel-step-armed')).toHaveCount(0)
+  await expect(page.getByTestId('arr-said')).toContainText(/Step entry off|Saisie pas à pas désactivée/)
+  await page.getByTestId('panel-piano-roll').click()
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  await expect(letters).toHaveAttribute('data-mode', 'play')
+
+  // Armed again on the first track: Alt+E from the roll ends it as well, and musical typing off does too.
+  await page.getByTestId('roll-cursor').focus()
+  await page.keyboard.press('Alt+KeyE')
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
+  await page.keyboard.press('Alt+KeyE')
+  await expect(button).toHaveAttribute('aria-pressed', 'false')
+  await page.keyboard.press('Alt+KeyE')
+  await expect(button).toHaveAttribute('aria-pressed', 'true')
   // Musical typing off ends the mode, said, and the indicator follows.
   await page.keyboard.press('Backquote')
   await expect(button).toHaveAttribute('aria-pressed', 'false')
