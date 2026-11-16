@@ -37,6 +37,7 @@ import { midi } from './midi'
 import { mixer } from './mixer'
 import { pianoRoll } from './piano-roll'
 import { presets } from './presets'
+import { palette } from './palette'
 import { project } from './project'
 import { refusal } from './refusal'
 import { scale } from './scale'
@@ -55,6 +56,7 @@ export { DEVICE_NAME_KEYS } from './synth'
 export const features = {
   shell,
   shortcuts,
+  palette,
   layout,
   tracks,
   browser,
