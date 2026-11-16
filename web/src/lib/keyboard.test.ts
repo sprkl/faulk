@@ -14,6 +14,7 @@ import {
   playsNote,
   generateShortcut,
   gotoShortcut,
+  paletteShortcut,
   repeatShortcut,
   saveShortcut,
   spaceTogglesTransport,
@@ -496,6 +497,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
         'Enter',
         'Escape',
         'Escape',
+        'Escape',
         'F2',
         'PageDown',
         'PageUp',
@@ -503,6 +505,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       ], // Page Up and Down: the selection's velocity (#494); Space on a note selects it (#771); Backspace ahead of the stage in step entry (#882), no letter
       'views/piano-roll/EuclideanPanel.svelte': ['Enter', 'Escape'], // the euclidean generator's fields (#694): Enter places, Escape closes; every other key stays in the field
       'views/shell/BottomPanel.svelte': ['ArrowDown', 'ArrowUp', 'End', 'Enter', 'Home'],
+      'views/shell/CommandPalette.svelte': ['ArrowDown', 'ArrowUp', 'Enter'], // the search field drives the result list (#108)
       'views/shell/EngineDialog.svelte': ['Enter'], // the recording offset's field (#470)
       'views/shell/ExportDialog.svelte': ['Escape'],
       'views/shell/ProjectMenu.svelte': ['Enter', 'Enter', 'Escape', 'Escape', 'F2'], // the name's field (#627): Enter and Escape; F2 on the name
@@ -698,6 +701,19 @@ describe('generateShortcut (#694)', () => {
   it('leaves a text field alone', () => {
     expect(generateShortcut(press({ target: document.createElement('input') }))).toBe(false)
     expect(generateShortcut(press({ target: document.createElement('select') }))).toBe(false)
+  })
+})
+
+describe('paletteShortcut (#108)', () => {
+  const press = (over: object = {}) => ({ key: 'k', ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, repeat: false, target: null, ...over })
+  it('is Ctrl or Cmd + K, nothing else', () => {
+    expect(paletteShortcut(press())).toBe(true)
+    expect(paletteShortcut(press({ ctrlKey: false, metaKey: true, key: 'K' }))).toBe(true)
+    for (const over of [{ ctrlKey: false }, { altKey: true }, { shiftKey: true }, { repeat: true }, { key: 'g' }])
+      expect(paletteShortcut(press(over))).toBe(false)
+  })
+  it('leaves a text field its own Ctrl+K', () => {
+    expect(paletteShortcut(press({ target: { closest: () => ({}) } }))).toBe(false)
   })
 })
 

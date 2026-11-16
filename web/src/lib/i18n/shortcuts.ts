@@ -27,6 +27,7 @@ export const shortcuts = defineFeature(
     'shortcut.panel': 'Make the bottom panel bigger or back',
     'shortcut.help': 'Open this list',
     'shortcut.goTo': 'Go to a bar, a bar.beat or a bar.beat.sixteenth: put the playhead there',
+    'shortcut.palette': 'Open the command palette: find any command by typing and run it',
     'shortcut.playheadCursor': 'Put the playhead at the free cursor (Enter on the ruler row, reached with Up from the first track)',
     'shortcut.markerMove': 'On a section marker: move it by the snap step (a bar with the snap off)',
     'shortcut.tab': 'Go to the next or previous control',
@@ -85,7 +86,7 @@ export const shortcuts = defineFeature(
     'shortcut.noteCursorBar': 'Move the free cursor by a bar, whatever the snap',
     'shortcut.noteVelocity': 'Change the velocity of the selection by 10 (Shift: by 1)',
     'shortcut.stepEntry':
-      'Step entry on or off: the letters of musical typing then write notes at the free cursor instead of playing, from clip to clip until it is switched off',
+      'Step entry on or off: the letters of musical typing then write notes at the free cursor instead of playing, from clip to clip and track to track until Alt+E or Escape switches it off',
     'shortcut.stepRest': 'In step entry: a rest, the cursor moves on without writing ({rest})',
     'shortcut.stepLengthen': 'In step entry: lengthen the last step by the note length chosen in the toolbar, whatever the snap ({lengthen})',
     'shortcut.stepBack': 'In step entry: remove the last step written and put the cursor back (instead of removing the selection)',
@@ -131,6 +132,7 @@ export const shortcuts = defineFeature(
     'shortcut.panel': 'Agrandir le panneau du bas, ou le remettre',
     'shortcut.help': 'Ouvrir cette liste',
     'shortcut.goTo': 'Aller à une mesure, une mesure.temps ou une mesure.temps.double-croche : y placer la tête de lecture',
+    'shortcut.palette': 'Ouvrir la palette de commandes : trouver une commande en tapant, puis l’exécuter',
     'shortcut.playheadCursor': 'Placer la tête de lecture au curseur libre (Entrée sur la ligne de la règle, atteinte avec Haut depuis la première piste)',
     'shortcut.markerMove': 'Sur un repère de section : le déplacer du pas de la grille (une mesure sans grille)',
     'shortcut.tab': 'Aller au contrôle suivant ou précédent',
@@ -191,7 +193,7 @@ export const shortcuts = defineFeature(
     'shortcut.noteCursorBar': 'Déplacer le curseur libre d’une mesure, quel que soit le magnétisme',
     'shortcut.noteVelocity': 'Changer la vélocité de la sélection de 10 (Maj : de 1)',
     'shortcut.stepEntry':
-      'Saisie pas à pas activée ou non : les lettres de la saisie musicale écrivent alors des notes au curseur libre au lieu de jouer, d’un clip à l’autre jusqu’à ce qu’on l’arrête',
+      'Saisie pas à pas activée ou non : les lettres de la saisie musicale écrivent alors des notes au curseur libre au lieu de jouer, d’un clip et d’une piste à l’autre jusqu’à ce qu’Alt+E ou Échap l’arrête',
     'shortcut.stepRest': 'En saisie pas à pas : un silence, le curseur avance sans rien écrire ({rest})',
     'shortcut.stepLengthen':
       'En saisie pas à pas : allonger le dernier pas de la longueur de note choisie dans la barre d’outils, quel que soit le magnétisme ({lengthen})',

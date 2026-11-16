@@ -291,6 +291,14 @@ export function saveShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'met
 }
 
 /**
+ * The command palette asked by the keyboard (#108): Ctrl or Cmd + K, in every view, not from a text field (so a field's own
+ * Ctrl+K is left alone). It carries Ctrl or Cmd, so it never plays a note; the browser's search-bar focus is taken.
+ */
+export function paletteShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'repeat' | 'target'>): boolean {
+  return (event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && !event.repeat && event.key.toLowerCase() === 'k' && !isTextTarget(event.target)
+}
+
+/**
  * "Go to" asked by the keyboard (#554): Ctrl or Cmd + G, in every view, not from a text field (so the open field's own
  * Ctrl+G is left alone). It carries Ctrl or Cmd, so it never plays a note; the browser's find-next is taken.
  */

@@ -11,7 +11,7 @@
 
   let { max }: { /** The tallest the panel may be in the room there is (px). */ max: number } = $props()
 
-  const { ui } = useStores()
+  const { ui, engine } = useStores()
   const tabs = viewsIn('panel')
   const current = $derived(viewById(ui.panel) ?? tabs[0])
   const id = $derived(current.id as PanelViewId)
@@ -113,6 +113,12 @@
     {#each tabs as tab (tab.id)}
       <button aria-pressed={ui.panel === tab.id} data-testid="panel-{tab.id}" onclick={() => ui.showPanel(tab.id)}>{ui.t(tab.label)}</button>
     {/each}
+    <!-- Step entry armed with no clip to write into (#916): the roll's button is not on screen, so the panel says it. -->
+    {#if ui.stepEntry && !ui.stepWriting}
+      <span class="armed" data-testid="panel-step-armed" title={ui.t(engine.started ? 'panel.stepArmedHint' : 'panel.stepArmedMuteHint')}
+        >{ui.t(engine.started ? 'panel.stepArmed' : 'panel.stepArmedMute')}</span
+      >
+    {/if}
     <button
       class="maximize"
       aria-pressed={maximized}
@@ -208,6 +214,13 @@
   button[aria-pressed='true'] {
     background: var(--fk-surface-2);
     color: var(--fk-text);
+  }
+  .armed {
+    align-self: center;
+    margin-left: var(--fk-space-3);
+    margin-right: auto;
+    font-size: 12px;
+    color: var(--fk-text-muted);
   }
   .maximize {
     margin-left: auto;
