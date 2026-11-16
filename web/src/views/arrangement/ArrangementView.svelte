@@ -2363,7 +2363,8 @@
     }
     // The curve is kept for the next ramp, and the playhead goes to the end point: the next segment starts from there (#918).
     rampShape = shape
-    placeHead(at)
+    // Not while it plays: playback would jump away from what is heard.
+    if (!running) placeHead(at)
     const said = [
       t('automation.saidRamp', {
         from: axis.format(r.from),

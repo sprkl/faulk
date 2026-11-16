@@ -485,12 +485,18 @@ for (const lang of ['en', 'fr'] as const) {
     await expect(page.getByTestId('ramp-value')).toHaveValue('')
     await page.keyboard.press('Enter')
     await expect(page.getByTestId('ramp-value-error')).toBeVisible()
+    expect(await lanePoints()).toEqual([[BAR, -6, 'linear']])
     await expect(page.getByTestId('ramp-value')).toBeFocused()
     await page.keyboard.type('-24')
     await page.keyboard.press('Enter')
     await expect(page.getByTestId('ramp-dialog')).not.toBeVisible()
     // The playhead is at the end point, ready for the next segment.
-    await expect(page.getByTestId('transport-position')).toContainText('4.1')
+    await expect(page.getByTestId('transport-position')).toContainText('4.1.000')
+    // "Go to" reads a sixteenth too: 4.2.3 is the third sixteenth of beat 2 (480 ticks into it).
+    await page.keyboard.press('Control+g')
+    await page.getByTestId('goto-field').fill('4.2.3')
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('transport-position')).toContainText('4.2.480')
     expect(await lanePoints()).toEqual([
       [BAR, -6, 'linear'],
       [3 * BAR, -24, 'linear'],

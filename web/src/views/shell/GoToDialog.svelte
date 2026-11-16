@@ -1,6 +1,6 @@
 <script lang="ts">
   /**
-   * "Go to" (#554), opened by Ctrl+G in every view: a bar ("12") or a bar and a beat ("12.3") puts the playhead there with
+   * "Go to" (#554), opened by Ctrl+G in every view: a bar ("12") or a bar and a beat ("12.3") or down to the sixteenth ("12.3.2") puts the playhead there with
    * `transport.seek`, like a click on the ruler. A native modal dialog like the shortcut list: the page behind is inert, the
    * focus stays inside, Escape closes it and the focus goes back to what opened it. A position that means nothing is said, not
    * guessed.
@@ -69,7 +69,7 @@
       type="text"
       inputmode="decimal"
       autocomplete="off"
-      placeholder="12.3"
+      placeholder="12.3.2"
       aria-invalid={invalid ? 'true' : undefined}
       aria-describedby={invalid ? 'goto-error' : undefined}
       data-testid="goto-field"
