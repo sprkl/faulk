@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { compile } from 'json-schema-to-typescript'
+import { commandCatalog } from './command-catalog.mjs'
 import { mergeRoots } from './schema-merge.mjs'
 import { checkSchemaSize } from './schema-size.mjs'
 
@@ -86,6 +87,12 @@ const parts = [
   `export const FADER_TAPER = ${JSON.stringify(bundle.fader_taper)} as const`,
   '/** The scales of the project (#695): the degrees of each one in semitones above its root, rising, in the order to list them (`project::ScaleMode`). */',
   `export const SCALE_INTERVALS = ${JSON.stringify(bundle.scale_intervals)} as const`,
+  "/** One field of a command's input as the command palette asks for it (#108, `scripts/command-catalog.mjs`). */",
+  'export interface CommandField { name: string; required: boolean; kind: "string" | "integer" | "number" | "boolean" | "enum" | "json"; ref?: string; nullable?: boolean; options?: readonly string[] }',
+  "/** A command the palette lists (#108): every command of the catalogue except the queries, in the catalogue's order. */",
+  'export interface CatalogEntry { name: string; kind: "edit" | "live" | "setting"; summary: string; destructive?: true; fields: readonly CommandField[] }',
+  '/** The commands a user can run, from the catalogue (#108): the command palette lists them and asks for their input. */',
+  `export const COMMAND_CATALOG: readonly CatalogEntry[] = ${JSON.stringify(commandCatalog(bundle.command.catalog))}`,
   '/** A parameter id of the built-in synth, as `device.set_param` takes it. */',
   'export type SynthParam = keyof typeof PARAM_IDS',
   "/** The ids of the default project's synth track and device (`commands::engine_msgs::single_synth`), and its device kind. */",

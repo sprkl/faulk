@@ -105,6 +105,8 @@ export class UiStore {
   helpOpen = $state(false)
   /** The key and scale panel of the transport bar (#695) is open: from its button, or from the bar's "more" menu when the bar folded the button. */
   scaleOpen = $state(false)
+  /** The command palette (#108) is open: every command, found by typing. Page state, not project state. */
+  paletteOpen = $state(false)
   /** The "Go to" field (#554) is open: a bar, or a bar and a beat, to put the playhead on. Page state, not project state. */
   gotoOpen = $state(false)
   /** Where the last "Go to" put the playhead (#852): the arrangement's free cursor follows it. `n` tells two jumps to one tick apart. */

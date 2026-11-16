@@ -8,7 +8,7 @@
   import { onMount } from 'svelte'
   import { watchLocalAccess } from '../../lib/engine/local-access'
   import { isMenuKey, menuPointOf, unhandledContextMenu } from '../../lib/context-menu'
-  import { browserShortcut, gotoShortcut, historyShortcut, isTextTarget, layoutShortcut, saveShortcut } from '../../lib/keyboard'
+  import { browserShortcut, gotoShortcut, historyShortcut, isTextTarget, layoutShortcut, paletteShortcut, saveShortcut } from '../../lib/keyboard'
   import { takeOpenLink } from '../../lib/open-link'
   import { isPairHash } from '../../lib/pair-link'
   import { helpShortcut, readKeyLayout } from '../../lib/shortcuts'
@@ -20,6 +20,7 @@
   import BottomPanel from './BottomPanel.svelte'
   import BrowserPanel from '../browser/BrowserPanel.svelte'
   import { clampHeight, panelMax, panelMin } from './panel-size'
+  import CommandPalette from './CommandPalette.svelte'
   import EngineDialog from './EngineDialog.svelte'
   import ExportDialog from './ExportDialog.svelte'
   import GoToDialog from './GoToDialog.svelte'
@@ -202,6 +203,17 @@
         return
       }
     }
+    // Ctrl+K opens the command palette in every view (#108), unless another dialog or a menu has the keyboard.
+    if (
+      paletteShortcut(event) &&
+      !ui.helpOpen &&
+      !document.querySelector('[aria-modal="true"]') &&
+      !(event.target as Element | null)?.closest?.('[role="menu"]')
+    ) {
+      event.preventDefault()
+      ui.paletteOpen = true
+      return
+    }
     // Ctrl+G opens the "Go to" field in every view (#554), unless another dialog or a menu has the keyboard.
     if (
       gotoShortcut(event) &&
@@ -289,6 +301,7 @@
   <EngineDialog />
   <ShortcutsDialog />
   <GoToDialog />
+  <CommandPalette />
   <SaveAsDialog />
   {#if engine.notice}
     <p class="notice" role="status">{ui.t(engine.notice)}</p>
