@@ -8,6 +8,7 @@
    */
   import type { CatalogEntry, CommandField } from '../../lib/generated/protocol'
   import { buildCommand, initialText, MAX_RESULTS, paletteEntries, searchCommands, type FieldProblem, type PaletteEntry } from '../../lib/command-palette'
+  import { commandShortcutText } from '../../lib/shortcuts'
   import { useStores } from '../../lib/stores'
 
   const { engine, project, dispatcher, ui } = useStores()
@@ -23,6 +24,9 @@
   let texts = $state<Record<string, string>>({})
   let problems = $state<Record<string, FieldProblem>>({})
   let refused = $state(false)
+
+  /** The keys that run a command, as the platform and the keyboard layout write them (empty when none does). */
+  const keysOf = (name: string) => commandShortcutText(name, undefined, ui.keyLayout)
 
   const entries = $derived(paletteEntries(t))
   const found = $derived(searchCommands(entries, query))
@@ -165,7 +169,10 @@
           onpointermove={() => (active = i)}
         >
           <span class="label">{item.label}</span>
-          <code class="name">{item.entry.name}</code>
+          <span class="side">
+            {#if keysOf(item.entry.name) !== ''}<kbd data-testid="palette-keys">{keysOf(item.entry.name)}</kbd>{/if}
+            <code class="name">{item.entry.name}</code>
+          </span>
           <span class="summary">{item.entry.summary}</span>
         </li>
       {/each}
@@ -277,6 +284,18 @@
   }
   .label {
     font-weight: 600;
+  }
+  .side {
+    display: flex;
+    align-items: center;
+    gap: var(--fk-space-2);
+  }
+  kbd {
+    font-family: var(--fk-font-mono);
+    font-size: 11px;
+    padding: 0 var(--fk-space-1);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-panel);
   }
   .name {
     font-family: var(--fk-font-mono);

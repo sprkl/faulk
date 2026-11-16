@@ -129,6 +129,7 @@ export const RULES = [
   [/^web\/src\/views\/shell\/ShortcutsDialog\./, AREA.shortcutsDialog],
   [/^web\/src\/views\/shell\/CommandPalette\./, AREA.palette],
   [/^web\/src\/lib\/command-palette\./, AREA.palette],
+  [/^web\/src\/lib\/shortcut-commands\.ts$/, AREA.palette],
   [/^web\/src\/views\/shell\/(BottomPanel\.|panel-size\.)/, AREA.bottomPanel],
   [/^web\/src\/views\/shell\/(TopBar|EngineDialog)\./, AREA.topBar],
   // The app shell and the view registry: every view hangs from them.
@@ -163,7 +164,7 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/(landing)\.ts$/, AREA.landing],
   [/^web\/src\/lib\/i18n\/journey\.ts$/, AREA.landing],
   [/^web\/src\/lib\/i18n\/palette\.ts$/, AREA.palette],
-  [/^web\/src\/lib\/i18n\/arrangement\.ts$/, areas('arrangement', 'grid', 'shortcutsDialog')],
+  [/^web\/src\/lib\/i18n\/arrangement\.ts$/, areas('arrangement', 'grid', 'palette', 'shortcutsDialog')],
   [/^web\/src\/lib\/i18n\/automation\.ts$/, areas('arrangement', 'devices', 'mixer')],
   [/^web\/src\/lib\/i18n\/browser\.ts$/, areas('deviceBrowser', 'tracks')],
   [/^web\/src\/lib\/i18n\/clips\.ts$/, areas('clips', 'audio')],
@@ -177,7 +178,7 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/gesture\.ts$/, areas('arrangement', 'pianoRoll')],
   [/^web\/src\/lib\/i18n\/grid\.ts$/, areas('grid', 'transport', 'topBar')],
   [/^web\/src\/lib\/i18n\/helper\.ts$/, areas('helper', 'topBar')],
-  [/^web\/src\/lib\/i18n\/history\.ts$/, areas('history')],
+  [/^web\/src\/lib\/i18n\/history\.ts$/, areas('history', 'palette')],
   [/^web\/src\/lib\/i18n\/keys\.ts$/, areas('keyboard', 'keyboardPlayer', 'topBar', 'tracks')],
   [/^web\/src\/lib\/i18n\/layout\.ts$/, areas('bottomPanel', 'topBar')],
   [/^web\/src\/lib\/i18n\/midi\.ts$/, areas('midi', 'topBar')],
@@ -186,13 +187,13 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/project\.ts$/, areas('storage')],
   [/^web\/src\/lib\/i18n\/refusal\.ts$/, areas('refusal')],
   [/^web\/src\/lib\/i18n\/shell\.ts$/, areas('landing', 'storage', 'topBar')],
-  [/^web\/src\/lib\/i18n\/shortcuts\.ts$/, areas('arrangement', 'keyboard', 'pianoRoll', 'shortcuts', 'shortcutsDialog', 'topBar')],
+  [/^web\/src\/lib\/i18n\/shortcuts\.ts$/, areas('arrangement', 'keyboard', 'palette', 'pianoRoll', 'shortcuts', 'shortcutsDialog', 'topBar')],
   // The default track name also names a track in an agent's question (#664, lib/agents/confirm-text.ts).
   [/^web\/src\/lib\/i18n\/tracks\.ts$/, areas('arrangement', 'grid', 'mixer', 'tracks', 'helper', 'history')],
   [/^web\/src\/lib\/i18n\/transport\.ts$/, areas('transport', 'topBar')],
   [/^web\/src\/lib\/i18n\/scale\.ts$/, areas('transport', 'topBar')], // the key and scale picker of the transport bar (#695)
   // Libraries with one clear audience.
-  [/^web\/src\/lib\/shortcuts\.ts$/, areas('shortcuts', 'keyboard', 'pianoRoll')],
+  [/^web\/src\/lib\/shortcuts\.ts$/, areas('shortcuts', 'keyboard', 'pianoRoll', 'palette')],
   [/^web\/src\/lib\/export\//, AREA.export],
   [/^web\/src\/lib\/browser\//, AREA.deviceBrowser],
   [/^web\/src\/lib\/storage\//, AREA.storage],

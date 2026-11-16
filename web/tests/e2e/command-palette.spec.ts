@@ -146,4 +146,17 @@ test.describe('the command palette', () => {
     await page.keyboard.press('Enter')
     await expect(palette(page)).toBeVisible()
   })
+
+  test('a command that has a shortcut shows its keys in the list, and the ones without show none (#109)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/app')
+    await start(page)
+    await page.keyboard.press('Control+k')
+    await search(page).fill('history.undo')
+    const undo = page.locator('[role="option"][data-command="history.undo"]')
+    await expect(undo.getByTestId('palette-keys')).toHaveText('Ctrl+Z')
+    await search(page).fill('transport.stop')
+    await expect(page.locator('[role="option"][data-command="transport.stop"]')).toBeVisible()
+    await expect(page.getByTestId('palette-keys')).toHaveCount(0)
+  })
 })
