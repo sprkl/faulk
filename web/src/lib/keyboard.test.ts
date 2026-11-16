@@ -14,6 +14,7 @@ import {
   playsNote,
   generateShortcut,
   gotoShortcut,
+  lengthenShortcut,
   repeatShortcut,
   saveShortcut,
   spaceTogglesTransport,
@@ -684,6 +685,15 @@ describe('repeatShortcut (#555)', () => {
     expect(repeatShortcut(press())).toBe(true)
     expect(repeatShortcut(press({ ctrlKey: false, metaKey: true, key: 'r' }))).toBe(true)
     for (const over of [{ ctrlKey: false }, { shiftKey: false }, { altKey: true }, { key: 'd' }]) expect(repeatShortcut(press(over))).toBe(false)
+  })
+})
+
+describe('lengthenShortcut (#915)', () => {
+  const press = (over: object = {}) => ({ key: 'L', ctrlKey: true, metaKey: false, altKey: false, shiftKey: true, ...over })
+  it('is Ctrl or Cmd + Shift + L, nothing else', () => {
+    expect(lengthenShortcut(press())).toBe(true)
+    expect(lengthenShortcut(press({ ctrlKey: false, metaKey: true, key: 'l' }))).toBe(true)
+    for (const over of [{ ctrlKey: false }, { shiftKey: false }, { altKey: true }, { key: 'r' }]) expect(lengthenShortcut(press(over))).toBe(false)
   })
 })
 
