@@ -317,6 +317,14 @@ export function repeatShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'm
 }
 
 /**
+ * The chord of "Lengthen to" in the arrangement (#915): Ctrl or Cmd + Shift + L. Like "Repeat until" it is cancelled whenever the
+ * arrangement is shown, and opens the field only outside a text field and a dialog.
+ */
+export function lengthenShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey'>): boolean {
+  return (event.ctrlKey || event.metaKey) && event.shiftKey && !event.altKey && event.key.toLowerCase() === 'l'
+}
+
+/**
  * The piano roll's "Generate" (#694): Alt+G, by position. Alt alone (never a bare letter: G plays a note), no repeat, nothing
  * from a text field (a second press while the generator is open does nothing). Playing ignores every Alt event
  * (`ignoreKeyEvent`), so it plays nothing.

@@ -700,6 +700,42 @@ fn a_repeat_is_one_history_entry_and_undo_brings_back_what_it_covered() {
 }
 
 #[test]
+fn lengthening_a_placement_to_a_bar_is_one_resize_one_history_entry_and_one_undo() {
+    // "Lengthen to..." (#915) is `arrangement.resize` on the end edge, with `if_occupied: refuse`.
+    let f = fx();
+    let bar = 3840;
+    let lengthen = |placement: &PlacementId, bars: i64| arrangement::Command::Resize {
+        placement: placement.clone(),
+        edge: Edge::End,
+        to: Tick(bars * bar),
+        if_occupied: ::commands::arrangement::IfOccupied::Refuse,
+        clip_length: None,
+    };
+    // C is the last placement: its end goes to the end of bar 25 in one command, its offset unchanged.
+    let mut s = f.state.clone();
+    let before = s.project.clone();
+    let mut ctx = context();
+    let outcome = run(&a(lengthen(&f.c, 25)), &mut s, &mut ctx).unwrap();
+    assert_eq!(
+        spans(&s, &f.track),
+        [
+            (0, 3840, 0),
+            (3840, 1920, 960),
+            (7680, 25 * bar - 7680, 480)
+        ]
+    );
+    // One undo gives the placement its length back.
+    let Undo::Inverse(inverse) = outcome.undo else {
+        panic!("no inverse")
+    };
+    inverse.apply(&mut s, &mut ctx).unwrap();
+    assert_eq!(s.project, before, "one undo shortens it again");
+    // A has B right after it: lengthening it to bar 25 would carve B, so it is refused and nothing changes.
+    let error = refused(&f, lengthen(&f.a, 25));
+    assert!(error.to_string().contains("in the way"), "{error}");
+}
+
+#[test]
 fn an_independent_copy_is_a_new_clip_and_a_linked_copy_is_a_new_placement() {
     let f = fx();
     let mut s = f.state.clone();
