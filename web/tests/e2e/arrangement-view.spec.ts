@@ -194,8 +194,13 @@ test('arrangement view: place, move, resize, split, duplicate, delete, loop, see
   expect((await blocks(page)).map((b) => b.start)).toEqual(linked.map((b) => b.start))
 
   // A double-click on an empty place of the lane makes a one-bar clip; on a clip it opens the piano roll.
+  // #84: from another panel, the new clip brings the piano roll up, on the bar it was made.
+  await page.getByTestId('panel-devices').click()
+  await expect(page.getByTestId('piano-roll')).toBeHidden()
   await page.mouse.dblclick(g.x(3 * BAR + 100), g.y(0))
   await expect(arr(page)).toHaveAttribute('data-block-count', '6')
+  await expect(page.getByTestId('piano-roll')).toBeVisible()
+  await expect(page.getByTestId('roll-clip-origin')).toHaveText('Arrangement · bar 4')
   await page.getByTestId('panel-devices').click()
   await page.mouse.dblclick(g.x(2 * BAR + 1000), g.y(0))
   await expect(page.getByTestId('piano-roll')).toBeVisible()
