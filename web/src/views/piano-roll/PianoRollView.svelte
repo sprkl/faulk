@@ -954,7 +954,12 @@
 
   // Step entry asked from the command palette (#926): what the button and Alt+E do.
   $effect(() => {
-    if (ui.takeGesture(PIANO_ROLL_GESTURES) === 'stepEntry') untrack(() => setStepEntry(!ui.stepEntry))
+    if (ui.takeGesture(PIANO_ROLL_GESTURES) !== 'stepEntry') return
+    untrack(() => {
+      // The key does nothing without a clip to write into; the palette says so.
+      if (!edited && !ui.stepEntry) return announce(t('pianoRoll.saidStepNoClip'))
+      setStepEntry(!ui.stepEntry)
+    })
   })
 
   /** Puts the cursor at `tick` (null: the clip is full, it stays on `fallback`). Callers speak. */
