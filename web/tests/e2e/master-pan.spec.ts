@@ -109,3 +109,37 @@ test('master pan: set, dragged, undone, automated; the tracks have the same Auto
 
   expect(seen.errors).toEqual([])
 })
+
+// #925: the arrangement's snap is the one the user chose after every "Automate" button of the mixer (volume and pan, a
+// track's and the master's), which brings the arrangement back, and after a plain change of view.
+test('the arrangement snap survives the mixer Automate buttons and a change of view', async ({ page }) => {
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  await page.setViewportSize({ width: 1600, height: 900 })
+  await page.goto('/app')
+  await page
+    .getByTestId('engine-state')
+    .getByRole('button', { name: /Start audio|Démarrer/ })
+    .click()
+  await engineUp(page)
+  await page.getByTestId('nav-arrangement').click()
+  const arr = page.getByTestId('arrangement')
+  await expect(arr).toBeVisible()
+  const snap = page.getByTestId('arr-snap')
+  await snap.selectOption('bar')
+  await expect(snap).toHaveValue('bar')
+
+  // A plain change of view.
+  await page.getByTestId('nav-mixer').click()
+  await page.getByTestId('nav-arrangement').click()
+  await expect(snap).toHaveValue('bar')
+
+  const strip = page.getByTestId('mixer-strip').first()
+  for (const id of ['mixer-automate-gain', 'mixer-automate-pan', 'mixer-master-automate-gain', 'mixer-master-automate-pan']) {
+    await page.getByTestId('nav-mixer').click()
+    await page.getByTestId(id).or(strip.getByTestId(id)).first().click()
+    await expect(arr).toBeVisible()
+    await expect(snap).toHaveValue('bar')
+  }
+  expect(seen.errors).toEqual([])
+})
