@@ -29,14 +29,14 @@ export const areas = (...names) => {
 // e2e-table:begin
 /** Named areas: the specs that exercise one part of the page. Rules below are unions of them. */
 export const AREA = {
-  arrangement: ['arrangement', 'audio-clips', 'arrangement-time', 'arrangement-handles', 'arrangement-view', 'arrangement-draw', 'automation', 'automation-shapes', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard', 'arrangement-never-replaces', 'arrangement-lengthen', 'arrangement-group-atomic', 'discoverability', 'keyboard-create', 'recording', 'piano-roll-follow', 'clip-pool', 'markers', 'context-menu', 'toolbar-overflow', 'device-browser', 'devices-follow-selection'],
+  arrangement: ['arrangement', 'audio-clips', 'arrangement-time', 'arrangement-handles', 'arrangement-view', 'arrangement-draw', 'automation', 'automation-shapes', 'back-to-arrangement', 'clip-names', 'grid-to-arrangement', 'master-pan', 'playhead', 'timegrid', 'ux-quick-wins', 'track-state', 'lane-rows', 'tracks', 'track-order', 'timeline-keyboard', 'arrangement-never-replaces', 'arrangement-lengthen', 'arrangement-group-atomic', 'discoverability', 'keyboard-create', 'recording', 'piano-roll-follow', 'clip-pool', 'markers', 'context-menu', 'toolbar-overflow', 'device-browser', 'devices-follow-selection', 'command-palette'],
   clips: ['clip-pool'],
   grid: ['clip-names', 'clip-pool', 'grid', 'grid-clips', 'grid-to-arrangement', 'recording', 'devices-follow-selection'],
   history: ['history', 'history-cost', 'history-names', 'keyboard-create'],
-  pianoRoll: ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-euclid', 'piano-roll-jump', 'piano-roll-step', 'bottom-panel', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard', 'keyboard-create', 'recording', 'piano-roll-follow', 'context-menu', 'scale'],
+  pianoRoll: ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-euclid', 'piano-roll-jump', 'piano-roll-step', 'bottom-panel', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard', 'keyboard-create', 'recording', 'piano-roll-follow', 'context-menu', 'scale', 'command-palette'],
   mixer: ['automation', 'continuous', 'layout-4', 'mixer', 'mixer-sound', 'master-chain', 'master-pan', 'track-state'],
   devices: ['automation', 'continuous', 'contour', 'device-browser', 'devices', 'filter-movement', 'presets', 'ripple-panel', 'layout-4', 'master-chain', 'devices-follow-selection', 'master-pan', 'track-state', 'context-menu'],
-  transport: ['all-sound-off', 'transport', 'playhead', 'space-bar', 'track-state', 'discoverability', 'recording', 'stop-to-marker', 'tap-tempo', 'scale'],
+  transport: ['all-sound-off', 'transport', 'playhead', 'space-bar', 'track-state', 'discoverability', 'recording', 'stop-to-marker', 'tap-tempo', 'scale', 'command-palette'],
   tracks: ['tracks', 'track-order', 'lane-rows', 'discoverability', 'device-browser'],
   deviceBrowser: ['device-browser', 'devices', 'tracks', 'lane-rows', 'discoverability', 'keyboard-all-views'],
   keyboard: ['keyboard', 'keyboard-all-views', 'layout-4', 'live-input', 'typing-mode', 'track-state'],
@@ -128,7 +128,7 @@ export const RULES = [
   [/^web\/src\/views\/shell\/(ProjectMenu|StorageBanners)\./, AREA.storage],
   [/^web\/src\/views\/shell\/ShortcutsDialog\./, AREA.shortcutsDialog],
   [/^web\/src\/views\/shell\/CommandPalette\./, AREA.palette],
-  [/^web\/src\/lib\/command-palette\./, AREA.palette],
+  [/^web\/src\/lib\/(command-palette|palette-(hidden|gestures|fields))\./, AREA.palette],
   [/^web\/src\/lib\/shortcut-commands\.ts$/, AREA.palette],
   [/^web\/src\/views\/shell\/(BottomPanel\.|panel-size\.)/, AREA.bottomPanel],
   [/^web\/src\/views\/shell\/(TopBar|EngineDialog)\./, AREA.topBar],
@@ -163,7 +163,7 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/(app|index|lang|feature)\.ts$/, CORE], // the catalogue, the language and its helpers
   [/^web\/src\/lib\/i18n\/(landing)\.ts$/, AREA.landing],
   [/^web\/src\/lib\/i18n\/journey\.ts$/, AREA.landing],
-  [/^web\/src\/lib\/i18n\/palette\.ts$/, AREA.palette],
+  [/^web\/src\/lib\/i18n\/palette(-commands|-fields)?\.ts$/, AREA.palette],
   [/^web\/src\/lib\/i18n\/arrangement\.ts$/, areas('arrangement', 'grid', 'palette', 'shortcutsDialog')],
   [/^web\/src\/lib\/i18n\/automation\.ts$/, areas('arrangement', 'devices', 'mixer')],
   [/^web\/src\/lib\/i18n\/browser\.ts$/, areas('deviceBrowser', 'tracks')],

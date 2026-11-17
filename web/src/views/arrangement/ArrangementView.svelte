@@ -46,6 +46,7 @@
   } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
   import { arrangementShortcut, isTextTarget, lengthenShortcut, repeatShortcut } from '../../lib/keyboard'
+  import { ARRANGEMENT_GESTURES } from '../../lib/palette-gestures'
   import { MASTER_COLOR, MIN_GAIN_DB, isMidi, trackColor, trackLabel, type DragHooks } from '../../lib/project/tracks'
   import { offTimeline } from '../../lib/off-timeline'
   import { backTrackToArrangement } from '../../lib/scene-commands'
@@ -57,6 +58,7 @@
   import LevelMeter from '../../lib/components/LevelMeter.svelte'
   import { seek, setLoopRegion, toggleLoop } from '../../lib/transport-commands'
   import { liveTick, settle } from '../piano-roll/playhead'
+  import { parseSnap } from '../piano-roll/roll'
   import { MAX_GOTO_BAR, PPQ, barTicks, beatTicks } from '../transport/time'
   import {
     cursorJumpKey,
@@ -283,7 +285,10 @@
   const songEnd = $derived(Math.max(lastEnd(blocks), lastPoint, markers.at(-1)?.tick ?? 0))
 
   // View state.
-  let snap = $state<SnapSetting>('auto')
+  // The snap is kept for the session across every view change (#925): the view is built again when another view is shown,
+  // so it is recalled (the piano roll does the same, #835). It comes back with the project's layout, "Auto" for a new one.
+  let snap = $state<SnapSetting>(untrack(() => parseSnap(ui.recall<string>('arrangement-snap'))))
+  $effect(() => ui.remember('arrangement-snap', snap, layoutRev))
   // Zoom, scroll and the open lanes come back as the view was left (it is torn down when another view is shown),
   // and with the project's layout when it is opened again (#473).
   const layoutRev = ui.layoutRev
@@ -416,6 +421,11 @@
   const y0 = $derived(clampScrollY(scrollY, layout.total, stageH))
   // The selection is kept to the placements the project still has (an undo, an agent).
   const selection = $derived(blocks.filter((b) => picked.has(b.id)))
+  // What the command palette fills its forms with (#926): the clips selected here.
+  $effect(() => {
+    ui.pickedPlacements = selection.map((b) => ({ id: b.id, clip: b.clip }))
+    return () => (ui.pickedPlacements = [])
+  })
   const selectedIds = $derived(new Set(selection.map((b) => b.id)))
   /** The selected points, kept to the points the lane still has, earliest first. */
   const autoSel = $derived.by(() => {
@@ -782,6 +792,28 @@
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
+  // What the command palette asked for (#926): the same functions as the keys above, on the selection as it is. A request the view
+  // cannot satisfy (no clip selected, no lane) is said by the function itself, as for the key.
+  $effect(() => {
+    const id = ui.takeGesture(ARRANGEMENT_GESTURES)
+    if (!id) return
+    untrack(() => {
+      if (id === 'fitSong') fitSong()
+      else if (id === 'clipNew') newClipAtHead()
+      else if (id === 'clipRepeat') openRepeat()
+      else if (id === 'clipLengthen') openLengthen()
+      else if (id === 'markerAdd') addMarkerHere()
+      else if (id === 'laneRamp') rampFromPalette()
+    })
+  })
+  /** "Ramp to…" asked from the palette: the lane that has the focus, else the only lane there is. */
+  function rampFromPalette() {
+    const focused = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('[data-lane]')
+    const lanes = [...laneRefs.keys()]
+    const lane = focused?.dataset.lane ?? (lanes.length === 1 ? lanes[0] : undefined)
+    if (!lane) return announce(t('automation.saidRampLane'))
+    openRamp(lane, focused ?? null)
+  }
   const canZoomIn = $derived(zoomAt(shown, ZOOM_STEP, stageW / 2, stageW, totalTicks).pxPerTick > shown.pxPerTick)
   const canZoomOut = $derived(zoomAt(shown, 1 / ZOOM_STEP, stageW / 2, stageW, totalTicks).pxPerTick < shown.pxPerTick)
 

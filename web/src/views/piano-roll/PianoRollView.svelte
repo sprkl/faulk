@@ -7,6 +7,7 @@
    * edited, the tool and the zoom are the page's view state, not project data.
    */
   import { onDestroy, tick, untrack } from 'svelte'
+  import { PIANO_ROLL_GESTURES } from '../../lib/palette-gestures'
   import { ROLL_TOOLBAR_ROOM } from '../shell/panel-size'
   import type { Command, Note } from '../../lib/generated/protocol'
   import {
@@ -269,6 +270,11 @@
   const layout = $derived<Layout>({ rowHeight: ROW, scrollY: clampScrollY(scrollY, stageH, { rowHeight: ROW, top: RULER_HEIGHT }), top: RULER_HEIGHT })
   const chosenNotes = $derived(picked.size === 0 ? [] : notes.filter((n) => picked.has(noteKey(n))))
   const chosenKeys = $derived<ReadonlySet<string>>(new Set(chosenNotes.map(noteKey)))
+  // What the command palette fills its forms with (#926): the open clip and the notes selected in it.
+  $effect(() => {
+    ui.rollSelection = { clip: edited?.id ?? null, notes: chosenNotes }
+    return () => (ui.rollSelection = { clip: null, notes: [] })
+  })
 
   const ghosts = $derived.by<Note[]>(() => {
     const g = gesture
@@ -950,6 +956,16 @@
     }
     announce(t(on ? 'pianoRoll.saidStepOn' : 'pianoRoll.saidStepOff'))
   }
+
+  // Step entry asked from the command palette (#926): what the button and Alt+E do.
+  $effect(() => {
+    if (ui.takeGesture(PIANO_ROLL_GESTURES) !== 'stepEntry') return
+    untrack(() => {
+      // The key does nothing without a clip to write into; the palette says so.
+      if (!edited && !ui.stepEntry) return announce(t('pianoRoll.saidStepNoClip'))
+      setStepEntry(!ui.stepEntry)
+    })
+  })
 
   /** Puts the cursor at `tick` (null: the clip is full, it stays on `fallback`). Callers speak. */
   function entryCursor(tick: number | null, fallback: number, pitch: number) {
