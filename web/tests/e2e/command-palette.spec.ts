@@ -71,7 +71,9 @@ test.describe('the command palette', () => {
     const form = page.getByTestId('palette-form')
     await expect(form).toBeVisible()
     await expect(form.locator('[data-field]').first()).toBeFocused()
-    // An empty required field is said, and nothing ran.
+    // The field starts on the current name; emptied, it is said, and nothing ran.
+    await expect(form.locator('[data-field]').first()).toHaveValue(before)
+    await form.locator('[data-field]').first().fill('')
     await page.getByTestId('palette-run').click()
     await expect(form.getByRole('alert')).toContainText('needs a value')
     await form.locator('[data-field]').first().fill('Palette song')
@@ -263,6 +265,93 @@ test.describe('the palette for a musician (#926)', () => {
     await expect(page.getByTestId('shortcuts-dialog')).toBeVisible()
     await page.keyboard.press('Escape')
     expect(errors).toEqual([])
+  })
+
+  for (const [lang, transpose, semitones, uses, resize, end, to] of [
+    ['en', 'transpose notes', 'Semitones', 'On the 3 selected notes.', 'resize a placement', 'end', 'To (bar.beat)'],
+    ['fr', 'transposer', 'Demi-tons', 'Sur les 3 notes sélectionnées.', 'redimensionner un placement', 'end', 'À (mesure.temps)'],
+  ] as const) {
+    test(`in ${lang}: transposes the selected notes of the open clip and ends the selected placement at a bar, with no identifier typed (#926)`, async ({
+      page,
+    }) => {
+      test.setTimeout(120_000)
+      const { errors } = watch(page)
+      await page.addInitScript((l) => localStorage.setItem('faulk.lang', l), lang)
+      await page.setViewportSize({ width: 1400, height: 900 })
+      await page.goto('/app')
+      await start(page)
+      await page.getByTestId('panel-piano-roll').click()
+      await page.getByTestId('roll-create-clip').click()
+      const roll = page.getByTestId('piano-roll')
+      await expect(roll).toHaveAttribute('data-note-count', '0')
+      await expect.poll(async () => Number(await page.getByTestId('roll-stage').getByTestId('timegrid').getAttribute('data-draw-count'))).toBeGreaterThan(0)
+      const stage = page.getByTestId('roll-stage')
+      const box = (await stage.boundingBox())!
+      const ppt = Number(await page.getByTestId('roll-stage').getByTestId('timegrid').getAttribute('data-px-per-tick'))
+      const scrollY = Number(await stage.getAttribute('data-scroll-y'))
+      const at = (tick: number, pitch: number) => [box.x + tick * ppt, box.y + 28 + (127 - pitch) * 16 - scrollY + 8] as const
+      for (const [tick, pitch] of [
+        [200, 60],
+        [1100, 62],
+        [2100, 64],
+      ] as const)
+        await page.mouse.click(...at(tick, pitch))
+      const pitches = async () => (JSON.parse((await roll.getAttribute('data-notes')) ?? '[]') as { pitch: number }[]).map((n) => n.pitch)
+      await expect.poll(pitches).toEqual([60, 62, 64])
+      await page.getByTestId('roll-stage').getByTestId('timegrid').focus()
+      await page.keyboard.press('Control+a')
+      await expect(roll).toHaveAttribute('data-selected-count', '3')
+
+      await page.keyboard.press('Control+k')
+      await search(page).fill(transpose)
+      await page.keyboard.press('Enter')
+      const form = page.getByTestId('palette-form')
+      await expect(form).toBeVisible()
+      // Only the semitones are asked, labelled in the language of the interface; no identifier, no JSON.
+      await expect(form.locator('[data-field]')).toHaveCount(1)
+      await expect(form.locator('label')).toContainText(semitones)
+      await expect(page.getByTestId('palette-uses').filter({ hasText: uses })).toHaveCount(1)
+      await form.locator('[data-field]').fill('2')
+      await page.keyboard.press('Enter')
+      await expect(palette(page)).toBeHidden()
+      await expect.poll(pitches).toEqual([62, 64, 66])
+
+      // The clip is placed in the timeline: select it there, then end it at bar 5 (a position typed as "Go to").
+      const block = (await blocks(page))[0]!
+      expect(block.start).toBe(0)
+      const arr = (await page.getByTestId('arr-stage').boundingBox())!
+      const arrPpt = Number(await page.getByTestId('arr-stage').getByTestId('timegrid').getAttribute('data-px-per-tick'))
+      await page.mouse.click(arr.x + (BAR / 2) * arrPpt, arr.y + RULER + LANE / 2)
+      await expect(page.locator(`[data-testid=arr-item][data-block="${block.id}"]`)).toHaveAttribute('aria-selected', 'true')
+      await page.keyboard.press('Control+k')
+      await search(page).fill(resize)
+      await page.keyboard.press('Enter')
+      await expect(form.locator('[data-testid="palette-needs"]')).toHaveCount(0)
+      await expect(form.locator('label').filter({ hasText: to })).toHaveCount(1)
+      await form.locator('select[data-field]').first().selectOption(end)
+      await form.locator('input[data-field]').fill('5')
+      await page.keyboard.press('Enter')
+      await expect(palette(page)).toBeHidden()
+      await expect.poll(async () => (await blocks(page)).map((b) => b.start + b.length)[0]!).toBe(4 * BAR)
+      expect(errors).toEqual([])
+    })
+  }
+
+  test('a command that needs a selection says so, without a field to type an identifier or JSON in (#926)', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/app')
+    await start(page)
+    await page.keyboard.press('Control+k')
+    await search(page).fill('transpose notes')
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('palette-needs')).toContainText('first')
+    await expect(page.getByTestId('palette-form').locator('[data-field]')).toHaveCount(0)
+    await expect(page.getByTestId('palette-run')).toBeDisabled()
+    await page.getByTestId('palette-back').click()
+    await search(page).fill('rename the project')
+    await page.keyboard.press('Enter')
+    // The field starts on the current name.
+    await expect(page.getByTestId('palette-form').locator('[data-field]').first()).not.toHaveValue('')
   })
 
   test('lists no command for the agents until a > is typed, and shows Space on Play', async ({ page }) => {

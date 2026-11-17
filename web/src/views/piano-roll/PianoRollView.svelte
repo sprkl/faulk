@@ -270,6 +270,11 @@
   const layout = $derived<Layout>({ rowHeight: ROW, scrollY: clampScrollY(scrollY, stageH, { rowHeight: ROW, top: RULER_HEIGHT }), top: RULER_HEIGHT })
   const chosenNotes = $derived(picked.size === 0 ? [] : notes.filter((n) => picked.has(noteKey(n))))
   const chosenKeys = $derived<ReadonlySet<string>>(new Set(chosenNotes.map(noteKey)))
+  // What the command palette fills its forms with (#926): the open clip and the notes selected in it.
+  $effect(() => {
+    ui.rollSelection = { clip: edited?.id ?? null, notes: chosenNotes }
+    return () => (ui.rollSelection = { clip: null, notes: [] })
+  })
 
   const ghosts = $derived.by<Note[]>(() => {
     const g = gesture

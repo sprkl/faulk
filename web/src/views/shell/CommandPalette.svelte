@@ -7,10 +7,13 @@
    * focus goes back to what opened it.
    */
   import type { CatalogEntry, CommandField } from '../../lib/generated/protocol'
-  import { buildCommand, initialText, listFor, MAX_RESULTS, paletteEntries, parseQuery, type FieldProblem, type PaletteEntry } from '../../lib/command-palette'
+  import { buildCommand, fieldLabel, listFor, MAX_RESULTS, paletteEntries, parseQuery, type FieldProblem, type PaletteEntry } from '../../lib/command-palette'
   import { runGesture } from '../../lib/palette-gestures'
+  import { resolveFields, tickUnit, type PaletteContext, type ResolvedField } from '../../lib/palette-fields'
+  import { DEVICES } from '../../lib/generated/protocol'
   import { commandShortcutText, labelShortcutText } from '../../lib/shortcuts'
   import { tick } from 'svelte'
+  import type { MessageKey } from '../../lib/i18n'
   import { useStores } from '../../lib/stores'
 
   const { engine, project, dispatcher, ui } = useStores()
@@ -36,7 +39,37 @@
   /** A `>` first: the whole catalogue, hidden commands and agents' names included. */
   const showAll = $derived(parseQuery(query).all)
   const shown = $derived(found.slice(0, MAX_RESULTS))
+  const signature = $derived(project.view?.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 })
   const selectedTrack = $derived(project.selected?.id ?? null)
+  /** What fills the forms in: the selected track, the open clip, the selected clips and notes, the track's devices, current values. */
+  const context = $derived.by<PaletteContext>(() => {
+    const view = project.view
+    const track = project.selected?.track
+    const placements = ui.pickedPlacements
+    const clip = ui.rollSelection.clip ?? (placements.length === 1 ? placements[0]!.clip : null)
+    const devices = Object.entries(track?.devices ?? {})
+      .filter((entry): entry is [string, NonNullable<(typeof entry)[1]>] => entry[1] !== undefined)
+      .sort((a, b) => (a[1].order < b[1].order ? -1 : a[1].order > b[1].order ? 1 : 0))
+      .map(([id, device]) => {
+        const kind = 'builtin' in device.source ? device.source.builtin.id : ''
+        return { id, name: DEVICES.find((d) => d.kind === kind)?.name ?? kind }
+      })
+    const current: Record<string, string> = {}
+    if (view) {
+      current['project.rename.name'] = view.project.name
+      const bpm = view.project.tempo[0]?.bpm
+      if (bpm !== undefined) current['transport.set_tempo.bpm'] = String(Math.round(bpm * 100) / 100)
+      current['transport.set_time_signature.numerator'] = String(signature.numerator)
+      current['transport.set_time_signature.denominator'] = String(signature.denominator)
+    }
+    if (track) current['track.rename.name'] = track.name
+    const clipName = clip && track ? track.clips[clip]?.name : undefined
+    if (clipName !== undefined) current['clip.rename.name'] = clipName
+    return { selectedTrack, clip, placements, notes: ui.rollSelection.notes, devices, signature, current }
+  })
+  /** The form of the command being filled in: its fields resolved against the selection. */
+  let resolved = $state<ResolvedField[]>([])
+  let missing = $state<string | null>(null)
   /** What to say when a command did not run: the audio is not started (the project loads with it), or the project refused. */
   const refusedText = $derived(engine.started && project.view !== null ? t('palette.refused') : t('palette.notReady'))
 
@@ -79,7 +112,10 @@
       run(item.entry, {})
       return
     }
-    texts = Object.fromEntries(item.entry.fields.map((f) => [f.name, initialText(f, { selectedTrack })]))
+    const form = resolveFields(item.entry, context)
+    resolved = form.fields
+    missing = form.missing
+    texts = Object.fromEntries(form.fields.map((f) => [f.field.name, f.text]))
     problems = {}
     refused = false
     chosen = item
@@ -88,7 +124,7 @@
   }
 
   function run(entry: CatalogEntry, given: Record<string, string>): boolean {
-    const built = buildCommand(entry, given)
+    const built = buildCommand(entry, given, signature)
     if (!built.ok) {
       problems = built.problems
       return false
@@ -201,57 +237,81 @@
       {#if showAll}<code class="name">{chosen.entry.name}</code>{/if}
       <p class="summary">{chosen.summary}</p>
       {#if chosen.entry.destructive}<p class="note warning" data-testid="palette-destructive">{t('palette.destructive')}</p>{/if}
-      {#each chosen.entry.fields as field (field.name)}
-        {@const id = `palette-field-${field.name}`}
-        <div class="field">
-          <label for={id}>
-            <code>{field.name}</code>
-            {#if !field.required}<span class="muted">{t('palette.optional')}</span>{/if}
-          </label>
-          {#if field.kind === 'enum'}
-            <select {id} data-field aria-invalid={problems[field.name] ? 'true' : undefined} bind:value={texts[field.name]}>
-              {#if !field.required}<option value="">{t('palette.default')}</option>{:else if (texts[field.name] ?? '') === ''}<option value=""></option>{/if}
-              {#each field.options ?? [] as option (option)}<option value={option}>{option}</option>{/each}
-            </select>
-          {:else if field.kind === 'boolean'}
-            <select {id} data-field aria-invalid={problems[field.name] ? 'true' : undefined} bind:value={texts[field.name]}>
-              {#if !field.required}<option value="">{t('palette.default')}</option>{/if}
-              <option value="true">{t('palette.yes')}</option>
-              <option value="false">{t('palette.no')}</option>
-            </select>
-          {:else}
-            <input
-              {id}
-              data-field
-              type="text"
-              autocomplete="off"
-              spellcheck="false"
-              inputmode={field.kind === 'integer' || field.kind === 'number' ? 'decimal' : undefined}
-              placeholder={field.kind === 'json' ? t('palette.json') : undefined}
-              aria-invalid={problems[field.name] ? 'true' : undefined}
-              aria-describedby={problems[field.name] ? `${id}-error` : undefined}
-              bind:value={texts[field.name]}
-              oninput={() => {
-                delete problems[field.name]
-                refused = false
-              }}
-            />
+      {#if missing}
+        <p class="note warning" role="status" data-testid="palette-needs">{t(`palette.needs.${missing}` as MessageKey)}</p>
+      {:else}
+        {#each resolved as item (item.field.name)}
+          {@const field = item.field}
+          {@const id = `palette-field-${field.name}`}
+          {@const unit = tickUnit(field)}
+          {#if item.shown}
+            <div class="field">
+              <label for={id}>
+                {fieldLabel(t, chosen.entry.name, field)}
+                {#if !field.required}<span class="muted">{t('palette.optional')}</span>{/if}
+              </label>
+              {#if item.choices}
+                <select {id} data-field bind:value={texts[field.name]}>
+                  {#each item.choices as choice (choice.value)}<option value={choice.value}>{choice.label}</option>{/each}
+                </select>
+              {:else if field.kind === 'enum'}
+                <select {id} data-field aria-invalid={problems[field.name] ? 'true' : undefined} bind:value={texts[field.name]}>
+                  {#if !field.required}<option value="">{t('palette.default')}</option>{:else if (texts[field.name] ?? '') === ''}<option value=""
+                    ></option>{/if}
+                  {#each field.options ?? [] as option (option)}<option value={option}>{option.replace(/_/g, ' ')}</option>{/each}
+                </select>
+              {:else if field.kind === 'boolean'}
+                <select {id} data-field aria-invalid={problems[field.name] ? 'true' : undefined} bind:value={texts[field.name]}>
+                  {#if !field.required}<option value="">{t('palette.default')}</option>{/if}
+                  <option value="true">{t('palette.yes')}</option>
+                  <option value="false">{t('palette.no')}</option>
+                </select>
+              {:else}
+                <input
+                  {id}
+                  data-field
+                  type="text"
+                  autocomplete="off"
+                  spellcheck="false"
+                  inputmode={unit ? undefined : field.kind === 'integer' || field.kind === 'number' ? 'decimal' : undefined}
+                  aria-invalid={problems[field.name] ? 'true' : undefined}
+                  aria-describedby={problems[field.name] ? `${id}-error` : undefined}
+                  bind:value={texts[field.name]}
+                  oninput={() => {
+                    delete problems[field.name]
+                    refused = false
+                  }}
+                />
+              {/if}
+              {#if unit}
+                <p class="note">
+                  {t(
+                    unit === 'position'
+                      ? 'palette.hintPosition'
+                      : unit === 'beats'
+                        ? 'palette.hintBeats'
+                        : field.name === 'by'
+                          ? 'palette.hintBarsSigned'
+                          : 'palette.hintBars',
+                  )}
+                </p>
+              {/if}
+              {#if field.nullable}<p class="note">{t('palette.nullable')}</p>{/if}
+              {#if problems[field.name]}
+                <p id={`${id}-error`} class="error" role="alert">
+                  {problems[field.name] === 'required' ? t('palette.required') : t('palette.invalid', { kind: kindWords(field) })}
+                </p>
+              {/if}
+            </div>
+          {:else if item.source !== 'none'}
+            <p class="note" data-testid="palette-uses">{t(`palette.uses.${item.source}` as MessageKey, { count: item.count ?? 0 })}</p>
           {/if}
-          {#if field.ref === 'TrackId' && selectedTrack && texts[field.name] === selectedTrack}
-            <p class="note">{t('palette.selectedTrack')}</p>
-          {/if}
-          {#if field.nullable}<p class="note">{t('palette.nullable')}</p>{/if}
-          {#if problems[field.name]}
-            <p id={`${id}-error`} class="error" role="alert">
-              {problems[field.name] === 'required' ? t('palette.required') : t('palette.invalid', { kind: kindWords(field) })}
-            </p>
-          {/if}
-        </div>
-      {/each}
+        {/each}
+      {/if}
       {#if refused}<p class="error" role="alert" data-testid="palette-refused">{refusedText}</p>{/if}
       <div class="actions">
         <button type="button" class="ghost" onclick={back} data-testid="palette-back">{t('palette.back')}</button>
-        <button type="submit" data-testid="palette-run">{t('palette.run')}</button>
+        <button type="submit" disabled={missing !== null} data-testid="palette-run">{t('palette.run')}</button>
       </div>
     </form>
   {/if}
@@ -350,7 +410,6 @@
     flex-direction: column;
     gap: var(--fk-space-1);
   }
-  .field code,
   input,
   select {
     font-family: var(--fk-font-mono);

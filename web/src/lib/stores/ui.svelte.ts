@@ -1,3 +1,4 @@
+import type { Note } from '../generated/protocol'
 import { defaultLang, LANG_STORAGE_KEY, type Lang, type MessageKey, translate } from '../i18n/index'
 import type { MainViewId, PanelViewId } from '../../views/registry'
 import { COLLAPSED_KEY, HEIGHTS_KEY, parseHeights } from '../../views/shell/panel-size'
@@ -137,6 +138,10 @@ export class UiStore {
     this.gesture = null
     return g.id
   }
+  /** The clips selected in the arrangement (#926), published by the timeline for the command palette: a placement and the clip it plays. */
+  pickedPlacements = $state.raw<readonly { id: string; clip: string }[]>([])
+  /** The clip open in the piano roll and its selected notes (#926), published by the roll for the command palette. */
+  rollSelection = $state.raw<{ clip: string | null; notes: readonly Note[] }>({ clip: null, notes: [] })
   /** The "Go to" field (#554) is open: a bar, or a bar and a beat, to put the playhead on. Page state, not project state. */
   gotoOpen = $state(false)
   /** Where the last "Go to" put the playhead (#852): the arrangement's free cursor follows it. `n` tells two jumps to one tick apart. */
