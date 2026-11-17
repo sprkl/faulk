@@ -160,3 +160,98 @@ test.describe('the command palette', () => {
     await expect(page.getByTestId('palette-keys')).toHaveCount(0)
   })
 })
+
+const RULER = 28
+const LANE = 44
+const BAR = 3840
+type Block = { id: string; row: number; start: number; length: number; clip: string }
+const blocks = async (page: Page): Promise<Block[]> => JSON.parse((await page.getByTestId('arrangement').getAttribute('data-blocks')) ?? '[]')
+
+/** A clip of one bar by a double click on the first track's row, at the first bar, then the focus on it. */
+async function firstClip(page: Page) {
+  await expect.poll(async () => Number(await page.getByTestId('arr-stage').getByTestId('timegrid').getAttribute('data-px-per-tick'))).toBeGreaterThan(0)
+  await page.getByTestId('arr-zoom-out').click()
+  await page.getByTestId('arr-zoom-out').click()
+  const stage = page.getByTestId('arr-stage')
+  const box = (await stage.boundingBox())!
+  const ppt = Number(await stage.getByTestId('timegrid').getAttribute('data-px-per-tick'))
+  await page.mouse.dblclick(box.x + (BAR / 2) * ppt, box.y + RULER + LANE / 2)
+  await expect.poll(async () => (await blocks(page)).length).toBe(1)
+  const block = (await blocks(page))[0]!
+  await page.locator(`[data-testid=arr-item][data-block="${block.id}"]`).focus()
+  return block
+}
+
+test.describe('the palette for a musician (#926)', () => {
+  for (const [lang, query, label, goTo, goToQuery] of [
+    ['en', 'lengthen', 'Lengthen to…', 'Go to', 'go to'],
+    ['fr', 'allonger', 'Allonger jusqu’à…', 'Aller à', 'aller à'],
+  ] as const) {
+    test(`in ${lang}: the gestures are found by their names and run like their keys, on the clip that had the focus`, async ({ page }) => {
+      const { errors } = watch(page)
+      await page.addInitScript((l) => localStorage.setItem('faulk.lang', l), lang)
+      await page.setViewportSize({ width: 1440, height: 900 })
+      await page.goto('/app')
+      await start(page)
+      await firstClip(page)
+      await page.keyboard.press('Control+k')
+      await search(page).fill(query)
+      const option = page.locator('[role="option"]').first()
+      await expect(option).toContainText(label)
+      // No agent name on the line, no accent grave in its summary.
+      await expect(option.locator('.name')).toHaveCount(0)
+      await expect(option).not.toContainText('`')
+      await expect(option.getByTestId('palette-keys')).toHaveText('Ctrl+Shift+L')
+      await page.keyboard.press('Enter')
+      await expect(palette(page)).toBeHidden()
+      // The dialog of the shortcut opens, for the clip that was focused before the palette.
+      await expect(page.getByTestId('lengthen-dialog')).toBeVisible()
+      await page.getByTestId('lengthen-field').fill('5')
+      await page.keyboard.press('Enter')
+      await expect.poll(async () => (await blocks(page)).map((b) => b.start + b.length)[0]!).toBe(5 * BAR)
+
+      // "Go to" opens its own field.
+      await page.keyboard.press('Control+k')
+      await search(page).fill(goToQuery)
+      await expect(page.locator('[role="option"]').first()).toContainText(goTo)
+      await page.keyboard.press('Enter')
+      await expect(page.getByRole('dialog', { name: goTo })).toBeVisible()
+      await page.keyboard.press('Escape')
+      expect(errors).toEqual([])
+    })
+  }
+
+  test('Step entry and Whole song run in their views, from another view', async ({ page }) => {
+    const { errors } = watch(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/app')
+    await start(page)
+    await firstClip(page)
+    await page.keyboard.press('Control+k')
+    await search(page).fill('whole song')
+    await page.keyboard.press('Enter')
+    await expect(palette(page)).toBeHidden()
+    await page.keyboard.press('Control+k')
+    await search(page).fill('step entry')
+    await expect(page.locator('[role="option"]').first().getByTestId('palette-keys')).toHaveText('Alt+E')
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('roll-step-entry')).toHaveAttribute('aria-pressed', 'true')
+    expect(errors).toEqual([])
+  })
+
+  test('lists no command for the agents until a > is typed, and shows Space on Play', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/app')
+    await start(page)
+    await page.keyboard.press('Control+k')
+    await search(page).fill('restore')
+    await expect(page.getByTestId('palette-status')).toHaveText('No command matches.')
+    await search(page).fill('>restore')
+    await expect(page.locator('[role="option"][data-command="track.restore"]')).toBeVisible()
+    await expect(page.locator('[role="option"][data-command="track.restore"] .name')).toHaveText('track.restore')
+    await search(page).fill('play')
+    await expect(page.locator('[role="option"][data-command="transport.play"]').getByTestId('palette-keys')).toHaveText('Space')
+    await search(page).fill('ctrl')
+    await expect(page.locator('[role="option"][data-command="history.undo"]')).toBeVisible()
+  })
+})

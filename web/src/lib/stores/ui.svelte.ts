@@ -24,6 +24,9 @@ function write(key: string, value: string) {
   }
 }
 
+/** How long a gesture asked by the palette waits for its view (ms). */
+export const GESTURE_TTL_MS = 3000
+
 /** localStorage key of the density (the page's preference, #490). */
 export const DENSITY_KEY = 'faulk.density'
 
@@ -113,6 +116,27 @@ export class UiStore {
   scaleOpen = $state(false)
   /** The command palette (#108) is open: every command, found by typing. Page state, not project state. */
   paletteOpen = $state(false)
+  /**
+   * A gesture the command palette asked a view to do (#926), like the shortcut that does it: one slot, the last request. The view
+   * that owns the gesture takes it (`takeGesture`), which empties the slot; a request nobody took within `GESTURE_TTL_MS` (the view
+   * never mounted: no project, no audio) is dropped, so that it cannot fire later by surprise. Page state, not project state.
+   */
+  gesture = $state.raw<{ id: string; at: number } | null>(null)
+  requestGesture(id: string) {
+    this.gesture = { id, at: Date.now() }
+  }
+  /** Takes the pending request when it is one of `ids` and still fresh; any other request is left for its owner (a stale one is dropped). */
+  takeGesture(ids: readonly string[], now: number = Date.now()): string | null {
+    const g = this.gesture
+    if (!g) return null
+    if (now - g.at > GESTURE_TTL_MS) {
+      this.gesture = null
+      return null
+    }
+    if (!ids.includes(g.id)) return null
+    this.gesture = null
+    return g.id
+  }
   /** The "Go to" field (#554) is open: a bar, or a bar and a beat, to put the playhead on. Page state, not project state. */
   gotoOpen = $state(false)
   /** Where the last "Go to" put the playhead (#852): the arrangement's free cursor follows it. `n` tells two jumps to one tick apart. */

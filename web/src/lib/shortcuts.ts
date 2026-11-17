@@ -452,6 +452,23 @@ export function shortcutConflicts(groups: readonly ShortcutGroup[] = SHORTCUT_GR
   return [...conflicts.values()]
 }
 
+/** The chords of one line of the registry, by its label. */
+export function labelChords(label: MessageKey, groups: readonly ShortcutGroup[] = SHORTCUT_GROUPS): (readonly KeyToken[])[] {
+  return groups.flatMap((g) => g.shortcuts.filter((s) => s.label === label).flatMap((s) => s.chords))
+}
+
+/** The keys of one line of the registry as the palette writes them ("Alt+Z", chords joined by " / "). */
+export function labelShortcutText(
+  label: MessageKey,
+  mac: boolean = isMac(),
+  layout: KeyLayout | null = null,
+  groups: readonly ShortcutGroup[] = SHORTCUT_GROUPS,
+): string {
+  return labelChords(label, groups)
+    .map((chord) => chordText(chord, mac, layout))
+    .join(' / ')
+}
+
 /** The chords the command palette shows for a catalogue command: those of the shortcut `SHORTCUT_COMMANDS` names for it. */
 export function commandChords(
   name: string,
@@ -459,7 +476,7 @@ export function commandChords(
   commands: Readonly<Record<string, MessageKey>> = SHORTCUT_COMMANDS,
 ): (readonly KeyToken[])[] {
   const label = commands[name]
-  return label === undefined ? [] : groups.flatMap((g) => g.shortcuts.filter((s) => s.label === label).flatMap((s) => s.chords))
+  return label === undefined ? [] : labelChords(label, groups)
 }
 
 /** The keys of a catalogue command as the palette writes them ("Ctrl+Z", chords joined by " / "), or an empty text when no shortcut runs it. */

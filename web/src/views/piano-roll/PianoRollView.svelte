@@ -7,6 +7,7 @@
    * edited, the tool and the zoom are the page's view state, not project data.
    */
   import { onDestroy, tick, untrack } from 'svelte'
+  import { PIANO_ROLL_GESTURES } from '../../lib/palette-gestures'
   import { ROLL_TOOLBAR_ROOM } from '../shell/panel-size'
   import type { Command, Note } from '../../lib/generated/protocol'
   import {
@@ -950,6 +951,11 @@
     }
     announce(t(on ? 'pianoRoll.saidStepOn' : 'pianoRoll.saidStepOff'))
   }
+
+  // Step entry asked from the command palette (#926): what the button and Alt+E do.
+  $effect(() => {
+    if (ui.takeGesture(PIANO_ROLL_GESTURES) === 'stepEntry') untrack(() => setStepEntry(!ui.stepEntry))
+  })
 
   /** Puts the cursor at `tick` (null: the clip is full, it stays on `fallback`). Callers speak. */
   function entryCursor(tick: number | null, fallback: number, pitch: number) {

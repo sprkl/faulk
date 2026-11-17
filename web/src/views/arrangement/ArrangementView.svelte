@@ -46,6 +46,7 @@
   } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
   import { arrangementShortcut, isTextTarget, lengthenShortcut, repeatShortcut } from '../../lib/keyboard'
+  import { ARRANGEMENT_GESTURES } from '../../lib/palette-gestures'
   import { MASTER_COLOR, MIN_GAIN_DB, isMidi, trackColor, trackLabel, type DragHooks } from '../../lib/project/tracks'
   import { offTimeline } from '../../lib/off-timeline'
   import { backTrackToArrangement } from '../../lib/scene-commands'
@@ -782,6 +783,28 @@
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
+  // What the command palette asked for (#926): the same functions as the keys above, on the selection as it is. A request the view
+  // cannot satisfy (no clip selected, no lane) is said by the function itself, as for the key.
+  $effect(() => {
+    const id = ui.takeGesture(ARRANGEMENT_GESTURES)
+    if (!id) return
+    untrack(() => {
+      if (id === 'fitSong') fitSong()
+      else if (id === 'clipNew') newClipAtHead()
+      else if (id === 'clipRepeat') openRepeat()
+      else if (id === 'clipLengthen') openLengthen()
+      else if (id === 'markerAdd') addMarkerHere()
+      else if (id === 'laneRamp') rampFromPalette()
+    })
+  })
+  /** "Ramp to…" asked from the palette: the lane that has the focus, else the only lane there is. */
+  function rampFromPalette() {
+    const focused = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('[data-lane]')
+    const lanes = [...laneRefs.keys()]
+    const lane = focused?.dataset.lane ?? (lanes.length === 1 ? lanes[0] : undefined)
+    if (!lane) return announce(t('automation.saidRampLane'))
+    openRamp(lane, focused ?? null)
+  }
   const canZoomIn = $derived(zoomAt(shown, ZOOM_STEP, stageW / 2, stageW, totalTicks).pxPerTick > shown.pxPerTick)
   const canZoomOut = $derived(zoomAt(shown, 1 / ZOOM_STEP, stageW / 2, stageW, totalTicks).pxPerTick < shown.pxPerTick)
 

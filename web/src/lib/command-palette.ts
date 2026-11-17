@@ -7,18 +7,31 @@ import { COMMAND_CATALOG, type CatalogEntry, type Command, type CommandField } f
 import type { MessageKey } from './i18n'
 import { messages } from './i18n/app'
 import { COMMAND_LABEL_PREFIX } from './i18n/history'
+import { GESTURES, type GestureId } from './palette-gestures'
+import { HIDDEN_COMMANDS } from './palette-hidden'
 
 /** The key of a command's own palette label (`palette.cmd.<name>`), for the live commands the history never shows. */
 export const PALETTE_LABEL_PREFIX = 'palette.cmd.'
 
+/** The key of a command's one-line summary (`palette.sum.<name>`). */
+export const SUMMARY_PREFIX = 'palette.sum.'
+
 /** The most results the palette shows at once: the list stays short enough to read, and the rest is found by typing more. */
 export const MAX_RESULTS = 50
 
-/** A command as the palette shows it. */
+/** What a palette entry stands for: a command of the catalogue, or a gesture of the interface (`palette-gestures.ts`). */
 export interface PaletteEntry {
   entry: CatalogEntry
-  /** The command's name in words, translated when a label exists. */
+  /** The title: translated, never the name of the command in words for a command listed by default. */
   label: string
+  /** One line in the language of the interface; for a command listed only after `>`, the catalogue's own (English) summary. */
+  summary: string
+  /** Not listed unless the search starts with `>` (`palette-hidden.ts`). */
+  hidden: boolean
+  /** Set for a gesture of the interface: it runs through the view that owns it, and `entry` only carries its key `ui.<id>`. */
+  gesture?: GestureId
+  /** The keys that do the same, as the registry names them (a label of `SHORTCUT_GROUPS`). */
+  shortcut?: MessageKey
 }
 
 /** The command's label: the palette's own, else the history's, else its name in words (`transport.set_tempo` is "transport set tempo"). */
@@ -30,9 +43,35 @@ export function labelOf(t: (key: MessageKey) => string, name: string): string {
   return name.replace(/[._]/g, ' ')
 }
 
-/** The entries of the palette, in the catalogue's order. */
+/** The one-line summary the palette shows for a command: the page's own, else the catalogue's. */
+export function summaryOfCommand(t: (key: MessageKey) => string, entry: CatalogEntry): string {
+  const key = SUMMARY_PREFIX + entry.name
+  return key in messages.en ? t(key as MessageKey) : entry.summary
+}
+
+/** The entries of the palette: the catalogue's commands in its order, then the gestures of the interface. Hidden ones are marked, not left out. */
 export function paletteEntries(t: (key: MessageKey) => string, catalog: readonly CatalogEntry[] = COMMAND_CATALOG): PaletteEntry[] {
-  return catalog.map((entry) => ({ entry, label: labelOf(t, entry.name) }))
+  const commands = catalog.map((entry) => ({
+    entry,
+    label: labelOf(t, entry.name),
+    summary: summaryOfCommand(t, entry),
+    hidden: HIDDEN_COMMANDS.has(entry.name),
+  }))
+  const gestures = GESTURES.map((g): PaletteEntry => ({
+    entry: { name: `ui.${g.id}`, kind: 'live', summary: '', fields: [] },
+    label: t(`palette.gesture.${g.id}` as MessageKey),
+    summary: t(`palette.gsum.${g.id}` as MessageKey),
+    hidden: false,
+    gesture: g.id,
+    shortcut: g.shortcut,
+  }))
+  return [...commands, ...gestures]
+}
+
+/** What the search field holds, read: a `>` first asks for the whole catalogue, the hidden commands and the agents' names included. */
+export function parseQuery(query: string): { all: boolean; text: string } {
+  const trimmed = query.trimStart()
+  return trimmed.startsWith('>') ? { all: true, text: trimmed.slice(1) } : { all: false, text: query }
 }
 
 /** Lowercase and without accents, so that "mesure" finds "mesuré" and "e" finds "é". */
@@ -42,31 +81,41 @@ function fold(text: string): string {
 
 /**
  * The entries a query finds, best first. Every word of the query (split on spaces, dots and underscores) must be in the
- * command's name, its label or its summary. A command ranks by where its words fall: in the name's own segments (the word
- * starts a segment of `transport.set_tempo`) first, then anywhere in the name or the label, then in the summary only; ties
- * keep the catalogue's order. An empty query lists them all in the catalogue's order.
+ * command's name, its label, its keys or its summary. A command ranks by where its words fall: in the name's own segments
+ * (the word starts a segment of `transport.set_tempo`) or in its label first, then anywhere in the name, then in the summary or the keys only; ties
+ * keep the catalogue's order. An empty query lists them all in the catalogue's order. `keys` gives the keys an entry shows
+ * ("Ctrl+Shift+L"), so that a key is found too.
  */
-export function searchCommands(entries: readonly PaletteEntry[], query: string): PaletteEntry[] {
+export function searchCommands(entries: readonly PaletteEntry[], query: string, keys: (item: PaletteEntry) => string = () => ''): PaletteEntry[] {
   const words = fold(query)
     .split(/[\s._]+/)
     .filter((w) => w !== '')
   if (words.length === 0) return [...entries]
   const scored: { item: PaletteEntry; score: number; index: number }[] = []
   entries.forEach((item, index) => {
-    const name = fold(item.entry.name)
+    // A gesture has no agent name.
+    const name = item.gesture ? '' : fold(item.entry.name)
     const segments = name.split(/[._]/)
     const label = fold(item.label)
-    const summary = fold(item.entry.summary)
+    const labelWords = label.split(/[^a-z0-9]+/)
+    const summary = fold(item.summary)
+    const shortcut = fold(keys(item))
     let score = 0
     for (const word of words) {
-      if (segments.some((s) => s.startsWith(word))) score += 0
-      else if (name.includes(word) || label.includes(word)) score += 1
-      else if (summary.includes(word)) score += 3
+      if (segments.some((s) => s !== '' && s.startsWith(word)) || labelWords.some((w) => w.startsWith(word))) score += 0
+      else if ((name !== '' && name.includes(word)) || label.includes(word)) score += 1
+      else if (summary.includes(word) || shortcut.includes(word)) score += 3
       else return
     }
     scored.push({ item, score, index })
   })
   return scored.sort((a, b) => a.score - b.score || a.index - b.index).map((s) => s.item)
+}
+
+/** What the palette lists for what is typed: the default level (no hidden command) or, after `>`, the whole catalogue. */
+export function listFor(entries: readonly PaletteEntry[], query: string, keys?: (item: PaletteEntry) => string): PaletteEntry[] {
+  const { all, text } = parseQuery(query)
+  return searchCommands(all ? entries : entries.filter((e) => !e.hidden), text, keys)
 }
 
 /** What the page knows that can fill a field in: the track the user selected. */
