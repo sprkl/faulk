@@ -58,6 +58,7 @@
   import LevelMeter from '../../lib/components/LevelMeter.svelte'
   import { seek, setLoopRegion, toggleLoop } from '../../lib/transport-commands'
   import { liveTick, settle } from '../piano-roll/playhead'
+  import { parseSnap } from '../piano-roll/roll'
   import { MAX_GOTO_BAR, PPQ, barTicks, beatTicks } from '../transport/time'
   import {
     cursorJumpKey,
@@ -284,7 +285,10 @@
   const songEnd = $derived(Math.max(lastEnd(blocks), lastPoint, markers.at(-1)?.tick ?? 0))
 
   // View state.
-  let snap = $state<SnapSetting>('auto')
+  // The snap is kept for the session across every view change (#925): the view is built again when another view is shown,
+  // so it is recalled (the piano roll does the same, #835). It comes back with the project's layout, "Auto" for a new one.
+  let snap = $state<SnapSetting>(untrack(() => parseSnap(ui.recall<string>('arrangement-snap'))))
+  $effect(() => ui.remember('arrangement-snap', snap, layoutRev))
   // Zoom, scroll and the open lanes come back as the view was left (it is torn down when another view is shown),
   // and with the project's layout when it is opened again (#473).
   const layoutRev = ui.layoutRev
