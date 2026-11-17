@@ -50,6 +50,11 @@ const HOST_DRIVEN = [
 /** Commands whose input is structured data or an internal reference (lists of notes, points, takes; a media hash; a preset reference). */
 const AGENT_INPUT = [
   'clip.set_content',
+  'clip.create',
+  'clip.set_loop',
+  'clip.audio.set_loop',
+  'transport.set_loop',
+  'automation.lane.create',
   'clip.notes.add',
   'clip.notes.remove',
   'clip.notes.update',

@@ -39,6 +39,7 @@ import { pianoRoll } from './piano-roll'
 import { presets } from './presets'
 import { palette } from './palette'
 import { paletteCommands } from './palette-commands'
+import { paletteFields } from './palette-fields'
 import { project } from './project'
 import { refusal } from './refusal'
 import { scale } from './scale'
@@ -59,6 +60,7 @@ export const features = {
   shortcuts,
   palette,
   paletteCommands,
+  paletteFields,
   layout,
   tracks,
   browser,

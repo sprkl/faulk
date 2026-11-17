@@ -421,6 +421,11 @@
   const y0 = $derived(clampScrollY(scrollY, layout.total, stageH))
   // The selection is kept to the placements the project still has (an undo, an agent).
   const selection = $derived(blocks.filter((b) => picked.has(b.id)))
+  // What the command palette fills its forms with (#926): the clips selected here.
+  $effect(() => {
+    ui.pickedPlacements = selection.map((b) => ({ id: b.id, clip: b.clip }))
+    return () => (ui.pickedPlacements = [])
+  })
   const selectedIds = $derived(new Set(selection.map((b) => b.id)))
   /** The selected points, kept to the points the lane still has, earliest first. */
   const autoSel = $derived.by(() => {

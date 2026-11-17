@@ -8,6 +8,8 @@ import type { MessageKey } from './i18n'
 import { messages } from './i18n/app'
 import { COMMAND_LABEL_PREFIX } from './i18n/history'
 import { GESTURES, type GestureId } from './palette-gestures'
+import { parseTickText, tickUnit, type TickUnit } from './palette-fields'
+import type { Signature } from '../views/transport/time'
 import { HIDDEN_COMMANDS } from './palette-hidden'
 
 /** The key of a command's own palette label (`palette.cmd.<name>`), for the live commands the history never shows. */
@@ -41,6 +43,12 @@ export function labelOf(t: (key: MessageKey) => string, name: string): string {
     if (key in messages.en) return t(key as MessageKey)
   }
   return name.replace(/[._]/g, ' ')
+}
+
+/** The label of a field in the language of the interface, with its unit: the command's own (`palette.field.<command>.<field>`), else the field's. */
+export function fieldLabel(t: (key: MessageKey) => string, command: string, field: CommandField): string {
+  for (const key of [`palette.field.${command}.${field.name}`, `palette.field.${field.name}`]) if (key in messages.en) return t(key as MessageKey)
+  return field.name.replace(/_/g, ' ')
 }
 
 /** The one-line summary the palette shows for a command: the page's own, else the catalogue's. */
@@ -169,16 +177,26 @@ function parseField(field: CommandField, raw: string): { value: unknown } | { pr
   }
 }
 
+/** A tick field's text as the ticks it stands for (`by` may be negative), or a problem. */
+function tickField(field: CommandField, unit: TickUnit, raw: string, signature: Signature): { value: unknown } | { problem: FieldProblem } {
+  if (field.nullable && raw.trim() === 'null') return { value: null }
+  const ticks = parseTickText(unit, raw, signature, field.name === 'by')
+  return ticks === null ? { problem: 'invalid' } : { value: ticks }
+}
+
 /**
  * The command an entry makes from the fields' texts. An optional field left empty is left out (the command's own default
  * holds); a required one left empty is `required`, a nullable one too: `null` is only what is typed (`null`), never what is left empty (for a level it is silence). The result is only
  * shaped: the project core still checks it and refuses what does not hold, as for any caller.
  */
-export function buildCommand(entry: CatalogEntry, texts: Readonly<Record<string, string>>): Built {
+export function buildCommand(entry: CatalogEntry, texts: Readonly<Record<string, string>>, signature: Signature = { numerator: 4, denominator: 4 }): Built {
   const problems: Record<string, FieldProblem> = {}
   const input: Record<string, unknown> = { type: entry.name }
   for (const field of entry.fields) {
-    const parsed = parseField(field, texts[field.name] ?? '')
+    const unit = tickUnit(field)
+    const raw = texts[field.name] ?? ''
+    // A position or a length is typed in bars and beats (#926), then goes to the command in ticks.
+    const parsed = unit && raw.trim() !== '' ? tickField(field, unit, raw, signature) : parseField(field, raw)
     if (parsed === 'omit') continue
     if ('problem' in parsed) problems[field.name] = parsed.problem
     else input[field.name] = parsed.value

@@ -128,7 +128,7 @@ export const RULES = [
   [/^web\/src\/views\/shell\/(ProjectMenu|StorageBanners)\./, AREA.storage],
   [/^web\/src\/views\/shell\/ShortcutsDialog\./, AREA.shortcutsDialog],
   [/^web\/src\/views\/shell\/CommandPalette\./, AREA.palette],
-  [/^web\/src\/lib\/(command-palette|palette-(hidden|gestures))\./, AREA.palette],
+  [/^web\/src\/lib\/(command-palette|palette-(hidden|gestures|fields))\./, AREA.palette],
   [/^web\/src\/lib\/shortcut-commands\.ts$/, AREA.palette],
   [/^web\/src\/views\/shell\/(BottomPanel\.|panel-size\.)/, AREA.bottomPanel],
   [/^web\/src\/views\/shell\/(TopBar|EngineDialog)\./, AREA.topBar],
@@ -163,7 +163,7 @@ export const RULES = [
   [/^web\/src\/lib\/i18n\/(app|index|lang|feature)\.ts$/, CORE], // the catalogue, the language and its helpers
   [/^web\/src\/lib\/i18n\/(landing)\.ts$/, AREA.landing],
   [/^web\/src\/lib\/i18n\/journey\.ts$/, AREA.landing],
-  [/^web\/src\/lib\/i18n\/palette(-commands)?\.ts$/, AREA.palette],
+  [/^web\/src\/lib\/i18n\/palette(-commands|-fields)?\.ts$/, AREA.palette],
   [/^web\/src\/lib\/i18n\/arrangement\.ts$/, areas('arrangement', 'grid', 'palette', 'shortcutsDialog')],
   [/^web\/src\/lib\/i18n\/automation\.ts$/, areas('arrangement', 'devices', 'mixer')],
   [/^web\/src\/lib\/i18n\/browser\.ts$/, areas('deviceBrowser', 'tracks')],
