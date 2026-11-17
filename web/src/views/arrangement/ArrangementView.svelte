@@ -1697,7 +1697,13 @@
     const start = Math.floor(snapTick(xToTick(x, shown), stepOf(event)) / bar) * bar
     if (!isFree(blocks, row, start, start + bar)) return
     select(entry.id)
+    const before = new Set(blocks.map((b) => b.id))
     run(createClipAt(entry.id, start, bar))
+    // The new clip opens below, as a double click on an existing one does (PN-3, #84).
+    const made = blocks.find((b) => !before.has(b.id) && b.row === row)
+    if (!made) return
+    picked = new Set([made.id])
+    openBlock(made)
   }
 
   // --- a clip dropped from the Clips panel (#473) ----------------------------------------------------------------
