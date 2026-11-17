@@ -9,13 +9,27 @@ import { HIDDEN_COMMANDS } from './palette-hidden'
 const sig = { numerator: 4, denominator: 4 }
 const BAR = 3840
 const note = (pitch: number): Note => ({ start: 0, pitch, length: 960, velocity: 100, cents: 0, chance: 100, repeat: 1 }) as Note
-const empty: PaletteContext = { selectedTrack: null, clip: null, placements: [], notes: [], devices: [], signature: sig, current: {} }
+const empty: PaletteContext = {
+  selectedTrack: null,
+  clip: null,
+  scenes: [],
+  markers: [],
+  lanes: [],
+  placements: [],
+  notes: [],
+  devices: [],
+  signature: sig,
+  current: {},
+}
 const full: PaletteContext = {
   selectedTrack: 'T1',
   clip: 'C1',
   placements: [{ id: 'P1', clip: 'C1' }],
   notes: [note(60), note(64)],
   devices: [{ id: 'D1', name: 'Oscillator' }],
+  scenes: [{ id: 'S1', name: 'Scene 1' }],
+  markers: [{ id: 'M1', name: 'Verse' }],
+  lanes: [{ id: 'L1', name: 'Oscillator cutoff' }],
   signature: sig,
   current: { 'project.rename.name': 'My song', 'transport.set_tempo.bpm': '108' },
 }
@@ -40,6 +54,8 @@ describe('the forms of the palette fill themselves from the selection (#926)', (
       ['device.set_bypass', 'device'],
       ['track.rename', 'track'],
       ['scene.rename', 'scene'],
+      ['automation.lane.clear', 'lane'],
+      ['arrangement.marker.delete', 'marker'],
     ] as const) {
       const { missing } = resolveFields(entry(name), empty)
       expect(missing, name).toBe(need)
@@ -80,6 +96,26 @@ describe('the forms of the palette fill themselves from the selection (#926)', (
   it('starts a field on its current value', () => {
     expect(resolveFields(entry('project.rename'), full).fields[0]!.text).toBe('My song')
     expect(resolveFields(entry('transport.set_tempo'), full).fields[0]!.text).toBe('108')
+  })
+
+  it('asks which scene, marker or lane, never guessing even when there is only one', () => {
+    for (const [name, field] of [
+      ['scene.delete', 'scene'],
+      ['arrangement.marker.delete', 'marker'],
+      ['automation.lane.clear', 'lane'],
+    ] as const) {
+      const item = resolveFields(entry(name), full).fields.find((f) => f.field.name === field)!
+      expect(item.shown, name).toBe(true)
+      expect(item.text, name).toBe('')
+      expect(item.choices?.length, name).toBe(1)
+      expect(buildCommand(entry(name), { [field]: '' }).ok, name).toBe(false)
+    }
+  })
+
+  it('gives notes the open clip and the other commands the selected placement clip first', () => {
+    const both = { ...full, clip: 'OPEN', placements: [{ id: 'P9', clip: 'PLACED' }] }
+    expect(resolveFields(entry('clip.notes.transpose'), both).fields.find((f) => f.field.name === 'clip')?.text).toBe('OPEN')
+    expect(resolveFields(entry('clip.rename'), both).fields.find((f) => f.field.name === 'clip')?.text).toBe('PLACED')
   })
 
   it('does not guess the destination track of a clip, but fills the track of a device', () => {
@@ -125,6 +161,8 @@ describe('what a musician is asked, for every command listed (#926)', () => {
           for (const item of resolveFields(c, ctx).fields.filter((f) => f.shown)) {
             const f = item.field
             expect(f.kind, `${c.name}.${f.name}`).not.toBe('json')
+            // No identifier or internal value is typed: such a field is a choice among named things.
+            if (!item.choices) expect(f.ref ?? '', `${c.name}.${f.name}`).not.toMatch(/(Id|Hash|OrderKey|Ref)$/)
             const label = fieldLabel(t, c.name, f)
             expect(
               `palette.field.${c.name}.${f.name}` in messages[lang] || `palette.field.${f.name}` in messages[lang],

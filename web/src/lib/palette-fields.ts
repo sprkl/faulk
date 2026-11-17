@@ -11,8 +11,12 @@ import { barTicks, beatTicks, parseBarBeat, PPQ, type Signature } from '../views
 /** What the page knows that can fill the fields in. */
 export interface PaletteContext {
   selectedTrack: string | null
-  /** The clip open in the piano roll, else the clip of the one placement selected in the arrangement. */
+  /** The clip open in the piano roll. */
   clip: string | null
+  /** The scenes, the markers and the automation lanes of the selected track the user can choose from. */
+  scenes: readonly { id: string; name: string }[]
+  markers: readonly { id: string; name: string }[]
+  lanes: readonly { id: string; name: string }[]
   /** The placements selected in the arrangement. */
   placements: readonly { id: string; clip: string }[]
   /** The notes selected in the piano roll, of the open clip. */
@@ -65,7 +69,7 @@ export interface ResolvedField {
   shown: boolean
   /** The page needs this from a selection it does not have: the command cannot run. */
   missing?: Need
-  /** A choice among the selected track's devices. */
+  /** A choice among the selected track's devices, its lanes, the scenes or the markers. */
   choices?: readonly { value: string; label: string }[]
   /** How many things the filled field stands for (notes, placements), for the sentence that says it. */
   count?: number
@@ -81,7 +85,12 @@ export function resolveField(entry: CatalogEntry, field: CommandField, ctx: Pale
     if (!field.required && !entry.name.startsWith('device.')) return { ...base, source: 'none', text: '' }
     return ctx.selectedTrack ? { ...base, source: 'track', text: ctx.selectedTrack } : need('track')
   }
-  if (ref === 'ClipId') return ctx.clip ? { ...base, source: 'clip', text: ctx.clip } : need('clip')
+  if (ref === 'ClipId') {
+    // Notes edit the clip open in the roll; the other commands the clip of the one placement selected in the timeline, else the open one.
+    const placed = ctx.placements.length === 1 ? ctx.placements[0]!.clip : null
+    const clip = entry.fields.some((f) => f.name === 'notes') ? (ctx.clip ?? placed) : (placed ?? ctx.clip)
+    return clip ? { ...base, source: 'clip', text: clip } : need('clip')
+  }
   if (ref === 'PlacementId') {
     const only = ctx.placements.length === 1 ? ctx.placements[0] : undefined
     return only ? { ...base, source: 'placement', text: only.id } : need('placement')
@@ -99,6 +108,12 @@ export function resolveField(entry: CatalogEntry, field: CommandField, ctx: Pale
     const first = ctx.devices[0]!
     if (ctx.devices.length === 1) return { ...base, source: 'device', text: first.id }
     return { ...base, source: 'device', text: first.id, shown: true, choices: ctx.devices.map((d) => ({ value: d.id, label: d.name })) }
+  }
+  // A scene, a marker or a lane is chosen, never guessed: an empty choice is a field the user fills.
+  const list = ref === 'SceneId' ? ctx.scenes : ref === 'MarkerId' ? ctx.markers : ref === 'LaneId' ? ctx.lanes : null
+  if (list) {
+    if (list.length === 0) return need(NEEDS[ref]!)
+    return { ...base, source: 'none', text: '', shown: true, choices: list.map((x) => ({ value: x.id, label: x.name })) }
   }
   const unresolvable = NEEDS[ref]
   if (unresolvable) return need(unresolvable)

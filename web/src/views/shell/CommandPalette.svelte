@@ -46,7 +46,7 @@
     const view = project.view
     const track = project.selected?.track
     const placements = ui.pickedPlacements
-    const clip = ui.rollSelection.clip ?? (placements.length === 1 ? placements[0]!.clip : null)
+    const clip = ui.rollSelection.clip
     const devices = Object.entries(track?.devices ?? {})
       .filter((entry): entry is [string, NonNullable<(typeof entry)[1]>] => entry[1] !== undefined)
       .sort((a, b) => (a[1].order < b[1].order ? -1 : a[1].order > b[1].order ? 1 : 0))
@@ -63,9 +63,20 @@
       current['transport.set_time_signature.denominator'] = String(signature.denominator)
     }
     if (track) current['track.rename.name'] = track.name
-    const clipName = clip && track ? track.clips[clip]?.name : undefined
+    const wanted = clip ?? (placements.length === 1 ? placements[0]!.clip : null)
+    const clipName = wanted ? Object.values(view?.project.tracks ?? {}).find((t) => t?.clips[wanted])?.clips[wanted]?.name : undefined
     if (clipName !== undefined) current['clip.rename.name'] = clipName
-    return { selectedTrack, clip, placements, notes: ui.rollSelection.notes, devices, signature, current }
+    const named = (items: Record<string, { name: string } | undefined> | undefined) =>
+      Object.entries(items ?? {}).flatMap(([id, item]) => (item ? [{ id, name: item.name }] : []))
+    const scenes = named(view?.project.scenes)
+    const markers = named(view?.project.markers)
+    const lanes = Object.entries(track?.automation ?? {}).flatMap(([id, lane]) => {
+      if (!lane) return []
+      const target = lane.target
+      const name = 'device' in target ? `${devices.find((d) => d.id === target.device.device)?.name ?? ''} ${target.device.param}`.trim() : target.mixer.param
+      return [{ id, name }]
+    })
+    return { selectedTrack, clip, scenes, markers, lanes, placements, notes: ui.rollSelection.notes, devices, signature, current }
   })
   /** The form of the command being filled in: its fields resolved against the selection. */
   let resolved = $state<ResolvedField[]>([])
@@ -251,7 +262,8 @@
                 {#if !field.required}<span class="muted">{t('palette.optional')}</span>{/if}
               </label>
               {#if item.choices}
-                <select {id} data-field bind:value={texts[field.name]}>
+                <select {id} data-field aria-invalid={problems[field.name] ? 'true' : undefined} bind:value={texts[field.name]}>
+                  {#if (texts[field.name] ?? '') === ''}<option value=""></option>{/if}
                   {#each item.choices as choice (choice.value)}<option value={choice.value}>{choice.label}</option>{/each}
                 </select>
               {:else if field.kind === 'enum'}
