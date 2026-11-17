@@ -148,7 +148,27 @@ describe('positions and lengths are typed in bars and beats (#926)', () => {
     expect(buildCommand(entry('transport.seek'), { tick: '2' }, waltz)).toEqual({ ok: true, command: { type: 'transport.seek', tick: 2880 } })
     const ticks = visible.flatMap((c) => c.fields.filter((f) => f.ref === 'Tick').map((f) => `${c.name}.${f.name}`))
     expect(ticks.length).toBeGreaterThan(10)
-    for (const c of visible) for (const f of c.fields.filter((x) => x.ref === 'Tick')) expect(tickUnit(f), `${c.name}.${f.name}`).not.toBeNull()
+    for (const c of visible)
+      for (const f of c.fields.filter((x) => x.ref === 'Tick')) expect(tickUnit(f), `${c.name}.${f.name}: decide its unit in palette-fields.ts`).not.toBeNull()
+    // The units, pinned by field name: a position is typed like Go to, a length in bars, a step in beats.
+    const units = new Map<string, string>()
+    for (const c of visible) for (const f of c.fields.filter((x) => x.ref === 'Tick')) units.set(f.name, tickUnit(f)!)
+    expect(Object.fromEntries([...units].sort())).toEqual({
+      at: 'position',
+      by: 'bars',
+      from: 'position',
+      grid: 'beats',
+      length: 'bars',
+      offset: 'bars',
+      start: 'position',
+      tick: 'position',
+      to: 'position',
+      until: 'position',
+    })
+  })
+
+  it('lists no optional clip, which would run on its default instead of saying what to select', () => {
+    for (const c of visible) for (const f of c.fields) if (f.ref === 'ClipId') expect(f.required, `${c.name}.${f.name}`).toBe(true)
   })
 })
 

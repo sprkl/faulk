@@ -36,13 +36,14 @@ export type TickUnit = 'position' | 'bars' | 'beats'
 
 const POSITIONS = new Set(['at', 'from', 'start', 'tick', 'to', 'until'])
 const BARS = new Set(['length', 'by', 'offset'])
+const BEATS = new Set(['grid'])
 
-/** The unit of a field of kind tick (`ref` `Tick`), or `null` for any other field. */
+/** The unit of a field of kind tick (`ref` `Tick`), or `null` for any other field and for a tick field no unit is decided for (a test fails on it). */
 export function tickUnit(field: CommandField): TickUnit | null {
   if (field.ref !== 'Tick') return null
   if (POSITIONS.has(field.name)) return 'position'
   if (BARS.has(field.name)) return 'bars'
-  return 'beats'
+  return BEATS.has(field.name) ? 'beats' : null
 }
 
 /** The ref kinds of identifiers the page cannot fill: the command says what to select instead. */
@@ -117,6 +118,8 @@ export function resolveField(entry: CatalogEntry, field: CommandField, ctx: Pale
   }
   const unresolvable = NEEDS[ref]
   if (unresolvable) return need(unresolvable)
+  // Where the device goes is the selected track's: the master's chain is not asked for here, so no field offers both.
+  if (field.name === 'master' && entry.name === 'device.insert') return { ...base, source: 'none', text: '' }
   // Structured input and internal values nobody types: never shown (a required one makes the command hidden, see `palette-hidden.ts`).
   if (field.kind === 'json') return { ...base, source: 'none', text: '' }
   const current = ctx.current[`${entry.name}.${field.name}`]
