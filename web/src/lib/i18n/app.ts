@@ -38,6 +38,7 @@ import { mixer } from './mixer'
 import { pianoRoll } from './piano-roll'
 import { presets } from './presets'
 import { palette } from './palette'
+import { paletteCommands } from './palette-commands'
 import { project } from './project'
 import { refusal } from './refusal'
 import { scale } from './scale'
@@ -57,6 +58,7 @@ export const features = {
   shell,
   shortcuts,
   palette,
+  paletteCommands,
   layout,
   tracks,
   browser,

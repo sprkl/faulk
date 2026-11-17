@@ -12,7 +12,7 @@ const schema = JSON.parse(readFileSync(new URL('./generated/schema.json', import
 const catalog = schema.command.catalog
 
 const en = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate('en', key, vars)
-const entries = paletteEntries((key) => en(key))
+const entries = paletteEntries((key) => en(key)).filter((e) => !e.gesture)
 const entry = (name: string): CatalogEntry => {
   const found = COMMAND_CATALOG.find((c) => c.name === name)
   if (!found) throw new Error(`no command ${name}`)
@@ -49,7 +49,7 @@ describe('the palette lists the whole catalogue', () => {
     }
   })
 
-  it('gives every command a one-line summary', () => {
+  it('gives every command a one-line catalogue summary', () => {
     for (const { entry: e } of entries) {
       expect(e.summary, e.name).not.toBe('')
       expect(e.summary, e.name).not.toContain('\n')
@@ -70,7 +70,7 @@ describe('labels', () => {
   it('prefers the palette label, then the history label, then the name in words', () => {
     expect(labelOf((k) => en(k), 'transport.play')).toBe('Play')
     expect(labelOf((k) => en(k), 'transport.set_tempo')).toBe(en('history.cmd.transport.set_tempo' as never))
-    expect(labelOf((k) => en(k), 'live.all_notes_off')).toBe('live all notes off')
+    expect(labelOf((k) => en(k), 'live.all_notes_off')).toBe('Release every note')
   })
 })
 
@@ -95,7 +95,7 @@ describe('searchCommands', () => {
 
   it('finds a command by its label, with or without accents', () => {
     expect(names('lecture')).toEqual([])
-    const fr = paletteEntries((key) => translate('fr', key))
+    const fr = paletteEntries((key) => translate('fr', key)).filter((e) => !e.gesture)
     const found = searchCommands(fr, 'lecture').map((e) => e.entry.name)
     expect(found[0]).toBe('transport.play')
     expect(searchCommands(fr, 'Arret').map((e) => e.entry.name)).toContain('transport.stop')

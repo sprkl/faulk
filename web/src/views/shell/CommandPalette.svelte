@@ -7,8 +7,10 @@
    * focus goes back to what opened it.
    */
   import type { CatalogEntry, CommandField } from '../../lib/generated/protocol'
-  import { buildCommand, initialText, MAX_RESULTS, paletteEntries, searchCommands, type FieldProblem, type PaletteEntry } from '../../lib/command-palette'
-  import { commandShortcutText } from '../../lib/shortcuts'
+  import { buildCommand, initialText, listFor, MAX_RESULTS, paletteEntries, parseQuery, type FieldProblem, type PaletteEntry } from '../../lib/command-palette'
+  import { runGesture } from '../../lib/palette-gestures'
+  import { commandShortcutText, labelShortcutText } from '../../lib/shortcuts'
+  import { tick } from 'svelte'
   import { useStores } from '../../lib/stores'
 
   const { engine, project, dispatcher, ui } = useStores()
@@ -26,10 +28,13 @@
   let refused = $state(false)
 
   /** The keys that run a command, as the platform and the keyboard layout write them (empty when none does). */
-  const keysOf = (name: string) => commandShortcutText(name, undefined, ui.keyLayout)
+  const keysOf = (item: PaletteEntry) =>
+    item.shortcut ? labelShortcutText(item.shortcut, undefined, ui.keyLayout) : commandShortcutText(item.entry.name, undefined, ui.keyLayout)
 
   const entries = $derived(paletteEntries(t))
-  const found = $derived(searchCommands(entries, query))
+  const found = $derived(listFor(entries, query, keysOf))
+  /** A `>` first: the whole catalogue, hidden commands and agents' names included. */
+  const showAll = $derived(parseQuery(query).all)
   const shown = $derived(found.slice(0, MAX_RESULTS))
   const selectedTrack = $derived(project.selected?.id ?? null)
   /** What to say when a command did not run: the audio is not started (the project loads with it), or the project refused. */
@@ -61,7 +66,14 @@
     list?.querySelector<HTMLElement>(`#palette-option-${active}`)?.scrollIntoView({ block: 'nearest' })
   })
 
-  function choose(item: PaletteEntry) {
+  async function choose(item: PaletteEntry) {
+    if (item.gesture) {
+      // A gesture of the interface: the palette closes first (its dialog is modal), then the gesture runs like its shortcut.
+      ui.paletteOpen = false
+      await tick()
+      runGesture(item.gesture, ui)
+      return
+    }
     if (item.entry.fields.length === 0) {
       // Nothing to ask: it runs now. When it did not run, the palette stays open and says why.
       run(item.entry, {})
@@ -111,7 +123,7 @@
     } else if (event.key === 'Enter') {
       event.preventDefault()
       const item = shown[active]
-      if (item) choose(item)
+      if (item) void choose(item)
     }
   }
 
@@ -165,15 +177,16 @@
           aria-selected={i === active}
           class:active={i === active}
           data-command={item.entry.name}
-          onclick={() => choose(item)}
+          title={item.gesture ? undefined : item.entry.name}
+          onclick={() => void choose(item)}
           onpointermove={() => (active = i)}
         >
           <span class="label">{item.label}</span>
           <span class="side">
-            {#if keysOf(item.entry.name) !== ''}<kbd data-testid="palette-keys">{keysOf(item.entry.name)}</kbd>{/if}
-            <code class="name">{item.entry.name}</code>
+            {#if keysOf(item) !== ''}<kbd data-testid="palette-keys">{keysOf(item)}</kbd>{/if}
+            {#if showAll && !item.gesture}<code class="name">{item.entry.name}</code>{/if}
           </span>
-          <span class="summary">{item.entry.summary}</span>
+          <span class="summary">{item.summary}</span>
         </li>
       {/each}
     </ul>
@@ -185,8 +198,8 @@
   {:else}
     <form onsubmit={submit} data-testid="palette-form">
       <h3>{chosen.label}</h3>
-      <code class="name">{chosen.entry.name}</code>
-      <p class="summary">{chosen.entry.summary}</p>
+      {#if showAll}<code class="name">{chosen.entry.name}</code>{/if}
+      <p class="summary">{chosen.summary}</p>
       {#if chosen.entry.destructive}<p class="note warning" data-testid="palette-destructive">{t('palette.destructive')}</p>{/if}
       {#each chosen.entry.fields as field (field.name)}
         {@const id = `palette-field-${field.name}`}
