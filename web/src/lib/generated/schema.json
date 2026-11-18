@@ -34035,6 +34035,34 @@
           ],
           "type": "object"
         },
+        "ParamRef": {
+          "additionalProperties": false,
+          "description": "A parameter, by what the page needs to name it in its language.",
+          "properties": {
+            "device": {
+              "description": "The device's name (one English word, like the device panel shows it); absent for a\nmixer parameter.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "key": {
+              "description": "The parameter's id (`\"cutoff\"`), or `\"gain\"` or `\"pan\"` for the mixer.",
+              "type": "string"
+            },
+            "kind": {
+              "description": "The device kind (`\"faulk.filter\"`) when it is a built-in one: the page looks up the\nparameter's translated label with it. Absent for a mixer parameter or a module.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "key"
+          ],
+          "type": "object"
+        },
         "Subject": {
           "additionalProperties": false,
           "description": "What an entry of the history (or of its activity log) acted on.",
@@ -34059,10 +34087,38 @@
                 "null"
               ]
             },
+            "param": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ParamRef"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The parameter a command set or an automation lane drives, kept only when every\ncommand of an entry agrees."
+            },
             "to": {
               "description": "What a rename or a value change set: the new name, the tempo, the time signature.",
               "type": [
                 "string",
+                "null"
+              ]
+            },
+            "unnamed": {
+              "description": "Which of the objects have no name (a track or a scene the user did not name): their\n1-based position among the tracks or the scenes, distinct, in the order met. The page\nnames them as it does everywhere (\"Track 2\"), in the user's language.",
+              "items": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "value": {
+              "description": "The value a parameter was set to, in the unit the device declares.",
+              "format": "double",
+              "type": [
+                "number",
                 "null"
               ]
             },
@@ -34072,12 +34128,23 @@
                 "type": "string"
               },
               "type": "array"
+            },
+            "within_unnamed": {
+              "description": "The same for what holds them: the 1-based positions of the unnamed tracks.",
+              "items": {
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
             }
           },
           "required": [
             "count",
             "objects",
-            "within"
+            "within",
+            "unnamed",
+            "within_unnamed"
           ],
           "type": "object"
         }
