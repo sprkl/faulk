@@ -9,7 +9,8 @@
   import type { CatalogEntry, CommandField } from '../../lib/generated/protocol'
   import { buildCommand, fieldLabel, listFor, MAX_RESULTS, paletteEntries, parseQuery, type FieldProblem, type PaletteEntry } from '../../lib/command-palette'
   import { runGesture } from '../../lib/palette-gestures'
-  import { resolveFields, tickUnit, type PaletteContext, type ResolvedField } from '../../lib/palette-fields'
+  import { resolveFields, tickUnit, usesKey, type PaletteContext, type ResolvedField } from '../../lib/palette-fields'
+  import { closedChoices, isListIndex, OTHER } from '../../lib/palette-choices'
   import { DEVICES } from '../../lib/generated/protocol'
   import { commandShortcutText, labelShortcutText } from '../../lib/shortcuts'
   import { tick } from 'svelte'
@@ -28,6 +29,8 @@
   let chosen = $state<PaletteEntry | null>(null)
   let texts = $state<Record<string, string>>({})
   let problems = $state<Record<string, FieldProblem>>({})
+  /** The fields of a list the musician answered with "Other": the value is then typed in the field next to it. */
+  let others = $state<Record<string, boolean>>({})
   let refused = $state(false)
 
   /** The keys that run a command, as the platform and the keyboard layout write them (empty when none does). */
@@ -52,7 +55,7 @@
       .sort((a, b) => (a[1].order < b[1].order ? -1 : a[1].order > b[1].order ? 1 : 0))
       .map(([id, device]) => {
         const kind = 'builtin' in device.source ? device.source.builtin.id : ''
-        return { id, name: DEVICES.find((d) => d.kind === kind)?.name ?? kind }
+        return { id, name: DEVICES.find((d) => d.kind === kind)?.name ?? kind, kind }
       })
     const current: Record<string, string> = {}
     if (view) {
@@ -61,6 +64,11 @@
       if (bpm !== undefined) current['transport.set_tempo.bpm'] = String(Math.round(bpm * 100) / 100)
       current['transport.set_time_signature.numerator'] = String(signature.numerator)
       current['transport.set_time_signature.denominator'] = String(signature.denominator)
+    }
+    const scale = view?.project.scale
+    if (scale) {
+      current['project.set_scale.root'] = String(scale.root)
+      current['project.set_scale.mode'] = scale.mode
     }
     if (track) current['track.rename.name'] = track.name
     const wanted = clip ?? (placements.length === 1 ? placements[0]!.clip : null)
@@ -128,6 +136,7 @@
     missing = form.missing
     texts = Object.fromEntries(form.fields.map((f) => [f.field.name, f.text]))
     problems = {}
+    others = {}
     refused = false
     chosen = item
     // The first field takes the focus once the form is drawn.
@@ -153,6 +162,27 @@
   function submit(event: SubmitEvent) {
     event.preventDefault()
     if (chosen) run(chosen.entry, texts)
+  }
+
+  /** An answer picked in a list: its value, or "Other", which opens the text field to type it. */
+  function pick(name: string, value: string) {
+    delete problems[name]
+    refused = false
+    if (value === OTHER) {
+      others[name] = true
+      texts[name] = ''
+      queueMicrotask(() => dialog?.querySelector<HTMLElement>(`#palette-field-${name}-other`)?.focus())
+    } else {
+      others[name] = false
+      texts[name] = value
+      // The knobs listed are the chosen device's: another device starts again.
+      if (name === 'device' && 'param' in texts) texts.param = ''
+    }
+  }
+
+  /** The kind of a device of the selected track, `null` for none. */
+  function deviceKindOf(id: string | undefined): string | null {
+    return context.devices.find((d) => d.id === id)?.kind ?? null
   }
 
   function back() {
@@ -255,29 +285,39 @@
           {@const field = item.field}
           {@const id = `palette-field-${field.name}`}
           {@const unit = tickUnit(field)}
+          {@const list = item.choices
+            ? { choices: item.choices }
+            : closedChoices(chosen.entry, field, t, { lang: ui.lang, deviceKind: deviceKindOf(texts['device']) })}
           {#if item.shown}
             <div class="field">
               <label for={id}>
                 {fieldLabel(t, chosen.entry.name, field)}
-                {#if !field.required}<span class="muted">{t('palette.optional')}</span>{/if}
+                {#if !field.required || isListIndex(field)}<span class="muted">{t('palette.optional')}</span>{/if}
               </label>
-              {#if item.choices}
-                <select {id} data-field aria-invalid={problems[field.name] ? 'true' : undefined} bind:value={texts[field.name]}>
-                  {#if (texts[field.name] ?? '') === ''}<option value=""></option>{/if}
-                  {#each item.choices as choice (choice.value)}<option value={choice.value}>{choice.label}</option>{/each}
+              {#if list}
+                <select
+                  {id}
+                  data-field
+                  aria-invalid={problems[field.name] ? 'true' : undefined}
+                  value={others[field.name] ? OTHER : (texts[field.name] ?? '')}
+                  onchange={(event) => pick(field.name, event.currentTarget.value)}
+                >
+                  {#if !field.required && !item.choices}<option value="">{t('palette.default')}</option
+                    >{:else if (texts[field.name] ?? '') === '' && !others[field.name]}<option value=""></option>{/if}
+                  {#each list.choices as choice (choice.value)}<option value={choice.value}>{choice.label}</option>{/each}
+                  {#if 'other' in list && list.other}<option value={OTHER}>{t('palette.other')}</option>{/if}
                 </select>
-              {:else if field.kind === 'enum'}
-                <select {id} data-field aria-invalid={problems[field.name] ? 'true' : undefined} bind:value={texts[field.name]}>
-                  {#if !field.required}<option value="">{t('palette.default')}</option>{:else if (texts[field.name] ?? '') === ''}<option value=""
-                    ></option>{/if}
-                  {#each field.options ?? [] as option (option)}<option value={option}>{option.replace(/_/g, ' ')}</option>{/each}
-                </select>
-              {:else if field.kind === 'boolean'}
-                <select {id} data-field aria-invalid={problems[field.name] ? 'true' : undefined} bind:value={texts[field.name]}>
-                  {#if !field.required}<option value="">{t('palette.default')}</option>{/if}
-                  <option value="true">{t('palette.yes')}</option>
-                  <option value="false">{t('palette.no')}</option>
-                </select>
+                {#if others[field.name]}
+                  <input
+                    id={`${id}-other`}
+                    type="text"
+                    autocomplete="off"
+                    spellcheck="false"
+                    aria-label={t('palette.other')}
+                    aria-invalid={problems[field.name] ? 'true' : undefined}
+                    bind:value={texts[field.name]}
+                  />
+                {/if}
               {:else}
                 <input
                   {id}
@@ -308,7 +348,8 @@
                   )}
                 </p>
               {/if}
-              {#if field.nullable}<p class="note">{t('palette.nullable')}</p>{/if}
+              {#if isListIndex(field)}<p class="note">{t('palette.hintIndex')}</p>{/if}
+              {#if field.nullable && field.required && !list}<p class="note">{t('palette.nullable')}</p>{/if}
               {#if problems[field.name]}
                 <p id={`${id}-error`} class="error" role="alert">
                   {problems[field.name] === 'required' ? t('palette.required') : t('palette.invalid', { kind: kindWords(field) })}
@@ -316,7 +357,7 @@
               {/if}
             </div>
           {:else if item.source !== 'none'}
-            <p class="note" data-testid="palette-uses">{t(`palette.uses.${item.source}` as MessageKey, { count: item.count ?? 0 })}</p>
+            <p class="note" data-testid="palette-uses">{t(usesKey(item.source, item.count ?? 0), { count: item.count ?? 0 })}</p>
           {/if}
         {/each}
       {/if}

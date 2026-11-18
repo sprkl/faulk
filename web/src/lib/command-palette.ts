@@ -11,6 +11,7 @@ import { GESTURES, type GestureId } from './palette-gestures'
 import { parseTickText, tickUnit, type TickUnit } from './palette-fields'
 import type { Signature } from '../views/transport/time'
 import { HIDDEN_COMMANDS } from './palette-hidden'
+import { END_OF_LIST, isListIndex, NONE } from './palette-choices'
 
 /** The key of a command's own palette label (`palette.cmd.<name>`), for the live commands the history never shows. */
 export const PALETTE_LABEL_PREFIX = 'palette.cmd.'
@@ -147,6 +148,13 @@ export type Built = { ok: true; command: Command } | { ok: false; problems: Reco
 /** One field's text as the value it stands for: `undefined` for "not given", `null` for `null`, or a problem. */
 function parseField(field: CommandField, raw: string): { value: unknown } | { problem: FieldProblem } | 'omit' {
   const text = field.kind === 'string' ? raw : raw.trim()
+  // The "none" of a list (a track without a colour) is `null`, whatever the field's kind.
+  if (field.nullable && text === NONE) return { value: null }
+  // A place in a list is counted from 1 by the musician and from 0 by the command; empty is the end.
+  if (isListIndex(field)) {
+    if (text === '') return { value: END_OF_LIST }
+    return /^\d+$/.test(text) && Number(text) >= 1 && Number.isSafeInteger(Number(text)) ? { value: Number(text) - 1 } : { problem: 'invalid' }
+  }
   if (text === '') {
     // Never `null` for an empty field: for a level it means silence, so `null` must be typed (below).
     return field.required ? { problem: 'required' } : 'omit'

@@ -5,6 +5,7 @@
  * language of the interface with its unit, and a field that has a current value starts on it. Pure: the page gives what it
  * knows (`PaletteContext`), the palette shows the result and `command-palette.ts` builds the command from the texts.
  */
+import type { MessageKey } from './i18n'
 import type { CatalogEntry, CommandField, Note } from './generated/protocol'
 import { barTicks, beatTicks, parseBarBeat, PPQ, type Signature } from '../views/transport/time'
 
@@ -22,7 +23,7 @@ export interface PaletteContext {
   /** The notes selected in the piano roll, of the open clip. */
   notes: readonly Note[]
   /** The devices of the selected track, in chain order, with the name to show. */
-  devices: readonly { id: string; name: string }[]
+  devices: readonly { id: string; name: string; kind?: string }[]
   signature: Signature
   /** Current values: `<command>.<field>` to the text the field starts on. */
   current: Readonly<Record<string, string>>
@@ -58,6 +59,11 @@ const NEEDS: Readonly<Record<string, Need>> = {
   LaneId: 'lane',
   MarkerId: 'marker',
   PresetRef: 'preset',
+}
+
+/** The key of the sentence that says what a filled field stands for: one thing and several things are not said alike. */
+export function usesKey(source: Exclude<FieldSource, 'none'>, count: number): MessageKey {
+  return (count === 1 && (source === 'notes' || source === 'placements') ? `palette.uses.${source}.one` : `palette.uses.${source}`) as MessageKey
 }
 
 /** One field as the form shows it. */
