@@ -22,12 +22,12 @@ export default {
   },
   tested: [
     {
-      en: 'The command palette for a musician (#930, #931): tempo, project name, scale, track colour and transposition set from it, its forms filled from the open clip',
-      fr: 'La palette de commandes pour musicien (#930, #931) : tempo, nom du projet, gamme, couleur de piste et transposition réglés depuis elle, ses formulaires remplis depuis le clip ouvert',
+      en: 'The command palette for a musician (#926): tempo, project name, scale, track colour and transposition set from it, its forms filled from the open clip',
+      fr: 'La palette de commandes pour musicien (#926) : tempo, nom du projet, gamme, couleur de piste et transposition réglés depuis elle, ses formulaires remplis depuis le clip ouvert',
     },
     {
-      en: 'The arrangement snap stays on “Bar” after “Automate: Volume” from the mixer (#929)',
-      fr: 'Le magnétisme de l’arrangement reste sur « Mesure » après « Automatiser : Volume » depuis le mixeur (#929)',
+      en: 'The arrangement snap stays on “Bar” after “Automate: Volume” from the mixer (#925)',
+      fr: 'Le magnétisme de l’arrangement reste sur « Mesure » après « Automatiser : Volume » depuis le mixeur (#925)',
     },
     {
       en: 'A double click in an empty lane makes a clip and opens it in the piano roll (#924)',
