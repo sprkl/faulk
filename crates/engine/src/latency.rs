@@ -689,6 +689,18 @@ impl Events {
         }
     }
 
+    /// The values waiting for `from` now wait for `to` (#800): their device moved there.
+    /// Linear in what waits, no allocation.
+    pub fn retarget(&mut self, from: DeviceSlot, to: DeviceSlot) {
+        for i in 0..self.len {
+            let k = self.at(i);
+            let p = &mut self.ring[k];
+            if p.slot == from {
+                p.slot = to;
+            }
+        }
+    }
+
     /// The value waiting at position `i` from the oldest, when it is not forgotten, and how
     /// long ago (in the line's frames) it was dated.
     pub fn get(&self, i: usize) -> Option<(DeviceSlot, ParamId, f32, u64)> {
@@ -871,6 +883,10 @@ impl Device for Latent {
 
     fn gain_reduction_db(&self) -> f32 {
         self.inner.gain_reduction_db()
+    }
+
+    fn analysis_window(&self, out: &mut [f32]) -> usize {
+        self.inner.analysis_window(out)
     }
 
     /// The device's latency, as it says (the graph bounds it to [`Device::max_latency_frames`]
@@ -1643,6 +1659,20 @@ mod tests {
     }
 
     #[test]
+    fn a_retargeted_value_lands_on_its_new_slot_at_its_time() {
+        // #800: the device a value waits for moved from slot 2 to slot 3.
+        let mut line = Events::try_new(8).unwrap();
+        let mut out = Sink::try_with_capacity(0, 8).unwrap();
+        let mut lost = Lost::default();
+        let src = values(&[(0, 2, 0, 1.0), (1, 4, 0, 2.0)]);
+        assert!(line.carry(&src, delay_all, 12, 8, &mut out, &mut lost));
+        line.retarget(DeviceSlot(2), DeviceSlot(3));
+        assert!(line.carry(&values(&[]), delay_all, 12, 8, &mut out, &mut lost));
+        assert_eq!(seen(&out), vec![(4, 3, 0, 1.0), (5, 4, 0, 2.0)]);
+        assert!(lost.is_empty());
+    }
+
+    #[test]
     fn a_value_handed_on_keeps_its_age_and_lands_after_the_older_ones() {
         let mut line = Events::try_new(8).unwrap();
         let mut out = Sink::try_with_capacity(0, 8).unwrap();
@@ -1772,5 +1802,35 @@ mod tests {
         assert_eq!(got, want);
         assert!(lost.is_empty());
         assert_eq!(line.lost(), 0);
+    }
+
+    /// A device with a latency whose panel draws a spectrum: its window says 3 frames.
+    struct Analysed;
+
+    impl Device for Analysed {
+        fn descriptor(&self) -> &'static DeviceDescriptor {
+            &crate::devices::contour::DESCRIPTOR
+        }
+        fn process(&mut self, _: &BlockCtx, _: &[Event], _: &mut AudioIo<'_>) {}
+        fn set_param(&mut self, _: ParamId, _: f32) {}
+        fn reset(&mut self) {}
+        fn max_latency_frames(&self) -> u32 {
+            8
+        }
+        fn analysis_window(&self, out: &mut [f32]) -> usize {
+            out[..3].fill(0.5);
+            3
+        }
+    }
+
+    #[test]
+    fn the_wrapper_of_a_device_with_a_latency_gives_its_analysis_window() {
+        // #156: the graph wraps a device that declares a latency; its spectrum still reaches the
+        // report.
+        let mut wrapped = Latent::wrap(Box::new(Analysed)).unwrap();
+        assert!(wrapped.bypass().is_some(), "wrapped");
+        let mut out = [0.0; 4];
+        assert_eq!(wrapped.analysis_window(&mut out), 3);
+        assert_eq!(out, [0.5, 0.5, 0.5, 0.0]);
     }
 }

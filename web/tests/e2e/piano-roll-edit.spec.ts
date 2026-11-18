@@ -650,6 +650,7 @@ test('piano roll: Repeat fills the bar end to end from the keyboard, Repeat unti
     [480, 64],
     [720, 67],
   ] as const
+  await stage(page).getByTestId('timegrid').focus()
   const written = figure.map(([s, p]) => [s, p, 240])
   for (const [tick, pitch] of figure) await page.mouse.click(g.x(tick + 10), g.y(pitch))
   await expect.poll(shape).toEqual(written)
@@ -1037,5 +1038,125 @@ test('piano roll: a triplet snap steps the cursor, writes, moves and draws on tr
     [480, pitch + 1, 320],
     [1280, 62, 320],
   ])
+  expect(seen.errors).toEqual([])
+})
+
+test('piano roll: the tool and the snap stay across clips, and a click that gives the focus writes no note (#835)', async ({ page }) => {
+  test.setTimeout(120_000)
+  const { seen, warnings } = await openRoll(page)
+  const select = page.getByTestId('roll-tool-select')
+  await select.click()
+  await page.getByTestId('roll-snap').selectOption('beat')
+
+  // The roll is built again when the panel comes back (as for another clip): it keeps the tool and the snap.
+  await page.getByTestId('panel-devices').click()
+  await page.getByTestId('panel-piano-roll').click()
+  await expect(roll(page)).toHaveAttribute('data-note-count', '0')
+  await expect(page.getByTestId('roll-tool-select')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByTestId('roll-tool-draw')).toHaveAttribute('aria-checked', 'false')
+  await expect(page.getByTestId('roll-snap')).toHaveValue('beat')
+
+  // With the focus outside the roll, a click in Select writes nothing, and neither does the one in Draw that only gives the focus.
+  const g = await spot(page)
+  await page.mouse.click(g.x(1000), g.y(62))
+  await expect(roll(page)).toHaveAttribute('data-note-count', '0')
+  await page.getByTestId('roll-tool-draw').click()
+  await page.getByTestId('panel-devices').click()
+  await page.getByTestId('panel-piano-roll').click()
+  await expect(page.getByTestId('roll-tool-draw')).toHaveAttribute('aria-checked', 'true')
+  await page.mouse.click(g.x(1000), g.y(62))
+  await expect(roll(page)).toHaveAttribute('data-note-count', '0')
+  await expect(page.getByTestId('timegrid')).toBeFocused()
+
+  // The next click draws, in sight, and says it.
+  await page.mouse.click(g.x(1000), g.y(62))
+  await expect(roll(page)).toHaveAttribute('data-note-count', '1')
+  await expect(page.getByTestId('roll-said')).toHaveText(/^Note added/)
+  const [note] = await notes(page)
+  expect(note!.pitch).toBe(62)
+  expect(warnings).toEqual([])
+  expect(seen.errors).toEqual([])
+})
+
+test('piano roll: opening a second clip from the arrangement keeps the tool, the snap and the drawn length; the first click only gives the focus (#835)', async ({
+  page,
+}) => {
+  test.setTimeout(120_000)
+  const seen = watch(page)
+  const warnings: string[] = []
+  page.on('console', (message) => {
+    if (message.type() === 'warning') warnings.push(message.text())
+  })
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/app')
+  await page.getByTestId('engine-state').getByRole('button').click()
+  await engineUp(page)
+
+  // Two clips in the arrangement, bars 1 and 2, then the arrangement's cells by the keyboard.
+  await page.getByTestId('nav-arrangement').click()
+  const arr = page.getByTestId('arr-stage')
+  await expect.poll(async () => Number(await arr.getByTestId('timegrid').getAttribute('data-draw-count'))).toBeGreaterThan(0)
+  const abox = (await arr.boundingBox())!
+  const appt = Number(await arr.getByTestId('timegrid').getAttribute('data-px-per-tick'))
+  const lane = abox.y + RULER + 32
+  await page.mouse.dblclick(abox.x + 100 * appt, lane)
+  await expect(page.getByTestId('arrangement')).toHaveAttribute('data-block-count', '1')
+  await page.mouse.dblclick(abox.x + (3840 + 100) * appt, lane)
+  await expect(page.getByTestId('arrangement')).toHaveAttribute('data-block-count', '2')
+  // The arrangement has a time grid too: the roll's own is the one inside its stage.
+  const rollSpot = async () => {
+    const box = (await stage(page).boundingBox())!
+    const ppt = Number(await stage(page).getByTestId('timegrid').getAttribute('data-px-per-tick'))
+    const scrollY = await num(page, 'roll-stage', 'data-scroll-y')
+    return { x: (tick: number) => box.x + tick * ppt, y: (pitch: number) => box.y + RULER + (127 - pitch) * ROW - scrollY + ROW / 2 }
+  }
+  const items = page.getByTestId('arr-item')
+  const openItem = async (n: number) => {
+    await items.nth(n).focus()
+    await page.keyboard.press('Enter')
+  }
+
+  // First clip, opened by Enter: a long note in Draw (the length is kept), then Select and a snap.
+  await openItem(0)
+  await expect(roll(page)).toBeVisible()
+  const firstClip = await roll(page).getAttribute('data-clip')
+  await page.getByTestId('roll-tool-draw').click()
+  await page.getByTestId('roll-snap').selectOption('beat')
+  await expect.poll(async () => Number(await stage(page).getByTestId('timegrid').getAttribute('data-draw-count'))).toBeGreaterThan(0)
+  const g = await rollSpot()
+  await page.mouse.move(g.x(100), g.y(62))
+  await page.mouse.down()
+  await page.mouse.move(g.x(1500), g.y(62), { steps: 4 })
+  await page.mouse.move(g.x(2900), g.y(62), { steps: 4 })
+  await page.mouse.up()
+  await expect(roll(page)).toHaveAttribute('data-note-count', '1')
+  const drawnLength = (await notes(page))[0]!.length
+  expect(drawnLength).toBeGreaterThan(960)
+  await page.getByTestId('roll-tool-select').click()
+
+  // Second clip, opened the same way: the tool, the snap and the length are the ones in use.
+  await openItem(1)
+  await expect(roll(page)).not.toHaveAttribute('data-clip', firstClip!)
+  await expect(roll(page)).toHaveAttribute('data-note-count', '0')
+  await expect(page.getByTestId('roll-tool-select')).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByTestId('roll-snap')).toHaveValue('beat')
+  const second = await rollSpot()
+  await page.mouse.click(second.x(1000), second.y(62))
+  await expect(roll(page)).toHaveAttribute('data-note-count', '0')
+
+  // Back to Draw, then the second clip again from the arrangement: the first click gives the focus and writes nothing.
+  await page.getByTestId('roll-tool-draw').click()
+  await openItem(1)
+  await expect(page.getByTestId('roll-tool-draw')).toHaveAttribute('aria-checked', 'true')
+  await page.mouse.click(second.x(1000), second.y(62))
+  await expect(roll(page)).toHaveAttribute('data-note-count', '0')
+  // The next click writes one note, in sight, of the length kept, and says so.
+  await page.mouse.click(second.x(1000), second.y(62))
+  await expect(roll(page)).toHaveAttribute('data-note-count', '1')
+  await expect(page.getByTestId('roll-said')).toHaveText(/^Note added/)
+  const [written] = await notes(page)
+  expect(written!.pitch).toBe(62)
+  expect(written!.length).toBe(drawnLength)
+  expect(warnings).toEqual([])
   expect(seen.errors).toEqual([])
 })

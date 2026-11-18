@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use commands::engine_msgs::{db_to_gain, finite_f32};
 use engine::devices::REGISTRY;
 use engine::msg::{
-    AutomationPoint, AutomationTarget, ControlMsg, Curve, DeviceKind, HEADER_BYTES, Header,
+    AutomationPoint, AutomationTarget, ControlMsg, DeviceKind, HEADER_BYTES, Header,
     Note as EngineNote, Span as EngineSpan, TrackKind, TrackSlot, state_pairs,
 };
 use engine::time::{LoopRegion, Quantize, Tempo, Tick, TimeSignature};
@@ -203,6 +203,14 @@ impl Model {
             }
             ControlMsg::DeviceRemove { track, device } => {
                 self.devices(track.0).remove(&device.0);
+            }
+            ControlMsg::DeviceMove { track, from, to } => {
+                let devices = self.devices(track.0);
+                if !devices.contains_key(&to.0)
+                    && let Some(moved) = devices.remove(&from.0)
+                {
+                    devices.insert(to.0, moved);
+                }
             }
             ControlMsg::DeviceSetEnabled {
                 track,
@@ -596,10 +604,7 @@ impl EngineView {
                             .map(|(tick, p)| AutomationPoint {
                                 tick: *tick,
                                 value: finite_f32(p.value),
-                                curve: match p.shape {
-                                    project::Shape::Step => Curve::Step,
-                                    project::Shape::Linear => Curve::Linear,
-                                },
+                                curve: p.shape.curve(),
                             })
                             .collect(),
                     },
@@ -661,10 +666,7 @@ impl EngineView {
                         .map(|(tick, p)| AutomationPoint {
                             tick: *tick,
                             value: finite_f32(p.value),
-                            curve: match p.shape {
-                                project::Shape::Step => Curve::Step,
-                                project::Shape::Linear => Curve::Linear,
-                            },
+                            curve: p.shape.curve(),
                         })
                         .collect(),
                 },

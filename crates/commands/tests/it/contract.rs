@@ -201,6 +201,12 @@ fn examples() -> Vec<(Command, State)> {
             s.history.open_group = Some((group, Author::User));
             s
         }),
+        (Command::History(history::Command::AbortGroup {}), {
+            let mut s = f.state.clone();
+            let group = s.history.new_group();
+            s.history.open_group = Some((group, Author::User));
+            s
+        }),
         on(Command::View(view::Command::SelectTrack {
             track: Some(f.track.clone()),
         })),

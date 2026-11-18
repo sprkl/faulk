@@ -1106,13 +1106,21 @@ fn the_report_carries_the_host_frame_at_the_playhead() {
 }
 
 /// The report carries the device latency the graph compensates (#749, version 10), at its one
-/// offset, the last word of the header: a Ceiling at its defaults on a track is 72 frames at
+/// offset, before the spectra count (#156, version 11): a Ceiling at its defaults on a track is 72 frames at
 /// 48 kHz, one on the master with the true peak adds 84.
 #[test]
 fn the_report_carries_the_device_latency() {
     use engine::devices::ceiling::{DESCRIPTOR as CEILING, TRUE_PEAK};
     use engine::msg::{FEEDBACK_HEADER_BYTES, FEEDBACK_LATENCY_OFFSET, encode_state};
-    assert_eq!(FEEDBACK_LATENCY_OFFSET + 4, FEEDBACK_HEADER_BYTES);
+    assert_eq!(
+        FEEDBACK_LATENCY_OFFSET + 8,
+        FEEDBACK_HEADER_BYTES,
+        "the latency, then the spectra count, end the header"
+    );
+    assert_eq!(
+        engine::msg::FEEDBACK_SPECTRA_OFFSET,
+        FEEDBACK_LATENCY_OFFSET + 4
+    );
     // The readouts' count is the word before it (#686, the same version 10).
     assert_eq!(
         engine::msg::FEEDBACK_READOUTS_OFFSET + 4,

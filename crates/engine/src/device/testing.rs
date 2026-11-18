@@ -411,6 +411,92 @@ impl Device for TestGain {
     }
 }
 
+// ---------------------------------------------------------------- the level (#881)
+
+/// Parameters of [`TestLevel`].
+pub mod level {
+    use crate::msg::ParamId;
+    pub const LEVEL: ParamId = ParamId(0);
+}
+
+/// Descriptor of [`TestLevel`]: one level on a logarithmic knob, the case of a frequency or a
+/// time, for the automation of a logarithmic parameter (#881).
+pub static LEVEL: DeviceDescriptor = DeviceDescriptor {
+    kind: "faulk.test_level",
+    kind_id: DeviceKind(0xFFFF_0005),
+    version: 1,
+    name: "Test Level",
+    role: DeviceRole::Effect,
+    memory_bytes: size_of::<TestLevel>() as u64,
+    midi_output: None,
+    named_keys: &[],
+    params: &[ParamDescriptor {
+        id: level::LEVEL,
+        key: "level",
+        description: "Test parameter level, on a logarithmic knob, applied at its exact offset.",
+        unit: Unit::None,
+        min: 0.01,
+        max: 2.0,
+        default: 1.0,
+        scale: Scale::Log,
+        step: 0.0,
+        smoothing_seconds: 0.0,
+        values: &[],
+    }],
+};
+
+/// An audio effect that multiplies both channels by `level`, applied at its offset.
+#[derive(Clone, Debug)]
+pub struct TestLevel {
+    level: f32,
+}
+
+impl TestLevel {
+    pub fn build(_setup: &DeviceSetup) -> Result<Box<dyn Device>, MsgError> {
+        Ok(try_box(Self {
+            level: LEVEL.params[0].default as f32,
+        })?)
+    }
+
+    fn render(&mut self, io: &mut AudioIo<'_>, from: usize, to: usize) {
+        let (left, right) = (&mut io.left[from..to], &mut io.right[from..to]);
+        for (l, r) in left.iter_mut().zip(right.iter_mut()) {
+            *l = flush(sanitize_sample(*l) * self.level);
+            *r = flush(sanitize_sample(*r) * self.level);
+        }
+    }
+}
+
+impl Device for TestLevel {
+    fn descriptor(&self) -> &'static DeviceDescriptor {
+        &LEVEL
+    }
+
+    fn process(&mut self, ctx: &BlockCtx, events: &[Event], io: &mut AudioIo<'_>) {
+        let frames = block_frames(ctx, io);
+        split(
+            self,
+            frames,
+            events,
+            |d, from, to| d.render(io, from, to),
+            |d, e| {
+                if let Event::ParamValue { id, value, .. } = *e {
+                    d.set_param(id, value);
+                }
+            },
+        );
+    }
+
+    fn set_param(&mut self, id: ParamId, value: f32) {
+        let Some(desc) = LEVEL.param(id) else { return };
+        if let Some(value) = desc.sanitize(value) {
+            self.level = value;
+        }
+    }
+
+    fn reset(&mut self) {}
+}
+
 // ---------------------------------------------------------------- the delay (#749)
 
 /// Parameters of [`TestDelay`].
@@ -1182,6 +1268,8 @@ pub fn factory(kind: DeviceKind) -> Option<super::Factory> {
         Some(TestTranspose::build)
     } else if kind == DELAY.kind_id {
         Some(TestDelay::build)
+    } else if kind == LEVEL.kind_id {
+        Some(TestLevel::build)
     } else {
         crate::devices::factory(kind)
     }

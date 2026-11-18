@@ -93,16 +93,25 @@
 //!   when it is switched on again. Switched on again before 0, it fades back up from where it
 //!   is, tail included.
 //! - A device that leaves its slot (`DeviceRemove`, a `DevicePut` on an occupied slot) joins
-//!   the chain's **outgoing** list ([`Outgoing`], at most [`OUTGOING_ROOM`]) and
-//!   keeps running at that slot, with no event, over the same `dry` signal, its difference
-//!   added with its falling fade: a replacement is a crossfade. At 0 it goes to the retire
-//!   ring (a full ring keeps it, silent, for the next block), as a retiring track does.
+//!   the chain's **outgoing** list ([`Outgoing`], at most [`OUTGOING_ROOM`]) and keeps
+//!   running at that slot, with no event. A **replaced** one runs over the same `dry` signal
+//!   as its replacement, its difference added with its falling fade: a crossfade, exact for
+//!   two devices that give the same output. A **removed** one runs in series **before** the
+//!   device now in the slot (#800), the signal moving from its output back to its input with
+//!   its falling fade: the devices after it, moved one slot toward the head (`DeviceMove`),
+//!   keep receiving its output while it fades, so their input never jumps. A device moved
+//!   toward the tail into a slot where a removed one fades out was in front of it: the
+//!   removed one moves one slot further, so that it stays after it (it may then fade out one
+//!   past the chain's last slot). A device that moves takes the ones it replaced with it, and,
+//!   toward the head, the removed ones in front of it. At 0 it goes to the retire ring (a full ring keeps it,
+//!   silent, for the next block), as a retiring track does.
 //! - A MIDI effect has no sound of its own and does not fade: its change releases the
 //!   instrument's notes, which the instruments end with their own release.
 //! - A change on a chain nobody hears (its strip's levels both at 0: a track not yet faded
 //!   in, a muted track) applies at once.
 //!
-//! Every device of a slot runs once per sub-block, on the same input.
+//! Every device of a slot runs once per sub-block: the removed ones first, in series, then
+//! the one in the slot and the replaced ones, on the same input.
 //!
 //! # Latency
 //!
@@ -155,8 +164,14 @@
 //!   unbroken, and a slot whose device is transparent (a Ceiling below its ceiling) leaves
 //!   the track's signal the same, to the sample. A device with a latency that leaves a slot
 //!   where no device takes its line **holds** the slot's timing: it fades its own output into
-//!   its line (its fade, at the old timing), then switches; a device put in its slot
-//!   meanwhile runs unheard and fades in once the holder is gone. A device put heard on its
+//!   its line (its fade, at the old timing), then switches (at once when that line has no
+//!   delay: a Compressor without look-ahead, #838). An audio effect without a line moved into
+//!   its slot from behind it (toward the head, #838) runs **behind** the removed holder: it
+//!   receives the holder's output, the slot's old timing, and the switch treats it as what
+//!   follows the slot (it catches up with the next slots), so its input never jumps and its
+//!   tail goes on. Any other device put or moved in its slot meanwhile (one with a line,
+//!   whose own timing would add to the holder's; one moved toward the tail, which was in
+//!   front of it; one put there) runs unheard and fades in once the holder is gone. A device put heard on its
 //!   first frame (a chain nobody heard) takes its timing at once. A track nobody hears (or not
 //!   rendered) takes every slot's timing at once; the panic cut ends a switch under way.
 //!   Limit: the values the switched slot's event line holds for the frames a catch-up runs
@@ -170,9 +185,23 @@
 //!   delay grew; a shorter one lowers `T` once the slot switched). That crossfade blends two
 //!   copies of the mix `L` frames apart: on a held tone it dips by what any such crossfade
 //!   does (3.9 % of a 220 Hz sine across 240 frames, measured), and drums sound doubled within
-//!   it; that is the limit. A chain whose devices are rebuilt one slot further (an edit in the
-//!   middle of a chain, through the commands) switches its holders one after the other, a
-//!   block each after their common fade.
+//!   it; that is the limit. A device moved to another slot (`DeviceMove`, #800: an edit in the middle of a
+//!   chain, through the commands) takes its lines with it (they live in its
+//!   [`crate::latency::Latent`]): its timing, its strip line and its event line go on, and the
+//!   values waiting for it in the lines before it follow it to its new slot. Into the slot of
+//!   a holder, a device without a line moves behind it (above, #838); for one with a line the
+//!   device built again by `prepare` goes instead (held, then faded in, as a device put there
+//!   is) and the moved one fades out where it was (#800, as before). The fades of a removed
+//!   device in series (above) are for the devices without a line; one with a line leaves
+//!   through its line, in front of an audio effect without a line in its slot (#838: on the
+//!   master's chain that effect hears the line's crossfade to the undelayed signal instead of
+//!   the undelayed signal at once), in parallel with any other device there, as before. In
+//!   front of such an effect, the removed devices of its slot (in series, through their
+//!   line) run in the order they left, the order the chain ran them in; a holder's catch-up
+//!   runs the ones that left after it, the device behind and the ones it replaced.
+//!   Limit: the values of the device behind a holder are not delayed by the holder's line
+//!   (it handed them on as it left, #765): until the slot switches they land up to the
+//!   holder's latency before their sound.
 //! - **The master's** chain latency `M` delays the whole sum; **the metronome** is delayed by
 //!   `T + M` (a crossfaded [`crate::latency::Delay`]), so a click stays on its beat.
 //! - **The strip waits for its sound** (#758): a chain's output at a frame is what entered it
@@ -237,7 +266,7 @@ use crate::device::{
     AudioIo, BlockCtx, DeviceRole, DeviceSetup, Event, EventBuffer, Transport, VoiceId,
 };
 use crate::devices::clip_player::{self as audio_clips, AudioPlayer};
-use crate::engine::{Clip, DeviceEntry, Lane, Paged, State, Track};
+use crate::engine::{Clip, DeviceEntry, Lane, Leave, Paged, State, Track};
 use crate::events::{NOTE_ROOM, PARAM_CHUNK, Read, Schedule, Sink};
 use crate::latency::{Compensation, Delay, Events, Lost, MASTER_EVENTS, Route, Timing, Way};
 pub use crate::mixer::mix_levels;
@@ -254,9 +283,10 @@ pub const RETIRE_RING_CAPACITY: usize = 4096;
 
 /// Outgoing devices one chain holds at most (#233): a device leaving a chain that already
 /// has this many fading out goes to the garbage at once (a hard cut, as before #233). One
-/// edit can rebuild a whole chain (a device inserted or moved near its head rebuilds every
-/// device after it, `commands::engine_msgs`), so the room covers a chain of 32 devices
-/// changed at once (beyond, the last ones cut). It bounds the extra device runs of a chain
+/// edit can still rebuild many devices (a MIDI effect inserted near the head of its band
+/// rebuilds the MIDI effects after it, `commands::engine_msgs`; the other devices move,
+/// #800), so the room covers a chain of 32 devices changed at once (beyond, the last ones
+/// cut). It bounds the extra device runs of a chain
 /// to 32 per block for one fade, and its cost in the worst case of the engine's tables
 /// (`tests/it/msg.rs`: 256 bytes a track, 2 MiB for 4 096 tracks counted twice) fits the budget.
 pub const OUTGOING_ROOM: usize = 32;
@@ -271,6 +301,51 @@ pub const CLICK_LINE_FRAMES: u32 = crate::msg::limits::MAX_COMPENSATION_FRAMES;
 pub enum Retired {
     Track(Box<Track>),
     Device(Box<DeviceEntry>),
+}
+
+/// Which outgoing devices fade out at a slot ([`Outgoing::sounds_at`]).
+#[derive(Clone, Copy, Debug, Default)]
+struct Sounds {
+    series: bool,
+    parallel: bool,
+    front: bool,
+}
+
+/// Which of a slot's outgoing devices that leave through their output or their line
+/// [`fade_out_at`] runs (#838).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Stage {
+    /// Every one, in parallel with the device in the slot.
+    All,
+    /// The `k`-th of the list only, removed with a line ([`Leave::Front`]): in front of
+    /// the device in the slot, over the signal as it is there ([`removed_in_order`]).
+    At(usize),
+    /// The others, in parallel with the device in the slot, behind the front ones.
+    Rest,
+}
+
+impl Stage {
+    fn runs(self, k: usize, e: &DeviceEntry) -> bool {
+        match self {
+            Stage::All => true,
+            Stage::At(at) => k == at,
+            Stage::Rest => e.leave != Leave::Front,
+        }
+    }
+}
+
+/// Whether a device goes behind the devices removed with a line from its slot that are in
+/// front of it ([`Leave::Front`], #838): an audio effect without a line. One with a line
+/// keeps its own timing in the slot, which the outgoing ones' timing would add to (they stay
+/// in parallel, its line held until they are gone, #761).
+fn goes_behind(e: &mut DeviceEntry) -> bool {
+    e.device.descriptor().role == DeviceRole::Effect && e.device.bypass().is_none()
+}
+
+/// Whether an outgoing device holds its slot's timing (#761): one with a line that left a
+/// track's slot where no device took its line.
+fn holds(e: &mut DeviceEntry) -> bool {
+    e.device.bypass().is_some_and(|b| b.hold && !b.glide)
 }
 
 /// A chain's outgoing devices (#233, module doc > Device fades): removed or replaced while
@@ -328,17 +403,75 @@ impl Outgoing {
         }
     }
 
-    /// Whether a device still fading out sits at `slot`.
-    fn sounds_at(&self, slot: usize) -> bool {
-        self.devices[..self.len]
-            .iter()
-            .flatten()
-            .any(|e| usize::from(e.slot) == slot && e.fade > 0.0)
+    /// The devices fading out at `slot` go one slot further (#800, module doc > Device
+    /// fades): a device moved toward the tail into `slot` was in front of them.
+    /// One that holds its slot's timing (#761) stays: it leaves through its line.
+    pub(crate) fn shift_after(&mut self, slot: u16) {
+        for e in self.iter_mut() {
+            if e.slot == slot && !holds(e) {
+                e.slot = slot.saturating_add(1);
+            }
+        }
+    }
+
+    /// The devices fading out at `from` follow the device that leaves it for `to` (#800,
+    /// module doc > Device fades): the ones it replaced (in parallel) always, the removed ones
+    /// (in series, in front of it) when it moves toward the head; with `replaced_only` (a move
+    /// toward the tail) the removed ones stay, still in front of it. They go after the ones
+    /// already fading out at `to`, which were in front of them. One that holds its slot's
+    /// timing (#761) stays.
+    pub(crate) fn follow(&mut self, from: u16, to: u16, replaced_only: bool) {
+        let mut i = 0;
+        let mut left = self.len;
+        while i < left {
+            let hit = self.devices[i].as_deref_mut().is_some_and(|e| {
+                e.slot == from && !(replaced_only && e.leave == Leave::Series) && !holds(e)
+            });
+            if hit {
+                if let Some(e) = self.devices[i].as_deref_mut() {
+                    e.slot = to;
+                }
+                // To the end of the packed list, the order of the others kept (no
+                // allocation: a rotation of at most `OUTGOING_ROOM` boxes).
+                self.devices[i..self.len].rotate_left(1);
+                left -= 1;
+            } else {
+                i += 1;
+            }
+        }
+    }
+
+    /// The devices removed with a line from `slot` and still fading out there go in front
+    /// of the device without a line moved into it from behind them (#838,
+    /// [`Leave::Front`]); `run_chain` puts them there only for such a device.
+    pub(crate) fn put_in_front(&mut self, slot: u16) {
+        for e in self.iter_mut() {
+            if e.slot == slot && e.leave == Leave::Lined {
+                e.leave = Leave::Front;
+            }
+        }
+    }
+
+    /// Whether a device still fading out sits at `slot`: one removed (in series), one
+    /// replaced (in parallel), one removed with a line (through its line, in front of a
+    /// device without a line in the slot, #838; in parallel otherwise).
+    fn sounds_at(&self, slot: usize) -> Sounds {
+        let mut at = Sounds::default();
+        for e in self.devices[..self.len].iter().flatten() {
+            if usize::from(e.slot) == slot && e.fade > 0.0 {
+                match e.leave {
+                    Leave::Series => at.series = true,
+                    Leave::Front => at.front = true,
+                    Leave::Parallel | Leave::Lined => at.parallel = true,
+                }
+            }
+        }
+        at
     }
 
     /// The outgoing device that holds `slot`'s timing (#761), if any: one with a line that
     /// left a track's slot where no device took its line, still there.
-    fn holder_at(&mut self, slot: usize) -> Option<&mut DeviceEntry> {
+    pub(crate) fn holder_at(&mut self, slot: usize) -> Option<&mut DeviceEntry> {
         for e in self.devices[..self.len].iter_mut().flatten() {
             let e = &mut **e;
             if usize::from(e.slot) == slot
@@ -361,15 +494,15 @@ impl Outgoing {
 
     /// Hands every device whose fade is over to the retire ring; one that finds the ring
     /// full stays, silent, and is pushed again at the next sweep. A device whose slot is
-    /// beyond the chain's `slots` (a chain the list outlived) is never run again: its fade
-    /// ends here.
+    /// beyond the chain's `slots` (a chain the list outlived; one past its last slot is still
+    /// run, #800) is never run again: its fade ends here.
     fn sweep(&mut self, retired: &mut Producer<Retired>, slots: usize) {
         let mut kept = 0;
         for i in 0..self.len {
             let Some(mut entry) = self.devices[i].take() else {
                 continue;
             };
-            if usize::from(entry.slot) >= slots {
+            if usize::from(entry.slot) > slots {
                 entry.fade = 0.0;
             }
             // A device with a latency stays until its strip line is back at no delay (#758):
@@ -627,6 +760,16 @@ impl TrackGraph {
     /// The devices that left the track's chain and still fade out (#233).
     pub fn outgoing_len(&self) -> usize {
         self.outgoing.len()
+    }
+
+    /// Where each device of [`TrackGraph::outgoing_len`] fades out, in the order the chain
+    /// runs them within a slot: its slot, whether it was removed (in series) rather than
+    /// replaced (#800), and its fade.
+    pub fn outgoing_places(&self) -> impl Iterator<Item = (u16, bool, f32)> + '_ {
+        self.outgoing.devices[..self.outgoing.len]
+            .iter()
+            .flatten()
+            .map(|e| (e.slot, e.leave == Leave::Series, e.fade))
     }
 
     /// The track's outgoing list.
@@ -1197,7 +1340,12 @@ impl Graph {
         // The chains' latencies at the start of the block ([`Graph::measure_latency`]).
         let longest = self.track_latency;
         let (quantize, signature) = (state.transport.launch_quantize, state.transport.signature);
-        crate::automation::link(&mut state.tracks, &mut state.lanes, &mut self.master_lanes);
+        crate::automation::link(
+            &mut state.tracks,
+            &mut state.lanes,
+            &mut self.master_lanes,
+            &state.master_devices,
+        );
         let clips = &mut state.clips;
         let lanes = &mut state.lanes;
         let tempo = state.transport.tempo;
@@ -2031,6 +2179,21 @@ pub(crate) fn forget_values(
     }
 }
 
+/// The values waiting in the event lines of a chain for `from` follow their device, moved to
+/// the free slot `to` (#800). The lines before `from` hold them; a move keeps the order of the
+/// devices it shifts, so they stay before it. Linear in what waits there, no allocation.
+pub(crate) fn retarget_values(
+    devices: &mut [Option<Box<DeviceEntry>>],
+    from: DeviceSlot,
+    to: DeviceSlot,
+) {
+    for entry in devices.iter_mut().flatten() {
+        if let Some(b) = entry.device.bypass() {
+            b.events.retarget(from, to);
+        }
+    }
+}
+
 /// The values waiting in the event line of `old`, a device with a latency that left slot `at`
 /// of a chain (#765, module doc > Latency), go where they were going, its latency no longer
 /// delaying them: into the line of the next device with a latency before their slot (the one
@@ -2513,9 +2676,11 @@ fn catch_up(
         r,
         Pass {
             track: true,
-            first: slot + 1,
+            // A holder's slot runs too: a device behind it receives its line's frames (#838).
+            first: if s.holder { slot } else { slot + 1 },
             after: usize::MAX,
             skip: 0,
+            source: if s.holder { slot } else { usize::MAX },
         },
     );
     delay_strip(
@@ -2529,6 +2694,7 @@ fn catch_up(
             first,
             after: usize::MAX,
             skip: 0,
+            source: usize::MAX,
         },
         except,
     );
@@ -2756,6 +2922,7 @@ fn render_track(
                 first: 0,
                 after: usize::from(switch.slot),
                 skip: k,
+                source: usize::MAX,
             }
         } else {
             Pass::whole(true)
@@ -3047,6 +3214,10 @@ struct Pass {
     /// The slots after this one skip the first `skip` frames.
     after: usize,
     skip: usize,
+    /// The slot whose holder's line gave the frames of this catch-up (#761), or
+    /// `usize::MAX`: its devices removed in front of the slot's device are not run again, and
+    /// only a device behind them runs there (#838).
+    source: usize,
 }
 
 impl Pass {
@@ -3057,6 +3228,7 @@ impl Pass {
             first: 0,
             after: usize::MAX,
             skip: 0,
+            source: usize::MAX,
         }
     }
 }
@@ -3098,7 +3270,8 @@ fn run_chain(
         frames: all.saturating_sub(pass.skip) as u32,
         ..*block_ctx
     };
-    for i in pass.first..slots {
+    // One past the last slot too: a device that left the last slot may fade out after it.
+    for i in pass.first..=slots {
         // A pause: the slots after `after` run the frames after it only, their values moved
         // to those frames (#761).
         let skip = if i > pass.after { pass.skip } else { 0 };
@@ -3136,17 +3309,46 @@ fn run_chain(
         let ctx = if skip > 0 { &paused_ctx } else { block_ctx };
         let frames = all - skip;
         let (left, right) = (&mut all_left[skip..all], &mut all_right[skip..all]);
-        let leaving = !outgoing.is_empty() && outgoing.sounds_at(i);
-        let holding = pass.track && leaving && outgoing.holder_at(i).is_some();
+        // The devices removed from this slot fade out in series, before the device in it
+        // (#800): the chain they left goes on around them. The ones replaced in it fade out in
+        // parallel with their replacement.
+        let at = if outgoing.is_empty() {
+            Sounds::default()
+        } else {
+            outgoing.sounds_at(i)
+        };
+        // The catch-up of a holder (#761): the frames come from its line, what entered the
+        // slot before the device in it already went through them.
+        let source = i == pass.source;
         let (before, rest) = devices.split_at_mut(i);
         // A device with a bypass line runs its line even when off (#749).
-        let entry = rest
+        let mut entry = rest
             .first_mut()
             .and_then(|e| e.as_deref_mut())
             .and_then(|e| {
                 let keep = e.enabled || e.fade > 0.0 || e.device.bypass().is_some();
                 keep.then_some(e)
             });
+        // A device without a line goes behind the devices removed with a line from its slot
+        // (#838): they fade out through their line in front of it, so it receives the slot's
+        // old timing (a holder's, until the slot switches, #761; on the master's chain, its
+        // line's crossfade to the undelayed signal) and its input never jumps. With no device
+        // in the slot (the one behind removed in turn), the removed ones keep that order.
+        let behind = at.front && entry.as_deref_mut().is_none_or(goes_behind);
+        if source && !behind {
+            continue;
+        }
+        if behind {
+            // The removed ones, in series and through their line, in the order they left.
+            removed_in_order(
+                outgoing, i, source, blend, unused, step, fade, ctx, left, right,
+            );
+        } else if at.series && !source {
+            fade_through_at(outgoing, i, None, blend, unused, step, ctx, left, right);
+        }
+        let leaving = at.parallel || (at.front && !behind);
+        let stage = if behind { Stage::Rest } else { Stage::All };
+        let holding = pass.track && leaving && !behind && outgoing.holder_at(i).is_some();
         if entry.is_none() && !leaving {
             continue;
         }
@@ -3189,7 +3391,9 @@ fn run_chain(
                         timing = Some(Timing::PASS);
                     }
                     if leaving {
-                        fade_out_at(outgoing, i, blend, false, unused, fade, ctx, left, right);
+                        fade_out_at(
+                            outgoing, i, blend, false, stage, unused, fade, ctx, left, right,
+                        );
                     }
                     break 'slot;
                 };
@@ -3248,7 +3452,9 @@ fn run_chain(
                         left.copy_from_slice(ll);
                         right.copy_from_slice(lr);
                         if leaving {
-                            fade_out_at(outgoing, i, blend, true, unused, fade, ctx, left, right);
+                            fade_out_at(
+                                outgoing, i, blend, true, stage, unused, fade, ctx, left, right,
+                            );
                         }
                         break 'slot;
                     }
@@ -3269,10 +3475,20 @@ fn run_chain(
                             left,
                             right,
                         );
-                        left.copy_from_slice(&blend.late_left[..frames]);
-                        right.copy_from_slice(&blend.late_right[..frames]);
+                        // One moved there heard (#800) ducks to the slot's delayed signal
+                        // over a fade instead of leaving it at once.
+                        duck(
+                            entry,
+                            &blend.late_left[..frames],
+                            &blend.late_right[..frames],
+                            step,
+                            left,
+                            right,
+                        );
                         if leaving {
-                            fade_out_at(outgoing, i, blend, true, unused, fade, ctx, left, right);
+                            fade_out_at(
+                                outgoing, i, blend, true, stage, unused, fade, ctx, left, right,
+                            );
                         }
                         break 'slot;
                     }
@@ -3280,7 +3496,8 @@ fn run_chain(
                 if holding {
                     // A device put in the slot of one that still holds its timing (#761): it
                     // runs, not heard, until the holder is gone, then fades in on the new
-                    // timing.
+                    // timing. One moved there heard (#800) ducks over a fade first, its state
+                    // going on, and comes back the same way.
                     run_device(
                         entry,
                         before,
@@ -3296,9 +3513,17 @@ fn run_chain(
                         left,
                         right,
                     );
-                    left.copy_from_slice(&blend.dry_left[..frames]);
-                    right.copy_from_slice(&blend.dry_right[..frames]);
-                    fade_out_at(outgoing, i, blend, false, unused, fade, ctx, left, right);
+                    duck(
+                        entry,
+                        &blend.dry_left[..frames],
+                        &blend.dry_right[..frames],
+                        step,
+                        left,
+                        right,
+                    );
+                    fade_out_at(
+                        outgoing, i, blend, false, stage, unused, fade, ctx, left, right,
+                    );
                     break 'slot;
                 }
                 run_device(
@@ -3342,7 +3567,9 @@ fn run_chain(
                 }
             }
             if leaving {
-                fade_out_at(outgoing, i, blend, late, unused, fade, ctx, left, right);
+                fade_out_at(
+                    outgoing, i, blend, late, stage, unused, fade, ctx, left, right,
+                );
             }
         }
         // The values of the next slots wait for the sound the slot's latency delays (#765).
@@ -3476,6 +3703,29 @@ fn run_device(
     }
 }
 
+/// Moves a device that is held (#761: not heard while its slot's timing is not its own) from
+/// its output, in `left` and `right`, to the slot's signal without it (`reference`) by its
+/// fade, which goes down to 0 (#800): a device moved there heard leaves the output over a
+/// fade, one put there (at 0) gives the reference at once. It fades back in once no longer
+/// held.
+fn duck(
+    entry: &mut DeviceEntry,
+    ref_left: &[f32],
+    ref_right: &[f32],
+    step: f32,
+    left: &mut [f32],
+    right: &mut [f32],
+) {
+    let mut g = entry.fade;
+    for (n, (l, r)) in left.iter_mut().zip(right.iter_mut()).enumerate() {
+        g = approach(g, 0.0, step);
+        let (dl, dr) = (ref_left[n], ref_right[n]);
+        *l = dl + g * (*l - dl);
+        *r = dr + g * (*r - dr);
+    }
+    entry.fade = g;
+}
+
 /// One step of a linear fade from `g` toward `target`.
 #[inline]
 fn approach(g: f32, target: f32, step: f32) -> f32 {
@@ -3486,7 +3736,129 @@ fn approach(g: f32, target: f32, step: f32) -> f32 {
     }
 }
 
-/// Adds to `left` and `right` what the outgoing devices of slot `slot` still give (#233):
+/// Runs the devices removed from slot `slot` in front of an audio effect without a line in
+/// it (#838) over `left` and `right`, in the order they left: one without a line in series
+/// ([`fade_through_at`]), one with a line through its line ([`fade_out_at`] over the signal
+/// as it is there, the slot giving exactly a holder's output, #761). The chain they left
+/// ran them in that order: a device removed after a holder was behind it. In the catch-up of
+/// the slot's holder (`source`), the frames come from the holder's line: what ran before it
+/// already went through them, so only the ones after it run.
+#[allow(clippy::too_many_arguments)]
+fn removed_in_order(
+    outgoing: &mut Outgoing,
+    slot: usize,
+    source: bool,
+    blend: &mut Blend,
+    unused: &mut EventBuffer,
+    step: f32,
+    fade: u32,
+    ctx: &BlockCtx,
+    left: &mut [f32],
+    right: &mut [f32],
+) {
+    let frames = left.len().min(right.len());
+    // The holder the catch-up reads ([`Outgoing::holder_at`]): the first one there.
+    let mut past = !source;
+    for k in 0..outgoing.len() {
+        let Some((leave, holder)) = outgoing
+            .iter_mut()
+            .nth(k)
+            .filter(|e| usize::from(e.slot) == slot && e.fade > 0.0)
+            .map(|e| (e.leave, holds(e)))
+        else {
+            continue;
+        };
+        if !past {
+            past = leave == Leave::Front && holder;
+            continue;
+        }
+        match leave {
+            Leave::Series => {
+                fade_through_at(
+                    outgoing,
+                    slot,
+                    Some(k),
+                    blend,
+                    unused,
+                    step,
+                    ctx,
+                    left,
+                    right,
+                );
+            }
+            Leave::Front => {
+                blend.dry_left[..frames].copy_from_slice(left);
+                blend.dry_right[..frames].copy_from_slice(right);
+                fade_out_at(
+                    outgoing,
+                    slot,
+                    blend,
+                    false,
+                    Stage::At(k),
+                    unused,
+                    fade,
+                    ctx,
+                    left,
+                    right,
+                );
+            }
+            Leave::Parallel | Leave::Lined => {}
+        }
+    }
+}
+
+/// Runs the devices removed from slot `slot` over `left` and `right` (#233), in series, before
+/// the device in the slot (#800): each runs, with no event, over the signal as it is, and
+/// the signal moves to its output by its falling fade (`dry + fade × (wet − dry)`). So a
+/// device removed in front of another fades out where it was, and the one after it, moved
+/// into its slot, keeps receiving its output while it fades.
+#[allow(clippy::too_many_arguments)]
+fn fade_through_at(
+    outgoing: &mut Outgoing,
+    slot: usize,
+    only: Option<usize>,
+    blend: &mut Blend,
+    unused: &mut EventBuffer,
+    step: f32,
+    ctx: &BlockCtx,
+    left: &mut [f32],
+    right: &mut [f32],
+) {
+    let frames = left.len().min(right.len());
+    let Blend {
+        old_left,
+        old_right,
+        ..
+    } = blend;
+    let (old_left, old_right) = (&mut old_left[..frames], &mut old_right[..frames]);
+    for (k, entry) in outgoing.iter_mut().enumerate() {
+        if usize::from(entry.slot) == slot
+            && entry.leave == Leave::Series
+            && entry.fade > 0.0
+            && only.is_none_or(|o| o == k)
+        {
+            old_left.copy_from_slice(&left[..frames]);
+            old_right.copy_from_slice(&right[..frames]);
+            unused.clear();
+            let mut io = AudioIo {
+                left: &mut *old_left,
+                right: &mut *old_right,
+                events_out: &mut *unused,
+            };
+            entry.device.process(ctx, &[], &mut io);
+            let mut g = entry.fade;
+            for n in 0..frames {
+                g = approach(g, 0.0, step);
+                left[n] += g * (old_left[n] - left[n]);
+                right[n] += g * (old_right[n] - right[n]);
+            }
+            entry.fade = g;
+        }
+    }
+}
+
+/// Adds to `left` and `right` what the devices replaced in slot `slot` (and the removed ones
+/// with a line, #800) still give (#233):
 /// each runs, with no event, over the signal entering the slot (`blend`'s dry buffers), and
 /// its difference from what the slot gives without it (the dry signal, or the delayed one
 /// when `late`: the slot's device has a bypass line, #749) is added with its falling fade. A
@@ -3497,6 +3869,7 @@ fn fade_out_at(
     slot: usize,
     blend: &mut Blend,
     late: bool,
+    stage: Stage,
     unused: &mut EventBuffer,
     fade: u32,
     ctx: &BlockCtx,
@@ -3523,8 +3896,12 @@ fn fade_out_at(
         (dry_left, dry_right)
     };
     let (old_left, old_right) = (&mut old_left[..frames], &mut old_right[..frames]);
-    for entry in outgoing.iter_mut() {
-        if usize::from(entry.slot) == slot && entry.fade > 0.0 {
+    for (k, entry) in outgoing.iter_mut().enumerate() {
+        if usize::from(entry.slot) == slot
+            && entry.leave != Leave::Series
+            && entry.fade > 0.0
+            && stage.runs(k, entry)
+        {
             old_left.copy_from_slice(dry_left);
             old_right.copy_from_slice(dry_right);
             let latency = entry.device.latency_frames();
@@ -3589,6 +3966,18 @@ fn fade_out_at(
                     } else {
                         r + g * (old_right[n] - ref_right[n])
                     };
+                }
+                // Faded into a line of no delay (a Compressor without look-ahead): it gives
+                // the slot's signal as it enters, so there is no timing to switch and it is
+                // gone at once (#838; it held the slot for ever before).
+                if let Some(b) = entry.device.bypass()
+                    && b.mix <= 0.0
+                    && b.line.tap() == 0
+                    && !b.line.crossfading()
+                {
+                    // Its strip line, which follows this line, reaches no delay too; the
+                    // sweep waits for it to rest.
+                    entry.fade = 0.0;
                 }
                 continue;
             }

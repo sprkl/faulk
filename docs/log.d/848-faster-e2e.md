@@ -1,0 +1,2 @@
+2026-11-12
+* **Update** (#848): `agents/verification.md` describes how the CI machines of the e2e tests are dealt out by measured time (`scripts/ci/e2e-durations.json`, `e2e-shard.mjs`, `planShards`) and how to refresh the measures, the `preview` subset (founder's decision of 2026-11-12), the whole `dev` suite (not both projects) for a task pull request that runs everything, and why the first CI run of a pull request is always cold (no cache on `develop`).

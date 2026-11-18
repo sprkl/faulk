@@ -82,7 +82,7 @@ fn a_format_5_folder_opens_with_its_number_migrated_and_nothing_lost() {
     let mut fs = save_all(&project, &options);
     let text = text(&fs);
     let current = format!("\"format\": {FORMAT_VERSION}");
-    assert_eq!(FORMAT_VERSION, 6);
+    assert_eq!(FORMAT_VERSION, 7);
     assert!(text.contains(&current), "{text}");
     fs.insert("project.json", text.replacen(&current, "\"format\": 5", 1));
     // With or without the snapshot (made by this build), the folder migrates from its files.

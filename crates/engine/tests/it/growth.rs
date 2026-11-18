@@ -66,6 +66,7 @@ fn variant(rt: &RtMsg) -> &'static str {
         RtMsg::SelectTrack { .. } => "SelectTrack",
         RtMsg::DevicePut { .. } => "DevicePut",
         RtMsg::DeviceRemove { .. } => "DeviceRemove",
+        RtMsg::DeviceMove { .. } => "DeviceMove",
         RtMsg::DeviceSetEnabled { .. } => "DeviceSetEnabled",
         RtMsg::ParamSet { .. } => "ParamSet",
         RtMsg::ClipPut(_) => "ClipPut",
@@ -84,8 +85,8 @@ fn variant(rt: &RtMsg) -> &'static str {
     }
 }
 
-/// Every name [`variant`] returns (28 variants).
-const ALL_VARIANTS: [&str; 28] = [
+/// Every name [`variant`] returns (29 variants).
+const ALL_VARIANTS: [&str; 29] = [
     "Reset",
     "SetTransport",
     "SetMetronome",
@@ -101,6 +102,7 @@ const ALL_VARIANTS: [&str; 28] = [
     "SelectTrack",
     "DevicePut",
     "DeviceRemove",
+    "DeviceMove",
     "DeviceSetEnabled",
     "ParamSet",
     "ClipPut",
@@ -209,9 +211,15 @@ fn every_rt_message_applies_without_allocating() {
         M::SelectTrack { track: Some(T0) },
         insert(0, 0, TONE.kind_id),
         insert(0, 1, GAIN.kind_id),
+        // Past the row (4 slots): the move grows it (#800).
+        M::DeviceMove {
+            track: T0,
+            from: DeviceSlot(1),
+            to: DeviceSlot(9),
+        },
         M::DeviceRemove {
             track: T0,
-            device: DeviceSlot(1),
+            device: DeviceSlot(9),
         },
         M::DeviceSetEnabled {
             track: T0,

@@ -14,6 +14,8 @@ import {
   playsNote,
   generateShortcut,
   gotoShortcut,
+  lengthenShortcut,
+  paletteShortcut,
   repeatShortcut,
   saveShortcut,
   spaceTogglesTransport,
@@ -190,9 +192,9 @@ describe('space bar and the transport', () => {
     k.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', bubbles: true }))
     expect(spaceTogglesTransport(k)).toBe(true) // octave step, still pointer-focused
 
-    // Unmapped letters (KeyC, KeyB…) and digits are neither playing keys nor BARE_SHORTCUT_CODES:
+    // Unmapped letters (KeyV, KeyB…) and digits are neither playing keys nor BARE_SHORTCUT_CODES:
     // they must not reassert keyboard origin either.
-    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', code: 'KeyC', bubbles: true }))
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', code: 'KeyV', bubbles: true }))
     expect(spaceTogglesTransport(k)).toBe(true) // still pointer-focused
     k.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1', bubbles: true }))
     expect(spaceTogglesTransport(k)).toBe(true) // still pointer-focused
@@ -287,9 +289,9 @@ describe('space bar and the transport', () => {
     k.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', code: 'KeyZ', bubbles: true }))
     expect(playsNote({ ...base, target: k })).toBe(true)
 
-    // Unmapped letters (KeyC) and digits (Digit1) do not change the origin either.
-    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', code: 'KeyC', bubbles: true }))
-    expect(playsNote({ ...base, target: k })).toBe(true) // still pointer-focused: KeyC is not a shortcut
+    // Unmapped letters (KeyV) and digits (Digit1) do not change the origin either.
+    k.dispatchEvent(new KeyboardEvent('keydown', { key: 'v', code: 'KeyV', bubbles: true }))
+    expect(playsNote({ ...base, target: k })).toBe(true) // still pointer-focused: KeyV is not a shortcut
     k.dispatchEvent(new KeyboardEvent('keydown', { key: '1', code: 'Digit1', bubbles: true }))
     expect(playsNote({ ...base, target: k })).toBe(true) // still pointer-focused: Digit1 is not a shortcut
 
@@ -457,6 +459,7 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'views/browser/BrowserPanel.svelte': ['ArrowDown', 'ArrowUp', 'Enter', 'Escape'], // the search field: the arrows move the highlighted row, Enter inserts it, Escape clears then closes; a text field keeps every other key
       'views/arrangement/LaneHeader.svelte': ['Enter', 'Enter', 'Escape', 'F2'], // the rename field and F2 on the row (#625); the row's other keys are in lane-keys.ts (digits, signs, Enter, the height handle's arrows): no letter
       'views/clips/ClipsView.svelte': ['Backspace', 'Delete', 'Enter'], // the pool row's handle: places (Enter) or deletes the clip; no letter
+      'views/devices/ContourCurve.svelte': ['ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowUp', 'Enter'], // a focused handle of the curve (#156): the arrows move its band, Shift with up and down sets the Q, Enter switches it; no letter
       'views/devices/PresetBar.svelte': ['Escape'], // the preset name field: Escape closes it; a text field keeps every other key
       'views/grid/GridView.svelte': [
         'ArrowDown',
@@ -480,24 +483,30 @@ describe('playing and shortcuts never meet (UI-3)', () => {
       'views/mixer/MixerView.svelte': ['Escape'], // closes the add-track menu
       'views/piano-roll/PianoRollView.svelte': [
         'ArrowDown',
+        'ArrowDown',
         'ArrowLeft',
         'ArrowLeft',
         'ArrowRight',
         'ArrowUp',
         'ArrowUp',
+        'ArrowUp',
+        'ArrowUp',
+        'Backspace',
         'Backspace',
         'Delete',
         'Enter',
         'Enter',
         'Escape',
         'Escape',
+        'Escape',
         'F2',
         'PageDown',
         'PageUp',
         'Space',
-      ], // Page Up and Down: the selection's velocity (#494); Space on a note selects it (#771), no letter
+      ], // Page Up and Down: the selection's velocity (#494); Space on a note selects it (#771); Backspace ahead of the stage in step entry (#882), no letter
       'views/piano-roll/EuclideanPanel.svelte': ['Enter', 'Escape'], // the euclidean generator's fields (#694): Enter places, Escape closes; every other key stays in the field
       'views/shell/BottomPanel.svelte': ['ArrowDown', 'ArrowUp', 'End', 'Enter', 'Home'],
+      'views/shell/CommandPalette.svelte': ['ArrowDown', 'ArrowUp', 'Enter'], // the search field drives the result list (#108)
       'views/shell/EngineDialog.svelte': ['Enter'], // the recording offset's field (#470)
       'views/shell/ExportDialog.svelte': ['Escape'],
       'views/shell/ProjectMenu.svelte': ['Enter', 'Enter', 'Escape', 'Escape', 'F2'], // the name's field (#627): Enter and Escape; F2 on the name
@@ -665,6 +674,7 @@ describe('arrangementShortcut (#473)', () => {
     expect(arrangementShortcut(key('PageUp'))).toBe('prevMarker')
     expect(arrangementShortcut(key('PageDown'))).toBe('nextMarker')
     expect(arrangementShortcut(key('KeyZ'))).toBe('fitSong')
+    expect(arrangementShortcut(key('KeyN'))).toBe('newClip')
     expect(arrangementShortcut(key('KeyZ', { altKey: false }))).toBeNull()
     expect(arrangementShortcut(key('KeyZ', { ctrlKey: true }))).toBeNull()
     expect(arrangementShortcut(key('KeyZ', { shiftKey: true }))).toBeNull()
@@ -681,6 +691,15 @@ describe('repeatShortcut (#555)', () => {
   })
 })
 
+describe('lengthenShortcut (#915)', () => {
+  const press = (over: object = {}) => ({ key: 'L', ctrlKey: true, metaKey: false, altKey: false, shiftKey: true, ...over })
+  it('is Ctrl or Cmd + Shift + L, nothing else', () => {
+    expect(lengthenShortcut(press())).toBe(true)
+    expect(lengthenShortcut(press({ ctrlKey: false, metaKey: true, key: 'l' }))).toBe(true)
+    for (const over of [{ ctrlKey: false }, { shiftKey: false }, { altKey: true }, { key: 'r' }]) expect(lengthenShortcut(press(over))).toBe(false)
+  })
+})
+
 describe('generateShortcut (#694)', () => {
   const press = (over: object = {}) => ({ code: 'KeyG', altKey: true, ctrlKey: false, metaKey: false, shiftKey: false, repeat: false, target: null, ...over })
   it('is Alt+G by position, alone, without repeat', () => {
@@ -692,6 +711,19 @@ describe('generateShortcut (#694)', () => {
   it('leaves a text field alone', () => {
     expect(generateShortcut(press({ target: document.createElement('input') }))).toBe(false)
     expect(generateShortcut(press({ target: document.createElement('select') }))).toBe(false)
+  })
+})
+
+describe('paletteShortcut (#108)', () => {
+  const press = (over: object = {}) => ({ key: 'k', ctrlKey: true, metaKey: false, altKey: false, shiftKey: false, repeat: false, target: null, ...over })
+  it('is Ctrl or Cmd + K, nothing else', () => {
+    expect(paletteShortcut(press())).toBe(true)
+    expect(paletteShortcut(press({ ctrlKey: false, metaKey: true, key: 'K' }))).toBe(true)
+    for (const over of [{ ctrlKey: false }, { altKey: true }, { shiftKey: true }, { repeat: true }, { key: 'g' }])
+      expect(paletteShortcut(press(over))).toBe(false)
+  })
+  it('leaves a text field its own Ctrl+K', () => {
+    expect(paletteShortcut(press({ target: { closest: () => ({}) } }))).toBe(false)
   })
 })
 

@@ -1,0 +1,2 @@
+2026-11-07
+* **Update** (#800): an audio effect that shifts in its chain when another is inserted, removed or moved in front of it is moved to its new engine slot without being built again (`ControlMsg::DeviceMove`): echo and reverb tails, compressor envelopes and a Ceiling's latency lines (its timing, strip and event lines) go on; a removed device fades out in series in front of the devices that move into its place. `specs/02-decoupage-mvp.md` (MO-3 device fades and the DV-3 engine rule) describes it.

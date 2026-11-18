@@ -1,0 +1,9 @@
+schema_version: "1.1"
+name: place-roles-in-mix
+expected_outcome: |
+  In French, without asking questions first: a production sheet for a 64-bar deep house track at 120 bpm whose finishing
+  notes place every role in the mix with Faulk's own tools: one `Mix` line per role giving its pan (kick, bass and lead at
+  C, the doubled arpeggio mirrored with two different signals, hats and percussion offset), its depth plane with Reverb,
+  Echo or Filter values in their real ranges, its width through Bloom (none on the kick or the bass), and its frequency
+  slot; then a mono check that says what was checked by reading and what is left to the ear. Tools Faulk does not have yet
+  (an equaliser, sends and returns, a mono switch, a spectrum) are named as gaps, never used. `sheet_tool.py check` passes.

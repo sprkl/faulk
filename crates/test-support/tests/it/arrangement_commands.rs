@@ -91,6 +91,7 @@ fn song() -> Song {
             placements: vec![song.first.clone()],
             linked: false,
             by: None,
+            if_occupied: commands::arrangement::IfOccupied::Replace,
         }),
         "duplicate",
     ) else {
@@ -101,6 +102,7 @@ fn song() -> Song {
         arr(arrangement::Command::Move {
             placements: placements.clone(),
             by: Tick(3840),
+            if_occupied: Default::default(),
         }),
         "move",
     );
@@ -115,10 +117,12 @@ fn song() -> Song {
     step(
         s,
         arr(arrangement::Command::Place {
+            copy: false,
             clip: song.clip.clone(),
             start: Tick(11520),
             length: None,
             offset: None,
+            if_occupied: Default::default(),
         }),
         "place",
     );
@@ -128,6 +132,8 @@ fn song() -> Song {
             placement: song.first.clone(),
             edge: arrangement::Edge::End,
             to: Tick(2400),
+            if_occupied: Default::default(),
+            clip_length: None,
         }),
         "resize",
     );
@@ -145,10 +151,12 @@ fn every_arrangement_command_leaves_the_engine_in_the_state_of_the_snapshot() {
     step(
         s,
         arr(arrangement::Command::Place {
+            copy: false,
             clip: song.clip.clone(),
             start: Tick(500),
             length: Some(Tick(4000)),
             offset: Some(Tick(100)),
+            if_occupied: Default::default(),
         }),
         "place over three placements",
     );
@@ -162,6 +170,7 @@ fn every_arrangement_command_leaves_the_engine_in_the_state_of_the_snapshot() {
         arr(arrangement::Command::Move {
             placements: all.clone(),
             by: Tick(480),
+            if_occupied: Default::default(),
         }),
         "move the whole track",
     );
@@ -171,6 +180,7 @@ fn every_arrangement_command_leaves_the_engine_in_the_state_of_the_snapshot() {
             placements: all.clone(),
             linked: true,
             by: Some(Tick(50_000)),
+            if_occupied: commands::arrangement::IfOccupied::Replace,
         }),
         "linked copy of the whole track",
     );
@@ -238,6 +248,7 @@ fn the_native_and_wasm_renders_of_a_song_built_with_the_commands_agree() {
         placements: vec![song.first.clone()],
         linked: false,
         by: Some(Tick(1920)),
+        if_occupied: commands::arrangement::IfOccupied::Replace,
     }));
     s.run(Command::Transport(commands::transport::Command::Play {}));
     s.render_secs(1.6);
@@ -261,6 +272,8 @@ fn a_trimmed_placement_plays_the_clip_from_the_offset_the_command_computed() {
         placement: song.first.clone(),
         edge: arrangement::Edge::Start,
         to: Tick(960),
+        if_occupied: Default::default(),
+        clip_length: None,
     }));
     assert_in_sync(s, "resize of the start");
     s.run(Command::Transport(commands::transport::Command::Play {}));
@@ -281,6 +294,8 @@ fn a_stretched_clip_without_a_loop_repeats_its_content_in_both_builds() {
         placement: song.first.clone(),
         edge: arrangement::Edge::End,
         to: Tick(7680),
+        if_occupied: Default::default(),
+        clip_length: None,
     }));
     assert_in_sync(s, "stretch");
     s.run(Command::Transport(commands::transport::Command::Play {}));

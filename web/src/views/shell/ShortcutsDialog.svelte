@@ -61,7 +61,10 @@
         <ul>
           {#each group.shortcuts as shortcut (shortcut.label)}
             <li>
-              <span class="what">{t(shortcut.label)}</span>
+              <span class="what"
+                >{t(shortcut.label, shortcut.params?.(ui.keyLayout) ?? {})}{#if shortcut.layoutNote && !ui.keyLayout}
+                  {t('shortcut.layoutUnknown')}{/if}</span
+              >
               {#if shortcut.chords.length > 0}
                 <span class="keys">
                   {#each shortcut.chords as chord, i (i)}

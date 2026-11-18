@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { journeyBootScript } from '../boot'
 import { clock as pageClock } from '../format'
 import { bandLevels, bandRange, follow } from './bands'
-import { clock, fill, lengthOf, SEEK_PAGE, SEEK_STEP, seekByKey } from './time'
+import { clock, fill, lengthOf, SEEK_PAGE, SEEK_STEP, sectionAt, sectionSeconds, seekByKey } from './time'
 
 const dir = new URL('./', import.meta.url)
 
@@ -96,5 +96,40 @@ describe('visualiser bands', () => {
     expect(follow(0, 5, 1)).toBeLessThanOrEqual(1)
     expect(follow(NaN, NaN, NaN)).toBe(0)
     expect(follow(0.3, 1, 0)).toBe(0.3)
+  })
+})
+
+describe('section under the playhead', () => {
+  // 120 bpm: a bar is 2 s, so 4, 8 and 4 bars last 8 s, 16 s and 8 s (32 s in all).
+  const bars = [4, 8, 4]
+  it('cumulates bars × 4 × 60 / bpm', () => {
+    expect(sectionSeconds(4, 120)).toBe(8)
+    expect(sectionSeconds(8, 90)).toBeCloseTo(21.333, 3)
+  })
+  it('finds the section and the progress inside it', () => {
+    expect(sectionAt(0, 120, bars)).toEqual({ index: 0, progress: 0 })
+    expect(sectionAt(4, 120, bars)).toEqual({ index: 0, progress: 0.5 })
+    expect(sectionAt(7.999, 120, bars)?.index).toBe(0)
+    expect(sectionAt(8, 120, bars)).toEqual({ index: 1, progress: 0 })
+    expect(sectionAt(16, 120, bars)).toEqual({ index: 1, progress: 0.5 })
+    expect(sectionAt(24, 120, bars)).toEqual({ index: 2, progress: 0 })
+  })
+  it('clamps before the start and keeps the last section, full, through the audio tail', () => {
+    expect(sectionAt(-1, 120, bars)).toEqual({ index: 0, progress: 0 })
+    expect(sectionAt(32, 120, bars)).toEqual({ index: 2, progress: 1 })
+    expect(sectionAt(35.5, 120, bars)).toEqual({ index: 2, progress: 1 })
+  })
+  it('works at a tempo that is not a whole number', () => {
+    // 93.5 bpm: 2 bars last 5.1337... s.
+    const length = (2 * 4 * 60) / 93.5
+    expect(sectionAt(length - 0.001, 93.5, [2, 2])?.index).toBe(0)
+    expect(sectionAt(length + 0.001, 93.5, [2, 2])?.index).toBe(1)
+    expect(sectionAt(length * 1.5, 93.5, [2, 2])?.progress).toBeCloseTo(0.5, 6)
+  })
+  it('answers nothing for what it cannot place', () => {
+    expect(sectionAt(NaN, 120, bars)).toBeUndefined()
+    expect(sectionAt(3, 0, bars)).toBeUndefined()
+    expect(sectionAt(3, NaN, bars)).toBeUndefined()
+    expect(sectionAt(3, 120, [])).toBeUndefined()
   })
 })

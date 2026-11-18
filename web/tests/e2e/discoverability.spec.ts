@@ -128,6 +128,56 @@ test.describe('the shortcut list', () => {
     await expect(dialog(page)).toContainText('Lecture et arrêt')
   })
 
+  // #906: the keys of musical typing are named as the layout writes them, in the list and in the Keyboard tab alike.
+  test('on an AZERTY layout the list and the Keyboard tab name the note and octave keys as on the keyboard; without a layout map they say QWERTY', async ({
+    page,
+  }) => {
+    await page.addInitScript(() => {
+      const layout = new Map([
+        ['KeyQ', 'a'],
+        ['KeyA', 'q'],
+        ['KeyW', 'z'],
+        ['KeyZ', 'w'],
+        ['Period', ':'],
+        ['Comma', ';'],
+      ])
+      Object.defineProperty(navigator, 'keyboard', {
+        configurable: true,
+        value: { getLayoutMap: () => Promise.resolve(layout), addEventListener: () => {}, removeEventListener: () => {} },
+      })
+    })
+    const { errors } = watch(page)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/app')
+    await start(page)
+    await page.getByTestId('panel-keyboard').click()
+    await expect(page.getByTestId('keys-help')).toHaveText('Q Z S E D F T G Y H U J K play notes (by key position). W / X change octave.')
+    await page.keyboard.press('Shift+Slash')
+    await expect(dialog(page)).toBeVisible()
+    await expect(dialog(page).locator('li', { hasText: 'With typing on' })).toContainText('Q Z S E D F T G Y H U J K play notes')
+    await expect(dialog(page).locator('li', { hasText: 'Octave down' }).locator('kbd')).toHaveText(['W', 'X'])
+    await page.keyboard.press('Escape')
+    await page.getByTestId('panel-piano-roll').click()
+    await page.getByTestId('roll-create-clip').click()
+    await expect(page.getByTestId('roll-step-entry')).toHaveAttribute('title', /The “:” key is a rest, the “;” key lengthens/)
+    await page.keyboard.press('Shift+Slash')
+    await expect(dialog(page).locator('li', { hasText: 'a rest' })).toContainText('(:)')
+    await expect(dialog(page).locator('li', { hasText: 'lengthen the last step' })).toContainText('(;)')
+    expect(errors).toEqual([])
+  })
+
+  test('without a layout map the list says the letters are those of a QWERTY keyboard', async ({ page }) => {
+    await page.addInitScript(() => Object.defineProperty(navigator, 'keyboard', { configurable: true, value: undefined }))
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.goto('/app')
+    await start(page)
+    await page.keyboard.press('Shift+Slash')
+    const line = dialog(page).locator('li', { hasText: 'With typing on' })
+    await expect(line).toContainText('A W S E D F T G Y H U J K play notes')
+    await expect(line).toContainText('QWERTY')
+    await expect(dialog(page).locator('li', { hasText: 'Octave down' }).locator('kbd')).toHaveText(['Z', 'X'])
+  })
+
   test('the tooltips carry the shortcuts', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await page.goto('/app')

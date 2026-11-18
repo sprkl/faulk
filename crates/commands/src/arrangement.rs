@@ -112,6 +112,28 @@ pub enum Edge {
     End,
 }
 
+/// What an arrangement command that puts placements down does when they land on others
+/// (#805): `arrangement.place`, `place_from_slot`, `move`, `move_to_track`, `duplicate` and
+/// `repeat`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum IfOccupied {
+    /// The placements put down win: what they cover is carved (a drag, the default).
+    #[default]
+    Replace,
+    /// Nothing is carved: the command is refused when a placement would land on another.
+    Refuse,
+    /// `arrangement.move_to_track` only (the others refuse it): the move goes on to the next track, in the direction
+    /// of the move, where every placement fits; refused when none does. Nothing is carved.
+    Skip,
+}
+
+impl IfOccupied {
+    fn is_replace(&self) -> bool {
+        *self == Self::Replace
+    }
+}
+
 /// A placement of a clip as `arrangement.restore` writes it, with its identifier.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -227,18 +249,33 @@ domain! {
     /// placed whole (from its first frame, its end computed from its frames at the project's
     /// tempo, so `length` and `offset` are refused; `arrangement.resize` shortens it) and
     /// wins on overlap the same way, the placements it covers cut in whole frames; a span
-    /// outside `[0, 2^40]` ticks is refused. Undo: `arrangement.restore`.
+    /// outside `[0, 2^40]` ticks is refused. With `if_occupied: "refuse"` (default
+    /// `replace`) the command is refused, and nothing changes, when the placement would
+    /// land on another (`skip` is refused). With `copy: true` (default `false`) the
+    /// placement plays an independent copy of the clip (an audio clip: the same file,
+    /// range, gain and loop) instead of the clip itself: a new clip of the same track,
+    /// not in the launch grid, named like the source with the first free number after it
+    /// ("Hook 2"), placed once at `start` for the clip's own length, whatever the
+    /// lengths of the source's placements; `clip` in the output names it. One history
+    /// entry; undo: `arrangement.restore`, which removes the placement and the copy.
     "arrangement.place" (kind = "edit", undo = "inverse", destructive = false)
     Place {
         clip: ClipId,
         start: Tick,
         length: Option<Tick>,
         offset: Option<Tick>,
+        #[serde(default, skip_serializing_if = "IfOccupied::is_replace")]
+        if_occupied: IfOccupied,
+        #[serde(default)]
+        copy: bool,
     } => {
         /// The new placement.
         placement: PlacementId,
         /// How many other placements were carved.
         overwritten: u32,
+        /// The clip made by `copy: true`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        clip: Option<ClipId>,
     };
 
     /// Move placements in time, all by the same number of ticks (`by`, negative moves
@@ -249,11 +286,15 @@ domain! {
     /// carved, `overwritten` counts them); they may move onto each other's old place.
     /// Refused when one would start before tick 0 or end past 2^40, or when the list is
     /// empty, names a placement twice or an unknown one. A move by 0 changes nothing.
-    /// Undo: `arrangement.restore`.
+    /// With `if_occupied: "refuse"` (default `replace`) it is also refused, and nothing
+    /// changes, when a moved placement would land on one that does not move (`skip` is
+    /// refused: a move in time has no other place to go). Undo: `arrangement.restore`.
     "arrangement.move" (kind = "edit", undo = "inverse", destructive = false)
     Move {
         placements: Vec<PlacementId>,
         by: Tick,
+        #[serde(default, skip_serializing_if = "IfOccupied::is_replace")]
+        if_occupied: IfOccupied,
     } => {
         /// How many other placements were carved.
         overwritten: u32,
@@ -275,7 +316,11 @@ domain! {
     /// placements they cover are carved, `overwritten` counts them). Refused when `moves`
     /// is empty, names a placement twice or an unknown one, names an unknown track or one
     /// of the other kind, when one would start before tick 0 or end past 2^40, or on a
-    /// limit.
+    /// limit. `if_occupied` (default `replace`) says what a placement that lands on another
+    /// does: `refuse` refuses the whole command and carves nothing, `skip` moves on to
+    /// the next track in the same direction where every placement fits (the tracks of
+    /// another kind are passed over) and refuses when none does; `skip` needs the same
+    /// shift of tracks for every move, and the moves give the first shift to try.
     /// Nothing moves (and no history entry is made) when every placement stays in its
     /// track and `by` is 0. Undo: `arrangement.restore`, which puts the placements and the
     /// removed clips back with their identifiers and removes the copies.
@@ -284,6 +329,8 @@ domain! {
         moves: Vec<TrackMove>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         by: Option<Tick>,
+        #[serde(default, skip_serializing_if = "IfOccupied::is_replace")]
+        if_occupied: IfOccupied,
     } => {
         /// The placements after the move, in the order of `moves`.
         placements: Vec<PlacementId>,
@@ -300,13 +347,27 @@ domain! {
     /// stops at the clip's last frame and its start at the clip's first (offset 0) instead
     /// of being refused; its end is kept when its start moves (at most a tick earlier, the
     /// frames being whole). The resized placement wins on overlap (the others it now covers are carved,
-    /// `overwritten` counts them). Moving the edge where it is changes nothing. Undo:
-    /// `arrangement.restore`.
+    /// `overwritten` counts them); with `if_occupied: "refuse"` (default `replace`) the
+    /// command is refused, and nothing changes, when it would carve another (`skip` is
+    /// refused). Moving the edge where it is changes nothing, except that an empty clip
+    /// that is not as long as its placement is brought to it (see below). A MIDI clip with no note and no
+    /// loop, in no launch slot and played by this placement alone takes the new length with the
+    /// placement when the end moves (the placement and the clip change together, #898); a clip
+    /// with notes or several placements is left alone: the placement loops or cuts its content.
+    /// Undo: `arrangement.restore`; for a clip that followed, a resize that gives the placement
+    /// and the clip their lengths back.
     "arrangement.resize" (kind = "edit", undo = "inverse", destructive = false)
     Resize {
         placement: PlacementId,
         edge: Edge,
         to: Tick,
+        #[serde(default, skip_serializing_if = "IfOccupied::is_replace")]
+        if_occupied: IfOccupied,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        // Internal: the length an undo gives back to the clip that followed its placement, not in
+        // the schema (agents never see it).
+        #[schemars(skip)]
+        clip_length: Option<Tick>,
     } => {
         /// How many other placements were carved.
         overwritten: u32,
@@ -346,8 +407,10 @@ domain! {
     /// `linked: true` the copies are new placements of the same clips. The copies win
     /// on overlap (`overwritten` counts the placements they carved). Refused when the
     /// list is empty, names a placement twice or an unknown one, or when a copy would
-    /// leave the timeline. Undo: `arrangement.restore`, which removes the copies and
-    /// the clips created.
+    /// leave the timeline. With `if_occupied: "refuse"` (default `replace`) it is also
+    /// refused, and nothing changes, when a copy would land on a placement (`skip` is
+    /// refused: a copy has no other place to go). Undo: `arrangement.restore`, which
+    /// removes the copies and the clips created.
     "arrangement.duplicate" (kind = "edit", undo = "inverse", destructive = false)
     Duplicate {
         placements: Vec<PlacementId>,
@@ -355,6 +418,8 @@ domain! {
         linked: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         by: Option<Tick>,
+        #[serde(default, skip_serializing_if = "IfOccupied::is_replace")]
+        if_occupied: IfOccupied,
     } => {
         /// The new placements, in the order of the list.
         placements: Vec<PlacementId>,
@@ -372,13 +437,17 @@ domain! {
     /// up to the end of bar N, give the tick where bar N ends. The copies win on overlap
     /// (`overwritten` counts the placements they carved). Refused when the placement is
     /// unknown, when `until` is not after the end of the placement or
-    /// passes 2^40, or when the copies would pass the limit of placements. One history
+    /// passes 2^40, or when the copies would pass the limit of placements. With
+    /// `if_occupied: "refuse"` (default `replace`) it is also refused, and nothing changes,
+    /// when the copies would land on another placement (`skip` is refused). One history
     /// entry; undo: `arrangement.restore`, which removes the copies and brings back what
     /// they carved.
     "arrangement.repeat" (kind = "edit", undo = "inverse", destructive = false)
     Repeat {
         placement: PlacementId,
         until: Tick,
+        #[serde(default, skip_serializing_if = "IfOccupied::is_replace")]
+        if_occupied: IfOccupied,
     } => {
         /// The new placements, in time order.
         placements: Vec<PlacementId>,
@@ -396,14 +465,18 @@ domain! {
     /// clip in the grid changes what the arrangement plays. The placement wins on overlap
     /// (`overwritten` counts the placements it carved). Refused for a clip that is not in
     /// the launch grid (use `arrangement.place` or `arrangement.duplicate`), or when the
-    /// clip would leave the timeline. Undo: `arrangement.restore`, which removes the
-    /// placement and the copy.
+    /// clip would leave the timeline. With `if_occupied: "refuse"` (default `replace`) it
+    /// is also refused, and nothing changes, when the placement would land on another
+    /// (`skip` is refused). Undo: `arrangement.restore`, which removes the placement and
+    /// the copy.
     "arrangement.place_from_slot" (kind = "edit", undo = "inverse", destructive = false)
     PlaceFromSlot {
         clip: ClipId,
         start: Tick,
         #[serde(default)]
         linked: bool,
+        #[serde(default, skip_serializing_if = "IfOccupied::is_replace")]
+        if_occupied: IfOccupied,
     } => {
         /// The new placement.
         placement: PlacementId,
@@ -417,13 +490,17 @@ domain! {
     /// and one history entry: every clip of the scene (MIDI and audio) is placed on its own
     /// track at the same tick `start`, as a copy (default) or linked to the grid clip. Empty
     /// slots place nothing. Refused when the scene has no clip.
-    /// The placements win on overlap. Undo: `arrangement.restore`.
+    /// The placements win on overlap. With `if_occupied: "refuse"` (default `replace`) the
+    /// command is refused, and nothing changes, when any placement would land on another
+    /// (`skip` is refused). Undo: `arrangement.restore`.
     "arrangement.place_scene" (kind = "edit", undo = "inverse", destructive = false)
     PlaceScene {
         scene: SceneId,
         start: Tick,
         #[serde(default)]
         linked: bool,
+        #[serde(default, skip_serializing_if = "IfOccupied::is_replace")]
+        if_occupied: IfOccupied,
     } => {
         /// The new placements, in the order of the tracks.
         placements: Vec<PlacementId>,
@@ -1408,12 +1485,26 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             start,
             length,
             offset,
-        } => place(state, ctx, clip, *start, *length, *offset),
+            if_occupied,
+            copy,
+        } => {
+            no_skip(*if_occupied, "a placement has no other place to go")?;
+            place(
+                state,
+                ctx,
+                clip,
+                *start,
+                (*length, *offset),
+                (*if_occupied, *copy),
+            )
+        }
         Command::PlaceFromSlot {
             clip,
             start,
             linked,
+            if_occupied,
         } => {
+            no_skip(*if_occupied, "a placement has no other place to go")?;
             let sent = send_from_grid(state, ctx, std::slice::from_ref(clip), *start, *linked)?;
             let (placement, copy) = sent
                 .placed
@@ -1421,6 +1512,7 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
                 .next()
                 .ok_or_else(|| invalid("clip", "nothing to place"))?;
             let overwritten = sent.overwritten;
+            refuse_if_carved(*if_occupied, overwritten)?;
             commit(state, sent.works, || Output::PlaceFromSlot {
                 placement,
                 clip: copy,
@@ -1431,10 +1523,13 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             scene,
             start,
             linked,
+            if_occupied,
         } => {
+            no_skip(*if_occupied, "a placement has no other place to go")?;
             let clips = scene_clips(&state.project, scene)?;
             let sent = send_from_grid(state, ctx, &clips, *start, *linked)?;
             let overwritten = sent.overwritten;
+            refuse_if_carved(*if_occupied, overwritten)?;
             let (placements, copies): (Vec<_>, Vec<_>) = sent.placed.into_iter().unzip();
             commit(state, sent.works, || Output::PlaceScene {
                 placements,
@@ -1442,23 +1537,53 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
                 overwritten,
             })
         }
-        Command::Move { placements, by } => move_placements(state, ctx, placements, *by),
-        Command::MoveToTrack { moves, by } => {
-            move_to_track(state, ctx, moves, by.map_or(0, Tick::get))
+        Command::Move {
+            placements,
+            by,
+            if_occupied,
+        } => {
+            no_skip(*if_occupied, "a move in time has no other place to go")?;
+            move_placements(state, ctx, placements, *by, *if_occupied)
         }
+        Command::MoveToTrack {
+            moves,
+            by,
+            if_occupied,
+        } => move_to_track(state, ctx, moves, by.map_or(0, Tick::get), *if_occupied),
         Command::Resize {
             placement,
             edge,
             to,
-        } => resize(state, ctx, placement, *edge, *to),
+            if_occupied,
+            clip_length,
+        } => {
+            no_skip(*if_occupied, "a resize has no other place to go")?;
+            resize(
+                state,
+                ctx,
+                placement,
+                *edge,
+                *to,
+                *if_occupied,
+                *clip_length,
+            )
+        }
         Command::Split { placement, at } => split(state, ctx, placement, *at),
         Command::Delete { placements } => delete(state, placements),
         Command::Duplicate {
             placements,
             linked,
             by,
-        } => duplicate(state, ctx, placements, *linked, *by),
-        Command::Repeat { placement, until } => repeat(state, ctx, placement, until.get()),
+            if_occupied,
+        } => duplicate(state, ctx, placements, *linked, *by, *if_occupied),
+        Command::Repeat {
+            placement,
+            until,
+            if_occupied,
+        } => {
+            no_skip(*if_occupied, "a copy has no other place to go")?;
+            repeat(state, ctx, placement, until.get(), *if_occupied)
+        }
         Command::Restore { edits } => restore(state, edits),
         Command::InsertTime { at, length } => insert_time(state, ctx, at.get(), length.get()),
         Command::DeleteTime { from, to } => delete_time(state, ctx, from.get(), to.get()),
@@ -1482,8 +1607,8 @@ fn place(
     ctx: &mut Context,
     clip: &ClipId,
     start: Tick,
-    length: Option<Tick>,
-    offset: Option<Tick>,
+    (length, offset): (Option<Tick>, Option<Tick>),
+    (if_occupied, copy): (IfOccupied, bool),
 ) -> Result<Out, CommandError> {
     let project = &state.project;
     let track_id = locate(project, clip)?;
@@ -1492,7 +1617,15 @@ fn place(
         .get(&track_id)
         .ok_or_else(|| not_found("track", &track_id))?;
     if any_track.kind == project::TrackKind::Audio {
-        return place_audio(state, ctx, &track_id, clip, start, length, offset);
+        return place_audio(
+            state,
+            ctx,
+            &track_id,
+            clip,
+            start,
+            (length, offset),
+            (if_occupied, copy),
+        );
     }
     let track = midi_track(project, &track_id)?;
     let source = track
@@ -1513,13 +1646,26 @@ fn place(
     let length = length.map_or(clip_length.get() - offset, Tick::get);
     check_extent(start.get(), length, "start")?;
     let mut work = TrackWork::new(project, &track_id)?;
+    let made = if copy {
+        Some(copy_into(&mut work, project, track, source, ctx)?)
+    } else {
+        None
+    };
     let overwritten = work.carve(&mut ctx.ids, start.get(), start.get() + length)?;
+    refuse_if_carved(if_occupied, overwritten)?;
     let id = PlacementId::generate(&mut ctx.ids);
-    work.put(id.clone(), clip, start.get(), length, offset);
+    work.put(
+        id.clone(),
+        made.as_ref().unwrap_or(clip),
+        start.get(),
+        length,
+        offset,
+    );
     commit(state, BTreeMap::from([(track_id, work)]), || {
         Output::Place {
             placement: id,
             overwritten,
+            clip: made,
         }
     })
 }
@@ -1534,8 +1680,8 @@ fn place_audio(
     track_id: &TrackId,
     clip: &ClipId,
     start: Tick,
-    length: Option<Tick>,
-    offset: Option<Tick>,
+    (length, offset): (Option<Tick>, Option<Tick>),
+    (if_occupied, copy): (IfOccupied, bool),
 ) -> Result<Out, CommandError> {
     let project = &state.project;
     let track = project
@@ -1562,8 +1708,13 @@ fn place_audio(
         ));
     }
     let mut work = TrackWork::new(project, track_id)?;
+    let made = if copy {
+        Some(copy_into(&mut work, project, track, source, ctx)?)
+    } else {
+        None
+    };
     let placed = Placement {
-        clip: clip.clone(),
+        clip: made.as_ref().unwrap_or(clip).clone(),
         start,
         span: Span::Frames {
             length: *frames,
@@ -1573,14 +1724,64 @@ fn place_audio(
     let (s, e) = work.checked_span(&placed, "start")?;
     // The last one put down wins, as for a MIDI placement (AU-6).
     let overwritten = work.carve(&mut ctx.ids, s, e)?;
+    refuse_if_carved(if_occupied, overwritten)?;
     let id = PlacementId::generate(&mut ctx.ids);
     work.placements.insert(id.clone(), placed);
     commit(state, BTreeMap::from([(track_id.clone(), work)]), || {
         Output::Place {
             placement: id,
             overwritten,
+            clip: made,
         }
     })
+}
+
+/// `copy: true` of `arrangement.place`: an independent copy of `source` in the track's pool,
+/// out of the launch grid, named with the first free number after the source's name.
+fn copy_into(
+    work: &mut TrackWork,
+    project: &Project,
+    track: &Track,
+    source: &Clip,
+    ctx: &mut Context,
+) -> Result<ClipId, CommandError> {
+    check_total("clips per track", track.clips.len(), 1, MAX_CLIPS_PER_TRACK)?;
+    check_total(
+        "clips",
+        project.counts().clips,
+        1,
+        project::limits::MAX_CLIPS,
+    )?;
+    let notes = notes_of(source);
+    check_note_limits(notes, project_notes(project).saturating_add(notes))?;
+    let mut copy = source.clone();
+    copy.slot = None;
+    copy.name = numbered_name(track, &source.name);
+    let id = ClipId::generate(&mut ctx.ids);
+    work.add_clip(id.clone(), copy);
+    Ok(id)
+}
+
+/// "Hook" gives "Hook 2", then "Hook 3": the first number, from 2, that no clip of the track
+/// carries yet. A name already ending in a number ("Hook 2") counts from its base ("Hook").
+/// An empty name stays empty (the pool shows its own default for it).
+fn numbered_name(track: &Track, name: &str) -> String {
+    if name.is_empty() {
+        return String::new();
+    }
+    let base = match name.rsplit_once(' ') {
+        Some((head, tail))
+            if !head.is_empty() && !tail.is_empty() && tail.chars().all(|c| c.is_ascii_digit()) =>
+        {
+            head
+        }
+        _ => name,
+    };
+    let taken: HashSet<&str> = track.clips.values().map(|c| c.name.as_str()).collect();
+    (2u64..)
+        .map(|n| format!("{base} {n}"))
+        .find(|candidate| !taken.contains(candidate.as_str()))
+        .unwrap_or_else(|| name.to_owned())
 }
 
 /// What sending clips of the grid to the arrangement works out, before it is committed.
@@ -1743,6 +1944,7 @@ fn move_placements(
     ctx: &mut Context,
     ids: &[PlacementId],
     by: Tick,
+    if_occupied: IfOccupied,
 ) -> Result<Out, CommandError> {
     let project = &state.project;
     let groups = group_by_track(project, ids, "placements")?;
@@ -1763,6 +1965,7 @@ fn move_placements(
         }
         works.insert(track_id, work);
     }
+    refuse_if_carved(if_occupied, overwritten)?;
     commit(state, works, || Output::Move { overwritten })
 }
 
@@ -1773,8 +1976,16 @@ fn move_to_track(
     ctx: &mut Context,
     moves: &[TrackMove],
     by: i64,
+    if_occupied: IfOccupied,
 ) -> Result<Out, CommandError> {
     let project = &state.project;
+    let skipped;
+    let moves = if if_occupied == IfOccupied::Skip {
+        skipped = skip_occupied(project, moves, by)?;
+        &skipped[..]
+    } else {
+        moves
+    };
     let ids: Vec<PlacementId> = moves.iter().map(|m| m.placement.clone()).collect();
     let groups = group_by_track(project, &ids, "moves")?;
     let mut works = Works::new();
@@ -1880,6 +2091,9 @@ fn move_to_track(
         work.placements.insert(id.clone(), moved);
         moved_ids.push(id);
     }
+    if if_occupied != IfOccupied::Replace && overwritten > 0 {
+        return Err(occupied(overwritten));
+    }
     // A clip that no placement uses any more and that no slot holds goes with its placements.
     for (source, clip) in left {
         let held = project
@@ -1906,12 +2120,152 @@ fn move_to_track(
     })
 }
 
+/// `if_occupied: "skip"` for a command that has no other place to put its placements.
+fn no_skip(if_occupied: IfOccupied, why: &str) -> Result<(), CommandError> {
+    if if_occupied == IfOccupied::Skip {
+        return Err(invalid(
+            "if_occupied",
+            format!("skip is for arrangement.move_to_track: {why}"),
+        ));
+    }
+    Ok(())
+}
+
+/// With `if_occupied: "refuse"`, a command that carved other placements is refused whole
+/// (it works on copies of the tracks: nothing was changed).
+fn refuse_if_carved(if_occupied: IfOccupied, overwritten: u32) -> Result<(), CommandError> {
+    if if_occupied == IfOccupied::Refuse && overwritten > 0 {
+        return Err(occupied(overwritten));
+    }
+    Ok(())
+}
+
+/// The refusal of a command that must carve nothing (`if_occupied`).
+fn occupied(count: u32) -> CommandError {
+    invalid(
+        "if_occupied",
+        format!("{count} placement(s) in the way: nothing is replaced, nothing was changed"),
+    )
+}
+
+/// `if_occupied: "skip"`: the moves, pushed on to the first shift of tracks, from the one
+/// asked and in its direction, where every placement lands on a free place of a track of
+/// its kind. The placements being moved do not count as in the way.
+fn skip_occupied(
+    project: &Project,
+    moves: &[TrackMove],
+    by: i64,
+) -> Result<Vec<TrackMove>, CommandError> {
+    let ids: Vec<PlacementId> = moves.iter().map(|m| m.placement.clone()).collect();
+    group_by_track(project, &ids, "moves")?;
+    let order: Vec<(&TrackId, &Track)> = project.tracks_in_order();
+    let index = |id: &TrackId| order.iter().position(|(t, _)| *t == id);
+    let mut shift: Option<i64> = None;
+    let mut sources = Vec::new();
+    for m in moves {
+        let source = track_of(project, &m.placement)?;
+        let from = index(&source).ok_or_else(|| not_found("track", &source))?;
+        let to = index(&m.track).ok_or_else(|| not_found("track", &m.track))?;
+        let d = to as i64 - from as i64;
+        if shift.is_some_and(|s| s != d) {
+            return Err(invalid(
+                "if_occupied",
+                "skip needs the same shift of tracks for every move",
+            ));
+        }
+        shift = Some(d);
+        sources.push((from, source));
+    }
+    let first = shift.unwrap_or(0);
+    if first == 0 {
+        return Ok(moves.to_vec());
+    }
+    let step = first.signum();
+    let moving: HashSet<&PlacementId> = ids.iter().collect();
+    let mut k = first;
+    loop {
+        let mut targets = Vec::new();
+        let mut fits = true;
+        for (m, (from, source)) in moves.iter().zip(&sources) {
+            let Some((tid, target)) = usize::try_from(*from as i64 + k)
+                .ok()
+                .and_then(|i| order.get(i))
+            else {
+                return Err(invalid(
+                    "if_occupied",
+                    "no free track in that direction: nothing is replaced, nothing was changed",
+                ));
+            };
+            let source_track = project
+                .tracks
+                .get(source)
+                .ok_or_else(|| not_found("track", source))?;
+            if target.kind != source_track.kind {
+                fits = false;
+                break;
+            }
+            let p = placement_of(source_track, &m.placement)?;
+            let work = TrackWork::of(target, tid, project.tempo());
+            // The clip's geometry is the source track's.
+            let (s, e) = TrackWork::of(source_track, source, project.tempo())
+                .checked_span(&TrackWork::shifted(p, by, "by")?, "by")?;
+            for (id, other) in &work.placements {
+                if moving.contains(id) {
+                    continue;
+                }
+                let (os, oe) = work.span(other)?;
+                if os < e && s < oe {
+                    fits = false;
+                    break;
+                }
+            }
+            if !fits {
+                break;
+            }
+            targets.push(TrackMove {
+                placement: m.placement.clone(),
+                track: (*tid).clone(),
+            });
+        }
+        if fits {
+            return Ok(targets);
+        }
+        k += step;
+    }
+}
+
+/// Whether the clip follows the length of its placement: a MIDI clip with no note and no loop, in no
+/// launch slot, that this placement alone plays from its start (offset 0, #898).
+fn follows_placement(
+    project: &Project,
+    track: &TrackId,
+    placement: &PlacementId,
+    clip: &ClipId,
+) -> bool {
+    let Some(track) = project.tracks.get(track) else {
+        return false;
+    };
+    let Some(c) = track.clips.get(clip) else {
+        return false;
+    };
+    let empty = midi_ref(c).is_ok_and(|(_, looping, notes)| looping.is_none() && notes.is_empty());
+    empty
+        && c.slot.is_none()
+        && track.placements.iter().all(|(id, p)| {
+            p.clip != *clip
+                || (id == placement
+                    && matches!(p.span, Span::Ticks { offset, .. } if offset.get() == 0))
+        })
+}
+
 fn resize(
     state: &mut State,
     ctx: &mut Context,
     id: &PlacementId,
     edge: Edge,
     to: Tick,
+    if_occupied: IfOccupied,
+    clip_length: Option<Tick>,
 ) -> Result<Out, CommandError> {
     let project = &state.project;
     let track_id = track_of(project, id)?;
@@ -1921,9 +2275,16 @@ fn resize(
         .remove(id)
         .ok_or_else(|| not_found("placement", id))?;
     if let Span::Frames { .. } = p.span {
+        if clip_length.is_some() {
+            return Err(invalid(
+                "clip_length",
+                "an audio clip has no length in ticks",
+            ));
+        }
         let resized = resize_audio(&work, &p, edge, to.get())?;
         let (s, e) = work.checked_span(&resized, "to")?;
         let overwritten = work.carve(&mut ctx.ids, s, e)?;
+        refuse_if_carved(if_occupied, overwritten)?;
         work.placements.insert(id.clone(), resized);
         return commit(state, BTreeMap::from([(track_id, work)]), || {
             Output::Resize { overwritten }
@@ -1969,6 +2330,70 @@ fn resize(
     };
     check_extent(new_start, new_length, "to")?;
     let overwritten = work.carve(&mut ctx.ids, new_start, new_start + new_length)?;
+    refuse_if_carved(if_occupied, overwritten)?;
+    if clip_length.is_some() && (edge != Edge::End || overwritten != 0) {
+        return Err(invalid(
+            "clip_length",
+            "a clip length goes with the end of a placement that carves no other",
+        ));
+    }
+    let clip_target = match clip_length {
+        Some(given) => Some(given),
+        None => (edge == Edge::End && follows_placement(project, &track_id, id, &p.clip))
+            .then_some(Tick(new_length)),
+    };
+    if let (Some(target), 0) = (clip_target, overwritten) {
+        // An empty clip placed once takes the length of its placement (#898): the clip and the
+        // placement change together, and the inverse is one resize that gives both back.
+        crate::clip::check_length(target, "clip_length")?;
+        let track = state
+            .project
+            .tracks
+            .get_mut(&track_id)
+            .ok_or_else(|| not_found("track", &track_id))?;
+        let clip = track
+            .clips
+            .get_mut(&p.clip)
+            .ok_or_else(|| not_found("clip", &p.clip))?;
+        // Only an empty clip takes a length without trimming: a given length is refused on any other.
+        if clip_length.is_some()
+            && !midi_ref(clip)
+                .is_ok_and(|(_, looping, notes)| looping.is_none() && notes.is_empty())
+        {
+            return Err(invalid("clip_length", "the clip has notes or a loop"));
+        }
+        let ClipContent::Midi { length: held, .. } = &mut clip.content else {
+            return Err(invalid(
+                "clip_length",
+                "an audio clip has no length in ticks",
+            ));
+        };
+        let previous = *held;
+        *held = target;
+        if let Some(Span::Ticks { length: l, .. }) =
+            track.placements.get_mut(id).map(|q| &mut q.span)
+        {
+            *l = Tick(new_length);
+        }
+        return Ok(Outcome {
+            output: Output::Resize { overwritten: 0 },
+            undo: Undo::Inverse(Box::new(Command::Resize {
+                placement: id.clone(),
+                edge: Edge::End,
+                to: Tick(start + length),
+                if_occupied: IfOccupied::Refuse,
+                clip_length: Some(previous),
+            })),
+            events: vec![
+                ProjectEvent::ClipChanged {
+                    clip: p.clip.clone(),
+                    part: crate::contract::ClipPart::Length,
+                },
+                ProjectEvent::ArrangementChanged { track: track_id },
+            ],
+            control: vec![],
+        });
+    }
     work.put(id.clone(), &p.clip, new_start, new_length, new_offset);
     commit(state, BTreeMap::from([(track_id, work)]), || {
         Output::Resize { overwritten }
@@ -2151,7 +2576,14 @@ fn duplicate(
     ids: &[PlacementId],
     linked: bool,
     by: Option<Tick>,
+    if_occupied: IfOccupied,
 ) -> Result<Out, CommandError> {
+    if if_occupied == IfOccupied::Skip {
+        return Err(invalid(
+            "if_occupied",
+            "skip is for arrangement.move_to_track: a copy has no other place to go",
+        ));
+    }
     let project = &state.project;
     let groups = group_by_track(project, ids, "placements")?;
     // The selection's extent, for the default shift.
@@ -2225,6 +2657,15 @@ fn duplicate(
                 ..TrackWork::shifted(p, by, "by")?
             };
             let (s, e) = work.checked_span(&copy, "by")?;
+            if if_occupied == IfOccupied::Refuse {
+                // Only what the track held before counts: copies of one selection may touch each other.
+                for other in track.placements.values() {
+                    let (os, oe) = work.span(other)?;
+                    if os < e && s < oe {
+                        return Err(occupied(1));
+                    }
+                }
+            }
             overwritten += work.carve(&mut ctx.ids, s, e)?;
             let new_id = PlacementId::generate(&mut ctx.ids);
             work.placements.insert(new_id.clone(), copy);
@@ -2249,6 +2690,7 @@ fn repeat(
     ctx: &mut Context,
     id: &PlacementId,
     until: i64,
+    if_occupied: IfOccupied,
 ) -> Result<Out, CommandError> {
     let project = &state.project;
     let track_id = track_of(project, id)?;
@@ -2278,6 +2720,7 @@ fn repeat(
     // The copies tile `[end, until)`: one carve for the whole range (a carve per copy would
     // scan the track once for each of up to a hundred thousand copies).
     let overwritten = work.carve(&mut ctx.ids, end, until)?;
+    refuse_if_carved(if_occupied, overwritten)?;
     let mut at = end;
     while at < until {
         let copy = Placement {

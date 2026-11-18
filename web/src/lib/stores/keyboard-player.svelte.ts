@@ -1,4 +1,5 @@
-import { clampOctave, defaultOctave, noteForKey, octaveStep, playsNote, TYPING_TOGGLE_CODE } from '../keyboard'
+import { clampOctave, defaultOctave, isTextTarget, noteForKey, octaveStep, playsNote, TYPING_TOGGLE_CODE } from '../keyboard'
+import { isStepEntryToggle } from '../../views/piano-roll/step-entry'
 import { instrumentKind, isMidi, trackLabel } from '../project/tracks'
 import { inputNoteOff, inputNoteOn } from '../synth-commands'
 import type { Dispatcher } from './dispatcher'
@@ -50,22 +51,49 @@ export class KeyboardPlayer {
   toggleTyping() {
     this.releaseAll()
     this.ui.typing = this.ui.typing === 'notes' ? 'shortcuts' : 'notes'
+    // Letters left to the shortcuts write nothing either: step entry (#882) ends with typing, not left as a mute mode.
+    if (this.ui.typing === 'shortcuts' && this.ui.stepEntry) {
+      this.ui.stepEntry = false
+      this.ui.announceHistory(this.ui.t('keys.stepStopped'))
+    }
+  }
+
+  /** Ends step entry from outside the roll (#916): said where the page listens. */
+  private disarmStepEntry() {
+    this.ui.stepEntry = false
+    this.ui.announceHistory(this.ui.t('keys.stepStopped'))
   }
 
   keyDown(event: KeyboardEvent) {
+    // Step entry armed with no clip to write into (the roll has none open or is not shown): Alt+E and Escape end it from here; with a
+    // clip the roll takes both (#916).
+    if (this.ui.stepEntry && !this.ui.stepWriting && !event.defaultPrevented && !isTextTarget(event.target) && isStepEntryToggle(event as never)) {
+      event.preventDefault?.()
+      this.disarmStepEntry()
+      return
+    }
     if (!playsNote(event)) return
+    if (event.code === 'Escape' && this.ui.stepEntry) {
+      this.disarmStepEntry()
+      return
+    }
     if (event.code === TYPING_TOGGLE_CODE && !event.shiftKey) {
       this.toggleTyping()
       return
     }
     // Musical typing off: the letters are no notes (the MIDI controller and the on-screen keys are not concerned).
-    if (!this.engine.started || this.ui.typing !== 'notes') return
+    // Step entry writes notes with no engine started, so the octave keys must work then too (#882).
+    const writes = this.ui.stepEntry && this.ui.stepWriting
+    if ((!this.engine.started && !writes) || this.ui.typing !== 'notes') return
     const step = octaveStep(event.code)
     if (step !== 0) {
       this.releaseAll()
       this.octave = clampOctave(this.octave + step)
       return
     }
+    // Step entry (#882): the piano roll writes the letters as notes; none plays live (Z and X above still move the octave).
+    // Armed with no clip open (#916), nothing writes them, so they play.
+    if (writes) return
     const note = noteForKey(event.code, this.octave)
     if (note === null || this.held.has(event.code)) return
     // The command layer routes the note: the selected MIDI track and the armed ones (none: nothing plays).

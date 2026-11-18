@@ -9,8 +9,12 @@ import {
   FEEDBACK_VERSION,
   LATENCY_OFFSET,
   READOUTS_OFFSET,
+  SPECTRA_OFFSET,
   MAX_RECORDED_PER_REPORT,
+  MAX_SPECTRA,
   RECORDED_NOTE_BYTES,
+  SPECTRUM_BANDS,
+  SPECTRUM_BYTES,
   TRACK_METER_BYTES,
   decodeFeedback,
   peakOf,
@@ -159,15 +163,17 @@ describe('decodeFeedback', () => {
     expect(decodeFeedback(report(1, (v) => v.setFloat32(at + 16, NaN, true)))!.tracks[0].gainReductionDb).toBe(0)
   })
 
-  it('keeps the device latency in the last word of the header, its high bit the cap (#749)', () => {
-    expect(LATENCY_OFFSET + 4).toBe(FEEDBACK_HEADER_BYTES)
+  it('keeps the device latency in its word of the header, its high bit the cap (#749)', () => {
+    // Followed by the spectra count since version 11 (#156).
+    expect(LATENCY_OFFSET + 4).toBe(SPECTRA_OFFSET)
     expect(LATENCY_OFFSET % 4).toBe(0)
     expect(decodeFeedback(report(0))).toMatchObject({ latencyFrames: 0, latencyCapped: false })
     const capped = decodeFeedback(report(0, (v) => v.setUint32(LATENCY_OFFSET, 0x8000_0000 + 20_480, true)))!
     expect(capped).toMatchObject({ latencyFrames: 20_480, latencyCapped: true })
   })
 
-  it('refuses a report of the previous layouts (version 9: a 100-byte header, without the readouts count and the device latency; version 8: a 92-byte header, without the host frame; version 7: an 88-byte header, without the silenced frames; version 5: 72 bytes; version 4: 56 bytes; version 3)', () => {
+  it('refuses a report of the previous layouts (version 10: a 108-byte header, without the spectra count; version 9: a 100-byte header, without the readouts count and the device latency; version 8: a 92-byte header, without the host frame; version 7: an 88-byte header, without the silenced frames; version 5: 72 bytes; version 4: 56 bytes; version 3)', () => {
+    expect(decodeFeedback(report(2, (v) => v.setUint8(0, 10)))).toBeNull()
     expect(decodeFeedback(report(2, (v) => v.setUint8(0, 9)))).toBeNull()
     expect(decodeFeedback(report(2, (v) => v.setUint8(0, 8)))).toBeNull()
     expect(decodeFeedback(report(2, (v) => v.setUint8(0, 7)))).toBeNull()
@@ -200,10 +206,49 @@ describe('decodeFeedback', () => {
     expect(decodeFeedback(report(0, (v) => v.setFloat32(72, -1, true)))!.cpuPeak).toBeNull()
     expect(decodeFeedback(report(0, (v) => v.setFloat32(72, NaN, true)))!.cpuPeak).toBeNull()
     expect(decodeFeedback(report(0, (v) => v.setFloat32(72, 2, true)))!.cpuPeak).toBe(1)
-    // The meters start after it (version 10: the readouts count at 100, #686, then the latency at 104, #749).
-    expect(FEEDBACK_HEADER_BYTES).toBe(108)
+    // The meters start after it (version 11: the readouts count at 100, #686, the latency at 104, #749, then the
+    // spectra count at 108, #156).
+    expect(FEEDBACK_HEADER_BYTES).toBe(112)
     expect(READOUTS_OFFSET).toBe(100)
-    expect(LATENCY_OFFSET + 4).toBe(FEEDBACK_HEADER_BYTES)
+    expect(LATENCY_OFFSET).toBe(104)
+    expect(SPECTRA_OFFSET + 4).toBe(FEEDBACK_HEADER_BYTES)
+  })
+
+  it('reads the spectra after the readouts (version 11, #156) and refuses a count beyond the bytes or the limit', () => {
+    const base = new Uint8Array(report(1))
+    // One readout first (#686): the spectra start after it.
+    const spectraAt = base.length + DEVICE_READOUT_BYTES
+    const buffer = new ArrayBuffer(spectraAt + 2 * SPECTRUM_BYTES)
+    new Uint8Array(buffer).set(base)
+    const view = new DataView(buffer)
+    view.setUint32(READOUTS_OFFSET, 1, true)
+    view.setUint32(base.length, 1, true)
+    view.setUint16(base.length + 4, 2, true)
+    view.setUint16(base.length + 6, 1, true)
+    view.setFloat32(base.length + 8, 812.5, true)
+    view.setUint32(SPECTRA_OFFSET, 2, true)
+    for (let i = 0; i < 2; i++) {
+      const at = spectraAt + i * SPECTRUM_BYTES
+      view.setUint32(at, i === 0 ? 0 : 0xffffffff, true)
+      view.setUint32(at + 4, 3 + i, true)
+      view.setFloat32(at + 8, 48000, true)
+      for (let b = 0; b < SPECTRUM_BANDS; b++) view.setFloat32(at + 12 + 4 * b, -b, true)
+    }
+    // A corrupt band reads as the floor.
+    view.setFloat32(spectraAt + 12, NaN, true)
+    const r = decodeFeedback(buffer)!
+    expect(r.readouts).toEqual([{ track: 1, device: 2, param: 1, value: 812.5 }])
+    expect(r.spectra).toHaveLength(2)
+    expect(r.spectra[0]).toMatchObject({ track: 0, device: 3, sampleRate: 48000 })
+    expect(r.spectra[1].track).toBeNull()
+    expect(r.spectra[0].bands[0]).toBe(-140)
+    expect(r.spectra[0].bands[95]).toBe(-95)
+    // A count past the bytes, or past the limit: refused.
+    expect(decodeFeedback(buffer.slice(0, buffer.byteLength - 1))).toBeNull()
+    view.setUint32(SPECTRA_OFFSET, MAX_SPECTRA + 1, true)
+    expect(decodeFeedback(buffer)).toBeNull()
+    // None: an empty list.
+    expect(decodeFeedback(report(1))!.spectra).toEqual([])
   })
 
   it('refuses another version, a short buffer and a track count beyond the bytes', () => {

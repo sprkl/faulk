@@ -7,6 +7,8 @@
    * edited, the tool and the zoom are the page's view state, not project data.
    */
   import { onDestroy, tick, untrack } from 'svelte'
+  import { PIANO_ROLL_GESTURES } from '../../lib/palette-gestures'
+  import { ROLL_TOOLBAR_ROOM } from '../shell/panel-size'
   import type { Command, Note } from '../../lib/generated/protocol'
   import {
     addNotes,
@@ -26,9 +28,9 @@
   import { createDrag, DRAG_SLOP_PX, fineKey, type Drag } from '../../lib/continuous'
   import TimeGrid from '../../lib/components/timegrid/TimeGrid.svelte'
   import GestureLabel from '../../lib/components/GestureLabel.svelte'
-  import { lengthText as gestureLength, positionText, snapText } from '../../lib/gesture-label'
+  import { clipLengthText, lengthText as gestureLength, positionText, snapText } from '../../lib/gesture-label'
   import type { MenuItem } from '../../lib/context-menu'
-  import { chordText, positionKey, withShortcut } from '../../lib/shortcuts'
+  import { chordText, positionKey, stepKeyParams, withShortcut } from '../../lib/shortcuts'
   import {
     DEFAULT_PX_PER_TICK,
     ROLL_SNAP_SETTINGS,
@@ -41,13 +43,14 @@
     type View,
   } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
-  import { generateShortcut, isQuantizeKey, isTextTarget, QUANTIZE_CODE, repeatShortcut } from '../../lib/keyboard'
+  import { generateShortcut, isQuantizeKey, isTextTarget, noteForKey, playsNote, QUANTIZE_CODE, repeatShortcut } from '../../lib/keyboard'
+  import { advanceTo, barBeat, dropLast, isStepEntryToggle, lengthenLast, stepEntryKey, type EntryStep } from './step-entry'
   import BarDialog from '../arrangement/BarDialog.svelte'
   import { defaultRepeatUntil, parseRepeatUntil, repeatCopies } from './repeat'
   import EuclideanPanel from './EuclideanPanel.svelte'
   import { DEFAULT_GATE, euclideanFault, euclideanNotes, euclideanPlan, parsePitch, type EuclideanDraft, type EuclideanSettings } from './euclidean'
   import { instrumentNamedKeys, isMidi, trackColor as colorOfTrack } from '../../lib/project/tracks'
-  import { inGroup } from '../../lib/history-group'
+  import { inGroup, type RunAll } from '../../lib/history-group'
   import { useStores } from '../../lib/stores'
   import { MAX_GOTO_BAR, barTicks, beatTicks, PPQ } from '../transport/time'
   import { cursorJumpKey, itemAt, jumpCursor, moveCursor, rovingKey, step as stepItem, zoomKey, type RovingKey } from '../../lib/roving'
@@ -92,6 +95,10 @@
     velocityPosition,
     VELOCITY_HOME,
     afterChanges,
+    clickGivesFocus,
+    parseLastLength,
+    parseSnap,
+    parseTool,
     DEFAULT_QUANTIZE_GRID,
     DEFAULT_QUANTIZE_STRENGTH,
     MAX_BARS,
@@ -104,6 +111,7 @@
     lengthFor,
     quantizeChanges,
     quantizeSaid,
+    sendWithRoom,
     toBoard,
     transposeChanges,
     type QuantizeGrid,
@@ -115,7 +123,7 @@
   import Surface from './Surface.svelte'
   import { boardNotes, setBoard } from './clipboard'
 
-  const { project, engine, ui, dispatcher, recorder } = useStores()
+  const { project, engine, ui, dispatcher, recorder, keys: player } = useStores()
   const t = ui.t
   const run = (command: Command) => dispatcher.run(command)
   const group = <T,>(body: () => T) => inGroup((command, options) => dispatcher.run(command, options), body)
@@ -163,6 +171,8 @@
   const bar = $derived(barTicks(signature))
   const clipLength = $derived(edited?.length ?? bar)
   const totalBars = $derived(Math.max(1, Math.ceil(clipLength / bar)))
+  /** What the length field shows: the bars, or the real length in bars and beats when it is not a whole number of bars (#907). */
+  const lengthShown = $derived(clipLengthText(t, signature, clipLength))
   const clipName = $derived(edited ? clipLabel(edited, t('pianoRoll.clipPlain')) : '')
   const scenes = $derived(project.view ? sortedScenes(project.view.project) : [])
   /** "Scene n" or the scene's own name: the grid's label for it. */
@@ -218,8 +228,13 @@
   }
 
   // View state.
-  let tool = $state<Tool>('draw')
-  let snap = $state<SnapSetting>('auto')
+  // The tool and the snap are kept for the session, across clips (#835): the view is built again for each clip, so they are recalled.
+  let tool = $state<Tool>(untrack(() => parseTool(ui.recall<string>('piano-roll-tool'))))
+  let snap = $state<SnapSetting>(untrack(() => parseSnap(ui.recall<string>('piano-roll-snap'))))
+  $effect(() => {
+    ui.remember('piano-roll-tool', tool)
+    ui.remember('piano-roll-snap', snap)
+  })
   // Zoom and scroll of the clip come back when the panel returns to the roll (it is torn down when another tab is shown).
   const left = ui.recall<{ clip: string | null; view: View; scrollY: number }>('piano-roll')
   let view = $state<View>(left?.view ?? { pxPerTick: DEFAULT_PX_PER_TICK, scrollTick: 0 })
@@ -227,8 +242,11 @@
   let stageW = $state(0)
   let stageH = $state(0)
   let laneH = $state(LANE_HEIGHT)
-  /** The length of the last note drawn or resized; null follows the snap step (reset by a change of the snap and by a new clip). */
-  let lastLength = $state<number | null>(null)
+  /** The length of the last note drawn or resized; null follows the snap step (reset by a change of the snap; kept across clips, #835). */
+  let lastLength = $state<number | null>(untrack(() => parseLastLength(ui.recall<number | null>('piano-roll-last-length'))))
+  $effect(() => {
+    ui.remember('piano-roll-last-length', lastLength)
+  })
   /** The velocity of a note drawn (#527): its own setting in the toolbar, never what a touched note had. */
   let drawVelocity = $state(untrack(() => parseDrawVelocity(String(ui.recall<number>('piano-roll-draw-velocity') ?? DEFAULT_VELOCITY), DEFAULT_VELOCITY)))
   /** The length of a written note (#623): "Snap" follows the snap step, a value is kept whatever the snap; remembered as the velocity is. */
@@ -252,6 +270,11 @@
   const layout = $derived<Layout>({ rowHeight: ROW, scrollY: clampScrollY(scrollY, stageH, { rowHeight: ROW, top: RULER_HEIGHT }), top: RULER_HEIGHT })
   const chosenNotes = $derived(picked.size === 0 ? [] : notes.filter((n) => picked.has(noteKey(n))))
   const chosenKeys = $derived<ReadonlySet<string>>(new Set(chosenNotes.map(noteKey)))
+  // What the command palette fills its forms with (#926): the open clip and the notes selected in it.
+  $effect(() => {
+    ui.rollSelection = { clip: edited?.id ?? null, notes: chosenNotes }
+    return () => (ui.rollSelection = { clip: null, notes: [] })
+  })
 
   const ghosts = $derived.by<Note[]>(() => {
     const g = gesture
@@ -416,12 +439,15 @@
   })
 
   // A change of the snap setting gives the next drawn note the new step.
+  // (Not on the first run: a roll built again keeps the length the previous one left.)
+  let snapSeen = untrack(() => snap)
   $effect(() => {
-    void snap
+    if (snap === snapSeen) return
+    snapSeen = snap
     untrack(() => (lastLength = null))
   })
 
-  // A new clip opens with a clean selection, around its notes, and its drawn length back to the snap step.
+  // A new clip opens with a clean selection, around its notes; its drawn length stays what it was (#835).
   let openedFor: string | null = left?.clip ?? null
   $effect(() => {
     const id = edited?.id ?? null
@@ -432,7 +458,6 @@
       picked = new Set()
       gesture = null
       scrollY = initialScrollY(notes, stageH, { rowHeight: ROW, top: RULER_HEIGHT }, keyNames ? [...keyNames.keys()] : [])
-      lastLength = null
     })
   })
 
@@ -468,6 +493,10 @@
 
   onDestroy(() => {
     ui.remember('piano-roll', { clip: openedFor, view, scrollY })
+    // The roll is gone: step entry stays armed (#916) but writes nothing, so the letters play until a roll with a clip is back.
+    // Said where the page listens, as this roll no longer does.
+    ui.stepWriting = false
+    if (ui.stepEntry) ui.announceHistory(t('pianoRoll.saidStepIdle'))
     sound(null)
   })
 
@@ -488,6 +517,8 @@
   function onPointerDown(event: PointerEvent) {
     if (event.button !== 0 || !edited || !track || gesture) return
     const { x, y } = local(event, stage)
+    // A click from outside the roll only gives it the focus (#835): it writes nothing, so no note appears unseen.
+    const givesFocus = clickGivesFocus(rollEl?.contains(document.activeElement) ?? false, !!document.activeElement && document.activeElement !== document.body)
     stage!.setPointerCapture(event.pointerId)
     if (y < RULER_HEIGHT) {
       const tick = snapTick(xToTick(x, shown), step)
@@ -509,6 +540,7 @@
       return
     }
     if (tool === 'draw') {
+      if (givesFocus) return
       const pitch = pitchAt(y, layout)
       const note = drawnNote(xToTick(x, shown), null, pitch, drawVelocity, drawing, nextLength, clipLength)
       if (!note) return
@@ -582,8 +614,16 @@
       if (!g.note || !fits(g.note, clipLength)) return
       run(addNotes(g.clip, [g.note]))
       picked = new Set([noteKey(g.note)])
-      // A click (no drag) whose length did not fit before the clip's end draws a shorter note: said (#623, #280).
-      if (!g.dragged && g.note.length < nextLength) announce(t('pianoRoll.saidLengthCut', { length: gestureLength(t, signature, g.note.length) }))
+      // Every note written is said and brought into sight (#835), as a note written from the keyboard is.
+      // Nothing is said when the command did not apply (the dispatcher already shows why). A click (no drag) whose length
+      // did not fit before the clip's end draws a shorter note: said with it (#623, #280).
+      const written = g.note
+      if (notes.some((n) => noteKey(n) === noteKey(written))) {
+        const added = t('pianoRoll.saidAdded', { pitch: keyNames?.get(written.pitch) ?? pitchName(written.pitch) })
+        const cut = !g.dragged && written.length < nextLength
+        announce(cut ? t('pianoRoll.saidAddedCut', { added, length: gestureLength(t, signature, written.length) }) : added)
+        revealNote({ start: written.start, note: written })
+      }
       lastLength = g.note.length
     } else if (g.kind === 'move' || g.kind === 'resize' || g.kind === 'velocity') {
       // The notes the gesture holds must still be in the clip: after an undo they are gone and nothing is sent.
@@ -636,9 +676,34 @@
    * the roll or on the page itself (nothing focused): another screen keeps its own keys, and a text field its own.
    */
   function onWindowKeyDown(event: KeyboardEvent) {
+    // Escape ends step entry (#916) even where the roll took it first (selection cleared, cursor freed): it does what it did, and the mode
+    // ends too, unless a gesture was being cancelled or a dialog or menu is open.
+    if (
+      event.code === 'Escape' &&
+      ui.stepEntry &&
+      edited &&
+      !gesture &&
+      !event.repeat &&
+      !isTextTarget(event.target) &&
+      !document.querySelector('[aria-modal="true"], [role="menu"]')
+    ) {
+      setStepEntry(false)
+      return
+    }
     if (event.defaultPrevented || !edited || isTextTarget(event.target)) return
     const target = event.target
-    if (target !== document.body && !(target instanceof Node && rollEl?.contains(target))) return
+    const inRoll = target === document.body || (target instanceof Node && !!rollEl?.contains(target))
+    // Step entry (#882): a letter writes wherever it would play; the mode's other keys only in the roll.
+    if ((inRoll || ui.stepEntry) && isStepEntryToggle(event)) {
+      event.preventDefault()
+      setStepEntry(!ui.stepEntry)
+      return
+    }
+    if (ui.stepEntry && (inRoll || stepEntryKey(event)?.kind === 'note') && playsNote(event) && stepKeyDown(event)) {
+      event.preventDefault()
+      return
+    }
+    if (!inRoll) return
     // The roll's own listener takes Alt+G from inside the roll; from the page itself (nothing focused) it is taken here.
     if (target === document.body && generateShortcut(event)) {
       event.preventDefault()
@@ -732,16 +797,21 @@
       .filter(({ item, rect }) => item.id === tabKey || (rect.x + rect.w >= 0 && rect.x <= stageW && rect.y + rect.h >= RULER_HEIGHT && rect.y <= stageH))
   })
 
-  async function focusNote(key: string) {
-    const item = noteItems.find((i) => i.id === key)
-    if (!item) return
-    focusKey = key
-    onCursor = false
+  /** Scrolls the roll until the note is in sight (#835), without moving the focus. */
+  function revealNote(item: { start: number; note: Note }) {
     const rect = noteRect(item.note, shown, layout)
     if (rect.x < 0 || rect.x > stageW - 8)
       view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: Math.max(0, item.start - (stageW / shown.pxPerTick) * 0.1) }, stageW, totalBars * bar)
     if (rect.y < RULER_HEIGHT || rect.y + rect.h > stageH)
       scrollY = clampScrollY(layout.scrollY + rect.y - (RULER_HEIGHT + stageH) / 2, stageH, { rowHeight: ROW, top: RULER_HEIGHT })
+  }
+
+  async function focusNote(key: string) {
+    const item = noteItems.find((i) => i.id === key)
+    if (!item) return
+    focusKey = key
+    onCursor = false
+    revealNote(item)
     await tick()
     itemsEl?.querySelector<HTMLElement>(`[data-note="${CSS.escape(key)}"]`)?.focus()
   }
@@ -774,21 +844,42 @@
       layout,
     ),
   )
+  /** What the letters do now, shown beside the note counter (#899): write notes (step entry), play them, or nothing (musical typing off). */
+  const lettersMode = $derived<'write' | 'play' | 'mute' | 'off'>(ui.typing !== 'notes' ? 'off' : ui.stepEntry ? 'write' : engine.started ? 'play' : 'mute')
   const cursorText = $derived.by(() => {
-    const beatsPerBar = bar / PPQ
-    const beat = cursorPos.tick / PPQ
-    return t('pianoRoll.cursorItem', {
-      pitch: keyNames?.get(cursorPos.pitch) ?? pitchName(cursorPos.pitch),
-      bar: Math.floor(beat / beatsPerBar) + 1,
-      beat: Number(((beat % beatsPerBar) + 1).toFixed(2)),
-    })
+    return t('pianoRoll.cursorItem', { pitch: keyNames?.get(cursorPos.pitch) ?? pitchName(cursorPos.pitch), ...barBeat(cursorPos.tick, PPQ, bar / PPQ) })
   })
   // Another clip: the cursor starts again where the view looks, and the notes have the tab stop again.
+  // The mode is global like musical typing (#899) and stays armed whatever the track (#916): with no clip to write into (no clip,
+  // an audio track) the letters play, and that is said; a clip that opens makes them write again, and that is said too.
+  // `ui.stepWriting` tells the keyboard player whether this roll writes.
   $effect(() => {
-    void edited?.id
+    const writes = !!edited
+    untrack(() => {
+      // A roll that mounts with a clip while armed is a resume as well: the flag was left false when the last roll went.
+      const was = ui.stepWriting
+      ui.stepWriting = writes
+      if (!ui.stepEntry) return
+      if (!writes) {
+        // Nothing to finish (`resetEntry` drops the letters held), no cursor to move.
+        resetEntry()
+        release()
+        ui.announceHistory(t('pianoRoll.saidStepIdle'))
+      } else if (!was) ui.announceHistory(t('pianoRoll.saidStepResumed'))
+    })
+  })
+  // Step entry ended from outside the roll (Escape, musical typing off): its bookkeeping goes with it.
+  $effect(() => {
+    if (!ui.stepEntry) untrack(resetEntry)
+  })
+  // The id alone: `edited` is a new object at every edit of its notes, and an edit must not take the cursor away (#882).
+  const editedId = $derived(edited?.id ?? null)
+  $effect(() => {
+    void editedId
     untrack(() => {
       cursorAt = null
       onCursor = false
+      resetEntry()
     })
   })
 
@@ -802,6 +893,211 @@
       scrollY = clampScrollY(layout.scrollY + rect.y - (RULER_HEIGHT + stageH) / 2, stageH, { rowHeight: ROW, top: RULER_HEIGHT })
     await tick()
     itemsEl?.querySelector<HTMLElement>('[data-cursor]')?.focus()
+  }
+
+  // --- step entry (#882) ----------------------------------------------------------------------------------------------
+  // A mode (toolbar button, Alt+E) in which the letters of musical typing write a note at the free cursor, of the toolbar's
+  // length, through the same `clip.notes.add` as Enter (one undo per note); the cursor advances when the last letter held
+  // is released (letters held together are a chord on one step). Period is a rest, Comma lengthens the last step by a
+  // the toolbar's note length (#899), Backspace removes the last step. The pure part is `step-entry.ts`.
+  /** The steps written since the mode began (or since the cursor was moved by hand), the last one on top. */
+  let entrySteps = $state.raw<EntryStep[]>([])
+  /** The letters held now, by physical key; the step is complete when the last one is released. */
+  // Not reactive on purpose: nothing renders from it.
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  const heldLetters = new Set<string>()
+  /** The step being written while letters are held. */
+  let chordStep: EntryStep | null = null
+  /** The last step reached the clip's end: no room for another one. */
+  let entryFull = false
+  /** The cursor as step entry left it: any other move of the cursor (a new object) makes the steps stale. */
+  let entryAt: { pitch: number; tick: number } | null = null
+
+  /** Where the next step goes: where step entry left the cursor, else the cursor (whose tick is clamped to the snap, not the length). */
+  const entryHere = () => (entryAt !== null && cursorAt === entryAt ? entryAt.tick : cursorPos.tick)
+
+  /** The steps written, once the cursor is known to be where entry left it and the last step's notes are the clip's current ones (an undo or an edit may have changed them). */
+  function liveSteps(): EntryStep[] {
+    if (entrySteps.length > 0 && (entryAt === null || cursorAt !== entryAt)) resetEntry()
+    const last = entrySteps.at(-1)
+    if (!last || last.notes.length === 0) return entrySteps
+    const now = last.notes.flatMap((n) => notes.filter((m) => m.start === n.start && m.pitch === n.pitch))
+    const length = now.length > 0 ? Math.max(...now.map((n) => n.length)) : last.length
+    entrySteps = [...entrySteps.slice(0, -1), { ...last, notes: now, length }]
+    return entrySteps
+  }
+
+  function resetEntry() {
+    entryAt = null
+    entrySteps = []
+    heldLetters.clear()
+    chordStep = null
+    entryFull = false
+  }
+
+  /** Where a tick is, as the words say it: bar and beat. */
+  const place = (tick: number) => barBeat(tick, PPQ, bar / PPQ)
+  const cursorWords = (tick: number) => {
+    const { bar: cbar, beat: cbeat } = place(tick)
+    return { cbar, cbeat }
+  }
+
+  function setStepEntry(on: boolean) {
+    if (ui.stepEntry === on) return
+    endChord()
+    ui.stepEntry = on
+    resetEntry()
+    if (on) {
+      // The letters must write: typing on, and no live note left sounding.
+      ui.typing = 'notes'
+      player.releaseAll()
+      cursorAt ??= cursorPos
+      void focusCursor()
+    }
+    announce(t(on ? 'pianoRoll.saidStepOn' : 'pianoRoll.saidStepOff'))
+  }
+
+  // Step entry asked from the command palette (#926): what the button and Alt+E do.
+  $effect(() => {
+    if (ui.takeGesture(PIANO_ROLL_GESTURES) !== 'stepEntry') return
+    untrack(() => {
+      // The key does nothing without a clip to write into; the palette says so.
+      if (!edited && !ui.stepEntry) return announce(t('pianoRoll.saidStepNoClip'))
+      setStepEntry(!ui.stepEntry)
+    })
+  })
+
+  /** Puts the cursor at `tick` (null: the clip is full, it stays on `fallback`). Callers speak. */
+  function entryCursor(tick: number | null, fallback: number, pitch: number) {
+    entryFull = tick === null
+    cursorAt = { pitch, tick: tick ?? fallback }
+    entryAt = cursorAt
+    void focusCursor()
+  }
+
+  /** A letter went down: its note is written at the cursor (or at the step's start while another letter is held), sounded and said. */
+  function writeStepNote(code: string) {
+    if (!edited || heldLetters.has(code)) return
+    const pitch = noteForKey(code, player.octave)
+    if (pitch === null) return
+    if (entryFull && !chordStep) return announce(t('pianoRoll.saidStepEnd'))
+    const start = chordStep?.start ?? entryHere()
+    const note = drawnNote(start, null, pitch, drawVelocity, null, nextLength, clipLength)
+    if (!note || !fits(note, clipLength) || notes.some((n) => noteKey(n) === noteKey(note))) return announce(t('pianoRoll.saidNoRoom'))
+    run(addNotes(edited.id, [note]))
+    // Nothing to say or sound when the command did not apply (a refusal the dispatcher already shows).
+    if (!notes.some((n) => noteKey(n) === noteKey(note))) return
+    heldLetters.add(code)
+    chordStep = chordStep
+      ? { ...chordStep, length: Math.max(chordStep.length, note.length), notes: [...chordStep.notes, note] }
+      : { start, length: note.length, notes: [note] }
+    sound(note.pitch, note.velocity)
+    revealNote({ start: note.start, note })
+    announce(
+      t('pianoRoll.saidStepNote', {
+        pitch: keyNames?.get(note.pitch) ?? pitchName(note.pitch),
+        ...place(note.start),
+        ...cursorWords(note.start + note.length),
+      }),
+    )
+  }
+
+  /** The last letter held went up (or the roll lost the keyboard): the step is complete and the cursor advances by its length. */
+  function endChord() {
+    heldLetters.clear()
+    const step = chordStep
+    chordStep = null
+    if (!step) return
+    release()
+    entrySteps = [...entrySteps, step]
+    const next = advanceTo(step.start + step.length, clipLength)
+    entryCursor(next, step.start, step.notes.at(-1)?.pitch ?? cursorPos.pitch)
+    if (next === null) announce(t('pianoRoll.saidStepEnd'))
+  }
+
+  function onWindowKeyUp(event: KeyboardEvent) {
+    if (!heldLetters.delete(event.code)) return
+    if (heldLetters.size === 0) endChord()
+    else release()
+  }
+
+  function restStep() {
+    if (!edited) return
+    if (entryFull) return announce(t('pianoRoll.saidStepEnd'))
+    const start = entryHere()
+    const length = Math.max(1, Math.min(nextLength, clipLength - start))
+    entrySteps = [...entrySteps, { start, length, notes: [] }]
+    const next = advanceTo(start + length, clipLength)
+    entryCursor(next, start, cursorPos.pitch)
+    announce(next === null ? t('pianoRoll.saidStepEnd') : t('pianoRoll.saidStepRest', cursorWords(next)))
+  }
+
+  function lengthenStep() {
+    if (!edited) return
+    const steps = liveSteps()
+    const before = steps.at(-1)
+    // By the length the toolbar chose (what the cursor advances by), whatever the snap: the cursor stays on that grid (#899).
+    const result = lengthenLast(steps, nextLength, clipLength)
+    if (!result || !before) return announce(t('pianoRoll.saidStepNone'))
+    const last = result.steps.at(-1)!
+    // Nothing grows: the clip ends here.
+    if (last.length === before.length) return announce(t('pianoRoll.saidAtClipEnd'))
+    if (result.changes.length > 0) {
+      const ok = acceptable(notes, result.changes)
+      if (!ok || ok.length === 0) return announce(t('pianoRoll.saidCannotResize'))
+      run(updateNotes(edited.id, ok))
+      if (!notes.some((n) => noteKey(n) === noteKey(ok[0]!.to))) return
+    }
+    entrySteps = result.steps
+    const next = advanceTo(result.cursor, clipLength)
+    entryCursor(next, last.start, last.notes.at(-1)?.pitch ?? cursorPos.pitch)
+    const length = gestureLength(t, signature, last.length)
+    announce(t('pianoRoll.saidStepLonger', { length: result.cut ? t('pianoRoll.saidLengthCut', { length }) : length, ...cursorWords(result.cursor) }))
+  }
+
+  /** Backspace: the last step's notes go (one `clip.notes.remove`) and the cursor goes back to where the step began. False when nothing was written. */
+  function backStep(): boolean {
+    if (!edited) return false
+    const dropped = dropLast(liveSteps())
+    if (!dropped) return false
+    if (dropped.notes.length > 0) run(removeNotes(edited.id, dropped.notes))
+    entrySteps = dropped.steps
+    entryCursor(dropped.cursor, dropped.cursor, dropped.notes[0]?.pitch ?? cursorPos.pitch)
+    announce(t('pianoRoll.saidStepBack', cursorWords(dropped.cursor)))
+    return true
+  }
+
+  /** A key while the mode is on: whether it was taken. The caller has checked `playsNote`. */
+  function stepKeyDown(event: KeyboardEvent): boolean {
+    if (!ui.stepEntry || !edited || ui.typing !== 'notes') return false
+    const key = stepEntryKey(event)
+    if (!key) return false
+    if (key.kind === 'note') {
+      writeStepNote(key.code)
+      return true
+    }
+    // Another key while letters are held does nothing: the step is not complete.
+    if (heldLetters.size > 0) return true
+    if (key.kind === 'rest') restStep()
+    else if (key.kind === 'lengthen') lengthenStep()
+    else return backStep()
+    return true
+  }
+
+  /** Backspace ahead of the stage's own (it would remove the selection): in the mode, with a step written, it removes that step. */
+  function onRollKeyCapture(event: KeyboardEvent) {
+    if (event.code !== 'Backspace' || !ui.stepEntry || liveSteps().length === 0 || event.ctrlKey || event.metaKey || event.altKey || isTextTarget(event.target))
+      return
+    // A held key is no new step, but it must not fall through to "remove the selection" either.
+    if (event.repeat) {
+      event.preventDefault()
+      event.stopPropagation()
+      return
+    }
+    if (playsNote(event) && stepKeyDown(event)) {
+      event.preventDefault()
+      event.stopPropagation()
+    }
   }
 
   /** Page Up and Page Down (#494): the velocity of `chosen` by `delta`, one `clip.notes.update`, the value said. */
@@ -850,6 +1146,7 @@
         clipLength,
       )
       cursorAt = { pitch: MAX_PITCH - next.row, tick: next.tick }
+      resetEntry()
       void focusCursor()
       return
     }
@@ -902,6 +1199,7 @@
       event.preventDefault()
       event.stopPropagation()
       cursorAt = { pitch: cursorPos.pitch, tick: jumpCursor(cursorPos.tick, jump, { step: cursorStep, bar }, clipLength) }
+      resetEntry()
       void focusCursor()
       return
     }
@@ -991,6 +1289,7 @@
 
   // The window loses the pointer or the tab hides: nothing may keep sounding.
   function silence() {
+    endChord()
     keyHeld = false
     if (gesture) cancel()
     else sound(null)
@@ -1175,7 +1474,17 @@
     // An empty field is not a length: Number('') is 0, which would shorten the clip to one bar.
     const value = input.value.trim() === '' ? Number.NaN : Number(input.value)
     if (Number.isFinite(value)) setBars(value)
-    input.value = String(totalBars)
+    input.value = lengthShown
+  }
+
+  /** The whole number of bars one step up or down from the real length: 1 bar 1 beat goes to 2 bars up and to 1 bar down (#907). */
+  const barsUp = $derived(Math.floor(clipLength / bar) + 1)
+  const barsDown = $derived(Math.ceil(clipLength / bar) - 1)
+
+  function onLengthKey(event: KeyboardEvent) {
+    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+    event.preventDefault()
+    setBars(event.key === 'ArrowUp' ? barsUp : barsDown)
   }
 
   const toggleLoop = () => edited && run(setClipLoop(edited.id, edited.looping ? null : { start: 0, end: clipLength }))
@@ -1208,6 +1517,17 @@
   let quantizeNote = $state<string | null>(null)
   let quantizeTimer: ReturnType<typeof setTimeout> | undefined
   onDestroy(() => clearTimeout(quantizeTimer))
+
+  // The toolbar wraps by width and by font (#887): the panel's minimum grows by what it takes beyond its two rows, so an octave of rows always shows.
+  let toolbarH = $state(0)
+  $effect(() => {
+    // offsetHeight is rounded: a pixel of slack when the toolbar is taller than its room. Applied on the next frame, outside the observers' delivery (a resize caused in it ends in "ResizeObserver loop" errors).
+    // No clip, no toolbar: the empty state asks nothing of the panel.
+    const extra = edited && toolbarH > ROLL_TOOLBAR_ROOM ? toolbarH - ROLL_TOOLBAR_ROOM + 1 : 0
+    const frame = requestAnimationFrame(() => (ui.rollToolbarExtra = extra))
+    return () => cancelAnimationFrame(frame)
+  })
+  // Not reset when the roll goes: only the roll's tab reads it, and the next roll measures it again, so a remount never drops the minimum for a frame.
   function onDrawLengthChange(event: Event & { currentTarget: HTMLSelectElement }) {
     drawLength = parseDrawLength(event.currentTarget.value)
     ui.remember('piano-roll-draw-length', drawLength)
@@ -1282,25 +1602,16 @@
   }
 
   /**
-   * Sends notes that end at `end` through `send`, growing the clip first to the next whole bar when they do not fit (one
-   * history entry for both). False when the clip cannot hold them.
+   * Sends `commands` (notes that end at `end`), growing the clip first to the next whole bar when they do not fit: all or
+   * nothing and one history entry (#869), so a refused write (a note limit) takes the growth back too. `null` when the
+   * clip cannot hold them; else what `runAll` did (the refusal itself shows its own message).
    */
-  function withRoomFor(end: number, send: () => void): boolean {
-    if (!edited) return false
+  function withRoomFor(end: number, commands: Command[]): RunAll | null {
+    if (!edited) return null
     const length = lengthFor(end, clipLength, bar)
-    if (length === null) return false
-    if (length === clipLength) {
-      send()
-      return true
-    }
-    const clip = edited
-    return group(() => {
-      for (const command of lengthCommands(clip, length)) run(command)
-      // The project may have refused the new length (a placement next to the clip): then there is no room, and nothing is added.
-      const grown = clipLength >= length
-      if (grown) send()
-      return grown
-    })
+    if (length === null) return null
+    const grow = length === clipLength ? [] : lengthCommands(edited, length)
+    return sendWithRoom((command, options) => dispatcher.run(command, options), grow, commands)
   }
 
   /** Copies of the chosen notes right after the selection, which they become; from a cell, the first copy takes the focus (#771). */
@@ -1312,11 +1623,14 @@
     const copies = source.map((n) => ({ ...n, start: n.start + offset }))
     const id = edited.id
     const inCells = !!itemsEl && document.activeElement instanceof Node && itemsEl.contains(document.activeElement)
-    if (!withRoomFor(endOf(copies), () => run(duplicateNotes(id, source, offset)))) return
+    const done = withRoomFor(endOf(copies), [duplicateNotes(id, source, offset)])
+    if (!done) return
+    if (!done.ok) return announce(t(done.rolledBack ? 'pianoRoll.saidNoneDuplicated' : 'pianoRoll.saidDuplicatePartial'))
     picked = new Set(copies.map(noteKey))
     announce(copies.length === 1 ? t('pianoRoll.saidDuplicatedOne') : t('pianoRoll.saidDuplicated', { n: copies.length }))
     const first = [...copies].sort((a, b) => a.start - b.start || b.pitch - a.pitch)[0]
     if (inCells && first && notes.some((n) => noteKey(n) === noteKey(first))) void focusNote(noteKey(first))
+    else if (first) revealNote({ start: first.start, note: first })
   }
 
   // --- repeat end to end (#710) -------------------------------------------------------------------------------------
@@ -1366,6 +1680,7 @@
           : t(one ? 'pianoRoll.saidRepeatedOne' : 'pianoRoll.saidRepeated', vars),
     )
     if (focusInCells && result.copies[0]) void focusNote(noteKey(result.copies[0]))
+    else if (result.copies[0]) revealNote({ start: result.copies[0].start, note: result.copies[0] })
   }
 
   /** "every 1 bar", "every 2 beats", "every 0.25 beat": the period of a repeat (#770), in bars when it is whole bars. */
@@ -1545,6 +1860,7 @@
     picked = new Set(made.map(noteKey))
     const pitch = keyNames?.get(settings.pitch!) ?? pitchName(settings.pitch!)
     announce(t(remove.length > 0 ? 'pianoRoll.saidEuclideanReplace' : 'pianoRoll.saidEuclidean', { n: add.length, pitch, m: remove.length }))
+    if (!inCells && made[0]) revealNote({ start: made[0].start, note: made[0] })
     void closeEuclid(inCells ? (made[0] ?? null) : null)
   }
 
@@ -1593,10 +1909,10 @@
     const added = pasted.filter((n) => !there.has(noteKey(n))).length
     if (added === 0) return announce(t('pianoRoll.saidPasteNone'))
     const id = edited.id
-    if (!withRoomFor(endOf(pasted), () => run(addNotes(id, pasted)))) return announce(t('pianoRoll.saidPasteNoRoom'))
-    // Refused by the project after all (a limit): the dispatcher says why.
-    const now = new Set(notes.map(noteKey))
-    if (!pasted.every((n) => now.has(noteKey(n)))) return
+    const done = withRoomFor(endOf(pasted), [addNotes(id, pasted)])
+    if (!done) return announce(t('pianoRoll.saidPasteNoRoom'))
+    // Refused by the project after all (a limit): the dispatcher says why, and the clip is as it was.
+    if (!done.ok) return announce(t(done.rolledBack ? 'pianoRoll.saidNonePasted' : 'pianoRoll.saidPastePartial'))
     picked = new Set(pasted.map(noteKey))
     const first = [...pasted].sort((a, b) => a.start - b.start || b.pitch - a.pitch)[0]!
     const beatsPerBar = bar / PPQ
@@ -1605,23 +1921,29 @@
     // The notes pasted, already there or not: they are the selection.
     announce(pasted.length === 1 ? t('pianoRoll.saidPastedOne', where) : t('pianoRoll.saidPasted', { n: pasted.length, ...where }))
     if (anchor.cell) void focusNote(noteKey(first))
+    else revealNote({ start: first.start, note: first })
   }
 </script>
 
-<svelte:window onblur={silence} onkeydown={onWindowKeyDown} />
+<svelte:window onblur={silence} onkeydown={onWindowKeyDown} onkeyup={onWindowKeyUp} />
 <svelte:document onvisibilitychange={silence} />
 
 {#if !track}
-  <p class="empty" data-testid="roll-empty">{t(project.selected ? 'pianoRoll.audioTrack' : 'pianoRoll.noTrack')}</p>
+  <div class="empty" data-testid="roll-empty">
+    <p>{t(project.selected ? 'pianoRoll.audioTrack' : 'pianoRoll.noTrack')}</p>
+    {#if ui.stepEntry}<p class="armed" data-testid="roll-armed">{t(engine.started ? 'pianoRoll.armedIdle' : 'pianoRoll.armedIdleMute')}</p>{/if}
+  </div>
 {:else if !edited}
   <div class="empty" data-testid="roll-empty">
     <p>{t('pianoRoll.noClip')}</p>
+    {#if ui.stepEntry}<p class="armed" data-testid="roll-armed">{t(engine.started ? 'pianoRoll.armedIdle' : 'pianoRoll.armedIdleMute')}</p>{/if}
     <button class="primary" data-testid="roll-create-clip" onclick={() => run(createClipAtStart(track.id))}>{t('pianoRoll.createClip')}</button>
   </div>
 {:else}
   <div
     class="roll"
     bind:this={rollEl}
+    onkeydowncapture={onRollKeyCapture}
     data-testid="piano-roll"
     data-clip={edited.id}
     data-note-count={notes.length}
@@ -1635,7 +1957,7 @@
     data-first-note={notes[0] ? JSON.stringify(notes[0]) : undefined}
     data-selection={chosenNotes.length <= 32 ? JSON.stringify(chosenNotes) : undefined}
   >
-    <div class="toolbar">
+    <div class="toolbar" bind:offsetHeight={toolbarH}>
       {#if entries.length > 1}
         <select
           aria-label={t('pianoRoll.clip')}
@@ -1691,25 +2013,23 @@
       </label>
       <div class="field" role="group" aria-label={t('pianoRoll.length')}>
         <span>{t('pianoRoll.length')}</span>
-        <button class="step" aria-label={t('pianoRoll.shorter')} data-testid="roll-shorter" disabled={totalBars <= 1} onclick={() => setBars(totalBars - 1)}
-          >−</button
-        >
+        <button class="step" aria-label={t('pianoRoll.shorter')} data-testid="roll-shorter" disabled={barsDown < 1} onclick={() => setBars(barsDown)}>−</button>
         <input
-          type="number"
-          min="1"
-          max={MAX_BARS}
-          step="1"
-          value={totalBars}
+          type="text"
+          inputmode="numeric"
+          class="bars"
+          value={lengthShown}
+          role="spinbutton"
+          aria-valuemin={1}
+          aria-valuemax={MAX_BARS}
+          aria-valuenow={clipLength / bar}
+          aria-valuetext={lengthShown}
           aria-label={t('pianoRoll.length')}
           data-testid="roll-length"
+          onkeydown={onLengthKey}
           onchange={onLengthChange}
         />
-        <button
-          class="step"
-          aria-label={t('pianoRoll.longer')}
-          data-testid="roll-longer"
-          disabled={totalBars >= MAX_BARS}
-          onclick={() => setBars(totalBars + 1)}>+</button
+        <button class="step" aria-label={t('pianoRoll.longer')} data-testid="roll-longer" disabled={barsUp > MAX_BARS} onclick={() => setBars(barsUp)}>+</button
         >
       </div>
       <button aria-pressed={edited.looping !== null} title={t('pianoRoll.loopHint')} data-testid="roll-loop" onclick={toggleLoop}>{t('pianoRoll.loop')}</button>
@@ -1797,6 +2117,16 @@
         title={withShortcut(t('pianoRoll.generateHint'), [chordText(['Alt', 'G'])])}
         data-testid="roll-generate"
         onclick={openGenerate}>{t('pianoRoll.generate')}</button
+      >
+      <button
+        aria-pressed={ui.stepEntry}
+        aria-keyshortcuts="Alt+E"
+        title={withShortcut(t('pianoRoll.stepEntryHint', stepKeyParams(ui.keyLayout)), ['Alt', 'E'])}
+        data-testid="roll-step-entry"
+        onclick={() => setStepEntry(!ui.stepEntry)}>{t('pianoRoll.stepEntry')}</button
+      >
+      <span class="mode" data-testid="roll-letters" data-mode={lettersMode} title={t(`pianoRoll.lettersHint.${lettersMode}`)}
+        >{t(`pianoRoll.letters.${lettersMode}`)}</span
       >
       <span class="count" data-testid="roll-count" title={chosenNotes.length > 0 ? t('pianoRoll.selected', { n: chosenNotes.length }) : undefined}
         >{t('pianoRoll.count', { n: notes.length })}</span
@@ -2062,8 +2392,10 @@
     width: 24px;
     padding: 0;
   }
-  input[type='number'] {
+  input.bars {
     width: 52px;
+    min-width: 52px;
+    field-sizing: content;
     padding: 0 var(--fk-space-1);
     text-align: center;
   }
@@ -2084,8 +2416,17 @@
     white-space: nowrap;
     pointer-events: none;
   }
-  .count {
+  .mode {
     margin-left: auto;
+    white-space: nowrap;
+    color: var(--fk-text-muted);
+    font-size: 0.85em;
+  }
+  .mode[data-mode='write'] {
+    color: var(--fk-accent, var(--fk-text));
+    font-weight: 600;
+  }
+  .count {
     /* Notes only: the selection is in the title, so that a selection never widens the last line and wraps the toolbar (the grid would move). */
     white-space: nowrap;
     color: var(--fk-text-muted);

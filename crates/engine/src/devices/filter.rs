@@ -53,6 +53,8 @@
 //! as above: `cutoff` is the parameter (a knob, a command or an automation lane, smoothed as
 //! below), so **a lane moves the centre and the movement swings around it**.
 //!
+//! The movement is the shared block [`crate::dsp::movement`] (also Ripple's, #688):
+//!
 //! - **LFO** ([`crate::dsp::lfo`]): `lfo_shape` (sine, triangle, saw up, saw down, square,
 //!   random), `lfo_sync` free (`lfo_rate` in hertz) or synced (`lfo_division`, a note value,
 //!   its phase the transport's position: a cycle starts on the same tick at each pass of a
@@ -99,11 +101,12 @@ use crate::device::{
     AudioIo, BlockCtx, Device, DeviceDescriptor, DeviceRole, DeviceSetup, Event, ParamDescriptor,
     Scale, Unit, event_frame,
 };
-use crate::dsp::envelope_follower::EnvelopeFollower;
-use crate::dsp::lfo::{self, DIVISION_KEYS, Lfo, SHAPE_KEYS, Shape};
+use crate::dsp::lfo::Shape;
+use crate::dsp::movement::{self, Ids, Movement};
 use crate::msg::{DeviceKind, MsgError, ParamId, try_box};
 use crate::param::Smoother;
-use crate::time::TimeSignature;
+
+pub use crate::dsp::movement::{DEPTH_MAX, MOD_SLEW_OCTAVES_PER_SECOND};
 
 /// Ids of the parameters (appended: the ids of DV-2, 0 to 3, never move).
 pub const MODE: u32 = 0;
@@ -146,17 +149,24 @@ pub const DRIVE_MAX: f32 = 16.0;
 /// A drive at or below this is none: the stage is skipped (its gain `sqrt(1 + a) / a` would
 /// overflow on a vanishing drive).
 pub const DRIVE_FLOOR: f32 = 1e-6;
-/// Fastest move of the LFO's term of the cutoff, in octaves per second.
-pub const MOD_SLEW_OCTAVES_PER_SECOND: f32 = 2000.0;
-/// Deepest LFO and largest envelope amount, in octaves.
-pub const DEPTH_MAX: f64 = 5.0;
+/// The ids of the movement's parameters.
+const MOVEMENT: Ids = Ids {
+    shape: LFO_SHAPE,
+    sync: LFO_SYNC,
+    rate: LFO_RATE,
+    division: LFO_DIVISION,
+    phase: LFO_PHASE,
+    stereo: LFO_STEREO,
+    depth: LFO_DEPTH,
+    restart: LFO_RESTART,
+    amount: ENV_AMOUNT,
+    attack: ENV_ATTACK,
+    release: ENV_RELEASE,
+};
 
 /// The input is clamped to this magnitude; below [`DENORMAL_FLOOR`] it is flushed.
 const INPUT_LIMIT: f32 = 1e6;
 const DENORMAL_FLOOR: f32 = 1e-20;
-
-const VALUES_SYNC: &[&str] = &["free", "synced"];
-const VALUES_RESTART: &[&str] = &["off", "on"];
 
 /// The descriptor of the filter (CT-5): `faulk.filter`, displayed "Filter" (one English name,
 /// never translated). The defaults are the values of [`Filter::new`]: low-pass, 1 kHz, a
@@ -236,149 +246,55 @@ pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
             smoothing_seconds: 0.02,
             values: &[],
         },
-        ParamDescriptor {
-            id: ParamId(LFO_SHAPE),
-            key: "lfo_shape",
-            description: "Shape of the LFO that moves the cutoff: sine, triangle, rising saw, falling saw, square, or random (a new value at each cycle).",
-            unit: Unit::None,
-            min: 0.0,
-            max: 5.0,
-            default: 1.0,
-            scale: Scale::Linear,
-            step: 1.0,
-            smoothing_seconds: 0.0,
-            values: SHAPE_KEYS,
-        },
-        ParamDescriptor {
-            id: ParamId(LFO_SYNC),
-            key: "lfo_sync",
-            description: "Whether the LFO runs at its own rate in hertz (free) or follows the tempo (synced), each cycle on the same beat of every bar.",
-            unit: Unit::None,
-            min: 0.0,
-            max: 1.0,
-            default: 1.0,
-            scale: Scale::Linear,
-            step: 1.0,
-            smoothing_seconds: 0.0,
-            values: VALUES_SYNC,
-        },
-        ParamDescriptor {
-            id: ParamId(LFO_RATE),
-            key: "lfo_rate",
-            description: "Speed of the LFO in free mode, in cycles per second, from 0.01 to 20 Hz.",
-            unit: Unit::Hertz,
-            min: 0.01,
-            max: 20.0,
-            default: 1.0,
-            scale: Scale::Log,
-            step: 0.0,
-            smoothing_seconds: 0.0,
-            values: &[],
-        },
-        ParamDescriptor {
-            id: ParamId(LFO_DIVISION),
-            key: "lfo_division",
-            description: "Length of one LFO cycle in synced mode, a note value from 1/32 to 8 bars.",
-            unit: Unit::None,
-            min: 0.0,
-            max: 12.0,
-            default: 6.0,
-            scale: Scale::Linear,
-            step: 1.0,
-            smoothing_seconds: 0.0,
-            values: &DIVISION_KEYS,
-        },
-        ParamDescriptor {
-            id: ParamId(LFO_PHASE),
-            key: "lfo_phase",
-            description: "Where in its cycle the LFO starts, from 0 to 360 degrees: in synced mode, where in the bar the cutoff peaks.",
-            unit: Unit::Degrees,
-            min: 0.0,
-            max: 360.0,
-            default: 0.0,
-            scale: Scale::Linear,
-            step: 0.0,
-            smoothing_seconds: 0.0,
-            values: &[],
-        },
-        ParamDescriptor {
-            id: ParamId(LFO_STEREO),
-            key: "lfo_stereo",
-            description: "Offset of the right channel's LFO, from 0 to 180 degrees: at 180 the two channels open in opposition.",
-            unit: Unit::Degrees,
-            min: 0.0,
-            max: 180.0,
-            default: 0.0,
-            scale: Scale::Linear,
-            step: 0.0,
-            smoothing_seconds: 0.0,
-            values: &[],
-        },
-        ParamDescriptor {
-            id: ParamId(LFO_DEPTH),
-            key: "lfo_depth",
-            description: "How far the LFO moves the cutoff either side of its centre, in octaves, from 0 (no movement) to 5.",
-            unit: Unit::Octaves,
-            min: 0.0,
-            max: DEPTH_MAX,
-            default: 0.0,
-            scale: Scale::Linear,
-            step: 0.0,
-            smoothing_seconds: 0.02,
-            values: &[],
-        },
-        ParamDescriptor {
-            id: ParamId(LFO_RESTART),
-            key: "lfo_restart",
-            description: "In free mode, whether the LFO starts again from its phase each time playback starts (on) or runs on freely (off).",
-            unit: Unit::None,
-            min: 0.0,
-            max: 1.0,
-            default: 1.0,
-            scale: Scale::Linear,
-            step: 1.0,
-            smoothing_seconds: 0.0,
-            values: VALUES_RESTART,
-        },
-        ParamDescriptor {
-            id: ParamId(ENV_AMOUNT),
-            key: "env_amount",
-            description: "How far the level of the incoming sound moves the cutoff, in octaves at full level, from -5 (louder closes) to +5 (louder opens); 0 for none.",
-            unit: Unit::Octaves,
-            min: -DEPTH_MAX,
-            max: DEPTH_MAX,
-            default: 0.0,
-            scale: Scale::Linear,
-            step: 0.0,
-            smoothing_seconds: 0.02,
-            values: &[],
-        },
-        ParamDescriptor {
-            id: ParamId(ENV_ATTACK),
-            key: "env_attack",
-            description: "Time the envelope follower takes to rise with the sound, from 1 ms to 500 ms.",
-            unit: Unit::Seconds,
-            min: 0.001,
-            max: 0.5,
-            default: 0.01,
-            scale: Scale::Log,
-            step: 0.0,
-            smoothing_seconds: 0.0,
-            values: &[],
-        },
-        ParamDescriptor {
-            id: ParamId(ENV_RELEASE),
-            key: "env_release",
-            description: "Time the envelope follower takes to fall back when the sound gets quieter, from 10 ms to 2 s.",
-            unit: Unit::Seconds,
-            min: 0.01,
-            max: 2.0,
-            default: 0.15,
-            scale: Scale::Log,
-            step: 0.0,
-            smoothing_seconds: 0.0,
-            values: &[],
-        },
+        movement::lfo_shape(
+            LFO_SHAPE,
+            "Shape of the LFO that moves the cutoff: sine, triangle, rising saw, falling saw, square, or random (a new value at each cycle).",
+            Shape::Triangle,
+        ),
+        movement::lfo_sync(
+            LFO_SYNC,
+            "Whether the LFO runs at its own rate in hertz (free) or follows the tempo (synced), each cycle on the same beat of every bar.",
+            true,
+        ),
+        movement::lfo_rate(
+            LFO_RATE,
+            "Speed of the LFO in free mode, in cycles per second, from 0.01 to 20 Hz.",
+            1.0,
+        ),
+        movement::lfo_division(
+            LFO_DIVISION,
+            "Length of one LFO cycle in synced mode, a note value from 1/32 to 8 bars.",
+            6,
+        ),
+        movement::lfo_phase(
+            LFO_PHASE,
+            "Where in its cycle the LFO starts, from 0 to 360 degrees: in synced mode, where in the bar the cutoff peaks.",
+        ),
+        movement::lfo_stereo(
+            LFO_STEREO,
+            "Offset of the right channel's LFO, from 0 to 180 degrees: at 180 the two channels open in opposition.",
+        ),
+        movement::lfo_depth(
+            LFO_DEPTH,
+            "How far the LFO moves the cutoff either side of its centre, in octaves, from 0 (no movement) to 5.",
+            0.0,
+        ),
+        movement::lfo_restart(
+            LFO_RESTART,
+            "In free mode, whether the LFO starts again from its phase each time playback starts (on) or runs on freely (off).",
+        ),
+        movement::env_amount(
+            ENV_AMOUNT,
+            "How far the level of the incoming sound moves the cutoff, in octaves at full level, from -5 (louder closes) to +5 (louder opens); 0 for none.",
+        ),
+        movement::env_attack(
+            ENV_ATTACK,
+            "Time the envelope follower takes to rise with the sound, from 1 ms to 500 ms.",
+        ),
+        movement::env_release(
+            ENV_RELEASE,
+            "Time the envelope follower takes to fall back when the sound gets quieter, from 10 ms to 2 s.",
+        ),
     ],
 };
 
@@ -487,19 +403,6 @@ fn drive(x: f32, a: f32, gain: f32) -> f32 {
     (a * x).tanh() * gain
 }
 
-/// The settings of the LFO that are not ramped.
-#[derive(Clone, Copy, Debug)]
-struct LfoSettings {
-    shape: Shape,
-    synced: bool,
-    rate_hz: f32,
-    division: u32,
-    /// `lfo_phase` and `lfo_stereo`, in cycles.
-    phase: f64,
-    stereo: f64,
-    restart: bool,
-}
-
 #[derive(Debug)]
 pub struct Filter {
     sample_rate: f32,
@@ -508,8 +411,6 @@ pub struct Filter {
     resonance: Smoother,
     mix: Smoother,
     drive: Smoother,
-    depth: Smoother,
-    amount: Smoother,
     /// The weights of the low-pass, the high-pass, the band-pass and the notch outputs.
     weight: [Smoother; 4],
     mode_frames: u32,
@@ -521,15 +422,8 @@ pub struct Filter {
     stale: bool,
     left: Channel,
     right: Channel,
-    lfo: Lfo,
-    settings: LfoSettings,
-    /// The time signature of the block (a division in bars).
-    signature: TimeSignature,
-    env: EnvelopeFollower,
-    /// The LFO's term of each channel after the slew limit, in octaves.
-    swing: [f32; 2],
-    /// The limiter takes the LFO's value at once on the next frame (module doc).
-    snap_swing: bool,
+    /// The LFO and the envelope follower that move the cutoff.
+    movement: Movement,
     /// The resonance the cached damping was computed for, and that damping.
     damping_of: f32,
     k: f32,
@@ -560,8 +454,6 @@ impl Filter {
             resonance: Smoother::new(resonance),
             mix: Smoother::new(default(MIX) as f32),
             drive: Smoother::new(default(DRIVE) as f32),
-            depth: Smoother::new(default(LFO_DEPTH) as f32),
-            amount: Smoother::new(default(ENV_AMOUNT) as f32),
             weight: w.map(Smoother::new),
             mode_frames,
             ramp_frames,
@@ -569,24 +461,7 @@ impl Filter {
             stale: false,
             left: Channel::default(),
             right: Channel::default(),
-            lfo: Lfo::new(),
-            settings: LfoSettings {
-                shape: Shape::from_index(default(LFO_SHAPE) as u32),
-                synced: default(LFO_SYNC) >= 0.5,
-                rate_hz: default(LFO_RATE) as f32,
-                division: default(LFO_DIVISION) as u32,
-                phase: default(LFO_PHASE) / 360.0,
-                stereo: default(LFO_STEREO) / 360.0,
-                restart: default(LFO_RESTART) >= 0.5,
-            },
-            signature: TimeSignature::COMMON,
-            env: EnvelopeFollower::new(
-                default(ENV_ATTACK) as f32,
-                default(ENV_RELEASE) as f32,
-                sample_rate,
-            ),
-            swing: [0.0; 2],
-            snap_swing: true,
+            movement: Movement::new(&DESCRIPTOR, &MOVEMENT, sample_rate),
             damping_of: resonance,
             k: damping(resonance),
             effective: [clamp_cutoff(cutoff, sample_rate); 2],
@@ -601,7 +476,6 @@ impl Filter {
             return;
         };
         let ramp = self.ramp_frames;
-        let s = &mut self.settings;
         match id.0 {
             MODE => {
                 let w = weights(value.round() as u32);
@@ -619,18 +493,10 @@ impl Filter {
             }
             MIX => self.mix.set(value, ramp),
             DRIVE => self.drive.set(value, ramp),
-            LFO_SHAPE => s.shape = Shape::from_index(value.round() as u32),
-            LFO_SYNC => s.synced = value >= 0.5,
-            LFO_RATE => s.rate_hz = value,
-            LFO_DIVISION => s.division = value.round() as u32,
-            LFO_PHASE => s.phase = f64::from(value) / 360.0,
-            LFO_STEREO => s.stereo = f64::from(value) / 360.0,
-            LFO_DEPTH => self.depth.set(value, ramp),
-            LFO_RESTART => s.restart = value >= 0.5,
-            ENV_AMOUNT => self.amount.set(value, ramp),
-            ENV_ATTACK => self.env.set_attack(value, self.sample_rate),
-            ENV_RELEASE => self.env.set_release(value, self.sample_rate),
-            _ => {}
+            other => {
+                self.movement
+                    .set(&MOVEMENT, other, value, ramp, self.sample_rate);
+            }
         }
     }
 
@@ -649,9 +515,6 @@ impl Filter {
     /// Renders the frames of `left` and `right` (same length).
     fn render(&mut self, left: &mut [f32], right: &mut [f32]) {
         let sr = self.sample_rate;
-        let slew = MOD_SLEW_OCTAVES_PER_SECOND / sr;
-        let s = self.settings;
-        let period = lfo::division_ticks(s.division, self.signature);
         for (l, r) in left.iter_mut().zip(right.iter_mut()) {
             let moving = !self.cutoff.is_still() || !self.resonance.is_still();
             let cutoff = self.cutoff.next_value();
@@ -659,32 +522,10 @@ impl Filter {
             let mix = self.mix.next_value().clamp(0.0, 1.0);
             let [wl, wh, wb, wn] = self.weight.each_mut().map(Smoother::next_value);
             let drive_amount = self.drive.next_value();
-            let depth = self.depth.next_value();
-            let amount = self.amount.next_value();
             let (dry_l, dry_r) = (sanitize(*l), sanitize(*r));
 
             // The movement, in octaves.
-            let env = self.env.next(dry_l.abs().max(dry_r.abs()));
-            let target = if depth > 0.0 {
-                let base = self.lfo.phase(s.synced, period) + s.phase;
-                [
-                    lfo::value(s.shape, base) * depth,
-                    lfo::value(s.shape, base + s.stereo) * depth,
-                ]
-            } else {
-                [0.0; 2]
-            };
-            if self.snap_swing {
-                self.swing = target;
-                self.snap_swing = false;
-            } else {
-                for (swing, t) in self.swing.iter_mut().zip(target) {
-                    *swing += (t - *swing).clamp(-slew, slew);
-                }
-            }
-            self.lfo.advance(s.rate_hz, sr);
-            let e = env * amount;
-            let m = [self.swing[0] + e, self.swing[1] + e];
+            let m = self.movement.next(dry_l.abs().max(dry_r.abs()), sr);
 
             if m[0] != 0.0 || m[1] != 0.0 {
                 if resonance != self.damping_of {
@@ -740,14 +581,7 @@ impl Device for Filter {
     /// ([`event_frame`]).
     fn process(&mut self, ctx: &BlockCtx, events: &[Event], io: &mut AudioIo<'_>) {
         let frames = (ctx.frames as usize).min(io.left.len()).min(io.right.len());
-        let s = self.settings;
-        if self
-            .lfo
-            .begin(&ctx.transport, self.sample_rate, s.restart && !s.synced)
-        {
-            self.snap_swing = true;
-        }
-        self.signature = ctx.transport.signature;
+        self.movement.begin(&ctx.transport, self.sample_rate);
         let mut cursor = 0;
         for event in events {
             let at = event_frame(event.offset(), cursor, frames);
@@ -777,15 +611,10 @@ impl Device for Filter {
         self.resonance.snap();
         self.mix.snap();
         self.drive.snap();
-        self.depth.snap();
-        self.amount.snap();
         for w in &mut self.weight {
             w.snap();
         }
-        self.lfo.reset();
-        self.env.reset();
-        self.swing = [0.0; 2];
-        self.snap_swing = true;
+        self.movement.reset();
         let c = Coefficients::new(
             self.cutoff.current(),
             self.resonance.current(),

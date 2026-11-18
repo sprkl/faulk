@@ -1,7 +1,8 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { expect, test, type Page } from '@playwright/test'
+import { protoInputs, protoStale, writeStamp } from '../../scripts/proto-stale'
 import { ceiling, withStableClock } from './support'
 
 // CT-3 (#39): the two ways of § 2.3 for the project → engine channel in the browser, measured
@@ -26,28 +27,15 @@ test.describe.configure({ mode: 'serial' })
 // under the dev project only (the preview project would repeat it on a busier machine).
 test.skip(({ browserName }) => Boolean(browserName) && test.info().project.name !== 'dev', 'measured once, under the dev project')
 
-/** Newest modification time under a directory (the crate's sources and manifest). */
-function newest(dir: string): number {
-  let t = 0
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === 'target') continue
-    const path = `${dir}/${entry.name}`
-    t = Math.max(t, entry.isDirectory() ? newest(path) : statSync(path).mtimeMs)
-  }
-  return t
-}
-
 test.beforeAll(() => {
-  // Build the prototype when its artefacts are missing or older than the crate or the
-  // engine crates it depends on; a fresh checkout in CI builds once.
-  const outputs = [`${build}plain.wasm`, `${build}shared.wasm`]
-  const crates = fileURLToPath(new URL('../../../crates/', import.meta.url))
-  const sources = [`${proto}crate`, `${crates}engine`, `${crates}engine-wasm`]
-  const stale = outputs.some((o) => !existsSync(o)) || Math.min(...outputs.map((o) => statSync(o).mtimeMs)) < Math.max(...sources.map(newest))
-  if (stale) {
+  // Build the prototype when its artefacts are missing or older than the crate, the engine
+  // crates it depends on, or built with another rust-toolchain.toml (#873); a fresh checkout in CI builds once.
+  const { outputs, sources, toolchain, stamp } = protoInputs()
+  if (protoStale(outputs, sources, toolchain, stamp)) {
     execFileSync(process.execPath, [fileURLToPath(new URL('../../scripts/build-proto.mjs', import.meta.url))], {
       stdio: 'inherit',
     })
+    writeStamp(toolchain, stamp)
   }
 })
 
@@ -420,6 +408,10 @@ test.describe('CT-3: the project → engine channel in the browser', () => {
     await page.goto('/app')
     const result = await page.evaluate(async () => {
       const wasi = () => ({
+        // wasi-libc's futex wait links it (Rust 1.100, #846) and never calls it; it reads no clock.
+        clock_time_get: () => {
+          throw new Error('clock_time_get called (#846)')
+        },
         environ_get: () => 0,
         environ_sizes_get: () => 0,
         fd_write: () => 0,

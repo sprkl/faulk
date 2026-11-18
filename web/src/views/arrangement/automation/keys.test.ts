@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { AutomationTarget, Track } from '../../../lib/generated/protocol'
+import type { AutomationTarget, Shape, Track } from '../../../lib/generated/protocol'
 import { MAX_TICK } from '../arrangement'
-import { POINT_CODE, RAMP_CODE, entryIndex, goIndex, laneKey, nudgedTick, pointKey, rampPlan, shapeAt, stepValue } from './keys'
+import { CURVE_CODE, POINT_CODE, RAMP_CODE, entryIndex, goIndex, laneKey, nextShape, nudgedTick, pointKey, rampPlan, shapeAt, stepValue } from './keys'
 import { PLAYING_KEYS } from '../../../lib/keyboard'
 import { axisOf, type Axis, type Labels, type LanePoint } from './model'
 
@@ -16,7 +16,7 @@ const volume = axis({ mixer: { param: 'gain' } })
 
 const key = (k: string, extra: Partial<KeyboardEvent> = {}) =>
   ({ key: k, code: '', altKey: false, ctrlKey: false, metaKey: false, shiftKey: false, repeat: false, isComposing: false, ...extra }) as KeyboardEvent
-const pts = (...rows: [number, number, ('linear' | 'step')?][]): LanePoint[] => rows.map(([tick, value, shape]) => ({ tick, value, shape: shape ?? 'linear' }))
+const pts = (...rows: [number, number, Shape?][]): LanePoint[] => rows.map(([tick, value, shape]) => ({ tick, value, shape: shape ?? 'linear' }))
 
 describe('the keys of a lane (#769)', () => {
   it('I (or Insert) adds a point at the playhead and R opens the ramp, by position, on the head and on a point', () => {
@@ -63,6 +63,29 @@ describe('the keys of a lane (#769)', () => {
     expect(pointKey(key('ArrowLeft', { shiftKey: true }))).toBeNull()
     expect(pointKey(key('ArrowRight', { altKey: true, shiftKey: true }))).toBeNull()
     expect(pointKey(key('ArrowUp'))).toBeNull()
+  })
+
+  it('C gives a point the next curve and Shift+C the previous one, by position, with no other modifier and no repeat (#881)', () => {
+    expect(pointKey(key('c', { code: 'KeyC' }))).toEqual({ kind: 'curve', direction: 1 })
+    expect(pointKey(key('C', { code: 'KeyC', shiftKey: true }))).toEqual({ kind: 'curve', direction: -1 })
+    // By position: the key in the place of C on any layout.
+    expect(pointKey(key('ç', { code: 'KeyC' }))).toEqual({ kind: 'curve', direction: 1 })
+    expect(pointKey(key('c', { code: 'KeyV' }))).toBeNull()
+    for (const extra of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }, { repeat: true }, { isComposing: true }]) {
+      expect(pointKey(key('c', { code: 'KeyC', ...extra })), JSON.stringify(extra)).toBeNull()
+    }
+    // Not on the lane's head: a curve belongs to a point.
+    expect(laneKey(key('c', { code: 'KeyC' }))).toBeNull()
+  })
+
+  it('cycles the curves in the order of the list, round both ends', () => {
+    expect(nextShape('linear', 1)).toBe('step')
+    expect(nextShape('step', 1)).toBe('ease_in')
+    expect(nextShape('ease_in', 1)).toBe('ease_out')
+    expect(nextShape('ease_out', 1)).toBe('smooth')
+    expect(nextShape('smooth', 1)).toBe('linear')
+    expect(nextShape('linear', -1)).toBe('smooth')
+    expect(nextShape('ease_in', -1)).toBe('step')
   })
 })
 
@@ -155,6 +178,17 @@ describe('a ramp (one automation.points.restore)', () => {
       { tick: 4 * 3840, value: 0, shape: 'step' },
     ])
   })
+  it('gives the earlier point the curve asked, whichever end the playhead is (#881)', () => {
+    const points = pts([0, 0], [1920, 1, 'step'])
+    expect(rampPlan(points, { tick: 480, value: 0.1 }, { tick: 3840, value: 0.9 }, 'ease_in')?.points).toEqual([
+      { tick: 480, value: 0.1, shape: 'ease_in' },
+      { tick: 3840, value: 0.9, shape: 'step' },
+    ])
+    expect(rampPlan(points, { tick: 3840, value: 0.9 }, { tick: 480, value: 0.1 }, 'smooth')?.points).toEqual([
+      { tick: 480, value: 0.1, shape: 'smooth' },
+      { tick: 3840, value: 0.9, shape: 'step' },
+    ])
+  })
   it('is no ramp on one tick, and writes two points in an empty lane', () => {
     expect(rampPlan([], { tick: 10, value: 0 }, { tick: 10, value: 1 })).toBeNull()
     expect(rampPlan([], { tick: 0, value: 0 }, { tick: 10, value: 1 })?.points).toHaveLength(2)
@@ -169,9 +203,12 @@ describe('the curve of a new point', () => {
     expect(shapeAt(points, 2000)).toBe('linear')
     expect(shapeAt(points, 0)).toBe('linear')
     expect(shapeAt([], 0)).toBe('linear')
+    // Inside a curve: the curve, split in two (#881).
+    expect(shapeAt(pts([0, 0, 'smooth'], [960, 1]), 480)).toBe('smooth')
   })
-  it('I and R play nothing (UI-3: a letter plays or it is a shortcut)', () => {
+  it('I, R and C play nothing (UI-3: a letter plays or it is a shortcut)', () => {
     expect(PLAYING_KEYS).not.toContain(POINT_CODE)
     expect(PLAYING_KEYS).not.toContain(RAMP_CODE)
+    expect(PLAYING_KEYS).not.toContain(CURVE_CODE)
   })
 })

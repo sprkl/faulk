@@ -175,7 +175,8 @@ the sound), exactly as if the user did it: it appears in the page's history and 
 there. Your consecutive edits are one entry of that history, your turn, which one undo undoes \
 whole; the turn ends when the user or another agent edits, after an undo or a redo, and after \
 30 s without an edit of yours. A history group you open with `history_begin_group` blocks undo \
-for everyone until you end it with `history_end_group`; the page closes it for you when you \
+for everyone until you end it with `history_end_group` (or take its edits back with \
+`history_abort_group`); the page closes it for you when you \
 leave (your MCP session ends, or 5 minutes pass without a request of yours) and when the page \
 loses its link to this helper. A destructive tool (annotation `destructiveHint`: it cannot be \
 undone) and the tools that replace the open project, delete a project kept in the browser or \
@@ -345,6 +346,29 @@ fn refusal(status: StatusCode) -> Response<Body> {
     response
 }
 
+/// How much of a refused request's body is read before answering, and for how long (#815).
+const DRAIN_LIMIT: usize = 1 << 20;
+const DRAIN_TIME: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Reads the body of a request that is about to be refused. Answering and closing before the
+/// client has sent its body makes the close a reset, and on Windows a reset throws away the
+/// answer the client has not read yet ("connection aborted", os error 10053): the stdio bridge
+/// then told the agent that the helper was not running instead of that its token was wrong
+/// (#815). A body that is too long or too slow is left unread: that client gets the reset.
+async fn drain(mut body: Incoming) {
+    use http_body_util::BodyExt;
+    let read = async {
+        let mut read = 0usize;
+        while let Some(Ok(frame)) = body.frame().await {
+            read += frame.data_ref().map_or(0, Bytes::len);
+            if read > DRAIN_LIMIT {
+                break;
+            }
+        }
+    };
+    let _ = tokio::time::timeout(DRAIN_TIME, read).await;
+}
+
 /// Serves one HTTP connection to the MCP server: each request is checked, then given to it.
 pub async fn serve_connection(stream: TcpStream, shared: Arc<Shared>, mcp: &McpHttp) {
     let mcp = mcp.0.clone();
@@ -362,9 +386,13 @@ pub async fn serve_connection(stream: TcpStream, shared: Arc<Shared>, mcp: &McpH
         async move {
             match check {
                 Ok(()) if on_path => mcp.call(request).await,
-                Ok(()) => Ok(refusal(StatusCode::NOT_FOUND)),
+                Ok(()) => {
+                    drain(request.into_body()).await;
+                    Ok(refusal(StatusCode::NOT_FOUND))
+                }
                 Err(why) => {
                     crate::log!("refused an MCP request: {why:?}");
+                    drain(request.into_body()).await;
                     let status = match why {
                         McpRefusal::BadToken | McpRefusal::NoToken => StatusCode::UNAUTHORIZED,
                         McpRefusal::BadHost | McpRefusal::Origin => StatusCode::FORBIDDEN,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Project } from './generated/protocol'
-import { freeScene, gridCommand, placeCommand, poolNames, poolOf } from './clip-pool'
+import { freeScene, gridCommand, newClipAt, passTicks, placeBlocker, placeCommand, poolNames, poolOf } from './clip-pool'
 
 const midi = (name: string, slot: string | null = null) => ({
   name,
@@ -36,14 +36,28 @@ describe('the clip pool (#473)', () => {
   it('places a clip used nowhere itself, and copies a used one unless linked (founder decision 11)', () => {
     const [arr, loose, both, grid] = poolOf(project, 't')
     expect(placeCommand(loose!, 960, false)).toEqual({ type: 'arrangement.place', clip: 'loose', start: 960 })
-    // A start inside the source placement: the copy goes right after it, never over it.
-    expect(placeCommand(arr!, 960, false)).toEqual({ type: 'arrangement.duplicate', placements: ['p0'], linked: false, by: 3840 })
-    expect(placeCommand(arr!, 19200, false)).toEqual({ type: 'arrangement.duplicate', placements: ['p0'], linked: false, by: 19200 })
+    // One independent pass of the clip at the start, whatever the length of its placements (#933).
+    expect(placeCommand(arr!, 960, false)).toEqual({ type: 'arrangement.place', clip: 'arr', start: 960, copy: true })
+    expect(placeCommand(arr!, 19200, false)).toEqual({ type: 'arrangement.place', clip: 'arr', start: 19200, copy: true })
     expect(placeCommand(arr!, 960, true)).toEqual({ type: 'arrangement.place', clip: 'arr', start: 960 })
-    // At its own start, a copy goes right after its source, never onto it.
-    expect(placeCommand(arr!, 0, false)).toEqual({ type: 'arrangement.duplicate', placements: ['p0'], linked: false, by: 3840 })
+    expect(placeCommand(arr!, 0, false)).toEqual({ type: 'arrangement.place', clip: 'arr', start: 0, copy: true })
     expect(placeCommand(grid!, 960, false)).toEqual({ type: 'arrangement.place_from_slot', clip: 'grid', start: 960, linked: false })
     expect(placeCommand(both!, 960, true)).toEqual({ type: 'arrangement.place_from_slot', clip: 'both', start: 960, linked: true })
+  })
+
+  it('sends the refusal to carve nothing when the buttons ask for it, for every command it picks (#805)', () => {
+    const [arr, loose, both, grid] = poolOf(project, 't')
+    expect(placeCommand(loose!, 960, false, 'refuse')).toEqual({ type: 'arrangement.place', clip: 'loose', start: 960, if_occupied: 'refuse' })
+    expect(placeCommand(arr!, 19200, false, 'refuse')).toEqual({
+      type: 'arrangement.place',
+      clip: 'arr',
+      start: 19200,
+      copy: true,
+      if_occupied: 'refuse',
+    })
+    expect(placeCommand(arr!, 960, true, 'refuse')).toEqual({ type: 'arrangement.place', clip: 'arr', start: 960, if_occupied: 'refuse' })
+    expect(placeCommand(grid!, 960, false, 'refuse')).toMatchObject({ type: 'arrangement.place_from_slot', if_occupied: 'refuse' })
+    expect(placeCommand(both!, 960, true, 'refuse')).toMatchObject({ type: 'arrangement.place_from_slot', if_occupied: 'refuse' })
   })
 
   it('puts a clip used nowhere in a slot itself, and copies a used one unless linked', () => {
@@ -95,13 +109,50 @@ describe('the clip pool (#473)', () => {
     const [entry] = poolOf(placed, 'a')
     // One second at 120 bpm is 1920 ticks.
     expect(entry!.placements).toEqual([{ id: 'p', start: 0, length: 1920 }])
-    // A copy at the playhead inside the placement goes right after it.
-    expect(placeCommand(entry!, 960, false)).toMatchObject({ type: 'arrangement.duplicate', placements: ['p'], linked: false, by: 1920 })
+    // A copy is one pass of the clip (its 2 seconds, 3840 ticks), wherever it is put.
+    expect(placeCommand(entry!, 960, false)).toMatchObject({ type: 'arrangement.place', clip: 'c', start: 960, copy: true })
+    expect(passTicks(entry!, 120)).toBe(3840)
+  })
+
+  it('names the placement that one pass of a clip would cover, the earliest, or none (#933)', () => {
+    const pool = poolOf(project, 't')
+    const [arr, loose] = pool
+    // `arr` is placed at 0 and 7680, 3840 long; one pass of `loose` (3840) at 3840 touches neither.
+    expect(placeBlocker(pool, loose!, 3840, 120)).toBeNull()
+    expect(placeBlocker(pool, loose!, 3841, 120)).toEqual({ name: 'Bass 1', start: 7680, end: 11520 })
+    expect(placeBlocker(pool, loose!, 1920, 120)).toEqual({ name: 'Bass 1', start: 0, end: 3840 })
+    expect(placeBlocker(pool, arr!, 11520, 120)).toBeNull()
   })
 
   it('finds the first free slot of the track in scene order', () => {
     expect(freeScene(project, 't')).toBeNull()
     const more = { ...project, scenes: { ...project.scenes, s0: { name: 'Scene 0', order: 'Zz' }, s3: { name: 'Scene 3', order: 'a2' } } }
     expect(freeScene(more, 't')).toBe('s0')
+  })
+})
+
+describe('a new empty clip at a bar (#852)', () => {
+  const tracks = {
+    tracks: {
+      m: { kind: 'midi', clips: { a: midi('A') }, placements: { p: placed('a', 7680) } },
+      empty: { kind: 'midi', clips: {}, placements: {} },
+      au: { kind: 'audio', clips: {}, placements: {} },
+    },
+  } as unknown as Pick<Project, 'tracks'>
+
+  it('creates the clip on a free bar, an empty track included', () => {
+    expect(newClipAt(tracks, 'empty', 0, 3840)).toEqual({ command: { type: 'clip.create', track: 'empty', at: { at: 'arrangement', start: 0 }, length: 3840 } })
+    expect(newClipAt(tracks, 'm', 3840, 3840)).toHaveProperty('command')
+    // Touching is not overlapping.
+    expect(newClipAt(tracks, 'm', 11520, 3840)).toHaveProperty('command')
+  })
+
+  it('never overwrites a placement', () => {
+    for (const start of [7680, 7680 + 960, 7680 - 960]) expect(newClipAt(tracks, 'm', start, 3840), String(start)).toEqual({ refused: 'noRoom' })
+  })
+
+  it('refuses an audio track and an unknown one', () => {
+    expect(newClipAt(tracks, 'au', 0, 3840)).toEqual({ refused: 'notMidi' })
+    expect(newClipAt(tracks, 'nope', 0, 3840)).toEqual({ refused: 'notMidi' })
   })
 })

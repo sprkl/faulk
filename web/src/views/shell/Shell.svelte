@@ -8,7 +8,7 @@
   import { onMount } from 'svelte'
   import { watchLocalAccess } from '../../lib/engine/local-access'
   import { isMenuKey, menuPointOf, unhandledContextMenu } from '../../lib/context-menu'
-  import { browserShortcut, gotoShortcut, historyShortcut, isTextTarget, layoutShortcut, saveShortcut } from '../../lib/keyboard'
+  import { browserShortcut, gotoShortcut, historyShortcut, isTextTarget, layoutShortcut, paletteShortcut, saveShortcut } from '../../lib/keyboard'
   import { takeOpenLink } from '../../lib/open-link'
   import { isPairHash } from '../../lib/pair-link'
   import { helpShortcut, readKeyLayout } from '../../lib/shortcuts'
@@ -19,7 +19,8 @@
   import ContextMenu from '../../lib/components/ContextMenu.svelte'
   import BottomPanel from './BottomPanel.svelte'
   import BrowserPanel from '../browser/BrowserPanel.svelte'
-  import { clampHeight, panelMax } from './panel-size'
+  import { clampHeight, panelMax, panelMin } from './panel-size'
+  import CommandPalette from './CommandPalette.svelte'
   import EngineDialog from './EngineDialog.svelte'
   import ExportDialog from './ExportDialog.svelte'
   import GoToDialog from './GoToDialog.svelte'
@@ -37,6 +38,12 @@
 
   const current = $derived(viewById(ui.view) ?? viewById(DEFAULT_VIEW)!)
 
+  // The Master view of the devices panel ends as soon as the selection leaves the track it was chosen on, by whatever
+  // path (undo, deletion, keyboard), so that selecting that track again later never brings it back (#806).
+  $effect(() => {
+    if (ui.masterSelection !== null && ui.masterSelection !== (project.selected?.id ?? '')) ui.masterSelection = null
+  })
+
   // Each project comes back with its layout (#473): the view, the zoom and scroll, the open lanes, the lane heights.
   const isMainView = (id: string): id is MainViewId => viewById(id)?.place === 'main'
   $effect(() => ui.useProject(project.view?.project.id ?? null, isMainView))
@@ -48,10 +55,10 @@
     ui.panelFolded
       ? 'auto'
       : ui.panelMaximized && bodyHeight > 0
-        ? `${panelMax(ui.panel, bodyHeight)}px`
+        ? `${panelMax(ui.panel, bodyHeight, ui.rollToolbarExtra)}px`
         : stored === undefined
           ? undefined
-          : `${bodyHeight > 0 ? clampHeight(ui.panel, stored, bodyHeight) : stored}px`,
+          : `${bodyHeight > 0 ? clampHeight(ui.panel, stored, bodyHeight, ui.rollToolbarExtra) : stored}px`,
   )
 
   onMount(() => {
@@ -196,6 +203,17 @@
         return
       }
     }
+    // Ctrl+K opens the command palette in every view (#108), unless another dialog or a menu has the keyboard.
+    if (
+      paletteShortcut(event) &&
+      !ui.helpOpen &&
+      !document.querySelector('[aria-modal="true"]') &&
+      !(event.target as Element | null)?.closest?.('[role="menu"]')
+    ) {
+      event.preventDefault()
+      ui.paletteOpen = true
+      return
+    }
     // Ctrl+G opens the "Go to" field in every view (#554), unless another dialog or a menu has the keyboard.
     if (
       gotoShortcut(event) &&
@@ -283,12 +301,23 @@
   <EngineDialog />
   <ShortcutsDialog />
   <GoToDialog />
+  <CommandPalette />
   <SaveAsDialog />
   {#if engine.notice}
     <p class="notice" role="status">{ui.t(engine.notice)}</p>
   {/if}
   {#if engine.streamError}
     <p class="notice" role="alert" data-testid="stream-error">{ui.t('engine.streamError')}</p>
+  {/if}
+  <!-- The output stopped pulling the Web engine (#810): the position and the meters are frozen, the page says why. -->
+  {#if engine.mode === 'web' && engine.outputStalled}
+    <p class="notice" role="status" data-testid="no-output-notice">{ui.t('engine.noOutput')}</p>
+  {:else if engine.mode === 'web' && engine.engineStalled}
+    <!-- The engine stopped responding while the output pulls it (#877); a stalled output says more, so it wins above. -->
+    <p class="notice notice-action" role="status" data-testid="engine-stall-notice">
+      <span>{ui.t('engine.notResponding')}</span>
+      <button disabled={engine.starting} onclick={() => void dispatcher.restartWeb()}>{ui.t('engine.restart')}</button>
+    </p>
   {/if}
 
   {#if engine.pendingPairCode && !engine.started && !ui.engineOpen}
@@ -301,13 +330,20 @@
     {@const text = ui.t(engine.refusal.key, { ...engine.refusal.vars, what: engine.refusal.whatKey ? ui.t(engine.refusal.whatKey) : '' })}
     <p class="toast" role="status" data-testid="refusal-toast">{engine.refusal.count > 1 ? ui.t('refusal.count', { text, n: engine.refusal.count }) : text}</p>
   {/if}
-  <div class="body" data-panel={ui.panel} data-browser={ui.browserOpen ? '' : undefined} bind:clientHeight={bodyHeight} style:--panel-row={panelRow}>
+  <div
+    class="body"
+    data-panel={ui.panel}
+    data-browser={ui.browserOpen ? '' : undefined}
+    bind:clientHeight={bodyHeight}
+    style:--panel-row={panelRow}
+    style:--roll-min="{panelMin('piano-roll', ui.rollToolbarExtra)}px"
+  >
     <TrackList />
     {#if ui.browserOpen}<BrowserPanel onclose={closeBrowser} />{/if}
     <main class="main" id="fk-main" tabindex="-1" bind:this={mainArea} aria-label={ui.t(current.label)} data-testid="view" data-view={current.id}>
       {#key ui.layoutRev}<current.component />{/key}
     </main>
-    <BottomPanel max={panelMax(ui.panel, bodyHeight)} />
+    <BottomPanel max={panelMax(ui.panel, bodyHeight, ui.rollToolbarExtra)} />
   </div>
 </div>
 
@@ -349,6 +385,12 @@
     border-bottom: 1px solid var(--fk-line);
     background: var(--fk-surface);
   }
+  .notice-action {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--fk-space-2) var(--fk-space-3);
+  }
   /* A refusal of the core: temporary, over the page, never in the way of a click. */
   .toast {
     position: fixed;
@@ -378,7 +420,7 @@
   /* The piano roll needs rows to draw in: its panel takes more of the height than the device panel. */
   .body[data-panel='piano-roll'] {
     /* In fr, not %: a percentage track resolves to its content height here and pushes the roll's lane off the screen. */
-    grid-template-rows: minmax(0, 1fr) var(--panel-row, minmax(392px, 1.2fr));
+    grid-template-rows: minmax(0, 1fr) var(--panel-row, minmax(var(--roll-min, 392px), 1.2fr));
   }
   /* The device browser (#190) is a column of its own between the track list and the views, over both rows. */
   .body[data-browser] {

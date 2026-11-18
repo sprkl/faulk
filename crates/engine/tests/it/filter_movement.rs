@@ -4,6 +4,9 @@
 //! frame by frame from `Filter::effective_cutoffs` (blocks of one frame; the render does not
 //! depend on the block size, which a test below checks bit for bit).
 
+#[path = "reference/movement_filter.rs"]
+mod movement_filter;
+
 use assert_no_alloc::assert_no_alloc;
 use engine::device::{AudioIo, BlockCtx, Device, Event, EventBuffer, Transport};
 use engine::devices::filter::{
@@ -828,5 +831,103 @@ fn the_descriptor_lists_the_movement_with_neutral_defaults() {
     }
     for id in [LFO_RATE, ENV_ATTACK, ENV_RELEASE] {
         assert!(p(id).min > 0.0);
+    }
+}
+
+/// The bits of a scripted render of `f` (both channels, then the readout after each block):
+/// every movement parameter moves, synced and free, and the transport plays, stops, seeks and
+/// changes tempo.
+fn scripted(f: &mut dyn Device, sr: f32, size: usize) -> Vec<u32> {
+    let len = (sr * 3.0) as usize;
+    let input_l = noise(len, 7);
+    let input_r = noise(len, 11);
+    f.set_param(ParamId(RESONANCE), 0.6);
+    f.set_param(ParamId(CUTOFF), 900.0);
+    f.reset();
+    let tpf = 1920.0 / f64::from(sr);
+    let script: Vec<(usize, u32, f32)> = vec![
+        (0, LFO_DEPTH, 2.0),
+        (0, ENV_AMOUNT, 1.5),
+        (0, DRIVE, 0.3),
+        (len / 20, LFO_SHAPE, shape("square")),
+        (len / 10, LFO_STEREO, 90.0),
+        (len / 8, LFO_DIVISION, division("eighth")),
+        (len / 6, LFO_PHASE, 45.0),
+        (len / 5, LFO_SYNC, 0.0),
+        (len / 5 + 3, LFO_RATE, 7.0),
+        (len / 4, LFO_SHAPE, shape("random")),
+        (len / 3, ENV_ATTACK, 0.001),
+        (len / 3 + 17, ENV_RELEASE, 0.6),
+        (len / 2, LFO_RESTART, 0.0),
+        (len / 2 + 5, MODE, NOTCH as f32),
+        (len * 3 / 5, LFO_SYNC, 1.0),
+        (len * 3 / 5, LFO_DIVISION, division("two_bars")),
+        (len * 2 / 3, LFO_SHAPE, shape("saw_down")),
+        (len * 3 / 4, ENV_AMOUNT, -3.0),
+        (len * 4 / 5, LFO_DEPTH, 5.0),
+        (len * 9 / 10, CUTOFF, 4000.0),
+    ];
+    let at = |frame: usize| -> Transport {
+        let third = len / 3;
+        if frame < third {
+            transport(true, 120.0, frame as f64 * tpf)
+        } else if frame < third + len / 10 {
+            transport(false, 120.0, third as f64 * tpf)
+        } else {
+            // A seek to bar 3, then playing on at 97 BPM.
+            let from = third + len / 10;
+            let ticks = (frame - from) as f64 * 97.0 / 60.0 * 960.0 / f64::from(sr);
+            transport(true, 97.0, 7680.0 + ticks)
+        }
+    };
+    let mut unused = EventBuffer::try_with_capacity(1).unwrap();
+    let mut bits = Vec::new();
+    let mut start = 0;
+    while start < len {
+        let end = (start + size).min(len);
+        let mut left = input_l[start..end].to_vec();
+        let mut right = input_r[start..end].to_vec();
+        let local: Vec<Event> = script
+            .iter()
+            .filter(|(e, _, _)| (start..end).contains(e))
+            .map(|(e, id, v)| param(*id, *v).at((e - start) as u32))
+            .collect();
+        let ctx = BlockCtx {
+            sample_rate: sr,
+            frames: (end - start) as u32,
+            transport: at(start),
+        };
+        assert_no_alloc(|| {
+            let mut io = AudioIo {
+                left: &mut left,
+                right: &mut right,
+                events_out: &mut unused,
+            };
+            f.process(&ctx, &local, &mut io);
+        });
+        bits.extend(left.iter().chain(right.iter()).map(|s| s.to_bits()));
+        if let Some((_, v)) = f.readout() {
+            bits.push(v.to_bits());
+        }
+        start = end;
+    }
+    bits
+}
+
+#[test]
+fn the_movement_renders_the_same_samples_as_before_the_shared_block() {
+    for (sr, size) in [
+        (44_100.0, 128),
+        (48_000.0, 37),
+        (96_000.0, 512),
+        (48_000.0, 1),
+    ] {
+        let mut now = Filter::new(sr);
+        let mut before = movement_filter::Filter::new(sr);
+        let a = scripted(&mut now, sr, size);
+        let b = scripted(&mut before, sr, size);
+        assert_eq!(a.len(), b.len());
+        let first = a.iter().zip(&b).position(|(x, y)| x != y);
+        assert_eq!(first, None, "{sr} Hz, blocks of {size}: first difference");
     }
 }

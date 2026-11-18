@@ -62,19 +62,19 @@ fn project_json_that_is_not_json_is_corrupt_and_names_the_file() {
 fn a_newer_project_is_refused_as_such_even_if_it_has_fields_this_build_does_not_know() {
     let mut fs = song_fs();
     edit(&mut fs, "project.json", |s| {
-        s.replacen("\"format\": 6", "\"format\": 7,\n  \"swing\": 0.5", 1)
+        s.replacen("\"format\": 7", "\"format\": 8,\n  \"swing\": 0.5", 1)
     });
     assert_eq!(
         refused(&fs),
         FileError::NewerFormat {
-            found: 7,
-            supported: 6
+            found: 8,
+            supported: 7
         }
     );
     // Never rewritten: the refusal comes before anything else is read.
     let mut fs = song_fs();
     edit(&mut fs, "project.json", |s| {
-        s.replacen("\"format\": 6", "\"format\": 4000000000", 1)
+        s.replacen("\"format\": 7", "\"format\": 4000000000", 1)
     });
     assert!(matches!(
         refused(&fs),
@@ -89,7 +89,7 @@ fn a_newer_project_is_refused_as_such_even_if_it_has_fields_this_build_does_not_
 fn format_zero_and_older_formats_without_a_migration_are_unsupported() {
     let mut fs = song_fs();
     edit(&mut fs, "project.json", |s| {
-        s.replacen("\"format\": 6", "\"format\": 0", 1)
+        s.replacen("\"format\": 7", "\"format\": 0", 1)
     });
     assert_eq!(refused(&fs), FileError::UnsupportedFormat { found: 0 });
 }
@@ -402,7 +402,7 @@ fn v0_folder() -> MemFs {
     // a project name under `title`.
     let mut fs = song_fs();
     edit(&mut fs, "project.json", |s| {
-        s.replacen("\"format\": 6", "\"format\": 0", 1)
+        s.replacen("\"format\": 7", "\"format\": 0", 1)
             .replacen("\"name\"", "\"title\"", 1)
     });
     for path in fs
@@ -470,6 +470,16 @@ fn five_to_six(fs: &mut MemFs) -> Result<(), String> {
     Ok(())
 }
 
+fn six_to_seven(fs: &mut MemFs) -> Result<(), String> {
+    let text = String::from_utf8(fs.read("project.json").map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+    fs.insert(
+        "project.json",
+        text.replacen("\"format\": 6", "\"format\": 7", 1),
+    );
+    Ok(())
+}
+
 fn zero_to_one(fs: &mut MemFs) -> Result<(), String> {
     let paths: Vec<String> = fs.files().keys().cloned().collect();
     for path in paths {
@@ -514,6 +524,10 @@ fn an_older_project_is_migrated_in_memory_and_saving_rewrites_what_the_migration
         Migration {
             from: 5,
             apply: five_to_six,
+        },
+        Migration {
+            from: 6,
+            apply: six_to_seven,
         },
     ];
     let mut fs = v0_folder();
@@ -597,6 +611,10 @@ fn a_migration_that_fails_or_leaves_the_wrong_format_is_a_typed_error() {
             Migration {
                 from: 5,
                 apply: five_to_six,
+            },
+            Migration {
+                from: 6,
+                apply: six_to_seven,
             },
         ],
     )

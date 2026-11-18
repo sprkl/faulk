@@ -10,7 +10,7 @@
 //  - fail safe: a file this module cannot classify, an unknown event or a failure to list the
 //    changed files runs everything.
 
-import { FULL_TAG, MAX_SHARDS, TABLE_FILE, explain, planE2e, tableOnlyChange } from './e2e-plan.mjs'
+import { DURATIONS_FILE, FULL_TAG, MAX_SHARDS, TABLE_FILE, explain, planE2e, tableOnlyChange } from './e2e-plan.mjs'
 
 const NONE = Object.freeze({
   mode: 'none',
@@ -50,12 +50,23 @@ const IGNORED = [
   /^\.github\/(ISSUE_TEMPLATE\/|PULL_REQUEST_TEMPLATE|CODEOWNERS$|dependabot\.yml$|[^/]+\.md$)/, // not .github/actions/
 ]
 
-/** Everything runs. Needs no workspace, so it also serves when the workspace cannot be read. */
-export function fullDecision(workspace = [], why = 'everything runs') {
-  return full(workspace, why)
+/**
+ * The Playwright projects of a whole-suite run: both (`dev`, and `preview`, the built site) for a pull request against
+ * `main` (the release, a hotfix) and for any other event, `dev` alone for a pull request against another branch. The
+ * production build is the release's job (#848): a task pull request that runs everything (the selection rules
+ * changed, an unknown path) runs the whole `dev` suite, not the release's.
+ */
+export const fullProjects = (event, base) => (event === 'pull_request' && base !== 'main' ? 'dev' : 'dev,preview')
+
+/**
+ * Everything runs. Needs no workspace, so it also serves when the workspace cannot be read. `projects`: the
+ * Playwright projects (`fullProjects`); both unless the caller knows better.
+ */
+export function fullDecision(workspace = [], why = 'everything runs', projects = 'dev,preview') {
+  return full(workspace, why, projects)
 }
 
-function full(workspace, why) {
+function full(workspace, why, projects) {
   return {
     mode: 'full',
     rustChecks: true,
@@ -65,7 +76,7 @@ function full(workspace, why) {
     rustProto: true,
     helperWindows: true,
     web: true,
-    e2e: 'dev,preview',
+    e2e: projects,
     e2eTier: 'all',
     e2eWhy: explain({ forced: [why] }),
     e2eAll: true,
@@ -118,9 +129,11 @@ export function affectedPackages(packages, changed) {
  */
 export function select({ event, base, files, packages, specs, table }) {
   if (event === 'push') return { ...NONE }
-  if (event !== 'pull_request') return full(packages(), `event ${event || 'unknown'}`)
-  if (base === 'main') return full(packages(), 'pull request against main (release or hotfix)')
-  if (!Array.isArray(files)) return full(packages(), 'changed files unknown')
+  if (event !== 'pull_request') return full(packages(), `event ${event || 'unknown'}`, 'dev,preview')
+  if (base === 'main') return full(packages(), 'pull request against main (release or hotfix)', 'dev,preview')
+  // From here on, a pull request against another branch: a whole-suite decision runs `dev` alone.
+  const projects = fullProjects(event, base)
+  if (!Array.isArray(files)) return full(packages(), 'changed files unknown', projects)
 
   const out = { ...NONE, mode: 'targeted' }
   const changedDirs = new Set()
@@ -145,7 +158,10 @@ export function select({ event, base, files, packages, specs, table }) {
     // The selection rules themselves: a mistake there would skip tests anywhere.
     // An edit of the end-to-end table alone is judged after the loop (tableOnlyChange); the rest of scripts/ci/ runs everything.
     if (f === TABLE_FILE) { tableChanged = true; continue }
-    if (f.startsWith('scripts/ci/')) return full(members(), `the selection changed: ${f}`)
+    // The measured durations only decide which machine runs a spec, never whether it runs (a test with no measure
+    // gets a default, `costUnits`): their own tests (agent scripts), no browser test (#848).
+    if (f === DURATIONS_FILE) { out.agentScripts = true; continue }
+    if (f.startsWith('scripts/ci/')) return full(members(), `the selection changed: ${f}`, projects)
     if (f === '.github/workflows/ci.yml') { web = true; e2eFiles.push(f); continue }
     if (f === '.github/workflows/rust.yml') { rustAll = out.rustProto = true; continue }
     if (f === '.github/workflows/agent-scripts.yml') { out.agentScripts = true; continue }
@@ -161,13 +177,13 @@ export function select({ event, base, files, packages, specs, table }) {
     const crate = /^crates\/([^/]+)\/./.exec(f)
     if (crate) {
       const dir = `crates/${crate[1]}`
-      if (!members().some((p) => p.dir === dir)) return full(members(), `a crate cargo does not list: ${f}`)
+      if (!members().some((p) => p.dir === dir)) return full(members(), `a crate cargo does not list: ${f}`, projects)
       changedDirs.add(dir)
       if (!crateFiles.has(dir)) crateFiles.set(dir, [])
       crateFiles.get(dir).push(f)
       continue
     }
-    if (f.startsWith('crates/')) return full(members(), `unknown path: ${f}`)
+    if (f.startsWith('crates/')) return full(members(), `unknown path: ${f}`, projects)
 
     if (f.startsWith('web/')) {
       web = true
@@ -181,7 +197,7 @@ export function select({ event, base, files, packages, specs, table }) {
       continue
     }
     if (f.startsWith('scripts/') || f.startsWith('.claude/')) { out.agentScripts = true; continue }
-    return full(members(), `unknown path: ${f}`) // never skip on a guess
+    return full(members(), `unknown path: ${f}`, projects) // never skip on a guess
   }
 
   // The e2e table alone changed under scripts/ci/: its own tests (agent scripts), the core tests and the
@@ -194,7 +210,7 @@ export function select({ event, base, files, packages, specs, table }) {
     } catch (e) {
       check = { ok: false, why: `the table file cannot be compared (${e.message})` }
     }
-    if (!check.ok) return full(members(), `the selection changed: ${TABLE_FILE} (${check.why})`)
+    if (!check.ok) return full(members(), `the selection changed: ${TABLE_FILE} (${check.why})`, projects)
     tableSpecs = check.specs
     out.agentScripts = true
     web = true

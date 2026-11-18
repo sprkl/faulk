@@ -1,0 +1,28 @@
+{
+  "category": "Movement",
+  "device": "faulk.ripple",
+  "format": 1,
+  "name": "Envelope Phaser",
+  "params": {
+    "centre": 300.0,
+    "delay": 0.002,
+    "env_amount": 3.0,
+    "env_attack": 0.005,
+    "env_release": 0.25,
+    "feedback": 40.0,
+    "lfo_depth": 0.0,
+    "lfo_division": 9.0,
+    "lfo_phase": 0.0,
+    "lfo_rate": 0.5,
+    "lfo_restart": 1.0,
+    "lfo_shape": 0.0,
+    "lfo_stereo": 0.0,
+    "lfo_sync": 1.0,
+    "mix": 100.0,
+    "mode": 0.0,
+    "polarity": 0.0,
+    "spread": 0.5,
+    "stages": 2.0
+  },
+  "version": 1
+}

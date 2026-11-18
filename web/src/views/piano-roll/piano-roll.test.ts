@@ -24,6 +24,71 @@ function body(project: ProjectView | null, lang: 'en' | 'fr' = 'en') {
   return render(PianoRollView, { context: storesContext(stores) }).body
 }
 
+describe('the mode indicator beside the note counter (#899)', () => {
+  const withClip = (mutate: (ui: ReturnType<typeof createStores>['ui']) => void, lang: 'en' | 'fr' = 'en', started = true) => {
+    const stores = createStores('arrangement', 'piano-roll')
+    stores.ui.lang = lang
+    stores.engine.started = started
+    mutate(stores.ui)
+    stores.project.show(view('midi', { c1: midiClip('A') }))
+    return render(PianoRollView, { context: storesContext(stores) }).body
+  }
+
+  it('says the letters play, write or do nothing', () => {
+    expect(withClip(() => {})).toMatch(/data-testid="roll-letters" data-mode="play"[^>]*>Letters play</)
+    expect(withClip((ui) => (ui.stepEntry = true))).toMatch(/data-mode="write"[^>]*>Letters write</)
+    expect(withClip((ui) => (ui.typing = 'shortcuts'))).toMatch(/data-mode="off"[^>]*>Letters off</)
+    // Audio not started: the letters play nothing, and the roll does not say they play; step entry writes without it.
+    expect(withClip(() => {}, 'en', false)).toMatch(/data-mode="mute"[^>]*>Audio off</)
+    expect(withClip((ui) => (ui.stepEntry = true), 'en', false)).toMatch(/data-mode="write"/)
+  })
+
+  it('is translated', () => {
+    expect(withClip((ui) => (ui.stepEntry = true), 'fr')).toContain('Les lettres écrivent')
+  })
+})
+
+describe('step entry armed with no clip to write into (#916)', () => {
+  const armed = (lang: 'en' | 'fr', kind: 'midi' | 'audio' = 'midi', started = true) => {
+    const stores = createStores('arrangement', 'piano-roll')
+    stores.ui.lang = lang
+    stores.ui.stepEntry = true
+    stores.engine.started = started
+    stores.project.show(view(kind))
+    return render(PianoRollView, { context: storesContext(stores) }).body
+  }
+
+  it('says in the empty state that the letters play until a clip opens, in both languages', () => {
+    expect(armed('en')).toMatch(/data-testid="roll-armed"[^>]*>Step entry is on\. The letters play notes until a clip opens/)
+    expect(armed('fr')).toContain('Saisie pas à pas activée. Les lettres jouent des notes jusqu’à l’ouverture d’un clip')
+    expect(armed('en', 'audio')).toContain('data-testid="roll-armed"')
+    // The audio is not started: the letters play nothing, and the text does not say they play.
+    expect(armed('en', 'midi', false)).toContain('the audio is not started: the letters play nothing')
+  })
+
+  it('says nothing when step entry is off', () => {
+    expect(body(view('midi'))).not.toContain('roll-armed')
+  })
+})
+
+describe('the clip-length field (#907)', () => {
+  const lengthField = (length: number, lang: 'en' | 'fr' = 'en') => {
+    const clip: Clip = { name: 'A', content: { midi: { length, notes: [] } } }
+    const html = body(view('midi', { c1: clip }), lang)
+    return /data-testid="roll-length"[^>]*value="([^"]*)"|value="([^"]*)"[^>]*data-testid="roll-length"/.exec(html)?.slice(1).find(Boolean)
+  }
+
+  it('shows a whole number of bars as that number', () => {
+    expect(lengthField(7680)).toBe('2')
+  })
+
+  it('shows the real length when it is not a whole number of bars, in the page language', () => {
+    expect(lengthField(3840 + 960)).toBe('1 bar 1 beat')
+    expect(lengthField(3840 + 960, 'fr')).toBe('1 mesure 1 temps')
+    expect(lengthField(960 * 3)).toBe('3 beats')
+  })
+})
+
 describe('what the piano roll shows before it has a clip to edit', () => {
   it('asks for a MIDI track when none is selected, in the page language', () => {
     expect(body(null)).toContain('Select a MIDI track to edit its notes.')
@@ -51,6 +116,28 @@ describe('what the piano roll shows before it has a clip to edit', () => {
     // One clip: its name, not a choice.
     expect(html).not.toContain('data-testid="roll-clip"')
     expect(body(view('midi', { a: midiClip('A'), b: midiClip('B') }))).toContain('data-testid="roll-clip"')
+  })
+})
+
+describe('the tool and the snap across clips (#835)', () => {
+  const checked = (html: string, testid: string) =>
+    new RegExp(`aria-checked="true"[^>]*data-testid="${testid}"|data-testid="${testid}"[^>]*aria-checked="true"`).test(html)
+
+  it('opens on Draw the first time', () => {
+    const html = body(view('midi', { a: midiClip('A') }))
+    expect(checked(html, 'roll-tool-draw')).toBe(true)
+    expect(checked(html, 'roll-tool-select')).toBe(false)
+  })
+
+  it('opens a roll built again with the tool and the snap the previous one left', () => {
+    const stores = createStores('arrangement', 'piano-roll')
+    stores.project.show(view('midi', { a: midiClip('A'), b: midiClip('B') }))
+    stores.ui.remember('piano-roll-tool', 'select')
+    stores.ui.remember('piano-roll-snap', 'beat')
+    const html = render(PianoRollView, { context: storesContext(stores) }).body
+    expect(checked(html, 'roll-tool-select')).toBe(true)
+    expect(checked(html, 'roll-tool-draw')).toBe(false)
+    expect(html).toMatch(/<option value="beat" selected/)
   })
 })
 

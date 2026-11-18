@@ -207,3 +207,79 @@ fn a_whole_chain_rebuilt_at_once_costs_one_fade_of_double_work() {
         );
     }
 }
+
+/// The same worst case for removals (#800): every filter of the chain removed at once, so
+/// that for one fade each one runs in series at its slot, fading toward its input. Printed per
+/// block against the same chain settled.
+#[test]
+fn a_whole_chain_removed_at_once_costs_one_fade_of_its_devices() {
+    use engine::devices::filter::DESCRIPTOR as FILTER;
+    use engine::graph::OUTGOING_ROOM;
+    let filter = |slot: usize| M::DeviceInsert {
+        track: TrackSlot(0),
+        device: DeviceSlot(slot as u16),
+        kind: FILTER.kind_id,
+        state: encode_state(&[]),
+    };
+    let removal = |slot: usize| M::DeviceRemove {
+        track: TrackSlot(0),
+        device: DeviceSlot(slot as u16),
+    };
+    let (mut p, mut e) = rig();
+    let mut setup = playing(0);
+    setup.extend((1..=OUTGOING_ROOM).map(filter));
+    send(&mut p, &mut e, &setup);
+    let steady = time(&mut e, 300);
+    let (mut l, mut r) = (vec![0.0; BLOCK], vec![0.0; BLOCK]);
+    let rounds = 100;
+    let mut best = f64::MAX;
+    for _ in 0..3 {
+        let mut total = 0.0;
+        for _ in 0..rounds {
+            let rts: Vec<_> = (1..=OUTGOING_ROOM)
+                .map(|slot| p.prepare(removal(slot)).unwrap().unwrap())
+                .collect();
+            for rt in rts {
+                e.apply(rt);
+            }
+            assert_eq!(
+                e.state().track(TrackSlot(0)).unwrap().graph.outgoing_len(),
+                OUTGOING_ROOM
+            );
+            let start = Instant::now();
+            for _ in 0..2 {
+                e.render(&mut l, &mut r);
+            }
+            total += start.elapsed().as_secs_f64() * 1e6 / 2.0;
+            assert_eq!(
+                e.state().track(TrackSlot(0)).unwrap().graph.outgoing_len(),
+                0
+            );
+            p.collect();
+            // The chain back, settled, for the next round.
+            let rts: Vec<_> = (1..=OUTGOING_ROOM)
+                .map(|slot| p.prepare(filter(slot)).unwrap().unwrap())
+                .collect();
+            for rt in rts {
+                e.apply(rt);
+            }
+            for _ in 0..3 {
+                e.render(&mut l, &mut r);
+            }
+            p.collect();
+        }
+        best = best.min(total / f64::from(rounds));
+    }
+    eprintln!(
+        "per block of {BLOCK} frames ({BUDGET_US:.0} µs budget), a tone and {OUTGOING_ROOM} \
+         filters: settled {steady:.2} µs; every filter removed, the two blocks of the fade \
+         {best:.2} µs ({:.2}x)",
+        best / steady
+    );
+    if !cfg!(debug_assertions) {
+        assert!(
+            best < BUDGET_US / 2.0,
+            "the fade of a whole chain removed takes {best:.2} µs of a {BUDGET_US:.0} µs block"
+        );
+    }
+}

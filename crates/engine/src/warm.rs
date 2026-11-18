@@ -390,6 +390,22 @@ pub fn messages() -> Vec<Phase> {
         }
     }
 
+    // A device moved to the free slot after the master's effects and back (#800): the
+    // master's chain ends as it was.
+    let free = d(master_placed.len() as u16);
+    mix.extend([
+        M::DeviceMove {
+            track: TrackSlot::MASTER,
+            from: d(0),
+            to: free,
+        },
+        M::DeviceMove {
+            track: TrackSlot::MASTER,
+            from: free,
+            to: d(0),
+        },
+    ]);
+
     // Phase 3: the transport, with notes sounding.
     let mut play = vec![
         M::SetLoop {

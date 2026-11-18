@@ -1,3 +1,4 @@
+import type { Note } from '../generated/protocol'
 import { defaultLang, LANG_STORAGE_KEY, type Lang, type MessageKey, translate } from '../i18n/index'
 import type { MainViewId, PanelViewId } from '../../views/registry'
 import { COLLAPSED_KEY, HEIGHTS_KEY, parseHeights } from '../../views/shell/panel-size'
@@ -23,6 +24,9 @@ function write(key: string, value: string) {
     // Not kept; the layout still follows the session.
   }
 }
+
+/** How long a gesture asked by the palette waits for its view (ms). */
+export const GESTURE_TTL_MS = 3000
 
 /** localStorage key of the density (the page's preference, #490). */
 export const DENSITY_KEY = 'faulk.density'
@@ -76,9 +80,25 @@ export class UiStore {
    * the shortcuts ('shortcuts'). View state of the session, not project data; one key toggles it (`TYPING_TOGGLE_CODE`).
    */
   typing = $state<'notes' | 'shortcuts'>('notes')
+  /**
+   * Step entry (#882) is armed: a mode of the session like musical typing, on from clip to clip and from track to track (#916); only
+   * Alt+E, its button, Escape or musical typing switched off end it. Whether the letters then write or play is `stepWriting`.
+   */
+  stepEntry = $state(false)
+  /**
+   * The piano roll has a clip open and writes the letters as notes at its free cursor (#916): the keyboard player (`KeyboardPlayer`)
+   * plays none live then. Set by the roll, cleared when its clip or the roll goes: step entry armed with no clip to write into
+   * (`stepEntry` and not `stepWriting`) lets the letters play.
+   */
+  stepWriting = $state(false)
 
   /** Height the user gave the bottom panel, per view (px): a preference of the page, kept in `localStorage`, not in the project. Missing: the layout's default. */
   panelHeights = $state<Partial<Record<PanelViewId, number>>>(parseHeights(read(HEIGHTS_KEY)))
+  /**
+   * Height (px) the piano roll's toolbar takes beyond the two rows the panel's minimum has room for (#887): it wraps by width and by font,
+   * so the roll reports it and the panel's minimum grows by it, which keeps an octave of rows whatever the font. 0 when the roll is not shown.
+   */
+  rollToolbarExtra = $state(0)
   /** The bottom panel is folded to its tabs. */
   panelCollapsed = $state(read(COLLAPSED_KEY) === '1')
   /** The bottom panel takes all the room it may (session state, not kept): one key toggles it. */
@@ -95,8 +115,37 @@ export class UiStore {
   helpOpen = $state(false)
   /** The key and scale panel of the transport bar (#695) is open: from its button, or from the bar's "more" menu when the bar folded the button. */
   scaleOpen = $state(false)
+  /** The command palette (#108) is open: every command, found by typing. Page state, not project state. */
+  paletteOpen = $state(false)
+  /**
+   * A gesture the command palette asked a view to do (#926), like the shortcut that does it: one slot, the last request. The view
+   * that owns the gesture takes it (`takeGesture`), which empties the slot; a request nobody took within `GESTURE_TTL_MS` (the view
+   * never mounted: no project, no audio) is dropped, so that it cannot fire later by surprise. Page state, not project state.
+   */
+  gesture = $state.raw<{ id: string; at: number } | null>(null)
+  requestGesture(id: string) {
+    this.gesture = { id, at: Date.now() }
+  }
+  /** Takes the pending request when it is one of `ids` and still fresh; any other request is left for its owner (a stale one is dropped). */
+  takeGesture(ids: readonly string[], now: number = Date.now()): string | null {
+    const g = this.gesture
+    if (!g) return null
+    if (now - g.at > GESTURE_TTL_MS) {
+      this.gesture = null
+      return null
+    }
+    if (!ids.includes(g.id)) return null
+    this.gesture = null
+    return g.id
+  }
+  /** The clips selected in the arrangement (#926), published by the timeline for the command palette: a placement and the clip it plays. */
+  pickedPlacements = $state.raw<readonly { id: string; clip: string }[]>([])
+  /** The clip open in the piano roll and its selected notes (#926), published by the roll for the command palette. */
+  rollSelection = $state.raw<{ clip: string | null; notes: readonly Note[] }>({ clip: null, notes: [] })
   /** The "Go to" field (#554) is open: a bar, or a bar and a beat, to put the playhead on. Page state, not project state. */
   gotoOpen = $state(false)
+  /** Where the last "Go to" put the playhead (#852): the arrangement's free cursor follows it. `n` tells two jumps to one tick apart. */
+  gotoTarget = $state.raw<{ tick: number; n: number } | null>(null)
   /** The device browser (#190) is open: a column beside the track list. Page state, not project state, not kept. */
   browserOpen = $state(false)
   /** Bumped when the browser is asked for (its key): it takes the focus on its search field. */

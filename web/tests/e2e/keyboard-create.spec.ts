@@ -211,3 +211,126 @@ test('the timeline: a clip from the cursor, and Enter opens the piano roll on th
   await expect(page.getByTestId('arrangement')).toHaveAttribute('data-block-count', '4')
   expect(errors).toEqual([])
 })
+
+test('the timeline: Ctrl+G and Home bring the free cursor to the bar, and Alt+N creates an empty clip at the playhead, on an empty track too (#852)', async ({
+  page,
+}) => {
+  const { errors } = watch(page)
+  await start(page)
+  test.skip((await hooks(page)) !== 'function', 'the history is counted through the hook of the dev server')
+  const position = page.getByTestId('transport-position')
+  const said = page.getByTestId('arr-said')
+  const cursor = page.getByTestId('arr-cursor')
+  const goto = async (text: string) => {
+    await page.keyboard.press('Control+g')
+    await page.keyboard.type(text)
+    await page.keyboard.press('Enter')
+    await expect(page.getByTestId('goto-dialog')).toBeHidden()
+  }
+  // The first track, which has no clip: Ctrl+G 4 puts the playhead on bar 4 and the free cursor with it.
+  await page.getByTestId('arr-track').first().click()
+  expect(await blocks(page)).toEqual([])
+  await goto('4')
+  await expect(position).toContainText('4.1')
+  await page.getByTestId('arr-stage').getByTestId('timegrid').focus()
+  await page.keyboard.press('Tab')
+  await expect(cursor).toBeFocused()
+  await expect(cursor).toHaveAccessibleName(/^Cursor, Synth, bar 4$/)
+  // Home brings the cursor back to bar 1 and leaves the playhead where it is.
+  await page.keyboard.press('Home')
+  await expect(cursor).toHaveAccessibleName(/^Cursor, Synth, bar 1$/)
+  await expect(position).toContainText('4.1')
+
+  // Alt+N: an empty one-bar clip in the playhead's bar, one history entry, said, focused.
+  const before = await done(page)
+  await page.keyboard.press('Alt+n')
+  await expect.poll(async () => (await blocks(page)).map((b) => [b.row, b.start])).toEqual([[0, 3 * 3840]])
+  expect(await done(page)).toBe(before + 1)
+  await expect(said).toHaveText(/^Clip created, Synth, bar 4/)
+  await expect(page.locator('[data-testid=arr-item]:focus')).toHaveCount(1)
+  await expect(page.locator('[data-testid=arr-item]:focus')).toHaveAccessibleName(/Synth, bars 4 to 4/)
+
+  // A bar that holds a clip is left alone, and said.
+  await page.keyboard.press('Alt+n')
+  await expect(said).toHaveText(/^No room for a clip at bar 4/)
+  expect((await blocks(page)).length).toBe(1)
+  expect(await done(page)).toBe(before + 1)
+
+  // The Clips panel offers the same on a track that has no clip: the second one (Drums), at bar 2.
+  await page.getByTestId('arr-track').nth(1).click()
+  await goto('2')
+  await page.getByTestId('panel-clips').click()
+  await expect(page.getByTestId('pool-clip')).toHaveCount(0)
+  await page.getByTestId('clip-new-at-head').click()
+  await expect
+    .poll(async () =>
+      (await blocks(page))
+        .map((b) => [b.row, b.start])
+        .sort()
+        .join(';'),
+    )
+    .toBe(
+      [
+        [0, 3 * 3840],
+        [1, 3840],
+      ].join(';'),
+    )
+  await expect(page.getByTestId('pool-clip')).toHaveCount(1)
+  // The panel says where the clip went; the refusal on a taken bar is said there too, and goes with the track.
+  await expect(page.getByTestId('clip-new-said')).toHaveText(/^Clip created, .+, bar 2$/)
+  await page.getByTestId('clip-new-at-head').click()
+  await expect(page.getByTestId('clip-new-said')).toHaveText(/^No room for a clip at bar 2/)
+  await page.getByTestId('arr-track').first().click()
+  await expect(page.getByTestId('clip-new-said')).toHaveCount(0)
+
+  // Undo takes the clip away again.
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await blocks(page)).length).toBe(1)
+
+  // Enter on the clip made by Alt+N opens it in the piano roll, empty.
+  await page.getByTestId('arr-item').first().focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('piano-roll')).toBeVisible()
+  await expect(page.getByTestId('piano-roll')).toHaveAttribute('data-note-count', '0')
+  expect(errors).toEqual([])
+})
+
+test('an empty clip lengthened by one beat shows its real length in the piano roll, and typing bars sets whole bars (#907)', async ({ page }) => {
+  const { errors } = watch(page)
+  await start(page)
+  test.skip((await hooks(page)) !== 'function', 'the history is counted through the hook of the dev server')
+  await page.getByTestId('arr-track').first().click()
+  await page.getByTestId('arr-stage').getByTestId('timegrid').focus()
+  await page.keyboard.press('Alt+n')
+  await expect(page.locator('[data-testid=arr-item]:focus')).toHaveCount(1)
+  // The snap stays on Auto, the issue's path.
+  await page.locator('[data-testid=arr-item]').first().focus()
+  await page.keyboard.press('Alt+Shift+ArrowRight')
+  await expect(page.getByTestId('arr-said')).toContainText(/Length 1 bar, 1 beat, clip included/)
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('piano-roll')).toBeVisible()
+  const field = page.getByTestId('roll-length')
+  await expect(field).toHaveValue('1 bar 1 beat')
+  // A typed number is whole bars, as before.
+  await field.fill('2')
+  await field.press('Enter')
+  await expect(field).toHaveValue('2')
+  // Out of the field: in it, Ctrl+Z would be the text field's own undo, not the project's.
+  await field.blur()
+  await page.keyboard.press('Control+z')
+  await expect(field).toHaveAttribute('aria-valuetext', '1 bar 1 beat')
+  await expect(field).toHaveValue('1 bar 1 beat')
+  // The field is a spin button named for what it holds; + and Up go to the next whole bar (2), - and Down to the previous (1).
+  await expect(field).toHaveAttribute('aria-valuetext', '1 bar 1 beat')
+  await page.getByTestId('roll-longer').click()
+  await expect(field).toHaveValue('2')
+  await page.keyboard.press('Control+z')
+  await expect(field).toHaveValue('1 bar 1 beat')
+  await page.getByTestId('roll-shorter').click()
+  await expect(field).toHaveValue('1')
+  await page.keyboard.press('Control+z')
+  await field.focus()
+  await page.keyboard.press('ArrowUp')
+  await expect(field).toHaveValue('2')
+  expect(errors).toEqual([])
+})

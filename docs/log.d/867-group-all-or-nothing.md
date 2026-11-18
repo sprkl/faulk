@@ -1,0 +1,2 @@
+2026-11-13
+* **Update** (#867, protocol 57): a keyboard action on several clips of the arrangement (end resize, split, points and loop of a lane) is all or nothing. The new command `history.abort_group` closes the open group and takes back what it recorded: no history entry is left and what could be redone before the group can be redone again. The page (`runAll`, `web/src/lib/history-group.ts`) sends the batch's commands in order, stops at the first one the core refuses and aborts the group; it says that no clip changed.

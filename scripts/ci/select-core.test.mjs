@@ -4,7 +4,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { CORE_TESTS, coreBySpec, specNames } from './e2e-plan.mjs'
-import { affectedPackages, e2eSummary, fullDecision, packagesFromMetadata, select, toOutputs } from './select-core.mjs'
+import { affectedPackages, e2eSummary, fullDecision, fullProjects, packagesFromMetadata, select, toOutputs } from './select-core.mjs'
 
 // The workspace graph of the repository (dev-dependencies included), as `cargo metadata` reports it.
 const WORKSPACE = [
@@ -171,8 +171,29 @@ test('each workflow file runs the job it defines, and release-helper.yml runs on
   assert.equal(pr(['.github/workflows/release-helper.yml']).agentScripts, true)
 })
 
-test('a change to the selection rules runs everything', () => {
-  assert.equal(pr(['scripts/ci/select-core.mjs']).mode, 'full')
+test('a change to the selection rules runs everything, the dev project only on a task pull request (#848)', () => {
+  for (const f of ['scripts/ci/select-core.mjs', 'scripts/ci/e2e-shard.mjs', 'scripts/ci/e2e-durations.mjs', 'scripts/ci/e2e-plan.test.mjs']) {
+    const r = pr([f])
+    assert.deepEqual([r.mode, r.e2e, r.e2eTier, r.e2eAll, r.e2eShards], ['full', 'dev', 'all', true, 4], f)
+  }
+  assert.equal(pr(['scripts/ci/select-core.mjs'], 'main').e2e, 'dev,preview')
+})
+
+test('the measured durations alone run their own tests, no browser test: they move a spec between machines, never out (#848)', () => {
+  const r = pr(['scripts/ci/e2e-durations.json'])
+  assert.deepEqual([r.mode, r.agentScripts, r.web, r.e2e, r.e2eTier], ['targeted', true, false, '', 'none'])
+  // With another file, that file decides.
+  assert.deepEqual([pr(['scripts/ci/e2e-durations.json', 'scripts/ci/select-core.mjs']).mode, pr(['scripts/ci/e2e-durations.json', 'web/src/views/tracks/T.svelte']).e2eTier], ['full', 'area'])
+})
+
+test('fullProjects: both projects for the release and any other event, dev alone for a task pull request', () => {
+  assert.equal(fullProjects('pull_request', 'main'), 'dev,preview')
+  assert.equal(fullProjects('pull_request', 'develop'), 'dev')
+  assert.equal(fullProjects('pull_request', 'feat/x'), 'dev')
+  assert.equal(fullProjects('workflow_dispatch', ''), 'dev,preview')
+  assert.equal(fullProjects('', ''), 'dev,preview')
+  assert.equal(fullDecision([], 'x', 'dev').e2e, 'dev')
+  assert.equal(fullDecision().e2e, 'dev,preview')
 })
 
 test('release or hotfix (base main): the full suite, dev and preview e2e, even for docs only', () => {
@@ -300,7 +321,7 @@ test('tier core: a shared page file runs the core tests alone, on one machine', 
 test('tier for crates: the contracts run all, the engine and the project an area, helper its own area, test-support nothing', () => {
   for (const f of ['crates/protocol/src/lib.rs', 'crates/commands/src/track.rs', 'crates/engine/src/msg.rs', 'crates/engine/src/msg/codec.rs', 'crates/engine-wasm/src/lib.rs']) {
     const r = pr([f])
-    assert.deepEqual([r.e2e, r.e2eTier, r.e2eAll, r.e2eShards], ['dev', 'all', true, 3], f)
+    assert.deepEqual([r.e2e, r.e2eTier, r.e2eAll, r.e2eShards], ['dev', 'all', true, 4], f)
     assert.match(r.e2eWhy, new RegExp(f.replaceAll('.', '\\.')), f)
   }
   const engine = pr(['crates/engine/src/devices/reverb.rs'])
@@ -324,12 +345,12 @@ test('tier for crates: the contracts run all, the engine and the project an area
   for (const f of ['Cargo.lock', 'modules/x/a.dsp']) assert.equal(pr([f]).e2eTier, 'all', f)
 })
 
-test('a longer list gets more machines, never more than three; the core tests do not add one', () => {
-  assert.equal(pr(['web/src/views/arrangement/A.svelte']).e2eShards, 3) // 22 specs
+test('a longer list gets more machines, never more than four; the core tests do not add one', () => {
+  assert.equal(pr(['web/src/views/arrangement/A.svelte']).e2eShards, 4) // 22 specs
   assert.equal(pr(['web/src/views/mixer/M.svelte']).e2eShards, 2) // 8 specs
   const many = pr(['web/src/views/arrangement/A.svelte', 'web/src/views/grid/G.svelte', 'web/src/views/mixer/M.svelte', 'web/src/views/shell/ProjectMenu.svelte'])
-  assert.equal(many.e2eShards, 3)
-  assert.ok(toOutputs(many).e2e_shards === '[1,2,3]')
+  assert.equal(many.e2eShards, 4)
+  assert.ok(toOutputs(many).e2e_shards === '[1,2,3,4]')
 })
 
 test('no browser test to run: no end-to-end job, no shard', () => {
@@ -347,7 +368,7 @@ test('tier all: contracts, configuration, unknown paths, a stale table and an un
     const r = pr(['web/src/views/tracks/TrackList.svelte', f])
     assert.equal(r.e2eTier, 'all', f)
     assert.equal(r.e2eAll, true, f)
-    assert.equal(r.e2eShards, 3, f)
+    assert.equal(r.e2eShards, 4, f)
     assert.equal(toOutputs(r).e2e_specs, '', f)
   }
   assert.equal(select({ event: 'pull_request', base: 'develop', files: ['web/src/views/tracks/T.svelte'], packages: ws }).e2eAll, true) // no way to list the specs
@@ -357,15 +378,18 @@ test('tier all: contracts, configuration, unknown paths, a stale table and an un
   assert.equal(pr(['web/src/views/tracks/T.svelte', 'web/brand-new-folder/x.ts']).e2eAll, true)
 })
 
-test('the release pull request and the fallbacks keep the full suite on three machines, and say why', () => {
-  for (const r of [pr(['docs/a.md'], 'main'), pr(['web/src/views/tracks/T.svelte'], 'main'), fullDecision(), pr(['scripts/ci/x.mjs']), pr(['something-new/x'])]) {
-    assert.equal(r.e2e, 'dev,preview')
+test('the release pull request and the fallbacks keep the full suite on four machines, and say why', () => {
+  const both = [pr(['docs/a.md'], 'main'), pr(['web/src/views/tracks/T.svelte'], 'main'), fullDecision(), select({ event: 'workflow_dispatch', base: '', files: [], packages: ws })]
+  // A task pull request that runs everything runs the whole dev suite: the production build is the release's (#848).
+  const devOnly = [pr(['scripts/ci/x.mjs']), pr(['something-new/x']), pr(['crates/newcrate/src/lib.rs']), select({ event: 'pull_request', base: 'develop', files: null, packages: ws })]
+  for (const r of [...both, ...devOnly]) {
+    assert.equal(r.e2e, both.includes(r) ? 'dev,preview' : 'dev')
     assert.equal(r.e2eTier, 'all')
     assert.equal(r.e2eAll, true)
-    assert.equal(r.e2eShards, 3)
+    assert.equal(r.e2eShards, 4)
     assert.ok(r.e2eWhy.length > 0)
     const out = toOutputs(r)
-    assert.deepEqual([out.e2e_specs, out.e2e_core, out.e2e_core_grep, out.e2e_shards], ['', '', '', '[1,2,3]'])
+    assert.deepEqual([out.e2e_specs, out.e2e_core, out.e2e_core_grep, out.e2e_shards], ['', '', '', '[1,2,3,4]'])
   }
   assert.match(pr(['docs/a.md'], 'main').e2eWhy, /pull request against main/)
   assert.match(pr(['something-new/x']).e2eWhy, /unknown path: something-new\/x/)
@@ -435,10 +459,17 @@ test('an edit of the e2e table alone: its tests, the core and the specs it newly
 
 test('the workflow leaves the @full tests to the whole suite, and runs a changed spec whole', () => {
   const yml = readFileSync(fileURLToPath(new URL('../../.github/workflows/ci.yml', import.meta.url)), 'utf8')
-  assert.match(yml, /playwright test \$E2E_SPECS --grep-invert "\$E2E_FULL_TAG" --pass-with-no-tests/)
-  assert.match(yml, /playwright test \$E2E_CORE --grep "\$E2E_CORE_GREP" --grep-invert "\$E2E_FULL_TAG"/)
-  assert.match(yml, /playwright test \$E2E_SPECS_CHANGED --pass-with-no-tests/)
-  assert.ok(!/playwright test \$E2E_SPECS_CHANGED[^\n]*grep-invert/.test(yml), 'a changed spec runs its @full tests')
-  assert.match(yml, /pnpm exec playwright test --shard="\$SHARD"\r?\n/, 'the whole suite runs every test')
+  // The machine's plan (#848): the area specs are the trimmed ones, the changed specs and the whole suite are not.
+  assert.match(yml, /e2e-shard\.mjs --listing "\$listing" --shard "\$SHARD" --trimmed "\$E2E_SPECS"/)
+  assert.match(yml, /playwright test \$E2E_SPECS \$E2E_SPECS_CHANGED --list --reporter=json/)
+  assert.match(yml, /PLAYWRIGHT_JSON_OUTPUT_FILE="\$listing" pnpm exec playwright test --list --reporter=json > \/dev\/null\r?\n\s*node \.\.\/scripts\/ci\/e2e-shard\.mjs --listing "\$listing" --shard "\$SHARD"\r?\n/, 'the whole suite: every listed test, none trimmed')
+  // Only a trimmed list drops the @full tests, and only it may run no test; no list is ever empty of files.
+  assert.ok(yml.includes('if [ "$kind" = trimmed ]; then invert=(--grep-invert "$E2E_FULL_TAG" --pass-with-no-tests); fi'))
+  assert.match(yml, /if \[ "\$#" -eq 0 \]; then return 0; fi/)
+  assert.ok(yml.includes('pnpm exec playwright test --project="$project" "$@" "${invert[@]}" --output="test-results/$project-$kind" || status=1'), 'a whole list never passes with no test')
+  assert.equal(yml.split('--pass-with-no-tests').length - 1, 1, 'one --pass-with-no-tests, the trimmed one')
+  for (const list of ['dev trimmed $DEV_TRIMMED', 'dev whole $DEV_WHOLE', 'preview trimmed $PREVIEW_TRIMMED', 'preview whole $PREVIEW_WHOLE']) assert.ok(yml.includes(`run_list ${list}\n`) || yml.includes(`run_list ${list}\r\n`), list)
+  assert.match(yml, /playwright test --project=dev \$E2E_CORE --grep "\$E2E_CORE_GREP" --grep-invert "\$E2E_FULL_TAG"/)
+  assert.ok(!/--shard=/.test(yml), "Playwright's count-based --shard is gone")
   assert.match(yml, /tests of the area specs left to the whole suite/)
 })

@@ -45,27 +45,44 @@
     type View,
   } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
-  import { arrangementShortcut, isTextTarget, repeatShortcut } from '../../lib/keyboard'
+  import { arrangementShortcut, isTextTarget, lengthenShortcut, repeatShortcut } from '../../lib/keyboard'
+  import { ARRANGEMENT_GESTURES } from '../../lib/palette-gestures'
   import { MASTER_COLOR, MIN_GAIN_DB, isMidi, trackColor, trackLabel, type DragHooks } from '../../lib/project/tracks'
   import { offTimeline } from '../../lib/off-timeline'
   import { backTrackToArrangement } from '../../lib/scene-commands'
   import { useStores } from '../../lib/stores'
   import { MASTER } from '../../lib/stores/automated.svelte'
   import { MASTER_METER } from '../../lib/stores'
-  import { inGroup as inHistoryGroup } from '../../lib/history-group'
+  import { inGroup as inHistoryGroup, runAll } from '../../lib/history-group'
   import { moveTrack, selectTrack } from '../../lib/track-commands'
   import LevelMeter from '../../lib/components/LevelMeter.svelte'
   import { seek, setLoopRegion, toggleLoop } from '../../lib/transport-commands'
   import { liveTick, settle } from '../piano-roll/playhead'
+  import { parseSnap } from '../piano-roll/roll'
   import { MAX_GOTO_BAR, PPQ, barTicks, beatTicks } from '../transport/time'
-  import { itemAt, moveCursor, rovingKey, step as stepItem, timelineCursorStep, zoomKey, type Cursor, type Direction, type RovingKey } from '../../lib/roving'
-  import { CLIP_DRAG_TYPE, clipTrackType, placeCommand, poolOf } from '../../lib/clip-pool'
+  import {
+    cursorJumpKey,
+    itemAt,
+    moveCursor,
+    rovingKey,
+    step as stepItem,
+    timelineCursorStep,
+    zoomKey,
+    type Cursor,
+    type Direction,
+    type RovingKey,
+  } from '../../lib/roving'
+  import { CLIP_DRAG_TYPE, clipTrackType, newClipAt, placeCommand, poolOf } from '../../lib/clip-pool'
   import { addMarker, deleteMarker, moveMarker, renameMarker } from '../../lib/arrangement-commands'
   import {
     blocksOf,
     clampScrollY,
     maxScrollY,
+    copyBlocked,
     copyShift,
+    landingOn,
+    repeatCovers,
+    freeRows,
     hitBlock,
     isFree,
     lastEnd,
@@ -74,6 +91,7 @@
     clampRows,
     trackTargets,
     passCount,
+    followsPlacement,
     markerJump,
     openingView,
     wholeSongView,
@@ -114,12 +132,27 @@
   import { putItem } from '../../lib/browser/put'
   import BarDialog from './BarDialog.svelte'
   import RampDialog from './automation/RampDialog.svelte'
-  import { POINT_CODE, RAMP_CODE, entryIndex, goIndex, laneKey, nudgedTick, pointKey, rampPlan, shapeAt, stepValue } from './automation/keys'
+  import {
+    CURVE_CODE,
+    POINT_CODE,
+    RAMP_CODE,
+    entryIndex,
+    goIndex,
+    laneKey,
+    nextShape,
+    nudgedTick,
+    pointKey,
+    rampPlan,
+    shapeAt,
+    stepValue,
+  } from './automation/keys'
+  import { SHAPE_NAMES } from './automation/shapes'
   import {
     lanesOf,
     lowerBound,
     optionsOf,
     pointAtTick,
+    SHAPES,
     pointsOf,
     targetKey,
     valueAt,
@@ -252,7 +285,10 @@
   const songEnd = $derived(Math.max(lastEnd(blocks), lastPoint, markers.at(-1)?.tick ?? 0))
 
   // View state.
-  let snap = $state<SnapSetting>('auto')
+  // The snap is kept for the session across every view change (#925): the view is built again when another view is shown,
+  // so it is recalled (the piano roll does the same, #835). It comes back with the project's layout, "Auto" for a new one.
+  let snap = $state<SnapSetting>(untrack(() => parseSnap(ui.recall<string>('arrangement-snap'))))
+  $effect(() => ui.remember('arrangement-snap', snap, layoutRev))
   // Zoom, scroll and the open lanes come back as the view was left (it is torn down when another view is shown),
   // and with the project's layout when it is opened again (#473).
   const layoutRev = ui.layoutRev
@@ -385,6 +421,11 @@
   const y0 = $derived(clampScrollY(scrollY, layout.total, stageH))
   // The selection is kept to the placements the project still has (an undo, an agent).
   const selection = $derived(blocks.filter((b) => picked.has(b.id)))
+  // What the command palette fills its forms with (#926): the clips selected here.
+  $effect(() => {
+    ui.pickedPlacements = selection.map((b) => ({ id: b.id, clip: b.clip }))
+    return () => (ui.pickedPlacements = [])
+  })
   const selectedIds = $derived(new Set(selection.map((b) => b.id)))
   /** The selected points, kept to the points the lane still has, earliest first. */
   const autoSel = $derived.by(() => {
@@ -732,11 +773,18 @@
         if (!modal && !event.repeat && !isTextTarget(event.target)) openRepeat()
         return
       }
+      // Ctrl+Shift+L (#915): the same, for "Lengthen to".
+      if (lengthenShortcut(event)) {
+        event.preventDefault()
+        if (!modal && !event.repeat && !isTextTarget(event.target)) openLengthen()
+        return
+      }
       if (modal) return
       const action = arrangementShortcut(event)
       if (!action) return
       event.preventDefault()
-      if (action === 'addMarker') addMarkerHere()
+      if (action === 'newClip') newClipAtHead()
+      else if (action === 'addMarker') addMarkerHere()
       else if (action === 'prevMarker') jumpMarker(-1)
       else if (action === 'nextMarker') jumpMarker(1)
       else fitSong()
@@ -744,6 +792,28 @@
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   })
+  // What the command palette asked for (#926): the same functions as the keys above, on the selection as it is. A request the view
+  // cannot satisfy (no clip selected, no lane) is said by the function itself, as for the key.
+  $effect(() => {
+    const id = ui.takeGesture(ARRANGEMENT_GESTURES)
+    if (!id) return
+    untrack(() => {
+      if (id === 'fitSong') fitSong()
+      else if (id === 'clipNew') newClipAtHead()
+      else if (id === 'clipRepeat') openRepeat()
+      else if (id === 'clipLengthen') openLengthen()
+      else if (id === 'markerAdd') addMarkerHere()
+      else if (id === 'laneRamp') rampFromPalette()
+    })
+  })
+  /** "Ramp to…" asked from the palette: the lane that has the focus, else the only lane there is. */
+  function rampFromPalette() {
+    const focused = (document.activeElement as HTMLElement | null)?.closest<HTMLElement>('[data-lane]')
+    const lanes = [...laneRefs.keys()]
+    const lane = focused?.dataset.lane ?? (lanes.length === 1 ? lanes[0] : undefined)
+    if (!lane) return announce(t('automation.saidRampLane'))
+    openRamp(lane, focused ?? null)
+  }
   const canZoomIn = $derived(zoomAt(shown, ZOOM_STEP, stageW / 2, stageW, totalTicks).pxPerTick > shown.pxPerTick)
   const canZoomOut = $derived(zoomAt(shown, 1 / ZOOM_STEP, stageW / 2, stageW, totalTicks).pxPerTick < shown.pxPerTick)
 
@@ -823,6 +893,7 @@
       lanes.push({
         ...geoOf(row),
         axis: ref.info.axis,
+        target: ref.info.lane.target,
         points,
         selected: preview ? preview.selected : autoPick?.lane === row.lane ? autoPick.ticks : NO_TICKS,
         color: ref.color,
@@ -877,12 +948,12 @@
   /** The step of this event: Ctrl (Cmd on a Mac) puts the snap aside while it is held. */
   const stepOf = (event: Pick<MouseEvent, 'ctrlKey' | 'metaKey'>) => (fineKey(event) ? null : step)
 
-  /** Runs several commands as one history entry. */
+  /**
+   * Runs several commands as one history entry, all or nothing (#867): the first one the core refuses (its own message
+   * shows) stops the batch and takes back what was applied, so a multi-clip action never changes only part of the selection.
+   */
   function inGroup(commands: Command[]) {
-    if (commands.length === 1) return run(commands[0]!)
-    group(() => {
-      for (const command of commands) run(command)
-    })
+    return runAll((command, options) => dispatcher.run(command, options), commands)
   }
 
   const cancel = () => {
@@ -899,6 +970,8 @@
   }
 
   function select(trackId: string) {
+    // Picking a track ends the devices panel's master view, even when it is already the selected one (#806).
+    ui.masterSelection = null
     if (project.selected?.id !== trackId) run(selectTrack(trackId))
   }
 
@@ -1126,8 +1199,26 @@
    * or last track and for a target that is not a MIDI track. The moved clips become the selection (they get new identifiers in
    * their new track). Returns where each landed, by the identifier it had, or `null` when nothing moved.
    */
-  function sendToTracks(chosen: readonly Block[], rows: number, delta: number, follow?: string): Record<string, Block> | null {
-    const targets = trackTargets(chosen, rows, trackList)
+  function sendToTracks(
+    chosen: readonly Block[],
+    rows: number,
+    delta: number,
+    follow?: string,
+    ifOccupied: 'replace' | 'skip' = 'replace',
+  ): Record<string, Block> | null {
+    const asked = trackTargets(chosen, rows, trackList)
+    // From the keyboard and the menu a move never replaces a clip (#805): it goes on to the next free track, or says why not.
+    let landing = rows
+    if (ifOccupied === 'skip' && !('refused' in asked && asked.refused === 'edge')) {
+      const free = freeRows(chosen, rows, delta, trackList, blocks)
+      // Nowhere free: the first refusal (a track of the other kind says so) stands, else the move says there is no free track.
+      if (free === null && !('refused' in asked)) {
+        announce(t('arrangement.saidNoFreeTrack'))
+        return null
+      }
+      if (free !== null) landing = free
+    }
+    const targets = landing === rows ? asked : trackTargets(chosen, landing, trackList)
     if ('refused' in targets) {
       if (targets.refused === 'edge') announce(t('arrangement.saidNoTrack'))
       else {
@@ -1138,10 +1229,14 @@
       }
       return null
     }
-    run(moveToTrack(targets.moves, delta))
+    const before = new Set(blocks.map((b) => b.id))
+    // A refusal here is not about a taken place (the page checked): the dispatcher shows its own reason.
+    if (!run(moveToTrack(targets.moves, delta, ifOccupied))) return null
     const landed: Record<string, Block> = {}
     for (const b of chosen) {
-      const now = blocks.find((n) => n.row === b.row + rows && n.start === b.start + delta && n.end === b.end + delta && n.offset === b.offset)
+      const now = blocks.find(
+        (n) => !before.has(n.id) && n.row === b.row + landing && n.start === b.start + delta && n.end === b.end + delta && n.offset === b.offset,
+      )
       if (now) landed[b.id] = now
     }
     const all = Object.values(landed)
@@ -1151,14 +1246,18 @@
     const entry = entries[lead.row]
     select(lead.track)
     followClip(lead)
-    announce(t('arrangement.saidMovedTrack', { n: all.length, track: entry ? trackLabel(entry, t) : '', bar: barsOf(lead).from }))
+    const track = entry ? trackLabel(entry, t) : ''
+    const from = chosen.find((b) => b.id === follow) ?? chosen[0]
+    const busy = from ? entries[from.row + rows] : undefined
+    if (landing !== rows && busy) announce(t('arrangement.saidSkippedTrack', { busy: trackLabel(busy, t), track, bar: barsOf(lead).from }))
+    else announce(t('arrangement.saidMovedTrack', { n: all.length, track, bar: barsOf(lead).from }))
     return landed
   }
 
   /** Copies, then selects the copies (the placements that were not there before). */
-  function copyAndSelect(ids: string[], linked: boolean, by?: number): boolean {
+  function copyAndSelect(ids: string[], linked: boolean, by?: number, ifOccupied: 'replace' | 'refuse' = 'replace'): boolean {
     const before = new Set(blocks.map((b) => b.id))
-    run(duplicatePlacements(ids, linked, by))
+    run(duplicatePlacements(ids, linked, by, ifOccupied))
     const fresh = blocks.filter((b) => !before.has(b.id)).map((b) => b.id)
     if (fresh.length > 0) picked = new Set(fresh)
     if (fresh.length > 0) announce(t('arrangement.saidCopied', { n: fresh.length }))
@@ -1241,7 +1340,9 @@
       autoPick = { lane: g.lane, ticks: new Set([fresh.tick]) }
       return
     }
-    if (run(addPoints(g.lane, [asPoint(fresh)]))) announce(t('automation.saidAdded', { value: ref.info.axis.format(fresh.value), at: atText(fresh.tick) }))
+    // The new point takes the curve of the segment it lands in (`shapeAt`), as one added at the keyboard does.
+    if (run(addPoints(g.lane, [asPoint({ ...fresh, shape: shapeAt(points, fresh.tick) })])))
+      announce(t('automation.saidAdded', { value: ref.info.axis.format(fresh.value), at: atText(fresh.tick) }))
     autoPick = { lane: g.lane, ticks: new Set([fresh.tick]) }
   }
 
@@ -1296,8 +1397,7 @@
     ui.openMenu(
       event,
       [
-        { id: 'point-linear', label: t('automation.menuLinear'), testid: 'point-menu-linear', run: () => setCurve('linear') },
-        { id: 'point-step', label: t('automation.menuStep'), testid: 'point-menu-step', run: () => setCurve('step') },
+        ...SHAPES.map((shape) => ({ id: `point-${shape}`, label: t(SHAPE_NAMES[shape].menu), testid: `point-menu-${shape}`, run: () => setCurve(shape) })),
         { id: 'point-delete', label: t('automation.menuDelete'), testid: 'point-menu-delete', separator: true, run: removePicked },
       ],
       t('automation.menu'),
@@ -1328,6 +1428,7 @@
         { id: 'duplicate', label: t('arrangement.duplicate'), shortcut: mod(['D']), separator: true, run: () => duplicate(false) },
         { id: 'duplicate-linked', label: t('arrangement.duplicateLinked'), shortcut: mod(['Shift', 'D']), run: () => duplicate(true) },
         { id: 'repeat', label: t('arrangement.repeatUntil'), shortcut: mod(['Shift', 'R']), disabled: picked.size !== 1, run: openRepeat },
+        { id: 'lengthen', label: t('arrangement.lengthenUntil'), shortcut: mod(['Shift', 'L']), disabled: picked.size !== 1, run: openLengthen },
         { id: 'split', label: t('arrangement.split'), shortcut: mod(['E']), disabled: cuts.length === 0, run: () => splitSelected() },
         {
           id: 'move-up',
@@ -1335,14 +1436,14 @@
           shortcut: chordText(['Alt', '↑']),
           separator: true,
           disabled: !('moves' in trackTargets(selection, -1, trackList)),
-          run: () => sendToTracks(selection, -1, 0, block.id),
+          run: () => sendToTracks(selection, -1, 0, block.id, 'skip'),
         },
         {
           id: 'move-down',
           label: t('arrangement.moveDown'),
           shortcut: chordText(['Alt', '↓']),
           disabled: !('moves' in trackTargets(selection, 1, trackList)),
-          run: () => sendToTracks(selection, 1, 0, block.id),
+          run: () => sendToTracks(selection, 1, 0, block.id, 'skip'),
         },
         { id: 'delete', label: t('arrangement.delete'), shortcut: chordText(['Delete']), separator: true, run: removeSelected },
       )
@@ -1440,11 +1541,14 @@
   function duplicate(linked: boolean, from: readonly Block[] = selection) {
     const by = copyShift(from)
     if (by === null) return
+    // A copy never replaces the clip that follows (#805): it says so and changes nothing.
+    if (copyBlocked(from, by, blocks)) return announce(t('arrangement.saidCopyBlocked'))
     const keyboard = (document.activeElement as HTMLElement | null)?.dataset?.block !== undefined
     const copied = copyAndSelect(
       from.map((b) => b.id),
       linked,
       by,
+      'refuse',
     )
     // From the keyboard the focus follows the copies, which are the selection: a repeated Ctrl+D copies them again and
     // Shift+arrow starts from them, never from the original left behind (#528).
@@ -1458,12 +1562,44 @@
   // --- repeat until (#555) ------------------------------------------------------------------------------------------
   /** The clip being repeated, and the first bar the field accepts (the one after the clip's end). */
   let repeating = $state<{ id: string; min: number } | null>(null)
-  /** Opens the field for the one clip selected, or the one the keyboard focus is on when nothing is selected. */
+  /** Opens the field for the clip the keyboard focus is on when it is not selected (#805), else for the one clip selected. */
   function openRepeat() {
     const focusedId = (document.activeElement as HTMLElement | null)?.dataset?.block
-    const block = selection.length === 1 ? selection[0] : selection.length === 0 && focusedId ? blocks.find((b) => b.id === focusedId) : undefined
+    const focused = focusedId && !selectedIds.has(focusedId) ? blocks.find((b) => b.id === focusedId) : undefined
+    const block = focused ?? (selection.length === 1 ? selection[0] : undefined)
     if (!block) return announce(t('arrangement.saidRepeatOne'))
     repeating = { id: block.id, min: Math.floor(block.end / bar) + 1 }
+  }
+  // --- lengthen to (#915) -----------------------------------------------------------------------------------------
+  /** The clip being lengthened, and the first bar the field accepts (the one after the clip's end): the rule of "Repeat until". */
+  let lengthening = $state<{ id: string; min: number } | null>(null)
+  function openLengthen() {
+    const focusedId = (document.activeElement as HTMLElement | null)?.dataset?.block
+    const focused = focusedId && !selectedIds.has(focusedId) ? blocks.find((b) => b.id === focusedId) : undefined
+    const block = focused ?? (selection.length === 1 ? selection[0] : undefined)
+    if (!block) return announce(t('arrangement.saidLengthenOne'))
+    lengthening = { id: block.id, min: Math.floor(block.end / bar) + 1 }
+  }
+  /** The end of the clip goes to the end of the bar, in one `arrangement.resize`: its content repeats, no other clip is carved. */
+  function lengthenTo(barNumber: number) {
+    const target = lengthening
+    lengthening = null
+    if (!target) return
+    // The clip may have gone while the field was open.
+    const source = blocks.find((b) => b.id === target.id)
+    if (!source) return
+    const to = barNumber * bar
+    // Never over another clip (#863): the page names the one in the way and sends nothing. An audio end stops at its clip's
+    // last frame, so the page cannot tell where it lands: the core decides (refusal toast).
+    const inTheWay = source.audio ? null : repeatCovers(source, to, blocks)
+    if (inTheWay) return announce(t('arrangement.saidLengthenBlocked', blockerVars(inTheWay)))
+    // Whether an empty clip takes the length with its placement, decided before the resize (#898).
+    const withClip = followsPlacement(source)
+    if (!run(resizePlacement(source.id, 'end', to, 'refuse'))) return
+    const now = blocks.find((b) => b.id === source.id)
+    if (!now || now.end === source.end) return announce(t('arrangement.saidCannotResize'))
+    // The bar actually reached: an audio clip stops at its file's last frame.
+    announce(t(withClip ? 'arrangement.saidLengthenedWithClip' : 'arrangement.saidLengthened', { bar: barsOf(now).to }))
   }
   /**
    * The "More" menu of the toolbar (#575): the actions that are not needed at every step of making a track, with their
@@ -1495,6 +1631,16 @@
           },
         },
         {
+          id: 'more-lengthen',
+          label: t('arrangement.lengthenUntil'),
+          shortcut: mod(['Shift', 'L']),
+          disabled: selection.length !== 1,
+          run: () => {
+            returnFocus = button
+            openLengthen()
+          },
+        },
+        {
           id: 'more-insert-bars',
           label: t('arrangement.insertBars'),
           separator: true,
@@ -1505,8 +1651,13 @@
         },
         { id: 'more-delete-bars', label: t('arrangement.deleteBars'), disabled: !timeSel, run: deleteSelectedTime },
         { id: 'more-marker', label: t('arrangement.addMarker'), shortcut: chordText(['Alt', 'K']), separator: true, run: addMarkerHere },
-        { id: 'more-curve-linear', label: t('automation.curveLinear'), disabled: !autoSel, separator: true, run: () => setCurve('linear') },
-        { id: 'more-curve-step', label: t('automation.curveStep'), disabled: !autoSel, run: () => setCurve('step') },
+        ...SHAPES.map((shape, i) => ({
+          id: `more-curve-${shape}`,
+          label: t(SHAPE_NAMES[shape].more),
+          disabled: !autoSel,
+          separator: i === 0,
+          run: () => setCurve(shape),
+        })),
       ],
       t('arrangement.more'),
     )
@@ -1525,8 +1676,12 @@
     const target = repeating
     repeating = null
     if (!target) return
+    // The copies never cover a clip (#805): the page names the one in the way and sends nothing.
+    const source = blocks.find((b) => b.id === target.id)
+    const inTheWay = source ? repeatCovers(source, barNumber * bar, blocks) : null
+    if (inTheWay) return announce(t('arrangement.saidRepeatBlocked', blockerVars(inTheWay)))
     // A refusal (an audio clip, the limit, no audio started) shows in the page's own banner; only a success is said here.
-    if (run(repeatPlacement(target.id, barNumber * bar))) announce(t('arrangement.saidRepeated', { bar: barNumber }))
+    if (run(repeatPlacement(target.id, barNumber * bar, 'refuse'))) announce(t('arrangement.saidRepeated', { bar: barNumber }))
   }
 
   function removeSelected() {
@@ -1547,8 +1702,8 @@
     if (targets.length === 0) return
     // The count is taken before the cut: it is the placements the cut acts on, not what the selection holds afterwards (#772).
     const n = targets.length
-    inGroup(targets.map((b) => splitPlacement(b.id, position)))
-    announce(t('arrangement.saidSplit', { n }))
+    const done = inGroup(targets.map((b) => splitPlacement(b.id, position)))
+    announce(done.ok ? t('arrangement.saidSplit', { n }) : t(done.rolledBack ? 'arrangement.saidNoneSplit' : 'arrangement.saidCannotSplit'))
   }
 
   function onDoubleClick(event: MouseEvent) {
@@ -1574,7 +1729,13 @@
     const start = Math.floor(snapTick(xToTick(x, shown), stepOf(event)) / bar) * bar
     if (!isFree(blocks, row, start, start + bar)) return
     select(entry.id)
+    const before = new Set(blocks.map((b) => b.id))
     run(createClipAt(entry.id, start, bar))
+    // The new clip opens below, as a double click on an existing one does (PN-3, #84).
+    const made = blocks.find((b) => !before.has(b.id) && b.row === row)
+    if (!made) return
+    picked = new Set([made.id])
+    openBlock(made)
   }
 
   // --- a clip dropped from the Clips panel (#473) ----------------------------------------------------------------
@@ -1663,6 +1824,12 @@
     }
   }
 
+  /** The clip a key was pressed on when it is not selected: that clip, not the selection behind it, is what the key acts on (#805). */
+  function focusedOutsideSelection(event: KeyboardEvent): Block | undefined {
+    const id = (event.target as HTMLElement | null)?.dataset?.block
+    return id && !selectedIds.has(id) ? blocks.find((b) => b.id === id) : undefined
+  }
+
   function onKeyDown(event: KeyboardEvent) {
     if (isTextTarget(event.target)) return
     // A point's cell handles its own keys (#769); the ones it leaves (Shift+Delete, Ctrl+D) must not act on the selection behind it.
@@ -1684,16 +1851,15 @@
       if (lane && ref) autoPick = { lane, ticks: new Set(pointsOf(ref.info.lane).map((p) => p.tick)) }
       else picked = new Set(blocks.map((b) => b.id))
     } else if (mod && event.key.toLowerCase() === 'd') {
-      // With nothing selected, Ctrl+D copies the clip the keyboard focus is on (a Tab, Escape). A selection is always copied whole,
-      // as the Duplicate button's count says (#528).
-      const id = (event.target as HTMLElement | null)?.dataset?.block
-      const focused = id && selection.length === 0 ? blocks.find((b) => b.id === id) : undefined
+      // The clip the keyboard focus is on is the one copied, on its own track, unless it is part of the selection: then the
+      // selection is copied whole, as the Duplicate button's count says (#528). A selection left on another track (a clip made
+      // earlier from the free cursor) never takes the copy elsewhere (#805).
+      const focused = focusedOutsideSelection(event)
       if (focused) picked = new Set([focused.id])
       duplicate(event.shiftKey, focused ? [focused] : selection)
     } else if (mod && !event.shiftKey && event.key.toLowerCase() === 'e') {
-      // As Ctrl+D: with nothing selected, the clip the keyboard focus is on is the one cut (#772).
-      const id = (event.target as HTMLElement | null)?.dataset?.block
-      const focused = id && selection.length === 0 ? blocks.find((b) => b.id === id) : undefined
+      // As Ctrl+D: the clip the keyboard focus is on is the one cut, unless it is part of the selection (#772, #805).
+      const focused = focusedOutsideSelection(event)
       if (focused) picked = new Set([focused.id])
       splitSelected(focused ? [focused] : selection)
     } else return
@@ -1774,16 +1940,24 @@
   /** The cell in the tab order: the focused clip when it still exists, else the first selected, else the first clip. */
   const tabId = $derived((focusId && blocks.some((b) => b.id === focusId) ? focusId : null) ?? selection[0]?.id ?? blocks[0]?.id ?? null)
   const barsOf = (b: Block) => ({ from: Math.floor(b.start / bar) + 1, to: Math.max(Math.floor(b.start / bar) + 1, Math.ceil(b.end / bar)) })
+  /** What a message names of a clip in the way: its name and its bars (#805). */
+  const blockerVars = (b: Block) => ({ name: b.name || t('arrangement.clipDefault'), from: barsOf(b).from, to: barsOf(b).to })
+  /** Where a clip starts and ends, said in bars when both fall on a bar line, else with the beats (#805): two clips never read alike. */
+  function whereText(b: Block): string {
+    if (b.start % bar === 0 && b.end % bar === 0) return t('arrangement.clipBars', { from: barsOf(b).from, to: barsOf(b).to })
+    const [from, to] = [barBeat(b.start), barBeat(b.end)]
+    return t('arrangement.clipBeats', { fromBar: from.bar, fromBeat: from.beat, toBar: to.bar, toBeat: to.beat })
+  }
   function clipText(b: Block): string {
     const entry = entries[b.row]
     const name = b.name || t('arrangement.clipDefault')
-    const where = barsOf(b)
-    const parts = [t('arrangement.clipItem', { name, track: entry ? trackLabel(entry, t) : '', from: where.from, to: where.to })]
+    const parts = [t('arrangement.clipItem', { name, track: entry ? trackLabel(entry, t) : '', where: whereText(b) })]
     if (b.audio) parts.push(t('audio.clipAudio'))
     // A linked clip and a repeated content are said (#473), as they are drawn.
     if (b.uses > 1) parts.push(t('arrangement.clipLinked'))
     const passes = b.audio ? 1 : passCount(b)
-    if (passes > 1) parts.push(t('arrangement.clipPasses', { n: passes }))
+    // An empty clip has no content to play again (#898): its placement is its length.
+    if (passes > 1 && b.notes.length > 0) parts.push(t('arrangement.clipPasses', { n: passes }))
     if (selectedIds.has(b.id)) parts.push(t('arrangement.clipSelected'))
     return parts.join(', ')
   }
@@ -1850,6 +2024,14 @@
       event.stopPropagation()
       return putHeadAtCursor()
     }
+    // Home brings the free cursor back to bar 1 (#852); the playhead stays.
+    if (cursorJumpKey(event) === 'start' && (event.target as HTMLElement).dataset.cursor !== undefined && cursorPos) {
+      event.preventDefault()
+      event.stopPropagation()
+      cursorAt = { row: cursorPos.row, tick: 0 }
+      void focusCursor()
+      return
+    }
     const key = rovingKey(event)
     if (key && (event.target as HTMLElement).dataset.cursor !== undefined) return onCursorKey(event, key)
     // Page Up and Page Down mean a velocity: a clip has none.
@@ -1889,7 +2071,7 @@
       if (!selectedIds.has(current.id)) picked = new Set([current.id])
       // Up and Down move the clips to the track above or below (`arrangement.move_to_track`).
       if (key.direction === 'up' || key.direction === 'down') {
-        const landed = sendToTracks(chosen, key.direction === 'up' ? -1 : 1, 0, current.id)
+        const landed = sendToTracks(chosen, key.direction === 'up' ? -1 : 1, 0, current.id, 'skip')
         const now = landed?.[current.id]
         if (now) void focusItem(now.id)
         return
@@ -1903,29 +2085,40 @@
           return to === null ? [] : [{ id: b.id, to }]
         })
         if (ends.length === 0) return announce(t('arrangement.saidCannotResize'))
-        inGroup(ends.map((e) => resizePlacement(e.id, 'end', e.to)))
+        // A longer clip never carves the next one (#863): the page names the clip in the way and sends nothing.
+        for (const e of ends) {
+          const from = blocks.find((b) => b.id === e.id)
+          // An audio end stops at its clip's last frame, so the page cannot tell where it lands: the core decides (refusal toast).
+          const inTheWay = from && !from.audio ? repeatCovers(from, e.to, blocks) : null
+          if (inTheWay) return announce(t('arrangement.saidResizeBlocked', blockerVars(inTheWay)))
+        }
+        // The core can still refuse one (an audio end stops at its clip's last frame): then all of them stay as they were (#867).
+        // Whether the focused clip (or the first) takes its placement's length with it, decided before the resize (#898).
+        const wasEmpty = (() => {
+          const e = ends.find((x) => x.id === current.id) ?? ends[0]!
+          const b = blocks.find((x) => x.id === e.id)
+          return !!b && followsPlacement(b)
+        })()
+        const done = inGroup(ends.map((e) => resizePlacement(e.id, 'end', e.to, 'refuse')))
+        if (!done.ok) return announce(t(done.rolledBack ? 'arrangement.saidNoneResized' : 'arrangement.saidResizePartial'))
         // The length of the focused clip when it moved, else of the first that did.
         const said = blocks.find((b) => b.id === (ends.some((e) => e.id === current.id) ? current.id : ends[0]!.id))
-        if (said) announce(lengthText(t, signature, said.length))
+        if (said) {
+          const length = lengthText(t, signature, said.length)
+          announce(wasEmpty ? t('arrangement.saidLengthWithClip', { length }) : length)
+        }
         void focusItem(current.id)
         return
       }
       const delta = moveDelta(chosen, current, current.start + sign * nudge, current.start, null)
       if (delta === 0) return announce(t('arrangement.saidCannotMove'))
-      // A move over other clips carves them (`arrangement.move`): what it did to them is said too.
+      // A move from the keyboard never carves a clip (#805): it says which one is in the way and changes nothing.
       const ids = new Set(chosen.map((b) => b.id))
-      const others = new Map(blocks.filter((b) => !ids.has(b.id)).map((b) => [b.id, `${b.start}:${b.end}`]))
-      run(movePlacements([...ids], delta))
-      const after = blocks.filter((b) => !ids.has(b.id))
-      const carved = [...others].filter(([bid, span]) => {
-        const now = after.find((b) => b.id === bid)
-        return !now || `${now.start}:${now.end}` !== span
-      }).length
+      const inTheWay = landingOn(chosen, delta, blocks)
+      if (inTheWay) return announce(t('arrangement.saidMoveBlocked', blockerVars(inTheWay)))
+      if (!run(movePlacements([...ids], delta, 'refuse'))) return
       const moved = blocks.find((b) => b.id === current.id)
-      if (moved) {
-        const said = t('arrangement.saidMoved', { n: chosen.length, bar: barsOf(moved).from })
-        announce(carved > 0 ? `${said}. ${t('arrangement.saidCarved', { n: carved })}` : said)
-      }
+      if (moved) announce(t('arrangement.saidMoved', { n: chosen.length, bar: barsOf(moved).from }))
       void focusItem(current.id)
       return
     }
@@ -2031,6 +2224,46 @@
     stage?.querySelector<HTMLElement>('[data-testid="arr-cursor"]')?.focus()
   }
 
+  // "Go to" (Ctrl+G) puts the free cursor on the playhead's new bar too, on the selected track (#852). The focus stays where it is.
+  let seenGoto = untrack(() => ui.gotoTarget?.n ?? 0)
+  $effect(() => {
+    const target = ui.gotoTarget
+    if (!target || target.n === seenGoto) return
+    seenGoto = target.n
+    untrack(() => {
+      if (entries.length === 0) return
+      const row = Math.max(
+        0,
+        entries.findIndex((e) => e.id === project.selected?.id),
+      )
+      cursorAt = { row, tick: Math.min(Math.max(0, target.tick), Math.max(0, totalBars * bar - 1)) }
+    })
+  })
+
+  /**
+   * Alt+N, on the selected track, empty or not (#852): an empty clip of one bar in the playhead's bar. It never replaces a
+   * placement (a taken bar is refused and said), and the new clip takes the focus (Enter opens it).
+   */
+  function newClipAtHead() {
+    // The row is taken before the command: the entries are made again once the project changed.
+    const row = entries.findIndex((e) => e.id === project.selected?.id)
+    const entry = entries[row]
+    const view = project.view
+    if (!entry || !view) return
+    const start = barStart(headTick(), bar)
+    const made = newClipAt(view.project, entry.id, start, bar)
+    if ('refused' in made)
+      return announce(t(made.refused === 'notMidi' ? 'arrangement.saidNotMidi' : 'arrangement.saidNoRoomAt', { bar: Math.floor(start / bar) + 1 }))
+    if (!run(made.command)) return
+    cursorAt = { row, tick: start }
+    const block = blocks.find((b) => b.row === row && b.start === start)
+    announce(t('arrangement.saidClipAtHead', { track: trackLabel(entry, t), bar: Math.floor(start / bar) + 1 }))
+    if (!block) return
+    picked = new Set([block.id])
+    followClip(block)
+    void focusItem(block.id)
+  }
+
   /** The playhead goes to the free cursor's tick (`transport.seek`), and the live region says where. */
   function putHeadAtCursor() {
     const at = cursorPos
@@ -2128,12 +2361,13 @@
   function laneValue(lane: string, at: number): number | null {
     const ref = laneRefs.get(lane)
     if (!ref) return null
-    const value = valueAt(pointsOf(ref.info.lane), at, ref.info.lane.target)
+    const value = valueAt(pointsOf(ref.info.lane), at, ref.info.lane.target, ref.info.axis.log)
     return value === null ? paramValue(ref.trackId, ref.info) : ref.info.axis.clamp(value)
   }
   /** The keys of a point and of a ramp as written on the user's keyboard (they work by position). */
   const pointKeyLabel = $derived(positionKey(POINT_CODE, ui.keyLayout))
   const rampKeyLabel = $derived(positionKey(RAMP_CODE, ui.keyLayout))
+  const curveKeyLabel = $derived(positionKey(CURVE_CODE, ui.keyLayout))
   /** The tick of the playhead, whole and on the timeline. */
   const headAt = () => Math.min(MAX_TICK, Math.round(headTick()))
   const laneRow = (lane: string) => layout.rows.find((r) => r.kind === 'lane' && r.lane === lane)
@@ -2197,21 +2431,35 @@
     if (from === null) return
     ramping = { lane, back, head: at, from }
   }
+  /** The curve of the last ramp drawn, offered again by the dialog (#918). */
+  let rampShape = $state<Shape>('linear')
   const rampRef = $derived(ramping ? laneRefs.get(ramping.lane) : undefined)
   /** The ramp asked: one `automation.points.restore` (the two ends, the points between taken out), one history entry. */
-  function submitRamp(at: number, entry: AxisEntry) {
+  function submitRamp(at: number, entry: AxisEntry, shape: Shape) {
     const r = ramping
     const ref = r ? laneRefs.get(r.lane) : undefined
     ramping = null
     if (!r || !ref) return
     const axis = ref.info.axis
     const value = axis.clamp(entry.value)
-    const plan = rampPlan(pointsOf(ref.info.lane), { tick: r.head, value: r.from }, { tick: at, value })
+    const plan = rampPlan(pointsOf(ref.info.lane), { tick: r.head, value: r.from }, { tick: at, value }, shape)
     if (!plan || !run(restorePoints(r.lane, plan.points, plan.remove))) {
       r.back?.focus()
       return
     }
-    const said = [t('automation.saidRamp', { from: axis.format(r.from), fromAt: atText(r.head), to: axis.format(value), toAt: atText(at) })]
+    // The curve is kept for the next ramp, and the playhead goes to the end point: the next segment starts from there (#918).
+    rampShape = shape
+    // Not while it plays: playback would jump away from what is heard.
+    if (!running) placeHead(at)
+    const said = [
+      t('automation.saidRamp', {
+        from: axis.format(r.from),
+        fromAt: atText(r.head),
+        to: axis.format(value),
+        toAt: atText(at),
+        curve: t(SHAPE_NAMES[shape].word),
+      }),
+    ]
     if (entry.limit !== undefined) said.push(t('controls.limited', { value: axis.format(axis.clamp(entry.limit)) }))
     if (plan.remove.length > 0) said.push(t('automation.saidReplaced', { n: plan.remove.length }))
     announce(said.join('. '))
@@ -2274,6 +2522,12 @@
       else focusLaneHead(lane)
       return
     }
+    if (action.kind === 'curve') {
+      // C and Shift+C: the next or the previous curve of the list (#881), one `points.update`.
+      const shape = nextShape(point.shape, action.direction)
+      if (run(updatePoints(lane, [asPoint({ ...point, shape })]))) announce(t('automation.saidCurve', { shape: t(SHAPE_NAMES[shape].word), at: atText(at) }))
+      return
+    }
     if (action.kind === 'value') {
       const value = stepValue(axis, point.value, action.direction, action.big)
       const said = t('automation.saidSet', { value: axis.format(value), at: atText(at) })
@@ -2320,7 +2574,7 @@
     labels[i] ??= t('automation.pointCell', {
       value: info.axis.format(p.value),
       at: atText(p.tick),
-      curve: t(p.shape === 'step' ? 'automation.shapeStep' : 'automation.shapeLinear'),
+      curve: t(SHAPE_NAMES[p.shape].word),
       i: i + 1,
       n: points.length,
     })
@@ -2636,7 +2890,7 @@
           {:else if row.kind === 'lane'}
             {@const ref = laneRefs.get(row.lane ?? '')}
             {#if ref}
-              {@const live = shownTick === null ? null : valueAt(pointsOf(ref.info.lane), shownTick, ref.info.lane.target)}
+              {@const live = shownTick === null ? null : valueAt(pointsOf(ref.info.lane), shownTick, ref.info.lane.target, ref.info.axis.log)}
               {@const count = pointsOf(ref.info.lane).length}
               <!-- The group relays the keys of its buttons: I (Insert), R and Right (#769). -->
               <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -2646,7 +2900,7 @@
                 style:--swatch={ref.color}
                 role="group"
                 aria-label={t('automation.lane', { title: ref.info.title })}
-                title={t('automation.laneHint', { point: pointKeyLabel, ramp: rampKeyLabel })}
+                title={t('automation.laneHint', { point: pointKeyLabel, ramp: rampKeyLabel, curve: curveKeyLabel })}
                 data-testid="arr-lane"
                 data-lane={row.lane}
                 data-target={ref.info.title}
@@ -2999,7 +3253,7 @@
   {signature}
   headTick={ramping?.head ?? 0}
   initialPosition={ramping ? String(Math.floor(ramping.head / bar) + 2) : ''}
-  initialValue={ramping && rampRef ? rampRef.info.axis.format(ramping.from) : ''}
+  initialShape={rampShape}
   onsubmit={submitRamp}
   onclose={closeRamp}
 />
@@ -3017,6 +3271,23 @@
   onsubmit={repeatUpTo}
   onclose={() => {
     repeating = null
+    giveFocusBack()
+  }}
+/>
+<BarDialog
+  open={lengthening !== null}
+  name="lengthen"
+  title={t('arrangement.lengthenTitle')}
+  label={t('arrangement.lengthenLabel', { min: lengthening?.min ?? 1 })}
+  invalid={t('arrangement.lengthenInvalid', { min: lengthening?.min ?? 1, max: MAX_GOTO_BAR })}
+  go={t('arrangement.lengthenGo')}
+  cancel={t('arrangement.repeatCancel')}
+  initial={lengthening?.min ?? 1}
+  min={lengthening?.min ?? 1}
+  max={MAX_GOTO_BAR}
+  onsubmit={lengthenTo}
+  onclose={() => {
+    lengthening = null
     giveFocusBack()
   }}
 />

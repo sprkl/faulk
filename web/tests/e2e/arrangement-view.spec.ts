@@ -32,6 +32,19 @@ const blocks = async (page: Page): Promise<Block[]> =>
   (JSON.parse((await arr(page).getAttribute('data-blocks')) ?? '[]') as Block[]).sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : 1))
 const selected = async (page: Page): Promise<string[]> => JSON.parse((await arr(page).getAttribute('data-selection')) ?? '[]')
 
+/**
+ * The follow tests play at 480 BPM, four times the default 120 (#848): the play position leaves a window of bars four
+ * times sooner, and no assertion reads the tempo. At 120 BPM each wait for a page turn was up to half a minute.
+ */
+async function playFast(page: Page) {
+  const tempo = page.getByTestId('transport-tempo')
+  await tempo.fill('480')
+  await tempo.press('Enter')
+  await expect(tempo).toHaveValue('480')
+  // A refused tempo keeps the typed text too (#474): the range error says whether it was taken.
+  await expect(page.getByTestId('tempo-error')).toHaveCount(0)
+}
+
 /** Where a tick and a lane are on the page. */
 async function spot(page: Page) {
   const box = (await stage(page).boundingBox())!
@@ -181,8 +194,13 @@ test('arrangement view: place, move, resize, split, duplicate, delete, loop, see
   expect((await blocks(page)).map((b) => b.start)).toEqual(linked.map((b) => b.start))
 
   // A double-click on an empty place of the lane makes a one-bar clip; on a clip it opens the piano roll.
+  // #84: from another panel, the new clip brings the piano roll up, on the bar it was made.
+  await page.getByTestId('panel-devices').click()
+  await expect(page.getByTestId('piano-roll')).toBeHidden()
   await page.mouse.dblclick(g.x(3 * BAR + 100), g.y(0))
   await expect(arr(page)).toHaveAttribute('data-block-count', '6')
+  await expect(page.getByTestId('piano-roll')).toBeVisible()
+  await expect(page.getByTestId('roll-clip-origin')).toHaveText('Arrangement · bar 4')
   await page.getByTestId('panel-devices').click()
   await page.mouse.dblclick(g.x(2 * BAR + 1000), g.y(0))
   await expect(page.getByTestId('piano-roll')).toBeVisible()
@@ -202,6 +220,7 @@ test('arrangement view: follow the play position, scrollbar, zoom buttons', asyn
   await startAudio(page)
   await engineUp(page)
   await page.getByTestId('nav-arrangement').click()
+  await playFast(page)
   const grid = stage(page).getByTestId('timegrid')
   const num = async (attribute: string) => Number(await grid.getAttribute(attribute))
   const scroll = () => num('data-scroll-tick')
@@ -290,6 +309,7 @@ test('arrangement view: Stop, Back to start and a seek bring the view back to th
   await startAudio(page)
   await engineUp(page)
   await page.getByTestId('nav-arrangement').click()
+  await playFast(page)
   const grid = stage(page).getByTestId('timegrid')
   const num = async (attribute: string) => Number(await grid.getAttribute(attribute))
   const scroll = () => num('data-scroll-tick')
@@ -298,7 +318,7 @@ test('arrangement view: Stop, Back to start and a seek bring the view back to th
   const play = () => transport.getByRole('button', { name: 'Play', exact: true }).click()
   const stop = () => transport.getByRole('button', { name: 'Stop', exact: true }).click()
   await expect.poll(() => num('data-draw-count')).toBeGreaterThan(0)
-  // The arrangement opens on 16 bars (#473), half a minute of playing: zoom in to about 4 bars, back to bar 1.
+  // The arrangement opens on 16 bars (#473), 8 s of playing at 480 BPM: zoom in to about 4 bars, back to bar 1.
   for (let i = 0; i < 6; i++) await page.getByTestId('arr-zoom-in').click()
   await grid.focus()
   await page.keyboard.press('Home')

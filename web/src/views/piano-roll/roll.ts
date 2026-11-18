@@ -5,8 +5,9 @@
  * identifier (CT-4): a note is addressed by its whole value, and `noteKey` is that value as a string.
  */
 
-import { tickToX, type View } from '../../lib/components/timegrid/grid'
-import type { Note } from '../../lib/generated/protocol'
+import { ROLL_SNAP_SETTINGS, tickToX, type SnapSetting, type View } from '../../lib/components/timegrid/grid'
+import type { Command, Note } from '../../lib/generated/protocol'
+import { runAll, type GroupRun, type RunAll } from '../../lib/history-group'
 import { PPQ } from '../transport/time'
 
 /** The lowest and the highest MIDI key. */
@@ -427,6 +428,16 @@ export function lengthFor(end: number, clipLength: number, bar: number): number 
 }
 
 /**
+ * Runs the `grow` commands (a longer clip) then `commands` (the notes) as one group, all or nothing (#869). `null` when the
+ * growth itself was refused and taken back (a placement next to the clip): there is no room, the notes were never sent.
+ * Else what `runAll` did; a refusal of the notes shows its own message.
+ */
+export function sendWithRoom(run: GroupRun, grow: Command[], commands: Command[]): RunAll | null {
+  const done = runAll(run, [...grow, ...commands])
+  return !done.ok && done.rolledBack && done.refused < grow.length ? null : done
+}
+
+/**
  * The span a duplicate shifts by: from the start of the bar of the first note to the last end of
  * the selection, rounded up to whole bars (at least one). Same rule as `clip.notes.duplicate` without `offset`.
  */
@@ -500,3 +511,23 @@ export function stepLengths(selected: readonly Note[], step: number, direction: 
   })
   return { changes, cut }
 }
+
+/** The roll's tools (#835): kept for the session, so a clip opened later takes the tool in use. */
+export const ROLL_TOOLS = ['draw', 'select'] as const
+export type RollTool = (typeof ROLL_TOOLS)[number]
+
+/** The tool remembered by the page, `draw` when none or an unknown one (a layout written by another version). */
+export const parseTool = (value: unknown): RollTool => ROLL_TOOLS.find((t) => t === value) ?? 'draw'
+
+/** The remembered length of the last note drawn (#835): a positive whole number of ticks, else null (the snap step). */
+export const parseLastLength = (value: unknown): number | null => (typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : null)
+
+/** The snap remembered by the page, `auto` when none or an unknown one. */
+export const parseSnap = (value: unknown): SnapSetting => ROLL_SNAP_SETTINGS.find((s) => s === value) ?? 'auto'
+
+/**
+ * Whether a press on the notes' area only gives the roll the focus (#835): when the keyboard was on another element of the
+ * page (not in the roll, not nowhere), the press moves it here and writes nothing, so that a click made to reach the
+ * keyboard never places a note out of sight. With nothing focused the press is a plain click and draws.
+ */
+export const clickGivesFocus = (focusInsideRoll: boolean, focusElsewhere: boolean): boolean => focusElsewhere && !focusInsideRoll

@@ -13,6 +13,7 @@ pub mod ceiling;
 /// and run by the graph, not a registry device (its module doc says why).
 pub mod clip_player;
 pub mod compressor;
+pub mod contour;
 pub mod draw;
 pub mod drums;
 pub mod echo;
@@ -25,6 +26,7 @@ pub mod lattice;
 pub mod osc_synth;
 pub mod params;
 pub mod reverb;
+pub mod ripple;
 pub mod scale;
 pub mod scatter;
 pub mod stack;
@@ -62,6 +64,8 @@ pub const REGISTRY: &[Builtin] = &[
     scatter::BUILTIN,
     hiccup::BUILTIN,
     bloom::BUILTIN,
+    contour::BUILTIN,
+    ripple::BUILTIN,
 ];
 
 /// The registry's line of `kind`.
