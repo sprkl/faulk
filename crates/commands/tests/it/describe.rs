@@ -278,3 +278,154 @@ fn a_take_is_one_entry_that_counts_its_notes_in_its_tracks() {
     assert_eq!(subject.within, ["Synth", "Bass"]);
     assert_eq!(others, 0);
 }
+
+/// Runs a command that must apply.
+fn go(s: &mut State, ctx: &mut Context, command: Command) -> Output {
+    run(&command, s, ctx).unwrap().output
+}
+
+#[test]
+fn a_track_with_no_name_is_said_by_its_position_and_its_instrument() {
+    let f = fixture();
+    let mut s = f.state.clone();
+    let mut ctx = context();
+    for _ in 0..2 {
+        go(
+            &mut s,
+            &mut ctx,
+            Command::Track(track::Command::Create {
+                kind: ::project::TrackKind::Midi,
+                instrument: None,
+                name: None,
+                color: None,
+            }),
+        );
+    }
+    let (name, subject, _) = top(&s);
+    assert_eq!(name, "track.create");
+    assert!(subject.objects.is_empty(), "no name to say");
+    assert_eq!(subject.unnamed, [3], "the third track of the project");
+    assert_eq!(subject.within, ["Oscillator"], "the instrument it plays");
+    // A clip made on it names its track by position, never by an empty name.
+    let track = s.project.tracks_in_order()[2].0.clone();
+    go(
+        &mut s,
+        &mut ctx,
+        Command::Clip(clip::Command::Create {
+            track,
+            at: ClipTarget::Arrangement { start: Tick(0) },
+            length: None,
+            name: None,
+        }),
+    );
+    let (name, subject, _) = top(&s);
+    assert_eq!(name, "clip.create");
+    assert!(subject.within.is_empty());
+    assert_eq!(subject.within_unnamed, [3]);
+    assert_eq!(subject.objects.len(), 1, "the clip has a name");
+}
+
+#[test]
+fn a_scene_is_said_by_its_name_or_its_position() {
+    use commands::scene;
+    let f = fixture();
+    let mut s = f.state.clone();
+    let mut ctx = context();
+    for name in [None, Some("Chorus".to_owned())] {
+        go(
+            &mut s,
+            &mut ctx,
+            Command::Scene(scene::Command::Create { name }),
+        );
+    }
+    let (name, subject, _) = top(&s);
+    assert_eq!(name, "scene.create");
+    assert_eq!(subject.objects, ["Chorus"]);
+    let first = s.project.scenes_in_order()[0].0.clone();
+    go(
+        &mut s,
+        &mut ctx,
+        Command::Scene(scene::Command::Delete { scene: first }),
+    );
+    let (name, subject, _) = top(&s);
+    assert_eq!(name, "scene.delete");
+    assert!(subject.objects.is_empty());
+    assert_eq!(subject.unnamed, [1]);
+}
+
+#[test]
+fn an_automation_entry_names_its_parameter_and_a_parameter_change_its_value() {
+    use commands::{automation, device};
+    let f = fixture();
+    let mut s = f.state.clone();
+    let mut ctx = context();
+    let Output::Automation(automation::Output::LaneCreate { lane }) = go(
+        &mut s,
+        &mut ctx,
+        Command::Automation(automation::Command::LaneCreate {
+            track: Some(f.track.clone()),
+            master: false,
+            target: ::project::AutomationTarget::Device {
+                device: f.device.clone(),
+                param: "attack".into(),
+            },
+        }),
+    ) else {
+        panic!()
+    };
+    let param = |subject: &Subject| {
+        let p = subject.param.clone().unwrap();
+        (p.kind, p.device, p.key)
+    };
+    let expected = (
+        Some("faulk.osc_synth".to_owned()),
+        Some("Oscillator".to_owned()),
+        "attack".to_owned(),
+    );
+    let (name, subject, _) = top(&s);
+    assert_eq!(name, "automation.lane.create");
+    assert_eq!(param(&subject), expected);
+    assert_eq!(subject.within, ["Synth"]);
+    let point = |tick| automation::Point {
+        tick: Tick(tick),
+        value: 0.5,
+        shape: ::project::Shape::Linear,
+    };
+    go(
+        &mut s,
+        &mut ctx,
+        Command::Automation(automation::Command::PointsAdd {
+            lane: lane.clone(),
+            points: vec![point(0), point(960)],
+        }),
+    );
+    let (name, subject, _) = top(&s);
+    assert_eq!((name, subject.count), ("automation.points.add", 2));
+    assert_eq!(param(&subject), expected);
+    // A ramp is one `points.restore`: it names the lane too.
+    go(
+        &mut s,
+        &mut ctx,
+        Command::Automation(automation::Command::PointsRestore {
+            lane,
+            points: vec![point(0), point(1920)],
+            remove: vec![],
+        }),
+    );
+    let (name, subject, _) = top(&s);
+    assert_eq!((name, subject.count), ("automation.points.restore", 2));
+    assert_eq!(param(&subject), expected);
+    go(
+        &mut s,
+        &mut ctx,
+        Command::Device(device::Command::SetParam {
+            device: f.device.clone(),
+            param: "attack".into(),
+            value: 0.25,
+        }),
+    );
+    let (name, subject, _) = top(&s);
+    assert_eq!(name, "device.set_param");
+    assert_eq!(param(&subject), expected);
+    assert_eq!(subject.value, Some(0.25));
+}

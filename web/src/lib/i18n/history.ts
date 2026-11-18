@@ -6,8 +6,9 @@ import { defineFeature } from './feature'
 export const COMMAND_LABEL_PREFIX = 'history.cmd.'
 
 /**
- * Phrase of an entry that names its objects (#473): `history.say.<name>`, or `.on` and `.off` for a switch, with
- * `{what}` (the objects, built from `history.noun.*`) and `{to}` (a new name or value). See `views/history/label.ts`.
+ * Phrase of an entry that names its objects (#473): `history.say.<name>`, or `.on` and `.off` for a switch, `.value` when
+ * the entry says a parameter and its value, with `{what}` (the objects, built from `history.noun.*`), `{to}` (a new name or
+ * value), `{param}` and `{value}` (a parameter and what it was set to) and `{lane}` (an automation lane, #934). See `views/history/label.ts`.
  */
 export const PHRASE_PREFIX = 'history.say.'
 
@@ -145,6 +146,7 @@ export const history = defineFeature(
     'history.say.device.set_bypass.on': 'Bypass {what}',
     'history.say.device.set_bypass.off': 'Put {what} back',
     'history.say.device.set_param': 'Change a parameter of {what}',
+    'history.say.device.set_param.value': 'Set {param} of {what} to {value}',
     'history.say.preset.save': 'Save {what} as a preset',
     'history.say.preset.load': 'Load a preset into {what}',
     'history.say.clip.create': 'Create {what}',
@@ -184,12 +186,13 @@ export const history = defineFeature(
     'history.say.arrangement.marker.rename': 'Rename marker {what} to {to}',
     'history.say.arrangement.marker.move': 'Move marker {what}',
     'history.say.arrangement.marker.delete': 'Delete marker {what}',
-    'history.say.automation.lane.create': 'Create {what}',
-    'history.say.automation.lane.delete': 'Delete {what}',
-    'history.say.automation.lane.clear': 'Clear {what}',
-    'history.say.automation.points.add': 'Add {what}',
-    'history.say.automation.points.remove': 'Remove {what}',
-    'history.say.automation.points.update': 'Edit {what}',
+    'history.say.automation.lane.create': 'Create the lane {lane}',
+    'history.say.automation.lane.delete': 'Delete the lane {lane}',
+    'history.say.automation.lane.clear': 'Clear the lane {lane}',
+    'history.say.automation.points.add': 'Add {what} to {lane}',
+    'history.say.automation.points.remove': 'Remove {what} from {lane}',
+    'history.say.automation.points.update': 'Edit {what} of {lane}',
+    'history.say.automation.points.restore': 'Write {what} in {lane}',
     'history.say.mixer.set_volume': 'Change the volume of {what}',
     'history.say.mixer.set_pan': 'Change the pan of {what}',
     'history.say.mixer.set_mute.on': 'Mute {what}',
@@ -337,6 +340,7 @@ export const history = defineFeature(
     'history.say.device.set_bypass.on': 'Contourner {what}',
     'history.say.device.set_bypass.off': 'Remettre {what}',
     'history.say.device.set_param': 'Changer un paramètre de {what}',
+    'history.say.device.set_param.value': 'Régler {param} de {what} à {value}',
     'history.say.preset.save': 'Enregistrer {what} comme preset',
     'history.say.preset.load': 'Charger un preset dans {what}',
     'history.say.clip.create': 'Créer {what}',
@@ -376,12 +380,13 @@ export const history = defineFeature(
     'history.say.arrangement.marker.rename': 'Renommer le marqueur {what} en {to}',
     'history.say.arrangement.marker.move': 'Déplacer le marqueur {what}',
     'history.say.arrangement.marker.delete': 'Supprimer le marqueur {what}',
-    'history.say.automation.lane.create': 'Créer {what}',
-    'history.say.automation.lane.delete': 'Supprimer {what}',
-    'history.say.automation.lane.clear': 'Vider {what}',
-    'history.say.automation.points.add': 'Ajouter {what}',
-    'history.say.automation.points.remove': 'Retirer {what}',
-    'history.say.automation.points.update': 'Modifier {what}',
+    'history.say.automation.lane.create': 'Créer le couloir {lane}',
+    'history.say.automation.lane.delete': 'Supprimer le couloir {lane}',
+    'history.say.automation.lane.clear': 'Vider le couloir {lane}',
+    'history.say.automation.points.add': 'Ajouter {what} à {lane}',
+    'history.say.automation.points.remove': 'Retirer {what} de {lane}',
+    'history.say.automation.points.update': 'Modifier {what} de {lane}',
+    'history.say.automation.points.restore': 'Écrire {what} dans {lane}',
     'history.say.mixer.set_volume': 'Changer le volume de {what}',
     'history.say.mixer.set_pan': 'Changer le panoramique de {what}',
     'history.say.mixer.set_mute.on': 'Couper {what}',

@@ -5,7 +5,18 @@ import { label, nounOf } from './history-label'
 
 const en = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate('en', key, vars)
 const fr = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate('fr', key, vars)
-const subject = (s: Partial<Subject>): Subject => ({ count: 1, objects: [], within: [], on: null, to: null, ...s })
+const subject = (s: Partial<Subject>): Subject => ({
+  count: 1,
+  objects: [],
+  within: [],
+  unnamed: [],
+  within_unnamed: [],
+  on: null,
+  to: null,
+  param: null,
+  value: null,
+  ...s,
+})
 
 describe('history labels that name the objects (#473)', () => {
   it('names a switched track', () => {
@@ -56,5 +67,44 @@ describe('history labels that name the objects (#473)', () => {
     expect(nounOf('arrangement.delete')).toBe('clip')
     expect(nounOf('device.remove')).toBe('device')
     expect(nounOf('mixer.set_mute')).toBe('track')
+  })
+})
+
+describe('history labels that name what was done, and on what (#934)', () => {
+  it('says an unnamed track and scene by their default name, never as an empty name', () => {
+    expect(label({ name: 'track.create', subject: subject({ unnamed: [2], within: ['Oscillator'] }) }, en)).toBe('Create Track 2 (Oscillator)')
+    expect(label({ name: 'track.create', subject: subject({ unnamed: [2], within: ['Oscillator'] }) }, fr)).toBe('Créer Piste 2 (Oscillator)')
+    expect(label({ name: 'track.delete', subject: subject({ unnamed: [3] }) }, fr)).toBe('Supprimer Piste 3')
+    expect(label({ name: 'clip.create', subject: subject({ objects: ['Clip 1'], within_unnamed: [6] }) }, fr)).toBe('Créer Clip 1 (Piste 6)')
+    expect(label({ name: 'scene.create', subject: subject({ unnamed: [2] }) }, en)).toBe('Create Scene 2')
+    expect(label({ name: 'scene.delete', subject: subject({ unnamed: [1] }) }, fr)).toBe('Supprimer Scène 1')
+  })
+
+  it('names the lane an automation entry is about, parameter and track', () => {
+    const cutoff = { kind: 'faulk.filter', device: 'Filter', key: 'cutoff' }
+    const lane = (s: Partial<Subject> = {}) => subject({ param: cutoff, within: ['Lead'], ...s })
+    expect(label({ name: 'automation.lane.create', subject: lane() }, en)).toBe('Create the lane Filter › Cutoff, Lead')
+    expect(label({ name: 'automation.lane.delete', subject: lane() }, fr)).toBe('Supprimer le couloir Filter › Fréquence de coupure, Lead')
+    expect(label({ name: 'automation.points.restore', subject: lane({ count: 8 }) }, en)).toBe('Write 8 automation points in Filter › Cutoff, Lead')
+    expect(label({ name: 'automation.points.add', subject: lane({ count: 1 }) }, fr)).toBe(
+      "Ajouter un point d'automation à Filter › Fréquence de coupure, Lead",
+    )
+    expect(label({ name: 'automation.points.remove', subject: lane({ count: 2, within: [], within_unnamed: [4] }) }, en)).toBe(
+      'Remove 2 automation points from Filter › Cutoff, Track 4',
+    )
+    expect(label({ name: 'automation.lane.clear', subject: subject({ param: { kind: null, device: null, key: 'gain' }, within: ['Master'] }) }, fr)).toBe(
+      'Vider le couloir Volume, Master',
+    )
+    // A lane that says no parameter keeps the generic label.
+    expect(label({ name: 'automation.points.add', subject: subject({ within: ['Lead'] }) }, en)).toBe('Add automation points')
+  })
+
+  it('names the parameter and its new value', () => {
+    const set = (key: string, value: number) =>
+      subject({ objects: ['Filter'], within: ['Master'], param: { kind: 'faulk.filter', device: 'Filter', key }, value })
+    expect(label({ name: 'device.set_param', subject: set('cutoff', 1200) }, en)).toBe('Set Cutoff of Filter (Master) to 1.20 kHz')
+    expect(label({ name: 'device.set_param', subject: set('cutoff', 1200) }, fr)).toBe('Régler Fréquence de coupure de Filter (Master) à 1.20 kHz')
+    // Without a value (a group of several changes), the generic phrase of the device.
+    expect(label({ name: 'device.set_param', subject: subject({ objects: ['Filter'], within: ['Master'] }) }, en)).toBe('Change a parameter of Filter (Master)')
   })
 })
