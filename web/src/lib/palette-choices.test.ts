@@ -69,8 +69,16 @@ describe('the closed choices of the palette come from the interface, in its lang
       expect(closedChoices(entry('track.set_instrument'), field('track.set_instrument', 'instrument'), t)!.choices).toEqual(instruments.choices)
       const effects = closedChoices(entry('device.insert'), field('device.insert', 'kind'), t)!
       const names = effects.choices.map((c) => c.label)
-      for (const d of DEVICES.filter((x) => (x.role as string) !== 'instrument')) expect(names, d.kind).toContain(d.name)
-      expect(names.length).toBe(DEVICES.filter((x) => (x.role as string) !== 'instrument').length)
+      const onMidi = closedChoices(entry('device.insert'), field('device.insert', 'kind'), t, { lang, deviceKind: null, trackKind: 'midi' })!.choices.map(
+        (c) => c.label,
+      )
+      for (const d of DEVICES.filter((x) => (x.role as string) !== 'instrument')) expect(onMidi, d.kind).toContain(d.name)
+      expect(onMidi.length).toBe(DEVICES.filter((x) => (x.role as string) !== 'instrument').length)
+      // A MIDI effect is refused on an audio track and on the master: it is not offered there.
+      const midiNames = DEVICES.filter((x) => (x.role as string) === 'midi_effect').map((d) => d.name)
+      expect(midiNames.length).toBeGreaterThan(0)
+      for (const n of midiNames) expect(names).not.toContain(n)
+      expect(names.length).toBe(onMidi.length - midiNames.length)
     })
 
     it(`names every option of every enum a command listed has, in ${lang}`, () => {
@@ -178,22 +186,59 @@ const FREE_TEXT: Readonly<Record<string, string>> = {
   bpm: 'a number',
 }
 
+const QUANTITIES: string[] = [
+  'at',
+  'bpm',
+  'by',
+  'count_in_bars',
+  'denominator',
+  'frames',
+  'from',
+  'from_bar',
+  'gain_db',
+  'grid',
+  'height',
+  'index',
+  'latency_ms',
+  'length',
+  'numerator',
+  'offset',
+  'offset_ms',
+  'pan',
+  'quantize_strength',
+  'sample_rate',
+  'semitones',
+  'start',
+  'strength',
+  'tick',
+  'to',
+  'to_bar',
+  'until',
+  'value',
+]
+
 describe('no closed choice is left as free text (#935)', () => {
   it('lists, for every command listed, a shown field as a list unless it is a name, a number, a position or a web address', () => {
     const t = tOf('en')
     const text: string[] = []
+    const quantities = new Set<string>()
     for (const c of visible)
       for (const ctx of [empty, full])
         for (const item of resolveFields(c, ctx).fields.filter((f) => f.shown)) {
           const f = item.field
           if (item.choices || closedChoices(c, f, t)) continue
           const where = `${c.name}.${f.name}`
-          if (f.kind === 'integer' || f.kind === 'number') continue // a quantity: counts, levels, positions
+          if (f.kind === 'integer' || f.kind === 'number') {
+            quantities.add(f.name)
+            continue
+          }
           expect(f.kind, where).toBe('string')
           expect(FREE_TEXT, `${where} is typed as text: make it a list (palette-choices.ts) or say why it is free here`).toHaveProperty(f.name)
           text.push(where)
         }
     expect(text.length).toBeGreaterThan(5)
+    // The numbers a musician types are quantities. A new one is read here before it passes: is it a count, a level, a position, or a closed choice in disguise?
+    expect([...quantities].sort()).toEqual(QUANTITIES)
   })
 
   it('has no field the schema names a list for (kind, root, mode, colour, instrument, scale) that stays text', () => {

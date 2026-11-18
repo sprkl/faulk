@@ -31,6 +31,8 @@ export interface ChoiceContext {
   lang: Lang
   /** The kind of the device the form is about (`faulk.echo`), `null` when none is chosen yet. */
   deviceKind: string | null
+  /** The kind of the selected track: a MIDI effect only goes on a MIDI track (the master and an audio track play no notes). */
+  trackKind?: 'midi' | 'audio' | null
 }
 
 /** A closed list, and whether a typed value is also welcome after it. */
@@ -61,7 +63,9 @@ const LISTS: Readonly<Record<string, (t: T, x: ChoiceContext) => ClosedChoices>>
   // The devices the engine registers, by their one English name.
   'track.create.instrument': () => ({ choices: instrumentDescriptors().map((d) => ({ value: d.kind, label: d.name })) }),
   'track.set_instrument.instrument': () => ({ choices: instrumentDescriptors().map((d) => ({ value: d.kind, label: d.name })) }),
-  'device.insert.kind': () => ({ choices: [...effectDescriptors(), ...midiEffectDescriptors()].map((d) => ({ value: d.kind, label: d.name })) }),
+  'device.insert.kind': (_t, x) => ({
+    choices: [...effectDescriptors(), ...(x.trackKind === 'midi' ? midiEffectDescriptors() : [])].map((d) => ({ value: d.kind, label: d.name })),
+  }),
 }
 
 /** An option of an enum in words: the palette's own (`palette.opt.<ref>.<option>`), else the option with spaces. */

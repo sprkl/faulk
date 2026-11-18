@@ -287,7 +287,11 @@
           {@const unit = tickUnit(field)}
           {@const list = item.choices
             ? { choices: item.choices }
-            : closedChoices(chosen.entry, field, t, { lang: ui.lang, deviceKind: deviceKindOf(texts['device']) })}
+            : closedChoices(chosen.entry, field, t, {
+                lang: ui.lang,
+                deviceKind: deviceKindOf(texts['device']),
+                trackKind: project.selected?.track.kind ?? null,
+              })}
           {#if item.shown}
             <div class="field">
               <label for={id}>
