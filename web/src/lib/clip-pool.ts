@@ -7,7 +7,7 @@
  * with Alt (founder's decision 11). Pure: no DOM, no store.
  */
 import type { Clip, Command, IfOccupied, Placement, Project, Tick } from './generated/protocol'
-import { placeFromSlot, duplicatePlacements, createClipAt } from './arrangement-commands'
+import { placeFromSlot, createClipAt } from './arrangement-commands'
 import { duplicateClip, moveClip } from './clip-commands'
 import { framesToTicks } from './audio/time'
 
@@ -85,13 +85,34 @@ export function placeCommand(entry: PoolClip, start: Tick, linked: boolean, ifOc
   // A grid clip: the grid's own command, a copy by default.
   if (entry.slot) return placeFromSlot(entry.id, start, linked, ifOccupied)
   const first = entry.placements[0]
-  // Used in the arrangement already: a copy of its first placement by default, the same clip with `linked`.
-  // A copy that would land on its own source (the playhead inside it) goes right after it instead of cutting it.
+  // Used in the arrangement already: an independent copy of the clip by default, played once at `start` whatever the length
+  // of its placements (#933); the same clip with `linked`.
   if (first && !linked) {
-    const inside = start >= first.start && start < first.start + first.length
-    return duplicatePlacements([first.id], false, inside ? first.length : start - first.start, ifOccupied)
+    return { type: 'arrangement.place', clip: entry.id, start, copy: true, ...(ifOccupied === 'replace' ? {} : { if_occupied: ifOccupied }) }
   }
   return { type: 'arrangement.place', clip: entry.id, start, ...(ifOccupied === 'replace' ? {} : { if_occupied: ifOccupied }) }
+}
+
+/** How long one pass of the clip lasts on the timeline: a MIDI clip's length, an audio clip's frames at `bpm`. */
+export function passTicks(entry: PoolClip, bpm: number): number {
+  const content = entry.clip.content
+  return 'midi' in content ? content.midi.length : framesToTicks(content.audio.frames, content.audio.media.sample_rate, bpm)
+}
+
+/**
+ * The placement of the pool that one pass of `entry` put at `start` would cover (#933), the earliest, or `null` when it lands
+ * on nothing. It is what `if_occupied: "refuse"` sees, so that the page can name the clip in the way and its time.
+ */
+export function placeBlocker(pool: readonly PoolClip[], entry: PoolClip, start: Tick, bpm: number): { name: string; start: number; end: number } | null {
+  const end = start + passTicks(entry, bpm)
+  let found: { name: string; start: number; end: number } | null = null
+  for (const e of pool) {
+    for (const p of e.placements) {
+      if (p.start >= end || start >= p.start + p.length) continue
+      if (!found || p.start < found.start) found = { name: e.clip.name, start: p.start, end: p.start + p.length }
+    }
+  }
+  return found
 }
 
 /**

@@ -236,6 +236,7 @@ fn every_audio_edit_and_its_undo_leave_the_engine_as_a_snapshot_would() {
         }),
         // The pool clip comes back to the arrangement (#666).
         Command::Arrangement(commands::arrangement::Command::Place {
+            copy: false,
             clip: f.audio_clip.clone(),
             start: Tick(3840),
             length: None,
