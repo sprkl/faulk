@@ -58,7 +58,8 @@ export function what(subject: Subject, noun: Noun, t: T): string {
 
 /** A parameter's translated label ("Cutoff", "Volume"), without its device; its id when the page has no label for it. */
 export function paramLabel(ref: ParamRef, t: T): string {
-  if (ref.kind == null) return t(ref.key === 'gain' ? 'automation.volume' : 'automation.pan')
+  // Only the mixer's parameters have no device; a module has a device but no kind to look a label up with.
+  if (ref.device == null) return t(ref.key === 'gain' ? 'automation.volume' : 'automation.pan')
   const d = DEVICES.find((device) => device.kind === ref.kind)
   const key = d ? labelKey(d, ref.key) : ''
   return has(key) ? t(key) : ref.key
@@ -99,7 +100,8 @@ export function label(row: { name: string; subject?: Subject | null; others?: nu
 function phrase(name: string, subject: Subject | null | undefined, t: T): string | null {
   if (!subject) return null
   const switched = subject.on == null ? null : `${PHRASE_PREFIX}${name}.${subject.on ? 'on' : 'off'}`
-  const valued = subject.param && subject.value != null ? `${PHRASE_PREFIX}${name}.value` : null
+  // A parameter named with its value, or alone when the entry holds several values (a drag, a group).
+  const valued = subject.param ? `${PHRASE_PREFIX}${name}.${subject.value != null ? 'value' : 'param'}` : null
   const key = switched && has(switched) ? switched : valued && has(valued) ? valued : `${PHRASE_PREFIX}${name}`
   if (!has(key)) return null
   const text = messages.en[key]

@@ -429,3 +429,78 @@ fn an_automation_entry_names_its_parameter_and_a_parameter_change_its_value() {
     assert_eq!(param(&subject), expected);
     assert_eq!(subject.value, Some(0.25));
 }
+
+#[test]
+fn an_unnamed_track_is_said_by_its_position_when_deleted_or_renamed() {
+    let f = fixture();
+    let mut s = f.state.clone();
+    let mut ctx = context();
+    for _ in 0..2 {
+        go(
+            &mut s,
+            &mut ctx,
+            Command::Track(track::Command::Create {
+                kind: ::project::TrackKind::Audio,
+                instrument: None,
+                name: None,
+                color: None,
+            }),
+        );
+    }
+    let second = s.project.tracks_in_order()[1].0.clone();
+    go(
+        &mut s,
+        &mut ctx,
+        Command::Track(track::Command::Rename {
+            track: second,
+            name: "Pad".into(),
+        }),
+    );
+    let (name, subject, _) = top(&s);
+    assert_eq!(name, "track.rename");
+    assert_eq!(subject.unnamed, [2]);
+    assert_eq!(subject.to.as_deref(), Some("Pad"));
+    let third = s.project.tracks_in_order()[2].0.clone();
+    go(
+        &mut s,
+        &mut ctx,
+        Command::Track(track::Command::Delete { track: third }),
+    );
+    let (name, subject, _) = top(&s);
+    assert_eq!(name, "track.delete");
+    assert_eq!(subject.unnamed, [3]);
+}
+
+#[test]
+fn a_group_keeps_the_parameter_only_when_every_command_agrees() {
+    use commands::device;
+    let f = fixture();
+    let mut s = f.state.clone();
+    let mut ctx = context();
+    go(
+        &mut s,
+        &mut ctx,
+        Command::History(history::Command::BeginGroup {}),
+    );
+    for value in [0.1, 0.2] {
+        go(
+            &mut s,
+            &mut ctx,
+            Command::Device(device::Command::SetParam {
+                device: f.device.clone(),
+                param: "attack".into(),
+                value,
+            }),
+        );
+    }
+    go(
+        &mut s,
+        &mut ctx,
+        Command::History(history::Command::EndGroup {}),
+    );
+    let (name, subject, _) = top(&s);
+    assert_eq!(name, "device.set_param");
+    assert_eq!(subject.count, 2);
+    assert_eq!(subject.param.as_ref().unwrap().key, "attack");
+    assert_eq!(subject.value, None, "two values, none said");
+}

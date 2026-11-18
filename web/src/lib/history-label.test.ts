@@ -104,7 +104,21 @@ describe('history labels that name what was done, and on what (#934)', () => {
       subject({ objects: ['Filter'], within: ['Master'], param: { kind: 'faulk.filter', device: 'Filter', key }, value })
     expect(label({ name: 'device.set_param', subject: set('cutoff', 1200) }, en)).toBe('Set Cutoff of Filter (Master) to 1.20 kHz')
     expect(label({ name: 'device.set_param', subject: set('cutoff', 1200) }, fr)).toBe('Régler Fréquence de coupure de Filter (Master) à 1.20 kHz')
-    // Without a value (a group of several changes), the generic phrase of the device.
+    // Several values in one entry (a drag): the parameter, without a value.
+    expect(
+      label(
+        {
+          name: 'device.set_param',
+          subject: subject({ objects: ['Filter'], within: ['Master'], param: { kind: 'faulk.filter', device: 'Filter', key: 'cutoff' } }),
+        },
+        fr,
+      ),
+    ).toBe('Changer Fréquence de coupure de Filter (Master)')
+    // A module is not the mixer: its parameter keeps its own id.
+    expect(label({ name: 'device.set_param', subject: subject({ objects: ['MySynth'], param: { kind: null, device: 'MySynth', key: 'pan' } }) }, en)).toBe(
+      'Change pan of MySynth',
+    )
+    // No parameter at all: the generic phrase of the device.
     expect(label({ name: 'device.set_param', subject: subject({ objects: ['Filter'], within: ['Master'] }) }, en)).toBe('Change a parameter of Filter (Master)')
   })
 })

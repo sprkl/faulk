@@ -167,22 +167,25 @@ fn push(names: &mut Vec<String>, unnamed: &mut Vec<u32>, label: Option<Label>) {
 
 /// A track's name, or its position when it has none.
 fn track(p: &Project, id: &TrackId) -> Option<Label> {
-    let (index, (_, t)) = p
-        .tracks_in_order()
-        .into_iter()
-        .enumerate()
-        .find(|(_, (tid, _))| *tid == id)?;
+    let t = p.tracks.get(id)?;
+    // Its place in the display order (order key, then id), counted without sorting.
+    let index = p
+        .tracks
+        .iter()
+        .filter(|(tid, o)| (&o.order, *tid) < (&t.order, id))
+        .count();
     Some(label(&t.name, index))
 }
 
 /// A scene's name, or its position when it has none.
 fn scene(p: &Project, id: &SceneId) -> Option<Label> {
-    let (index, (_, s)) = p
-        .scenes_in_order()
-        .into_iter()
-        .enumerate()
-        .find(|(_, (sid, _))| *sid == id)?;
-    Some(label(&s.name, index))
+    let sc = p.scenes.get(id)?;
+    let index = p
+        .scenes
+        .iter()
+        .filter(|(sid, o)| (&o.order, *sid) < (&sc.order, id))
+        .count();
+    Some(label(&sc.name, index))
 }
 
 fn label(name: &str, index: usize) -> Label {
@@ -270,6 +273,8 @@ fn device_subject(p: &Project, id: &DeviceId) -> Option<Subject> {
 
 /// A device parameter, as the page names it.
 fn device_param(p: &Project, id: &DeviceId, key: &str) -> Option<ParamRef> {
+    // A module has no kind to look the label up with, but it has a device name: only the
+    // mixer's parameters have neither.
     let d = p.device(id)?;
     let kind = match &d.source {
         project::DeviceSource::Builtin { id, .. } => Some(id.clone()),
@@ -481,8 +486,10 @@ pub fn before(command: &Command, p: &Project) -> Option<Subject> {
             au::Command::PointsRemove { lane: id, ticks } => lane(p, id, ticks.len()),
             // A lane created has no identifier before it applies: `after` reads it.
             au::Command::PointsRestore {
-                lane: id, points, ..
-            } => lane(p, id, points.len()),
+                lane: id,
+                points,
+                remove,
+            } => lane(p, id, points.len() + remove.len()),
             _ => None,
         },
         Command::Transport(c) => match c {
