@@ -94,7 +94,7 @@ test.describe('the command palette', () => {
     await search(page).fill('view.set_theme')
     await page.keyboard.press('Enter')
     const select = page.getByTestId('palette-form').locator('select')
-    await expect(select.locator('option')).toHaveText(['', 'Like the system', 'Dark', 'Light'])
+    await expect(select.locator('option')).toHaveText(['', 'System', 'Dark', 'Light'])
     await page.getByTestId('palette-back').click()
     await expect(search(page)).toBeFocused()
     await expect(page.getByTestId('palette-list')).toBeVisible()

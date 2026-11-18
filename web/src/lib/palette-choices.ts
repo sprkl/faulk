@@ -68,9 +68,19 @@ const LISTS: Readonly<Record<string, (t: T, x: ChoiceContext) => ClosedChoices>>
   }),
 }
 
-/** An option of an enum in words: the palette's own (`palette.opt.<ref>.<option>`), else the option with spaces. */
+/** The enums the interface already names somewhere: the palette says the same words (the key of an option). */
+const INTERFACE_OPTIONS: Readonly<Record<string, (option: string) => string>> = {
+  Theme: (o) => `theme.${o}`,
+  Quantize: (o) => `transport.quantize.${o}`,
+  ExportBitDepth: (o) => `export.format.${o}`,
+  ExportRegion: (o) => `export.range.${o}`,
+  PresetLocation: (o) => `presets.where.${o}`,
+}
+
+/** An option of an enum in words: the interface's own, else the palette's (`palette.opt.<ref>.<option>`), else the option with spaces. */
 export function optionLabel(t: T, field: CommandField, option: string): string {
-  const key = `palette.opt.${field.ref ?? field.name}.${option}`
+  const ref = field.ref ?? field.name
+  const key = INTERFACE_OPTIONS[ref]?.(option) ?? `palette.opt.${ref}.${option}`
   return key in messages.en ? t(key as MessageKey) : option.replace(/_/g, ' ')
 }
 

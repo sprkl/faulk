@@ -88,7 +88,8 @@ describe('the closed choices of the palette come from the interface, in its lang
           for (const o of list.choices) {
             expect(o.label, `${c.name}.${f.name}.${o.value}`).not.toBe('')
             expect(o.label, `${c.name}.${f.name}.${o.value}`).not.toContain('_')
-            if (f.ref !== 'ScaleKind') expect(`palette.opt.${f.ref}.${o.value}` in messages[lang], `${c.name}.${f.name}.${o.value}`).toBe(true)
+            // A named option is a message of the interface or of the palette, never the raw identifier.
+            if (f.ref !== 'ScaleKind') expect(o.label, `${c.name}.${f.name}.${o.value}`).not.toBe(o.value.replace(/_/g, ' '))
           }
         }
     })
@@ -122,6 +123,10 @@ describe('the closed choices of the palette come from the interface, in its lang
     // A colour is never the word "none": a field left empty is an error, an optional one is absent.
     expect(buildCommand(entry('track.set_color'), { track: 'T1', color: '' }).ok).toBe(false)
     expect(buildCommand(entry('track.create'), { kind: 'midi' })).toEqual({ ok: true, command: { type: 'track.create', kind: 'midi' } })
+  })
+
+  it('reads the "No colour" token only on a colour', () => {
+    expect(buildCommand(entry('track.create'), { kind: 'midi', name: NONE })).toEqual({ ok: true, command: { type: 'track.create', kind: 'midi', name: NONE } })
   })
 
   it('shows "Other" only for the colours', () => {

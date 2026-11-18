@@ -148,8 +148,8 @@ export type Built = { ok: true; command: Command } | { ok: false; problems: Reco
 /** One field's text as the value it stands for: `undefined` for "not given", `null` for `null`, or a problem. */
 function parseField(field: CommandField, raw: string): { value: unknown } | { problem: FieldProblem } | 'omit' {
   const text = field.kind === 'string' ? raw : raw.trim()
-  // The "none" of a list (a track without a colour) is `null`, whatever the field's kind.
-  if (field.nullable && text === NONE) return { value: null }
+  // The "No colour" choice of the colour list is `null`; no other field has that choice.
+  if (field.nullable && field.name === 'color' && text === NONE) return { value: null }
   // A place in a list is counted from 1 by the musician and from 0 by the command; empty is the end.
   if (isListIndex(field)) {
     if (text === '') return { value: END_OF_LIST }
