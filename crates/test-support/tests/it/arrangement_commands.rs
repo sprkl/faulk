@@ -117,6 +117,7 @@ fn song() -> Song {
     step(
         s,
         arr(arrangement::Command::Place {
+            copy: false,
             clip: song.clip.clone(),
             start: Tick(11520),
             length: None,
@@ -150,6 +151,7 @@ fn every_arrangement_command_leaves_the_engine_in_the_state_of_the_snapshot() {
     step(
         s,
         arr(arrangement::Command::Place {
+            copy: false,
             clip: song.clip.clone(),
             start: Tick(500),
             length: Some(Tick(4000)),

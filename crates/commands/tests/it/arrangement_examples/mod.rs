@@ -142,14 +142,33 @@ pub fn examples() -> Vec<(Command, State)> {
     let mut all = vec![
         // Free ground: the plain case.
         on(arrangement::Command::Place {
+            copy: false,
             clip: f.looped.clone(),
             start: Tick(11520),
             length: None,
             offset: None,
             if_occupied: Default::default(),
         }),
+        // An independent copy of a MIDI clip, and of an audio clip (#933).
+        on(arrangement::Command::Place {
+            copy: true,
+            clip: f.looped.clone(),
+            start: Tick(11520),
+            length: None,
+            offset: None,
+            if_occupied: arrangement::IfOccupied::Refuse,
+        }),
+        on(arrangement::Command::Place {
+            copy: true,
+            clip: f.audio_clip.clone(),
+            start: Tick(3840),
+            length: None,
+            offset: None,
+            if_occupied: Default::default(),
+        }),
         // An audio clip of the audio track, whole.
         on(arrangement::Command::Place {
+            copy: false,
             clip: f.audio_clip.clone(),
             start: Tick(3840),
             length: None,
@@ -158,6 +177,7 @@ pub fn examples() -> Vec<(Command, State)> {
         }),
         // Over A (cut on its right) and B (trimmed at the front).
         on(arrangement::Command::Place {
+            copy: false,
             clip: f.straight.clone(),
             start: Tick(3000),
             length: Some(Tick(1000)),
@@ -279,6 +299,7 @@ pub fn examples() -> Vec<(Command, State)> {
     // The same promise on the other commands (#805): free ground, so a plain edit.
     for command in [
         arrangement::Command::Place {
+            copy: false,
             clip: f.looped.clone(),
             start: Tick(11520),
             length: None,

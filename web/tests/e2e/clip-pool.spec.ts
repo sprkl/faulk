@@ -164,8 +164,55 @@ test('Place a copy refuses an occupied place, says so, and leaves the neighbour 
   const copy = page.locator(`[data-testid=pool-clip][data-clip="${first}"]`).getByTestId('pool-place-copy')
   await expect(copy).toBeEnabled()
   await copy.click()
-  await expect(page.getByTestId('refusal-toast')).toContainText(/taken/)
+  // The page names the clip in the way and its bars (#933) and sends nothing.
+  await expect(page.getByTestId('clip-new-said')).toContainText(/Not placed: .*, bars 1 to 1, is in the way/)
   expect(await starts()).toEqual([0, 3840])
   expect(Object.keys((await view(page)).project.tracks[track]!.clips)).toHaveLength(2)
+  expect(errors).toEqual([])
+})
+
+test('Place a copy puts one pass of the clip, named with a number, where the clip fits (#933)', async ({ page }) => {
+  const { errors } = watch(page)
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await start(page)
+  test.skip((await hooks(page)) !== 'function', 'the command hook exists in the dev server only')
+  const track = Object.keys((await view(page)).project.tracks)[0]!
+  const bar = 3840
+  const placements = async () =>
+    Object.values((await view(page)).project.tracks[track]!.placements as Record<string, { clip: string; start: number; span: { ticks: { length: number } } }>)
+  const sorted = async () => (await placements()).sort((a, b) => a.start - b.start)
+
+  // "Hook" is 4 bars; it plays 12 bars from bar 5 (3 passes), and again at bars 49 and 73.
+  await run(page, { type: 'clip.create', track, at: { at: 'arrangement', start: bar * 4 }, length: bar * 4, name: 'Hook' })
+  const placement = Object.keys((await view(page)).project.tracks[track]!.placements)[0]!
+  const hook = (await placements())[0]!.clip
+  await run(page, { type: 'arrangement.place', clip: hook, start: bar * 48 })
+  await run(page, { type: 'arrangement.place', clip: hook, start: bar * 72 })
+  await run(page, { type: 'arrangement.resize', placement, edge: 'end', to: bar * 16 })
+  await page.getByTestId('panel-clips').click()
+  const copy = page.locator(`[data-testid=pool-clip][data-clip="${hook}"]`).getByTestId('pool-place-copy')
+
+  // Bar 65 (64 bars in): 65 to 72 is free, the clip is 4 bars, so the copy fits, whatever the first placement's 12 bars.
+  await run(page, { type: 'transport.seek', tick: bar * 64 })
+  await expect(page.getByTestId('feedback')).toHaveAttribute('data-tick', String(bar * 64))
+  await copy.click()
+  await expect.poll(async () => (await placements()).length).toBe(4)
+  const made = (await sorted()).find((p) => p.start === bar * 64)!
+  expect(made.span.ticks.length).toBe(bar * 4)
+  const clips = (await view(page)).project.tracks[track]!.clips
+  expect(clips[made.clip]!.name).toBe('Hook 2')
+  expect(clips[hook]!.name).toBe('Hook')
+
+  // One undo takes the placement and the copy away.
+  await page.keyboard.press('Control+z')
+  await expect.poll(async () => (await placements()).length).toBe(3)
+  expect(Object.keys((await view(page)).project.tracks[track]!.clips)).toEqual([hook])
+
+  // Bar 70: one pass would end at bar 74, over the clip of bar 73: refused, naming it and its bars.
+  await run(page, { type: 'transport.seek', tick: bar * 69 })
+  await expect(page.getByTestId('feedback')).toHaveAttribute('data-tick', String(bar * 69))
+  await copy.click()
+  await expect(page.getByTestId('clip-new-said')).toContainText('Hook, bars 73 to 76, is in the way')
+  expect(await placements()).toHaveLength(3)
   expect(errors).toEqual([])
 })

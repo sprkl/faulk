@@ -21,7 +21,10 @@ export const clips = defineFeature(
     'clips.place': 'Place at the playhead',
     'clips.placeHint': 'Places the same clip (linked) and selects it; hold Alt to place an independent copy of a clip that is used already.',
     'clips.placeCopy': 'Place a copy',
-    'clips.placeCopyHint': 'Places an independent copy of this clip at the playhead and selects it.',
+    'clips.placeCopyHint':
+      'Places an independent copy of this clip, played once, at the playhead and selects it. The copy is named after the clip with a number.',
+    'clips.clipDefault': 'Clip',
+    'clips.placeBlocked': 'Not placed: {name}, bars {from} to {to}, is in the way',
     'clips.toGrid': 'Put in the grid',
     'clips.toGridHint': 'In the first free slot of the track: a copy when the clip is used already; hold Alt to put the clip itself (linked).',
     'clips.noFreeSlot': 'No free slot in this track: add a scene.',
@@ -91,7 +94,10 @@ export const clips = defineFeature(
     'clips.place': 'Placer à la tête de lecture',
     'clips.placeHint': 'Place le même clip (lié) et le sélectionne ; maintenez Alt pour placer une copie indépendante d’un clip déjà utilisé.',
     'clips.placeCopy': 'Placer une copie',
-    'clips.placeCopyHint': 'Place une copie indépendante de ce clip à la tête de lecture et la sélectionne.',
+    'clips.placeCopyHint':
+      'Place une copie indépendante de ce clip, jouée une fois, à la tête de lecture et la sélectionne. La copie porte le nom du clip suivi d’un numéro.',
+    'clips.clipDefault': 'Clip',
+    'clips.placeBlocked': 'Non placé : {name}, mesures {from} à {to}, est sur le chemin',
     'clips.toGrid': 'Mettre dans la grille',
     'clips.toGridHint': 'Dans la première case libre de la piste : une copie si le clip est déjà utilisé ; maintenez Alt pour y mettre le clip lui-même (lié).',
     'clips.noFreeSlot': 'Aucune case libre dans cette piste : ajoutez une scène.',

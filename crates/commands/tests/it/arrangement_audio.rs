@@ -717,6 +717,7 @@ fn random_audio_edits_stay_inside_their_clips_overlap_free_and_undo_through_the_
                         if_occupied: arrangement::IfOccupied::Replace,
                     },
                     0 => arrangement::Command::Place {
+                        copy: false,
                         clip: clips[rng.next(clips.len() as u64) as usize].clone(),
                         start: tick(&mut rng),
                         length: None,
@@ -854,6 +855,7 @@ fn an_audio_resize_refuses_to_carve_a_neighbour_when_asked() {
     ok(
         &mut s,
         arrangement::Command::Place {
+            copy: false,
             clip: f.audio_clip.clone(),
             start: Tick(4800),
             length: None,
