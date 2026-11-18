@@ -5139,14 +5139,52 @@ objects: string[]
  */
 on?: (boolean | null)
 /**
+ * The parameter a command set or an automation lane drives, kept only when every
+ * command of an entry agrees.
+ */
+param?: (ParamRef | null)
+/**
  * What a rename or a value change set: the new name, the tempo, the time signature.
  */
 to?: (string | null)
+/**
+ * Which of the objects have no name (a track or a scene the user did not name): their
+ * 1-based position among the tracks or the scenes, distinct, in the order met. The page
+ * names them as it does everywhere ("Track 2"), in the user's language.
+ */
+unnamed: number[]
+/**
+ * The value a parameter was set to, in the unit the device declares.
+ */
+value?: (number | null)
 /**
  * The names of what holds them, distinct, in the order met (at most [`MAX_NAMES`]): the
  * track of a clip, placement or device, the clip of notes.
  */
 within: string[]
+/**
+ * The same for what holds them: the 1-based positions of the unnamed tracks.
+ */
+within_unnamed: number[]
+}
+/**
+ * A parameter, by what the page needs to name it in its language.
+ */
+export interface ParamRef {
+/**
+ * The device's name (one English word, like the device panel shows it); absent for a
+ * mixer parameter.
+ */
+device?: (string | null)
+/**
+ * The parameter's id (`"cutoff"`), or `"gain"` or `"pan"` for the mixer.
+ */
+key: string
+/**
+ * The device kind (`"faulk.filter"`) when it is a built-in one: the page looks up the
+ * parameter's translated label with it. Absent for a mixer parameter or a module.
+ */
+kind?: (string | null)
 }
 /**
  * One entry of the history: one command, or every command of one history group.
