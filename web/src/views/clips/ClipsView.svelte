@@ -9,7 +9,18 @@
   import LinkMark from '../../lib/components/LinkMark.svelte'
   import Waveform from '../../lib/components/Waveform.svelte'
   import { barStart } from '../../lib/arrangement-commands'
-  import { CLIP_DRAG_TYPE, clipTrackType, freeScene, gridCommand, newClipAt, placeCommand, poolNames, poolOf, type PoolClip } from '../../lib/clip-pool'
+  import {
+    CLIP_DRAG_TYPE,
+    clipTrackType,
+    freeScene,
+    gridCommand,
+    newClipAt,
+    placeBlocker,
+    placeCommand,
+    poolNames,
+    poolOf,
+    type PoolClip,
+  } from '../../lib/clip-pool'
   import { cancelAudioImport, chooseAudio, deleteClip } from '../../lib/clip-commands'
   import { boostFolderNotice, chooseHelperFolder } from '../../lib/audio/boost-folder'
   import type { DownloadProgress, ImportFailure } from '../../lib/audio/import/audio-import.svelte'
@@ -94,7 +105,17 @@
    * clip already used. The placements it made become the arrangement's selection and take the keyboard focus.
    */
   function place(entry: PoolClip, copy: boolean) {
-    const command = placeCommand(entry, playheadBar(), !copy, 'refuse')
+    const start = playheadBar()
+    // A clip never covers another (#805): the page names the one in the way and its bars, and sends nothing.
+    const bar = barTicks(project.view?.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 })
+    const blocker = project.view ? placeBlocker(pool, entry, start, project.view.project.tempo[0]?.bpm ?? 120) : null
+    if (blocker) {
+      const from = Math.floor(blocker.start / bar) + 1
+      said = t('clips.placeBlocked', { name: blocker.name || t('clips.clipDefault'), from, to: Math.max(from, Math.ceil(blocker.end / bar)) })
+      return
+    }
+    said = ''
+    const command = placeCommand(entry, start, !copy, 'refuse')
     if (command) runPlacing(command)
   }
 

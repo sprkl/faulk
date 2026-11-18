@@ -64,6 +64,7 @@ fn place(fx: &ArFx, clip: &ClipId, start: i64, length: i64) -> arrangement::Comm
         length: Some(Tick(length)),
         offset: None,
         if_occupied: Default::default(),
+        copy: false,
     }
 }
 
@@ -306,6 +307,7 @@ fn a_front_trim_of_a_clip_without_a_loop_resumes_round_the_clip() {
             length: Some(Tick(8000)),
             offset: Some(Tick(0)),
             if_occupied: Default::default(),
+            copy: false,
         },
     );
     let arrangement::Output::Place { placement, .. } = out else {
@@ -898,6 +900,7 @@ fn a_clip_left_without_placement_stays_in_the_track_pool() {
             length: None,
             offset: None,
             if_occupied: Default::default(),
+            copy: false,
         },
     );
     assert!(
@@ -950,6 +953,7 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
                 length: None,
                 offset: None,
                 if_occupied: Default::default(),
+                copy: false,
             }
         ),
         CommandError::Invalid { .. }
@@ -990,6 +994,7 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
             length: None,
             offset: Some(Tick(3840)),
             if_occupied: Default::default(),
+            copy: false,
         },
         C::Place {
             clip: free.clone(),
@@ -997,6 +1002,7 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
             length: None,
             offset: None,
             if_occupied: Default::default(),
+            copy: false,
         },
         C::Place {
             clip: free.clone(),
@@ -1004,6 +1010,7 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
             length: Some(Tick(0)),
             offset: None,
             if_occupied: Default::default(),
+            copy: false,
         },
         C::Place {
             clip: free.clone(),
@@ -1011,6 +1018,7 @@ fn a_grid_clip_is_refused_and_so_is_everything_that_leaves_the_timeline() {
             length: None,
             offset: None,
             if_occupied: Default::default(),
+            copy: false,
         },
     ] {
         check_g(command);
@@ -1466,6 +1474,7 @@ fn place_audio(f: &ArFx, start: i64) -> arrangement::Command {
         length: None,
         offset: None,
         if_occupied: Default::default(),
+        copy: false,
     }
 }
 
@@ -1480,6 +1489,7 @@ fn placing_an_audio_clip_puts_it_whole_and_undo_removes_it() {
     let Output::Arrangement(arrangement::Output::Place {
         placement,
         overwritten,
+        ..
     }) = outcome.output
     else {
         panic!("not a place output")
@@ -1578,6 +1588,7 @@ fn placing_an_audio_clip_is_refused_outside_the_timeline_and_with_tick_arguments
                 length,
                 offset,
                 if_occupied: Default::default(),
+                copy: false,
             },
         );
         let CommandError::Invalid {
@@ -1937,6 +1948,7 @@ fn random_edits_keep_the_project_valid_overlap_free_and_exactly_undoable() {
                     length: Some(Tick(1 + rng.next(6000) as i64)),
                     offset: None,
                     if_occupied: Default::default(),
+                    copy: false,
                 }
             }
             1 if !ids.is_empty() => arrangement::Command::Move {
@@ -2423,4 +2435,79 @@ fn the_start_edge_of_an_empty_clip_leaves_the_clip_alone() {
         },
     );
     assert_eq!(clip_length(&state, &f.track, &f.straight), 3840);
+}
+
+fn place_copy(clip: &ClipId, start: i64) -> arrangement::Command {
+    arrangement::Command::Place {
+        clip: clip.clone(),
+        start: Tick(start),
+        length: None,
+        offset: None,
+        if_occupied: arrangement::IfOccupied::Refuse,
+        copy: true,
+    }
+}
+
+#[test]
+fn a_copy_placed_is_one_pass_of_the_clip_named_with_the_first_free_number_in_one_history_entry() {
+    // #933: the copy plays the clip once, whatever the lengths of the source's placements.
+    let f = fx();
+    let mut s = f.state.clone();
+    let before = s.project.clone();
+    let length = clip_length(&s, &f.track, &f.straight);
+    let name = s.project.tracks[&f.track].clips[&f.straight].name.clone();
+    let entries = s.history.undo.len();
+    let mut ctx = fresh_context();
+    let outcome = run(&a(place_copy(&f.straight, 200_000)), &mut s, &mut ctx).unwrap();
+    s.project.validate().unwrap();
+    let Output::Arrangement(arrangement::Output::Place {
+        placement,
+        clip: Some(copy),
+        overwritten: 0,
+    }) = outcome.output
+    else {
+        panic!("a copy is made")
+    };
+    let track = &s.project.tracks[&f.track];
+    assert_ne!(copy, f.straight);
+    assert_eq!(track.placements[&placement].clip, copy);
+    assert!(matches!(
+        track.placements[&placement].span,
+        Span::Ticks { length: l, offset } if l.get() == length && offset.get() == 0
+    ));
+    assert_eq!(track.clips[&copy].name, format!("{name} 2"));
+    assert_eq!(track.clips[&copy].slot, None);
+    assert_eq!(s.history.undo.len(), entries + 1, "one history entry");
+    // A copy of the copy takes the next free number after the base name.
+    let (again, _) = ok(&mut s, place_copy(&copy, 300_000));
+    let arrangement::Output::Place {
+        clip: Some(second), ..
+    } = again
+    else {
+        panic!("a copy is made")
+    };
+    assert_eq!(
+        s.project.tracks[&f.track].clips[&second].name,
+        format!("{name} 3")
+    );
+    // One undo removes the placement and the clip made.
+    let mut t = f.state.clone();
+    let out = run(&a(place_copy(&f.straight, 200_000)), &mut t, &mut ctx).unwrap();
+    let Undo::Inverse(inv) = out.undo else {
+        panic!("no inverse")
+    };
+    inv.apply(&mut t, &mut ctx).unwrap();
+    assert_eq!(t.project, before, "the placement and its copy are gone");
+}
+
+#[test]
+fn a_copy_that_lands_on_a_placement_is_refused_and_leaves_no_clip_behind() {
+    let f = fx();
+    let mut s = f.state.clone();
+    let before = s.project.clone();
+    // The first placement of the fixture starts at 0.
+    let result = run(&a(place_copy(&f.straight, 0)), &mut s, &mut fresh_context());
+    assert!(result.is_err());
+    assert_eq!(s.project, before);
+    let _ = refused(&f, place_copy(&f.straight, 0));
 }

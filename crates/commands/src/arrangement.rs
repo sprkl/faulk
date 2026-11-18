@@ -251,7 +251,13 @@ domain! {
     /// wins on overlap the same way, the placements it covers cut in whole frames; a span
     /// outside `[0, 2^40]` ticks is refused. With `if_occupied: "refuse"` (default
     /// `replace`) the command is refused, and nothing changes, when the placement would
-    /// land on another (`skip` is refused). Undo: `arrangement.restore`.
+    /// land on another (`skip` is refused). With `copy: true` (default `false`) the
+    /// placement plays an independent copy of the clip (an audio clip: the same file,
+    /// range, gain and loop) instead of the clip itself: a new clip of the same track,
+    /// not in the launch grid, named like the source with the first free number after it
+    /// ("Hook 2"), placed once at `start` for the clip's own length, whatever the
+    /// lengths of the source's placements; `clip` in the output names it. One history
+    /// entry; undo: `arrangement.restore`, which removes the placement and the copy.
     "arrangement.place" (kind = "edit", undo = "inverse", destructive = false)
     Place {
         clip: ClipId,
@@ -260,11 +266,16 @@ domain! {
         offset: Option<Tick>,
         #[serde(default, skip_serializing_if = "IfOccupied::is_replace")]
         if_occupied: IfOccupied,
+        #[serde(default)]
+        copy: bool,
     } => {
         /// The new placement.
         placement: PlacementId,
         /// How many other placements were carved.
         overwritten: u32,
+        /// The clip made by `copy: true`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        clip: Option<ClipId>,
     };
 
     /// Move placements in time, all by the same number of ticks (`by`, negative moves
@@ -1475,9 +1486,17 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             length,
             offset,
             if_occupied,
+            copy,
         } => {
             no_skip(*if_occupied, "a placement has no other place to go")?;
-            place(state, ctx, clip, *start, *length, *offset, *if_occupied)
+            place(
+                state,
+                ctx,
+                clip,
+                *start,
+                (*length, *offset),
+                (*if_occupied, *copy),
+            )
         }
         Command::PlaceFromSlot {
             clip,
@@ -1588,9 +1607,8 @@ fn place(
     ctx: &mut Context,
     clip: &ClipId,
     start: Tick,
-    length: Option<Tick>,
-    offset: Option<Tick>,
-    if_occupied: IfOccupied,
+    (length, offset): (Option<Tick>, Option<Tick>),
+    (if_occupied, copy): (IfOccupied, bool),
 ) -> Result<Out, CommandError> {
     let project = &state.project;
     let track_id = locate(project, clip)?;
@@ -1606,7 +1624,7 @@ fn place(
             clip,
             start,
             (length, offset),
-            if_occupied,
+            (if_occupied, copy),
         );
     }
     let track = midi_track(project, &track_id)?;
@@ -1628,14 +1646,26 @@ fn place(
     let length = length.map_or(clip_length.get() - offset, Tick::get);
     check_extent(start.get(), length, "start")?;
     let mut work = TrackWork::new(project, &track_id)?;
+    let made = if copy {
+        Some(copy_into(&mut work, project, track, source, ctx)?)
+    } else {
+        None
+    };
     let overwritten = work.carve(&mut ctx.ids, start.get(), start.get() + length)?;
     refuse_if_carved(if_occupied, overwritten)?;
     let id = PlacementId::generate(&mut ctx.ids);
-    work.put(id.clone(), clip, start.get(), length, offset);
+    work.put(
+        id.clone(),
+        made.as_ref().unwrap_or(clip),
+        start.get(),
+        length,
+        offset,
+    );
     commit(state, BTreeMap::from([(track_id, work)]), || {
         Output::Place {
             placement: id,
             overwritten,
+            clip: made,
         }
     })
 }
@@ -1651,7 +1681,7 @@ fn place_audio(
     clip: &ClipId,
     start: Tick,
     (length, offset): (Option<Tick>, Option<Tick>),
-    if_occupied: IfOccupied,
+    (if_occupied, copy): (IfOccupied, bool),
 ) -> Result<Out, CommandError> {
     let project = &state.project;
     let track = project
@@ -1678,8 +1708,13 @@ fn place_audio(
         ));
     }
     let mut work = TrackWork::new(project, track_id)?;
+    let made = if copy {
+        Some(copy_into(&mut work, project, track, source, ctx)?)
+    } else {
+        None
+    };
     let placed = Placement {
-        clip: clip.clone(),
+        clip: made.as_ref().unwrap_or(clip).clone(),
         start,
         span: Span::Frames {
             length: *frames,
@@ -1696,8 +1731,57 @@ fn place_audio(
         Output::Place {
             placement: id,
             overwritten,
+            clip: made,
         }
     })
+}
+
+/// `copy: true` of `arrangement.place`: an independent copy of `source` in the track's pool,
+/// out of the launch grid, named with the first free number after the source's name.
+fn copy_into(
+    work: &mut TrackWork,
+    project: &Project,
+    track: &Track,
+    source: &Clip,
+    ctx: &mut Context,
+) -> Result<ClipId, CommandError> {
+    check_total("clips per track", track.clips.len(), 1, MAX_CLIPS_PER_TRACK)?;
+    check_total(
+        "clips",
+        project.counts().clips,
+        1,
+        project::limits::MAX_CLIPS,
+    )?;
+    let notes = notes_of(source);
+    check_note_limits(notes, project_notes(project).saturating_add(notes))?;
+    let mut copy = source.clone();
+    copy.slot = None;
+    copy.name = numbered_name(track, &source.name);
+    let id = ClipId::generate(&mut ctx.ids);
+    work.add_clip(id.clone(), copy);
+    Ok(id)
+}
+
+/// "Hook" gives "Hook 2", then "Hook 3": the first number, from 2, that no clip of the track
+/// carries yet. A name already ending in a number ("Hook 2") counts from its base ("Hook").
+/// An empty name stays empty (the pool shows its own default for it).
+fn numbered_name(track: &Track, name: &str) -> String {
+    if name.is_empty() {
+        return String::new();
+    }
+    let base = match name.rsplit_once(' ') {
+        Some((head, tail))
+            if !head.is_empty() && !tail.is_empty() && tail.chars().all(|c| c.is_ascii_digit()) =>
+        {
+            head
+        }
+        _ => name,
+    };
+    let taken: HashSet<&str> = track.clips.values().map(|c| c.name.as_str()).collect();
+    (2u64..)
+        .map(|n| format!("{base} {n}"))
+        .find(|candidate| !taken.contains(candidate.as_str()))
+        .unwrap_or_else(|| name.to_owned())
 }
 
 /// What sending clips of the grid to the arrangement works out, before it is committed.

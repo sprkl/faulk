@@ -619,6 +619,7 @@ fn a_placement_from_the_pool_refuses_an_occupied_place_and_carves_by_default() {
     let f = fx();
     // `c` plays 7680 to 11520: the clip put down at 7000 for 1000 ticks reaches into it.
     let place = |how| arrangement::Command::Place {
+        copy: false,
         clip: f.looped.clone(),
         start: Tick(7000),
         length: Some(Tick(1000)),
@@ -633,6 +634,7 @@ fn a_placement_from_the_pool_refuses_an_occupied_place_and_carves_by_default() {
     // On free ground it is a plain placement, whatever `if_occupied` says.
     let mut state = f.state.clone();
     let free = arrangement::Command::Place {
+        copy: false,
         clip: f.looped.clone(),
         start: Tick(40_000),
         length: None,
@@ -651,6 +653,7 @@ fn an_audio_placement_refuses_an_occupied_place_too() {
     let f = fx();
     let mut state = f.state.clone();
     let place = |how| arrangement::Command::Place {
+        copy: false,
         clip: f.audio_clip.clone(),
         start: Tick(3840),
         length: None,
@@ -839,6 +842,7 @@ fn only_a_move_to_another_track_can_skip() {
     let skip = arrangement::IfOccupied::Skip;
     let commands = [
         arrangement::Command::Place {
+            copy: false,
             clip: f.looped.clone(),
             start: Tick(40_000),
             length: None,
@@ -888,6 +892,7 @@ fn only_a_move_to_another_track_can_skip() {
 fn the_default_of_the_new_commands_is_not_written() {
     let f = fx();
     let place = arrangement::Command::Place {
+        copy: false,
         clip: f.looped.clone(),
         start: Tick(0),
         length: None,
