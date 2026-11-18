@@ -108,7 +108,9 @@
     const start = playheadBar()
     // A clip never covers another (#805): the page names the one in the way and its bars, and sends nothing.
     const bar = barTicks(project.view?.project.meter[0]?.signature ?? { numerator: 4, denominator: 4 })
-    const blocker = project.view ? placeBlocker(pool, entry, start, project.view.project.tempo[0]?.bpm ?? 120) : null
+    // An audio clip's length in ticks depends on the tempo map: with a tempo change the command alone judges (its refusal is shown).
+    const tempos = project.view?.project.tempo ?? []
+    const blocker = project.view && (entry.midi || tempos.length <= 1) ? placeBlocker(pool, entry, start, tempos[0]?.bpm ?? 120) : null
     if (blocker) {
       const from = Math.floor(blocker.start / bar) + 1
       said = t('clips.placeBlocked', { name: blocker.name || t('clips.clipDefault'), from, to: Math.max(from, Math.ceil(blocker.end / bar)) })

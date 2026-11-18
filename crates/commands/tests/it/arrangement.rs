@@ -2511,3 +2511,41 @@ fn a_copy_that_lands_on_a_placement_is_refused_and_leaves_no_clip_behind() {
     assert_eq!(s.project, before);
     let _ = refused(&f, place_copy(&f.straight, 0));
 }
+
+#[test]
+fn an_audio_copy_keeps_the_file_gets_a_number_and_a_refusal_leaves_no_clip_behind() {
+    let f = fx();
+    let mut s = f.state.clone();
+    let before = s.project.clone();
+    let name = s.project.tracks[&f.audio_track].clips[&f.audio_clip]
+        .name
+        .clone();
+    let mut ctx = fresh_context();
+    let outcome = run(&a(place_copy(&f.audio_clip, 3840)), &mut s, &mut ctx).unwrap();
+    s.project.validate().unwrap();
+    let Output::Arrangement(arrangement::Output::Place {
+        placement,
+        clip: Some(copy),
+        ..
+    }) = outcome.output
+    else {
+        panic!("a copy is made")
+    };
+    let track = &s.project.tracks[&f.audio_track];
+    assert_eq!(track.placements[&placement].clip, copy);
+    assert_eq!(track.clips[&copy].name, format!("{name} 2"));
+    assert_eq!(
+        track.clips[&copy].content, track.clips[&f.audio_clip].content,
+        "the same file, range, gain and loop"
+    );
+    // The copy sits where the next one would land: refused, and no clip is left behind.
+    let after = s.project.clone();
+    let result = run(&a(place_copy(&f.audio_clip, 3840)), &mut s, &mut ctx);
+    assert!(result.is_err());
+    assert_eq!(s.project, after);
+    let Undo::Inverse(inverse) = outcome.undo else {
+        panic!("no inverse")
+    };
+    inverse.apply(&mut s, &mut ctx).unwrap();
+    assert_eq!(s.project, before, "undone");
+}
