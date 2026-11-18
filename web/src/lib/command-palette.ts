@@ -153,7 +153,7 @@ function parseField(field: CommandField, raw: string): { value: unknown } | { pr
   // A place in a list is counted from 1 by the musician and from 0 by the command; empty is the end.
   if (isListIndex(field)) {
     if (text === '') return { value: END_OF_LIST }
-    return /^\d+$/.test(text) && Number(text) >= 1 && Number.isSafeInteger(Number(text)) ? { value: Number(text) - 1 } : { problem: 'invalid' }
+    return /^\d+$/.test(text) && Number(text) >= 1 && Number(text) <= END_OF_LIST ? { value: Number(text) - 1 } : { problem: 'invalid' }
   }
   if (text === '') {
     // Never `null` for an empty field: for a level it means silence, so `null` must be typed (below).

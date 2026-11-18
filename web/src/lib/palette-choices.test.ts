@@ -148,7 +148,7 @@ describe('an optional field is left empty, a place in a list counts from 1 (#935
     expect(buildCommand(entry('device.insert'), { track: 'T1', kind: 'faulk.echo', index: '1' })).toMatchObject({ ok: true, command: { index: 0 } })
     expect(buildCommand(entry('device.insert'), { track: 'T1', kind: 'faulk.echo', index: '3' })).toMatchObject({ ok: true, command: { index: 2 } })
     expect(buildCommand(entry('device.insert'), { track: 'T1', kind: 'faulk.echo', index: '' })).toMatchObject({ ok: true, command: { index: END_OF_LIST } })
-    for (const bad of ['0', '-1', '1.5', 'first'])
+    for (const bad of ['0', '-1', '1.5', 'first', '4294967296'])
       expect(buildCommand(entry('device.insert'), { track: 'T1', kind: 'faulk.echo', index: bad }), bad).toEqual({ ok: false, problems: { index: 'invalid' } })
   })
 
