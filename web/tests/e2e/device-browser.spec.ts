@@ -88,6 +88,7 @@ for (const lang of ['en', 'fr'] as const) {
       'faulk.trim',
       'faulk.lattice',
       'faulk.scatter',
+      'faulk.swing',
     ])
     // The MIDI effects have their own group (#219).
     await expect(groups.nth(2)).toContainText(x.midiEffects)
