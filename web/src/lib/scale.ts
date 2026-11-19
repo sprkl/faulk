@@ -65,12 +65,13 @@ const RELATIVE_MAJOR: Readonly<Record<ScaleMode, number>> = {
 /**
  * Whether the notes are written with flats (B♭, not A♯) in the project's key (#943): the key signature of the scale's
  * relative major has flats. The spelling is the picker's own labels: a relative major whose label has a flat (E♭, A♭,
- * B♭), or F. C♯ and F♯ are the two signatures that go both ways (D♭ and G♭ too): there the scale's own root decides,
- * by its picker label (B♭ and E♭ minor flat, C♯ and F♯ major sharp). No scale keeps the sharps.
+ * B♭), or F; the signatures the picker spells C♯ and F♯ go to sharps. A root the picker spells with a flat reads with flats in
+ * every mode (A♭ minor, B♭ minor, E♭ minor). No scale keeps the sharps.
  */
 export function usesFlats(scale: Scale | null | undefined, t: T): boolean {
   if (!scale) return false
   const major = (((scale.root + RELATIVE_MAJOR[scale.mode]) % 12) + 12) % 12
-  if (major === 1 || major === 6) return rootName(scale.root, t).includes('♭')
+  if (rootName(scale.root, t).includes('♭')) return true // a key the picker spells with a flat is read with flats, whatever its mode
+  if (major === 1 || major === 6) return false
   return major === 5 || rootName(major, t).includes('♭')
 }
