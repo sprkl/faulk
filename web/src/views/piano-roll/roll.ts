@@ -43,9 +43,11 @@ export const noteKey = (n: Note): string => `${n.start}:${n.pitch}:${n.length}:$
 
 const BLACK = new Set([1, 3, 6, 8, 10])
 export const isBlackKey = (pitch: number): boolean => BLACK.has(((pitch % 12) + 12) % 12)
-const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
-/** The name of a key, middle C (60) being C4. */
-export const pitchName = (pitch: number): string => `${NAMES[((pitch % 12) + 12) % 12]}${Math.floor(pitch / 12) - 1}`
+const SHARP_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+const FLAT_NAMES = ['C', 'D♭', 'D', 'E♭', 'E', 'F', 'G♭', 'G', 'A♭', 'A', 'B♭', 'B']
+/** The name of a key, middle C (60) being C4; `flats` writes the black keys as flats, for a key with flats (#943). */
+export const pitchName = (pitch: number, flats = false): string =>
+  `${(flats ? FLAT_NAMES : SHARP_NAMES)[((pitch % 12) + 12) % 12]}${Math.floor(pitch / 12) - 1}`
 
 const clamp = (value: number, low: number, high: number): number => Math.min(high, Math.max(low, value))
 const finite = (value: number, fallback: number): number => (Number.isFinite(value) ? value : fallback)

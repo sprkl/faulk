@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { SCALE_INTERVALS } from './generated/protocol'
 import { messages, translate, type MessageKey } from './i18n/app'
-import { kindOf, pitchClasses, ROOTS, SCALE_MODES, scaleName, scaleShort } from './scale'
+import { kindOf, pitchClasses, ROOTS, SCALE_MODES, scaleName, scaleShort, usesFlats } from './scale'
 
 const en = (key: MessageKey, vars?: Record<string, string | number>) => translate('en', key, vars)
 const fr = (key: MessageKey, vars?: Record<string, string | number>) => translate('fr', key, vars)
@@ -62,5 +62,37 @@ describe('the project scale on the page (#695)', () => {
   it('names no scale as chromatic for the command', () => {
     expect(kindOf(null)).toEqual({ root: 0, mode: 'chromatic' })
     expect(kindOf({ root: 7, mode: 'lydian' })).toEqual({ root: 7, mode: 'lydian' })
+  })
+})
+
+describe('flat or sharp note names by key (#943)', () => {
+  const FLAT_MAJORS = [1, 3, 5, 6, 8, 10]
+  it('follows the relative major of each of the twelve tonics, for every offered scale', () => {
+    const relative: Record<string, number> = {
+      major: 0,
+      natural_minor: 3,
+      harmonic_minor: 3,
+      melodic_minor: 3,
+      dorian: 10,
+      phrygian: 8,
+      lydian: 7,
+      mixolydian: 5,
+      locrian: 1,
+      major_pentatonic: 0,
+      minor_pentatonic: 3,
+      blues: 3,
+    }
+    expect(Object.keys(relative).sort()).toEqual([...SCALE_MODES].sort())
+    for (const mode of SCALE_MODES)
+      for (const root of ROOTS) expect(usesFlats({ root, mode }), `${root} ${mode}`).toBe(FLAT_MAJORS.includes((root + relative[mode]) % 12))
+  })
+  it('names the keys the issue lists', () => {
+    expect(usesFlats({ root: 5, mode: 'natural_minor' })).toBe(true)
+    expect(usesFlats({ root: 5, mode: 'major' })).toBe(true)
+    expect(usesFlats({ root: 2, mode: 'natural_minor' })).toBe(true)
+    expect(usesFlats({ root: 9, mode: 'natural_minor' })).toBe(false)
+    expect(usesFlats({ root: 7, mode: 'major' })).toBe(false)
+    expect(usesFlats({ root: 0, mode: 'major' })).toBe(false)
+    expect(usesFlats(null)).toBe(false)
   })
 })

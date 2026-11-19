@@ -45,3 +45,31 @@ export function scaleShort(scale: Scale | null | undefined, t: T): string {
 
 /** A root's name, "F", "Fa". */
 export const rootLabel = rootName
+
+/** Semitones from a scale's root up to the tonic of the major key whose signature it shares (its relative major). */
+const RELATIVE_MAJOR: Readonly<Record<ScaleMode, number>> = {
+  major: 0,
+  natural_minor: 3,
+  harmonic_minor: 3,
+  melodic_minor: 3,
+  dorian: 10,
+  phrygian: 8,
+  lydian: 7,
+  mixolydian: 5,
+  locrian: 1,
+  major_pentatonic: 0,
+  minor_pentatonic: 3,
+  blues: 3,
+}
+
+/** The pitch classes whose major key is written with flats: F, B♭, E♭, A♭, D♭, G♭. */
+const FLAT_MAJORS: ReadonlySet<number> = new Set([5, 10, 3, 8, 1, 6])
+
+/**
+ * Whether the notes are written with flats (B♭, not A#) in the project's key (#943): the key signature of the scale's
+ * relative major has flats. No scale, or a signature with sharps or none, keeps the sharps.
+ */
+export function usesFlats(scale: Scale | null | undefined): boolean {
+  if (!scale) return false
+  return FLAT_MAJORS.has((((scale.root + RELATIVE_MAJOR[scale.mode]) % 12) + 12) % 12)
+}
