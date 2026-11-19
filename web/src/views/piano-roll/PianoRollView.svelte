@@ -68,7 +68,7 @@
     type MidiClip,
   } from './clips'
   import { drawKeys, drawLane, drawRoll } from './draw'
-  import { pitchClasses } from '../../lib/scale'
+  import { pitchClasses, usesFlats } from '../../lib/scale'
   import {
     DEFAULT_ROW_HEIGHT,
     DEFAULT_VELOCITY,
@@ -172,8 +172,10 @@
   const rollScale = $derived.by(() => {
     const value = project.view?.project.scale ?? null
     const classes = keyNames ? null : pitchClasses(value)
-    return value && classes ? { classes, root: value.root } : null
+    return value && classes ? { classes, root: value.root, flats: usesFlats(value, t) } : null
   })
+  /** A key's name in this roll: the drum kit's sound, else the note, with flats in a key that has them (#943). */
+  const nameOf = (pitch: number): string => keyNames?.get(pitch) ?? pitchName(pitch, rollScale?.flats)
   // The notes of the clip are drawn in the track's colour; the other tracks' notes at the same time range show hollow (#470).
   const trackColor = $derived(track ? colorOfTrack(track.track.color, track.index) : '')
   let showOthers = $state(true)
@@ -630,7 +632,7 @@
       // did not fit before the clip's end draws a shorter note: said with it (#623, #280).
       const written = g.note
       if (notes.some((n) => noteKey(n) === noteKey(written))) {
-        const added = t('pianoRoll.saidAdded', { pitch: keyNames?.get(written.pitch) ?? pitchName(written.pitch) })
+        const added = t('pianoRoll.saidAdded', { pitch: nameOf(written.pitch) })
         const cut = !g.dragged && written.length < nextLength
         announce(cut ? t('pianoRoll.saidAddedCut', { added, length: gestureLength(t, signature, written.length) }) : added)
         revealNote({ start: written.start, note: written })
@@ -795,7 +797,7 @@
     const beatsPerBar = bar / PPQ
     const beat = n.start / PPQ
     const base = t('pianoRoll.noteItem', {
-      pitch: keyNames?.get(n.pitch) ?? pitchName(n.pitch),
+      pitch: nameOf(n.pitch),
       bar: Math.floor(beat / beatsPerBar) + 1,
       beat: Number(((beat % beatsPerBar) + 1).toFixed(2)),
       length: lengthText(n.length),
@@ -861,7 +863,7 @@
   /** What the letters do now, shown beside the note counter (#899): write notes (step entry), play them, or nothing (musical typing off). */
   const lettersMode = $derived<'write' | 'play' | 'mute' | 'off'>(ui.typing !== 'notes' ? 'off' : ui.stepEntry ? 'write' : engine.started ? 'play' : 'mute')
   const cursorText = $derived.by(() => {
-    return t('pianoRoll.cursorItem', { pitch: keyNames?.get(cursorPos.pitch) ?? pitchName(cursorPos.pitch), ...barBeat(cursorPos.tick, PPQ, bar / PPQ) })
+    return t('pianoRoll.cursorItem', { pitch: nameOf(cursorPos.pitch), ...barBeat(cursorPos.tick, PPQ, bar / PPQ) })
   })
   // Another clip: the cursor starts again where the view looks, and the notes have the tab stop again.
   // The mode is global like musical typing (#899) and stays armed whatever the track (#916): with no clip to write into (no clip,
@@ -1025,7 +1027,7 @@
     revealNote({ start: note.start, note })
     announce(
       t('pianoRoll.saidStepNote', {
-        pitch: keyNames?.get(note.pitch) ?? pitchName(note.pitch),
+        pitch: nameOf(note.pitch),
         ...place(note.start),
         ...cursorWords(note.start + note.length),
       }),
@@ -1195,7 +1197,7 @@
     if (!notes.some((n) => noteKey(n) === noteKey(note))) return
     picked = new Set([noteKey(note)])
     onCursor = false
-    const added = t('pianoRoll.saidAdded', { pitch: keyNames?.get(note.pitch) ?? pitchName(note.pitch) })
+    const added = t('pianoRoll.saidAdded', { pitch: nameOf(note.pitch) })
     // The chosen length did not fit before the clip's end (#623, #280): the note is shorter, and that is said.
     announce(note.length < nextLength ? t('pianoRoll.saidAddedCut', { added, length: gestureLength(t, signature, note.length) }) : added)
     sound(note.pitch, note.velocity)
@@ -1303,7 +1305,7 @@
       picked = afterChanges(new Set(chosen.map(noteKey)), ok)
       const mine = ok.find((c) => noteKey(c.from) === current.id)
       if (mine) {
-        announce(t('pianoRoll.saidMoved', { pitch: keyNames?.get(mine.to.pitch) ?? pitchName(mine.to.pitch) }))
+        announce(t('pianoRoll.saidMoved', { pitch: nameOf(mine.to.pitch) }))
         sound(mine.to.pitch, mine.to.velocity)
         release()
         void focusNote(noteKey(mine.to))
@@ -1810,7 +1812,7 @@
     const beat = euclid.start / PPQ
     const vars = {
       n: euclidMade.length,
-      pitch: keyNames?.get(euclidSettings.pitch!) ?? pitchName(euclidSettings.pitch!),
+      pitch: nameOf(euclidSettings.pitch!),
       bar: Math.floor(beat / beatsPerBar) + 1,
       beat: Number(((beat % beatsPerBar) + 1).toFixed(2)),
       m: euclidPlan.remove.length,
@@ -1894,7 +1896,7 @@
     if (!done) return
     ui.remember('piano-roll-euclid', { ...draft, pitch: undefined, velocity: undefined })
     picked = new Set(made.map(noteKey))
-    const pitch = keyNames?.get(settings.pitch!) ?? pitchName(settings.pitch!)
+    const pitch = nameOf(settings.pitch!)
     announce(t(remove.length > 0 ? 'pianoRoll.saidEuclideanReplace' : 'pianoRoll.saidEuclidean', { n: add.length, pitch, m: remove.length }))
     if (!inCells && made[0]) revealNote({ start: made[0].start, note: made[0] })
     void closeEuclid(inCells ? (made[0] ?? null) : null)
@@ -1988,6 +1990,7 @@
     data-clip-length={clipLength}
     data-key-names={keyNames ? JSON.stringify(Object.fromEntries(keyNames)) : ''}
     data-scale={rollScale ? [...rollScale.classes].sort((a, b) => a - b).join(',') : ''}
+    data-flats={rollScale?.flats ? 'true' : 'false'}
     data-loop={edited.looping ? `${edited.looping.start}-${edited.looping.end}` : ''}
     data-notes={notes.length <= 32 ? JSON.stringify(notes) : undefined}
     data-first-note={notes[0] ? JSON.stringify(notes[0]) : undefined}

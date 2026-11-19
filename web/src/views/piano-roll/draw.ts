@@ -273,7 +273,7 @@ export function drawKeys(
   font: string,
   active: ReadonlySet<number>,
   names: ReadonlyMap<number, string> | null = null,
-  scale: { classes: ReadonlySet<number>; root: number } | null = null,
+  scale: { classes: ReadonlySet<number>; root: number; flats?: boolean } | null = null,
 ): void {
   ctx.fillStyle = colors.ruler
   ctx.fillRect(0, 0, width, height)
@@ -299,7 +299,7 @@ export function drawKeys(
       // Every row is named (#470) while the rows are tall enough to read; the Cs stand out.
       ctx.fillStyle = active.has(pitch) ? colors.bg : pitch % 12 === 0 ? colors.text : colors.barLine
       ctx.textAlign = 'right'
-      ctx.fillText(pitchName(pitch), width - 5, y + layout.rowHeight / 2)
+      ctx.fillText(pitchName(pitch, scale?.flats), width - 5, y + layout.rowHeight / 2)
       ctx.textAlign = 'start'
     }
     // The notes of the scale (#695): a mark on the key's edge, wider on the root.

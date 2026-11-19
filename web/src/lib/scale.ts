@@ -45,3 +45,33 @@ export function scaleShort(scale: Scale | null | undefined, t: T): string {
 
 /** A root's name, "F", "Fa". */
 export const rootLabel = rootName
+
+/** Semitones from a scale's root up to the tonic of the major key whose signature it shares (its relative major). */
+const RELATIVE_MAJOR: Readonly<Record<ScaleMode, number>> = {
+  major: 0,
+  natural_minor: 3,
+  harmonic_minor: 3,
+  melodic_minor: 3,
+  dorian: 10,
+  phrygian: 8,
+  lydian: 7,
+  mixolydian: 5,
+  locrian: 1,
+  major_pentatonic: 0,
+  minor_pentatonic: 3,
+  blues: 3,
+}
+
+/**
+ * Whether the notes are written with flats (B♭, not A♯) in the project's key (#943): the key signature of the scale's
+ * relative major has flats. The spelling is the picker's own labels: a relative major whose label has a flat (E♭, A♭,
+ * B♭), or F; the signatures the picker spells C♯ and F♯ go to sharps. A root the picker spells with a flat reads with flats in
+ * every mode (A♭ minor, B♭ minor, E♭ minor). No scale keeps the sharps.
+ */
+export function usesFlats(scale: Scale | null | undefined, t: T): boolean {
+  if (!scale) return false
+  const major = (((scale.root + RELATIVE_MAJOR[scale.mode]) % 12) + 12) % 12
+  if (rootName(scale.root, t).includes('♭')) return true // a key the picker spells with a flat is read with flats, whatever its mode
+  if (major === 1 || major === 6) return false
+  return major === 5 || rootName(major, t).includes('♭')
+}

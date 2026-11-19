@@ -609,7 +609,7 @@ test('piano roll: the Length field sets the written length whatever the snap, an
   await page.keyboard.press('ArrowDown')
   await page.keyboard.press('Enter')
   await expect.poll(async () => (await shape()).find((n) => n[1] === 58)).toEqual([0, 58, 3840])
-  await expect(said).toContainText('Note added, A#3, Length 1 bar, cut at the end of the clip')
+  await expect(said).toContainText('Note added, A♯3, Length 1 bar, cut at the end of the clip')
   // From the free cursor, Alt+Shift+Left shortens the selection (the note just written) by one step.
   await page.keyboard.press('Escape')
   await expect(page.getByTestId('roll-cursor')).toBeFocused()

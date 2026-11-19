@@ -221,7 +221,7 @@ test('piano roll: the euclidean generator speaks French', async ({ page }) => {
   await page.keyboard.press('Tab')
   await page.keyboard.press('Tab')
   await page.keyboard.type('x')
-  await expect(summary(page)).toHaveText('Hauteur : une note comme C2 ou F#3, ou un nombre de 0 à 127.')
+  await expect(summary(page)).toHaveText('Hauteur : une note comme C2 ou F♯3, ou un nombre de 0 à 127.')
   await page.keyboard.press('Escape')
   await page.keyboard.press('Alt+g')
   await page.keyboard.type('8')
