@@ -62,14 +62,13 @@ const RELATIVE_MAJOR: Readonly<Record<ScaleMode, number>> = {
   blues: 3,
 }
 
-/** The pitch classes whose major key is written with flats: F, B♭, E♭, A♭, D♭, G♭. */
-const FLAT_MAJORS: ReadonlySet<number> = new Set([5, 10, 3, 8, 1, 6])
-
 /**
- * Whether the notes are written with flats (B♭, not A#) in the project's key (#943): the key signature of the scale's
- * relative major has flats. No scale, or a signature with sharps or none, keeps the sharps.
+ * Whether the notes are written with flats (B♭, not A♯) in the project's key (#943): the key signature of the scale's
+ * relative major has flats. The spelling is the picker's own: a major key whose root label has a flat, plus F, whose
+ * signature has one. No scale, or a key the picker spells with a sharp or plain, keeps the sharps.
  */
-export function usesFlats(scale: Scale | null | undefined): boolean {
+export function usesFlats(scale: Scale | null | undefined, t: T): boolean {
   if (!scale) return false
-  return FLAT_MAJORS.has((((scale.root + RELATIVE_MAJOR[scale.mode]) % 12) + 12) % 12)
+  const major = (((scale.root + RELATIVE_MAJOR[scale.mode]) % 12) + 12) % 12
+  return major === 5 || rootName(major, t).includes('♭')
 }

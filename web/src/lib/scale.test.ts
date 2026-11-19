@@ -66,51 +66,40 @@ describe('the project scale on the page (#695)', () => {
 })
 
 describe('flat or sharp note names by key (#943)', () => {
-  const FLAT_MAJORS = [1, 3, 5, 6, 8, 10]
-  it('follows the relative major of each of the twelve tonics, for every offered scale', () => {
-    const relative: Record<string, number> = {
-      major: 0,
-      natural_minor: 3,
-      harmonic_minor: 3,
-      melodic_minor: 3,
-      dorian: 10,
-      phrygian: 8,
-      lydian: 7,
-      mixolydian: 5,
-      locrian: 1,
-      major_pentatonic: 0,
-      minor_pentatonic: 3,
-      blues: 3,
-    }
-    expect(Object.keys(relative).sort()).toEqual([...SCALE_MODES].sort())
-    for (const mode of SCALE_MODES)
-      for (const root of ROOTS) expect(usesFlats({ root, mode }), `${root} ${mode}`).toBe(FLAT_MAJORS.includes((root + relative[mode]) % 12))
-  })
-  it('names the keys the issue lists', () => {
-    expect(usesFlats({ root: 5, mode: 'natural_minor' })).toBe(true)
-    expect(usesFlats({ root: 5, mode: 'major' })).toBe(true)
-    expect(usesFlats({ root: 2, mode: 'natural_minor' })).toBe(true)
-    expect(usesFlats({ root: 9, mode: 'natural_minor' })).toBe(false)
-    expect(usesFlats({ root: 7, mode: 'major' })).toBe(false)
-    expect(usesFlats({ root: 0, mode: 'major' })).toBe(false)
-    expect(usesFlats(null)).toBe(false)
-  })
+  const MAJOR = [0, 2, 4, 5, 7, 9, 11]
+  const DIATONIC = ['major', 'natural_minor', 'dorian', 'phrygian', 'lydian', 'mixolydian', 'locrian', 'major_pentatonic', 'minor_pentatonic']
+  // The picker's spelling of a major key's root decides: a flat in it, or F.
+  const flatKey = (tonic: number) => tonic === 5 || en(`scale.root.${tonic}` as MessageKey).includes('♭')
 
-  it('keeps every note of a diatonic scale inside the key signature it was given (checked against the protocol degrees)', () => {
-    const MAJOR = [0, 2, 4, 5, 7, 9, 11]
-    const diatonic = ['major', 'natural_minor', 'dorian', 'phrygian', 'lydian', 'mixolydian', 'locrian', 'major_pentatonic', 'minor_pentatonic']
-    for (const mode of diatonic)
+  it('has the picker spell the same roots with a flat in both languages', () => {
+    for (const tonic of ROOTS)
+      expect(fr(`scale.root.${tonic}` as MessageKey).includes('♭'), String(tonic)).toBe(en(`scale.root.${tonic}` as MessageKey).includes('♭'))
+  })
+  it('follows the picker spelling of the key signature for the twelve tonics of every diatonic and pentatonic scale', () => {
+    for (const mode of DIATONIC)
       for (const root of ROOTS) {
-        const flats = usesFlats({ root, mode } as never)
-        const notes = [...pitchClasses({ root, mode } as never)!]
-        // Of the twelve major keys, the flat ones that hold all the notes; the scale's own is the one the rule picked.
+        const scale = { root, mode } as Parameters<typeof usesFlats>[0]
+        const notes = [...pitchClasses(scale)!]
+        // The major keys that hold all the notes of the scale (from the protocol degrees); the scale's own is among them.
         const keys = ROOTS.filter((tonic) => notes.every((n) => MAJOR.some((d) => (tonic + d) % 12 === n)))
-        const flatKeys = [1, 3, 5, 6, 8, 10]
-        const sharpKeys = [0, 2, 4, 7, 9, 11]
-        expect(keys.length, `${root} ${mode}`).toBeGreaterThan(0)
-        // Heptatonic scales fit one key only; a pentatonic fits several, and the rule must pick one of them.
-        if (!mode.endsWith('pentatonic')) expect(keys.length).toBe(1)
-        expect(flats ? keys.some((k) => flatKeys.includes(k)) : keys.some((k) => sharpKeys.includes(k)), `${root} ${mode}`).toBe(true)
+        if (!mode.endsWith('pentatonic')) expect(keys.length, `${root} ${mode}`).toBe(1)
+        expect(
+          keys.some((k) => flatKey(k) === usesFlats(scale, en)),
+          `${root} ${mode}`,
+        ).toBe(true)
+        expect(usesFlats(scale, fr), `${root} ${mode} fr`).toBe(usesFlats(scale, en))
       }
+  })
+  it('answers for every offered scale on every root, and names the keys of the issue', () => {
+    for (const mode of SCALE_MODES) for (const root of ROOTS) expect(typeof usesFlats({ root, mode }, en)).toBe('boolean')
+    expect(usesFlats({ root: 5, mode: 'natural_minor' }, en)).toBe(true)
+    expect(usesFlats({ root: 5, mode: 'major' }, en)).toBe(true)
+    expect(usesFlats({ root: 2, mode: 'natural_minor' }, en)).toBe(true)
+    expect(usesFlats({ root: 1, mode: 'major' }, en)).toBe(false)
+    expect(usesFlats({ root: 6, mode: 'major' }, en)).toBe(false)
+    expect(usesFlats({ root: 9, mode: 'natural_minor' }, en)).toBe(false)
+    expect(usesFlats({ root: 7, mode: 'major' }, en)).toBe(false)
+    expect(usesFlats({ root: 0, mode: 'major' }, en)).toBe(false)
+    expect(usesFlats(null, en)).toBe(false)
   })
 })

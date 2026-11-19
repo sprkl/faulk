@@ -75,7 +75,7 @@ describe('pitch axis', () => {
 
   it('names the keys with middle C as C4 and knows the black ones', () => {
     expect(pitchName(60)).toBe('C4')
-    expect(pitchName(61)).toBe('C#4')
+    expect(pitchName(61)).toBe('C♯4')
     expect(pitchName(0)).toBe('C-1')
     expect(pitchName(61, true)).toBe('D♭4')
     expect(pitchName(70, true)).toBe('B♭4')

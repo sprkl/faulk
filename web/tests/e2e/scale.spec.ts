@@ -42,7 +42,7 @@ test('choose F minor with the mouse, see it in the piano roll, find it after a r
   await page.getByTestId('roll-create-clip').click()
   const roll = page.getByTestId('piano-roll')
   await expect(roll).toHaveAttribute('data-scale', '0,1,3,5,7,8,10')
-  // F minor has flats: the roll names its black keys B♭, not A# (#943).
+  // F minor has flats: the roll names its black keys B♭, not A♯ (#943).
   await expect(roll).toHaveAttribute('data-flats', 'true')
   // The note drawn on that key is announced with the flat's name.
   const stage = page.getByTestId('roll-stage')

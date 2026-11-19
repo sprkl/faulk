@@ -161,7 +161,7 @@
   const rollScale = $derived.by(() => {
     const value = project.view?.project.scale ?? null
     const classes = keyNames ? null : pitchClasses(value)
-    return value && classes ? { classes, root: value.root, flats: usesFlats(value) } : null
+    return value && classes ? { classes, root: value.root, flats: usesFlats(value, t) } : null
   })
   /** A key's name in this roll: the drum kit's sound, else the note, with flats in a key that has them (#943). */
   const nameOf = (pitch: number): string => keyNames?.get(pitch) ?? pitchName(pitch, rollScale?.flats)
