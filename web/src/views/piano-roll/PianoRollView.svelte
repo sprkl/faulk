@@ -977,6 +977,7 @@
    * No project change: the page's own view state.
    */
   function goToPlacement() {
+    if (!edited) return announce(t('pianoRoll.saidPlacementNoClip'))
     const id = placementToShow(edited, chosenPlacement, shownTick === null ? null : Math.round(shownTick))
     if (id === null) return announce(t('pianoRoll.saidNoPlacement'))
     ui.show('arrangement')

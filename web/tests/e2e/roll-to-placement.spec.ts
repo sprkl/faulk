@@ -56,6 +56,42 @@ test('Alt+P in the piano roll selects and focuses the open clip’s placement, a
   expect(errors).toEqual([])
 })
 
+test('without an origin the placement nearest to the playhead is shown, and the one the clip was opened from wins over it', async ({ page }) => {
+  const { errors } = watch(page)
+  test.setTimeout(120_000)
+  await start(page)
+  await page.getByTestId('track-header').first().click()
+  await run(page, { type: 'clip.create', track: await firstTrack(page), at: { at: 'arrangement', start: 0 }, length: BAR })
+  const clip = (await blocks(page))[0]!.clip
+  await run(page, { type: 'arrangement.place', clip, start: 3 * BAR, copy: false })
+  await run(page, { type: 'arrangement.place', clip, start: 6 * BAR, copy: false })
+  await expect.poll(async () => (await blocks(page)).length).toBe(3)
+  const all = (await blocks(page)).sort((a, b) => a.start - b.start)
+  await page.getByTestId('panel-piano-roll').click()
+  await expect(page.getByTestId('piano-roll')).toBeVisible()
+
+  // The playhead in the third placement: it is the one shown (the roll was not opened from the timeline).
+  await run(page, { type: 'transport.seek', tick: 6 * BAR + BAR / 2 })
+  await expect(page.getByTestId('arrangement')).toHaveAttribute('data-position', String(6 * BAR + BAR / 2))
+  await unfocus(page)
+  await page.keyboard.press('Alt+p')
+  await expect.poll(() => picked(page)).toEqual([all[2]!.id])
+  await expect(page.locator(`[data-testid=arr-item][data-block="${all[2]!.id}"]`)).toBeFocused()
+
+  // Opened from the second one (Enter on its cell), the roll goes back to it whatever the playhead says.
+  const second = page.locator(`[data-testid=arr-item][data-block="${all[1]!.id}"]`)
+  await second.focus()
+  await page.keyboard.press('Enter')
+  await expect(page.getByTestId('piano-roll')).toBeVisible()
+  await run(page, { type: 'transport.seek', tick: 6 * BAR + BAR / 2 })
+  await expect(page.getByTestId('arrangement')).toHaveAttribute('data-position', String(6 * BAR + BAR / 2))
+  await unfocus(page)
+  await page.keyboard.press('Alt+p')
+  await expect.poll(() => picked(page)).toEqual([all[1]!.id])
+  await expect(second).toBeFocused()
+  expect(errors).toEqual([])
+})
+
 test('the palette lists "Go to the clip’s placement" and does the same', async ({ page }) => {
   const { errors } = watch(page)
   test.setTimeout(120_000)
