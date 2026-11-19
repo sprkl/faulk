@@ -92,6 +92,25 @@ test('without an origin the placement nearest to the playhead is shown, and the 
   expect(errors).toEqual([])
 })
 
+test('from the grid view the arrangement is shown with the placement selected and focused', async ({ page }) => {
+  const { errors } = watch(page)
+  test.setTimeout(120_000)
+  await start(page)
+  await page.getByTestId('track-header').first().click()
+  await run(page, { type: 'clip.create', track: await firstTrack(page), at: { at: 'arrangement', start: 2 * BAR }, length: BAR })
+  const placed = (await blocks(page))[0]!
+  await page.getByTestId('nav-grid').click()
+  await expect(page.getByTestId('view')).toHaveAttribute('data-view', 'grid')
+  await page.getByTestId('panel-piano-roll').click()
+  await expect(page.getByTestId('piano-roll')).toBeVisible()
+  await unfocus(page)
+  await page.keyboard.press('Alt+p')
+  await expect(page.getByTestId('view')).toHaveAttribute('data-view', 'arrangement')
+  await expect.poll(() => picked(page)).toEqual([placed.id])
+  await expect(page.locator(`[data-testid=arr-item][data-block="${placed.id}"]`)).toBeFocused()
+  expect(errors).toEqual([])
+})
+
 test('the palette lists "Go to the clip’s placement" and does the same', async ({ page }) => {
   const { errors } = watch(page)
   test.setTimeout(120_000)

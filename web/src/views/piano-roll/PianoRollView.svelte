@@ -977,7 +977,8 @@
    * No project change: the page's own view state.
    */
   function goToPlacement() {
-    if (!edited) return announce(t('pianoRoll.saidPlacementNoClip'))
+    // No clip open: the roll's empty state already says so (it has no live region to speak in).
+    if (!edited) return
     const id = placementToShow(edited, chosenPlacement, shownTick === null ? null : Math.round(shownTick))
     if (id === null) return announce(t('pianoRoll.saidNoPlacement'))
     ui.show('arrangement')
