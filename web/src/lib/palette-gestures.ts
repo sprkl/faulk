@@ -21,6 +21,7 @@ export const GESTURE_IDS = [
   'markerAdd',
   'laneRamp',
   'stepEntry',
+  'clipPlacement',
 ] as const
 export type GestureId = (typeof GESTURE_IDS)[number]
 
@@ -44,6 +45,7 @@ export const GESTURES: readonly GestureDef[] = [
   { id: 'markerAdd', shortcut: 'shortcut.markerAdd', owner: 'arrangement' },
   { id: 'laneRamp', shortcut: 'shortcut.laneRamp', owner: 'arrangement' },
   { id: 'stepEntry', shortcut: 'shortcut.stepEntry', owner: 'piano-roll' },
+  { id: 'clipPlacement', shortcut: 'shortcut.clipPlacement', owner: 'piano-roll' },
 ]
 
 /** The gestures each view takes from `UiStore.gesture`. */

@@ -334,6 +334,15 @@ export function generateShortcut(event: Pick<KeyboardEvent, 'code' | 'ctrlKey' |
   return event.code === GENERATE_CODE && event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.repeat && !isTextTarget(event.target)
 }
 
+/**
+ * "Go to the placement" from the piano roll (#944): Alt+P, by position. Alt alone (never a bare letter: P plays a note), no
+ * repeat, nothing from a text field. Playing ignores every Alt event (`ignoreKeyEvent`), so it plays nothing.
+ */
+const PLACEMENT_CODE = 'KeyP'
+export function placementShortcut(event: Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'repeat' | 'target'>): boolean {
+  return event.code === PLACEMENT_CODE && event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && !event.repeat && !isTextTarget(event.target)
+}
+
 /** Undo or redo asked by the keyboard (Ctrl or Cmd + Z, Shift for redo, Ctrl + Y), or null; never inside a text field. */
 export function historyShortcut(event: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'metaKey' | 'altKey' | 'shiftKey' | 'target'>): 'undo' | 'redo' | null {
   if (!(event.ctrlKey || event.metaKey) || event.altKey || isTextTarget(event.target)) return null
