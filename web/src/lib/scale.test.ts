@@ -84,7 +84,7 @@ describe('flat or sharp note names by key (#943)', () => {
         const keys = ROOTS.filter((tonic) => notes.every((n) => MAJOR.some((d) => (tonic + d) % 12 === n)))
         if (!mode.endsWith('pentatonic')) expect(keys.length, `${root} ${mode}`).toBe(1)
         expect(
-          keys.some((k) => flatKey(k) === usesFlats(scale, en)),
+          keys.some((k) => (k === 1 || k === 6 ? en(`scale.root.${root}` as MessageKey).includes('♭') : flatKey(k)) === usesFlats(scale, en)),
           `${root} ${mode}`,
         ).toBe(true)
         expect(usesFlats(scale, fr), `${root} ${mode} fr`).toBe(usesFlats(scale, en))
@@ -96,6 +96,11 @@ describe('flat or sharp note names by key (#943)', () => {
     expect(usesFlats({ root: 5, mode: 'major' }, en)).toBe(true)
     expect(usesFlats({ root: 2, mode: 'natural_minor' }, en)).toBe(true)
     expect(usesFlats({ root: 1, mode: 'major' }, en)).toBe(false)
+    expect(usesFlats({ root: 10, mode: 'natural_minor' }, en)).toBe(true)
+    expect(usesFlats({ root: 3, mode: 'natural_minor' }, en)).toBe(true)
+    expect(usesFlats({ root: 8, mode: 'mixolydian' }, en)).toBe(true)
+    expect(usesFlats({ root: 1, mode: 'mixolydian' }, en)).toBe(false)
+    expect(usesFlats({ root: 6, mode: 'natural_minor' }, en)).toBe(false)
     expect(usesFlats({ root: 6, mode: 'major' }, en)).toBe(false)
     expect(usesFlats({ root: 9, mode: 'natural_minor' }, en)).toBe(false)
     expect(usesFlats({ root: 7, mode: 'major' }, en)).toBe(false)
