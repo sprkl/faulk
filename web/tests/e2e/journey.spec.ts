@@ -289,8 +289,8 @@ test('journey: an unprefixed day page moves a French reader to /fr', async ({ pa
 test('journey: the section playing is marked, follows a seek, stays on pause and one track at a time (#851)', async ({ page }) => {
   const { errors } = watch(page)
   await fakeCdn(page)
-  // A track long enough to cross sections (any entry's form lasts well under 400 s; the longest so far is 274 s).
-  const long = tone(400, 8000)
+  // A track long enough to cross every section of the entry under test: made below from its form, before any play.
+  let long = tone(1, 8000)
   await page.route('https://cdn.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/**/track.mp3', (route) => {
     // Byte ranges, like the CDN, so that the browser can seek far into the file.
     const range = /bytes=(\d+)-(\d*)/.exec(route.request().headers()['range'] ?? '')
@@ -309,8 +309,8 @@ test('journey: the section playing is marked, follows a seek, stays on pause and
   const bars = await form.locator('li').evaluateAll((lis) => lis.map((li) => Number((li as HTMLElement).dataset.bars)))
   const startOf = (i: number) => (bars.slice(0, i).reduce((a, b) => a + b, 0) * 4 * 60) / bpm
   const audio = first.locator('audio')
-  // The seeks below stay inside the generated track.
-  expect(startOf(bars.length)).toBeLessThan(390)
+  // The seeks below stay inside the generated track: the form's length plus a margin.
+  long = tone(Math.ceil(startOf(bars.length)) + 10, 8000)
 
   // Nothing is marked before a play.
   await expect(current).toHaveCount(0)
