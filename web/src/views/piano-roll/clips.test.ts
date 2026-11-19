@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import type { Clip, Track } from '../../lib/generated/protocol'
-import { clipEntries, clipLabel, clipOrigin, editedClip, editedPlacement, ghostNotes, midiClips } from './clips'
+import { clipEntries, clipLabel, clipOrigin, editedClip, editedPlacement, ghostNotes, midiClips, placementToShow } from './clips'
 
 const midi = (name = ''): Clip => ({ name, content: { midi: { length: 3840, notes: [{ start: 0, pitch: 60, length: 480, velocity: 100 }] } } })
 const audio = (): Clip => ({ name: 'a', content: { audio: { frames: 10, media: 'm', source_start: 0 } } }) as unknown as Clip
 const track = (clips: Record<string, Clip>, placed: Record<string, [string, number]> = {}): Track =>
   ({
     clips,
-    placements: Object.fromEntries(Object.entries(placed).map(([id, [clip, start]]) => [id, { clip, start, span: { start: 0, length: 3840 } }])),
+    placements: Object.fromEntries(Object.entries(placed).map(([id, [clip, start]]) => [id, { clip, start, span: { ticks: { offset: 0, length: 3840 } } }])),
   }) as unknown as Track
 
 describe('the clips the roll offers', () => {
@@ -54,12 +54,12 @@ describe('the clips the roll offers', () => {
     const t = track({ a: midi(), b: midi(), c: midi() }, { p9: ['a', 7680], p1: ['a', 0], q: ['b', 3840] })
     const clips = midiClips(t)
     expect(clips[0]!.placements).toEqual([
-      { id: 'p1', start: 0 },
-      { id: 'p9', start: 7680 },
+      { id: 'p1', start: 0, end: 3840 },
+      { id: 'p9', start: 7680, end: 11520 },
     ])
     expect(clipEntries(clips).map((e) => e.key)).toEqual(['placement:p1', 'placement:p9', 'placement:q', 'clip:c'])
     const a = clips.find((c) => c.id === 'a')!
-    expect(editedPlacement(a, 'p9')).toEqual({ id: 'p9', start: 7680 })
+    expect(editedPlacement(a, 'p9')).toEqual({ id: 'p9', start: 7680, end: 11520 })
     // None chosen, or one of another clip, or one that is gone: the first placement.
     expect(editedPlacement(a, null)?.id).toBe('p1')
     expect(editedPlacement(a, 'q')?.id).toBe('p1')
@@ -129,5 +129,39 @@ describe('ghost notes of the other tracks (#470)', () => {
     expect(ghostNotes(tracks, 'me', edited, mine)).toEqual([{ start: 10, length: 100, pitch: 50 }])
     expect(ghostNotes([tracks[0]!], 'me', edited, mine)).toEqual([])
     expect(ghostNotes(tracks, 'me', null, mine)).toEqual([])
+  })
+})
+
+describe('the placement shown by "go to the placement" (#944)', () => {
+  // One clip placed three times (bars 1, 3 and 6), one other clip placed once.
+  const t = track({ a: midi(), b: midi(), c: midi() }, { p1: ['a', 0], p2: ['a', 7680], p3: ['a', 19200], q: ['b', 3840] })
+  const a = midiClips(t).find((c) => c.id === 'a')!
+  const c = midiClips(t).find((x) => x.id === 'c')!
+
+  it('goes to the placement the clip was opened from, wherever the playhead is', () => {
+    expect(placementToShow(a, 'p3', 0)).toBe('p3')
+    expect(placementToShow(a, 'p2', null)).toBe('p2')
+  })
+
+  it('without a known origin, goes to the placement the playhead is in, else the nearest one', () => {
+    expect(placementToShow(a, null, 8000)).toBe('p2')
+    expect(placementToShow(a, null, 7680)).toBe('p2')
+    // The end of a placement is not inside it: tick 3840 is 0 away from p1's end and 3840 from p2's start.
+    expect(placementToShow(a, null, 3840)).toBe('p1')
+    expect(placementToShow(a, null, 18000)).toBe('p3')
+    expect(placementToShow(a, null, 99999)).toBe('p3')
+  })
+
+  it('takes the earlier one on a tie, and the first when the playhead is unknown', () => {
+    // 5760 is 1920 after p1's end and 1920 before p2's start.
+    expect(placementToShow(a, null, 5760)).toBe('p1')
+    expect(placementToShow(a, null, null)).toBe('p1')
+  })
+
+  it('ignores an origin that no longer places the clip, and says nothing for a clip that is not placed', () => {
+    expect(placementToShow(a, 'q', 19000)).toBe('p3')
+    expect(placementToShow(a, 'gone', 0)).toBe('p1')
+    expect(placementToShow(c, 'p1', 0)).toBeNull()
+    expect(placementToShow(null, null, 0)).toBeNull()
   })
 })

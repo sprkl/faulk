@@ -219,6 +219,7 @@ export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = [
       { label: 'shortcut.noteGenerate', chords: [['Alt', 'G']] },
       { label: 'shortcut.noteQuantize', chords: [['KeyQ']] },
       { label: 'shortcut.stepEntry', scope: 'pianoRoll.cursor', chords: [['Alt', 'KeyE']] },
+      { label: 'shortcut.clipPlacement', chords: [['Alt', 'KeyP']] },
       { label: 'shortcut.stepRest', scope: 'pianoRoll.step', chords: [['Period']], params: (layout) => stepKeyParams(layout) },
       { label: 'shortcut.stepLengthen', scope: 'pianoRoll.step', chords: [['Comma']], params: (layout) => stepKeyParams(layout) },
       { label: 'shortcut.stepBack', scope: 'pianoRoll.step', chords: [['Backspace']] },
