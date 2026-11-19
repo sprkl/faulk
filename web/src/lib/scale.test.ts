@@ -95,4 +95,22 @@ describe('flat or sharp note names by key (#943)', () => {
     expect(usesFlats({ root: 0, mode: 'major' })).toBe(false)
     expect(usesFlats(null)).toBe(false)
   })
+
+  it('keeps every note of a diatonic scale inside the key signature it was given (checked against the protocol degrees)', () => {
+    const MAJOR = [0, 2, 4, 5, 7, 9, 11]
+    const diatonic = ['major', 'natural_minor', 'dorian', 'phrygian', 'lydian', 'mixolydian', 'locrian', 'major_pentatonic', 'minor_pentatonic']
+    for (const mode of diatonic)
+      for (const root of ROOTS) {
+        const flats = usesFlats({ root, mode } as never)
+        const notes = [...pitchClasses({ root, mode } as never)!]
+        // Of the twelve major keys, the flat ones that hold all the notes; the scale's own is the one the rule picked.
+        const keys = ROOTS.filter((tonic) => notes.every((n) => MAJOR.some((d) => (tonic + d) % 12 === n)))
+        const flatKeys = [1, 3, 5, 6, 8, 10]
+        const sharpKeys = [0, 2, 4, 7, 9, 11]
+        expect(keys.length, `${root} ${mode}`).toBeGreaterThan(0)
+        // Heptatonic scales fit one key only; a pentatonic fits several, and the rule must pick one of them.
+        if (!mode.endsWith('pentatonic')) expect(keys.length).toBe(1)
+        expect(flats ? keys.some((k) => flatKeys.includes(k)) : keys.some((k) => sharpKeys.includes(k)), `${root} ${mode}`).toBe(true)
+      }
+  })
 })

@@ -44,6 +44,13 @@ test('choose F minor with the mouse, see it in the piano roll, find it after a r
   await expect(roll).toHaveAttribute('data-scale', '0,1,3,5,7,8,10')
   // F minor has flats: the roll names its black keys B♭, not A# (#943).
   await expect(roll).toHaveAttribute('data-flats', 'true')
+  // The note drawn on that key is announced with the flat's name.
+  const stage = page.getByTestId('roll-stage')
+  const box = (await stage.boundingBox())!
+  const ppt = Number(await page.getByTestId('timegrid').getAttribute('data-px-per-tick'))
+  const scrollY = Number(await stage.getAttribute('data-scroll-y'))
+  await page.mouse.click(box.x + 1000 * ppt, box.y + 28 + (127 - 58) * 16 - scrollY + 8)
+  await expect(page.getByText('Note added, B♭3')).toBeAttached()
 
   // Kept in the draft: after a reload the scale is there before the audio starts.
   await expect(page.getByTestId('save-state')).toHaveText(/^Draft saved at/, { timeout: 20_000 })
