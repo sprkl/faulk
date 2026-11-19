@@ -19,20 +19,20 @@ export interface MidiClip {
   scene: string | null
   /** The tick of its earliest placement in the arrangement, null when it is not placed. */
   firstStart: Tick | null
-  /** Its placements in the arrangement, earliest first (then by identifier). */
-  placements: readonly { id: string; start: Tick }[]
+  /** Its placements in the arrangement, earliest first (then by identifier), with the tick where each ends. */
+  placements: readonly { id: string; start: Tick; end: Tick }[]
 }
 
 /** The MIDI clips of a track in the order the roll offers them. */
 export function midiClips(track: Track): MidiClip[] {
   const firstStart = new Map<string, number>()
-  const placed = new Map<string, { id: string; start: Tick }[]>()
+  const placed = new Map<string, { id: string; start: Tick; end: Tick }[]>()
   for (const [id, placement] of Object.entries(track.placements)) {
     if (!placement) continue
     const seen = firstStart.get(placement.clip)
     if (seen === undefined || placement.start < seen) firstStart.set(placement.clip, placement.start)
     const list = placed.get(placement.clip) ?? []
-    list.push({ id, start: placement.start })
+    list.push({ id, start: placement.start, end: placement.start + ('ticks' in placement.span ? placement.span.ticks.length : 0) })
     placed.set(placement.clip, list)
   }
   for (const list of placed.values()) list.sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
@@ -64,9 +64,25 @@ export function editedClip(clips: readonly MidiClip[], chosen: string | null): M
 }
 
 /** The placement of the edited clip the roll shows (#494): the chosen one when it still places that clip, else its first, else none. */
-export function editedPlacement(clip: MidiClip | null, chosen: string | null): { id: string; start: Tick } | null {
+export function editedPlacement(clip: MidiClip | null, chosen: string | null): { id: string; start: Tick; end: Tick } | null {
   if (!clip) return null
   return clip.placements.find((p) => p.id === chosen) ?? clip.placements[0] ?? null
+}
+
+/**
+ * The placement the roll's "go to the placement" gesture (#944) shows in the arrangement: the one the clip was opened from
+ * (`origin`, when it still places the clip), else the one nearest to the playhead (0 away when the playhead is inside it, a tie
+ * goes to the earlier one), else the first when the playhead is unknown. Null when the clip is not placed.
+ */
+export function placementToShow(clip: MidiClip | null, origin: string | null, playhead: Tick | null): string | null {
+  if (!clip || clip.placements.length === 0) return null
+  const opened = clip.placements.find((p) => p.id === origin)
+  if (opened) return opened.id
+  if (playhead === null) return clip.placements[0]!.id
+  const away = (p: { start: Tick; end: Tick }) => (playhead < p.start ? p.start - playhead : playhead >= p.end ? playhead - p.end : 0)
+  let best = clip.placements[0]!
+  for (const p of clip.placements) if (away(p) < away(best)) best = p
+  return best.id
 }
 
 /** An entry of the roll's clip list (#494): a clip, at one of its placements (one entry each), or as a whole when it has none. */
@@ -74,7 +90,7 @@ export interface ClipEntry {
   /** The value of the list's option: `placement:<id>`, or `clip:<id>` for a clip with no placement. */
   key: string
   clip: MidiClip
-  placement: { id: string; start: Tick } | null
+  placement: { id: string; start: Tick; end: Tick } | null
 }
 
 /** The roll's clip list: each clip once per placement, earliest first, a clip with no placement once; in the clips' order. */

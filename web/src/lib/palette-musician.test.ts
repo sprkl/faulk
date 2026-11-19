@@ -222,6 +222,8 @@ describe('the gestures of the registry (#926)', () => {
     expect(find(fr, 'rampe')).toContain('laneRamp')
     expect(find(fr, 'tout le morceau')).toContain('fitSong')
     expect(find(fr, 'saisie pas à pas')).toContain('stepEntry')
+    expect(find(fr, 'placement du clip')).toContain('clipPlacement')
+    expect(find(en, 'clip’s placement')).toContain('clipPlacement')
     expect(find(en, 'lengthen')).toContain('clipLengthen')
     expect(find(en, 'step entry')).toContain('stepEntry')
   })
@@ -264,7 +266,8 @@ describe('running a gesture', () => {
     const { ui, calls } = double()
     runGesture('clipLengthen', ui)
     runGesture('stepEntry', ui)
-    expect(calls).toEqual(['show:arrangement', 'ask:clipLengthen', 'panel:piano-roll', 'ask:stepEntry'])
+    runGesture('clipPlacement', ui)
+    expect(calls).toEqual(['show:arrangement', 'ask:clipLengthen', 'panel:piano-roll', 'ask:stepEntry', 'panel:piano-roll', 'ask:clipPlacement'])
   })
 })
 

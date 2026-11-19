@@ -43,7 +43,7 @@
     type View,
   } from '../../lib/components/timegrid/grid'
   import { RULER_HEIGHT, type BodyFrame } from '../../lib/components/timegrid/render'
-  import { generateShortcut, isQuantizeKey, isTextTarget, noteForKey, playsNote, QUANTIZE_CODE, repeatShortcut } from '../../lib/keyboard'
+  import { generateShortcut, isQuantizeKey, isTextTarget, noteForKey, placementShortcut, playsNote, QUANTIZE_CODE, repeatShortcut } from '../../lib/keyboard'
   import { advanceTo, barBeat, dropLast, isStepEntryToggle, lengthenLast, stepEntryKey, type EntryStep } from './step-entry'
   import BarDialog from '../arrangement/BarDialog.svelte'
   import { defaultRepeatUntil, parseRepeatUntil, repeatCopies } from './repeat'
@@ -55,7 +55,18 @@
   import { MAX_GOTO_BAR, barTicks, beatTicks, PPQ } from '../transport/time'
   import { cursorJumpKey, itemAt, jumpCursor, moveCursor, rovingKey, step as stepItem, zoomKey, type RovingKey } from '../../lib/roving'
   import { sortedScenes } from '../grid/cells'
-  import { clipEntries, clipLabel, clipOrigin, editedClip, editedPlacement, ghostNotes, midiClips, type ClipEntry, type MidiClip } from './clips'
+  import {
+    clipEntries,
+    clipLabel,
+    clipOrigin,
+    editedClip,
+    editedPlacement,
+    ghostNotes,
+    midiClips,
+    placementToShow,
+    type ClipEntry,
+    type MidiClip,
+  } from './clips'
   import { drawKeys, drawLane, drawRoll } from './draw'
   import { pitchClasses, usesFlats } from '../../lib/scale'
   import {
@@ -706,8 +717,11 @@
       return
     }
     if (!inRoll) return
-    // The roll's own listener takes Alt+G from inside the roll; from the page itself (nothing focused) it is taken here.
-    if (target === document.body && generateShortcut(event)) {
+    // The roll's own listener takes Alt+G and Alt+P from inside the roll; from the page itself (nothing focused) they are taken here.
+    if (target === document.body && placementShortcut(event)) {
+      event.preventDefault()
+      goToPlacement()
+    } else if (target === document.body && generateShortcut(event)) {
       event.preventDefault()
       void openEuclid()
     } else if (editShortcut(event)) event.preventDefault()
@@ -959,10 +973,26 @@
     announce(t(on ? 'pianoRoll.saidStepOn' : 'pianoRoll.saidStepOff'))
   }
 
-  // Step entry asked from the command palette (#926): what the button and Alt+E do.
+  /**
+   * Alt+P (#944): the arrangement, with the open clip's placement selected, in sight and holding the keyboard focus, so that the
+   * next key (Alt+Shift+Left to cut the end, Alt+Left to move it) acts on it. A clip with no placement says so and nothing moves.
+   * No project change: the page's own view state.
+   */
+  function goToPlacement() {
+    // No clip open: the roll's empty state already says so (it has no live region to speak in).
+    if (!edited) return
+    const id = placementToShow(edited, chosenPlacement, shownTick === null ? null : Math.round(shownTick))
+    if (id === null) return announce(t('pianoRoll.saidNoPlacement'))
+    ui.show('arrangement')
+    ui.showPlaced([id])
+  }
+
+  // What the command palette asked for (#926, #944): what the button and Alt+E, or Alt+P, do.
   $effect(() => {
-    if (ui.takeGesture(PIANO_ROLL_GESTURES) !== 'stepEntry') return
+    const id = ui.takeGesture(PIANO_ROLL_GESTURES)
+    if (!id) return
     untrack(() => {
+      if (id === 'clipPlacement') return goToPlacement()
       // The key does nothing without a clip to write into; the palette says so.
       if (!edited && !ui.stepEntry) return announce(t('pianoRoll.saidStepNoClip'))
       setStepEntry(!ui.stepEntry)
@@ -1726,6 +1756,12 @@
       event.preventDefault()
       event.stopPropagation()
       void openEuclid()
+      return
+    }
+    if (placementShortcut(event)) {
+      event.preventDefault()
+      event.stopPropagation()
+      goToPlacement()
       return
     }
     if (!repeatShortcut(event)) return
