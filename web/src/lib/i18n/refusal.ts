@@ -32,8 +32,9 @@ export const refusal = defineFeature(
     'refusal.entity.exportSeconds': 'seconds of export',
     'refusal.entity.analyzeSeconds': 'seconds of analysis',
     'refusal.entity.sidechainSources': 'tracks listened to by a detection',
-    'refusal.sidechainCycle': 'Not done: “{track}” already listens to this track, so it cannot be its detection source.',
-    'refusal.sidechainCycleUnnamed': 'Not done: track {n} already listens to this track, so it cannot be its detection source.',
+    'refusal.sidechainCycle': 'Not done: “{track}” already listens to this track, directly or through other tracks, so it cannot be its detection source.',
+    'refusal.sidechainCycleUnnamed':
+      'Not done: track {n} already listens to this track, directly or through other tracks, so it cannot be its detection source.',
   },
   {
     'refusal.not_found': 'Pas fait : la cible n’existe plus.',
@@ -60,7 +61,9 @@ export const refusal = defineFeature(
     'refusal.entity.exportSeconds': 'secondes d’export',
     'refusal.entity.analyzeSeconds': 'secondes d’analyse',
     'refusal.entity.sidechainSources': 'pistes écoutées par une détection',
-    'refusal.sidechainCycle': 'Pas fait : « {track} » écoute déjà cette piste, elle ne peut donc pas être sa source de détection.',
-    'refusal.sidechainCycleUnnamed': 'Pas fait : la piste {n} écoute déjà cette piste, elle ne peut donc pas être sa source de détection.',
+    'refusal.sidechainCycle':
+      'Pas fait : « {track} » écoute déjà cette piste, directement ou par d’autres pistes, elle ne peut donc pas être sa source de détection.',
+    'refusal.sidechainCycleUnnamed':
+      'Pas fait : la piste {n} écoute déjà cette piste, directement ou par d’autres pistes, elle ne peut donc pas être sa source de détection.',
   },
 )
