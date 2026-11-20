@@ -42,4 +42,5 @@ mod ripple;
 mod scatter;
 mod scenes;
 mod stack;
+mod swing;
 mod trim;
