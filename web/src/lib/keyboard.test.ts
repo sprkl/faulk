@@ -13,6 +13,7 @@ import {
   PLAYING_KEYS,
   playsNote,
   generateShortcut,
+  placementShortcut,
   gotoShortcut,
   lengthenShortcut,
   paletteShortcut,
@@ -736,5 +737,18 @@ describe('gotoShortcut (#554)', () => {
   })
   it('leaves a text field its own Ctrl+G', () => {
     expect(gotoShortcut(press({ target: { closest: () => ({}) } }))).toBe(false)
+  })
+})
+
+describe('placementShortcut (#944)', () => {
+  const press = (over: object = {}) => ({ code: 'KeyP', altKey: true, ctrlKey: false, metaKey: false, shiftKey: false, repeat: false, target: null, ...over })
+  it('is Alt+P by position, alone, without repeat', () => {
+    expect(placementShortcut(press())).toBe(true)
+    for (const over of [{ altKey: false }, { ctrlKey: true }, { metaKey: true }, { shiftKey: true }, { repeat: true }, { code: 'KeyO' }]) {
+      expect(placementShortcut(press(over)), JSON.stringify(over)).toBe(false)
+    }
+  })
+  it('leaves a text field alone', () => {
+    expect(placementShortcut(press({ target: document.createElement('input') }))).toBe(false)
   })
 })

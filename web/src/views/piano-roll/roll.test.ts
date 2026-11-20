@@ -75,8 +75,12 @@ describe('pitch axis', () => {
 
   it('names the keys with middle C as C4 and knows the black ones', () => {
     expect(pitchName(60)).toBe('C4')
-    expect(pitchName(61)).toBe('C#4')
+    expect(pitchName(61)).toBe('C♯4')
     expect(pitchName(0)).toBe('C-1')
+    expect(pitchName(61, true)).toBe('D♭4')
+    expect(pitchName(70, true)).toBe('B♭4')
+    expect(pitchName(60, true)).toBe('C4')
+    expect(Array.from({ length: 12 }, (_, i) => pitchName(60 + i, true))).toEqual(['C4', 'D♭4', 'D4', 'E♭4', 'E4', 'F4', 'G♭4', 'G4', 'A♭4', 'A4', 'B♭4', 'B4'])
     expect(pitchName(127)).toBe('G9')
     expect([1, 3, 6, 8, 10, 61, 70].every(isBlackKey)).toBe(true)
     expect([0, 2, 4, 5, 7, 9, 11, 60].some(isBlackKey)).toBe(false)
