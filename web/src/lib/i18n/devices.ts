@@ -159,6 +159,16 @@ export const devices = defineFeature(
       'How a moved note picks its choice: at random (a repeatable draw, set by the seed), or in turn, each moved note taking the next choice.',
     'scatter.seed.hint':
       'Seed of the draws, from 0 to 1000: a note draws from the seed, its position in the song and its pitch, so the same seed gives the same notes at the same place on every play, from any start; another seed, another draw.',
+    'swing.amount.hint':
+      'Where the second note of each pair of the grid falls, from 50 % (straight) to 75 %: 58 % is a light swing, 66 % a triplet feel, 75 % a dotted feel. Only forward: a note is never played early.',
+    'swing.grid.hint':
+      'The note value the pairs are made of: an eighth, a sixteenth or a thirty-second note. The second note of each pair is the one that is delayed.',
+    'swing.window.hint':
+      'How close to an off-beat a note must be to be swung, from 0 % (exactly on it) to 50 % of a grid cell either side: wider catches looser notes, narrower leaves them alone.',
+    'swing.humanize_time.hint': 'Random delay added to every note, from 0 (none) to 20 ms: a repeatable draw, set by the seed. Only forward.',
+    'swing.humanize_velocity.hint': "Random change of every note's velocity, up or down, from 0 (none) to 20 steps of 127: a repeatable draw, set by the seed.",
+    'swing.seed.hint':
+      'Seed of the humanize draws, from 0 to 1000: a note draws from the seed, its position in the song and its pitch, so the same seed gives the same notes at the same place on every play, from any start; another seed, another draw.',
     'filter.drive.hint': 'Soft saturation before the filter, from 0 (none) to 1: louder and rounder, so a strong resonance bites instead of whistling.',
     'filter.lfo_shape.hint': 'Shape of the LFO that moves the cutoff: sine, triangle, rising saw, falling saw, square, or random (a new value at each cycle).',
     'filter.lfo_sync.hint': 'Whether the LFO runs at its own rate in hertz (free) or follows the tempo (synced), each cycle on the same beat of every bar.',
@@ -436,6 +446,18 @@ export const devices = defineFeature(
       'Comment une note changée prend son choix : au hasard (un tirage reproductible, fixé par la graine), ou tour à tour, chaque note changée prenant le choix suivant.',
     'scatter.seed.hint':
       'Graine des tirages, de 0 à 1000 : une note tire selon la graine, sa position dans le morceau et sa hauteur ; la même graine donne donc les mêmes notes à la même place à chaque lecture, quel que soit le point de départ ; une autre graine, un autre tirage.',
+    'swing.amount.hint':
+      'Où tombe la seconde note de chaque paire de la grille, de 50 % (droit) à 75 % : 58 % donne un balancement léger, 66 % une sensation de triolet, 75 % une sensation pointée. Seulement vers l’avant : une note n’est jamais jouée en avance.',
+    'swing.grid.hint':
+      'La valeur de note dont les paires sont faites : croche, double croche ou triple croche. La seconde note de chaque paire est celle qui est retardée.',
+    'swing.window.hint':
+      'À quelle distance d’un contretemps une note doit être pour être balancée, de 0 % (exactement dessus) à 50 % d’une case de la grille de chaque côté : plus large attrape les notes plus lâches, plus étroit les laisse telles quelles.',
+    'swing.humanize_time.hint':
+      'Retard aléatoire ajouté à chaque note, de 0 (aucun) à 20 ms : un tirage reproductible, fixé par la graine. Seulement vers l’avant.',
+    'swing.humanize_velocity.hint':
+      'Variation aléatoire de la vélocité de chaque note, vers le haut ou le bas, de 0 (aucune) à 20 sur 127 : un tirage reproductible, fixé par la graine.',
+    'swing.seed.hint':
+      'Graine des tirages d’humanisation, de 0 à 1000 : une note tire selon la graine, sa position dans le morceau et sa hauteur ; la même graine donne donc les mêmes notes à la même place à chaque lecture, quel que soit le point de départ ; une autre graine, un autre tirage.',
     'filter.drive.hint':
       'Saturation douce avant le filtre, de 0 (aucune) à 1 : plus fort et plus rond, pour qu’une résonance poussée morde au lieu de siffler.',
     'filter.lfo_shape.hint':

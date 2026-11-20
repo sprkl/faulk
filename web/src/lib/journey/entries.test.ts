@@ -28,12 +28,12 @@ describe('journey entries', () => {
     expect(ENTRIES.find((e) => e.date === '2026-11-03')?.style).toBe('morzak')
   })
 
-  it('points at the journey repository through jsDelivr and GitHub', () => {
+  it('points at the journey repository through raw.githubusercontent.com and GitHub', () => {
     const e = ENTRIES[0]
-    expect(audioUrl(e)).toBe(`https://cdn.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/${folderOf(e)}/track.mp3`)
-    expect(midiUrl(e)).toBe(`https://cdn.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/${folderOf(e)}/track.mid`)
+    expect(audioUrl(e)).toBe(`https://raw.githubusercontent.com/sprkl/faulk-journey/main/tracks/${folderOf(e)}/track.mp3`)
+    expect(midiUrl(e)).toBe(`https://raw.githubusercontent.com/sprkl/faulk-journey/main/tracks/${folderOf(e)}/track.mid`)
     expect(sheetUrl(e)).toBe(`https://github.com/sprkl/faulk-journey/blob/main/tracks/${folderOf(e)}/sheet.md`)
-    expect(packUrl(e)).toBe(`https://cdn.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/${folderOf(e)}/project.faulkpack`)
+    expect(packUrl(e)).toBe(`https://raw.githubusercontent.com/sprkl/faulk-journey/main/tracks/${folderOf(e)}/project.faulkpack`)
   })
 
   it('refuses each kind of mistake, by name', () => {

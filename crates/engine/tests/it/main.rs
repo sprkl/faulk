@@ -60,6 +60,7 @@ mod scatter;
 mod sidechain;
 mod stack;
 mod stream_queue;
+mod swing;
 mod time;
 mod transport;
 mod trim;

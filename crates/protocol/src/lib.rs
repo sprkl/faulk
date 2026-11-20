@@ -44,11 +44,16 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
-// Version 60 (#952, provisional: 59 is #949's): the engine stream gains `DeviceSidechain` (tag
+// Version 60 (#952, provisional): the engine stream gains `DeviceSidechain` (tag
 // 25), the track a device's detection listens to; the commands gain `device.set_sidechain`,
 // `track.delete` reports the devices it set back to their own track and `track.restore` takes
 // them back (`listeners`); a device descriptor says whether it takes a source (`sidechain`).
 // A helper of an earlier version refuses the tag, so the two must be of the same version.
+// Version 59 (#168): the registry gains the MIDI effect `faulk.swing` (device kind 16: the notes on the
+// off-beats of a grid delayed to a swing, with an optional humanize of time and velocity). A helper of
+// an earlier version would not build the device: a page and a helper of different versions refuse each
+// other.
+
 // Version 58 (#881): an automation point's shape gains `ease_in`, `ease_out` and `smooth` (the
 // commands' `Shape`, the engine's `Curve` 2, 3 and 4 in a lane upload). A helper of an earlier
 // version refuses a lane upload that carries one, so the two must be of the same version.
