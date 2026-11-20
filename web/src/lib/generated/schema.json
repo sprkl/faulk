@@ -33247,6 +33247,103 @@
       ],
       "role": "effect",
       "version": 1
+    },
+    {
+      "kind": "faulk.swing",
+      "kind_id": 16,
+      "memory_bytes": 1331328,
+      "midi_output": {
+        "per_block": 512,
+        "per_input": 4
+      },
+      "name": "Swing",
+      "named_keys": [],
+      "params": [
+        {
+          "default": 58,
+          "description": "Where the second note of each pair of the grid falls, from 50 % (straight) to 75 %: 58 % is a light swing, 66 % a triplet feel, 75 % a dotted feel. Only forward: a note is never played early.",
+          "id": 0,
+          "key": "amount",
+          "max": 75,
+          "min": 50,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 1,
+          "description": "The note value the pairs are made of: an eighth, a sixteenth or a thirty-second note. The second note of each pair is the one that is delayed.",
+          "id": 1,
+          "key": "grid",
+          "max": 2,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": [
+            "eighth",
+            "sixteenth",
+            "thirty_second"
+          ]
+        },
+        {
+          "default": 25,
+          "description": "How close to an off-beat a note must be to be swung, from 0 % (exactly on it) to 50 % of a grid cell either side: wider catches looser notes, narrower leaves them alone.",
+          "id": 2,
+          "key": "window",
+          "max": 50,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "percent",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Random delay added to every note, from 0 (none) to 20 ms: a repeatable draw, set by the seed. Only forward.",
+          "id": 3,
+          "key": "humanize_time",
+          "max": 0.02,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 0,
+          "unit": "seconds",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Random change of every note's velocity, up or down, from 0 (none) to 20 steps of 127: a repeatable draw, set by the seed.",
+          "id": 4,
+          "key": "humanize_velocity",
+          "max": 20,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        },
+        {
+          "default": 0,
+          "description": "Seed of the humanize draws, from 0 to 1000: a note draws from the seed, its position in the song and its pitch, so the same seed gives the same notes at the same place on every play, from any start; another seed, another draw.",
+          "id": 5,
+          "key": "seed",
+          "max": 1000,
+          "min": 0,
+          "scale": "linear",
+          "smoothing_seconds": 0,
+          "step": 1,
+          "unit": "none",
+          "values": []
+        }
+      ],
+      "role": "midi_effect",
+      "version": 1
     }
   ],
   "error_codes": {
@@ -42556,7 +42653,7 @@
       "title": "SnapshotReport"
     }
   },
-  "protocol_version": 58,
+  "protocol_version": 59,
   "scale_intervals": [
     {
       "intervals": [

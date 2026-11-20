@@ -376,6 +376,11 @@ fn distance(a: &[f32], b: &[f32]) -> f32 {
 /// above it, see the band table under `.qa/156/`).
 const DISTINCT_DB: f32 = 3.0;
 
+/// Presets whose effect is on the grid of a running clock: this test plays live notes with the
+/// transport stopped, where there is no grid and Swing leaves a note where it is (#168), so they
+/// sound as the device at its defaults. `swing.rs` hears the same settings on a clip.
+const NEEDS_PLAYING_CLOCK: &[&str] = &["faulk.swing/triplet-feel", "faulk.swing/eighth-shuffle"];
+
 /// How far above [`DISTINCT_DB`] a [`KNOWN_ALIKE`] pair must stand before the test calls it stale.
 const STALE_MARGIN_DB: f32 = 1.0;
 
@@ -438,7 +443,7 @@ fn every_factory_preset_loads_while_playing_and_sounds_unlike_its_source_and_its
             )
         });
         let (difference, at) = with_preset.max_difference(plain);
-        if difference <= 1e-2 {
+        if difference <= 1e-2 && !NEEDS_PLAYING_CLOCK.contains(&f.id) {
             failures.push(format!(
                 "{} plays like the device at its defaults (largest difference {difference:.4} at frame {at})",
                 f.id
