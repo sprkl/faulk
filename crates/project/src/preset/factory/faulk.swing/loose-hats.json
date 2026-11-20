@@ -1,0 +1,15 @@
+{
+  "category": "Groove",
+  "device": "faulk.swing",
+  "format": 1,
+  "name": "Loose Hats",
+  "params": {
+    "amount": 58.0,
+    "grid": 1.0,
+    "humanize_time": 0.008,
+    "humanize_velocity": 10.0,
+    "seed": 3.0,
+    "window": 25.0
+  },
+  "version": 1
+}

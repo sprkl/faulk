@@ -1,0 +1,2 @@
+2026-11-19
+* **Update** (#168): the registry gains the MIDI effect Swing (`faulk.swing`, kind 16, protocol 59: the notes that fall on the off-beats of a 1/8, 1/16 or 1/32 grid are delayed so that the second note of each pair falls at 50 to 75 % of it, with an optional humanize of time (0 to 20 ms, forward only) and velocity drawn from a seed; each note keeps its length, nothing is played early, no latency). The grid is the song's, from tick 0. Three factory presets.
