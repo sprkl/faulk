@@ -48,7 +48,7 @@ import type { PresetList } from '../presets'
 import { listPresets as listPresetsCommand } from '../preset-commands'
 import type { Recorder } from './recorder.svelte'
 import { refusalOf, type Refusal } from './refusal'
-import { lostNotice, sidechainRefusal, trackRef } from '../sidechain'
+import { deletedTrack, lostNotice, sidechainRefusal } from '../sidechain'
 import { storage, TOKEN_KEY } from './storage'
 import { isSetTheme, isThemeChoice, SET_THEME_OUTPUT, type ThemeChoice } from '../theme'
 
@@ -1170,7 +1170,7 @@ export class Dispatcher {
       }
     }
     // A track deleted is named before it goes: the devices that listened to it are told after (#952).
-    const deleted = command.type === 'track.delete' ? trackRef(this.project.view?.project, command.track) : null
+    const deleted = deletedTrack(command, this.project.view?.project)
     const step = engineStep(() => core.run(command, options.author))
     if ('refused' in step) {
       // The views do not send what a gesture rules out by itself (an occupied cell sends nothing),
@@ -1184,11 +1184,8 @@ export class Dispatcher {
     }
     this.mirror(step.events)
     // The devices that listened to a deleted track listen to their own again: the user is told, agents included (#952).
-    const deletedOutput = 'output' in step ? (step.output as { sidechains?: unknown } | null) : null
-    if (command.type === 'track.delete' && Array.isArray(deletedOutput?.sidechains)) {
-      const lost = lostNotice(deleted, deletedOutput.sidechains as string[])
-      if (lost) this.toast(lost)
-    }
+    const lost = lostNotice(deleted, 'output' in step ? step.output : null)
+    if (lost) this.toast(lost)
     this.recorder?.ran(command, 'output' in step ? step.output : undefined, step.events)
     this.writePresets(step.events)
     if ('streamError' in step) {

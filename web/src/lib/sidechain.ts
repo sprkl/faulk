@@ -56,10 +56,19 @@ export function sidechainRefusal(command: Command, error: CommandError, project:
   return ref ? named('refusal.sidechainCycle', ref) : null
 }
 
-/** What the page says after a track was deleted that devices listened to (`sidechains` of `track.delete`): they listen to their own again. */
-export function lostNotice(ref: TrackRef | null, sidechains: readonly string[]): Omit<Refusal, 'count'> | null {
-  if (!ref || sidechains.length === 0) return null
-  return named('devices.sidechainLost', ref, { count: sidechains.length })
+/** The track a `track.delete` is about to delete, named before it goes; `null` for any other command. */
+export function deletedTrack(command: Command, project: Pick<Project, 'tracks'> | undefined): TrackRef | null {
+  return command.type === 'track.delete' ? trackRef(project, command.track) : null
+}
+
+/**
+ * What the page says after `deleted` (from {@link deletedTrack}) went, when devices listened to it (the `sidechains` of
+ * the command's output): they listen to their own track again. `null` when none did, or for any other command.
+ */
+export function lostNotice(deleted: TrackRef | null, output: unknown): Omit<Refusal, 'count'> | null {
+  const sidechains = (output as { sidechains?: unknown } | null | undefined)?.sidechains
+  if (!deleted || !Array.isArray(sidechains) || sidechains.length === 0) return null
+  return named('devices.sidechainLost', deleted, { count: sidechains.length })
 }
 
 /** Whether the source is not heard (muted, or another track soloed): it still triggers the detection, which the panel says. */

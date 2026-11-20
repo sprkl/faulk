@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEVICES, type CommandError, type Track } from './generated/protocol'
-import { lostNotice, setSidechain, sidechainRefusal, sourceOptions, sourceUnheard, trackRef } from './sidechain'
+import { deletedTrack, lostNotice, setSidechain, sidechainRefusal, sourceOptions, sourceUnheard, trackRef } from './sidechain'
 import { messages } from './i18n/app'
 
 const mixer = { mute: false, pan: 0, gain_db: 0 }
@@ -46,10 +46,14 @@ describe('the detection source of a device (#952)', () => {
   })
 
   it('tells that the devices of a deleted source listen to their own track, only when there were some', () => {
-    expect(lostNotice(trackRef(project, 'kick'), ['c1'])).toEqual({ key: 'devices.sidechainLost', vars: { track: 'Kick', count: 1 } })
-    expect(lostNotice(trackRef(project, 'blank'), ['c1', 'c2'])).toEqual({ key: 'devices.sidechainLostUnnamed', vars: { n: 4, count: 2 } })
-    expect(lostNotice(trackRef(project, 'kick'), [])).toBeNull()
-    expect(lostNotice(null, ['c1'])).toBeNull()
+    const del = (track: string) => deletedTrack({ type: 'track.delete', track }, project)
+    const out = (sidechains: string[]) => ({ type: 'track.delete', devices: 1, clips: 0, sidechains })
+    expect(lostNotice(del('kick'), out(['c1']))).toEqual({ key: 'devices.sidechainLost', vars: { track: 'Kick', count: 1 } })
+    expect(lostNotice(del('blank'), out(['c1', 'c2']))).toEqual({ key: 'devices.sidechainLostUnnamed', vars: { n: 4, count: 2 } })
+    expect(lostNotice(del('kick'), out([]))).toBeNull()
+    expect(lostNotice(del('kick'), null)).toBeNull()
+    expect(lostNotice(null, out(['c1']))).toBeNull()
+    expect(deletedTrack({ type: 'track.rename', track: 'kick', name: 'K' }, project)).toBeNull()
     expect(trackRef(undefined, 'kick')).toBeNull()
   })
 

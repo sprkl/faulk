@@ -57,13 +57,13 @@ const reductionDb = async (page: Page) =>
 
 for (const lang of ['en', 'fr'] as const) {
   test(`a Compressor listens to another track, ${lang}: chosen by name, muted source, undo, deleted source, a loop refused`, async ({ page }) => {
-    const x = TEXTS[lang]
     const { errors } = watch(page)
     await page.addInitScript((l) => localStorage.setItem('faulk.lang', l), lang)
     await page.goto('/app')
     await page.getByTestId('engine-state').getByRole('button').first().click()
     await engineUp(page, 'Web')
     await skipWithoutDevHooks(page)
+    const x = TEXTS[lang]
     // The first track is the pad; a second one is the kick.
     const first = Object.keys((await ids(page)).byName)
     const padId = (await ids(page)).byName[first[0]!]!
