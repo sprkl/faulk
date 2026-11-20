@@ -59,6 +59,7 @@ mod sample_rate;
 mod scatter;
 mod stack;
 mod stream_queue;
+mod swing;
 mod time;
 mod transport;
 mod trim;

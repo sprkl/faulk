@@ -1,0 +1,15 @@
+{
+  "category": "Groove",
+  "device": "faulk.swing",
+  "format": 1,
+  "name": "Eighth Shuffle",
+  "params": {
+    "amount": 62.0,
+    "grid": 0.0,
+    "humanize_time": 0.0,
+    "humanize_velocity": 0.0,
+    "seed": 0.0,
+    "window": 25.0
+  },
+  "version": 1
+}
