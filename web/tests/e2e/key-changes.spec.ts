@@ -150,7 +150,6 @@ test('the piano roll names and shades the notes from the key in force where the 
   await expect(roll).toHaveAttribute('data-flats', 'false')
 
   // Opened from the placement at bar 5 (F major: B♭ in the key): the same note is a flat there.
-  await page.click().catch(() => undefined)
   const second = page.locator(`[data-testid=arr-item][data-block="${placed[1]!.id}"]`)
   await second.focus()
   await page.keyboard.press('Enter')
