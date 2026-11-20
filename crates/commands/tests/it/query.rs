@@ -111,6 +111,7 @@ fn every_query_command_is_covered_by_an_example() {
     assert_eq!(
         new,
         [
+            "arrangement.key_change.list",
             "arrangement.marker.list",
             "automation.lane.list",
             "automation.lane.points",
@@ -530,7 +531,7 @@ fn every_field_of_every_query_answer_is_documented() {
         .into_iter()
         .filter(|t| t.kind == Kind::Query && !HOST_QUERIES.contains(&t.name.as_str()))
         .collect();
-    assert_eq!(tools.len(), 12);
+    assert_eq!(tools.len(), 13);
     for tool in tools {
         assert!(!tool.description.is_empty(), "{}", tool.name);
         assert!(

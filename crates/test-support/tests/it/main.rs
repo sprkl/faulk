@@ -24,6 +24,7 @@ mod filter;
 mod harness;
 mod hiccup;
 mod journey_pack;
+mod key_change;
 mod latency;
 mod lattice;
 mod live_input;

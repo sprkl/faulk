@@ -549,14 +549,16 @@ fn kind_name(kind: &ViolationKind) -> &'static str {
         BadSampleRate => "BadSampleRate",
         BadPreset => "BadPreset",
         ScaleRoot(_) => "ScaleRoot",
+        KeyChangeTick => "KeyChangeTick",
         TooMany { .. } => "TooMany",
     }
 }
 
-const ALL_KINDS: [&str; 37] = [
+const ALL_KINDS: [&str; 38] = [
     "MidiEffectOutOfPlace",
     "MidiEffectOnAudioTrack",
     "ScaleRoot",
+    "KeyChangeTick",
     "BadPreset",
     "MissingInstrument",
     "BadSampleRate",
@@ -615,6 +617,16 @@ fn cases() -> Vec<(&'static str, Mutation, &'static str)> {
                 })
             }),
             "ScaleRoot",
+        ),
+        (
+            "a key change at tick 0",
+            Box::new(|fx| {
+                fx.project.key_changes = vec![project::KeyChange {
+                    tick: Tick(0),
+                    scale: None,
+                }]
+            }),
+            "KeyChangeTick",
         ),
         (
             "project preset with an untrimmed name",

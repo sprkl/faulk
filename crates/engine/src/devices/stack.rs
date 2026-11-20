@@ -585,7 +585,6 @@ impl Device for Stack {
 
     fn process(&mut self, ctx: &BlockCtx, events: &[Event], io: &mut AudioIo<'_>) {
         let frames = (ctx.frames as usize).max(1);
-        let scale = ctx.transport.scale;
         let mut cursor = 0;
         for event in events {
             let at = event_frame(event.offset(), cursor, frames);
@@ -603,6 +602,7 @@ impl Device for Stack {
                         self.stopped = self.stopped.wrapping_add(1);
                     }
                     let place = Place::of(ctx, at, self.stopped);
+                    let scale = ctx.transport.scale_at(at);
                     self.note_on(
                         at,
                         voice,

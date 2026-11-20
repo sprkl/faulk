@@ -380,6 +380,65 @@ pub struct Transport {
     /// The project's scale (`ControlMsg::SetScale`, #690): what a MIDI effect that works "in
     /// the scale" reads. Empty when the project has none (chromatic).
     pub scale: PitchSet,
+    /// The places of the block where the key changes (#953), after the scale above.
+    pub scale_switches: ScaleSwitches,
+}
+
+impl Transport {
+    /// The scale in force at `frame` of the block: the key of the project at the tick the
+    /// frame plays (key changes, #953).
+    pub fn scale_at(&self, frame: usize) -> PitchSet {
+        self.scale_switches.at(frame).unwrap_or(self.scale)
+    }
+}
+
+/// The key changes inside one block (#953): `(frame, scale from it)`, in frame order, in a
+/// fixed array (the transport is `Copy` and built on the audio thread).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ScaleSwitches {
+    len: u8,
+    frames: [u32; ScaleSwitches::CAPACITY],
+    sets: [u16; ScaleSwitches::CAPACITY],
+}
+
+impl ScaleSwitches {
+    /// Most switches in one block; the later ones are dropped.
+    pub const CAPACITY: usize = 8;
+    /// No switch.
+    pub const NONE: ScaleSwitches = ScaleSwitches {
+        len: 0,
+        frames: [0; Self::CAPACITY],
+        sets: [0; Self::CAPACITY],
+    };
+
+    /// Adds a switch after the ones already there; `false` (and dropped) when full.
+    pub fn push(&mut self, frame: u32, scale: PitchSet) -> bool {
+        let i = self.len as usize;
+        if i < Self::CAPACITY {
+            self.frames[i] = frame;
+            self.sets[i] = scale.bits();
+            self.len += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.len as usize
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// The scale of the last switch at or before `frame`; `None` before the first.
+    pub fn at(&self, frame: usize) -> Option<PitchSet> {
+        (0..self.len as usize)
+            .rev()
+            .find(|&i| self.frames[i] as usize <= frame)
+            .map(|i| PitchSet::from_bits(self.sets[i]))
+    }
 }
 
 impl Default for Transport {
@@ -390,6 +449,7 @@ impl Default for Transport {
             signature: TimeSignature::default(),
             position_ticks: 0.0,
             scale: PitchSet::EMPTY,
+            scale_switches: ScaleSwitches::NONE,
         }
     }
 }

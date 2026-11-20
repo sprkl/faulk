@@ -1,4 +1,4 @@
-import type { Command, IfOccupied, Tick } from './generated/protocol'
+import type { Command, IfOccupied, ScaleKind, Tick } from './generated/protocol'
 
 /**
  * The commands of the arrangement view: every gesture of the timeline is one of them, sent once when the
@@ -78,3 +78,8 @@ export const deleteMarker = (marker: string): Command => ({ type: 'arrangement.m
 export const barStart = (tick: number, bar: number): number => (bar > 0 ? Math.floor(Math.max(0, tick) / bar) * bar : 0)
 /** A one-bar clip put in the arrangement of a track, from a tick. */
 export const createClipAt = (track: string, start: Tick, length: Tick): Command => ({ type: 'clip.create', track, at: { at: 'arrangement', start }, length })
+
+/** Key changes (#953): put one at a bar start (replacing the one there), move it to another bar, remove it. */
+export const setKeyChange = (tick: Tick, root: number, mode: ScaleKind): Command => ({ type: 'arrangement.key_change.set', tick, root, mode })
+export const moveKeyChange = (fromTick: Tick, toTick: Tick): Command => ({ type: 'arrangement.key_change.move', from_tick: fromTick, to_tick: toTick })
+export const removeKeyChange = (tick: Tick): Command => ({ type: 'arrangement.key_change.remove', tick })

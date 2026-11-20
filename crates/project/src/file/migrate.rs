@@ -43,7 +43,18 @@ pub const MIGRATIONS: &[Migration] = &[
         from: 6,
         apply: v6_to_v7,
     },
+    Migration {
+        from: 7,
+        apply: v7_to_v8,
+    },
 ];
+
+/// Format 8 (#953): the project may hold key changes (`key_changes`). Nothing in the files
+/// changes (a project of format 7 has none); the number does, so that a build of format 7
+/// reports the folder as made by a newer build instead of corrupt.
+fn v7_to_v8(mem: &mut MemFs) -> Result<(), String> {
+    set_format(mem, 8)
+}
 
 /// Format 7 (#881): an automation point may have the shape `ease_in`, `ease_out` or `smooth`.
 /// Nothing in the files changes (a project of format 6 has none); the number does, so that a

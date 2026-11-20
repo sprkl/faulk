@@ -38,6 +38,8 @@ export interface ArrangementFrame {
   silent: ReadonlySet<string>
   /** The section markers (#473): a line down the arrangement at each; their names are buttons on the ruler. */
   markers: readonly { tick: number }[]
+  /** The key changes (#953): a line in the accent colour down the arrangement at each. */
+  keyChanges: readonly { tick: number }[]
   /** The block whose ends are drawn as resize handles (#612): the hovered or the resized one, and the end in use (`null`: the pointer is on its body). */
   handles?: { block: Block; strong: HandleSide | null } | null
   /** The waveform peaks of a media (AU-6), `null` while they are read or made. */
@@ -230,6 +232,18 @@ export function drawArrangement(ctx: CanvasRenderingContext2D, frame: BodyFrame,
       const x = Math.round(tickToX(marker.tick, view))
       if (x < 0 || x > width) continue
       ctx.fillRect(x, RULER_HEIGHT / 2, 1, height - RULER_HEIGHT / 2)
+    }
+    ctx.globalAlpha = 1
+  }
+
+  // The key changes: a thin accent line from the top of the ruler down.
+  if (scene.keyChanges.length > 0) {
+    ctx.fillStyle = colors.accent
+    ctx.globalAlpha = 0.5
+    for (const change of scene.keyChanges) {
+      const x = Math.round(tickToX(change.tick, view))
+      if (x < 0 || x > width) continue
+      ctx.fillRect(x, 0, 1, height)
     }
     ctx.globalAlpha = 1
   }

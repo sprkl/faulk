@@ -447,6 +447,9 @@ pub enum ProjectEvent {
     /// The section markers changed (#473): added, renamed, moved, deleted, brought back, or
     /// shifted by a time edit. The page reads them from its own copy of the project.
     MarkersChanged {},
+    /// The key changes changed (#953): put, moved or removed. The page reads them from its own
+    /// copy of the project.
+    KeyChangesChanged {},
     /// An automation lane was created or brought back, with its points (AM-1). The page
     /// reads the lane from its own copy of the project, to which the same command applies.
     /// `track` is `null` for a lane of the master (#378).

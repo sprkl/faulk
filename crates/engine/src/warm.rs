@@ -89,6 +89,10 @@ pub fn messages() -> Vec<Phase> {
         M::SetScale {
             pitch_classes: 0b1010_1011_0101,
         },
+        // A change to the relative major at bar 2 (#953).
+        M::SetKeyChanges {
+            changes: vec![(Tick(3840), 0b1010_1101_0101)],
+        },
         M::SetMetronome {
             enabled: true,
             volume: 1.0,

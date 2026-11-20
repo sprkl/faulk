@@ -34,6 +34,7 @@ mod grid_render;
 mod growth;
 mod hiccup;
 mod host;
+mod keymap;
 mod latency;
 mod latency_switch;
 mod lattice;

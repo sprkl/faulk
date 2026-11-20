@@ -56,6 +56,7 @@ fn variant(rt: &RtMsg) -> &'static str {
         RtMsg::SetMetronome { .. } => "SetMetronome",
         RtMsg::SetMaster { .. } => "SetMaster",
         RtMsg::SetScale(_) => "SetScale",
+        RtMsg::SetKeyChanges(_) => "SetKeyChanges",
         RtMsg::TrackPut(_) => "TrackPut",
         RtMsg::TrackRemove(_) => "TrackRemove",
         RtMsg::TrackSetMix { .. } => "TrackSetMix",
@@ -85,13 +86,14 @@ fn variant(rt: &RtMsg) -> &'static str {
     }
 }
 
-/// Every name [`variant`] returns (29 variants).
-const ALL_VARIANTS: [&str; 29] = [
+/// Every name [`variant`] returns (30 variants).
+const ALL_VARIANTS: [&str; 30] = [
     "Reset",
     "SetTransport",
     "SetMetronome",
     "SetMaster",
     "SetScale",
+    "SetKeyChanges",
     "TrackPut",
     "TrackRemove",
     "TrackSetMix",
@@ -179,6 +181,9 @@ fn every_rt_message_applies_without_allocating() {
         },
         M::SetScale {
             pitch_classes: 0x0AB5,
+        },
+        M::SetKeyChanges {
+            changes: vec![(Tick(3840), 0x0AB5), (Tick(7680), 0)],
         },
         create(0),
         create(1),
@@ -1115,4 +1120,27 @@ fn a_refused_allocation_is_a_typed_error() {
         Table::<Note>::try_with_capacity(huge),
         Err(MsgError::OutOfMemory { .. })
     ));
+}
+
+/// The key changes (#953): a table in, the next one swaps it and the old one comes back as the one
+/// garbage item (none for the first, which replaced nothing); an empty list clears; a list the
+/// binary search cannot read is refused by `prepare`, nothing reaches the audio side.
+#[test]
+fn key_changes_swap_whole_and_the_old_table_is_the_garbage() {
+    let (mut p, mut e) = sides();
+    let list = |ticks: &[i64]| M::SetKeyChanges {
+        changes: ticks.iter().map(|t| (Tick(*t), 0x0AB5)).collect(),
+    };
+    assert_eq!(cycle(&mut p, &mut e, list(&[3840, 7680])), "SetKeyChanges");
+    assert_eq!(p.collect(), 0, "nothing was replaced");
+    assert_eq!(cycle(&mut p, &mut e, list(&[3840])), "SetKeyChanges");
+    assert_eq!(p.collect(), 0, "the first table was collected by `cycle`");
+    assert_eq!(cycle(&mut p, &mut e, list(&[])), "SetKeyChanges");
+    assert_eq!(cycle(&mut p, &mut e, list(&[])), "SetKeyChanges");
+    for bad in [list(&[7680, 3840]), list(&[3840, 3840]), list(&[0])] {
+        assert!(matches!(p.prepare(bad), Err(MsgError::BadPayload { .. })));
+    }
+    let too_many: Vec<i64> = (1..=limits::MAX_KEY_CHANGES as i64 + 1).collect();
+    assert!(p.prepare(list(&too_many)).is_err());
+    assert_eq!(e.leaked(), 0);
 }

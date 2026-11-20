@@ -68,7 +68,7 @@
     type MidiClip,
   } from './clips'
   import { drawKeys, drawLane, drawRoll } from './draw'
-  import { pitchClasses, usesFlats } from '../../lib/scale'
+  import { pitchClasses, scaleAt, usesFlats } from '../../lib/scale'
   import {
     DEFAULT_ROW_HEIGHT,
     DEFAULT_VELOCITY,
@@ -168,9 +168,13 @@
     const named = track ? instrumentNamedKeys(track.track) : []
     return named.length === 0 ? null : new Map(named.map((k) => [k.key, k.name]))
   })
-  /** The project's scale (#695, #511): its rows stand out; none on a drum kit, whose rows are its sounds. */
+  /**
+   * The project's scale (#695, #511): its rows stand out; none on a drum kit, whose rows are its sounds. The key in force where
+   * the placement the roll is on starts (#953: the first placement for a clip opened from the clip list; a clip with none, the
+   * starting key).
+   */
   const rollScale = $derived.by(() => {
-    const value = project.view?.project.scale ?? null
+    const value = scaleAt(project.view?.project, placement?.start ?? 0)
     const classes = keyNames ? null : pitchClasses(value)
     return value && classes ? { classes, root: value.root, flats: usesFlats(value, t) } : null
   })

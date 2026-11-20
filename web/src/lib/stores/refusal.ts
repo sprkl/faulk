@@ -15,6 +15,7 @@ export const ENTITY_KEYS: Record<string, MessageKey> = {
   tracks: 'refusal.entity.tracks',
   scenes: 'refusal.entity.scenes',
   markers: 'refusal.entity.markers',
+  'key changes': 'refusal.entity.keyChanges',
   clips: 'refusal.entity.clips',
   notes: 'refusal.entity.notes',
   'notes per clip': 'refusal.entity.notesPerClip',

@@ -664,6 +664,57 @@ domain! {
         /// The markers, in timeline order.
         markers: Vec<crate::marker::MarkerInfo>,
     };
+
+    /// Put a key change on the timeline: from the bar that starts at `tick`, the project is in
+    /// the key `root` (0 = C to 11 = B) and `mode` (`major`, `natural_minor`, `harmonic_minor`,
+    /// `melodic_minor`, `dorian`, `phrygian`, `lydian`, `mixolydian`, `locrian`,
+    /// `major_pentatonic`, `minor_pentatonic`, `blues`, or `chromatic` for no scale), until
+    /// the next key change. The key before the first change is the starting one that
+    /// `project.set_scale` sets. `tick` must be the start of a bar after the first: a multiple
+    /// of the bar's length (3840 ticks in 4/4, 960 per quarter note), at least one bar, at most
+    /// 2^40; tick 0 is refused (use `project.set_scale`). A change already at that tick is
+    /// replaced. The piano roll names and shades the notes of a clip from the key in force
+    /// where its placement starts, and the MIDI effects that follow the project's scale
+    /// (Stack, Lattice, Scatter) use the key in force at the played position (the playhead's, for a note played live or a clip launched while the transport is stopped). Not moved by
+    /// `arrangement.insert_time` or `arrangement.delete_time`. Refused with `limit` past 256
+    /// changes. Setting the values the change at that tick already has changes
+    /// nothing. Undo: put the previous change back, or remove this one.
+    "arrangement.key_change.set" (kind = "edit", undo = "inverse", destructive = false)
+    SetKeyChange { tick: Tick, root: u8, mode: project::ScaleKind } => {
+        /// Whether a key change already stood at `tick` (and was replaced).
+        replaced: bool,
+        /// The tonic of the replaced change (0 when none).
+        previous_root: u8,
+        /// The scale of the replaced change; `chromatic` when none.
+        previous_mode: project::ScaleKind,
+    };
+
+    /// Move a key change from the bar that starts at `from_tick` to the one that starts at
+    /// `to_tick` (same rules as `arrangement.key_change.set`). Refused when none stands at
+    /// `from_tick` (`not_found`) or when one stands at `to_tick` (remove it first), so that
+    /// the undo is a plain move back. Undo: move it back.
+    "arrangement.key_change.move" (kind = "edit", undo = "inverse", destructive = false)
+    MoveKeyChange { from_tick: Tick, to_tick: Tick } => {};
+
+    /// Remove the key change at the bar that starts at `tick`: the key before it applies again
+    /// from there. Refused when none stands at `tick` (`not_found`). Not destructive: undo
+    /// puts it back.
+    "arrangement.key_change.remove" (kind = "edit", undo = "inverse", destructive = false)
+    RemoveKeyChange { tick: Tick } => {
+        /// The tonic of the removed change.
+        root: u8,
+        /// Its scale; `chromatic` for none.
+        mode: project::ScaleKind,
+    };
+
+    /// List the key changes in timeline order: each with its tick, its bar (1 is the first),
+    /// its key and the scale's pitch classes (0 = C to 11 = B). The starting key is not in
+    /// the list (`project.get`). A query: changes nothing and never enters the history.
+    "arrangement.key_change.list" (kind = "query", undo = "none", destructive = false)
+    ListKeyChanges {} => {
+        /// The key changes, in timeline order.
+        key_changes: Vec<crate::key_change::KeyChangeInfo>,
+    };
 }
 
 type Out = Outcome<Command, Output>;
@@ -1594,11 +1645,13 @@ pub fn apply(command: &Command, state: &mut State, ctx: &mut Context) -> Result<
             markers,
         } => restore_time(state, edits, lanes, *transport, markers),
         // The section markers (#473): their own module.
-        _ => crate::marker::apply(command, state, ctx).unwrap_or_else(|| {
-            Err(CommandError::Unsupported {
-                command: command.name().into(),
-            })
-        }),
+        _ => crate::key_change::apply(command, state)
+            .or_else(|| crate::marker::apply(command, state, ctx))
+            .unwrap_or_else(|| {
+                Err(CommandError::Unsupported {
+                    command: command.name().into(),
+                })
+            }),
     }
 }
 

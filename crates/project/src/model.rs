@@ -32,7 +32,9 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Format 7 (#881): an automation point may have the shape `ease_in`, `ease_out` or `smooth`
 /// (a lane file's word, a lane blob's byte 2, 3 or 4); a build of format 6 would refuse it as
 /// corrupt.
-pub const FORMAT_VERSION: u32 = 7;
+/// Format 8 (#953): the project may hold key changes (`key_changes`); a build of format 7 would
+/// refuse the field as corrupt.
+pub const FORMAT_VERSION: u32 = 8;
 
 /// The built-in instrument of audio tracks: the clip player.
 pub const CLIP_PLAYER: &str = "faulk.clip_player";
@@ -68,6 +70,11 @@ pub struct Project {
     /// is chromatic and every tool behaves as without a scale.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scale: Option<crate::scale::Scale>,
+    /// The key changes (#953): from the bar that starts at each one's tick, the project is in
+    /// that key instead of the one before. Sorted by tick, at most one per tick, never at tick
+    /// 0 (the starting key is `scale`). Absent (not written) when there are none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub key_changes: Vec<KeyChange>,
     /// The rows of the launch grid.
     #[serde(deserialize_with = "unique_map")]
     pub scenes: BTreeMap<SceneId, Scene>,
@@ -117,6 +124,17 @@ pub struct Marker {
     pub tick: Tick,
     /// Its name: trimmed, not empty, at most 200 characters.
     pub name: String,
+}
+
+/// A key change (#953): from `tick` on (a bar start), the project is in `scale`, `None` being
+/// no scale (chromatic) like a project without one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct KeyChange {
+    /// Where it stands on the timeline, in ticks: after 0, at most [`crate::limits::MAX_TICK`].
+    pub tick: Tick,
+    /// The key and scale from there; `null` for none.
+    pub scale: Option<crate::scale::Scale>,
 }
 
 /// A tempo from a tick on.
@@ -652,6 +670,7 @@ impl Project {
             }],
             transport: TransportSettings::default(),
             scale: None,
+            key_changes: Vec::new(),
             scenes: BTreeMap::new(),
             master: Mixer::default(),
             master_devices: BTreeMap::new(),
@@ -659,6 +678,16 @@ impl Project {
             tracks: BTreeMap::new(),
             markers: BTreeMap::new(),
             presets: BTreeMap::new(),
+        }
+    }
+
+    /// The key and scale in force at `tick` (#953): the last key change at or before it, else
+    /// the starting key. `None` is no scale.
+    pub fn scale_at(&self, tick: Tick) -> Option<crate::scale::Scale> {
+        let after = self.key_changes.partition_point(|c| c.tick <= tick);
+        match after.checked_sub(1) {
+            Some(i) => self.key_changes[i].scale,
+            None => self.scale,
         }
     }
 

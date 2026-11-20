@@ -36,6 +36,7 @@
 //! |---|---|
 //! | `Reset { epoch }` | `Reset`: a fresh engine state, the old one is one garbage item (its tracks first fade out in the graph and come back through the retire ring, MO-3) |
 //! | `SetTransport`, `SetMetronome`, `SetMaster`, `SetScale` | the same, copied |
+//! | `SetKeyChanges` | `SetKeyChanges`: the table built by `prepare` (`None` when empty); the old one is the garbage (#953) |
 //! | `TrackCreate` | `TrackPut`: the new track, and the grown track table when the slot is beyond it (a track it replaces fades out, then comes back through the retire ring, MO-3) |
 //! | `TrackRemove` | `TrackRemove`: the track owns its devices and tables; it fades out in the graph, then comes back through the retire ring (MO-3), not the garbage ring |
 //! | `TrackSetMix/Solo/Arm/Monitor`, `HoldMix`, `SelectTrack`, `DeviceSetEnabled`, `ParamSet` | the same, copied |
@@ -227,6 +228,8 @@ pub const MSG_ALIGN: usize = 4;
 /// The safety limits: very high, enforced by the project before a message is sent, never
 /// reached by a human, and sized together under the wasm32 cap (see the module doc).
 pub mod limits {
+    /// Key changes of a project (#953), the table the audio side reads.
+    pub const MAX_KEY_CHANGES: u32 = 256;
     /// Tracks in a project.
     pub const MAX_TRACKS: u32 = 4096;
     /// The largest shift of a take's notes (`ControlMsg::SetRecording`), in microseconds,
@@ -482,6 +485,14 @@ pub enum ControlMsg {
     SetScale {
         pitch_classes: u16,
     },
+    /// The project's key changes (#953), the whole list each time: `(tick, pitch classes)`
+    /// as `SetScale` takes them, strictly increasing in tick, after tick 0, at most
+    /// [`limits::MAX_KEY_CHANGES`]. From each tick the scale replaces the one before (the
+    /// starting one is `SetScale`'s); the MIDI effects read the one in force at the played
+    /// position (`device::Transport::scale_at`; while the transport is stopped, at the playhead). An empty list: none. A `Reset` clears it.
+    SetKeyChanges {
+        changes: Vec<(Tick, u16)>,
+    },
     /// Metronome (TR-2): on or off, its level (a linear gain, 1.0 the reference level of the
     /// click, 0 to 4; the project's `gain_db` is converted by the sender), bars of count-in
     /// before a recording.
@@ -722,6 +733,7 @@ pub enum Tag {
     SetMetronome = 2,
     SetMaster = 3,
     SetScale = 4,
+    SetKeyChanges = 5,
     TrackCreate = 10,
     TrackRemove = 11,
     TrackSetMix = 12,
@@ -763,12 +775,13 @@ pub enum Tag {
 
 impl Tag {
     /// Every tag, in declaration order (for exhaustive tests and generated tables).
-    pub const ALL: [Tag; 42] = [
+    pub const ALL: [Tag; 43] = [
         Tag::Reset,
         Tag::SetTransport,
         Tag::SetMetronome,
         Tag::SetMaster,
         Tag::SetScale,
+        Tag::SetKeyChanges,
         Tag::TrackCreate,
         Tag::TrackRemove,
         Tag::TrackSetMix,
@@ -829,6 +842,7 @@ impl ControlMsg {
             ControlMsg::SetMetronome { .. } => Tag::SetMetronome,
             ControlMsg::SetMaster { .. } => Tag::SetMaster,
             ControlMsg::SetScale { .. } => Tag::SetScale,
+            ControlMsg::SetKeyChanges { .. } => Tag::SetKeyChanges,
             ControlMsg::TrackCreate { .. } => Tag::TrackCreate,
             ControlMsg::TrackRemove { .. } => Tag::TrackRemove,
             ControlMsg::TrackSetMix { .. } => Tag::TrackSetMix,
@@ -1051,6 +1065,11 @@ impl ControlMsg {
                 scene(s)
             }
             ControlMsg::LaunchScene { scene: s } => scene(s),
+            ControlMsg::SetKeyChanges { changes } => below(
+                "key changes",
+                changes.len() as u64,
+                u64::from(MAX_KEY_CHANGES) + 1,
+            ),
             ControlMsg::Reset { .. }
             | ControlMsg::SetTransport { .. }
             | ControlMsg::SetMetronome { .. }
@@ -1477,6 +1496,8 @@ pub enum Garbage {
     Placements(Table<Placement>),
     /// A replaced (grown) scene row of a track.
     Scenes(Slots<ClipSlot>),
+    /// The replaced table of key changes (#953), if there was one.
+    KeyChanges(Option<Box<crate::keymap::KeyMap>>),
 }
 
 /// Transport order carried to the audio thread.
@@ -1516,6 +1537,8 @@ pub enum RtMsg {
         launch_quantize: Quantize,
     },
     SetScale(crate::device::PitchSet),
+    /// The key changes (#953); `None` for none. The old table goes to [`Garbage::KeyChanges`].
+    SetKeyChanges(Option<Box<crate::keymap::KeyMap>>),
     SetMetronome {
         enabled: bool,
         volume: f32,

@@ -402,6 +402,9 @@ domain! {
         /// The pitch classes of the scale (0 = C to 11 = B), rising; all twelve when there is
         /// no scale.
         scale_pitch_classes: Vec<u8>,
+        /// How many key changes the project holds after its starting key (#953):
+        /// `arrangement.key_change.list` reads them.
+        key_change_count: u32,
         /// The master's gain (dB, `null` is silence), pan and mute.
         master: Mixer,
         /// How many tracks.
@@ -444,6 +447,7 @@ pub fn apply(
                 scale_root: p.scale_root,
                 scale_mode: p.scale_mode,
                 scale_pitch_classes: p.scale_pitch_classes,
+                key_change_count: p.key_change_count,
                 master: p.master,
                 track_count: p.track_count,
                 scene_count: p.scene_count,
