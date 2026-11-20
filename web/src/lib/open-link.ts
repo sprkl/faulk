@@ -7,6 +7,16 @@
 
 const PARAM = 'open'
 
+/** The Journey's files lived on jsDelivr until it refused the repository's size (#945): `@main` links shared since still open. */
+const OLD_JOURNEY =
+  /^https:\/\/cdn\.jsdelivr\.net\/gh\/sprkl\/faulk-journey@main\/tracks\/([0-9]{4}-[0-9]{2}-[0-9]{2}-[a-z0-9]+(?:-[a-z0-9]+)*\/project\.faulkpack)$/
+
+/** The link to fetch: an old Journey link on jsDelivr (exactly the page's former shape) is moved to its current host, any other link stays as given. */
+export function currentLink(link: string): string {
+  const m = OLD_JOURNEY.exec(link)
+  return m ? `https://raw.githubusercontent.com/sprkl/faulk-journey/main/tracks/${m[1]}` : link
+}
+
 /**
  * Takes the link out of the current address: returns it (`null` when there is none, or it is empty) and,
  * when the address had the parameter, has `clear` replace the address with the same path, the other
@@ -20,7 +30,7 @@ export function takeOpenLink(location: Pick<Location, 'hash' | 'pathname' | 'sea
   params.delete(PARAM)
   const rest = params.toString()
   clear(location.pathname + (rest ? `?${rest}` : '') + location.hash)
-  return link === '' ? null : link
+  return link === '' ? null : currentLink(link)
 }
 
 /** The address that opens `link` in the DAW at `appPath` (`/app` under the site's base path). */

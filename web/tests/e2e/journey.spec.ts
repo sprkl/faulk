@@ -33,7 +33,7 @@ function tone(seconds = 4, rate = 22050): Buffer {
 const WAV = tone()
 
 async function fakeCdn(page: Page) {
-  await page.route('https://cdn.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/**/track.mp3', (route) =>
+  await page.route('https://raw.githubusercontent.com/sprkl/faulk-journey/main/tracks/**/track.mp3', (route) =>
     route.fulfill({ status: 200, body: WAV, headers: { 'content-type': 'audio/wav', 'access-control-allow-origin': '*' } }),
   )
 }
@@ -62,13 +62,13 @@ for (const lang of ['en', 'fr'] as const) {
       await expect(a.locator('a[href*="faulk-journey/blob/main/tracks/"][href$="/sheet.md"]')).toHaveCount(1)
       await expect(a.locator('a[href$="/track.mid"]')).toHaveCount(1)
       await expect(a.locator('a[href^="https://github.com/sprkl/faulk/issues/362#issuecomment-"]')).toHaveCount(1)
-      // The day's project opens in Faulk (#497): the DAW, asked to open the pack on jsDelivr.
+      // The day's project opens in Faulk (#497): the DAW, asked to open the pack on the journey repository (raw.githubusercontent.com).
       const open = a.getByTestId('open-in-faulk')
       await expect(open).toHaveText(lang === 'en' ? 'Open in Faulk' : 'Ouvrir dans Faulk')
       const href = new URL((await open.getAttribute('href'))!, page.url())
       expect(href.pathname).toBe('/app')
       expect(href.searchParams.get('open')).toMatch(
-        /^https:\/\/cdn\.jsdelivr\.net\/gh\/sprkl\/faulk-journey@main\/tracks\/\d{4}-\d{2}-\d{2}-[a-z0-9-]+\/project\.faulkpack$/,
+        /^https:\/\/raw\.githubusercontent\.com\/sprkl\/faulk-journey\/main\/tracks\/\d{4}-\d{2}-\d{2}-[a-z0-9-]+\/project\.faulkpack$/,
       )
       await expect(a.locator('h2, h3').first()).not.toBeEmpty()
       // The style profile a run applied is said once, discreetly, by the entry that has one (#506).
@@ -218,7 +218,7 @@ test('journey: reduced motion switched on during playback drops the visualiser, 
 })
 
 test('journey: an audio file that fails says so and offers the link', async ({ page }) => {
-  await page.route('https://cdn.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/**/track.mp3', (route) => route.fulfill({ status: 404, body: '' }))
+  await page.route('https://raw.githubusercontent.com/sprkl/faulk-journey/main/tracks/**/track.mp3', (route) => route.fulfill({ status: 404, body: '' }))
   await page.goto('/en/journey')
   const first = players(page).nth(0)
   await first.locator('button[data-fk-play]').click()
@@ -291,7 +291,7 @@ test('journey: the section playing is marked, follows a seek, stays on pause and
   await fakeCdn(page)
   // A track long enough to cross every section of the entry under test: made below from its form, before any play.
   let long = tone(1, 8000)
-  await page.route('https://cdn.jsdelivr.net/gh/sprkl/faulk-journey@main/tracks/**/track.mp3', (route) => {
+  await page.route('https://raw.githubusercontent.com/sprkl/faulk-journey/main/tracks/**/track.mp3', (route) => {
     // Byte ranges, like the CDN, so that the browser can seek far into the file.
     const range = /bytes=(\d+)-(\d*)/.exec(route.request().headers()['range'] ?? '')
     const headers = { 'content-type': 'audio/wav', 'access-control-allow-origin': '*', 'accept-ranges': 'bytes' }
