@@ -380,6 +380,65 @@ pub struct Transport {
     /// The project's scale (`ControlMsg::SetScale`, #690): what a MIDI effect that works "in
     /// the scale" reads. Empty when the project has none (chromatic).
     pub scale: PitchSet,
+    /// The places of the block where the key changes (#953), after the scale above.
+    pub scale_switches: ScaleSwitches,
+}
+
+impl Transport {
+    /// The scale in force at `frame` of the block: the key of the project at the tick the
+    /// frame plays (key changes, #953).
+    pub fn scale_at(&self, frame: usize) -> PitchSet {
+        self.scale_switches.at(frame).unwrap_or(self.scale)
+    }
+}
+
+/// The key changes inside one block (#953): `(frame, scale from it)`, in frame order, in a
+/// fixed array (the transport is `Copy` and built on the audio thread).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ScaleSwitches {
+    len: u8,
+    frames: [u32; ScaleSwitches::CAPACITY],
+    sets: [u16; ScaleSwitches::CAPACITY],
+}
+
+impl ScaleSwitches {
+    /// Most switches in one block; the later ones are dropped.
+    pub const CAPACITY: usize = 8;
+    /// No switch.
+    pub const NONE: ScaleSwitches = ScaleSwitches {
+        len: 0,
+        frames: [0; Self::CAPACITY],
+        sets: [0; Self::CAPACITY],
+    };
+
+    /// Adds a switch after the ones already there; `false` (and dropped) when full.
+    pub fn push(&mut self, frame: u32, scale: PitchSet) -> bool {
+        let i = self.len as usize;
+        if i < Self::CAPACITY {
+            self.frames[i] = frame;
+            self.sets[i] = scale.bits();
+            self.len += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.len as usize
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// The scale of the last switch at or before `frame`; `None` before the first.
+    pub fn at(&self, frame: usize) -> Option<PitchSet> {
+        (0..self.len as usize)
+            .rev()
+            .find(|&i| self.frames[i] as usize <= frame)
+            .map(|i| PitchSet::from_bits(self.sets[i]))
+    }
 }
 
 impl Default for Transport {
@@ -390,6 +449,7 @@ impl Default for Transport {
             signature: TimeSignature::default(),
             position_ticks: 0.0,
             scale: PitchSet::EMPTY,
+            scale_switches: ScaleSwitches::NONE,
         }
     }
 }
@@ -477,6 +537,16 @@ pub struct AudioIo<'a> {
     pub events_out: &'a mut EventBuffer,
 }
 
+/// The detection input of a device that listens to another track (#952): that track's signal
+/// over the frames of the block being rendered, after its devices and before its fader, pan
+/// and mute ([`crate::graph`] > Sidechain). Both channels hold at least the block's frames;
+/// silence when the source gave nothing.
+#[derive(Clone, Copy, Debug)]
+pub struct Key<'a> {
+    pub left: &'a [f32],
+    pub right: &'a [f32],
+}
+
 /// What a device is built for, in `prepare`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DeviceSetup {
@@ -504,6 +574,21 @@ pub trait Device: Send {
 
     /// Renders one block: applies `events` at their offsets, reads and writes `io`.
     fn process(&mut self, ctx: &BlockCtx, events: &[Event], io: &mut AudioIo<'_>);
+
+    /// Renders one block as [`Device::process`] does, with `key` the signal of the track its
+    /// detection listens to (#952, a sidechain; `None`: it listens to itself). The graph calls
+    /// it only for a device whose descriptor declares [`DeviceDescriptor::sidechain`] and that
+    /// has a source; the default ignores `key`.
+    fn process_keyed(
+        &mut self,
+        ctx: &BlockCtx,
+        events: &[Event],
+        io: &mut AudioIo<'_>,
+        key: Option<Key<'_>>,
+    ) {
+        let _ = key;
+        self.process(ctx, events, io);
+    }
 
     /// Sets a parameter as a [`Event::ParamValue`] at offset 0 of the next block would.
     fn set_param(&mut self, id: ParamId, value: f32);
@@ -561,6 +646,20 @@ pub trait Device: Send {
     /// no latency.
     fn max_latency_frames(&self) -> u32 {
         0
+    }
+
+    /// The track this device's detection listens to (#952, `ControlMsg::DeviceSidechain`),
+    /// `None` for its own: a device that declares [`DeviceDescriptor::sidechain`] keeps what
+    /// [`Device::set_sidechain`] gave it (a field: no allocation); the default listens to its
+    /// own track.
+    fn sidechain(&self) -> Option<crate::msg::TrackSlot> {
+        None
+    }
+
+    /// Sets the track this device's detection listens to (#952), on the audio thread or by
+    /// `prepare`. Ignored by a device that does not declare [`DeviceDescriptor::sidechain`].
+    fn set_sidechain(&mut self, source: Option<crate::msg::TrackSlot>) {
+        let _ = source;
     }
 
     /// The graph's bypass line of a device with a latency (#749): `prepare` wraps such a
@@ -704,6 +803,10 @@ pub struct DeviceDescriptor {
     /// row (a drum kit: one sound per key). Empty for a pitched instrument and for the other
     /// roles. Sorted by key.
     pub named_keys: &'static [NamedKey],
+    /// Whether the device can listen to another track for its detection (#952, a sidechain):
+    /// the project then stores a detection source for it, and the graph gives it that track's
+    /// signal through [`Device::process_keyed`]. Only an audio effect declares it.
+    pub sidechain: bool,
     pub params: &'static [ParamDescriptor],
 }
 
@@ -733,6 +836,8 @@ pub enum DescriptorError {
     /// `named_keys` has a key above 127, a key out of order or repeated, a name that is empty,
     /// not ASCII or with surrounding spaces, or is set on a role other than an instrument.
     BadNamedKeys,
+    /// `sidechain` set on a role other than an audio effect (#952).
+    BadSidechain,
     /// More than [`MAX_PARAMS_PER_DEVICE`] parameters.
     TooManyParams,
     /// Two parameters share an id or a key.
@@ -799,6 +904,9 @@ impl DeviceDescriptor {
             && self.named_keys.windows(2).all(|w| w[0].key < w[1].key);
         if !keys_ok {
             return Err(DescriptorError::BadNamedKeys);
+        }
+        if self.sidechain && self.role != DeviceRole::Effect {
+            return Err(DescriptorError::BadSidechain);
         }
         if self.params.len() > MAX_PARAMS_PER_DEVICE {
             return Err(DescriptorError::TooManyParams);

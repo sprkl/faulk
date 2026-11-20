@@ -36,6 +36,7 @@
 //! |---|---|
 //! | `Reset { epoch }` | `Reset`: a fresh engine state, the old one is one garbage item (its tracks first fade out in the graph and come back through the retire ring, MO-3) |
 //! | `SetTransport`, `SetMetronome`, `SetMaster`, `SetScale` | the same, copied |
+//! | `SetKeyChanges` | `SetKeyChanges`: the table built by `prepare` (`None` when empty); the old one is the garbage (#953) |
 //! | `TrackCreate` | `TrackPut`: the new track, and the grown track table when the slot is beyond it (a track it replaces fades out, then comes back through the retire ring, MO-3) |
 //! | `TrackRemove` | `TrackRemove`: the track owns its devices and tables; it fades out in the graph, then comes back through the retire ring (MO-3), not the garbage ring |
 //! | `TrackSetMix/Solo/Arm/Monitor`, `HoldMix`, `SelectTrack`, `DeviceSetEnabled`, `ParamSet` | the same, copied |
@@ -227,6 +228,8 @@ pub const MSG_ALIGN: usize = 4;
 /// The safety limits: very high, enforced by the project before a message is sent, never
 /// reached by a human, and sized together under the wasm32 cap (see the module doc).
 pub mod limits {
+    /// Key changes of a project (#953), the table the audio side reads.
+    pub const MAX_KEY_CHANGES: u32 = 256;
     /// Tracks in a project.
     pub const MAX_TRACKS: u32 = 4096;
     /// The largest shift of a take's notes (`ControlMsg::SetRecording`), in microseconds,
@@ -482,6 +485,14 @@ pub enum ControlMsg {
     SetScale {
         pitch_classes: u16,
     },
+    /// The project's key changes (#953), the whole list each time: `(tick, pitch classes)`
+    /// as `SetScale` takes them, strictly increasing in tick, after tick 0, at most
+    /// [`limits::MAX_KEY_CHANGES`]. From each tick the scale replaces the one before (the
+    /// starting one is `SetScale`'s); the MIDI effects read the one in force at the played
+    /// position (`device::Transport::scale_at`; while the transport is stopped, at the playhead). An empty list: none. A `Reset` clears it.
+    SetKeyChanges {
+        changes: Vec<(Tick, u16)>,
+    },
     /// Metronome (TR-2): on or off, its level (a linear gain, 1.0 the reference level of the
     /// click, 0 to 4; the project's `gain_db` is converted by the sender), bars of count-in
     /// before a recording.
@@ -579,6 +590,17 @@ pub enum ControlMsg {
         device: DeviceSlot,
         param: ParamId,
         value: f32,
+    },
+    /// The track a device's detection listens to (#952, a sidechain), `None` for its own
+    /// track. Only a device of a track's chain whose descriptor declares
+    /// [`crate::device::DeviceDescriptor::sidechain`] takes it (anything else is refused with
+    /// [`MsgError::BadPayload`]). The source need not exist: a slot without a track gives
+    /// silence; a source equal to the device's own track is its own track. A device built by
+    /// a `DeviceInsert` starts with none ([`crate::graph`] > Sidechain).
+    DeviceSidechain {
+        track: TrackSlot,
+        device: DeviceSlot,
+        source: Option<TrackSlot>,
     },
     // MIDI clips
     /// The notes of a clip, in chunks: `first` is the index of `notes[0]` among `total`.
@@ -722,6 +744,7 @@ pub enum Tag {
     SetMetronome = 2,
     SetMaster = 3,
     SetScale = 4,
+    SetKeyChanges = 5,
     TrackCreate = 10,
     TrackRemove = 11,
     TrackSetMix = 12,
@@ -735,6 +758,7 @@ pub enum Tag {
     DeviceSetEnabled = 22,
     ParamSet = 23,
     DeviceMove = 24,
+    DeviceSidechain = 25,
     ClipNotesUpload = 30,
     ClipRemove = 31,
     AudioSourceDeclare = 40,
@@ -763,12 +787,13 @@ pub enum Tag {
 
 impl Tag {
     /// Every tag, in declaration order (for exhaustive tests and generated tables).
-    pub const ALL: [Tag; 42] = [
+    pub const ALL: [Tag; 44] = [
         Tag::Reset,
         Tag::SetTransport,
         Tag::SetMetronome,
         Tag::SetMaster,
         Tag::SetScale,
+        Tag::SetKeyChanges,
         Tag::TrackCreate,
         Tag::TrackRemove,
         Tag::TrackSetMix,
@@ -782,6 +807,7 @@ impl Tag {
         Tag::DeviceSetEnabled,
         Tag::ParamSet,
         Tag::DeviceMove,
+        Tag::DeviceSidechain,
         Tag::ClipNotesUpload,
         Tag::ClipRemove,
         Tag::AudioSourceDeclare,
@@ -829,6 +855,7 @@ impl ControlMsg {
             ControlMsg::SetMetronome { .. } => Tag::SetMetronome,
             ControlMsg::SetMaster { .. } => Tag::SetMaster,
             ControlMsg::SetScale { .. } => Tag::SetScale,
+            ControlMsg::SetKeyChanges { .. } => Tag::SetKeyChanges,
             ControlMsg::TrackCreate { .. } => Tag::TrackCreate,
             ControlMsg::TrackRemove { .. } => Tag::TrackRemove,
             ControlMsg::TrackSetMix { .. } => Tag::TrackSetMix,
@@ -842,6 +869,7 @@ impl ControlMsg {
             ControlMsg::DeviceSetEnabled { .. } => Tag::DeviceSetEnabled,
             ControlMsg::ParamSet { .. } => Tag::ParamSet,
             ControlMsg::DeviceMove { .. } => Tag::DeviceMove,
+            ControlMsg::DeviceSidechain { .. } => Tag::DeviceSidechain,
             ControlMsg::ClipNotesUpload { .. } => Tag::ClipNotesUpload,
             ControlMsg::ClipRemove { .. } => Tag::ClipRemove,
             ControlMsg::AudioSourceDeclare { .. } => Tag::AudioSourceDeclare,
@@ -971,6 +999,16 @@ impl ControlMsg {
                 device(from)?;
                 device(to)
             }
+            // A track's chain only: the master's is refused as a slot past the limit.
+            ControlMsg::DeviceSidechain {
+                track: t,
+                device: d,
+                source,
+            } => {
+                track(t)?;
+                device(d)?;
+                source.as_ref().map_or(Ok(()), track)
+            }
             ControlMsg::ClipNotesUpload {
                 clip: c,
                 first,
@@ -1051,6 +1089,11 @@ impl ControlMsg {
                 scene(s)
             }
             ControlMsg::LaunchScene { scene: s } => scene(s),
+            ControlMsg::SetKeyChanges { changes } => below(
+                "key changes",
+                changes.len() as u64,
+                u64::from(MAX_KEY_CHANGES) + 1,
+            ),
             ControlMsg::Reset { .. }
             | ControlMsg::SetTransport { .. }
             | ControlMsg::SetMetronome { .. }
@@ -1477,6 +1520,8 @@ pub enum Garbage {
     Placements(Table<Placement>),
     /// A replaced (grown) scene row of a track.
     Scenes(Slots<ClipSlot>),
+    /// The replaced table of key changes (#953), if there was one.
+    KeyChanges(Option<Box<crate::keymap::KeyMap>>),
 }
 
 /// Transport order carried to the audio thread.
@@ -1516,6 +1561,8 @@ pub enum RtMsg {
         launch_quantize: Quantize,
     },
     SetScale(crate::device::PitchSet),
+    /// The key changes (#953); `None` for none. The old table goes to [`Garbage::KeyChanges`].
+    SetKeyChanges(Option<Box<crate::keymap::KeyMap>>),
     SetMetronome {
         enabled: bool,
         volume: f32,
@@ -1586,6 +1633,13 @@ pub enum RtMsg {
         track: TrackSlot,
         device: DeviceSlot,
         enabled: bool,
+    },
+    /// The track a device's detection listens to (#952): `None` for its own, never the
+    /// device's own track.
+    DeviceSidechain {
+        track: TrackSlot,
+        device: DeviceSlot,
+        key: Option<TrackSlot>,
     },
     /// A parameter set by hand or by an agent: `Device::set_param`, which behaves as a
     /// value at offset 0 of the block (CT-5).

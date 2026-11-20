@@ -13,7 +13,9 @@
 //! 2. The **detection signal** `d` is `x`, or with `sidechain_hpf` on, `x` through a 12 dB
 //!    per octave Butterworth high-pass at `sidechain_freq` on each channel (the state-variable
 //!    filter of the Filter device, `k = sqrt 2`): the compressor stops listening to the lows,
-//!    the sound itself is not filtered.
+//!    the sound itself is not filtered. With a detection source (#952, [`Device::sidechain`]),
+//!    `x` here is the frame of the other track the graph gives ([`Device::process_keyed`]),
+//!    sanitized alike: the reduction follows that track, the gain still applies to this one.
 //! 3. The **level** in decibels: with `detection` on peak, `x_db = 20 log10(max(|d_L|, |d_R|,
 //!    1e-6))`; on RMS, `x_db = 10 log10(max(ms, 1e-12))` with the mean square
 //!    `ms = a_rms · ms + (1 − a_rms) · max(d_L², d_R²)`, a one-pole of [`RMS_SECONDS`]: a steady
@@ -110,10 +112,10 @@ use super::Builtin;
 use super::filter::{Channel, Coefficients};
 use super::latency_switch::{LatencySwitch, Take};
 use crate::device::{
-    AudioIo, BlockCtx, Device, DeviceDescriptor, DeviceRole, DeviceSetup, Event, MAX_SAMPLE_RATE,
-    ParamDescriptor, Scale, Unit, event_frame,
+    AudioIo, BlockCtx, Device, DeviceDescriptor, DeviceRole, DeviceSetup, Event, Key,
+    MAX_SAMPLE_RATE, ParamDescriptor, Scale, Unit, event_frame,
 };
-use crate::msg::{DeviceKind, MsgError, ParamId, try_box};
+use crate::msg::{DeviceKind, MsgError, ParamId, TrackSlot, try_box};
 use crate::param::Smoother;
 
 pub use super::latency_switch::{FADE_SECONDS, SETTLE_SECONDS};
@@ -167,6 +169,7 @@ const NEPER_PER_DB: f32 = 0.115_129_26;
 /// high-pass, no look-ahead, no makeup, fully compressed. The order of the parameters is the
 /// panel's; their ids are stable (the MVP's five, then #157's).
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
+    sidechain: true,
     kind: "faulk.compressor",
     kind_id: DeviceKind(5),
     version: 1,
@@ -474,6 +477,9 @@ pub struct Compressor {
     reduction: f32,
     /// The mix of the last frame, for the reduction reported.
     mix_now: f32,
+    /// The track the detection listens to (#952), `None` for this one: the graph gives its
+    /// signal to [`Device::process_keyed`].
+    source: Option<TrackSlot>,
 }
 
 impl Compressor {
@@ -535,6 +541,7 @@ impl Compressor {
             sustained: 0.0,
             reduction: 0.0,
             mix_now: default(MIX) as f32,
+            source: None,
         })
     }
 
@@ -617,10 +624,24 @@ impl Compressor {
         self.queue_db[self.head as usize & self.mask]
     }
 
-    /// Renders the frames of `left` and `right` (same length).
-    fn render(&mut self, left: &mut [f32], right: &mut [f32]) {
-        for (l, r) in left.iter_mut().zip(right.iter_mut()) {
-            (*l, *r) = self.frame_of(*l, *r);
+    /// Renders the frames of `left` and `right` (same length), the detection listening to
+    /// `key` from its frame `at` on when there is one (past its end: silence), else to the
+    /// input.
+    fn render(&mut self, left: &mut [f32], right: &mut [f32], key: Option<(Key<'_>, usize)>) {
+        match key {
+            None => {
+                for (l, r) in left.iter_mut().zip(right.iter_mut()) {
+                    (*l, *r) = self.frame_of(*l, *r, None);
+                }
+            }
+            Some((key, at)) => {
+                for (n, (l, r)) in left.iter_mut().zip(right.iter_mut()).enumerate() {
+                    let k = at + n;
+                    let kl = key.left.get(k).copied().unwrap_or(0.0);
+                    let kr = key.right.get(k).copied().unwrap_or(0.0);
+                    (*l, *r) = self.frame_of(*l, *r, Some((kl, kr)));
+                }
+            }
         }
     }
 
@@ -641,9 +662,10 @@ impl Compressor {
         }
     }
 
-    /// One frame in, one frame out.
+    /// One frame in, one frame out; `key` is the frame of the track the detection listens to
+    /// (#952), `None` for the input itself.
     #[inline]
-    fn frame_of(&mut self, in_l: f32, in_r: f32) -> (f32, f32) {
+    fn frame_of(&mut self, in_l: f32, in_r: f32, key: Option<(f32, f32)>) -> (f32, f32) {
         if self.switch.due() {
             self.take_latency();
             self.switch.silence(self.lookahead);
@@ -659,11 +681,16 @@ impl Compressor {
         self.line_l[at] = dry_l;
         self.line_r[at] = dry_r;
 
+        // What the detection hears: the input, or the other track's signal, sanitized alike.
+        let (sl, sr) = match key {
+            None => (dry_l, dry_r),
+            Some((kl, kr)) => (sanitize(kl), sanitize(kr)),
+        };
         let (dl, dr) = if self.sidechain_hpf {
             let c = self.sidechain;
-            (self.hp[0].tick(dry_l, &c).1, self.hp[1].tick(dry_r, &c).1)
+            (self.hp[0].tick(sl, &c).1, self.hp[1].tick(sr, &c).1)
         } else {
-            (dry_l, dry_r)
+            (sl, sr)
         };
         let x_db = self.level_db(dl, dr);
         let wanted = gain_reduction_db(x_db, threshold, 1.0 - 1.0 / ratio, knee);
@@ -717,14 +744,27 @@ impl Device for Compressor {
     }
 
     /// Renders the frames between events and applies each event at its frame
-    /// ([`event_frame`]).
+    /// ([`event_frame`]); the detection listens to the input.
     fn process(&mut self, ctx: &BlockCtx, events: &[Event], io: &mut AudioIo<'_>) {
+        self.process_keyed(ctx, events, io, None);
+    }
+
+    /// [`Device::process`] with the detection listening to `key` (#952): the reduction follows
+    /// the other track, the gain still applies to this one.
+    fn process_keyed(
+        &mut self,
+        ctx: &BlockCtx,
+        events: &[Event],
+        io: &mut AudioIo<'_>,
+        key: Option<Key<'_>>,
+    ) {
         let frames = (ctx.frames as usize).min(io.left.len()).min(io.right.len());
         let mut cursor = 0;
         for event in events {
             let at = event_frame(event.offset(), cursor, frames);
             if at > cursor {
-                self.render(&mut io.left[cursor..at], &mut io.right[cursor..at]);
+                let k = key.map(|k| (k, cursor));
+                self.render(&mut io.left[cursor..at], &mut io.right[cursor..at], k);
                 cursor = at;
             }
             if let Event::ParamValue { id, value, .. } = *event {
@@ -732,7 +772,12 @@ impl Device for Compressor {
             }
         }
         if frames > cursor {
-            self.render(&mut io.left[cursor..frames], &mut io.right[cursor..frames]);
+            let k = key.map(|k| (k, cursor));
+            self.render(
+                &mut io.left[cursor..frames],
+                &mut io.right[cursor..frames],
+                k,
+            );
         }
     }
 
@@ -764,6 +809,14 @@ impl Device for Compressor {
 
     fn latency_frames(&self) -> u32 {
         self.latency()
+    }
+
+    fn sidechain(&self) -> Option<TrackSlot> {
+        self.source
+    }
+
+    fn set_sidechain(&mut self, source: Option<TrackSlot>) {
+        self.source = source;
     }
 
     /// The longest look-ahead at the device's rate (#749): the graph sizes its bypass line

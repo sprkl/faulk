@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { SCALE_INTERVALS } from './generated/protocol'
 import { messages, translate, type MessageKey } from './i18n/app'
-import { kindOf, pitchClasses, ROOTS, SCALE_MODES, scaleName, scaleShort, usesFlats } from './scale'
+import { keyOwner, kindOf, pitchClasses, ROOTS, SCALE_MODES, scaleAt, scaleName, scaleShort, usesFlats } from './scale'
 
 const en = (key: MessageKey, vars?: Record<string, string | number>) => translate('en', key, vars)
 const fr = (key: MessageKey, vars?: Record<string, string | number>) => translate('fr', key, vars)
@@ -111,5 +111,35 @@ describe('flat or sharp note names by key (#943)', () => {
     expect(usesFlats({ root: 7, mode: 'major' }, en)).toBe(false)
     expect(usesFlats({ root: 0, mode: 'major' }, en)).toBe(false)
     expect(usesFlats(null, en)).toBe(false)
+  })
+})
+
+describe('the key in force at a position (#953)', () => {
+  const d = { root: 2, mode: 'major' } as const
+  const f = { root: 5, mode: 'major' } as const
+  const project = {
+    scale: d,
+    key_changes: [
+      { tick: 3840 * 4, scale: f },
+      { tick: 3840 * 8, scale: null },
+    ],
+  }
+  it('is the last change at or before the tick, else the starting key', () => {
+    expect(scaleAt(project, 0)).toEqual(d)
+    expect(scaleAt(project, 3840 * 4 - 1)).toEqual(d)
+    expect(scaleAt(project, 3840 * 4)).toEqual(f)
+    expect(scaleAt(project, 3840 * 8 - 1)).toEqual(f)
+    expect(scaleAt(project, 3840 * 8)).toBeNull()
+    expect(scaleAt({ scale: d }, 1e9)).toEqual(d)
+    expect(scaleAt({ scale: null }, 5)).toBeNull()
+    expect(scaleAt(null, 5)).toBeNull()
+  })
+  it('names where the key comes from: its change, or the start (null)', () => {
+    expect(keyOwner(project, 10).tick).toBeNull()
+    expect(keyOwner(project, 3840 * 5).tick).toBe(3840 * 4)
+    expect(keyOwner(project, 3840 * 8).tick).toBe(3840 * 8)
+  })
+  it('says every key change text in both languages', () => {
+    for (const key of Object.keys(messages.en).filter((k) => k.startsWith('scale.keyChange.'))) expect(messages.fr[key as MessageKey], key).toBeTruthy()
   })
 })

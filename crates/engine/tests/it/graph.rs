@@ -25,6 +25,7 @@ const TONE_LEVEL: f32 = 0.125;
 struct Broken;
 
 static BROKEN: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.test_broken",
     kind_id: DeviceKind(0xFFFF_00AA),
     name: "Broken",
@@ -58,6 +59,7 @@ struct Counting;
 static RESETS: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 static COUNTING: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.test_counting",
     kind_id: DeviceKind(0xFFFF_00AB),
     name: "Counting",

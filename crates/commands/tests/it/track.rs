@@ -241,6 +241,7 @@ fn the_safety_limit_is_refused_with_a_typed_error_and_one_below_it_is_not() {
         tc(track::Command::Restore {
             track,
             snapshot: snapshot.clone(),
+            listeners: Vec::new(),
         })
     };
     check(&restore(one.clone()), &without, &context()).unwrap();
@@ -259,7 +260,7 @@ fn delete_then_undo_restores_the_track_its_devices_and_clips_identically() {
         let before = s.clone();
         let out = run(&delete(track), &mut s, &mut context()).unwrap();
         assert!(!s.project.tracks.contains_key(track));
-        let Output::Track(track::Output::Delete { devices, clips }) = out.output else {
+        let Output::Track(track::Output::Delete { devices, clips, .. }) = out.output else {
             panic!()
         };
         let source = &before.project.tracks[track];
@@ -324,6 +325,7 @@ fn restore_refuses_a_collision_or_an_invalid_snapshot_and_leaves_the_state_alone
         tc(track::Command::Restore {
             track: track.clone(),
             snapshot,
+            listeners: Vec::new(),
         })
     };
     // The track is still there: its id is in use.
@@ -800,6 +802,7 @@ fn restore_refuses_a_device_the_registry_does_not_have_and_leaves_the_state_alon
         tc(track::Command::Restore {
             track: f.track.clone(),
             snapshot,
+            listeners: Vec::new(),
         })
     };
     let device = snapshot.devices.keys().next().unwrap().clone();
@@ -839,6 +842,7 @@ fn restore_refuses_a_device_the_registry_does_not_have_and_leaves_the_state_alon
     let command = tc(track::Command::Restore {
         track: f.audio_track.clone(),
         snapshot: with_param,
+        listeners: Vec::new(),
     });
     assert_eq!(refused(&command, &audio).code(), "invalid");
     // The honest ones apply.
@@ -846,6 +850,7 @@ fn restore_refuses_a_device_the_registry_does_not_have_and_leaves_the_state_alon
     let honest = tc(track::Command::Restore {
         track: f.audio_track.clone(),
         snapshot: audio_snapshot,
+        listeners: Vec::new(),
     });
     check(&honest, &audio, &context()).unwrap();
 }

@@ -15,6 +15,7 @@ export const ENTITY_KEYS: Record<string, MessageKey> = {
   tracks: 'refusal.entity.tracks',
   scenes: 'refusal.entity.scenes',
   markers: 'refusal.entity.markers',
+  'key changes': 'refusal.entity.keyChanges',
   clips: 'refusal.entity.clips',
   notes: 'refusal.entity.notes',
   'notes per clip': 'refusal.entity.notesPerClip',
@@ -27,6 +28,7 @@ export const ENTITY_KEYS: Record<string, MessageKey> = {
   lanes: 'refusal.entity.lanes',
   'export seconds': 'refusal.entity.exportSeconds',
   'analyze seconds': 'refusal.entity.analyzeSeconds',
+  'sidechain sources': 'refusal.entity.sidechainSources',
 }
 
 /** The text key of a refusal code: one text per code, never one per call site. */

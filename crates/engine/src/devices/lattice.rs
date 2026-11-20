@@ -231,6 +231,7 @@ const PARAMS: [ParamDescriptor; 17] = [
 /// never translated, founder's decision of 2026-11-06). The defaults follow the project's
 /// scale, to its nearest note: nothing to set for the common case.
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.lattice",
     kind_id: DeviceKind(12),
     version: 1,
@@ -437,7 +438,6 @@ impl Device for Lattice {
 
     fn process(&mut self, ctx: &BlockCtx, events: &[Event], io: &mut AudioIo<'_>) {
         let frames = (ctx.frames as usize).max(1);
-        let scale = ctx.transport.scale;
         let mut cursor = 0;
         for event in events {
             let at = event_frame(event.offset(), cursor, frames);
@@ -449,7 +449,10 @@ impl Device for Lattice {
                     velocity,
                     tune_cents,
                     ..
-                } => self.note_on(at, voice, key, velocity, tune_cents, scale, io.events_out),
+                } => {
+                    let scale = ctx.transport.scale_at(at);
+                    self.note_on(at, voice, key, velocity, tune_cents, scale, io.events_out)
+                }
                 Event::NoteOff { voice, .. } => self.note_off(at, voice, io.events_out),
                 Event::AllNotesOff { .. } => {
                     self.clear();

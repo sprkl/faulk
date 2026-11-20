@@ -159,6 +159,7 @@ fn validate_rejects_each_broken_rule() {
         values: &[],
     };
     let base = DeviceDescriptor {
+        sidechain: false,
         kind: "faulk.filter",
         kind_id: DeviceKind(9),
         version: 1,
@@ -170,6 +171,7 @@ fn validate_rejects_each_broken_rule() {
         params: &[],
     };
     let with = |params: Vec<ParamDescriptor>| DeviceDescriptor {
+        sidechain: false,
         params: Box::leak(params.into_boxed_slice()),
         ..base
     };
@@ -179,6 +181,7 @@ fn validate_rejects_each_broken_rule() {
     let cases: Vec<(DeviceDescriptor, DescriptorError)> = vec![
         (
             DeviceDescriptor {
+                sidechain: false,
                 kind: "filter",
                 ..base
             },
@@ -186,6 +189,7 @@ fn validate_rejects_each_broken_rule() {
         ),
         (
             DeviceDescriptor {
+                sidechain: false,
                 kind: "faulk.Filter",
                 ..base
             },
@@ -193,6 +197,7 @@ fn validate_rejects_each_broken_rule() {
         ),
         (
             DeviceDescriptor {
+                sidechain: false,
                 kind: "faulk.9x",
                 ..base
             },
@@ -200,6 +205,7 @@ fn validate_rejects_each_broken_rule() {
         ),
         (
             DeviceDescriptor {
+                sidechain: false,
                 kind: Box::leak(format!("faulk.{}", "a".repeat(MAX_KEY_LEN)).into_boxed_str()),
                 ..base
             },
@@ -211,6 +217,7 @@ fn validate_rejects_each_broken_rule() {
         ),
         (
             DeviceDescriptor {
+                sidechain: false,
                 name: " Filter",
                 ..base
             },
@@ -218,6 +225,7 @@ fn validate_rejects_each_broken_rule() {
         ),
         (
             DeviceDescriptor {
+                sidechain: false,
                 name: "Filtré",
                 ..base
             },
@@ -225,6 +233,7 @@ fn validate_rejects_each_broken_rule() {
         ),
         (
             DeviceDescriptor {
+                sidechain: false,
                 kind_id: DeviceKind(0),
                 ..base
             },
@@ -232,6 +241,7 @@ fn validate_rejects_each_broken_rule() {
         ),
         (
             DeviceDescriptor {
+                sidechain: false,
                 role: DeviceRole::MidiEffect,
                 ..base
             },
@@ -239,6 +249,7 @@ fn validate_rejects_each_broken_rule() {
         ),
         (
             DeviceDescriptor {
+                sidechain: false,
                 role: DeviceRole::MidiEffect,
                 midi_output: Some(MidiOutput::default()),
                 ..base
@@ -247,6 +258,7 @@ fn validate_rejects_each_broken_rule() {
         ),
         (
             DeviceDescriptor {
+                sidechain: false,
                 midi_output: Some(MidiOutput {
                     per_input: 1,
                     per_block: 0,
@@ -257,6 +269,7 @@ fn validate_rejects_each_broken_rule() {
         ),
         (
             DeviceDescriptor {
+                sidechain: false,
                 named_keys: &[NamedKey {
                     key: 128,
                     name: "X",
@@ -267,6 +280,7 @@ fn validate_rejects_each_broken_rule() {
         ),
         (
             DeviceDescriptor {
+                sidechain: false,
                 named_keys: &[
                     NamedKey { key: 5, name: "A" },
                     NamedKey { key: 5, name: "B" },
@@ -277,6 +291,7 @@ fn validate_rejects_each_broken_rule() {
         ),
         (
             DeviceDescriptor {
+                sidechain: false,
                 named_keys: &[NamedKey { key: 5, name: " A" }],
                 ..base
             },
@@ -284,6 +299,7 @@ fn validate_rejects_each_broken_rule() {
         ),
         (
             DeviceDescriptor {
+                sidechain: false,
                 named_keys: &[
                     NamedKey { key: 6, name: "A" },
                     NamedKey { key: 5, name: "B" },
@@ -294,6 +310,7 @@ fn validate_rejects_each_broken_rule() {
         ),
         (
             DeviceDescriptor {
+                sidechain: false,
                 named_keys: &[NamedKey { key: 5, name: "" }],
                 ..base
             },
@@ -301,6 +318,7 @@ fn validate_rejects_each_broken_rule() {
         ),
         (
             DeviceDescriptor {
+                sidechain: false,
                 named_keys: &[NamedKey {
                     key: 5,
                     name: "Café",
@@ -311,6 +329,7 @@ fn validate_rejects_each_broken_rule() {
         ),
         (
             DeviceDescriptor {
+                sidechain: false,
                 role: DeviceRole::Effect,
                 named_keys: &[NamedKey { key: 5, name: "A" }],
                 ..base

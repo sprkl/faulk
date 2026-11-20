@@ -280,6 +280,7 @@ pub fn fixture() -> Fixture {
                 .collect(),
             state: None,
             preset: None,
+            sidechain: None,
         },
     );
     state.project.tracks.insert(track.clone(), midi);

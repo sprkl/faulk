@@ -358,6 +358,12 @@ pub enum ProjectEvent {
     DeviceChainChanged { track: Option<TrackId> },
     /// A device was bypassed or put back in the chain.
     DeviceBypassChanged { device: DeviceId, bypass: bool },
+    /// The track a device's detection listens to changed (#952): `source` is `null` for the
+    /// device's own track.
+    DeviceSidechainChanged {
+        device: DeviceId,
+        source: Option<TrackId>,
+    },
     /// A track's or the master's mixer changed: its whole state, so the interface needs
     /// no merge. `track` is `null` for the master; `gain_db` is `null` for silence.
     MixerChanged {
@@ -447,6 +453,9 @@ pub enum ProjectEvent {
     /// The section markers changed (#473): added, renamed, moved, deleted, brought back, or
     /// shifted by a time edit. The page reads them from its own copy of the project.
     MarkersChanged {},
+    /// The key changes changed (#953): put, moved or removed. The page reads them from its own
+    /// copy of the project.
+    KeyChangesChanged {},
     /// An automation lane was created or brought back, with its points (AM-1). The page
     /// reads the lane from its own copy of the project, to which the same command applies.
     /// `track` is `null` for a lane of the master (#378).

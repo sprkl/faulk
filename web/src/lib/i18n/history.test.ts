@@ -55,6 +55,9 @@ describe('history labels', () => {
     const NO_OBJECT = new Set([
       'project.rename',
       'project.set_scale',
+      'arrangement.key_change.set',
+      'arrangement.key_change.move',
+      'arrangement.key_change.remove',
       'project.open',
       'project.new',
       'arrangement.insert_time',

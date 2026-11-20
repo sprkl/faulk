@@ -23,6 +23,10 @@ pub struct ProjectDoc {
     /// writes the same file as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scale: Option<crate::scale::Scale>,
+    /// The key changes (#953): left out when there are none, so that a project without one
+    /// writes the same file as before.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub key_changes: Vec<KeyChange>,
     #[serde(deserialize_with = "unique_map")]
     pub scenes: BTreeMap<SceneId, Scene>,
     pub master: Mixer,
@@ -54,6 +58,7 @@ impl ProjectDoc {
             meter: p.meter.clone(),
             transport: p.transport,
             scale: p.scale,
+            key_changes: p.key_changes.clone(),
             scenes: p.scenes.clone(),
             master: p.master,
             master_devices: p.master_devices.clone(),
@@ -70,6 +75,7 @@ impl ProjectDoc {
             meter: self.meter,
             transport: self.transport,
             scale: self.scale,
+            key_changes: self.key_changes,
             scenes: self.scenes,
             master: self.master,
             master_devices: self.master_devices,

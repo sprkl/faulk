@@ -6,6 +6,7 @@
 
 use crate::automation_examples;
 use crate::clip_examples;
+use crate::key_change_examples;
 use crate::marker_examples;
 use crate::transport_examples;
 use commands::{
@@ -121,6 +122,13 @@ pub fn examples() -> Vec<(Command, State)> {
             marker_examples::fx().state,
         ),
         on_clips(Command::Arrangement(arrangement::Command::ListMarkers {})),
+        (
+            Command::Arrangement(arrangement::Command::ListKeyChanges {}),
+            key_change_examples::fx(),
+        ),
+        on_clips(Command::Arrangement(
+            arrangement::Command::ListKeyChanges {},
+        )),
         on_clips(Command::Preset(preset::Command::List {
             device: None,
             kind: Some("faulk.osc_synth".into()),

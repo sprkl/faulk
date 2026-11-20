@@ -132,6 +132,11 @@ impl DeviceEntry {
         }
     }
 
+    /// The track its detection listens to (#952, [`Device::sidechain`]), `None` for its own.
+    pub fn key(&self) -> Option<TrackSlot> {
+        self.device.sidechain()
+    }
+
     /// How much of the device's output the chain hears at the next frame (#233).
     pub fn fade(&self) -> f32 {
         self.fade
@@ -451,6 +456,8 @@ pub struct State {
     pub transport: TransportSettings,
     /// The project's scale (`SetScale`, #690), copied into every block's transport.
     pub scale: crate::device::PitchSet,
+    /// The project's key changes (`SetKeyChanges`, #953); `None` for none.
+    pub key_changes: Option<Box<crate::keymap::KeyMap>>,
     pub metronome: Metronome,
     pub master: Master,
     /// The master's timed gain, pan and mute ([`crate::mixer`], MX-1): set off the audio
@@ -492,6 +499,7 @@ impl State {
         Ok(State {
             transport: TransportSettings::default(),
             scale: crate::device::PitchSet::EMPTY,
+            key_changes: None,
             metronome: Metronome::default(),
             master: Master::default(),
             master_schedule: None,
@@ -678,6 +686,9 @@ struct DeviceShadow {
     enabled: bool,
     /// Whether `prepare` wrapped it with a latency line (#749).
     lined: bool,
+    /// The track its detection listens to (#952), `None` for its own: a device built again
+    /// keeps it.
+    key: Option<TrackSlot>,
 }
 
 impl DeviceShadow {
@@ -1144,6 +1155,16 @@ impl Preparer {
             ControlMsg::SetScale { pitch_classes } => {
                 RtMsg::SetScale(crate::device::PitchSet::from_bits(pitch_classes))
             }
+            ControlMsg::SetKeyChanges { changes } => {
+                let ticks: Vec<(i64, u16)> = changes.iter().map(|(t, b)| (t.0, *b)).collect();
+                let tag = Tag::SetKeyChanges as u16;
+                let map = crate::keymap::KeyMap::new(&ticks).ok_or(MsgError::BadPayload { tag })?;
+                RtMsg::SetKeyChanges(if map.is_empty() {
+                    None
+                } else {
+                    Some(try_box(map)?)
+                })
+            }
             ControlMsg::TrackCreate { track, kind } => self.prepare_track(track, kind)?,
             ControlMsg::TrackRemove { track } => {
                 self.existing_track(track)?;
@@ -1221,6 +1242,28 @@ impl Preparer {
                     device,
                     enabled,
                 }
+            }
+            ControlMsg::DeviceSidechain {
+                track,
+                device,
+                source,
+            } => {
+                self.existing_device(track, device)?;
+                let bad = MsgError::BadPayload {
+                    tag: Tag::DeviceSidechain as u16,
+                };
+                let kept = self.device_shadow(track, device).ok_or(bad)?;
+                // A track's device that declares it (#952); the master's chain is refused by
+                // the message's own check (its slot is past the tracks).
+                if track.is_master()
+                    || !kept.descriptor.sidechain
+                    || source.is_some_and(|s| s.0 >= limits::MAX_TRACKS)
+                {
+                    return Err(bad);
+                }
+                let key = source.filter(|s| *s != track);
+                kept.key = key;
+                RtMsg::DeviceSidechain { track, device, key }
             }
             ControlMsg::ParamSet {
                 track,
@@ -1631,6 +1674,7 @@ impl Preparer {
             params,
             enabled: true,
             lined,
+            key: None,
         };
         for (id, v) in state_pairs(state) {
             kept.set(id, v);
@@ -1732,6 +1776,7 @@ impl Preparer {
                 kept.params.iter().copied(),
             )?;
             value.enabled = kept.enabled;
+            value.device.set_sidechain(kept.key);
             vacates = kept.lined;
             spare = Some(value);
         }
@@ -1885,6 +1930,7 @@ impl Preparer {
                     kept.params.iter().copied(),
                 )?;
                 value.enabled = kept.enabled;
+                value.device.set_sidechain(kept.key);
                 input_events = input_events.max(kept.midi_out);
                 used += kept.midi_out;
                 msgs.push(RtMsg::DevicePut {
@@ -2835,6 +2881,20 @@ impl Engine {
     /// that does not exist is skipped and counted).
     pub fn apply(&mut self, msg: RtMsg) {
         self.applied += 1;
+        // Which tracks exist, or which devices sit in a chain, may change: the graph plans
+        // its sources again before the next block (#952, [`crate::graph`] > Sidechain).
+        if matches!(
+            msg,
+            RtMsg::Reset(_)
+                | RtMsg::TrackPut(_)
+                | RtMsg::TrackRemove(_)
+                | RtMsg::DevicePut { .. }
+                | RtMsg::DeviceRemove { .. }
+                | RtMsg::DeviceMove { .. }
+                | RtMsg::DeviceSidechain { .. }
+        ) {
+            self.graph.routing_changed();
+        }
         let state = &mut *self.state;
         let mut skipped = false;
         let garbage = match msg {
@@ -2877,6 +2937,13 @@ impl Engine {
             RtMsg::SetScale(scale) => {
                 state.scale = scale;
                 None
+            }
+            RtMsg::SetKeyChanges(map) => {
+                // The old table is the one garbage item of this message.
+                Some(Garbage::KeyChanges(core::mem::replace(
+                    &mut state.key_changes,
+                    map,
+                )))
             }
             RtMsg::SetMetronome {
                 enabled,
@@ -3255,6 +3322,13 @@ impl Engine {
                 resend_lanes(state, &self.graph, track, device);
                 if release && let Some(t) = state.track_mut(track) {
                     t.graph.release_notes();
+                }
+                None
+            }
+            RtMsg::DeviceSidechain { track, device, key } => {
+                match device_mut(state, track, device) {
+                    Some(entry) => entry.device.set_sidechain(key),
+                    None => skipped = true,
                 }
                 None
             }
@@ -3787,6 +3861,7 @@ fn garbage_is_empty(garbage: &Garbage) -> bool {
         Garbage::Sources(s) => s.is_empty(),
         Garbage::Segment(s) => s.is_none(),
         Garbage::Ring(r) => r.is_none(),
+        Garbage::KeyChanges(k) => k.is_none(),
         Garbage::State(_) | Garbage::Placements(_) | Garbage::Scenes(_) => false,
     }
 }

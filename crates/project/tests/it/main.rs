@@ -7,6 +7,7 @@ mod folder_docs;
 mod folder_errors;
 mod folder_load;
 mod folder_reference;
+mod key_changes;
 mod load_bench;
 mod markers;
 mod master_automation;

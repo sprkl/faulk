@@ -191,6 +191,7 @@ const DEFAULT_DIVISION: u32 = 9;
 /// translated). The defaults are the values of [`Ripple::new`]: a four-stage phaser around
 /// 800 Hz, 30 % feedback, mix 100 %, swept two octaves either way by a sine over each bar.
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.ripple",
     kind_id: DeviceKind(15),
     version: 1,

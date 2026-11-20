@@ -62,6 +62,7 @@ static PROBE_PARAMS: [ParamDescriptor; 1] = [ParamDescriptor {
 }];
 
 static PROBE: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.test_probe",
     kind_id: DeviceKind(0xFFFF_00B1),
     version: 1,
@@ -74,6 +75,7 @@ static PROBE: DeviceDescriptor = DeviceDescriptor {
 };
 
 static PROBE_FX: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.test_probe_fx",
     kind_id: DeviceKind(0xFFFF_00B2),
     name: "Probe FX",
@@ -165,6 +167,7 @@ impl Device for Probe {
 struct Doubler;
 
 static DOUBLER: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.test_doubler",
     kind_id: DeviceKind(0xFFFF_00B3),
     name: "Doubler",

@@ -164,6 +164,7 @@ const PARAMS: [ParamDescriptor; 7] = [
 /// never translated, founder's decision of 2026-11-06). The defaults move half the notes an
 /// octave up or down, which sounds right in any key; the presets hold the rest.
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.scatter",
     kind_id: DeviceKind(11),
     version: 1,
@@ -352,7 +353,6 @@ impl Device for Scatter {
             self.moved = 0;
         }
         self.playing = ctx.transport.playing;
-        let scale = ctx.transport.scale;
         let mut cursor = 0;
         for event in events {
             let at = event_frame(event.offset(), cursor, frames);
@@ -369,6 +369,7 @@ impl Device for Scatter {
                         self.stopped = self.stopped.wrapping_add(1);
                     }
                     let place = Place::of(ctx, at, self.stopped);
+                    let scale = ctx.transport.scale_at(at);
                     self.note_on(
                         at,
                         voice,

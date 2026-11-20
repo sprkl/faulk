@@ -431,6 +431,7 @@ fn an_mvp_compressor_restored_renders_the_same_samples_and_takes_the_new_paramet
     by_track.run(Command::Track(track::Command::Restore {
         track: track.clone(),
         snapshot,
+        listeners: Vec::new(),
     }));
     for (how, mut s) in [("device.restore", by_device), ("track.restore", by_track)] {
         assert_eq!(s.state().project, before.project, "{how}");

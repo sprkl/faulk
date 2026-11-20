@@ -131,6 +131,7 @@ pub fn fx() -> ClipFx {
             params: Default::default(),
             state: None,
             preset: None,
+            sidechain: None,
         },
     );
     audio.clips.insert(

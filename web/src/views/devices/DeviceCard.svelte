@@ -4,12 +4,13 @@
    * removal, its presets (#191), then one control per parameter of its descriptor (`ParamControl`). Generic: no device
    * has a panel of its own. Every action is a command (`device-commands.ts`).
    */
-  import { onDestroy } from 'svelte'
+  import { onDestroy, tick } from 'svelte'
   import ParamControl from '../../lib/components/ParamControl.svelte'
   import ReductionMeter from '../../lib/components/ReductionMeter.svelte'
   import PresetBar from './PresetBar.svelte'
   import ContourCurve from './ContourCurve.svelte'
   import { setDeviceParam } from '../../lib/device-commands'
+  import { setSidechain, sourceOptions, sourceUnheard } from '../../lib/sidechain'
   import { createLane, createMasterLane } from '../../lib/automation-commands'
   import { cardGestures, controlGroups, curveRate } from '../../lib/contour/card'
   import { cardActions, type ChainEntry } from '../../lib/project/chain'
@@ -31,6 +32,20 @@
   // The Compressor and Ceiling show the gain they take off (the engine reports the largest reduction of the strip's enabled devices).
   const reduces = $derived(entry.kind === 'faulk.compressor' || entry.kind === 'faulk.ceiling')
   const reduction = $derived(bypassed ? 0 : meters.snap(master ? MASTER_METER : (track ?? MASTER_METER)).reductionDb)
+  // A device that can listen to another track (#952, the Compressor) chooses it here, on a track's chain only: the master's listens to the mix.
+  const keyed = $derived(!!descriptor?.sidechain && !master && !!track)
+  const sources = $derived(keyed && track && project.view ? sourceOptions(project.view.project, track, t) : [])
+  const source = $derived(entry.device.sidechain ?? '')
+  // A source that is not heard (muted, a solo elsewhere) still triggers the detection: the card says so.
+  const unheard = $derived(
+    source && project.view && sourceUnheard(project.view.project, project.soloed, source) ? (sources.find((o) => o.id === source)?.label ?? null) : null,
+  )
+  /** The source chosen in the select: one command; a refused one (a loop) leaves the select on what the project holds. */
+  async function chooseSource(select: HTMLSelectElement) {
+    dispatcher.run(setSidechain(entry.id, select.value || null))
+    await tick()
+    select.value = source
+  }
   // Contour draws its response curve and the spectrum of its output above its controls (#156).
   const curve = $derived(entry.kind === 'faulk.contour')
   /** A parameter's value as the controls show it: an automation lane's, else the project's, else the default. */
@@ -185,6 +200,20 @@
   {/if}
   {#if reduces}
     <ReductionMeter reductionDb={reduction} label={t('devices.gainReduction')} />
+  {/if}
+  {#if keyed}
+    <label class="sidechain" title={t('devices.sidechainHint')}>
+      <span>{t('devices.sidechain')}</span>
+      <select data-testid="device-sidechain" value={source} onchange={(e) => void chooseSource(e.currentTarget)}>
+        <option value="">{t('devices.sidechainOwn')}</option>
+        {#each sources as option (option.id)}
+          <option value={option.id}>{option.label}</option>
+        {/each}
+      </select>
+    </label>
+    {#if unheard}
+      <p class="muted sidechain-note" data-testid="device-sidechain-unheard">{t('devices.sidechainUnheard', { track: unheard, name })}</p>
+    {/if}
   {/if}
   {#if curve && descriptor}
     <ContourCurve
@@ -369,5 +398,27 @@
   .muted {
     margin: 0;
     color: var(--fk-text-muted);
+  }
+  .sidechain {
+    display: flex;
+    align-items: center;
+    gap: var(--fk-space-2);
+    font-size: 12px;
+    color: var(--fk-text-muted);
+  }
+  .sidechain select {
+    min-width: 0;
+    max-width: 14em;
+    height: 24px;
+    padding: 0 var(--fk-space-1);
+    border: 1px solid var(--fk-line);
+    border-radius: var(--fk-radius-pill);
+    background: var(--fk-bg);
+    color: var(--fk-text);
+    font: inherit;
+  }
+  .sidechain-note {
+    font-size: 12px;
+    max-width: 28em;
   }
 </style>

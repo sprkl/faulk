@@ -139,6 +139,7 @@ const fn at_hit(
 /// The descriptor of the drums (CT-5): `faulk.drums`, displayed "Drums" (one English name,
 /// never translated). The defaults are the values of [`Drums::new`].
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.drums",
     kind_id: DeviceKind(2),
     version: 1,

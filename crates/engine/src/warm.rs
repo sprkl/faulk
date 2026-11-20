@@ -89,6 +89,10 @@ pub fn messages() -> Vec<Phase> {
         M::SetScale {
             pitch_classes: 0b1010_1011_0101,
         },
+        // A change to the relative major at bar 2 (#953).
+        M::SetKeyChanges {
+            changes: vec![(Tick(3840), 0b1010_1101_0101)],
+        },
         M::SetMetronome {
             enabled: true,
             volume: 1.0,
@@ -369,6 +373,17 @@ pub fn messages() -> Vec<Phase> {
             pan: Some(0.0),
         },
     ];
+    // A device that listens to another track (#952): the audio track keys it, so the graph's
+    // plan, its tap and the keyed render run here.
+    for (track, device, desc) in &placed {
+        if desc.sidechain {
+            mix.push(M::DeviceSidechain {
+                track: *track,
+                device: *device,
+                source: Some(audio_track),
+            });
+        }
+    }
     for (track, device, desc) in placed.iter().chain(&master_placed) {
         mix.push(M::DeviceSetEnabled {
             track: *track,

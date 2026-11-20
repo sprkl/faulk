@@ -136,6 +136,7 @@ const LINES_BYTES: u64 = 2
 /// never translated). The defaults are the values of [`Echo::new`]: synced on a dotted
 /// eighth, 40% feedback, 30% mix, 300 ms when set free.
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.echo",
     kind_id: DeviceKind(3),
     version: 1,

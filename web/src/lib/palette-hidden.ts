@@ -74,6 +74,9 @@ const AGENT_INPUT = [
 /** Live input that a played key or a MIDI keyboard sends: sounding a note by name or a controller by number is not a thing to look for. */
 const LIVE_INPUT = ['live.note_on', 'live.note_off', 'live.input_note_on', 'live.input_note_off', 'live.control_change'] as const
 
+/** The key changes (#953): a musician puts, moves and removes them on the ruler and in the key's panel, by bar, never by tick. */
+const KEY_CHANGES = ['arrangement.key_change.set', 'arrangement.key_change.move', 'arrangement.key_change.remove'] as const
+
 /** Every hidden command, by group. */
 export const HIDDEN_GROUPS = {
   historyInverses: HISTORY_INVERSES,
@@ -81,6 +84,7 @@ export const HIDDEN_GROUPS = {
   hostDriven: HOST_DRIVEN,
   agentInput: AGENT_INPUT,
   liveInput: LIVE_INPUT,
+  keyChanges: KEY_CHANGES,
 } as const
 
 /** The names of the hidden commands. */

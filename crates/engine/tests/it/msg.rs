@@ -67,6 +67,9 @@ fn samples() -> Vec<ControlMsg> {
         ControlMsg::SetScale {
             pitch_classes: 0x0AB5,
         },
+        ControlMsg::SetKeyChanges {
+            changes: vec![(Tick(3840), 0x0AB5), (Tick(7680), 0)],
+        },
         ControlMsg::TrackCreate {
             track: t,
             kind: TrackKind::Midi,
@@ -110,6 +113,11 @@ fn samples() -> Vec<ControlMsg> {
             track: t,
             from: DeviceSlot(0),
             to: DeviceSlot(17),
+        },
+        ControlMsg::DeviceSidechain {
+            track: t,
+            device: DeviceSlot(2),
+            source: Some(TrackSlot(9)),
         },
         ControlMsg::DeviceSetEnabled {
             track: t,
@@ -393,7 +401,11 @@ fn limits_fit_under_the_wasm32_cap() {
         compensation < 2 << 20,
         "{compensation} bytes of compensation"
     );
-    let total = 2 * tables + largest + rings + inbox + feedback + compensation;
+    // The detection inputs (#952): the buffers of the tracks other tracks listen to and the
+    // plan's tables, once for the whole engine.
+    let keys = engine::graph::Graph::key_bytes(MAX_BLOCK_FRAMES);
+    assert!(keys < 1 << 20, "{keys} bytes of detection inputs");
+    let total = 2 * tables + largest + rings + inbox + feedback + compensation + keys;
     eprintln!("worst case of the tables: {} MiB", total >> 20);
     // The devices are not a count: their declared sizes count against the engine memory
     // budget, which the tables' worst case must leave room for.
@@ -553,6 +565,11 @@ fn rich_samples() -> Vec<ControlMsg> {
         region: engine::time::LoopRegion::new(Tick(-960), Tick(3840)),
     });
     out.push(ControlMsg::SelectTrack { track: None });
+    out.push(ControlMsg::DeviceSidechain {
+        track: TrackSlot(4),
+        device: DeviceSlot(1),
+        source: None,
+    });
     out.push(ControlMsg::SceneSetSlot {
         track: TrackSlot(1),
         scene: SceneSlot(2),

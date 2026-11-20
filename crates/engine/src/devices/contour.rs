@@ -285,6 +285,7 @@ const fn slope(id: u32, key: &'static str, description: &'static str) -> ParamDe
 /// never translated). The defaults are the values of [`Contour::new`]: the high-pass and the
 /// low-pass off, the shelves and the bells on at 0 dB, so the device is transparent.
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.contour",
     kind_id: DeviceKind(8),
     version: 1,
