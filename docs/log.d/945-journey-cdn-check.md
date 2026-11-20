@@ -1,2 +1,2 @@
 2026-11-19
-* **Update** (#945): `agents/journey.md` asks to check the four new jsDelivr URLs against the committed checksums, gives the purge that cleared a 403 "Package size exceeded", and allows a `.faulkpack` built from the saved folder with `export_pack`.
+* **Update** (#945): `agents/journey.md` now has the Journey files read from `raw.githubusercontent.com` instead of jsDelivr (which refused a repository over 50 MB), checks a day's four URLs after the push with `scripts/journey/check-urls.mjs` (status, type, CORS, SHA-256), no longer purges, says raw has no CDN contract and that the host is one constant to change, and allows a `.faulkpack` built from the saved folder with `export_pack`. An old `/app?open=` jsDelivr link to a day's pack is moved to the raw one.
