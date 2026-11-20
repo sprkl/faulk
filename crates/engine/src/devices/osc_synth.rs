@@ -53,6 +53,7 @@ const DENORMAL_FLOOR: f32 = 1e-20;
 /// (tested). The device clamps and rounds every value with [`ParamDescriptor::sanitize`] and
 /// smooths gain and sustain as declared here (module doc).
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.osc_synth",
     kind_id: DeviceKind(1),
     version: 1,

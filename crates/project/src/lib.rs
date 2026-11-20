@@ -26,6 +26,7 @@ pub mod preset;
 pub mod scale;
 pub mod serde_util;
 pub mod session;
+pub mod sidechain;
 pub mod slots;
 pub mod validate;
 

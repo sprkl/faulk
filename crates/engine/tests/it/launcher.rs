@@ -33,6 +33,7 @@ thread_local! {
 static NO_PARAMS: [ParamDescriptor; 0] = [];
 
 static PROBE: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.test_launcher_probe",
     kind_id: DeviceKind(0xFFFF_00C2),
     version: 1,

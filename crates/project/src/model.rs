@@ -32,7 +32,9 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Format 7 (#881): an automation point may have the shape `ease_in`, `ease_out` or `smooth`
 /// (a lane file's word, a lane blob's byte 2, 3 or 4); a build of format 6 would refuse it as
 /// corrupt.
-pub const FORMAT_VERSION: u32 = 7;
+/// Format 8 (#952): a device may name the track its detection listens to (`sidechain`); a
+/// build of format 7 would refuse the field as corrupt.
+pub const FORMAT_VERSION: u32 = 8;
 
 /// The built-in instrument of audio tracks: the clip player.
 pub const CLIP_PLAYER: &str = "faulk.clip_player";
@@ -297,6 +299,12 @@ pub struct Device {
     /// absent when none, so that a device without one writes the same file as before.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preset: Option<Box<DevicePreset>>,
+    /// The track the device's detection listens to (#952, a sidechain): another track of the
+    /// project, for a device of a track's chain whose kind declares it (the Compressor);
+    /// absent when it listens to its own track, so that such a device writes the same file
+    /// as before.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sidechain: Option<TrackId>,
 }
 
 /// What a device does in the chain. A track's chain is, in order, its MIDI effects, its

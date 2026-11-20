@@ -358,6 +358,12 @@ pub enum ProjectEvent {
     DeviceChainChanged { track: Option<TrackId> },
     /// A device was bypassed or put back in the chain.
     DeviceBypassChanged { device: DeviceId, bypass: bool },
+    /// The track a device's detection listens to changed (#952): `source` is `null` for the
+    /// device's own track.
+    DeviceSidechainChanged {
+        device: DeviceId,
+        source: Option<TrackId>,
+    },
     /// A track's or the master's mixer changed: its whole state, so the interface needs
     /// no merge. `track` is `null` for the master; `gain_db` is `null` for silence.
     MixerChanged {

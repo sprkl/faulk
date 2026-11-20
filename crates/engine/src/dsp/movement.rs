@@ -422,6 +422,7 @@ mod tests {
     };
 
     const D: DeviceDescriptor = DeviceDescriptor {
+        sidechain: false,
         kind: "test.movement",
         kind_id: DeviceKind(0),
         version: 1,

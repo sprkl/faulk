@@ -240,7 +240,66 @@ pub fn compile(
     for event in events {
         compile_event(event, state, sync, &mut out, &mut batch);
     }
+    if !events.is_empty() {
+        sync_keys(&state.project, sync, &mut out);
+    }
     out
+}
+
+/// Brings the engine's detection sources (#952) to the project's, after the messages of
+/// `out`: what they voided leaves the mirror first (a `Reset`; a track removed; a device put
+/// or removed, which the engine builds or drops with no source; a device moved, which takes
+/// its source along), then a `DeviceSidechain` goes for every device whose source differs,
+/// both tracks with a slot and the device of a kind that takes one.
+fn sync_keys(project: &Project, sync: &mut EngineSlots, out: &mut Vec<ControlMsg>) {
+    for m in out.iter() {
+        match m {
+            ControlMsg::Reset { .. } => sync.keys.clear(),
+            ControlMsg::TrackRemove { track } => sync.keys.retain(|(t, _), _| *t != track.0),
+            ControlMsg::DeviceInsert { track, device, .. }
+            | ControlMsg::DeviceRemove { track, device } => {
+                sync.keys.remove(&(track.0, device.0));
+            }
+            ControlMsg::DeviceMove { track, from, to } => {
+                if let Some(source) = sync.keys.remove(&(track.0, from.0)) {
+                    sync.keys.insert((track.0, to.0), source);
+                }
+            }
+            _ => {}
+        }
+    }
+    let registry = crate::device::registry();
+    let mut wanted = BTreeMap::new();
+    for (id, track) in &project.tracks {
+        let Some(slot) = track_slot(sync, id) else {
+            continue;
+        };
+        for (device_id, device) in &track.devices {
+            let Some(source) = &device.sidechain else {
+                continue;
+            };
+            if !crate::device::descriptor_of(registry, device).is_some_and(|d| d.sidechain) {
+                continue;
+            }
+            if let (Some(d), Some(s)) = (device_slot(sync, id, device_id), track_slot(sync, source))
+                && s != slot
+            {
+                wanted.insert((slot.0, d.0), s.0);
+            }
+        }
+    }
+    let msg = |(t, d): (u32, u16), source: Option<u32>| ControlMsg::DeviceSidechain {
+        track: TrackSlot(t),
+        device: DeviceSlot(d),
+        source: source.map(TrackSlot),
+    };
+    for (&k, _) in sync.keys.iter().filter(|(k, _)| !wanted.contains_key(*k)) {
+        out.push(msg(k, None));
+    }
+    for (&k, &s) in wanted.iter().filter(|(k, s)| sync.keys.get(*k) != Some(*s)) {
+        out.push(msg(k, Some(s)));
+    }
+    sync.keys = wanted;
 }
 
 /// Releases a live input note on the tracks that hold it; `at` is when it was released (the
@@ -322,6 +381,8 @@ fn compile_event(
             }
         }
         ProjectEvent::TrackDeleted { track } => remove_track(track, sync, out),
+        // The sources are brought to the project's after every event (`sync_keys`).
+        ProjectEvent::DeviceSidechainChanged { .. } => {}
         ProjectEvent::ClipCreated { track, clip, .. } => {
             let (Some(t), Some(slot)) = (project.tracks.get(track), track_slot(sync, track)) else {
                 return;
@@ -668,6 +729,8 @@ pub fn snapshot(project: &Project, session: &SessionState) -> (Vec<ControlMsg>, 
     for (id, track) in project.tracks_in_order() {
         track_msgs(id, track, session, &mut sync, &mut out);
     }
+    // Every track has its slot: the sources go last (#952).
+    sync_keys(project, &mut sync, &mut out);
     if let Some(track) = session
         .selected_track
         .as_ref()

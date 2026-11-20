@@ -168,6 +168,7 @@ const PARAMS: [ParamDescriptor; 6] = [
 /// The descriptor of Swing (CT-5): `faulk.swing`, displayed "Swing" (one English name, never
 /// translated). The defaults are a light 58 % swing of sixteenth notes without humanize.
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.swing",
     kind_id: DeviceKind(16),
     version: 1,

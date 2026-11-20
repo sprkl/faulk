@@ -74,6 +74,7 @@ const VALUES_RESTART: &[&str] = &["off", "on"];
 /// never translated). The defaults are the values of [`Filter::new`]: low-pass, 1 kHz, a
 /// resonance of 0.2, fully wet, no drive, no movement (LFO depth and envelope amount 0).
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.filter",
     kind_id: DeviceKind(6),
     version: 1,

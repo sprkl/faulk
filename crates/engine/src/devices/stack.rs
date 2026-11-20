@@ -261,6 +261,7 @@ const PARAMS: [ParamDescriptor; 30] = [
 /// translated, founder's decision of 2026-11-06). The defaults add a fifth in semitones, played
 /// at once: the root and its fifth, which sounds right in any key; the presets hold the chords.
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.stack",
     kind_id: DeviceKind(9),
     version: 1,

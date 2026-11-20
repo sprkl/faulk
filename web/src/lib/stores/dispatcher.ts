@@ -47,7 +47,8 @@ import type { PresetLibrary } from '../storage/presets'
 import type { PresetList } from '../presets'
 import { listPresets as listPresetsCommand } from '../preset-commands'
 import type { Recorder } from './recorder.svelte'
-import { refusalOf } from './refusal'
+import { refusalOf, type Refusal } from './refusal'
+import { lostNotice, sidechainRefusal } from '../sidechain'
 import { storage, TOKEN_KEY } from './storage'
 import { isSetTheme, isThemeChoice, SET_THEME_OUTPUT, type ThemeChoice } from '../theme'
 
@@ -1173,13 +1174,17 @@ export class Dispatcher {
       // The views do not send what a gesture rules out by itself (an occupied cell sends nothing),
       // so a refusal is the core's: the user is told, the developer message stays in the console.
       console.warn('the project refused a command', command, step.refused)
-      if (!options.quiet) this.showRefusal(step.refused)
+      if (!options.quiet) this.showRefusal(step.refused, command)
       const report = step.refused
       return report.status === 'refused'
         ? { status: 'refused', error: report.error }
         : { status: 'invalid', message: report.status === 'invalid' ? report.message : 'not a command' }
     }
+    // The devices that listened to a deleted track listen to their own again: the user is told, whatever deleted it (a
+    // click, an agent, a redo), the track named from the project as it was before the step (#952).
+    const lost = lostNotice(step.events, this.project.view?.project)
     this.mirror(step.events)
+    if (lost) this.toast(lost)
     this.recorder?.ran(command, 'output' in step ? step.output : undefined, step.events)
     this.writePresets(step.events)
     if ('streamError' in step) {
@@ -1360,9 +1365,15 @@ export class Dispatcher {
    * the same one again only raises its count, so a burst never piles up. A report that is not a
    * refusal (a malformed command, a page bug) shows nothing.
    */
-  private showRefusal(report: RunReport) {
+  private showRefusal(report: RunReport, command?: Command) {
     if (report.status !== 'refused') return
-    const next = refusalOf(report.error)
+    // A detection source that would loop names the track chosen (#952); any other refusal its generic text.
+    const sidechain = command ? sidechainRefusal(command, report.error, this.project.view?.project) : null
+    this.toast(sidechain ?? refusalOf(report.error))
+  }
+
+  /** One toast at a time (`showRefusal`): a refusal, or what a command did that the user did not ask for (#952). */
+  private toast(next: Omit<Refusal, 'count'>) {
     const shown = this.state.refusal
     const same = shown && shown.key === next.key && shown.whatKey === next.whatKey && shown.vars.max === next.vars.max
     this.state.refusal = { ...next, count: same ? shown.count + 1 : 1 }

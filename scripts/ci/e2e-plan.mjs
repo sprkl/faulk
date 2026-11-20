@@ -35,7 +35,7 @@ export const AREA = {
   history: ['history', 'history-cost', 'history-names', 'keyboard-create'],
   pianoRoll: ['clip-names', 'piano-roll', 'piano-roll-edit', 'piano-roll-euclid', 'piano-roll-jump', 'piano-roll-step', 'bottom-panel', 'playhead', 'typing-mode', 'ux-quick-wins', 'timeline-keyboard', 'keyboard-create', 'recording', 'piano-roll-follow', 'context-menu', 'scale', 'command-palette', 'roll-to-placement'],
   mixer: ['automation', 'continuous', 'layout-4', 'mixer', 'mixer-sound', 'master-chain', 'master-pan', 'track-state'],
-  devices: ['automation', 'continuous', 'contour', 'device-browser', 'devices', 'filter-movement', 'presets', 'ripple-panel', 'layout-4', 'master-chain', 'devices-follow-selection', 'master-pan', 'track-state', 'context-menu'],
+  devices: ['automation', 'continuous', 'contour', 'device-browser', 'devices', 'filter-movement', 'presets', 'ripple-panel', 'layout-4', 'master-chain', 'devices-follow-selection', 'master-pan', 'track-state', 'context-menu', 'sidechain'],
   transport: ['all-sound-off', 'transport', 'playhead', 'space-bar', 'track-state', 'discoverability', 'recording', 'stop-to-marker', 'tap-tempo', 'scale', 'command-palette'],
   tracks: ['tracks', 'track-order', 'lane-rows', 'discoverability', 'device-browser'],
   deviceBrowser: ['device-browser', 'devices', 'tracks', 'lane-rows', 'discoverability', 'keyboard-all-views'],
