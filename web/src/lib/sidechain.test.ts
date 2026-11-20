@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { DEVICES, type CommandError, type Track } from './generated/protocol'
-import { deletedTrack, lostNotice, setSidechain, sidechainRefusal, sourceOptions, sourceUnheard, trackRef } from './sidechain'
+import { lostNotice, setSidechain, sidechainRefusal, sourceOptions, sourceUnheard, trackRef } from './sidechain'
 import { messages } from './i18n/app'
 
 const mixer = { mute: false, pan: 0, gain_db: 0 }
@@ -43,17 +43,43 @@ describe('the detection source of a device (#952)', () => {
     expect(sidechainRefusal(setSidechain('d', null), loop, project)).toBeNull()
     expect(sidechainRefusal({ type: 'device.set_bypass', device: 'd', bypass: true }, loop, project)).toBeNull()
     expect(sidechainRefusal(setSidechain('d', 'nowhere'), loop, project)).toBeNull()
+    // Its own track, refused on `source` too (an agent's call): not worded as a loop.
+    const withDevice = {
+      tracks: {
+        ...project.tracks,
+        kick: track('b', {
+          name: 'Kick',
+          devices: { d: { enabled: true, order: 'b', params: {}, role: 'effect', source: { builtin: { id: 'faulk.compressor', version: 1 } } } },
+        }),
+      },
+    }
+    expect(sidechainRefusal(setSidechain('d', 'kick'), loop, withDevice)).toBeNull()
   })
 
   it('tells that the devices of a deleted source listen to their own track, only when there were some', () => {
-    const del = (track: string) => deletedTrack({ type: 'track.delete', track }, project)
-    const out = (sidechains: string[]) => ({ type: 'track.delete', devices: 1, clips: 0, sidechains })
-    expect(lostNotice(del('kick'), out(['c1']))).toEqual({ key: 'devices.sidechainLost', vars: { track: 'Kick', count: 1 } })
-    expect(lostNotice(del('blank'), out(['c1', 'c2']))).toEqual({ key: 'devices.sidechainLostUnnamed', vars: { n: 4, count: 2 } })
-    expect(lostNotice(del('kick'), out([]))).toBeNull()
-    expect(lostNotice(del('kick'), null)).toBeNull()
-    expect(lostNotice(null, out(['c1']))).toBeNull()
-    expect(deletedTrack({ type: 'track.rename', track: 'kick', name: 'K' }, project)).toBeNull()
+    const comp = (sidechain: string | null) => ({
+      enabled: true,
+      order: 'b',
+      params: {},
+      role: 'effect' as const,
+      source: { builtin: { id: 'faulk.compressor', version: 1 } },
+      sidechain,
+    })
+    const before = {
+      tracks: {
+        ...project.tracks,
+        pad: track('a', { name: 'Pad', devices: { c1: comp('kick'), c2: comp('blank') } }),
+        kick2: track('c', { name: 'Kick', devices: { c3: comp('blank') } }),
+      },
+    }
+    const deleted = (track: string) => [{ type: 'track_deleted' as const, track }]
+    // The step of a `track.delete` or of its redo: the same events.
+    expect(lostNotice(deleted('kick'), before)).toEqual({ key: 'devices.sidechainLost', vars: { track: 'Kick', count: 1 } })
+    expect(lostNotice(deleted('blank'), before)).toEqual({ key: 'devices.sidechainLostUnnamed', vars: { n: 4, count: 2 } })
+    // A track nobody listened to, another event, no project: nothing to say.
+    expect(lostNotice(deleted('pad'), before)).toBeNull()
+    expect(lostNotice([{ type: 'track_selected', track: null }], before)).toBeNull()
+    expect(lostNotice(deleted('kick'), undefined)).toBeNull()
     expect(trackRef(undefined, 'kick')).toBeNull()
   })
 

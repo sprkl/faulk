@@ -117,6 +117,13 @@ for (const lang of ['en', 'fr'] as const) {
     await run(page, { type: 'history.undo' })
     await expect(select).toHaveValue(kick)
     await expect.poll(() => sidechainOf(page, pad, padComp)).toBe(kick)
+    // Redone, the deletion says so again (once the first toast is gone); undone once more.
+    await expect(page.getByTestId('refusal-toast')).toBeHidden({ timeout: 15000 })
+    await run(page, { type: 'history.redo' })
+    await expect(page.getByTestId('refusal-toast')).toContainText(x.lost)
+    await expect(select).toHaveValue('')
+    await run(page, { type: 'history.undo' })
+    await expect(select).toHaveValue(kick)
 
     // A loop: the kick's own Compressor listens to the pad, so the pad back on itself, then the kick again, is refused
     // with a message naming the kick.

@@ -8,7 +8,9 @@
 //! - **plans**, at the start of a block after any change of the tracks or of a chain
 //!   ([`Keys::changed`]): pass 1 marks every track a device of another existing track names
 //!   (a **source**), the devices still fading out of a chain (#233) included, so that a
-//!   Compressor removed while it pumps keeps hearing its source over its fade; pass 2 walks, depth first and in slot order, from each track along each
+//!   Compressor removed while it pumps keeps hearing its source over its fade (the sources of
+//!   the devices in a chain get the buffers first, those only a fading device listens to the
+//!   ones left); pass 2 walks, depth first and in slot order, from each track along each
 //!   of its devices' sources, and appends a source to the plan when its walk ends (post-order:
 //!   a source comes after the sources it listens to itself). An edge into a track still being
 //!   walked (a cycle, which the project refuses) is left out. The first [`MAX_KEY_SOURCES`]
@@ -29,7 +31,8 @@
 //! Limits: the detection is not compensated for latency. A source whose chain delays its sound
 //! by `P_s` frames, heard by a device after devices that delay by `P_c`, is detected `P_s −
 //! P_c` frames late (early when negative): a Ceiling at its defaults on the source (1.5 ms of
-//! look-ahead) makes it 72 frames late at 48 kHz (`tests/it/sidechain.rs`); with no device
+//! look-ahead, 72 frames at 48 kHz) makes the pad's dip come 62 frames later after the kick's
+//! onset than without it, measured natively (`tests/it/sidechain.rs`); with no device
 //! of latency on either track both are 0. While a slot of the source switches its timing
 //! (#761), the tap takes the block as the chain left it: the frames a pause holds back are the
 //! ones before the switched slot, and the frames a catch-up adds go to the mix only.
@@ -49,6 +52,8 @@ const NO_BUF: u8 = u8::MAX;
 const SOURCE: u8 = 1;
 const ON_STACK: u8 = 2;
 const DONE: u8 = 4;
+/// Listened to only by devices fading out of a chain (#233).
+const FADING: u8 = 8;
 
 /// The graph's detection inputs (module doc), allocated once with the graph.
 pub(crate) struct Keys {
@@ -170,14 +175,19 @@ impl Keys {
             let (chain, outgoing) = devices(t);
             chain.len() + outgoing.len()
         };
-        // Pass 1: the sources.
+        // Pass 1: the sources, those of the devices in a chain apart from those of the devices
+        // fading out: the project counts the first against the limit, and they get the buffers
+        // first, so a fading listener never takes one from a current one.
         for t in 0..n {
+            let chain = devices(t).0.len();
             for i in 0..count(t) {
                 if let Some(s) = device(t, i).and_then(|e| source(t, e)) {
-                    mark[s] |= SOURCE;
+                    mark[s] |= if i < chain { SOURCE } else { FADING };
                 }
             }
         }
+        let current = mark.iter().filter(|m| **m & SOURCE != 0).count();
+        let mut fading_room = MAX_KEY_SOURCES.saturating_sub(current);
         // Pass 2: the walk, in post-order.
         for root in 0..n {
             if tracks[root].is_none() || mark[root] & DONE != 0 {
@@ -214,7 +224,15 @@ impl Keys {
                     _ => {
                         depth -= 1;
                         mark[t] = (mark[t] & !ON_STACK) | DONE;
-                        if mark[t] & SOURCE != 0 && self.plan_len < MAX_KEY_SOURCES {
+                        let gets = if mark[t] & SOURCE != 0 {
+                            true
+                        } else if mark[t] & FADING != 0 && fading_room > 0 {
+                            fading_room -= 1;
+                            true
+                        } else {
+                            false
+                        };
+                        if gets && self.plan_len < MAX_KEY_SOURCES {
                             self.buf_of[t] = self.plan_len as u8;
                             self.plan[self.plan_len] = t as u32;
                             self.plan_len += 1;

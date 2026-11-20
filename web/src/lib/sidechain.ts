@@ -3,7 +3,7 @@
  * panel by name. The rule (another track, no loop, the safety limit) is the core's (`device.set_sidechain`); the page
  * only lists the tracks, names them, and words the core's answers.
  */
-import type { Command, CommandError, Project } from './generated/protocol'
+import type { Command, CommandError, Project, ProjectEvent } from './generated/protocol'
 import type { MessageKey } from './i18n'
 import { sortedTracks, trackLabel } from './project/tracks'
 import type { Refusal } from './stores/refusal'
@@ -52,23 +52,32 @@ function named(key: 'refusal.sidechainCycle' | 'devices.sidechainLost', ref: Tra
  */
 export function sidechainRefusal(command: Command, error: CommandError, project: Pick<Project, 'tracks'> | undefined): Omit<Refusal, 'count'> | null {
   if (command.type !== 'device.set_sidechain' || error.code !== 'invalid' || error.field !== 'source' || !command.source) return null
+  // Its own track is refused on `source` too, for another reason: the generic text then.
+  const device = command.device
+  const own = Object.entries(project?.tracks ?? {}).find(([, track]) => track?.devices[device])?.[0]
+  if (own === command.source) return null
   const ref = trackRef(project, command.source)
   return ref ? named('refusal.sidechainCycle', ref) : null
 }
 
-/** The track a `track.delete` is about to delete, named before it goes; `null` for any other command. */
-export function deletedTrack(command: Command, project: Pick<Project, 'tracks'> | undefined): TrackRef | null {
-  return command.type === 'track.delete' ? trackRef(project, command.track) : null
-}
-
 /**
- * What the page says after `deleted` (from {@link deletedTrack}) went, when devices listened to it (the `sidechains` of
- * the command's output): they listen to their own track again. `null` when none did, or for any other command.
+ * What the page says when a step deleted a track that devices of other tracks listened to (they listen to their own track
+ * again: the core sets them back in the same step), whatever the command (`track.delete`, a redo of it, an agent's).
+ * `before` is the project as it was before the step, where the track and its listeners still are. `null` when no
+ * deleted track had a listener.
  */
-export function lostNotice(deleted: TrackRef | null, output: unknown): Omit<Refusal, 'count'> | null {
-  const sidechains = (output as { sidechains?: unknown } | null | undefined)?.sidechains
-  if (!deleted || !Array.isArray(sidechains) || sidechains.length === 0) return null
-  return named('devices.sidechainLost', deleted, { count: sidechains.length })
+export function lostNotice(events: readonly ProjectEvent[], before: Pick<Project, 'tracks'> | undefined): Omit<Refusal, 'count'> | null {
+  if (!before) return null
+  for (const event of events) {
+    if (event.type !== 'track_deleted') continue
+    const listeners = Object.entries(before.tracks)
+      .filter(([id]) => id !== event.track)
+      .flatMap(([, track]) => Object.values(track?.devices ?? {}))
+      .filter((device) => device?.sidechain === event.track).length
+    const ref = trackRef(before, event.track)
+    if (listeners > 0 && ref) return named('devices.sidechainLost', ref, { count: listeners })
+  }
+  return null
 }
 
 /** Whether the source is not heard (muted, or another track soloed): it still triggers the detection, which the panel says. */

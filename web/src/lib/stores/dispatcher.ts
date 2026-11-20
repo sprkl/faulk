@@ -48,7 +48,7 @@ import type { PresetList } from '../presets'
 import { listPresets as listPresetsCommand } from '../preset-commands'
 import type { Recorder } from './recorder.svelte'
 import { refusalOf, type Refusal } from './refusal'
-import { deletedTrack, lostNotice, sidechainRefusal } from '../sidechain'
+import { lostNotice, sidechainRefusal } from '../sidechain'
 import { storage, TOKEN_KEY } from './storage'
 import { isSetTheme, isThemeChoice, SET_THEME_OUTPUT, type ThemeChoice } from '../theme'
 
@@ -1169,8 +1169,6 @@ export class Dispatcher {
         reason: core ? 'the page plays no engine: start audio in the page' : 'the page has no project yet: start audio in the page',
       }
     }
-    // A track deleted is named before it goes: the devices that listened to it are told after (#952).
-    const deleted = deletedTrack(command, this.project.view?.project)
     const step = engineStep(() => core.run(command, options.author))
     if ('refused' in step) {
       // The views do not send what a gesture rules out by itself (an occupied cell sends nothing),
@@ -1182,9 +1180,10 @@ export class Dispatcher {
         ? { status: 'refused', error: report.error }
         : { status: 'invalid', message: report.status === 'invalid' ? report.message : 'not a command' }
     }
+    // The devices that listened to a deleted track listen to their own again: the user is told, whatever deleted it (a
+    // click, an agent, a redo), the track named from the project as it was before the step (#952).
+    const lost = lostNotice(step.events, this.project.view?.project)
     this.mirror(step.events)
-    // The devices that listened to a deleted track listen to their own again: the user is told, agents included (#952).
-    const lost = lostNotice(deleted, 'output' in step ? step.output : null)
     if (lost) this.toast(lost)
     this.recorder?.ran(command, 'output' in step ? step.output : undefined, step.events)
     this.writePresets(step.events)

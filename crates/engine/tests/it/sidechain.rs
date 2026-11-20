@@ -298,19 +298,40 @@ fn a_source_listening_to_another_renders_after_it() {
 
 #[test]
 fn a_loop_the_project_never_sends_renders_every_track_once_and_never_hangs() {
-    let mut r = Rig::new();
-    pad_and_muted_kick(&mut r);
-    r.send(&[
-        comp(KICK, COMP),
-        key(PAD, COMP, Some(KICK)),
-        key(KICK, COMP, Some(PAD)),
-        on(KICK, 64),
-    ]);
-    let out = r.run(40);
-    assert!(rms(&out) > 0.0);
-    // One of the two is rendered first and hears silence; the other hears it.
-    let (pad, kick) = (r.reduction(PAD, COMP), r.reduction(KICK, COMP));
-    assert!(pad > 6.0 || kick == 0.0, "{pad} {kick}");
+    // Both tracks heard, each with a Compressor whose threshold (0 dB) nothing reaches: the
+    // detection changes nothing, so a loop renders what no source renders, but for the order
+    // of the sum (float rounding). A track rendered twice, or skipped, in a block would not.
+    let render = |looped: bool| {
+        let mut r = Rig::new();
+        // Built at 0 dB, so no ramp from another threshold differs between the two.
+        let open = |track| M::DeviceInsert {
+            track,
+            device: COMP,
+            kind: COMPRESSOR.kind_id,
+            state: encode_state(&[(engine::msg::ParamId(compressor::THRESHOLD), 0.0)]),
+        };
+        r.send(&[
+            create(PAD),
+            create(KICK),
+            tone_at(PAD, 0.5),
+            tone_at(KICK, 1.0),
+            open(PAD),
+            open(KICK),
+        ]);
+        if looped {
+            r.send(&[key(PAD, COMP, Some(KICK)), key(KICK, COMP, Some(PAD))]);
+        }
+        r.send(&[on(PAD, 60), on(KICK, 64)]);
+        r.run(60)
+    };
+    let (plain, looped) = (render(false), render(true));
+    assert!(rms(&plain) > 0.05);
+    let largest = plain
+        .iter()
+        .zip(&looped)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0f32, f32::max);
+    assert!(largest < 1e-6, "{largest:e}");
 }
 
 #[test]
@@ -438,19 +459,32 @@ fn prepare_refuses_what_takes_no_detection_source() {
         r.p.prepare(key(PAD, DeviceSlot(7), Some(KICK))).map(|_| ()),
         Err(MsgError::NoSuchTarget)
     );
-    // The master's chain, and a source past the tracks, are refused by the message's checks.
-    assert!(
+    // A Compressor of the master's chain: `prepare` refuses it (the master listens to the mix).
+    r.send(&[M::DeviceInsert {
+        track: TrackSlot::MASTER,
+        device: DeviceSlot(0),
+        kind: COMPRESSOR.kind_id,
+        state: Vec::new(),
+    }]);
+    assert_eq!(
         r.p.prepare(key(TrackSlot::MASTER, DeviceSlot(0), Some(KICK)))
-            .is_err()
+            .map(|_| ()),
+        bad
     );
-    assert!(
-        r.p.prepare(key(
-            PAD,
-            COMP,
-            Some(TrackSlot(engine::msg::limits::MAX_TRACKS))
-        ))
-        .is_err()
-    );
+    // A source past the tracks: `prepare` refuses it, and the message's own check (`handle`,
+    // what the hosts call) refuses it first, as a slot past the limit; so does the master's
+    // slot there.
+    let past = TrackSlot(engine::msg::limits::MAX_TRACKS);
+    assert_eq!(r.p.prepare(key(PAD, COMP, Some(past))).map(|_| ()), bad);
+    for msg in [
+        key(PAD, COMP, Some(past)),
+        key(TrackSlot::MASTER, DeviceSlot(0), Some(KICK)),
+    ] {
+        assert!(
+            matches!(r.p.handle(msg), Err(MsgError::LimitExceeded { .. })),
+            "refused as a slot past the limit"
+        );
+    }
     // Its own track is its own track.
     assert!(r.p.prepare(key(PAD, COMP, Some(PAD))).is_ok());
 }
@@ -462,42 +496,167 @@ fn first_dip(out: &[f32], from: usize, level: f32) -> usize {
         .unwrap_or(out.len())
 }
 
+/// The first frame of `out` above `level`: where the kick starts.
+fn onset(out: &[f32], level: f32) -> usize {
+    out.iter()
+        .position(|s| s.abs() > level)
+        .unwrap_or(out.len())
+}
+
 #[test]
 fn the_detection_is_not_latency_compensated_a_source_with_a_look_ahead_keys_that_late() {
     // The documented limit (`engine::sidechain`): a Ceiling at its defaults on the kick (a
-    // look-ahead of 1.5 ms, 72 frames at 48 kHz) delays what the pad's Compressor hears by
-    // those frames. Measured on the output: the pad is delayed by the compensation (72 frames,
-    // the kick's chain) and its dip comes 72 frames later than the kick's sound, which the
-    // compensation leaves in time with the pad.
-    let dip_at = |ceiling: bool| {
-        let mut r = Rig::new();
-        pad_and_muted_kick(&mut r);
-        let mut msgs = vec![key(PAD, COMP, Some(KICK))];
-        if ceiling {
-            msgs.push(M::DeviceInsert {
-                track: KICK,
-                device: DeviceSlot(1),
-                kind: engine::devices::ceiling::DESCRIPTOR.kind_id,
-                state: Vec::new(),
-            });
-        }
-        r.send(&msgs);
-        r.run(80);
-        let before = r.run(1);
-        let level = before.iter().fold(0.0f32, |m, s| m.max(s.abs())) * 0.3;
-        r.send(&[on(KICK, 64)]);
-        let out = r.run(20);
-        first_dip(&out, 0, level)
+    // look-ahead of 1.5 ms, 72 frames at 48 kHz) makes the pad's dip come that much later
+    // than the kick's sound. Measured on the output, each against the other: the kick heard
+    // alone (the pad muted) for its onset, the pad heard alone (the kick muted, it still keys)
+    // for its dip, with and without the Ceiling.
+    let measure = |ceiling: bool| {
+        let run = |hear_kick: bool| {
+            let mut r = Rig::new();
+            pad_and_muted_kick(&mut r);
+            let mut msgs = vec![key(PAD, COMP, Some(KICK))];
+            if ceiling {
+                msgs.push(M::DeviceInsert {
+                    track: KICK,
+                    device: DeviceSlot(1),
+                    kind: engine::devices::ceiling::DESCRIPTOR.kind_id,
+                    state: Vec::new(),
+                });
+            }
+            if hear_kick {
+                msgs.extend([
+                    mute(PAD),
+                    M::TrackSetMix {
+                        track: KICK,
+                        gain: 1.0,
+                        pan: 0.0,
+                        mute: false,
+                    },
+                ]);
+            }
+            r.send(&msgs);
+            r.run(80);
+            let before = r.run(1);
+            let level = before.iter().fold(0.0f32, |m, s| m.max(s.abs())) * 0.3;
+            r.send(&[on(KICK, 64)]);
+            let out = r.run(20);
+            if hear_kick {
+                onset(&out, 0.01)
+            } else {
+                first_dip(&out, 0, level)
+            }
+        };
+        let (kick, dip) = (run(true), run(false));
+        dip as i64 - kick as i64
     };
-    let (plain, late) = (dip_at(false), dip_at(true));
-    let lookahead = (0.0015 * RATE).round() as usize;
-    assert!(plain < 64, "the pad goes down at once: frame {plain}");
-    let lag = late - plain;
-    eprintln!("dip without the Ceiling at {plain}, with it at {late}: {lag} frames");
-    // The compensation's delay plus the detection's own lateness, each one look-ahead.
-    assert!(
-        // Within a third of a millisecond: where the pad crosses the level depends on its phase.
-        (lag as i64 - 2 * lookahead as i64).abs() <= 16,
-        "{lag} frames, against twice {lookahead}"
+    let (plain, late) = (measure(false), measure(true));
+    let lookahead = (0.0015 * RATE).round() as i64;
+    eprintln!(
+        "the pad's dip after the kick's onset: {plain} frames without the Ceiling, {late} with it"
     );
+    // Within a third of a millisecond: where the pad crosses the level depends on its phase
+    // (measured: 62 frames later, on a 72-frame look-ahead).
+    assert!(
+        (late - plain - lookahead).abs() <= 16,
+        "{} frames later, against {lookahead}",
+        late - plain
+    );
+}
+
+#[test]
+fn a_switch_of_the_listening_chain_s_timing_keeps_the_detection() {
+    // A Ceiling (a look-ahead) inserted in front of the pad's Compressor while it is heard
+    // and keyed: what follows the slot pauses (#761), the Compressor reading the key at its
+    // shifted frames; removed: the chain catches up, the frames from the past keyed by
+    // silence. Every block under the allocation detector, the detection back on the kick
+    // after each.
+    let mut r = Rig::new();
+    let comp_at = DeviceSlot(2);
+    r.send(&[
+        create(PAD),
+        create(KICK),
+        tone_at(PAD, 0.02),
+        comp(PAD, comp_at),
+        tone_at(KICK, 1.0),
+        mute(KICK),
+        key(PAD, comp_at, Some(KICK)),
+        on(PAD, 60),
+        on(KICK, 64),
+    ]);
+    r.run(40);
+    assert!(r.reduction(PAD, comp_at) > 6.0);
+    let ceiling = M::DeviceInsert {
+        track: PAD,
+        device: DeviceSlot(1),
+        kind: engine::devices::ceiling::DESCRIPTOR.kind_id,
+        state: Vec::new(),
+    };
+    r.send(&[ceiling]);
+    let mut during = Vec::new();
+    for _ in 0..20 {
+        r.run(1);
+        during.push(r.reduction(PAD, comp_at));
+    }
+    assert!(
+        during.iter().all(|g| *g > 6.0),
+        "keyed through the pause: {during:?}"
+    );
+    r.send(&[M::DeviceRemove {
+        track: PAD,
+        device: DeviceSlot(1),
+    }]);
+    let out = r.run(40);
+    assert!(rms(&out) > 0.0);
+    assert!(
+        r.reduction(PAD, comp_at) > 6.0,
+        "{}",
+        r.reduction(PAD, comp_at)
+    );
+    r.send(&[off(KICK, 64)]);
+    r.run(40);
+    assert!(r.reduction(PAD, comp_at) < 0.05);
+}
+
+#[test]
+fn a_device_fading_out_never_takes_a_buffer_from_a_current_listener() {
+    // At the limit: `MAX_KEY_SOURCES` listeners each on their own source. The first listener's
+    // Compressor removed (it fades out, still listening) and one more listener set on a new
+    // source: the current sources are still `MAX_KEY_SOURCES`, and every one keeps its
+    // buffer while the removed one fades.
+    let mut r = Rig::new();
+    let n = MAX_KEY_SOURCES as u32 + 1;
+    let mut msgs = Vec::new();
+    for i in 0..n {
+        let (listener, source) = (TrackSlot(2 * i), TrackSlot(2 * i + 1));
+        msgs.extend([
+            create(listener),
+            create(source),
+            tone_at(listener, 0.02),
+            tone_at(source, 1.0),
+            mute(source),
+            comp(listener, COMP),
+        ]);
+        if i + 1 < n {
+            msgs.push(key(listener, COMP, Some(source)));
+        }
+    }
+    r.send(&msgs);
+    r.run(10);
+    let mut notes: Vec<M> = (0..n).map(|i| on(TrackSlot(2 * i + 1), 64)).collect();
+    notes.extend((0..n).map(|i| on(TrackSlot(2 * i), 60)));
+    r.send(&notes);
+    r.run(20);
+    let last = TrackSlot(2 * (n - 1));
+    r.send(&[
+        M::DeviceRemove {
+            track: TrackSlot(0),
+            device: COMP,
+        },
+        key(last, COMP, Some(TrackSlot(2 * n - 1))),
+    ]);
+    r.run(1);
+    for i in 1..n {
+        let g = r.reduction(TrackSlot(2 * i), COMP);
+        assert!(g > 6.0, "listener {i}: {g}");
+    }
 }
