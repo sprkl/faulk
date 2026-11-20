@@ -1,6 +1,6 @@
 //! Format 8 (#953): the key changes. A project without any writes the same `project.json` as
 //! before (no field, only the number differs); with some it writes and reads them back the
-//! same, in the folder, the cache snapshot and the pack; a format 7 folder opens with none,
+//! same, in the folder, the cache snapshot and the pack; a format 8 folder opens with none,
 //! its number alone migrated; unordered, duplicate, tick 0 or too many are refused.
 
 use project::file::*;
@@ -96,21 +96,21 @@ fn the_cache_snapshot_and_the_pack_carry_the_key_changes() {
 }
 
 #[test]
-fn a_format_7_folder_opens_with_its_number_migrated_and_no_key_changes() {
+fn a_format_8_folder_opens_with_its_number_migrated_and_no_key_changes() {
     let project = song(vec![]);
     let mut fs = save_all(&project, &SaveOptions::default());
     let text = text(&fs);
     let current = format!("\"format\": {FORMAT_VERSION}");
     assert!(text.contains(&current), "{text}");
-    fs.insert("project.json", text.replacen(&current, "\"format\": 7", 1));
+    fs.insert("project.json", text.replacen(&current, "\"format\": 8", 1));
     let opened = open(&fs, &OpenOptions::default()).unwrap();
-    assert_eq!(opened.report.migrated_from, Some(7));
+    assert_eq!(opened.report.migrated_from, Some(8));
     assert_eq!(opened.project, project);
 }
 
 #[test]
-fn a_build_of_format_7_would_call_a_newer_folder_newer_not_corrupt() {
-    // The same rule one step up: this build reads the number first and refuses format 9.
+fn a_build_of_format_8_would_call_a_newer_folder_newer_not_corrupt() {
+    // The same rule one step up: this build reads the number first and refuses format 10.
     let mut fs = save_all(
         &song(vec![change(4, Some(F_MAJOR))]),
         &SaveOptions::default(),

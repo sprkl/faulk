@@ -49,7 +49,7 @@ pub const AGENT_CONFIRM_MS: u32 = 45_000;
 // (tick, pitch classes)) and Stack, Lattice and Scatter read the key in force at the played position;
 // the commands gain `arrangement.key_change.set`, `.move`, `.remove` and `.list`, `project.get`
 // answers `key_change_count`, the event `key_changes_changed`, and the project its `key_changes`
-// (folder format 8). A helper of an earlier version does not know tag 5: its engine would skip the
+// (folder format 9). A helper of an earlier version does not know tag 5: its engine would skip the
 // message (`UnknownTag`) and keep the starting key everywhere.
 // Version 59 (#168): the registry gains the MIDI effect `faulk.swing` (device kind 16: the notes on the
 // off-beats of a grid delayed to a swing, with an optional humanize of time and velocity). A helper of

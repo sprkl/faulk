@@ -32,9 +32,10 @@ use std::collections::{BTreeMap, BTreeSet};
 /// Format 7 (#881): an automation point may have the shape `ease_in`, `ease_out` or `smooth`
 /// (a lane file's word, a lane blob's byte 2, 3 or 4); a build of format 6 would refuse it as
 /// corrupt.
-/// Format 8 (#953): the project may hold key changes (`key_changes`); a build of format 7 would
+/// Format 8 (#952): the number alone changed in this branch's history (see `file::migrate`).
+/// Format 9 (#953): the project may hold key changes (`key_changes`); a build of format 8 would
 /// refuse the field as corrupt.
-pub const FORMAT_VERSION: u32 = 8;
+pub const FORMAT_VERSION: u32 = 9;
 
 /// The built-in instrument of audio tracks: the clip player.
 pub const CLIP_PLAYER: &str = "faulk.clip_player";
