@@ -862,6 +862,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "headless"
+version = "0.1.0"
+dependencies = [
+ "commands",
+ "engine",
+ "getrandom 0.4.3",
+ "project",
+ "project-wasm",
+ "rmcp",
+ "serde_json",
+ "test-support",
+ "tokio",
+]
+
+[[package]]
 name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
