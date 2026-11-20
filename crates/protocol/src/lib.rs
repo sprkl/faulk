@@ -44,13 +44,18 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
-// Version 61 (#953, provisional: 59 is #949's and 60 is #952's, the lead reassigns in merge order):
+// Version 61 (#953, provisional: the lead reassigns in merge order):
 // the project's key changes. The engine takes `ControlMsg::SetKeyChanges` (tag 5, the whole list of
 // (tick, pitch classes)) and Stack, Lattice and Scatter read the key in force at the played position;
 // the commands gain `arrangement.key_change.set`, `.move`, `.remove` and `.list`, `project.get`
 // answers `key_change_count`, the event `key_changes_changed`, and the project its `key_changes`
 // (folder format 9). A helper of an earlier version does not know tag 5: its engine would skip the
 // message (`UnknownTag`) and keep the starting key everywhere.
+// Version 60 (#952, provisional): the engine stream gains `DeviceSidechain` (tag
+// 25), the track a device's detection listens to; the commands gain `device.set_sidechain`,
+// `track.delete` reports the devices it set back to their own track and `track.restore` takes
+// them back (`listeners`); a device descriptor says whether it takes a source (`sidechain`).
+// A helper of an earlier version refuses the tag, so the two must be of the same version.
 // Version 59 (#168): the registry gains the MIDI effect `faulk.swing` (device kind 16: the notes on the
 // off-beats of a grid delayed to a swing, with an optional humanize of time and velocity). A helper of
 // an earlier version would not build the device: a page and a helper of different versions refuse each

@@ -48,6 +48,10 @@ pub const MAX_MARKERS: usize = 1024;
 /// size, read at every block.
 pub const MAX_KEY_CHANGES: usize = engine::msg::limits::MAX_KEY_CHANGES as usize;
 
+/// Most tracks that devices of other tracks listen to (#952, a sidechain): the engine's
+/// buffers of detection inputs. One track listened to by many devices counts once.
+pub const MAX_SIDECHAIN_SOURCES: usize = engine::sidechain::MAX_KEY_SOURCES;
+
 /// Most devices in one track's chain.
 pub const MAX_DEVICES_PER_TRACK: usize = 1_000;
 

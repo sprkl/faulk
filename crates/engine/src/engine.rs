@@ -132,6 +132,11 @@ impl DeviceEntry {
         }
     }
 
+    /// The track its detection listens to (#952, [`Device::sidechain`]), `None` for its own.
+    pub fn key(&self) -> Option<TrackSlot> {
+        self.device.sidechain()
+    }
+
     /// How much of the device's output the chain hears at the next frame (#233).
     pub fn fade(&self) -> f32 {
         self.fade
@@ -681,6 +686,9 @@ struct DeviceShadow {
     enabled: bool,
     /// Whether `prepare` wrapped it with a latency line (#749).
     lined: bool,
+    /// The track its detection listens to (#952), `None` for its own: a device built again
+    /// keeps it.
+    key: Option<TrackSlot>,
 }
 
 impl DeviceShadow {
@@ -1235,6 +1243,28 @@ impl Preparer {
                     enabled,
                 }
             }
+            ControlMsg::DeviceSidechain {
+                track,
+                device,
+                source,
+            } => {
+                self.existing_device(track, device)?;
+                let bad = MsgError::BadPayload {
+                    tag: Tag::DeviceSidechain as u16,
+                };
+                let kept = self.device_shadow(track, device).ok_or(bad)?;
+                // A track's device that declares it (#952); the master's chain is refused by
+                // the message's own check (its slot is past the tracks).
+                if track.is_master()
+                    || !kept.descriptor.sidechain
+                    || source.is_some_and(|s| s.0 >= limits::MAX_TRACKS)
+                {
+                    return Err(bad);
+                }
+                let key = source.filter(|s| *s != track);
+                kept.key = key;
+                RtMsg::DeviceSidechain { track, device, key }
+            }
             ControlMsg::ParamSet {
                 track,
                 device,
@@ -1644,6 +1674,7 @@ impl Preparer {
             params,
             enabled: true,
             lined,
+            key: None,
         };
         for (id, v) in state_pairs(state) {
             kept.set(id, v);
@@ -1745,6 +1776,7 @@ impl Preparer {
                 kept.params.iter().copied(),
             )?;
             value.enabled = kept.enabled;
+            value.device.set_sidechain(kept.key);
             vacates = kept.lined;
             spare = Some(value);
         }
@@ -1898,6 +1930,7 @@ impl Preparer {
                     kept.params.iter().copied(),
                 )?;
                 value.enabled = kept.enabled;
+                value.device.set_sidechain(kept.key);
                 input_events = input_events.max(kept.midi_out);
                 used += kept.midi_out;
                 msgs.push(RtMsg::DevicePut {
@@ -2848,6 +2881,20 @@ impl Engine {
     /// that does not exist is skipped and counted).
     pub fn apply(&mut self, msg: RtMsg) {
         self.applied += 1;
+        // Which tracks exist, or which devices sit in a chain, may change: the graph plans
+        // its sources again before the next block (#952, [`crate::graph`] > Sidechain).
+        if matches!(
+            msg,
+            RtMsg::Reset(_)
+                | RtMsg::TrackPut(_)
+                | RtMsg::TrackRemove(_)
+                | RtMsg::DevicePut { .. }
+                | RtMsg::DeviceRemove { .. }
+                | RtMsg::DeviceMove { .. }
+                | RtMsg::DeviceSidechain { .. }
+        ) {
+            self.graph.routing_changed();
+        }
         let state = &mut *self.state;
         let mut skipped = false;
         let garbage = match msg {
@@ -3275,6 +3322,13 @@ impl Engine {
                 resend_lanes(state, &self.graph, track, device);
                 if release && let Some(t) = state.track_mut(track) {
                     t.graph.release_notes();
+                }
+                None
+            }
+            RtMsg::DeviceSidechain { track, device, key } => {
+                match device_mut(state, track, device) {
+                    Some(entry) => entry.device.set_sidechain(key),
+                    None => skipped = true,
                 }
                 None
             }

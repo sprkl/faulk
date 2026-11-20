@@ -231,6 +231,7 @@ const PARAMS: [ParamDescriptor; 17] = [
 /// never translated, founder's decision of 2026-11-06). The defaults follow the project's
 /// scale, to its nearest note: nothing to set for the common case.
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.lattice",
     kind_id: DeviceKind(12),
     version: 1,

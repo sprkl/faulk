@@ -60,7 +60,9 @@ fn v8_to_v9(mem: &mut MemFs) -> Result<(), String> {
     set_format(mem, 9)
 }
 
-/// Format 8 (#952, merged first in the lead's order: this step is the same number-only one).
+/// Format 8 (#952): a device may name the track its detection listens to (`sidechain`).
+/// Nothing in the files changes (a project of format 7 has none); the number does, so that a
+/// build of format 7 reports the folder as made by a newer build.
 fn v7_to_v8(mem: &mut MemFs) -> Result<(), String> {
     set_format(mem, 8)
 }

@@ -907,6 +907,7 @@ fn a_restored_device_gets_the_parameters_its_snapshot_lacks() {
     let Command::Track(track::Command::Restore {
         track: id,
         mut snapshot,
+        ..
     }) = *inverse
     else {
         panic!()
@@ -917,6 +918,7 @@ fn a_restored_device_gets_the_parameters_its_snapshot_lacks() {
         &t(track::Command::Restore {
             track: id,
             snapshot,
+            listeners: Vec::new(),
         }),
     );
     check_filled(&by_track, "track.restore");

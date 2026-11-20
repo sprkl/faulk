@@ -29,5 +29,6 @@ pub mod msg;
 pub mod offline;
 pub mod param;
 pub mod recorder;
+pub mod sidechain;
 pub mod transport;
 pub mod warm;

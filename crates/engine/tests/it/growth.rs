@@ -70,6 +70,7 @@ fn variant(rt: &RtMsg) -> &'static str {
         RtMsg::DeviceMove { .. } => "DeviceMove",
         RtMsg::DeviceSetEnabled { .. } => "DeviceSetEnabled",
         RtMsg::ParamSet { .. } => "ParamSet",
+        RtMsg::DeviceSidechain { .. } => "DeviceSidechain",
         RtMsg::ClipPut(_) => "ClipPut",
         RtMsg::ClipRemove(_) => "ClipRemove",
         RtMsg::SourcePut(_) => "SourcePut",
@@ -87,7 +88,7 @@ fn variant(rt: &RtMsg) -> &'static str {
 }
 
 /// Every name [`variant`] returns (30 variants).
-const ALL_VARIANTS: [&str; 30] = [
+const ALL_VARIANTS: [&str; 31] = [
     "Reset",
     "SetTransport",
     "SetMetronome",
@@ -107,6 +108,7 @@ const ALL_VARIANTS: [&str; 30] = [
     "DeviceMove",
     "DeviceSetEnabled",
     "ParamSet",
+    "DeviceSidechain",
     "ClipPut",
     "ClipRemove",
     "SourcePut",
@@ -216,6 +218,13 @@ fn every_rt_message_applies_without_allocating() {
         M::SelectTrack { track: Some(T0) },
         insert(0, 0, TONE.kind_id),
         insert(0, 1, GAIN.kind_id),
+        // A Compressor listening to another track (#952).
+        insert(0, 2, engine::devices::compressor::DESCRIPTOR.kind_id),
+        M::DeviceSidechain {
+            track: T0,
+            device: DeviceSlot(2),
+            source: Some(TrackSlot(3)),
+        },
         // Past the row (4 slots): the move grows it (#800).
         M::DeviceMove {
             track: T0,

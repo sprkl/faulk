@@ -7,7 +7,8 @@
 //! [`crate::engine::Engine::render`] renders one block after `begin_block` applied the rt
 //! messages, with the segments the clock cut it in ([`BlockClock`]):
 //!
-//! 1. every track, in slot order: a track with no enabled device is **empty** and costs a
+//! 1. every track, in slot order (the tracks other tracks listen to first, below > Sidechain):
+//!    a track with no enabled device is **empty** and costs a
 //!    slot visit, nothing else (no buffer cleared, no mixing). Otherwise the track's scratch
 //!    is cleared, its live notes are routed to it (offset 0 of the block: a live event
 //!    carries no time), its schedule, or its launched clip ([`crate::clip_player`], CL-2), is
@@ -112,6 +113,18 @@
 //!
 //! Every device of a slot runs once per sub-block: the removed ones first, in series, then
 //! the one in the slot and the replaced ones, on the same input.
+//!
+//! # Sidechain
+//!
+//! A device may listen to another track for its detection (#952, the Compressor's detection
+//! source): [`crate::sidechain`] plans, at the start of a block after a change of the tracks or
+//! of a chain, the tracks listened to (the **sources**, in an order where a source comes after
+//! the sources it listens to itself), and the block renders them first, then the other tracks
+//! in slot order, each track once. Right after its chain, before its strip, a source's block
+//! is copied to its buffer; a device that listens to it receives the frames of its sub-block
+//! through [`crate::device::Device::process_keyed`], silence when the source has not rendered
+//! in this block (gone, past the buffers, a loop) and in a catch-up. With no source the tracks
+//! render in slot order, as before: the same samples to the bit.
 //!
 //! # Latency
 //!
@@ -263,7 +276,7 @@ use rtrb::{Producer, PushError};
 use crate::automation::{LANE_ROOM, MasterLanes, NO_LANE, TrackLanes};
 use crate::clip_player::{Env, HANDOVER_ROOM, Handover, Owner};
 use crate::device::{
-    AudioIo, BlockCtx, DeviceRole, DeviceSetup, Event, EventBuffer, Transport, VoiceId,
+    AudioIo, BlockCtx, DeviceRole, DeviceSetup, Event, EventBuffer, Key, Transport, VoiceId,
 };
 use crate::devices::clip_player::{self as audio_clips, AudioPlayer};
 use crate::engine::{Clip, DeviceEntry, Lane, Leave, Paged, State, Track};
@@ -272,6 +285,7 @@ use crate::latency::{Compensation, Delay, Events, Lost, MASTER_EVENTS, Route, Ti
 pub use crate::mixer::mix_levels;
 use crate::mixer::{MIXER_SLOT, Mixer, timed};
 use crate::msg::{DeviceSlot, LiveEvent, MsgError, ParamId, TrackKind, TrackMeter, TrackSlot};
+use crate::sidechain::{KeyIn, Keys};
 use crate::time::{Quantize, Tempo, Tick, TimeSignature};
 use crate::transport::Segment;
 
@@ -372,6 +386,11 @@ impl Outgoing {
             devices: [const { None }; OUTGOING_ROOM],
             len: 0,
         }
+    }
+
+    /// The devices, packed (#952: the plan of the sources reads their keys).
+    pub(crate) fn entries(&self) -> &[Option<Box<DeviceEntry>>] {
+        &self.devices[..self.len]
     }
 
     /// Devices fading out or waiting for room in the retire ring.
@@ -661,6 +680,8 @@ pub struct TrackGraph {
     /// While a slot's timing shrinks over several blocks (#761): the chain's timing before it
     /// began, which the tracks' latency `T` keeps until it ends, so that it falls once.
     shrink: u32,
+    /// The block the track last rendered in (#952): once per block, whatever the order.
+    pub(crate) rendered_at: u64,
     next: Option<Box<Track>>,
 }
 
@@ -726,8 +747,14 @@ impl TrackGraph {
                 holder: false,
             },
             shrink: 0,
+            rendered_at: 0,
             next: None,
         }
+    }
+
+    /// The devices that left the track's chain and still fade out (#233).
+    pub(crate) fn leaving(&self) -> &Outgoing {
+        &self.outgoing
     }
 
     /// The latency of the track's chain at the start of the last block, in frames (#749).
@@ -1019,6 +1046,10 @@ pub struct Graph {
     /// Some track would need a longer delay than [`crate::msg::limits::MAX_COMPENSATION_FRAMES`]:
     /// it gets the limit and is no longer aligned (#749).
     capped: bool,
+    /// The detection inputs (#952, module doc > Sidechain).
+    keys: Keys,
+    /// Blocks rendered: the stamp of the current one (never 0).
+    blocks: u64,
 }
 
 impl core::fmt::Debug for Graph {
@@ -1096,7 +1127,20 @@ impl Graph {
             track_latency: 0,
             capped: false,
             master_latency: 0,
+            keys: Keys::try_new(max_frames)?,
+            blocks: 0,
         })
+    }
+
+    /// Bytes the graph's detection inputs take for blocks of up to `max_frames` (#952).
+    pub fn key_bytes(max_frames: usize) -> u64 {
+        Keys::bytes_for(max_frames)
+    }
+
+    /// The tracks, or a chain, changed (#952): the sources are planned again before the next
+    /// block.
+    pub(crate) fn routing_changed(&mut self) {
+        self.keys.changed();
     }
 
     /// Bytes the graph's latency buffers take for blocks of up to `max_frames` (#749): the
@@ -1365,10 +1409,27 @@ impl Graph {
             rate: rate_hz(self.sample_rate),
             scratch: &mut self.audio_scratch,
         };
-        for (slot, entry) in state.tracks.as_mut_slice().iter_mut().enumerate() {
-            let Some(track) = entry.as_deref_mut() else {
+        // The sources first, in the plan's order, then every other track in slot order
+        // (#952, module doc > Sidechain): each renders once.
+        self.blocks += 1;
+        let stamp = self.blocks;
+        self.keys.plan_if_changed(state.tracks.as_slice());
+        let (plan, planned) = self.keys.plan_order();
+        let count = state.tracks.as_slice().len();
+        let order = plan[..planned].iter().map(|&s| s as usize).chain(0..count);
+        for slot in order {
+            let Some(track) = state
+                .tracks
+                .as_mut_slice()
+                .get_mut(slot)
+                .and_then(|e| e.as_deref_mut())
+            else {
                 continue;
             };
+            if track.graph.rendered_at == stamp {
+                continue;
+            }
+            track.graph.rendered_at = stamp;
             let audible = !any_solo || track.solo;
             // Its delay: at once while nobody heard it (its levels at 0 and still before this
             // block: a new track, a muted one), else by a move (module doc > Latency).
@@ -1403,6 +1464,11 @@ impl Graph {
                 }),
                 lanes: Some(&mut *lanes),
             };
+            let key = KeyIn {
+                keys: &self.keys,
+                stamp,
+                at: Some(0),
+            };
             let rendered = render_track(
                 track,
                 Some(input),
@@ -1411,10 +1477,16 @@ impl Graph {
                 &mut self.scratch,
                 &mut aio,
                 &mut self.compensation,
+                key,
                 fade,
                 left,
                 right,
             );
+            // A source gives its chain's output, before its strip, to the devices that
+            // listen to it (#952).
+            let out =
+                rendered.then(|| (&self.scratch.left[..frames], &self.scratch.right[..frames]));
+            self.keys.fill(slot, stamp, out);
             if !rendered {
                 // It gave nothing: its slots and its new delay hold at once.
                 settle(track);
@@ -1450,6 +1522,11 @@ impl Graph {
                     &mut self.scratch,
                     &mut aio,
                     &mut self.compensation,
+                    KeyIn {
+                        keys: &self.keys,
+                        stamp,
+                        at: Some(0),
+                    },
                     fade,
                     left,
                     right,
@@ -1556,6 +1633,7 @@ impl Graph {
             left,
             right,
             Pass::whole(false),
+            None,
         );
         // Nothing to send again, and nothing dropped: the sink is empty, so no value went into
         // a line here, and a line drops a value only on its way in (`Events::carry`); what
@@ -1711,6 +1789,7 @@ impl Graph {
                 &mut left[from..to],
                 &mut right[from..to],
                 Pass::whole(false),
+                None,
             );
             master_strip(
                 master,
@@ -2629,6 +2708,7 @@ fn catch_up(
     (post_left, post_right): (&mut [f32], &mut [f32]),
     (strip_left, strip_right): (&mut [f32], &mut [f32]),
     ring: &mut Compensation,
+    key: KeyIn<'_>,
     fade: u32,
     ctx: &BlockCtx,
 ) {
@@ -2691,6 +2771,8 @@ fn catch_up(
             skip: 0,
             source: if s.holder { slot } else { usize::MAX },
         },
+        // Frames of an earlier block: a detection hears silence (#952).
+        Some(KeyIn { at: None, ..key }),
     );
     delay_strip(
         devices,
@@ -2749,6 +2831,7 @@ fn render_track(
     scratch: &mut Scratch,
     aio: &mut audio_clips::Io<'_>,
     ring: &mut Compensation,
+    key: KeyIn<'_>,
     fade: u32,
     out_left: &mut [f32],
     out_right: &mut [f32],
@@ -2799,6 +2882,7 @@ fn render_track(
             (&mut post_left[..], &mut post_right[..]),
             (&mut strip_left[..], &mut strip_right[..]),
             ring,
+            key,
             fade,
             ctx,
         );
@@ -2950,6 +3034,10 @@ fn render_track(
             &mut left[from..to],
             &mut right[from..to],
             span,
+            Some(KeyIn {
+                at: Some(from),
+                ..key
+            }),
         );
         // The mix, with the strip's timed parameters, then the track's meter: after its
         // fader, as the signal enters the sum; straight in at a delay of 0, else through the
@@ -3269,6 +3357,7 @@ fn run_chain(
     all_left: &mut [f32],
     all_right: &mut [f32],
     pass: Pass,
+    key: Option<KeyIn<'_>>,
 ) {
     let all = all_left.len().min(all_right.len());
     let step = 1.0 / fade.max(1) as f32;
@@ -3317,6 +3406,8 @@ fn run_chain(
         }
         let ctx = if skip > 0 { &paused_ctx } else { block_ctx };
         let frames = all - skip;
+        // The detection inputs of the slot's devices (#952), from the frames it runs.
+        let kin = key.map(|k| k.skipped(skip));
         let (left, right) = (&mut all_left[skip..all], &mut all_right[skip..all]);
         // The devices removed from this slot fade out in series, before the device in it
         // (#800): the chain they left goes on around them. The ones replaced in it fade out in
@@ -3350,10 +3441,12 @@ fn run_chain(
         if behind {
             // The removed ones, in series and through their line, in the order they left.
             removed_in_order(
-                outgoing, i, source, blend, unused, step, fade, ctx, left, right,
+                outgoing, i, source, blend, unused, step, fade, kin, ctx, left, right,
             );
         } else if at.series && !source {
-            fade_through_at(outgoing, i, None, blend, unused, step, ctx, left, right);
+            fade_through_at(
+                outgoing, i, None, blend, unused, step, kin, ctx, left, right,
+            );
         }
         let leaving = at.parallel || (at.front && !behind);
         let stage = if behind { Stage::Rest } else { Stage::All };
@@ -3401,7 +3494,7 @@ fn run_chain(
                     }
                     if leaving {
                         fade_out_at(
-                            outgoing, i, blend, false, stage, unused, fade, ctx, left, right,
+                            outgoing, i, blend, false, stage, unused, fade, kin, ctx, left, right,
                         );
                     }
                     break 'slot;
@@ -3462,13 +3555,15 @@ fn run_chain(
                         right.copy_from_slice(lr);
                         if leaving {
                             fade_out_at(
-                                outgoing, i, blend, true, stage, unused, fade, ctx, left, right,
+                                outgoing, i, blend, true, stage, unused, fade, kin, ctx, left,
+                                right,
                             );
                         }
                         break 'slot;
                     }
                     if held {
                         // It runs (its line fills) but is not heard yet.
+                        let ek = kin.and_then(|k| k.of(entry, frames));
                         run_device(
                             entry,
                             before,
@@ -3483,6 +3578,7 @@ fn run_chain(
                             ctx,
                             left,
                             right,
+                            ek,
                         );
                         // One moved there heard (#800) ducks to the slot's delayed signal
                         // over a fade instead of leaving it at once.
@@ -3496,7 +3592,8 @@ fn run_chain(
                         );
                         if leaving {
                             fade_out_at(
-                                outgoing, i, blend, true, stage, unused, fade, ctx, left, right,
+                                outgoing, i, blend, true, stage, unused, fade, kin, ctx, left,
+                                right,
                             );
                         }
                         break 'slot;
@@ -3507,6 +3604,7 @@ fn run_chain(
                     // runs, not heard, until the holder is gone, then fades in on the new
                     // timing. One moved there heard (#800) ducks over a fade first, its state
                     // going on, and comes back the same way.
+                    let ek = kin.and_then(|k| k.of(entry, frames));
                     run_device(
                         entry,
                         before,
@@ -3521,6 +3619,7 @@ fn run_chain(
                         ctx,
                         left,
                         right,
+                        ek,
                     );
                     duck(
                         entry,
@@ -3531,10 +3630,11 @@ fn run_chain(
                         right,
                     );
                     fade_out_at(
-                        outgoing, i, blend, false, stage, unused, fade, ctx, left, right,
+                        outgoing, i, blend, false, stage, unused, fade, kin, ctx, left, right,
                     );
                     break 'slot;
                 }
+                let ek = kin.and_then(|k| k.of(entry, frames));
                 run_device(
                     entry,
                     before,
@@ -3549,6 +3649,7 @@ fn run_chain(
                     ctx,
                     left,
                     right,
+                    ek,
                 );
                 if fading {
                     let (rl, rr): (&[f32], &[f32]) = if late {
@@ -3577,7 +3678,7 @@ fn run_chain(
             }
             if leaving {
                 fade_out_at(
-                    outgoing, i, blend, late, stage, unused, fade, ctx, left, right,
+                    outgoing, i, blend, late, stage, unused, fade, kin, ctx, left, right,
                 );
             }
         }
@@ -3640,6 +3741,7 @@ fn run_device(
     ctx: &BlockCtx,
     left: &mut [f32],
     right: &mut [f32],
+    key: Option<Key<'_>>,
 ) {
     let role = entry.device.descriptor().role;
     // Slots are below `MAX_DEVICES_PER_TRACK`: they fit in a `u16`.
@@ -3707,7 +3809,10 @@ fn run_device(
                 right,
                 events_out: unused,
             };
-            device.process(ctx, events, &mut io);
+            match key {
+                Some(key) => device.process_keyed(ctx, events, &mut io, Some(key)),
+                None => device.process(ctx, events, &mut io),
+            }
         }
     }
 }
@@ -3761,6 +3866,7 @@ fn removed_in_order(
     unused: &mut EventBuffer,
     step: f32,
     fade: u32,
+    kin: Option<KeyIn<'_>>,
     ctx: &BlockCtx,
     left: &mut [f32],
     right: &mut [f32],
@@ -3790,6 +3896,7 @@ fn removed_in_order(
                     blend,
                     unused,
                     step,
+                    kin,
                     ctx,
                     left,
                     right,
@@ -3806,6 +3913,7 @@ fn removed_in_order(
                     Stage::At(k),
                     unused,
                     fade,
+                    kin,
                     ctx,
                     left,
                     right,
@@ -3829,6 +3937,7 @@ fn fade_through_at(
     blend: &mut Blend,
     unused: &mut EventBuffer,
     step: f32,
+    kin: Option<KeyIn<'_>>,
     ctx: &BlockCtx,
     left: &mut [f32],
     right: &mut [f32],
@@ -3854,7 +3963,8 @@ fn fade_through_at(
                 right: &mut *old_right,
                 events_out: &mut *unused,
             };
-            entry.device.process(ctx, &[], &mut io);
+            let key = kin.and_then(|k| k.of(entry, frames));
+            entry.device.process_keyed(ctx, &[], &mut io, key);
             let mut g = entry.fade;
             for n in 0..frames {
                 g = approach(g, 0.0, step);
@@ -3881,6 +3991,7 @@ fn fade_out_at(
     stage: Stage,
     unused: &mut EventBuffer,
     fade: u32,
+    kin: Option<KeyIn<'_>>,
     ctx: &BlockCtx,
     left: &mut [f32],
     right: &mut [f32],
@@ -3944,7 +4055,8 @@ fn fade_out_at(
                         right: out_r,
                         events_out: &mut *unused,
                     };
-                    entry.device.process(ctx, &[], &mut io);
+                    let key = kin.and_then(|k| k.of(entry, frames));
+                    entry.device.process_keyed(ctx, &[], &mut io, key);
                     if let Some(mut m) = mix {
                         for n in 0..frames {
                             if holds {

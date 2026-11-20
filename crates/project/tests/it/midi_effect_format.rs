@@ -20,6 +20,7 @@ fn device(role: DeviceRole, id: &str, order: OrderKey) -> Device {
         params: BTreeMap::new(),
         state: None,
         preset: None,
+        sidechain: None,
     }
 }
 

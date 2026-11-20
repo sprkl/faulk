@@ -201,6 +201,10 @@ pub struct EngineSlots {
     pub take: Option<Take>,
     /// The number of the last take started (the next one is one more).
     pub takes: u64,
+    /// What each device's detection listens to in the engine (#952), as `(track slot,
+    /// device slot) → source track slot`: the devices that listen to their own track are
+    /// not in it.
+    pub keys: BTreeMap<(u32, u16), u32>,
 }
 
 /// A take of MIDI recording, as the command layer follows it.

@@ -149,6 +149,7 @@ const LINES_BYTES: u64 = {
 /// never translated). The defaults are the values of [`Reverb::new`]: size 0.5 (1.5 s),
 /// damping 0.5, 10 ms of pre-delay, 25% mix.
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.reverb",
     kind_id: DeviceKind(4),
     version: 1,

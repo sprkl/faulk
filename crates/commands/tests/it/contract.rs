@@ -120,6 +120,10 @@ fn examples() -> Vec<(Command, State)> {
             param: "attack".into(),
             value: 0.25,
         })),
+        {
+            let s = crate::sidechain::fx();
+            (crate::sidechain::set(&s.comp, Some(&s.kick)), s.state)
+        },
         on(Command::Mixer(mixer::Command::Levels {})),
         (
             Command::Project(project::Command::AnalyzeRender {

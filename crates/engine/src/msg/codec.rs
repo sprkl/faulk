@@ -502,6 +502,16 @@ impl ControlMsg {
                 w.u16(from.0);
                 w.u16(to.0);
             }
+            ControlMsg::DeviceSidechain {
+                track,
+                device,
+                source,
+            } => {
+                w.u32(track.0);
+                w.u16(device.0);
+                w.bool(source.is_some());
+                w.u32(source.map_or(0, |t| t.0));
+            }
             ControlMsg::DeviceSetEnabled {
                 track,
                 device,
@@ -763,6 +773,11 @@ impl ControlMsg {
                 track: r.track()?,
                 from: r.device()?,
                 to: r.device()?,
+            },
+            Tag::DeviceSidechain => ControlMsg::DeviceSidechain {
+                track: r.track()?,
+                device: r.device()?,
+                source: r.option(Reader::track)?,
             },
             Tag::DeviceSetEnabled => ControlMsg::DeviceSetEnabled {
                 track: r.track()?,

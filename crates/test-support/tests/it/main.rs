@@ -41,6 +41,7 @@ mod reverb;
 mod ripple;
 mod scatter;
 mod scenes;
+mod sidechain;
 mod stack;
 mod swing;
 mod trim;

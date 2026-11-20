@@ -58,6 +58,7 @@ mod reverb_glide_fingerprint;
 mod ripple;
 mod sample_rate;
 mod scatter;
+mod sidechain;
 mod stack;
 mod stream_queue;
 mod swing;

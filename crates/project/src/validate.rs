@@ -12,7 +12,7 @@ use crate::limits::*;
 use crate::model::*;
 use crate::preset::MAX_PROJECT_PRESETS;
 use engine::time::{Frame, Tick};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
 
 /// One broken invariant.
@@ -111,6 +111,18 @@ pub enum ViolationKind {
     /// The key changes are not strictly increasing in tick, or one stands at tick 0 or past
     /// [`crate::limits::MAX_TICK`] (#953).
     KeyChangeTick,
+    /// A device's detection source (#952) that names a track the project does not have.
+    SidechainUnknownTrack,
+    /// A device's detection source that names the device's own track (absent is that).
+    SidechainSelf,
+    /// A detection source on a device of the master's chain, which listens to the mix.
+    SidechainOnMaster,
+    /// Detection sources that loop: a track listens, through its devices, to a track that
+    /// listens to it.
+    SidechainCycle,
+    /// A detection source on a device whose kind takes none (only a built-in kind whose
+    /// descriptor declares `sidechain` does).
+    SidechainNotTaken,
     /// More elements than a safety limit allows.
     TooMany { limit: usize },
 }
@@ -324,8 +336,49 @@ impl Project {
         c.count(counts.clips, c.limits.clips, "tracks");
         c.count(counts.placements, c.limits.placements, "tracks");
         c.count(counts.lanes, c.limits.lanes, "tracks");
+        self.validate_sidechains(&mut c);
 
         if c.out.is_empty() { Ok(()) } else { Err(c.out) }
+    }
+
+    /// The detection sources of the devices (#952): another existing track, on a track's
+    /// device whose built-in kind takes one, at most [`MAX_SIDECHAIN_SOURCES`] tracks listened
+    /// to, and no loop.
+    fn validate_sidechains(&self, c: &mut Checker<'_>) {
+        let takes = |device: &Device| match &device.source {
+            DeviceSource::Builtin { id, .. } => {
+                engine::device::builtin_descriptors().any(|d| d.kind == id && d.sidechain)
+            }
+            DeviceSource::Module { .. } => false,
+        };
+        for (id, device) in &self.master_devices {
+            c.check(
+                device.sidechain.is_none(),
+                &format!("master/devices/{id}"),
+                ViolationKind::SidechainOnMaster,
+            );
+        }
+        let mut sources = BTreeSet::new();
+        for (track_id, track) in &self.tracks {
+            for (id, device) in &track.devices {
+                let Some(source) = &device.sidechain else {
+                    continue;
+                };
+                let path = format!("tracks/{track_id}/devices/{id}");
+                c.check(takes(device), &path, ViolationKind::SidechainNotTaken);
+                c.check(source != track_id, &path, ViolationKind::SidechainSelf);
+                c.check(
+                    self.tracks.contains_key(source),
+                    &path,
+                    ViolationKind::SidechainUnknownTrack,
+                );
+                sources.insert(source);
+            }
+        }
+        c.count(sources.len(), MAX_SIDECHAIN_SOURCES, "tracks");
+        if let Some(track) = crate::sidechain::cycle(self) {
+            c.push(&format!("tracks/{track}"), ViolationKind::SidechainCycle);
+        }
     }
 
     fn validate_transport(&self, c: &mut Checker<'_>) {

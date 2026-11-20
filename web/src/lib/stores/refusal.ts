@@ -28,6 +28,7 @@ export const ENTITY_KEYS: Record<string, MessageKey> = {
   lanes: 'refusal.entity.lanes',
   'export seconds': 'refusal.entity.exportSeconds',
   'analyze seconds': 'refusal.entity.analyzeSeconds',
+  'sidechain sources': 'refusal.entity.sidechainSources',
 }
 
 /** The text key of a refusal code: one text per code, never one per call site. */

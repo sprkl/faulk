@@ -143,6 +143,7 @@ const NEPER_PER_DB: f32 = 0.115_129_26;
 /// The descriptor of the limiter (CT-5): `faulk.ceiling`, displayed "Ceiling" (one English
 /// name, never translated). The defaults are the values of [`Ceiling::new`].
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.ceiling",
     kind_id: DeviceKind(7),
     version: 1,

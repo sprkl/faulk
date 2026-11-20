@@ -49,5 +49,6 @@ mod record_loop;
 mod record_replace;
 mod scale;
 mod scene;
+mod sidechain;
 mod track;
 mod transport;

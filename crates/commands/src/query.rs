@@ -139,6 +139,8 @@ pub struct DeviceSummary {
     pub source: DeviceSource,
     /// The device's English name; `null` for a module and for the clip player.
     pub name: Option<String>,
+    /// The track its detection listens to (`device.set_sidechain`); `null` for its own.
+    pub sidechain: Option<TrackId>,
 }
 
 /// A clip in a list.
@@ -472,6 +474,7 @@ fn device_summary(id: &DeviceId, device: &Device) -> DeviceSummary {
         enabled: device.enabled,
         source: device.source.clone(),
         name: device_name(device),
+        sidechain: device.sidechain.clone(),
     }
 }
 
