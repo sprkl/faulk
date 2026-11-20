@@ -26,9 +26,13 @@
 //!   with no track or no buffer, one that rendered after the device (a cycle), and the frames
 //!   of a catch-up (#761), which belong to an earlier block.
 //!
-//! Limit: the detection is not compensated for latency. A source whose chain delays its sound
+//! Limits: the detection is not compensated for latency. A source whose chain delays its sound
 //! by `P_s` frames, heard by a device after devices that delay by `P_c`, is detected `P_s −
-//! P_c` frames late (early when negative); with no look-ahead anywhere both are 0.
+//! P_c` frames late (early when negative): a Ceiling at its defaults on the source (1.5 ms of
+//! look-ahead) makes it 72 frames late at 48 kHz (`tests/it/sidechain.rs`); with no device
+//! of latency on either track both are 0. While a slot of the source switches its timing
+//! (#761), the tap takes the block as the chain left it: the frames a pause holds back are the
+//! ones before the switched slot, and the frames a catch-up adds go to the mix only.
 
 use crate::device::Key;
 use crate::engine::{DeviceEntry, Track};

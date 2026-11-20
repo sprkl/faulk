@@ -393,7 +393,16 @@ fn set_sidechain(
                 ),
             ));
         }
-        let mut sources = project::sidechain::sources(&state.project);
+        // The tracks listened to once the device listens to `s`: its own source now no longer
+        // counts, unless another device listens to it too.
+        let mut sources: std::collections::BTreeSet<&TrackId> = state
+            .project
+            .tracks
+            .values()
+            .flat_map(|t| t.devices.iter())
+            .filter(|(id, _)| *id != device_id)
+            .filter_map(|(_, d)| d.sidechain.as_ref())
+            .collect();
         sources.insert(s);
         if sources.len() > MAX_SIDECHAIN_SOURCES {
             return Err(CommandError::Limit {

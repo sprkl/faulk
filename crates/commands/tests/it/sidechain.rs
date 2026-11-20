@@ -217,6 +217,10 @@ fn more_sources_than_the_engine_holds_are_refused() {
     );
     // A source already listened to counts once.
     check(&set(&last.0, Some(&rest[0].1)), &s, &c).unwrap();
+    // At the limit, a device that moves from a source only it listened to, to a new track,
+    // leaves as many sources: it is not refused.
+    let (moving, _) = &rest[rest.len() - 1];
+    check(&set(moving, Some(&last.1)), &s, &c).unwrap();
 }
 
 #[test]

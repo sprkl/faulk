@@ -454,3 +454,50 @@ fn prepare_refuses_what_takes_no_detection_source() {
     // Its own track is its own track.
     assert!(r.p.prepare(key(PAD, COMP, Some(PAD))).is_ok());
 }
+/// The first frame of `out` at or after `from` whose magnitude stays under `level` for the
+/// next 64 frames: where the pad has gone down.
+fn first_dip(out: &[f32], from: usize, level: f32) -> usize {
+    (from..out.len() - 64)
+        .find(|&i| out[i..i + 64].iter().all(|s| s.abs() < level))
+        .unwrap_or(out.len())
+}
+
+#[test]
+fn the_detection_is_not_latency_compensated_a_source_with_a_look_ahead_keys_that_late() {
+    // The documented limit (`engine::sidechain`): a Ceiling at its defaults on the kick (a
+    // look-ahead of 1.5 ms, 72 frames at 48 kHz) delays what the pad's Compressor hears by
+    // those frames. Measured on the output: the pad is delayed by the compensation (72 frames,
+    // the kick's chain) and its dip comes 72 frames later than the kick's sound, which the
+    // compensation leaves in time with the pad.
+    let dip_at = |ceiling: bool| {
+        let mut r = Rig::new();
+        pad_and_muted_kick(&mut r);
+        let mut msgs = vec![key(PAD, COMP, Some(KICK))];
+        if ceiling {
+            msgs.push(M::DeviceInsert {
+                track: KICK,
+                device: DeviceSlot(1),
+                kind: engine::devices::ceiling::DESCRIPTOR.kind_id,
+                state: Vec::new(),
+            });
+        }
+        r.send(&msgs);
+        r.run(80);
+        let before = r.run(1);
+        let level = before.iter().fold(0.0f32, |m, s| m.max(s.abs())) * 0.3;
+        r.send(&[on(KICK, 64)]);
+        let out = r.run(20);
+        first_dip(&out, 0, level)
+    };
+    let (plain, late) = (dip_at(false), dip_at(true));
+    let lookahead = (0.0015 * RATE).round() as usize;
+    assert!(plain < 64, "the pad goes down at once: frame {plain}");
+    let lag = late - plain;
+    eprintln!("dip without the Ceiling at {plain}, with it at {late}: {lag} frames");
+    // The compensation's delay plus the detection's own lateness, each one look-ahead.
+    assert!(
+        // Within a third of a millisecond: where the pad crosses the level depends on its phase.
+        (lag as i64 - 2 * lookahead as i64).abs() <= 16,
+        "{lag} frames, against twice {lookahead}"
+    );
+}
