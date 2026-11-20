@@ -29,6 +29,7 @@ import { filter } from './filter'
 import { stack } from './stack'
 import { lattice } from './lattice'
 import { scatter } from './scatter'
+import { swing } from './swing'
 import { reverb } from './reverb'
 import { keys } from './keys'
 import { layout } from './layout'
@@ -77,6 +78,7 @@ export const features = {
   stack,
   lattice,
   scatter,
+  swing,
   compressor,
   ceiling,
   trim,

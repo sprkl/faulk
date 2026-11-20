@@ -30,6 +30,7 @@ pub mod ripple;
 pub mod scale;
 pub mod scatter;
 pub mod stack;
+pub mod swing;
 pub mod time_change;
 pub mod trim;
 
@@ -66,6 +67,7 @@ pub const REGISTRY: &[Builtin] = &[
     bloom::BUILTIN,
     contour::BUILTIN,
     ripple::BUILTIN,
+    swing::BUILTIN,
 ];
 
 /// The registry's line of `kind`.

@@ -5,9 +5,13 @@
 
 import { MODES, TONICS, type JourneyEntry, type Localized } from './types'
 
-/** Where the audio, MIDI and sheets live (jsDelivr serves them with open CORS and the right types). */
+/**
+ * Where the audio, MIDI and pack live: raw.githubusercontent.com, with open CORS, types by extension and no
+ * repository size limit (jsDelivr refuses a repository over 50 MB, #945). It has no CDN contract: this is the
+ * one place to change to move to Pages or a Blob store.
+ */
 export const JOURNEY_REPO = 'sprkl/faulk-journey'
-const CDN = `https://cdn.jsdelivr.net/gh/${JOURNEY_REPO}@main/tracks`
+const CDN = `https://raw.githubusercontent.com/${JOURNEY_REPO}/main/tracks`
 const BLOB = `https://github.com/${JOURNEY_REPO}/blob/main/tracks`
 
 /** The entry's folder in the journey repository, and its file stem in `entries/`. */

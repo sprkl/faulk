@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 58;
+pub const PROTOCOL_VERSION: u32 = 59;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -43,6 +43,11 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// The bound covers the question only: an allowed action that takes long can still end in
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
+
+// Version 59 (#168): the registry gains the MIDI effect `faulk.swing` (device kind 16: the notes on the
+// off-beats of a grid delayed to a swing, with an optional humanize of time and velocity). A helper of
+// an earlier version would not build the device: a page and a helper of different versions refuse each
+// other.
 
 // Version 58 (#881): an automation point's shape gains `ease_in`, `ease_out` and `smooth` (the
 // commands' `Shape`, the engine's `Curve` 2, 3 and 4 in a lane upload). A helper of an earlier
