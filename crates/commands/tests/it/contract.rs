@@ -17,6 +17,7 @@ use crate::automation_examples;
 use crate::clip_examples;
 use crate::device_examples;
 use crate::grid_examples;
+use crate::key_change_examples;
 use crate::marker_examples;
 use crate::preset_examples;
 use crate::query_examples;
@@ -231,6 +232,7 @@ fn examples() -> Vec<(Command, State)> {
     .chain(query_examples::examples())
     .chain(record_examples::examples())
     .chain(marker_examples::examples())
+    .chain(key_change_examples::examples())
     .chain(preset_examples::examples())
     .collect()
 }

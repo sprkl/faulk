@@ -67,6 +67,9 @@ fn samples() -> Vec<ControlMsg> {
         ControlMsg::SetScale {
             pitch_classes: 0x0AB5,
         },
+        ControlMsg::SetKeyChanges {
+            changes: vec![(Tick(3840), 0x0AB5), (Tick(7680), 0)],
+        },
         ControlMsg::TrackCreate {
             track: t,
             kind: TrackKind::Midi,

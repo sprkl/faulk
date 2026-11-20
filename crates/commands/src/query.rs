@@ -347,6 +347,7 @@ pub(crate) struct ProjectData {
     pub scale_root: u8,
     pub scale_mode: project::ScaleKind,
     pub scale_pitch_classes: Vec<u8>,
+    pub key_change_count: u32,
     pub master: Mixer,
     pub track_count: u32,
     pub scene_count: u32,
@@ -376,6 +377,7 @@ pub(crate) fn project_data(state: &State) -> ProjectData {
         scale_pitch_classes: p
             .scale
             .map_or_else(|| (0..12).collect(), project::Scale::pitch_classes),
+        key_change_count: count(p.key_changes.len()),
         master: p.master,
         track_count: count(p.tracks.len()),
         scene_count: count(p.scenes.len()),

@@ -553,6 +553,7 @@ fn kind_name(kind: &ViolationKind) -> &'static str {
         BadSampleRate => "BadSampleRate",
         BadPreset => "BadPreset",
         ScaleRoot(_) => "ScaleRoot",
+        KeyChangeTick => "KeyChangeTick",
         SidechainUnknownTrack => "SidechainUnknownTrack",
         SidechainSelf => "SidechainSelf",
         SidechainOnMaster => "SidechainOnMaster",
@@ -562,7 +563,7 @@ fn kind_name(kind: &ViolationKind) -> &'static str {
     }
 }
 
-const ALL_KINDS: [&str; 42] = [
+const ALL_KINDS: [&str; 43] = [
     "SidechainUnknownTrack",
     "SidechainSelf",
     "SidechainOnMaster",
@@ -571,6 +572,7 @@ const ALL_KINDS: [&str; 42] = [
     "MidiEffectOutOfPlace",
     "MidiEffectOnAudioTrack",
     "ScaleRoot",
+    "KeyChangeTick",
     "BadPreset",
     "MissingInstrument",
     "BadSampleRate",
@@ -702,6 +704,16 @@ fn cases() -> Vec<(&'static str, Mutation, &'static str)> {
                 })
             }),
             "ScaleRoot",
+        ),
+        (
+            "a key change at tick 0",
+            Box::new(|fx| {
+                fx.project.key_changes = vec![project::KeyChange {
+                    tick: Tick(0),
+                    scale: None,
+                }]
+            }),
+            "KeyChangeTick",
         ),
         (
             "project preset with an untrimmed name",

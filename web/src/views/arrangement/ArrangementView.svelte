@@ -73,7 +73,8 @@
     type RovingKey,
   } from '../../lib/roving'
   import { CLIP_DRAG_TYPE, clipTrackType, newClipAt, placeCommand, poolOf } from '../../lib/clip-pool'
-  import { addMarker, deleteMarker, moveMarker, renameMarker } from '../../lib/arrangement-commands'
+  import { addMarker, deleteMarker, moveKeyChange, moveMarker, removeKeyChange, renameMarker, setKeyChange } from '../../lib/arrangement-commands'
+  import { keyOwner, kindOf, scaleName, scaleShort } from '../../lib/scale'
   import {
     blocksOf,
     clampScrollY,
@@ -281,8 +282,12 @@
       .flatMap(([id, m]) => (m ? [{ id, tick: m.tick, name: m.name }] : []))
       .sort((a, b) => a.tick - b.tick || (a.id < b.id ? -1 : 1)),
   )
-  /** Where the song ends: its last clip, automation point or marker. */
-  const songEnd = $derived(Math.max(lastEnd(blocks), lastPoint, markers.at(-1)?.tick ?? 0))
+  /** The key changes (#953), in timeline order, each with its short key name ("Dm", "F"). */
+  const keyChanges = $derived(
+    (project.view?.project.key_changes ?? []).map((c) => ({ tick: c.tick, scale: c.scale ?? null, name: scaleShort(c.scale ?? null, t) })),
+  )
+  /** Where the song ends: its last clip, automation point, marker or key change. */
+  const songEnd = $derived(Math.max(lastEnd(blocks), lastPoint, markers.at(-1)?.tick ?? 0, keyChanges.at(-1)?.tick ?? 0))
 
   // View state.
   // The snap is kept for the session across every view change (#925): the view is built again when another view is shown,
@@ -762,6 +767,85 @@
       run(deleteMarker(marker.id))
     }
   }
+  // --- the key changes (#953) ----------------------------------------------------------------------
+  type KeyChangeView = (typeof keyChanges)[number]
+  /** The key change being dragged on the ruler: where it started and the pointer's start and offset in pixels. */
+  let keyDrag = $state<{ tick: number; startX: number; dx: number } | null>(null)
+  const barOf = (tick: number) => Math.floor(tick / bar) + 1
+  /** A key change at the bar the playhead is in, in the key in force there (the ruler's menu and the palette). */
+  function addKeyChangeHere() {
+    const at = Math.floor(headTick() / bar) * bar
+    if (at < bar) return announce(t('scale.keyChange.saidFirstBar'))
+    if (keyChanges.some((c) => c.tick === at)) return announce(t('scale.keyChange.saidThere'))
+    const key = kindOf(keyOwner(project.view?.project, at).scale)
+    run(setKeyChange(at, key.root, key.mode))
+    announce(t('scale.keyChange.saidAdded', { bar: barOf(at) }))
+  }
+  function goToKeyChange(change: KeyChangeView) {
+    jumpedTo = null
+    run(seek(change.tick))
+  }
+  /** Moves a key change to another bar start; refused (said) at the first bar or onto another change. */
+  function moveKey(change: KeyChangeView, to: number) {
+    if (to === change.tick) return
+    if (to < bar || keyChanges.some((c) => c.tick === to)) return announce(t('scale.keyChange.saidCannotMove'))
+    run(moveKeyChange(change.tick, to))
+    const [from, end] = visibleRange(shown, stageW)
+    if (stageW > 0 && (to < from || to > end)) {
+      follow = false
+      view = clampView({ pxPerTick: shown.pxPerTick, scrollTick: to - (stageW / shown.pxPerTick) * PAGE_LEAD }, stageW, totalTicks)
+    }
+    announce(t('scale.keyChange.saidMoved', { bar: barOf(to) }))
+  }
+  function removeKey(change: KeyChangeView) {
+    run(removeKeyChange(change.tick))
+    announce(t('scale.keyChange.saidRemoved'))
+  }
+  function onKeyChangeContext(event: MouseEvent, change: KeyChangeView) {
+    ui.openMenu(
+      event,
+      [
+        { id: 'key-jump', label: t('scale.keyChange.jump'), run: () => goToKeyChange(change) },
+        {
+          id: 'key-earlier',
+          label: t('scale.keyChange.earlier'),
+          shortcut: chordText(['Alt', '←']),
+          separator: true,
+          run: () => moveKey(change, change.tick - bar),
+        },
+        { id: 'key-later', label: t('scale.keyChange.later'), shortcut: chordText(['Alt', '→']), run: () => moveKey(change, change.tick + bar) },
+        { id: 'key-delete', label: t('scale.keyChange.delete'), shortcut: chordText(['Delete']), separator: true, run: () => removeKey(change) },
+      ],
+      t('scale.keyChange.menu', { name: change.name }),
+    )
+  }
+  function onKeyChangeKey(event: KeyboardEvent, change: KeyChangeView) {
+    if (event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+      event.preventDefault()
+      event.stopPropagation()
+      moveKey(change, change.tick + (event.key === 'ArrowLeft' ? -bar : bar))
+    } else if (event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault()
+      removeKey(change)
+    }
+  }
+  function onKeyChangeDown(event: PointerEvent, change: KeyChangeView) {
+    event.stopPropagation()
+    if (event.button !== 0) return
+    ;(event.currentTarget as HTMLElement).setPointerCapture(event.pointerId)
+    keyDrag = { tick: change.tick, startX: event.clientX, dx: 0 }
+  }
+  function onKeyChangeMove(event: PointerEvent) {
+    if (keyDrag) keyDrag = { ...keyDrag, dx: event.clientX - keyDrag.startX }
+  }
+  /** A press that moved under 4 px is a click (the playhead goes there); a longer one drops the change on the nearest bar. */
+  function onKeyChangeUp(_event: PointerEvent, change: KeyChangeView) {
+    const drag = keyDrag
+    keyDrag = null
+    if (!drag || drag.tick !== change.tick) return
+    if (Math.abs(drag.dx) < 4) return goToKeyChange(change)
+    moveKey(change, Math.max(0, Math.round((change.tick + drag.dx / shown.pxPerTick) / bar)) * bar)
+  }
   // Alt+K, Alt+Page Up/Down and Alt+Z, wherever the focus is in the page (the arrangement is shown).
   onMount(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -880,6 +964,7 @@
       fallbackName: t('arrangement.clipDefault'),
       silent,
       markers,
+      keyChanges,
       handles: handlesNow,
       peaksOf: (media) => peaks.of(media).peaks,
     })
@@ -1651,6 +1736,7 @@
         },
         { id: 'more-delete-bars', label: t('arrangement.deleteBars'), disabled: !timeSel, run: deleteSelectedTime },
         { id: 'more-marker', label: t('arrangement.addMarker'), shortcut: chordText(['Alt', 'K']), separator: true, run: addMarkerHere },
+        { id: 'more-key-change', label: t('scale.keyChange.addHere'), run: addKeyChangeHere },
         ...SHAPES.map((shape, i) => ({
           id: `more-curve-${shape}`,
           label: t(SHAPE_NAMES[shape].more),
@@ -3056,6 +3142,36 @@
           {/if}
         {/each}
       </div>
+      <!-- The key changes on the ruler (#953): the key from that bar on; a click puts the playhead there, a drag moves it by bars. -->
+      <div class="key-changes" role="group" aria-label={t('scale.keyChange.group')} data-testid="arr-key-changes">
+        {#each keyChanges as change (change.tick)}
+          {@const dragging = keyDrag?.tick === change.tick ? keyDrag.dx : 0}
+          {@const x = tickToX(change.tick, shown) + dragging}
+          {#if x >= -200 && x <= stageW}
+            <button
+              class="key-change"
+              class:dragging={dragging !== 0}
+              type="button"
+              style:left="{x}px"
+              title={t('scale.keyChange.hint')}
+              aria-label={t('scale.keyChange.title', { bar: barOf(change.tick), name: scaleName(change.scale, t) })}
+              data-testid="arr-key-change"
+              data-tick={change.tick}
+              onpointerdown={(e) => onKeyChangeDown(e, change)}
+              onpointermove={onKeyChangeMove}
+              onpointerup={(e) => onKeyChangeUp(e, change)}
+              onpointercancel={() => (keyDrag = null)}
+              onlostpointercapture={() => (keyDrag = null)}
+              oncontextmenu={(e) => onKeyChangeContext(e, change)}
+              onkeydown={(e) => onKeyChangeKey(e, change)}
+              onclick={(e) => {
+                // A keyboard activation (no pointer): the playhead goes there; a pointer click was handled on release.
+                if (e.detail === 0) goToKeyChange(change)
+              }}>{change.name}</button
+            >
+          {/if}
+        {/each}
+      </div>
       <!-- The clips as named cells over the canvas (#471): the keyboard's and the screen reader's way to them. The pointer goes through to the canvas. -->
       <!-- The cells are the focusable parts of the grid (roving tabindex), as in the launch grid; the grid only listens for their keys. -->
       <!-- svelte-ignore a11y_interactive_supports_focus -->
@@ -3566,6 +3682,43 @@
     right: 0;
     height: 14px;
     pointer-events: none;
+  }
+  .key-changes {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 14px;
+    pointer-events: none;
+  }
+  .key-change {
+    position: absolute;
+    top: 0;
+    max-width: 120px;
+    height: 14px;
+    padding: 0 4px 0 5px;
+    border: 0;
+    border-left: 2px solid var(--fk-accent);
+    border-radius: 0;
+    background: var(--fk-surface-2, var(--fk-bg));
+    color: var(--fk-text);
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    pointer-events: auto;
+    cursor: grab;
+    touch-action: none;
+  }
+  .key-change.dragging {
+    cursor: grabbing;
+    opacity: 0.8;
+  }
+  .key-change:focus-visible {
+    outline: 2px solid var(--fk-accent);
+    outline-offset: 1px;
   }
   .marker,
   .marker-field {

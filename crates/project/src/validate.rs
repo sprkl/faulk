@@ -108,6 +108,9 @@ pub enum ViolationKind {
     BadPreset,
     /// A scale root above [`crate::scale::MAX_ROOT`] (#695).
     ScaleRoot(u8),
+    /// The key changes are not strictly increasing in tick, or one stands at tick 0 or past
+    /// [`crate::limits::MAX_TICK`] (#953).
+    KeyChangeTick,
     /// A device's detection source (#952) that names a track the project does not have.
     SidechainUnknownTrack,
     /// A device's detection source that names the device's own track (absent is that).
@@ -269,6 +272,24 @@ impl Project {
                 "scale",
                 ViolationKind::ScaleRoot(scale.root),
             );
+        }
+        c.count(self.key_changes.len(), MAX_KEY_CHANGES, "key_changes");
+        let mut previous = Tick::ZERO;
+        for (i, change) in self.key_changes.iter().enumerate() {
+            let path = format!("key_changes/{i}");
+            c.check(
+                change.tick > previous && change.tick.get() <= MAX_TICK,
+                &path,
+                ViolationKind::KeyChangeTick,
+            );
+            previous = change.tick;
+            if let Some(scale) = change.scale {
+                c.check(
+                    scale.root <= crate::scale::MAX_ROOT,
+                    &path,
+                    ViolationKind::ScaleRoot(scale.root),
+                );
+            }
         }
         c.mixer(&self.master, "master");
         self.validate_master_chain(&mut c);

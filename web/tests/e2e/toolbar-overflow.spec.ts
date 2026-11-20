@@ -154,10 +154,12 @@ for (const [locale, repeat] of [
     await expect(more).toBeFocused()
     await expect.poll(async () => Number(await arr(page).getAttribute('data-block-count'))).toBeGreaterThan(1)
 
-    // End reaches the last enabled entry (the marker: the curves and the bar deletion are off); Enter adds a marker at the playhead.
+    // End reaches the last enabled entry (the key change, #953: the curves and the bar deletion are off), Up the marker before it; Enter adds a marker at the playhead.
     await more.focus()
     await page.keyboard.press('Enter')
     await page.keyboard.press('End')
+    await expect(page.getByTestId('ctx-more-key-change')).toBeFocused()
+    await page.keyboard.press('ArrowUp')
     await expect(page.getByTestId('ctx-more-marker')).toBeFocused()
     await page.keyboard.press('Enter')
     await expect(menu).toHaveCount(0)

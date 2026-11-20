@@ -1367,6 +1367,14 @@ impl Graph {
         let (left, right) = (&mut left[..frames], &mut right[..frames]);
         left.fill(0.0);
         right.fill(0.0);
+        // The key in force at the playhead, and where it changes inside the block (#953).
+        let (scale, scale_switches) = match state.key_changes.as_deref() {
+            Some(map) => {
+                let first = map.scale_at(state.scale, clock.position);
+                (first, map.switches_in(state.scale, first, clock.segments))
+            }
+            None => (state.scale, crate::device::ScaleSwitches::NONE),
+        };
         let ctx = BlockCtx {
             sample_rate: self.sample_rate,
             frames: frames as u32,
@@ -1375,7 +1383,8 @@ impl Graph {
                 tempo: state.transport.tempo,
                 signature: state.transport.signature,
                 position_ticks: clock.position,
-                scale: state.scale,
+                scale,
+                scale_switches,
             },
         };
         let fade = self.fade;

@@ -47,7 +47,18 @@ pub const MIGRATIONS: &[Migration] = &[
         from: 7,
         apply: v7_to_v8,
     },
+    Migration {
+        from: 8,
+        apply: v8_to_v9,
+    },
 ];
+
+/// Format 9 (#953): the project may hold key changes (`key_changes`). Nothing in the files
+/// changes (a project of format 8 has none); the number does, so that a build of format 8
+/// reports the folder as made by a newer build instead of corrupt.
+fn v8_to_v9(mem: &mut MemFs) -> Result<(), String> {
+    set_format(mem, 9)
+}
 
 /// Format 8 (#952): a device may name the track its detection listens to (`sidechain`).
 /// Nothing in the files changes (a project of format 7 has none); the number does, so that a

@@ -684,6 +684,8 @@ fn compile_event(
         // new project (`Synced::run`).
         // The MIDI effects that work in the scale read it (#690).
         ProjectEvent::ScaleChanged { .. } => out.push(set_scale(project)),
+        // Stack, Lattice and Scatter read the key in force at the played position (#953).
+        ProjectEvent::KeyChangesChanged {} => out.push(set_key_changes(project)),
         ProjectEvent::ProjectRenamed { .. }
         | ProjectEvent::MarkersChanged {}
         | ProjectEvent::ProjectOpened { .. }
@@ -713,6 +715,10 @@ pub fn snapshot(project: &Project, session: &SessionState) -> (Vec<ControlMsg>, 
     // A `Reset` leaves the engine without a scale: only a project with one sends it.
     if project.scale.is_some() {
         out.push(set_scale(project));
+    }
+    // Likewise for the key changes (#953).
+    if !project.key_changes.is_empty() {
+        out.push(set_key_changes(project));
     }
     if project.transport.loop_enabled && project.transport.loop_region.is_some() {
         out.push(set_loop(project));
@@ -1642,13 +1648,30 @@ fn set_transport(project: &Project) -> ControlMsg {
 
 /// The project's scale as the engine takes it: a set of pitch classes, 0 for none (#690).
 fn set_scale(project: &Project) -> ControlMsg {
-    let pitch_classes = project.scale.map_or(0, |scale| {
+    ControlMsg::SetScale {
+        pitch_classes: pitch_bits(project.scale),
+    }
+}
+
+/// A scale as the engine takes it: bit `c` for pitch class `c`, 0 for none.
+fn pitch_bits(scale: Option<project::Scale>) -> u16 {
+    scale.map_or(0, |scale| {
         scale
             .pitch_classes()
             .iter()
             .fold(0u16, |bits, pc| bits | 1 << (pc % 12))
-    });
-    ControlMsg::SetScale { pitch_classes }
+    })
+}
+
+/// The whole list of key changes as the engine takes it (#953).
+fn set_key_changes(project: &Project) -> ControlMsg {
+    ControlMsg::SetKeyChanges {
+        changes: project
+            .key_changes
+            .iter()
+            .map(|c| (c.tick, pitch_bits(c.scale)))
+            .collect(),
+    }
 }
 
 fn set_loop(project: &Project) -> ControlMsg {

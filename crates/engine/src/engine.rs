@@ -456,6 +456,8 @@ pub struct State {
     pub transport: TransportSettings,
     /// The project's scale (`SetScale`, #690), copied into every block's transport.
     pub scale: crate::device::PitchSet,
+    /// The project's key changes (`SetKeyChanges`, #953); `None` for none.
+    pub key_changes: Option<Box<crate::keymap::KeyMap>>,
     pub metronome: Metronome,
     pub master: Master,
     /// The master's timed gain, pan and mute ([`crate::mixer`], MX-1): set off the audio
@@ -497,6 +499,7 @@ impl State {
         Ok(State {
             transport: TransportSettings::default(),
             scale: crate::device::PitchSet::EMPTY,
+            key_changes: None,
             metronome: Metronome::default(),
             master: Master::default(),
             master_schedule: None,
@@ -1151,6 +1154,16 @@ impl Preparer {
             ControlMsg::SetMaster { gain, pan, mute } => RtMsg::SetMaster { gain, pan, mute },
             ControlMsg::SetScale { pitch_classes } => {
                 RtMsg::SetScale(crate::device::PitchSet::from_bits(pitch_classes))
+            }
+            ControlMsg::SetKeyChanges { changes } => {
+                let ticks: Vec<(i64, u16)> = changes.iter().map(|(t, b)| (t.0, *b)).collect();
+                let tag = Tag::SetKeyChanges as u16;
+                let map = crate::keymap::KeyMap::new(&ticks).ok_or(MsgError::BadPayload { tag })?;
+                RtMsg::SetKeyChanges(if map.is_empty() {
+                    None
+                } else {
+                    Some(try_box(map)?)
+                })
             }
             ControlMsg::TrackCreate { track, kind } => self.prepare_track(track, kind)?,
             ControlMsg::TrackRemove { track } => {
@@ -2925,6 +2938,13 @@ impl Engine {
                 state.scale = scale;
                 None
             }
+            RtMsg::SetKeyChanges(map) => {
+                // The old table is the one garbage item of this message.
+                Some(Garbage::KeyChanges(core::mem::replace(
+                    &mut state.key_changes,
+                    map,
+                )))
+            }
             RtMsg::SetMetronome {
                 enabled,
                 volume,
@@ -3841,6 +3861,7 @@ fn garbage_is_empty(garbage: &Garbage) -> bool {
         Garbage::Sources(s) => s.is_empty(),
         Garbage::Segment(s) => s.is_none(),
         Garbage::Ring(r) => r.is_none(),
+        Garbage::KeyChanges(k) => k.is_none(),
         Garbage::State(_) | Garbage::Placements(_) | Garbage::Scenes(_) => false,
     }
 }

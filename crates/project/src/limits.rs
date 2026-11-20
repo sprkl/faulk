@@ -44,6 +44,10 @@ pub const MAX_SCENES: usize = engine::msg::limits::MAX_SCENES as usize;
 /// Most section markers of a project (#473): the page draws them all on the ruler.
 pub const MAX_MARKERS: usize = 1024;
 
+/// Most key changes of a project (#953): the engine holds the whole list in a table of this
+/// size, read at every block.
+pub const MAX_KEY_CHANGES: usize = engine::msg::limits::MAX_KEY_CHANGES as usize;
+
 /// Most tracks that devices of other tracks listen to (#952, a sidechain): the engine's
 /// buffers of detection inputs. One track listened to by many devices counts once.
 pub const MAX_SIDECHAIN_SOURCES: usize = engine::sidechain::MAX_KEY_SOURCES;

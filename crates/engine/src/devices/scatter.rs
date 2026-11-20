@@ -353,7 +353,6 @@ impl Device for Scatter {
             self.moved = 0;
         }
         self.playing = ctx.transport.playing;
-        let scale = ctx.transport.scale;
         let mut cursor = 0;
         for event in events {
             let at = event_frame(event.offset(), cursor, frames);
@@ -370,6 +369,7 @@ impl Device for Scatter {
                         self.stopped = self.stopped.wrapping_add(1);
                     }
                     let place = Place::of(ctx, at, self.stopped);
+                    let scale = ctx.transport.scale_at(at);
                     self.note_on(
                         at,
                         voice,

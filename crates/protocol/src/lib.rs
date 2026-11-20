@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 60;
+pub const PROTOCOL_VERSION: u32 = 61;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -44,6 +44,13 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
+// Version 61 (#953, provisional: the lead reassigns in merge order):
+// the project's key changes. The engine takes `ControlMsg::SetKeyChanges` (tag 5, the whole list of
+// (tick, pitch classes)) and Stack, Lattice and Scatter read the key in force at the played position;
+// the commands gain `arrangement.key_change.set`, `.move`, `.remove` and `.list`, `project.get`
+// answers `key_change_count`, the event `key_changes_changed`, and the project its `key_changes`
+// (folder format 9). A helper of an earlier version does not know tag 5: its engine would skip the
+// message (`UnknownTag`) and keep the starting key everywhere.
 // Version 60 (#952, provisional): the engine stream gains `DeviceSidechain` (tag
 // 25), the track a device's detection listens to; the commands gain `device.set_sidechain`,
 // `track.delete` reports the devices it set back to their own track and `track.restore` takes
