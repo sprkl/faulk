@@ -252,6 +252,7 @@ fn every_refusal_leaves_the_state_as_it_was() {
             params: BTreeMap::new(),
             state: None,
             preset: None,
+            sidechain: None,
         },
     );
     audio.project.tracks.insert(
@@ -708,6 +709,7 @@ fn a_load_into_a_device_that_lacks_parameters_tells_the_engine_and_undoes_to_wha
             params: BTreeMap::from([("cutoff".into(), 800.0)]),
             state: None,
             preset: None,
+            sidechain: None,
         },
     );
     state.project.validate().unwrap();
@@ -812,6 +814,7 @@ fn the_other_refusals_of_rename_restore_and_restore_device() {
             params: BTreeMap::new(),
             state: None,
             preset: None,
+            sidechain: None,
         },
     );
     audio.project.tracks.insert(

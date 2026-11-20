@@ -369,6 +369,17 @@ pub fn messages() -> Vec<Phase> {
             pan: Some(0.0),
         },
     ];
+    // A device that listens to another track (#952): the audio track keys it, so the graph's
+    // plan, its tap and the keyed render run here.
+    for (track, device, desc) in &placed {
+        if desc.sidechain {
+            mix.push(M::DeviceSidechain {
+                track: *track,
+                device: *device,
+                source: Some(audio_track),
+            });
+        }
+    }
     for (track, device, desc) in placed.iter().chain(&master_placed) {
         mix.push(M::DeviceSetEnabled {
             track: *track,

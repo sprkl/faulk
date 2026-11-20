@@ -865,6 +865,16 @@ impl Device for Latent {
         self.inner.process(ctx, events, io);
     }
 
+    fn process_keyed(
+        &mut self,
+        ctx: &BlockCtx,
+        events: &[Event],
+        io: &mut AudioIo<'_>,
+        key: Option<crate::device::Key<'_>>,
+    ) {
+        self.inner.process_keyed(ctx, events, io, key);
+    }
+
     fn set_param(&mut self, id: ParamId, value: f32) {
         self.inner.set_param(id, value);
     }
@@ -899,6 +909,14 @@ impl Device for Latent {
         self.inner
             .max_latency_frames()
             .min(self.bypass.line.max_tap())
+    }
+
+    fn sidechain(&self) -> Option<crate::msg::TrackSlot> {
+        self.inner.sidechain()
+    }
+
+    fn set_sidechain(&mut self, source: Option<crate::msg::TrackSlot>) {
+        self.inner.set_sidechain(source);
     }
 
     fn bypass(&mut self) -> Option<&mut Bypass> {

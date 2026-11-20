@@ -65,6 +65,7 @@ pub mod tone {
 
 /// Descriptor of [`TestTone`].
 pub static TONE: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.test_tone",
     kind_id: DeviceKind(0xFFFF_0001),
     version: 1,
@@ -271,6 +272,7 @@ pub mod gain {
 
 /// Descriptor of [`TestGain`].
 pub static GAIN: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.test_gain",
     kind_id: DeviceKind(0xFFFF_0002),
     version: 1,
@@ -422,6 +424,7 @@ pub mod level {
 /// Descriptor of [`TestLevel`]: one level on a logarithmic knob, the case of a frequency or a
 /// time, for the automation of a logarithmic parameter (#881).
 pub static LEVEL: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.test_level",
     kind_id: DeviceKind(0xFFFF_0005),
     version: 1,
@@ -510,6 +513,7 @@ pub const TEST_DELAY_MAX: u32 = 4096;
 
 /// Descriptor of [`TestDelay`].
 pub static DELAY: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.test_delay",
     kind_id: DeviceKind(0xFFFF_0004),
     version: 1,
@@ -637,6 +641,7 @@ pub mod transpose {
 
 /// Descriptor of [`TestTranspose`].
 pub static TRANSPOSE: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.test_transpose",
     kind_id: DeviceKind(0xFFFF_0003),
     version: 1,

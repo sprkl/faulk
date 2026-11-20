@@ -32,6 +32,8 @@ pub struct DeviceView {
     pub enabled: bool,
     /// Parameter id → value: the initial state, then every `ParamSet`.
     pub params: BTreeMap<u32, f32>,
+    /// The track its detection listens to (#952, `DeviceSidechain`), `None` for its own.
+    pub sidechain: Option<TrackId>,
 }
 
 /// A track as the engine holds it.
@@ -122,6 +124,8 @@ struct SlotTrack {
     armed: bool,
     monitor: bool,
     devices: BTreeMap<u16, DeviceView>,
+    /// Device slot → the track slot its detection listens to (#952).
+    keys: BTreeMap<u16, u32>,
     scenes: BTreeMap<u16, u32>,
     placements: Vec<engine::msg::Placement>,
 }
@@ -198,11 +202,18 @@ impl Model {
                         kind,
                         enabled: true,
                         params,
+                        sidechain: None,
                     },
                 );
+                if !track.is_master() {
+                    self.keys(track.0).remove(&device.0);
+                }
             }
             ControlMsg::DeviceRemove { track, device } => {
                 self.devices(track.0).remove(&device.0);
+                if !track.is_master() {
+                    self.keys(track.0).remove(&device.0);
+                }
             }
             ControlMsg::DeviceMove { track, from, to } => {
                 let devices = self.devices(track.0);
@@ -210,7 +221,28 @@ impl Model {
                     && let Some(moved) = devices.remove(&from.0)
                 {
                     devices.insert(to.0, moved);
+                    if !track.is_master() {
+                        let keys = self.keys(track.0);
+                        if let Some(source) = keys.remove(&from.0) {
+                            keys.insert(to.0, source);
+                        }
+                    }
                 }
+            }
+            ControlMsg::DeviceSidechain {
+                track,
+                device,
+                source,
+            } => {
+                assert!(
+                    self.devices(track.0).contains_key(&device.0),
+                    "a source for a device the engine does not hold"
+                );
+                let keys = self.keys(track.0);
+                match source.filter(|s| *s != track) {
+                    Some(s) => keys.insert(device.0, s.0),
+                    None => keys.remove(&device.0),
+                };
             }
             ControlMsg::DeviceSetEnabled {
                 track,
@@ -311,6 +343,16 @@ impl Model {
         }
     }
 
+    /// The detection sources of a track's devices (#952); the master's chain has none, so a
+    /// master's device that gets one fails the view.
+    fn keys(&mut self, track: u32) -> &mut BTreeMap<u16, u32> {
+        assert!(
+            !TrackSlot(track).is_master(),
+            "a source on the master's chain"
+        );
+        &mut self.track(track).keys
+    }
+
     fn device(&mut self, track: u32, device: u16) -> &mut DeviceView {
         self.devices(track)
             .get_mut(&device)
@@ -374,7 +416,11 @@ impl EngineView {
                 devices: t
                     .devices
                     .iter()
-                    .map(|(d, v)| (device_id(&id, *d), v.clone()))
+                    .map(|(d, v)| {
+                        let mut v = v.clone();
+                        v.sidechain = t.keys.get(d).map(|s| track_id(*s));
+                        (device_id(&id, *d), v)
+                    })
                     .collect(),
                 scenes: t
                     .scenes
@@ -494,6 +540,7 @@ impl EngineView {
                             .iter()
                             .filter_map(|(k, v)| Some((param(&dev.source, k)?, finite_f32(*v))))
                             .collect(),
+                        sidechain: None,
                     },
                 ))
             })
@@ -517,6 +564,7 @@ impl EngineView {
                                 .iter()
                                 .filter_map(|(k, v)| Some((param(&dev.source, k)?, finite_f32(*v))))
                                 .collect(),
+                            sidechain: dev.sidechain.clone().filter(|_| b.descriptor.sidechain),
                         },
                     ))
                 })

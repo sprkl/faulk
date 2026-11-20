@@ -121,6 +121,7 @@ pub const KEY_TRACK_CENTER: f64 = 60.0;
 /// translated). The defaults are the values of [`Trim::new`]: a sixteenth note at the tempo,
 /// gate 100 %, from the start of the note, no key tracking.
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.trim",
     kind_id: DeviceKind(10),
     version: 1,

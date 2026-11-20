@@ -1425,3 +1425,178 @@ fn a_rate_above_the_cap_keeps_the_mvp_s_coefficients() {
     new.reset();
     assert!(new.latency_frames() <= 2_046, "{}", new.latency_frames());
 }
+// ---------------------------------------------------------------- the detection input (#952)
+
+/// Runs `input` (mono) through the device in blocks of `size`, its detection listening to
+/// `key` (mono), the same length.
+fn keyed(device: &mut Compressor, input: &[f32], key: &[f32], size: usize) -> Vec<f32> {
+    let mut unused = EventBuffer::try_with_capacity(1).unwrap();
+    let mut out = Vec::new();
+    let mut start = 0;
+    while start < input.len() {
+        let end = (start + size).min(input.len());
+        let (mut left, mut right) = (input[start..end].to_vec(), input[start..end].to_vec());
+        let ctx = BlockCtx {
+            sample_rate: SR,
+            frames: (end - start) as u32,
+            transport: Transport::default(),
+        };
+        let k = engine::device::Key {
+            left: &key[start..end],
+            right: &key[start..end],
+        };
+        assert_no_alloc(|| {
+            let mut io = AudioIo {
+                left: &mut left,
+                right: &mut right,
+                events_out: &mut unused,
+            };
+            device.process_keyed(&ctx, &[], &mut io, Some(k));
+        });
+        out.extend(left);
+        start = end;
+    }
+    out
+}
+
+fn peak_db(x: &[f32]) -> f32 {
+    20.0 * x
+        .iter()
+        .fold(0.0f32, |m, s| m.max(s.abs()))
+        .max(1e-9)
+        .log10()
+}
+
+#[test]
+fn a_key_drives_the_reduction_and_the_input_is_what_is_turned_down() {
+    let n = 24_000;
+    // A quiet input under the threshold, a key 12 dB over it: the input comes out turned
+    // down by the key's reduction, 9 dB at 4:1 (a hard knee).
+    let input = sine(n, 220.0, 10f32.powf(-30.0 / 20.0));
+    let key = sine(n, 100.0, 10f32.powf(-6.0 / 20.0));
+    let mut c = with(&[(KNEE, 0.0)]);
+    let out = keyed(&mut c, &input, &key, 128);
+    let tail = n / 2;
+    let drop = peak_db(&out[tail..]) - peak_db(&input[tail..]);
+    assert!(
+        (drop + 9.0).abs() < 0.5,
+        "the input goes down by 9 dB: {drop}"
+    );
+    assert!(
+        (c.gain_reduction_db() - 9.0).abs() < 0.5,
+        "{}",
+        c.gain_reduction_db()
+    );
+    // A loud input with a silent key: the key, not the input, is listened to.
+    let loud = sine(n, 220.0, 0.9);
+    let mut c = with(&[(KNEE, 0.0)]);
+    let out = keyed(&mut c, &loud, &vec![0.0; n], 128);
+    assert_eq!(out, loud, "no reduction: the key is silent");
+    assert_eq!(c.gain_reduction_db(), 0.0);
+}
+
+#[test]
+fn the_sidechain_high_pass_filters_the_key() {
+    let n = 48_000;
+    let input = sine(n, 1_000.0, 0.01);
+    // A 40 Hz key, 12 dB over the threshold: with the high-pass at 400 Hz it barely counts.
+    let key = sine(n, 40.0, 10f32.powf(-6.0 / 20.0));
+    let mut open = with(&[(KNEE, 0.0)]);
+    keyed(&mut open, &input, &key, 128);
+    let mut filtered = with(&[(KNEE, 0.0), (SIDECHAIN_HPF, 1.0), (SIDECHAIN_FREQ, 400.0)]);
+    keyed(&mut filtered, &input, &key, 128);
+    assert!(
+        open.gain_reduction_db() > 8.0,
+        "{}",
+        open.gain_reduction_db()
+    );
+    assert!(
+        filtered.gain_reduction_db() < 1.0,
+        "{}",
+        filtered.gain_reduction_db()
+    );
+}
+
+#[test]
+fn a_key_that_is_not_finite_or_huge_never_breaks_the_output() {
+    let n = 4_800;
+    let input = sine(n, 220.0, 0.3);
+    let key: Vec<f32> = (0..n)
+        .map(|i| match i % 4 {
+            0 => f32::NAN,
+            1 => f32::INFINITY,
+            2 => -1e30,
+            _ => 1e-30,
+        })
+        .collect();
+    let mut c = with(&[]);
+    let out = keyed(&mut c, &input, &key, 64);
+    assert!(out.iter().all(|s| s.is_finite() && s.abs() <= 0.3 + 1e-6));
+    assert!(
+        out.iter()
+            .all(|s| *s == 0.0 || s.abs() >= f32::MIN_POSITIVE)
+    );
+    assert!(c.gain_reduction_db().is_finite());
+    // A key shorter than the block reads silence past its end.
+    let mut c = with(&[]);
+    let mut unused = EventBuffer::try_with_capacity(1).unwrap();
+    let (mut l, mut r) = (vec![0.5; 128], vec![0.5; 128]);
+    let ctx = BlockCtx {
+        sample_rate: SR,
+        frames: 128,
+        transport: Transport::default(),
+    };
+    let short = [1.0f32; 3];
+    let mut io = AudioIo {
+        left: &mut l,
+        right: &mut r,
+        events_out: &mut unused,
+    };
+    c.process_keyed(
+        &ctx,
+        &[],
+        &mut io,
+        Some(engine::device::Key {
+            left: &short,
+            right: &short,
+        }),
+    );
+    assert!(l.iter().all(|s| s.is_finite()));
+}
+
+#[test]
+fn without_a_key_the_device_renders_as_process_does() {
+    let input = sine(9_600, 110.0, 0.8);
+    let mut a = with(&[]);
+    let mut b = with(&[]);
+    let plain = mono(&mut a, &input);
+    let mut unused = EventBuffer::try_with_capacity(1).unwrap();
+    let mut out = Vec::new();
+    for chunk in input.chunks(128) {
+        let (mut l, mut r) = (chunk.to_vec(), chunk.to_vec());
+        let ctx = BlockCtx {
+            sample_rate: SR,
+            frames: chunk.len() as u32,
+            transport: Transport::default(),
+        };
+        let mut io = AudioIo {
+            left: &mut l,
+            right: &mut r,
+            events_out: &mut unused,
+        };
+        b.process_keyed(&ctx, &[], &mut io, None);
+        out.extend(l);
+    }
+    assert_eq!(plain, out);
+}
+
+#[test]
+fn the_compressor_keeps_its_source_through_a_reset() {
+    let mut c = with(&[]);
+    assert_eq!(c.sidechain(), None);
+    c.set_sidechain(Some(engine::msg::TrackSlot(3)));
+    c.reset();
+    assert_eq!(c.sidechain(), Some(engine::msg::TrackSlot(3)));
+    const { assert!(DESCRIPTOR.sidechain) };
+    compressor::DESCRIPTOR.validate().unwrap();
+}

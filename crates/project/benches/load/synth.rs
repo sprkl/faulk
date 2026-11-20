@@ -272,6 +272,7 @@ fn synth_device(order: OrderKey) -> Device {
         .collect(),
         state: None,
         preset: None,
+        sidechain: None,
     }
 }
 
@@ -290,6 +291,7 @@ fn effect_device(order: OrderKey) -> Device {
             .collect(),
         state: None,
         preset: None,
+        sidechain: None,
     }
 }
 
@@ -383,6 +385,7 @@ pub fn build(profile: &Profile, audio: &[(AudioFile, Hash)]) -> Project {
                     params: BTreeMap::new(),
                     state: None,
                     preset: None,
+                    sidechain: None,
                 },
             );
         }

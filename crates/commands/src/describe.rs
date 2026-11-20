@@ -392,6 +392,19 @@ pub fn before(command: &Command, p: &Project) -> Option<Subject> {
             de::Command::SetBypass { device: id, bypass } => {
                 device_subject(p, id).map(|s| s.on(*bypass))
             }
+            // The track it will listen to, by name (#952); its own track says "off".
+            de::Command::SetSidechain { device: id, source } => {
+                let subject = device_subject(p, id)?.on(source.is_some());
+                let name = source
+                    .as_ref()
+                    .and_then(|s| p.tracks.get(s))
+                    .map(|t| t.name.clone())
+                    .filter(|n| !n.is_empty());
+                Some(match name {
+                    Some(name) => subject.to(name),
+                    None => subject,
+                })
+            }
             _ => None,
         },
         Command::Preset(

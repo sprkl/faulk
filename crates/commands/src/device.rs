@@ -38,7 +38,7 @@ use crate::query::{DeviceKindInfo, DeviceSummary};
 use engine::device::{DeviceDescriptor, DeviceRole as EngineRole};
 use engine::devices::{Builtin, REGISTRY};
 use engine::{Param, Synth};
-use project::limits::{MAX_DEVICES_PER_TRACK, MAX_MIDI_EFFECTS_PER_TRACK};
+use project::limits::{MAX_DEVICES_PER_TRACK, MAX_MIDI_EFFECTS_PER_TRACK, MAX_SIDECHAIN_SOURCES};
 use project::order::by_order;
 use project::{
     AutomationLane, AutomationTarget, CLIP_PLAYER, Device, DeviceId, DeviceRole, DeviceSource,
@@ -172,6 +172,32 @@ domain! {
         value: f64,
     };
 
+    /// Choose the track a device's detection listens to (a sidechain): with `source` another
+    /// track's identifier, the device reacts to that track's sound instead of its own, the
+    /// sound of its own track still being the one it changes. A Compressor on a pad listening
+    /// to the kick turns the pad down on every kick ("pumping"). The source is heard after its
+    /// devices and before its volume, pan and mute: a muted source still triggers it, and a
+    /// solo elsewhere does not stop it. `null` (the default) listens to its own track. Only a
+    /// device of a track's chain whose kind declares it takes a source (the Compressor; see
+    /// `sidechain` in the device descriptors): refused with `invalid` for any other, for a
+    /// device of the master's chain (it listens to the mix), and for the device's own track
+    /// (`null` is that); with `not_found` for a track that does not exist; with `invalid` on
+    /// `source` when the source listens to this track already, directly or through other
+    /// tracks (the message names it: the choice would loop); with `limit` when more tracks
+    /// than the safety limit would be listened to. Deleting the source track sets the device
+    /// back to its own track (`track.delete` says which). Undo: set the previous source back.
+    "device.set_sidechain" (kind = "edit", undo = "inverse", destructive = false)
+    SetSidechain {
+        device: DeviceId,
+        /// Required: the track to listen to, or `null` for the device's own track.
+        #[serde(deserialize_with = "Option::deserialize")]
+        #[schemars(required, transform = crate::contract::allow_null)]
+        source: Option<TrackId>,
+    } => {
+        /// The track the device listened to before the command; `null` for its own.
+        previous: Option<TrackId>,
+    };
+
     /// Describe a device, or a built-in device kind before any is inserted. Give exactly
     /// one of `device` (the id of a device of a track's chain or of the master's) and
     /// `kind` (a built-in kind such as `faulk.osc_synth`); both or neither is refused with
@@ -297,7 +323,100 @@ pub(crate) fn apply_in(
             param,
             value,
         } => set_param(registry, state, device, param, *value),
+        Command::SetSidechain { device, source } => set_sidechain(registry, state, device, source),
     }
+}
+
+/// A track's name for a message, or its identifier when it has none.
+fn track_label(state: &State, track: &TrackId) -> String {
+    match state.project.tracks.get(track) {
+        Some(t) if !t.name.is_empty() => format!("\"{}\"", t.name),
+        _ => format!("the track {track}"),
+    }
+}
+
+fn set_sidechain(
+    registry: &[Builtin],
+    state: &mut State,
+    device_id: &DeviceId,
+    source: &Option<TrackId>,
+) -> Result<Out, CommandError> {
+    let Place::Track(track) = place_of(state, device_id)? else {
+        return Err(invalid(
+            "device",
+            "a device of the master's chain listens to the mix of every track: a detection source is for a track's device",
+        ));
+    };
+    let device = state
+        .project
+        .tracks
+        .get(&track)
+        .and_then(|t| t.devices.get(device_id))
+        .ok_or_else(|| not_found("device", device_id))?;
+    if !descriptor_of(registry, device).is_some_and(|d| d.sidechain) {
+        let kind = match &device.source {
+            DeviceSource::Builtin { id, .. } => id.clone(),
+            DeviceSource::Module { name, .. } => name.clone(),
+        };
+        return Err(invalid(
+            "device",
+            format!(
+                "{kind} takes no detection source: only a device whose descriptor declares `sidechain` does (the Compressor)"
+            ),
+        ));
+    }
+    let previous = device.sidechain.clone();
+    let output = Output::SetSidechain {
+        previous: previous.clone(),
+    };
+    if previous == *source {
+        return Ok(unchanged(output));
+    }
+    if let Some(s) = source {
+        if *s == track {
+            return Err(invalid(
+                "source",
+                "a device listens to its own track by default: give `null` for that",
+            ));
+        }
+        if !state.project.tracks.contains_key(s) {
+            return Err(not_found("track", s));
+        }
+        // The engine renders a source before the tracks that listen to it: a loop has no
+        // order.
+        if project::sidechain::reaches(&state.project, s, &track) {
+            return Err(invalid(
+                "source",
+                format!(
+                    "{} already listens to this track, directly or through other tracks: listening to it would loop",
+                    track_label(state, s)
+                ),
+            ));
+        }
+        let mut sources = project::sidechain::sources(&state.project);
+        sources.insert(s);
+        if sources.len() > MAX_SIDECHAIN_SOURCES {
+            return Err(CommandError::Limit {
+                entity: "sidechain sources".into(),
+                max: MAX_SIDECHAIN_SOURCES as u64,
+            });
+        }
+    }
+    if let Some(d) = state.project.device_mut(device_id) {
+        d.sidechain = source.clone();
+    }
+    Ok(Outcome {
+        output,
+        undo: Undo::Inverse(Box::new(Command::SetSidechain {
+            device: device_id.clone(),
+            source: previous,
+        })),
+        events: vec![ProjectEvent::DeviceSidechainChanged {
+            device: device_id.clone(),
+            source: source.clone(),
+        }],
+        control: vec![],
+    })
 }
 
 fn not_found(entity: &str, id: impl ToString) -> CommandError {
@@ -472,6 +591,7 @@ pub(crate) fn built(builtin: &Builtin, role: DeviceRole, order: OrderKey) -> Dev
             .collect(),
         state: None,
         preset: None,
+        sidechain: None,
     }
 }
 

@@ -23,7 +23,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Version of this protocol. Bump it on any incompatible change.
-pub const PROTOCOL_VERSION: u32 = 58;
+pub const PROTOCOL_VERSION: u32 = 60;
 
 /// The largest engine stream the page sends in one binary frame, and the largest message the
 /// helper reads on a session: above every snapshot a project within the project's limits
@@ -44,6 +44,11 @@ pub const CONTROL_PUSHED_OUT: u16 = 4001;
 /// `page.timeout` although it ran.
 pub const AGENT_CONFIRM_MS: u32 = 45_000;
 
+// Version 60 (#952, provisional: 59 is #949's): the engine stream gains `DeviceSidechain` (tag
+// 25), the track a device's detection listens to; the commands gain `device.set_sidechain`,
+// `track.delete` reports the devices it set back to their own track and `track.restore` takes
+// them back (`listeners`); a device descriptor says whether it takes a source (`sidechain`).
+// A helper of an earlier version refuses the tag, so the two must be of the same version.
 // Version 58 (#881): an automation point's shape gains `ease_in`, `ease_out` and `smooth` (the
 // commands' `Shape`, the engine's `Curve` 2, 3 and 4 in a lane upload). A helper of an earlier
 // version refuses a lane upload that carries one, so the two must be of the same version.

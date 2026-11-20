@@ -580,6 +580,17 @@ pub enum ControlMsg {
         param: ParamId,
         value: f32,
     },
+    /// The track a device's detection listens to (#952, a sidechain), `None` for its own
+    /// track. Only a device of a track's chain whose descriptor declares
+    /// [`crate::device::DeviceDescriptor::sidechain`] takes it (anything else is refused with
+    /// [`MsgError::BadPayload`]). The source need not exist: a slot without a track gives
+    /// silence; a source equal to the device's own track is its own track. A device built by
+    /// a `DeviceInsert` starts with none ([`crate::graph`] > Sidechain).
+    DeviceSidechain {
+        track: TrackSlot,
+        device: DeviceSlot,
+        source: Option<TrackSlot>,
+    },
     // MIDI clips
     /// The notes of a clip, in chunks: `first` is the index of `notes[0]` among `total`.
     /// The table is swapped in once the last chunk arrived (module doc, chunked uploads).
@@ -735,6 +746,7 @@ pub enum Tag {
     DeviceSetEnabled = 22,
     ParamSet = 23,
     DeviceMove = 24,
+    DeviceSidechain = 25,
     ClipNotesUpload = 30,
     ClipRemove = 31,
     AudioSourceDeclare = 40,
@@ -763,7 +775,7 @@ pub enum Tag {
 
 impl Tag {
     /// Every tag, in declaration order (for exhaustive tests and generated tables).
-    pub const ALL: [Tag; 42] = [
+    pub const ALL: [Tag; 43] = [
         Tag::Reset,
         Tag::SetTransport,
         Tag::SetMetronome,
@@ -782,6 +794,7 @@ impl Tag {
         Tag::DeviceSetEnabled,
         Tag::ParamSet,
         Tag::DeviceMove,
+        Tag::DeviceSidechain,
         Tag::ClipNotesUpload,
         Tag::ClipRemove,
         Tag::AudioSourceDeclare,
@@ -842,6 +855,7 @@ impl ControlMsg {
             ControlMsg::DeviceSetEnabled { .. } => Tag::DeviceSetEnabled,
             ControlMsg::ParamSet { .. } => Tag::ParamSet,
             ControlMsg::DeviceMove { .. } => Tag::DeviceMove,
+            ControlMsg::DeviceSidechain { .. } => Tag::DeviceSidechain,
             ControlMsg::ClipNotesUpload { .. } => Tag::ClipNotesUpload,
             ControlMsg::ClipRemove { .. } => Tag::ClipRemove,
             ControlMsg::AudioSourceDeclare { .. } => Tag::AudioSourceDeclare,
@@ -970,6 +984,16 @@ impl ControlMsg {
                 }
                 device(from)?;
                 device(to)
+            }
+            // A track's chain only: the master's is refused as a slot past the limit.
+            ControlMsg::DeviceSidechain {
+                track: t,
+                device: d,
+                source,
+            } => {
+                track(t)?;
+                device(d)?;
+                source.as_ref().map_or(Ok(()), track)
             }
             ControlMsg::ClipNotesUpload {
                 clip: c,
@@ -1586,6 +1610,13 @@ pub enum RtMsg {
         track: TrackSlot,
         device: DeviceSlot,
         enabled: bool,
+    },
+    /// The track a device's detection listens to (#952): `None` for its own, never the
+    /// device's own track.
+    DeviceSidechain {
+        track: TrackSlot,
+        device: DeviceSlot,
+        key: Option<TrackSlot>,
     },
     /// A parameter set by hand or by an agent: `Device::set_param`, which behaves as a
     /// value at offset 0 of the block (CT-5).

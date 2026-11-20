@@ -273,6 +273,7 @@ const RINGS_BYTES: u64 = 2
 /// never translated). The defaults are the values of [`Hiccup::new`]: a 1/16 slice captured at
 /// every bar line and repeated for a quarter of the bar, inserted in place of the sound.
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.hiccup",
     kind_id: DeviceKind(13),
     version: 1,

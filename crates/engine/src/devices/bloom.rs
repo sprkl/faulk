@@ -200,6 +200,7 @@ const LINES_BYTES: u64 = 2
 /// translated, validated by the founder on 2026-11-06). The defaults are the values of
 /// [`Bloom::new`]: a free chorus at 0.8 Hz, 40 % deep from 12 ms, half mixed.
 pub const DESCRIPTOR: DeviceDescriptor = DeviceDescriptor {
+    sidechain: false,
     kind: "faulk.bloom",
     kind_id: DeviceKind(14),
     version: 1,
